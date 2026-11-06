@@ -79,9 +79,7 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
             commands,
             stroke_width,
             ..
-        } => path_bounds(commands)
-            .ok()
-            .flatten()
+        } => crate::vector::path_bounds_cached(commands)
             .map(|b| {
                 Rect::from_min_max(
                     Pos2::new(b.x_min as f32, b.y_min as f32),
@@ -1174,7 +1172,22 @@ impl Editor {
                 return;
             }
         };
+        let clip_rect = painter.clip_rect();
+        let cull_offscreen = scene.draws.len() > 16 && clip_rect.is_finite();
         for draw in &scene.draws {
+            if cull_offscreen && draw.clip_ids.is_empty() {
+                let wb = world_bounds(&draw.item, painter);
+                if wb.is_finite() && wb.is_positive() {
+                    let screen_bounds = Rect::from_min_max(
+                        origin + wb.min.to_vec2() * zoom,
+                        origin + wb.max.to_vec2() * zoom,
+                    )
+                    .expand(4.0);
+                    if !screen_bounds.intersects(clip_rect) {
+                        continue;
+                    }
+                }
+            }
             let bitmap_texture = self.bitmap_textures.texture_transformed(
                 painter.ctx(),
                 &self.project,

@@ -1447,20 +1447,24 @@ impl Editor {
                 Tool::Line | Tool::Brush => {
                     if g.tool == Tool::Brush {
                         let commands = self.brush_gesture_commands(g);
-                        if let Ok(geometry) =
-                            crate::vector::tessellate(&commands, FillRule::NonZero, None, 0.3)
-                        {
+                        if let Ok(geometry) = crate::vector::tessellate_cached(
+                            &commands,
+                            FillRule::NonZero,
+                            None,
+                            0.3,
+                        ) {
                             let mut mesh = egui::Mesh::default();
+                            mesh.vertices.reserve(geometry.vertices.len());
                             let color = Color32::from_rgba_unmultiplied(
                                 self.fill[0],
                                 self.fill[1],
                                 self.fill[2],
                                 self.fill[3],
                             );
-                            for point in geometry.vertices {
+                            for point in &geometry.vertices {
                                 mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
                             }
-                            mesh.indices = geometry.indices;
+                            mesh.indices.clone_from(&geometry.indices);
                             p.add(Shape::mesh(mesh));
                         }
                         return;
@@ -1665,48 +1669,225 @@ fn swept_disk_hits_mesh(mesh: &egui::Mesh, from: Pos2, to: Pos2, radius: f32) ->
             })
     })
 }
-fn brush_outline(points: &[Pos2], width: f32) -> Vec<PathCommand> {
-    if points.len() == 1 {
+fn simplify_round_spine(
+    points: &[Pos2],
+    radii: &[f32],
+    pos_tol: f32,
+    rad_tol: f32,
+) -> (Vec<Pos2>, Vec<f32>) {
+    let mut dedup_pts: Vec<Pos2> = Vec::with_capacity(points.len());
+    let mut dedup_rad: Vec<f32> = Vec::with_capacity(points.len());
+    for (&pt, &r) in points.iter().zip(radii.iter()) {
+        if let Some(last_pt) = dedup_pts.last().copied()
+            && pt.distance_sq(last_pt) < 0.04
+        {
+            if let Some(last_r) = dedup_rad.last_mut() {
+                *last_r = last_r.max(r);
+            }
+            continue;
+        }
+        dedup_pts.push(pt);
+        dedup_rad.push(r);
+    }
+    let n = dedup_pts.len();
+    if n <= 2 {
+        return (dedup_pts, dedup_rad);
+    }
+    let mut keep = vec![false; n];
+    keep[0] = true;
+    keep[n - 1] = true;
+    let mut stack = vec![(0usize, n - 1)];
+    while let Some((start, end)) = stack.pop() {
+        if end <= start + 1 {
+            continue;
+        }
+        let a = dedup_pts[start];
+        let b = dedup_pts[end];
+        let r_a = dedup_rad[start];
+        let r_b = dedup_rad[end];
+        let ab = b - a;
+        let len_sq = ab.length_sq();
+        let mut worst_idx = start;
+        let mut worst_score = 0.0_f32;
+        for i in (start + 1)..end {
+            let p = dedup_pts[i];
+            let t = if len_sq > 1e-8 {
+                ((p - a).dot(ab) / len_sq).clamp(0.0, 1.0)
+            } else {
+                0.5
+            };
+            let proj = a + ab * t;
+            let pos_err = p.distance(proj);
+            let rad_err = (dedup_rad[i] - (r_a + (r_b - r_a) * t)).abs();
+            if pos_err > pos_tol || rad_err > rad_tol {
+                let score = (pos_err / pos_tol.max(1e-4)).max(rad_err / rad_tol.max(1e-4));
+                if score > worst_score {
+                    worst_score = score;
+                    worst_idx = i;
+                }
+            }
+        }
+        if worst_score > 1.0 && worst_idx > start && worst_idx < end {
+            keep[worst_idx] = true;
+            stack.push((start, worst_idx));
+            stack.push((worst_idx, end));
+        }
+    }
+    let mut out_pts = Vec::new();
+    let mut out_rad = Vec::new();
+    for i in 0..n {
+        if keep[i] {
+            out_pts.push(dedup_pts[i]);
+            out_rad.push(dedup_rad[i]);
+        }
+    }
+    (out_pts, out_rad)
+}
+
+fn round_brush_envelope(points: &[Pos2], pressures: &[f32], width: f32) -> Vec<PathCommand> {
+    if points.is_empty() || !width.is_finite() || width <= 0. {
+        return vec![];
+    }
+    let raw_radii: Vec<f32> = if pressures.len() == points.len() {
+        pressures
+            .iter()
+            .map(|&p| width * brush_force(Some(p)) * 0.5)
+            .collect()
+    } else {
+        vec![width * 0.5; points.len()]
+    };
+    let (pts, radii) = simplify_round_spine(points, &raw_radii, 0.22, (width * 0.015).max(0.08));
+    if pts.len() == 1 {
+        let r = radii[0];
         return polyline(
             &(0..24)
-                .map(|n| {
-                    points[0] + Vec2::angled(n as f32 * std::f32::consts::TAU / 24.) * width / 2.
-                })
+                .map(|n| pts[0] + Vec2::angled(n as f32 * std::f32::consts::TAU / 24.) * r)
                 .collect::<Vec<_>>(),
             true,
         );
     }
-    let Ok(mesh) = crate::vector::tessellate(
-        &polyline(points, false),
-        FillRule::NonZero,
-        Some(width as f64),
-        0.3,
-    ) else {
-        return vec![];
-    };
-    let mut commands = Vec::with_capacity(mesh.indices.len() / 3 * 4);
-    for triangle in mesh.indices.as_chunks::<3>().0 {
-        for (index, vertex) in triangle.iter().enumerate() {
-            let p = mesh.vertices[*vertex as usize];
-            commands.push(if index == 0 {
-                PathCommand::MoveTo {
-                    x: p.x as f64,
-                    y: p.y as f64,
-                }
-            } else {
-                PathCommand::LineTo {
-                    x: p.x as f64,
-                    y: p.y as f64,
-                }
-            });
+
+    // Check if the simplified spine can be emitted as a single non-self-folding perimeter contour.
+    let m = pts.len();
+    let mut dirs = Vec::with_capacity(m - 1);
+    let mut clean_single_contour = true;
+    for i in 0..(m - 1) {
+        let d = pts[i + 1] - pts[i];
+        let len = d.length();
+        let max_r = radii[i].max(radii[i + 1]);
+        if len <= 0.25
+            || (radii[i + 1] - radii[i]).abs() >= len * 0.85
+            || (m > 2 && len < max_r * 0.45)
+        {
+            clean_single_contour = false;
+            break;
         }
-        commands.push(PathCommand::Close);
+        dirs.push(d / len);
+    }
+    if clean_single_contour {
+        for i in 1..(m - 1) {
+            if dirs[i - 1].dot(dirs[i]) < 0.35 {
+                clean_single_contour = false;
+                break;
+            }
+        }
+    }
+    if clean_single_contour && m > 3 {
+        // Reject self-intersecting simplified spines so they take the disk+quad union path.
+        'outer: for i in 0..(m - 1) {
+            let a0 = pts[i];
+            let a1 = pts[i + 1];
+            let ra = radii[i].max(radii[i + 1]);
+            let box_a = Rect::from_two_pos(a0, a1).expand(ra);
+            for j in (i + 2)..(m - 1) {
+                let b0 = pts[j];
+                let b1 = pts[j + 1];
+                let rb = radii[j].max(radii[j + 1]);
+                if box_a.intersects(Rect::from_two_pos(b0, b1).expand(rb)) {
+                    clean_single_contour = false;
+                    break 'outer;
+                }
+            }
+        }
+    }
+
+    if clean_single_contour {
+        let perp = |v: Vec2| Vec2::new(-v.y, v.x);
+        let mut normals = Vec::with_capacity(m);
+        normals.push(perp(dirs[0]));
+        for i in 1..(m - 1) {
+            let n0 = perp(dirs[i - 1]);
+            let n1 = perp(dirs[i]);
+            let bis = (n0 + n1).normalized();
+            let scale = (1.0 / bis.dot(n1).max(0.75)).min(1.35);
+            normals.push(bis * scale);
+        }
+        normals.push(perp(dirs[m - 2]));
+
+        let cap_steps = 12usize;
+        let mut boundary = Vec::with_capacity(m * 2 + cap_steps * 2 + 2);
+        for i in 0..m {
+            boundary.push(pts[i] + normals[i] * radii[i]);
+        }
+        let end_n = perp(dirs[m - 2]);
+        let end_angle0 = end_n.angle();
+        for step in 1..cap_steps {
+            let t = step as f32 / cap_steps as f32;
+            let ang = end_angle0 - t * std::f32::consts::PI;
+            boundary.push(pts[m - 1] + Vec2::angled(ang) * radii[m - 1]);
+        }
+        for i in (0..m).rev() {
+            boundary.push(pts[i] - normals[i] * radii[i]);
+        }
+        let start_n = -perp(dirs[0]);
+        let start_angle0 = start_n.angle();
+        for step in 1..cap_steps {
+            let t = step as f32 / cap_steps as f32;
+            let ang = start_angle0 - t * std::f32::consts::PI;
+            boundary.push(pts[0] + Vec2::angled(ang) * radii[0]);
+        }
+        boundary.reverse();
+        return polyline(&boundary, true);
+    }
+
+    // Fallback for sharp reversals or self-overlapping hooks: emit disks + quads on the simplified spine.
+    let mut commands = Vec::with_capacity(pts.len() * 23);
+    for (i, &point) in pts.iter().enumerate() {
+        commands.extend(polyline(
+            &(0..16)
+                .map(|n| point + Vec2::angled(n as f32 * std::f32::consts::TAU / 16.) * radii[i])
+                .collect::<Vec<_>>(),
+            true,
+        ));
+        if i == 0 {
+            continue;
+        }
+        let delta = point - pts[i - 1];
+        if delta.length_sq() <= 1e-8 {
+            continue;
+        }
+        let normal = Vec2::new(-delta.y, delta.x).normalized();
+        commands.extend(polyline(
+            &[
+                pts[i - 1] - normal * radii[i - 1],
+                point - normal * radii[i],
+                point + normal * radii[i],
+                pts[i - 1] + normal * radii[i - 1],
+            ],
+            true,
+        ));
     }
     commands
 }
 
+#[cfg(test)]
+fn brush_outline(points: &[Pos2], width: f32) -> Vec<PathCommand> {
+    round_brush_envelope(points, &[], width)
+}
+
 /// Round, variable-width vector ink. Overlapping disks and connecting quads have
 /// the same winding and are tessellated as one fill, including sharp reversals.
+#[cfg(test)]
 pub(crate) fn brush_outline_with_pressure(
     points: &[Pos2],
     pressures: &[f32],
@@ -2488,11 +2669,15 @@ impl Editor {
                     triple[1].lerp(triple[0].lerp(triple[2], 0.5), smoothing * 0.75);
             }
         }
-        let pressure = if self.authoring_tools.brush_pressure {
+        let mut pressure = if self.authoring_tools.brush_pressure {
             gesture.pressures.clone()
         } else {
             vec![1.; points.len()]
         };
+        if smoothing > 0. && points.len() > 3 && pressure.len() == points.len() {
+            let pos_tol = (0.15 + smoothing * 0.65) / gesture.zoom.max(0.1);
+            (points, pressure) = simplify_round_spine(&points, &pressure, pos_tol, 0.025);
+        }
         shaped_brush_outline(
             &points,
             &pressure,
@@ -2512,16 +2697,20 @@ pub(crate) fn shaped_brush_outline(
 ) -> Vec<PathCommand> {
     use neoflash_ui::components::BrushShapeKind;
     if shape == BrushShapeKind::Round {
-        return brush_outline_with_pressure(points, pressures, size);
+        return round_brush_envelope(points, pressures, size);
     }
     if points.is_empty() || !size.is_finite() || size <= 0. {
         return vec![];
     }
-    let tips: Vec<_> = points
+    let raw_forces: Vec<f32> = (0..points.len())
+        .map(|i| brush_force(pressures.get(i).copied()))
+        .collect();
+    let (pts, forces) = simplify_round_spine(points, &raw_forces, 0.22, 0.02);
+    let tips: Vec<_> = pts
         .iter()
         .enumerate()
         .map(|(i, &p)| {
-            let tip = shape.footprint(size * brush_force(pressures.get(i).copied()));
+            let tip = shape.footprint(size * forces[i]);
             if tip.ellipse {
                 let rotation = egui::emath::Rot2::from_angle(tip.angle);
                 (0..24)

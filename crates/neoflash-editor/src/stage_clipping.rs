@@ -3,7 +3,7 @@
 use eframe::egui::{self, Color32, Pos2, Shape};
 use egui::epaint::{Mesh, Vertex};
 use neoflash_core::{DrawItem, Element, ElementKind, FillRule, PathCommand, RuntimeClip};
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 type Triangle = [Pos2; 3];
 const MAX_CLIP_WORK: usize = 4_000_000;
@@ -25,7 +25,38 @@ struct MaskMesh {
     cells: Vec<Vec<usize>>,
 }
 impl MaskMesh {
+    fn from_disjoint(raw_triangles: Vec<Triangle>) -> Result<Self, String> {
+        if raw_triangles.len() > MAX_CLIP_WORK / 4 {
+            return Err(COMPLEXITY_ERROR.into());
+        }
+        let mut triangles = Vec::with_capacity(raw_triangles.len());
+        for mut points in raw_triangles {
+            if points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) {
+                return Err("Mask preview has non-finite geometry".into());
+            }
+            let area = cross(points[0], points[1], points[2]);
+            if !area.is_finite() {
+                return Err("Mask preview has non-finite geometry".into());
+            }
+            if area.abs() < 1e-8 {
+                continue;
+            }
+            if area < 0. {
+                points.swap(1, 2);
+            }
+            let mut bounds = egui::Rect::NOTHING;
+            for point in points {
+                bounds.extend_with(point);
+            }
+            triangles.push(ClipTriangle { points, bounds });
+        }
+        Self::build_grid(triangles)
+    }
+
     fn new(triangles: Vec<Triangle>) -> Result<Self, String> {
+        if triangles.len() <= 1 {
+            return Self::from_disjoint(triangles);
+        }
         if triangles.len() > MAX_CLIP_WORK / 4 {
             return Err(COMPLEXITY_ERROR.into());
         }
@@ -53,7 +84,7 @@ impl MaskMesh {
             }
             contours.push(PathCommand::Close);
         }
-        let union = crate::vector::tessellate(&contours, FillRule::NonZero, None, 0.01)?;
+        let union = crate::vector::tessellate_cached(&contours, FillRule::NonZero, None, 0.01)?;
         if union.indices.len() / 3 > MAX_CLIP_WORK / 4 {
             return Err(COMPLEXITY_ERROR.into());
         }
@@ -88,6 +119,10 @@ impl MaskMesh {
                 Some(ClipTriangle { points, bounds })
             })
             .collect();
+        Self::build_grid(triangles)
+    }
+
+    fn build_grid(triangles: Vec<ClipTriangle>) -> Result<Self, String> {
         if triangles.is_empty() {
             return Ok(Self {
                 triangles,
@@ -160,6 +195,7 @@ impl ClipMeshes {
     /// The same fill/stroke silhouette used to paint vector artwork, including holes.
     /// This clips the existing NF2 hatch; it does not define another selection style.
     pub(crate) fn for_shape(item: &DrawItem, origin: Pos2, zoom: f32) -> Result<Self, String> {
+        let single_fill_pass = is_fill_only_vector_silhouette(item);
         let triangles = vector_mesh(item, origin, zoom)?
             .map(|mesh| {
                 mesh.indices
@@ -170,9 +206,14 @@ impl ClipMeshes {
                     .collect()
             })
             .unwrap_or_default();
+        let mask_mesh = if single_fill_pass {
+            MaskMesh::from_disjoint(triangles)?
+        } else {
+            MaskMesh::new(triangles)?
+        };
         Ok(Self(HashMap::from([(
             item.element_id.clone(),
-            (MaskMesh::new(triangles)?, false),
+            (mask_mesh, false),
         )])))
     }
 
@@ -233,14 +274,15 @@ fn prepare_mask(
     active.push(id.into());
     let mut triangles = Vec::new();
     for component in &clip.components {
-        let tess = crate::vector::tessellate(
+        let tess = crate::vector::tessellate_cached(
             &component.commands,
             component.fill_rule,
             None,
             (0.25 / zoom.max(0.01)).clamp(0.001, 1.),
         )?;
         let mut mesh = Mesh::default();
-        for point in tess.vertices {
+        mesh.vertices.reserve(tess.vertices.len());
+        for point in &tess.vertices {
             mesh.colored_vertex(
                 origin
                     + crate::stage::affine(component.matrix, Pos2::new(point.x, point.y)).to_vec2()
@@ -248,7 +290,7 @@ fn prepare_mask(
                 Color32::WHITE,
             );
         }
-        mesh.indices = tess.indices;
+        mesh.indices.clone_from(&tess.indices);
         for dependency in &component.clip_ids {
             prepare_mask(dependency, clips, origin, zoom, map, active)?;
             let (dep_mask, dep_invert) = &map[dependency];
@@ -309,6 +351,47 @@ pub(crate) fn capture(
     painter
         .ctx()
         .tessellate(shapes, painter.ctx().pixels_per_point())
+}
+
+fn is_fill_only_vector_silhouette(item: &DrawItem) -> bool {
+    match &item.kind {
+        ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Path {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => fill[3] != 0 && !(stroke[3] != 0 && *stroke_width > 0.),
+        ElementKind::PaintedPath {
+            fill,
+            stroke,
+            stroke_width,
+            fill_gradient,
+            stroke_gradient,
+            ..
+        } => {
+            let has_fill = fill_gradient
+                .as_ref()
+                .map_or(fill[3] != 0, |g| g.stops.iter().any(|s| s.color[3] != 0));
+            let has_stroke = stroke_gradient
+                .as_ref()
+                .map_or(stroke[3] != 0, |g| g.stops.iter().any(|s| s.color[3] != 0))
+                && *stroke_width > 0.;
+            has_fill && !has_stroke
+        }
+        _ => false,
+    }
 }
 
 /// Geometry only: the union of visible vector fills and strokes in the requested space.
@@ -373,18 +456,107 @@ pub(crate) fn vector_mesh(
     .into_iter()
     .flatten()
     {
-        let geometry = crate::vector::tessellate(&commands, rule, width, tolerance)?;
+        let geometry = crate::vector::tessellate_cached(&commands, rule, width, tolerance)?;
         let base = mesh.vertices.len() as u32;
-        for vertex in geometry.vertices {
+        mesh.vertices.reserve(geometry.vertices.len());
+        for vertex in &geometry.vertices {
             mesh.colored_vertex(
                 origin + crate::stage::affine(m, Pos2::new(vertex.x, vertex.y)).to_vec2() * zoom,
                 Color32::WHITE,
             );
         }
         mesh.indices
-            .extend(geometry.indices.into_iter().map(|i| base + i));
+            .extend(geometry.indices.iter().map(|&i| base + i));
     }
     Ok(Some(mesh))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ShapeSelectionCacheKey {
+    hash_a: u64,
+    hash_b: u64,
+    transform_bits: [u64; 6],
+    origin_bits: [u32; 2],
+    zoom_bits: u32,
+    visible_bits: [u32; 4],
+    hatch_bits: [u32; 4],
+    ppp_bits: u32,
+    dark_mode: bool,
+}
+
+type ClippedHatchList = Vec<(egui::Rect, Mesh)>;
+
+thread_local! {
+    static SHAPE_SELECTION_CACHE: RefCell<HashMap<ShapeSelectionCacheKey, Arc<ClippedHatchList>>> =
+        RefCell::new(HashMap::with_capacity(512));
+}
+
+fn item_silhouette_fingerprint(item: &DrawItem) -> Option<(u64, u64)> {
+    match &item.kind {
+        ElementKind::Path {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+        } => {
+            let (ha, hb, _) = crate::vector::path_commands_fingerprint(commands);
+            let meta = ((fill[3] != 0) as u64)
+                | (((stroke[3] != 0) as u64) << 1)
+                | ((*fill_rule as u64) << 2)
+                | stroke_width.to_bits().rotate_left(7);
+            Some((ha ^ meta, hb.wrapping_add(meta)))
+        }
+        ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+            fill_gradient,
+            stroke_gradient,
+        } => {
+            let (ha, hb, _) = crate::vector::path_commands_fingerprint(commands);
+            let has_fill = fill_gradient
+                .as_ref()
+                .map_or(fill[3] != 0, |g| g.stops.iter().any(|s| s.color[3] != 0));
+            let has_stroke = stroke_gradient
+                .as_ref()
+                .map_or(stroke[3] != 0, |g| g.stops.iter().any(|s| s.color[3] != 0));
+            let meta = (has_fill as u64)
+                | ((has_stroke as u64) << 1)
+                | ((*fill_rule as u64) << 2)
+                | stroke_width.to_bits().rotate_left(7);
+            Some((ha ^ meta, hb.wrapping_add(meta)))
+        }
+        ElementKind::Rectangle {
+            width,
+            height,
+            fill,
+            stroke,
+            stroke_width,
+        } => Some((
+            width.to_bits() ^ height.to_bits().rotate_left(17),
+            stroke_width.to_bits()
+                ^ ((fill[3] != 0) as u64)
+                ^ (((stroke[3] != 0) as u64) << 1)
+                ^ 0x5245_4354,
+        )),
+        ElementKind::Ellipse {
+            width,
+            height,
+            fill,
+            stroke,
+            stroke_width,
+        } => Some((
+            width.to_bits() ^ height.to_bits().rotate_left(17),
+            stroke_width.to_bits()
+                ^ ((fill[3] != 0) as u64)
+                ^ (((stroke[3] != 0) as u64) << 1)
+                ^ 0x454c_4c50,
+        )),
+        _ => None,
+    }
 }
 
 pub(crate) fn paint_shape_selection(
@@ -398,19 +570,78 @@ pub(crate) fn paint_shape_selection(
     let Some((visible, hatch)) = bounded_hatch_rect(rect, painter.clip_rect()) else {
         return Ok(());
     };
+    let unmasked = masks.is_none_or(|(_, ids)| ids.is_empty());
+    let cache_key = if unmasked {
+        item_silhouette_fingerprint(item).map(|(hash_a, hash_b)| ShapeSelectionCacheKey {
+            hash_a,
+            hash_b,
+            transform_bits: item.transform.map(f64::to_bits),
+            origin_bits: [origin.x.to_bits(), origin.y.to_bits()],
+            zoom_bits: zoom.to_bits(),
+            visible_bits: [
+                visible.min.x.to_bits(),
+                visible.min.y.to_bits(),
+                visible.max.x.to_bits(),
+                visible.max.y.to_bits(),
+            ],
+            hatch_bits: [
+                hatch.min.x.to_bits(),
+                hatch.min.y.to_bits(),
+                hatch.max.x.to_bits(),
+                hatch.max.y.to_bits(),
+            ],
+            ppp_bits: painter.ctx().pixels_per_point().to_bits(),
+            dark_mode: painter.ctx().style().visuals.dark_mode,
+        })
+    } else {
+        None
+    };
+
+    if let Some(ref key) = cache_key
+        && let Some(cached) = SHAPE_SELECTION_CACHE.with(|cell| cell.borrow().get(key).cloned())
+    {
+        let target = painter.with_clip_rect(visible);
+        for (clip_rect, mesh) in cached.iter() {
+            target
+                .with_clip_rect(target.clip_rect().intersect(*clip_rect))
+                .add(Shape::mesh(mesh.clone()));
+        }
+        return Ok(());
+    }
+
     let shape = ClipMeshes::for_shape(item, origin, zoom)?;
-    paint_clipped(
-        &painter.with_clip_rect(visible),
-        |mesh| {
-            let mesh = shape.clip_mesh(mesh, std::slice::from_ref(&item.element_id))?;
-            if let Some((clips, ids)) = masks {
-                clips.clip_mesh(&mesh, ids)
+    let target = painter.with_clip_rect(visible);
+    let primitives = capture(&target, |p| {
+        neoflash_ui::components::canvas::paint_shape_selection(p, p.ctx(), hatch)
+    });
+    let mut clipped = Vec::with_capacity(primitives.len());
+    for primitive in primitives {
+        if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+            let mesh = shape.clip_mesh(&mesh, std::slice::from_ref(&item.element_id))?;
+            let mesh = if let Some((clips, ids)) = masks {
+                clips.clip_mesh(&mesh, ids)?
             } else {
-                Ok(mesh)
+                mesh
+            };
+            clipped.push((primitive.clip_rect, mesh));
+        }
+    }
+    for (clip_rect, mesh) in &clipped {
+        target
+            .with_clip_rect(target.clip_rect().intersect(*clip_rect))
+            .add(Shape::mesh(mesh.clone()));
+    }
+    if let Some(key) = cache_key {
+        let arc = Arc::new(clipped);
+        SHAPE_SELECTION_CACHE.with(|cell| {
+            let mut cache = cell.borrow_mut();
+            if cache.len() >= 16_384 {
+                cache.clear();
             }
-        },
-        |p| neoflash_ui::components::canvas::paint_shape_selection(p, p.ctx(), hatch),
-    )
+            cache.insert(key, arc);
+        });
+    }
+    Ok(())
 }
 /// Restrict NF2's hatch-generation loop to the visible viewport. Its diagonals have
 /// constant x+y modulo `SHAPE_SELECTION_PERIOD`; extending the bounded left edge by less than one period

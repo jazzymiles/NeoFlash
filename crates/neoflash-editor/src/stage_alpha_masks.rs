@@ -240,8 +240,7 @@ pub(super) fn paint(
     if !bounds.is_positive() || !bounds.is_finite() {
         return Ok(());
     }
-    let font = Arc::new(painter.ctx().fonts(|fonts| fonts.image()));
-    images.insert(TextureId::Managed(0), (font.clone(), true));
+    let font_size = painter.ctx().fonts(|fonts| fonts.font_image_size());
     // Limit offscreen resolution, not stage zoom, on high-DPI/large windows.
     let scale = painter
         .ctx()
@@ -249,9 +248,24 @@ pub(super) fn paint(
         .min((MAX_PIXELS as f32 / (bounds.width() + 2.) / (bounds.height() + 2.)).sqrt())
         .max(0.01);
     let mut hash = std::collections::hash_map::DefaultHasher::new();
-    serde_json::to_vec(&scene.clips)
-        .map_err(|e| e.to_string())?
-        .hash(&mut hash);
+    for clip in &scene.clips {
+        clip.id.hash(&mut hash);
+        clip.invert.hash(&mut hash);
+        for comp in &clip.components {
+            comp.clip_ids.hash(&mut hash);
+            (comp.fill_rule as u8).hash(&mut hash);
+            comp.matrix.map(f64::to_bits).hash(&mut hash);
+            let (ha, hb, _) = crate::vector::path_commands_fingerprint(&comp.commands);
+            [ha, hb].hash(&mut hash);
+        }
+        if let Some(alpha_comps) = &clip.alpha_components {
+            serde_json::to_vec(alpha_comps)
+                .map_err(|e| e.to_string())?
+                .hash(&mut hash);
+        } else {
+            0u8.hash(&mut hash);
+        }
+    }
     for group in &scene.mask_groups {
         group.id.hash(&mut hash);
         group.parent_id.hash(&mut hash);
@@ -263,7 +277,7 @@ pub(super) fn paint(
     [scale, style.origin.x, style.origin.y, style.zoom]
         .map(f32::to_bits)
         .hash(&mut hash);
-    font.size.hash(&mut hash);
+    font_size.hash(&mut hash);
     for draw in &draws {
         draw.clip_ids.hash(&mut hash);
         draw.group.hash(&mut hash);
@@ -329,6 +343,8 @@ pub(super) fn paint(
         );
         return Ok(());
     }
+    let font = Arc::new(painter.ctx().fonts(|fonts| fonts.image()));
+    images.insert(TextureId::Managed(0), (font, true));
     let coverage = MaskCoverage::new(&editor.project, &scene.clips)?;
     let bg = editor.project.background;
     let stage_bg = Color32::from_rgba_unmultiplied(bg[0], bg[1], bg[2], bg[3]);

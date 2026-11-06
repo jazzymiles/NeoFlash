@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-const MAX_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_TEXTURE_BYTES: usize = 256 * 1024 * 1024;
 type Key = (String, bool, [u64; 8]);
 
 struct Texture {
@@ -106,18 +106,29 @@ impl BitmapTextures {
             );
             return None;
         }
-        let mut pixels = decoded.rgba.clone();
-        if !color.is_identity() {
+        let sibling_key = (resource_id.clone(), !*smoothing, key.2);
+        let image = if let Some(sibling) = self
+            .textures
+            .get(&sibling_key)
+            .filter(|tex| Arc::ptr_eq(&tex.source, &resource.data_base64))
+        {
+            sibling.image.clone()
+        } else if color.is_identity() {
+            Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+                [decoded.width as usize, decoded.height as usize],
+                &decoded.rgba,
+            ))
+        } else {
+            let mut pixels = decoded.rgba.clone();
             for pixel in Arc::make_mut(&mut pixels).as_chunks_mut::<4>().0 {
                 let transformed = color.apply([pixel[0], pixel[1], pixel[2], pixel[3]]);
                 pixel.copy_from_slice(&transformed);
             }
-        }
-        let image = egui::ColorImage::from_rgba_unmultiplied(
-            [decoded.width as usize, decoded.height as usize],
-            &pixels,
-        );
-        let image = Arc::new(image);
+            Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+                [decoded.width as usize, decoded.height as usize],
+                &pixels,
+            ))
+        };
         let handle = ctx.load_texture(
             format!("bitmap-{resource_id}-{smoothing}"),
             image.clone(),

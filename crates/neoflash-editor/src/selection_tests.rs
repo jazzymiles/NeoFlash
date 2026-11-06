@@ -2746,3 +2746,268 @@ fn pasteboard_objects_render_full_artwork_and_support_authoring_tools_outside_pa
     editor.undo();
     assert_eq!(editor.project, before_bucket);
 }
+
+#[test]
+#[ignore]
+fn t093_extreme_multi_brush_and_move_benchmark() {
+    use crate::selection::SelectionTarget;
+    use neoflash_core::merge_drawing::{
+        apply_merge_shape_to_keyframe, remerge_moved_elements_in_keyframe,
+    };
+    use neoflash_ui::components::BrushShapeKind;
+
+    let strokes_per_pass: usize = std::env::var("T093_STROKES_PER_PASS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20_000);
+    let log_every: usize = std::env::var("T093_LOG_EVERY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or((strokes_per_pass / 4).max(1));
+
+    let mut rng_state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next_f32 = || -> f32 {
+        rng_state ^= rng_state << 13;
+        rng_state ^= rng_state >> 7;
+        rng_state ^= rng_state << 17;
+        ((rng_state >> 40) as u32 as f32) / ((1u32 << 24) as f32)
+    };
+
+    // Spread strokes across local hatching patches over a stage canvas so strokes overlap locally
+    // (like real shading/cross-hatching) as well as across passes.
+    let grid_side = ((strokes_per_pass as f32 / 18.0).sqrt().ceil() as usize).max(8);
+    let cell_step = 140.0_f32;
+
+    let passes: [(&str, BrushShapeKind, f32, [u8; 4]); 3] = [
+        (
+            "Pass 1 (Round 6px · Blue)",
+            BrushShapeKind::ALL[0],
+            6.0,
+            [34, 116, 165, 255],
+        ),
+        (
+            "Pass 2 (Tip #2 8px · Orange)",
+            BrushShapeKind::ALL[1],
+            8.0,
+            [247, 92, 3, 255],
+        ),
+        (
+            "Pass 3 (Round 4.5px · Green)",
+            BrushShapeKind::ALL[0],
+            4.5,
+            [0, 204, 102, 255],
+        ),
+    ];
+
+    let mut elements: Vec<Element> = Vec::new();
+    eprintln!(
+        "=== T-093 Benchmark: 3 passes x {} strokes = {} total strokes (grid {}x{}) ===",
+        strokes_per_pass,
+        strokes_per_pass * 3,
+        grid_side,
+        grid_side
+    );
+
+    for (pass_idx, (label, shape, width, color)) in passes.iter().enumerate() {
+        let pass_start = std::time::Instant::now();
+        let mut worst_stroke = std::time::Duration::ZERO;
+        let mut durations = Vec::with_capacity(strokes_per_pass);
+
+        for i in 0..strokes_per_pass {
+            let patch = (i * 2654435761) % (grid_side * grid_side);
+            let px = (patch % grid_side) as f32 * cell_step + pass_idx as f32 * 18.0;
+            let py = (patch / grid_side) as f32 * cell_step + pass_idx as f32 * 14.0;
+            let x0 = px + next_f32() * 95.0;
+            let y0 = py + next_f32() * 95.0;
+            let angle = next_f32() * std::f32::consts::TAU;
+            let dx = angle.cos();
+            let dy = angle.sin();
+            let len = 24.0 + next_f32() * 42.0;
+            let n_samples = ((len / 2.0) as usize).max(6);
+            let mut pts = Vec::with_capacity(n_samples);
+            let mut prs = Vec::with_capacity(n_samples);
+            let wobble_phase = next_f32() * std::f32::consts::TAU;
+            for s in 0..n_samples {
+                let t = s as f32 / (n_samples - 1).max(1) as f32;
+                let dist = t * len;
+                let wob = (t * std::f32::consts::PI + wobble_phase).sin() * 2.2;
+                pts.push(egui::Pos2::new(
+                    x0 + dx * dist - dy * wob,
+                    y0 + dy * dist + dx * wob,
+                ));
+                prs.push(0.35 + 0.6 * (t * std::f32::consts::PI).sin());
+            }
+            let commands = crate::authoring_tools::shaped_brush_outline(&pts, &prs, *width, *shape);
+            let el = Element {
+                id: format!("p{pass_idx}-s{i}"),
+                name: format!("p{pass_idx}-s{i}"),
+                transform: Transform::default(),
+                kind: ElementKind::Path {
+                    commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: *color,
+                    stroke: *color,
+                    stroke_width: 0.0,
+                },
+                merge: true,
+                ..Element::default()
+            };
+            let t0 = std::time::Instant::now();
+            apply_merge_shape_to_keyframe(&mut elements, el);
+            let dt = t0.elapsed();
+            worst_stroke = worst_stroke.max(dt);
+            durations.push(dt);
+
+            if (i + 1) % log_every == 0 || i + 1 == strokes_per_pass {
+                let total_cmds: usize = elements
+                    .iter()
+                    .map(|e| match &e.kind {
+                        ElementKind::Path { commands, .. } => commands.len(),
+                        ElementKind::PaintedPath { commands, .. } => commands.len(),
+                        _ => 0,
+                    })
+                    .sum();
+                eprintln!(
+                    "  [{label}] stroke {:>6}/{}: last {:>8.2?}, worst {:>8.2?}, elapsed {:>8.2?} | elements: {}, total_cmds: {}",
+                    i + 1,
+                    strokes_per_pass,
+                    dt,
+                    worst_stroke,
+                    pass_start.elapsed(),
+                    elements.len(),
+                    total_cmds
+                );
+            }
+        }
+        durations.sort_unstable();
+        let p50 = durations[durations.len() / 2];
+        let p99 = durations[(durations.len() * 99) / 100];
+        eprintln!(
+            "==> {label} DONE in {:.2?}: avg {:.2?}/stroke, p50 {:.2?}, p99 {:.2?}, max {:.2?}",
+            pass_start.elapsed(),
+            pass_start.elapsed() / strokes_per_pass as u32,
+            p50,
+            p99,
+            worst_stroke
+        );
+    }
+
+    // Put the resulting artwork into an Editor stage and benchmark selecting a colour and moving it:
+    // 1) Color 1: move +200px right, then move random (dx, dy)
+    // 2) Color 2: move +200px down, then move random (dx, dy)
+    let (mut editor, ctx, _page) = fixture(1);
+    editor.symbol_mut().timeline.layers = vec![layer("bench-layer", elements, false)];
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+
+    let t_cold_stage = std::time::Instant::now();
+    stage_input_frame(&mut editor, &ctx, 1.0, vec![]);
+    let cold_stage_dt = t_cold_stage.elapsed();
+
+    let t_warm_stage = std::time::Instant::now();
+    stage_input_frame(&mut editor, &ctx, 2.0, vec![]);
+    let warm_stage_dt = t_warm_stage.elapsed();
+    eprintln!(
+        "==> Stage render (unselected): cold {:.2?}, warm (retained cache) {:.2?}",
+        cold_stage_dt, warm_stage_dt
+    );
+
+    type MoveScenario<'a> = (&'a str, [u8; 4], (f64, f64), (f64, f64));
+    let move_scenarios: [MoveScenario<'_>; 2] = [
+        (
+            "Color 1 (Blue)",
+            passes[0].3,
+            (200.0, 0.0),
+            (
+                -180.0 + (next_f32() * 140.0) as f64,
+                -120.0 + (next_f32() * 240.0) as f64,
+            ),
+        ),
+        (
+            "Color 2 (Orange)",
+            passes[1].3,
+            (0.0, 200.0),
+            (
+                -150.0 + (next_f32() * 300.0) as f64,
+                -160.0 + (next_f32() * 130.0) as f64,
+            ),
+        ),
+    ];
+
+    let mut frame_time = 3.0;
+    for (color_label, target_color, step1, step2) in move_scenarios {
+        for (move_idx, (dx, dy)) in [step1, step2].into_iter().enumerate() {
+            let selected_ids: Vec<Id> = editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        &e.kind,
+                        ElementKind::Path { fill, .. } | ElementKind::PaintedPath { fill, .. }
+                        if *fill == target_color
+                    )
+                })
+                .map(|e| e.id.clone())
+                .collect();
+            let targets: Vec<SelectionTarget> = selected_ids
+                .iter()
+                .map(|id| SelectionTarget {
+                    layer: layer_id.clone(),
+                    element: id.clone(),
+                })
+                .collect();
+            editor.set_selection(targets);
+
+            // Measure live drag frame latency (transforming selected elements before release)
+            for el in &mut editor.symbol_mut().timeline.layers[0].keyframes[0].elements {
+                if selected_ids.contains(&el.id) {
+                    el.transform.x += dx;
+                    el.transform.y += dy;
+                }
+            }
+            frame_time += 1.0;
+            let t_drag_frame = std::time::Instant::now();
+            stage_input_frame(&mut editor, &ctx, frame_time, vec![]);
+            let drag_frame_dt = t_drag_frame.elapsed();
+
+            // Measure mouse release remerge + responsive frame latency
+            let t_remerge = std::time::Instant::now();
+            let remerged_ids = remerge_moved_elements_in_keyframe(
+                &mut editor.symbol_mut().timeline.layers[0].keyframes[0].elements,
+                &selected_ids,
+            );
+            let remerge_dt = t_remerge.elapsed();
+
+            editor.set_selection(
+                remerged_ids
+                    .iter()
+                    .map(|id| SelectionTarget {
+                        layer: layer_id.clone(),
+                        element: id.clone(),
+                    })
+                    .collect(),
+            );
+            frame_time += 1.0;
+            let t_post_cold = std::time::Instant::now();
+            stage_input_frame(&mut editor, &ctx, frame_time, vec![]);
+            let post_cold_dt = t_post_cold.elapsed();
+
+            frame_time += 1.0;
+            let t_post_warm = std::time::Instant::now();
+            stage_input_frame(&mut editor, &ctx, frame_time, vec![]);
+            let post_warm_dt = t_post_warm.elapsed();
+
+            eprintln!(
+                "==> [{color_label} · Move #{} ({:+.1}, {:+.1})] targets: {} -> {} | drag_frame: {:.2?}, release_remerge: {:.2?}, post_frame(cold): {:.2?}, post_frame(warm): {:.2?}",
+                move_idx + 1,
+                dx,
+                dy,
+                selected_ids.len(),
+                remerged_ids.len(),
+                drag_frame_dt,
+                remerge_dt,
+                post_cold_dt,
+                post_warm_dt
+            );
+        }
+    }
+}

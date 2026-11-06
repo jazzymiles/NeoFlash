@@ -10,6 +10,25 @@ use lyon_tessellation::{
     path::Path,
 };
 use neoflash_core::{DrawItem, ElementKind};
+use std::{cell::RefCell, collections::VecDeque, sync::Arc};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PrimTessKey {
+    width_bits: u64,
+    height_bits: u64,
+    stroke_bits: Option<u32>,
+    ellipse: bool,
+    closed: bool,
+    point_count: usize,
+    tol_bits: u32,
+}
+
+type PrimTessCacheList = VecDeque<(PrimTessKey, Arc<VertexBuffers<Point, u32>>)>;
+
+thread_local! {
+    static PRIM_TESS_CACHE: RefCell<PrimTessCacheList> =
+        RefCell::new(VecDeque::with_capacity(64));
+}
 
 const MAX_ELLIPSE_SEGMENTS: usize = 4096;
 
@@ -182,18 +201,65 @@ fn tessellate(
     Ok(mesh)
 }
 
+fn tessellate_cached(
+    primitive: Primitive,
+    points: &[Point],
+    closed: bool,
+    stroke: Option<f32>,
+    tolerance: f32,
+) -> Result<Arc<VertexBuffers<Point, u32>>, String> {
+    let key = PrimTessKey {
+        width_bits: primitive.width.to_bits(),
+        height_bits: primitive.height.to_bits(),
+        stroke_bits: stroke.map(f32::to_bits),
+        ellipse: primitive.ellipse,
+        closed,
+        point_count: points.len(),
+        tol_bits: tolerance.to_bits(),
+    };
+    if let Some(hit) = PRIM_TESS_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if let Some(pos) = cache.iter().position(|(k, _)| *k == key) {
+            let entry = cache.remove(pos).unwrap();
+            let arc = entry.1.clone();
+            cache.push_back(entry);
+            Some(arc)
+        } else {
+            None
+        }
+    }) {
+        return Ok(hit);
+    }
+    let built = Arc::new(tessellate(
+        points,
+        closed,
+        stroke,
+        tolerance,
+        primitive.ellipse,
+    )?);
+    PRIM_TESS_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.len() >= 256 {
+            cache.pop_front();
+        }
+        cache.push_back((key, built.clone()));
+    });
+    Ok(built)
+}
+
 fn transformed_mesh(
-    geometry: VertexBuffers<Point, u32>,
+    geometry: &VertexBuffers<Point, u32>,
     matrix: [f64; 6],
     origin: Pos2,
     zoom: f32,
     color: Color32,
 ) -> Option<egui::epaint::Mesh> {
     let mut mesh = egui::epaint::Mesh::default();
-    for vertex in geometry.vertices {
+    mesh.vertices.reserve(geometry.vertices.len());
+    for &vertex in &geometry.vertices {
         mesh.colored_vertex(screen_point(vertex, matrix, origin, zoom)?, color);
     }
-    mesh.indices = geometry.indices;
+    mesh.indices.clone_from(&geometry.indices);
     Some(mesh)
 }
 
@@ -264,9 +330,9 @@ pub(crate) fn paint_primitive(
         {
             continue;
         }
-        match tessellate(&points, closed, stroke, local_tolerance, primitive.ellipse) {
+        match tessellate_cached(primitive, &points, closed, stroke, local_tolerance) {
             Ok(geometry) => {
-                if let Some(mesh) = transformed_mesh(geometry, item.transform, origin, zoom, color)
+                if let Some(mesh) = transformed_mesh(&geometry, item.transform, origin, zoom, color)
                 {
                     p.add(Shape::mesh(mesh));
                 }
@@ -353,7 +419,14 @@ mod tests {
             primitive.ellipse,
         )
         .unwrap();
-        transformed_mesh(geometry, matrix, Pos2::new(25., -10.), zoom, Color32::WHITE).unwrap()
+        transformed_mesh(
+            &geometry,
+            matrix,
+            Pos2::new(25., -10.),
+            zoom,
+            Color32::WHITE,
+        )
+        .unwrap()
     }
 
     #[test]

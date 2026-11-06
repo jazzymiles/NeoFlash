@@ -10,6 +10,148 @@ use lyon_tessellation::{
 };
 use neoflash_core::*;
 use neoflash_ui::components::canvas as cv;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct TessCacheKey {
+    hash_a: u64,
+    hash_b: u64,
+    len: usize,
+    rule: u8,
+    width_bits: Option<u64>,
+    tol_bits: u32,
+}
+
+const MAX_TESS_CACHE_ENTRIES: usize = 65_536;
+const MAX_TESS_CACHE_ELEMENTS: usize = 32_000_000;
+const MAX_BOUNDS_CACHE_ENTRIES: usize = 65_536;
+
+struct TessCache {
+    entries: HashMap<TessCacheKey, Arc<VertexBuffers<Point, u32>>>,
+    total_elements: usize,
+}
+
+impl Default for TessCache {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::with_capacity(1024),
+            total_elements: 0,
+        }
+    }
+}
+
+thread_local! {
+    static TESS_CACHE: RefCell<TessCache> = RefCell::new(TessCache::default());
+    static BOUNDS_CACHE: RefCell<HashMap<(u64, u64, usize), Option<PathBounds>>> =
+        RefCell::new(HashMap::with_capacity(1024));
+}
+
+pub(crate) fn path_bounds_cached(commands: &[PathCommand]) -> Option<PathBounds> {
+    let (ha, hb, _) = path_commands_fingerprint(commands);
+    let key = (ha, hb, commands.len());
+    if let Some(hit) = BOUNDS_CACHE.with(|cell| cell.borrow().get(&key).copied()) {
+        return hit;
+    }
+    let computed = path_bounds(commands).ok().flatten();
+    BOUNDS_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.len() >= MAX_BOUNDS_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(key, computed);
+    });
+    computed
+}
+
+pub(crate) fn path_commands_fingerprint(commands: &[PathCommand]) -> (u64, u64, bool) {
+    let mut h1 = std::collections::hash_map::DefaultHasher::new();
+    let mut h2: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |tag: u8, vals: &[f64]| {
+        tag.hash(&mut h1);
+        h2 = (h2 ^ u64::from(tag)).wrapping_mul(0x0100_0000_01b3);
+        for &v in vals {
+            let bits = if v == 0.0 { 0 } else { v.to_bits() };
+            bits.hash(&mut h1);
+            h2 = (h2 ^ bits).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    let mut has_curves = false;
+    for cmd in commands {
+        match *cmd {
+            PathCommand::MoveTo { x, y } => mix(1, &[x, y]),
+            PathCommand::LineTo { x, y } => mix(2, &[x, y]),
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                has_curves = true;
+                mix(3, &[cx, cy, x, y]);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                has_curves = true;
+                mix(4, &[cx1, cy1, cx2, cy2, x, y]);
+            }
+            PathCommand::Close => mix(5, &[]),
+        }
+    }
+    (h1.finish(), h2, has_curves)
+}
+
+pub(crate) fn tessellate_cached(
+    commands: &[PathCommand],
+    rule: FillRule,
+    width: Option<f64>,
+    tolerance: f32,
+) -> Result<Arc<VertexBuffers<Point, u32>>, String> {
+    let (hash_a, hash_b, has_curves) = path_commands_fingerprint(commands);
+    let effective_tolerance = if width.is_none() && !has_curves {
+        // Straight-line polygon fills do not flatten curves; reuse across all zoom levels.
+        0.01_f32
+    } else {
+        let log_step = (tolerance.clamp(0.0005, 2.0).log2() * 4.0).round();
+        2.0_f32.powf(log_step * 0.25).clamp(0.0005, 2.0)
+    };
+    let key = TessCacheKey {
+        hash_a,
+        hash_b,
+        len: commands.len(),
+        rule: match rule {
+            FillRule::NonZero => 0,
+            FillRule::EvenOdd => 1,
+        },
+        width_bits: width.map(|w| if w == 0.0 { 0 } else { w.to_bits() }),
+        tol_bits: effective_tolerance.to_bits(),
+    };
+    if let Some(hit) = TESS_CACHE.with(|cell| cell.borrow().entries.get(&key).cloned()) {
+        return Ok(hit);
+    }
+
+    let built = Arc::new(tessellate(commands, rule, width, effective_tolerance)?);
+    let weight = built.vertices.len() + built.indices.len();
+    if weight <= MAX_TESS_CACHE_ELEMENTS / 2 {
+        TESS_CACHE.with(|cell| {
+            let mut cache = cell.borrow_mut();
+            if cache.entries.len() >= MAX_TESS_CACHE_ENTRIES
+                || cache.total_elements + weight > MAX_TESS_CACHE_ELEMENTS
+            {
+                cache.entries.clear();
+                cache.total_elements = 0;
+            }
+            cache.total_elements += weight;
+            cache.entries.insert(key, built.clone());
+        });
+    }
+    Ok(built)
+}
 
 pub(crate) fn tessellate(
     commands: &[PathCommand],
@@ -102,13 +244,14 @@ pub(crate) fn paint_path(
         if c.a() == 0 || width.is_some_and(|w| w <= 0.) {
             continue;
         }
-        match tessellate(commands, rule, width, tolerance) {
+        match tessellate_cached(commands, rule, width, tolerance) {
             Ok(geometry) => {
                 let mut mesh = egui::epaint::Mesh::default();
-                for vertex in geometry.vertices {
+                mesh.vertices.reserve(geometry.vertices.len());
+                for vertex in &geometry.vertices {
                     mesh.colored_vertex(screen(Pos2::new(vertex.x, vertex.y)), c);
                 }
-                mesh.indices = geometry.indices;
+                mesh.indices.clone_from(&geometry.indices);
                 p.add(Shape::mesh(mesh));
             }
             Err(message) => {
@@ -2178,7 +2321,7 @@ pub(crate) fn paint_gradient_path(
         {
             continue;
         }
-        let geometry = match tessellate(commands, rule, width, 0.1) {
+        let geometry = match tessellate_cached(commands, rule, width, 0.1) {
             Ok(value) => value,
             Err(error) => {
                 painter.text(

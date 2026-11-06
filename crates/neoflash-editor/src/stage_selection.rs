@@ -279,19 +279,21 @@ impl Editor {
                 .filter(|g| g.members.len() >= 2)
                 .flat_map(|g| g.members.iter().cloned())
                 .collect();
-            let merge_moved: Vec<Id> = self.symbol().timeline.layers[layer_idx]
+            let merge_eligible: HashSet<&Id> = self.symbol().timeline.layers[layer_idx]
                 .key_at(frame)
                 .map(|k| {
-                    moved_ids
+                    k.elements
                         .iter()
-                        .filter(|id| {
-                            !grouped.contains(*id)
-                                && k.elements.iter().any(|e| &e.id == *id && e.merge)
-                        })
-                        .cloned()
+                        .filter(|e| e.merge && !grouped.contains(&e.id))
+                        .map(|e| &e.id)
                         .collect()
                 })
                 .unwrap_or_default();
+            let merge_moved: Vec<Id> = moved_ids
+                .iter()
+                .filter(|id| merge_eligible.contains(id))
+                .cloned()
+                .collect();
             if merge_moved.is_empty() {
                 for id in moved_ids {
                     new_selection.push(SelectionTarget {
@@ -302,13 +304,14 @@ impl Editor {
                 continue;
             }
             any_remerged = true;
+            let merge_moved_set: HashSet<&Id> = merge_moved.iter().collect();
             if let Some(remerged_ids) = edit_ungrouped_merge_shapes(
                 &mut self.symbol_mut().timeline.layers[layer_idx],
                 frame,
                 |elements| remerge_moved_elements_in_keyframe(elements, &merge_moved),
             ) {
                 for id in moved_ids {
-                    if !merge_moved.contains(id) {
+                    if !merge_moved_set.contains(id) {
                         new_selection.push(SelectionTarget {
                             layer: layer_id.clone(),
                             element: id.clone(),
@@ -460,20 +463,23 @@ impl Editor {
             .collect();
         let mut world = Rect::NOTHING;
         let mut local = Rect::NOTHING;
-        let mut per_target: Vec<(&Id, Rect)> = Vec::new();
+        let mut per_target: Vec<(&Id, Rect)> = Vec::with_capacity(selected.len());
+        let mut per_target_idx: HashMap<&Id, usize> = HashMap::with_capacity(selected.len());
         for item in scene {
             let Some(id) = item.instance_path.first() else {
                 continue;
             };
             if !selected.contains(id) {
                 continue;
-            }
+            };
             let rect = crate::stage::local_bounds(item, p);
             let item_world = transformed_rect(rect, item.transform);
             world = world.union(item_world);
-            match per_target.iter_mut().find(|(target, _)| *target == id) {
-                Some((_, bounds)) => *bounds = bounds.union(item_world),
-                None => per_target.push((id, item_world)),
+            if let Some(&idx) = per_target_idx.get(id) {
+                per_target[idx].1 = per_target[idx].1.union(item_world);
+            } else {
+                per_target_idx.insert(id, per_target.len());
+                per_target.push((id, item_world));
             }
             if let Some(matrix) = inverse {
                 local = local.union(transformed_rect(
@@ -509,14 +515,38 @@ impl Editor {
             .filter(|g| g.members.len() >= 2)
             .flat_map(|g| g.members.iter().cloned())
             .collect();
-        let kinds: HashMap<_, _> = self
-            .sampled_targets()
-            .into_iter()
-            .map(|(target, element)| {
-                let is_merge = element.merge && !grouped_ids.contains(&target.element);
-                (target.element.clone(), (selection_kind(&element), is_merge))
-            })
-            .collect();
+        let multiple = self.timeline_edit.edit_multiple;
+        let (start_f, end_f) = if multiple {
+            self.onion_range()
+        } else {
+            (self.frame, self.frame)
+        };
+        let mut kinds: HashMap<Id, (cv::SelectionKind, bool)> =
+            HashMap::with_capacity(selected.len());
+        for layer in &self.symbol().timeline.layers {
+            if let Some(key) = layer.key_at(self.frame) {
+                for element in &key.elements {
+                    if selected.contains(&element.id) {
+                        let is_merge = element.merge && !grouped_ids.contains(&element.id);
+                        kinds.insert(element.id.clone(), (selection_kind(element), is_merge));
+                    }
+                }
+            }
+            if multiple {
+                for key in layer
+                    .keyframes
+                    .iter()
+                    .filter(|k| (start_f..=end_f).contains(&k.frame))
+                {
+                    for element in &key.elements {
+                        if selected.contains(&element.id) && !kinds.contains_key(&element.id) {
+                            let is_merge = element.merge && !grouped_ids.contains(&element.id);
+                            kinds.insert(element.id.clone(), (selection_kind(element), is_merge));
+                        }
+                    }
+                }
+            }
+        }
         let boxes = per_target
             .into_iter()
             .filter(|(_, rect)| rect.is_finite())
@@ -1228,13 +1258,44 @@ impl Editor {
                 }
             } else {
                 // `NF2/Selection Box` around Object-mode placements; hatch mesh over Merge shapes.
-                let authored = g.boxes.iter().any(|(_, _, _, merge)| *merge).then(|| {
+                let any_merge = g.boxes.iter().any(|(_, _, _, merge)| *merge);
+                let has_mask_layers = any_merge
+                    && self.show_layer_masking(p.ctx())
+                    && self.project.symbols.iter().any(|s| {
+                        s.timeline
+                            .layers
+                            .iter()
+                            .any(|l| l.properties.role == LayerRole::Mask)
+                    });
+                let authored = has_mask_layers.then(|| {
                     self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()))
                 });
                 let masks = authored
                     .as_ref()
+                    .filter(|scene| !scene.clips.is_empty())
                     .map(|scene| crate::stage_clipping::ClipMeshes::new(&scene.clips, origin, zoom))
                     .transpose();
+                let mut items_by_root: HashMap<&Id, Vec<&DrawItem>> = HashMap::new();
+                if any_merge {
+                    for item in scene {
+                        if let Some(root_id) = item.instance_path.first() {
+                            items_by_root.entry(root_id).or_default().push(item);
+                        }
+                    }
+                }
+                let clips_by_path: HashMap<&[Id], &[Id]> = authored
+                    .as_ref()
+                    .filter(|scene| !scene.clips.is_empty())
+                    .map(|scene| {
+                        scene
+                            .draws
+                            .iter()
+                            .map(|draw| {
+                                (draw.item.instance_path.as_slice(), draw.clip_ids.as_slice())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 for (id, rect, kind, is_merge) in &g.boxes {
                     let rect = Rect::from_min_max(screen(rect.min), screen(rect.max));
                     if *is_merge {
@@ -1247,30 +1308,23 @@ impl Editor {
                                 continue;
                             }
                         };
-                        for item in scene
-                            .iter()
-                            .filter(|item| item.instance_path.first() == Some(id))
-                        {
-                            let clip_ids = authored
-                                .as_ref()
-                                .and_then(|scene| {
-                                    scene
-                                        .draws
-                                        .iter()
-                                        .find(|draw| draw.item.instance_path == item.instance_path)
-                                })
-                                .map(|draw| draw.clip_ids.as_slice())
-                                .unwrap_or(&[]);
-                            if let Err(error) = crate::stage_clipping::paint_shape_selection(
-                                p,
-                                item,
-                                origin,
-                                zoom,
-                                rect,
-                                masks.map(|m| (m, clip_ids)),
-                            ) && self.status != error
-                            {
-                                self.message(error);
+                        if let Some(items) = items_by_root.get(id) {
+                            for item in items {
+                                let clip_ids = clips_by_path
+                                    .get(item.instance_path.as_slice())
+                                    .copied()
+                                    .unwrap_or(&[]);
+                                if let Err(error) = crate::stage_clipping::paint_shape_selection(
+                                    p,
+                                    item,
+                                    origin,
+                                    zoom,
+                                    rect,
+                                    masks.map(|m| (m, clip_ids)),
+                                ) && self.status != error
+                                {
+                                    self.message(error);
+                                }
                             }
                         }
                     } else {
