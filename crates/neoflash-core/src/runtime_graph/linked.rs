@@ -79,6 +79,62 @@ impl RuntimeGraph {
 }
 
 impl Player {
+    /// Whether a linked player (at any nesting depth) may have host audio that a
+    /// parent reset must silence before retiring its namespaces.
+    pub(crate) fn linked_sound_started(&self) -> bool {
+        self.graph.namespaces.values().any(|namespace| {
+            namespace.player.sound.has_started() || namespace.player.linked_sound_started()
+        })
+    }
+
+    /// A Player transport pause applies to runtime-created linked timelines too.
+    pub(crate) fn set_linked_playing(&mut self, playing: bool) {
+        for namespace in self.graph.namespaces.values_mut() {
+            namespace.player.set_playing(playing);
+        }
+    }
+
+    /// The parent's StopAll command is host-global. Remove commands that would
+    /// otherwise drain after it and reset every linked stream for later resync.
+    pub(crate) fn clear_linked_sounds_for_global_stop(&mut self) {
+        for namespace in self.graph.namespaces.values_mut() {
+            namespace.player.clear_linked_sounds_for_global_stop();
+            namespace.player.sound.clear_for_global_stop();
+        }
+    }
+
+    fn stop_streams_recursive(&mut self) {
+        self.sound.stop_streams();
+        for namespace in self.graph.namespaces.values_mut() {
+            namespace.player.stop_streams_recursive();
+        }
+    }
+
+    /// Stop and drain one linked namespace before its graph entry is retired.
+    /// Nested namespaces are already scoped by their owning linked player; applying
+    /// this outer scope produces the same channel as the normal linked drain path.
+    pub(crate) fn stop_and_drain_scoped_sounds(
+        &mut self,
+        reference: &ObjectRef,
+    ) -> Vec<crate::SoundCommand> {
+        self.stop_streams_recursive();
+        let scope = serde_json::to_string(reference).unwrap_or_default();
+        self.drain_sound_commands()
+            .into_iter()
+            .map(|command| command.scoped(&scope))
+            .collect()
+    }
+
+    /// Seek retires linked namespaces. Preserve their already queued commands and
+    /// explicit stream stops in the parent's queue before the graph is cleared.
+    pub(crate) fn stop_and_drain_linked_streams(&mut self) -> Vec<crate::SoundCommand> {
+        let mut commands = vec![];
+        for (reference, namespace) in &mut self.graph.namespaces {
+            commands.extend(namespace.player.stop_and_drain_scoped_sounds(reference));
+        }
+        commands
+    }
+
     pub fn create_linked(
         &mut self,
         project: &Project,
@@ -124,7 +180,8 @@ impl Player {
         if self.graph.dynamic.len() >= MAX_DYNAMIC_OBJECTS {
             return Err(error("Dynamic display object limit reached"));
         }
-        let scoped = Player::with_source_root(project, Some(symbol.id.clone()));
+        let scoped =
+            Player::with_source_root_playing(project, Some(symbol.id.clone()), self.is_playing());
         let reference = self.create_display(DynamicKind::MovieClip)?;
         self.graph.namespaces.insert(
             reference.clone(),
@@ -176,7 +233,8 @@ impl Player {
             .filter(|(address, node)| active.get(address) != Some(&node.lifetime))
             .map(|(_, node)| node.reference.clone())
             .collect();
-        self.graph.retire_loader_children(&retired);
+        let retired_sound_commands = self.graph.retire_loader_children(&retired);
+        self.sound.extend(retired_sound_commands);
         self.graph.retire_hierarchy(&retired);
         self.graph
             .linked_authored

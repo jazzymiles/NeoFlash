@@ -1571,15 +1571,7 @@ fn find_identifier_near_line(
 }
 
 fn line_byte_bounds(source: &str, line: usize) -> (usize, usize) {
-    let target = line.saturating_sub(1);
-    let mut offset = 0usize;
-    for (idx, l) in source.split_inclusive('\n').enumerate() {
-        if idx == target {
-            return (offset, offset + l.len());
-        }
-        offset += l.len();
-    }
-    (source.len(), source.len())
+    crate::logical_line_byte_bounds(source, line)
 }
 
 fn extract_first_single_quoted(msg: &str) -> Option<String> {

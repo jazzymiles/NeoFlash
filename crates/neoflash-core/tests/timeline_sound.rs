@@ -1,8 +1,9 @@
 //! Timeline (frame) sounds: model validation and the Player's sound commands for each
 //! Flash sync mode, including loops, goto/seek, stop and Restart.
 use neoflash_core::{
-    AuthoredPlayback, FrameSound, Keyframe, Layer, LayerProperties, PlaybackCommand, Player,
-    Project, ResourceUnit, SoundCommand, SoundEffect, SoundSync, Timeline,
+    AuthoredPlayback, DisplayMutation, DynamicKind, FrameSound, Keyframe, Layer, LayerProperties,
+    PlaybackCommand, Player, Project, ResourceUnit, SoundCommand, SoundEffect, SoundSync, Symbol,
+    SymbolKind, Timeline, timeline_sound_resources,
 };
 
 fn layer(id: &str, keyframes: Vec<Keyframe>) -> Layer {
@@ -46,6 +47,29 @@ fn project(frame_count: u32, layers: Vec<Layer>) -> Project {
     project
 }
 
+fn linked_stream_project() -> Project {
+    let mut project = project(4, vec![]);
+    project.symbols.push(Symbol {
+        id: "linked-sound".into(),
+        name: "Linked sound".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![layer(
+                "linked-music",
+                vec![key(0, Some(("song", SoundSync::Stream)))],
+            )],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: Some("LinkedSound".into()),
+    });
+    project.validate().unwrap();
+    project
+}
+
 fn ops(commands: &[SoundCommand]) -> Vec<String> {
     commands
         .iter()
@@ -59,6 +83,30 @@ fn ops(commands: &[SoundCommand]) -> Vec<String> {
             SoundCommand::StopAll => "stop-all".into(),
         })
         .collect()
+}
+
+fn stream_start_channels(commands: &[SoundCommand]) -> Vec<String> {
+    let mut channels: Vec<_> = commands
+        .iter()
+        .filter_map(|command| match command {
+            SoundCommand::StreamStart { channel, .. } => Some(channel.clone()),
+            _ => None,
+        })
+        .collect();
+    channels.sort();
+    channels
+}
+
+fn stream_stop_channels(commands: &[SoundCommand]) -> Vec<String> {
+    let mut channels: Vec<_> = commands
+        .iter()
+        .filter_map(|command| match command {
+            SoundCommand::StreamStop { channel } => Some(channel.clone()),
+            _ => None,
+        })
+        .collect();
+    channels.sort();
+    channels
 }
 
 fn tick(player: &mut Player, project: &Project) -> Vec<String> {
@@ -237,6 +285,123 @@ fn stop_all_and_restart_silence_everything() {
 }
 
 #[test]
+fn linked_streams_obey_pause_stop_seek_and_reset_lifecycle() {
+    let project = linked_stream_project();
+    let mut player = Player::new(&project);
+
+    // A global StopAll before the host drains the linked start must not be followed
+    // by that stale start. The stream resynchronises on the next advancing frame.
+    player.create_linked(&project, "LinkedSound").unwrap();
+    player.stop_all_sounds();
+    assert_eq!(ops(&player.drain_sound_commands()), ["stop-all"]);
+    assert_eq!(tick(&mut player, &project), ["stream song @0.1"]);
+
+    // The parent transport controls linked timelines and their stream channels.
+    player.set_playing(false);
+    assert_eq!(ops(&player.drain_sound_commands()), ["stream-stop"]);
+    player.set_playing(true);
+    assert_eq!(tick(&mut player, &project), ["stream song @0.2"]);
+
+    // Seek retires runtime-created linked namespaces, but their host streams still
+    // receive a namespaced stop before the graph forgets them.
+    player.seek(&project, 0);
+    assert_eq!(ops(&player.drain_sound_commands()), ["stream-stop"]);
+
+    // Restart also retires the namespace. A linked-only active stream is enough to
+    // retain the one host-global silence command after graph reset.
+    player.create_linked(&project, "LinkedSound").unwrap();
+    assert_eq!(ops(&player.drain_sound_commands()), ["stream song @0.0"]);
+    player.reset(&project);
+    assert_eq!(ops(&player.drain_sound_commands()), ["stop-all"]);
+}
+
+#[test]
+fn linked_stream_created_while_parent_paused_waits_for_advance() {
+    let mut project = linked_stream_project();
+    project
+        .symbols
+        .iter_mut()
+        .find(|symbol| symbol.linkage_id.as_deref() == Some("LinkedSound"))
+        .unwrap()
+        .timeline
+        .layers
+        .push(layer(
+            "linked-event",
+            vec![key(0, Some(("beep", SoundSync::Event)))],
+        ));
+    project.validate().unwrap();
+    let mut player = Player::new(&project);
+    player.set_playing(false);
+
+    player.create_linked(&project, "LinkedSound").unwrap();
+    let paused_commands = player.drain_sound_commands();
+    assert!(
+        paused_commands.is_empty(),
+        "paused creation must suppress both frame-event playback and stream starts"
+    );
+
+    player.set_playing(true);
+    assert!(player.drain_sound_commands().is_empty());
+    player.tick(&project);
+    let resumed_commands = player.drain_sound_commands();
+    assert_eq!(ops(&resumed_commands), ["stream song @0.1"]);
+    assert_eq!(stream_start_channels(&resumed_commands).len(), 1);
+}
+
+#[test]
+fn linked_stream_channels_match_exactly_across_namespaces() {
+    let project = linked_stream_project();
+    let mut player = Player::new(&project);
+    player.create_linked(&project, "LinkedSound").unwrap();
+    player.create_linked(&project, "LinkedSound").unwrap();
+
+    let starts = stream_start_channels(&player.drain_sound_commands());
+    assert_eq!(starts.len(), 2);
+    assert_ne!(starts[0], starts[1]);
+
+    player.set_playing(false);
+    let pause_commands = player.drain_sound_commands();
+    assert_eq!(stream_stop_channels(&pause_commands), starts);
+
+    player.set_playing(true);
+    player.tick(&project);
+    let resumed_starts = stream_start_channels(&player.drain_sound_commands());
+    assert_eq!(resumed_starts, starts);
+
+    player.seek(&project, 0);
+    let seek_commands = player.drain_sound_commands();
+    assert_eq!(stream_stop_channels(&seek_commands), starts);
+}
+
+#[test]
+fn loader_replacement_retires_linked_stream_with_exact_stop_channel() {
+    let project = linked_stream_project();
+    let mut player = Player::new(&project);
+    let target = player.create_display(DynamicKind::MovieClip).unwrap();
+    let linked = player.create_linked(&project, "LinkedSound").unwrap();
+    player
+        .display_mutate(
+            &project,
+            DisplayMutation::Add {
+                parent: target.clone(),
+                child: linked.clone(),
+                index: None,
+            },
+        )
+        .unwrap();
+
+    let starts = stream_start_channels(&player.drain_sound_commands());
+    assert_eq!(starts.len(), 1);
+
+    player
+        .loader_replace(&project, &target, None, true)
+        .unwrap();
+    let retirement_commands = player.drain_sound_commands();
+    assert_eq!(stream_stop_channels(&retirement_commands), starts);
+    assert!(!player.object_alive(&linked));
+}
+
+#[test]
 fn sounds_in_nested_movie_clips_and_guide_layers() {
     use neoflash_core::{Element, ElementKind, InstancePlayback, LayerRole, Symbol, SymbolKind};
     let mut project = project(4, vec![]);
@@ -289,6 +454,11 @@ fn sounds_in_nested_movie_clips_and_guide_layers() {
         "guide layers are not published"
     );
     assert_eq!(tick(&mut player, &project), ["play beep Event"]);
+    assert_eq!(
+        timeline_sound_resources(&project),
+        ["beep"],
+        "hosts should preload only sound layers that playback can publish"
+    );
 }
 
 #[test]

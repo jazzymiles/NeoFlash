@@ -79,7 +79,7 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
             commands,
             stroke_width,
             ..
-        } => crate::vector::path_bounds_cached(commands)
+        } => crate::vector::path_bounds_cached(commands, item.path_fingerprint)
             .map(|b| {
                 Rect::from_min_max(
                     Pos2::new(b.x_min as f32, b.y_min as f32),
@@ -134,37 +134,21 @@ pub(crate) fn hit_item_with_slop(
         ElementKind::Path {
             commands,
             fill_rule,
-            fill,
-            stroke,
             stroke_width,
+            ..
         }
         | ElementKind::PaintedPath {
             commands,
             fill_rule,
-            fill,
-            stroke,
             stroke_width,
             ..
         } => {
-            let has_fill = fill[3] > 0
-                || matches!(
-                    &item.kind,
-                    ElementKind::PaintedPath {
-                        fill_gradient: Some(g),
-                        ..
-                    } if g.stops.iter().any(|s| s.color[3] > 0)
-                );
-            let has_stroke = stroke[3] > 0
-                || matches!(
-                    &item.kind,
-                    ElementKind::PaintedPath {
-                        stroke_gradient: Some(g),
-                        ..
-                    } if g.stops.iter().any(|s| s.color[3] > 0)
-                );
+            let Some(visibility) = crate::vector::vector_paint_visibility(&item.kind) else {
+                return false;
+            };
             let local_slop = f64::from(slop) / (max_scale * f64::from(zoom));
-            let base_stroke = if has_stroke { *stroke_width } else { 0. };
-            let effective_stroke = if has_stroke || (has_fill && local_slop > 0.) {
+            let base_stroke = if visibility.stroke { *stroke_width } else { 0. };
+            let effective_stroke = if visibility.stroke || (visibility.fill && local_slop > 0.) {
                 base_stroke + 2. * local_slop
             } else {
                 0.
@@ -173,7 +157,7 @@ pub(crate) fn hit_item_with_slop(
                 commands,
                 *fill_rule,
                 [local.x as f64, local.y as f64],
-                has_fill,
+                visibility.fill,
                 effective_stroke,
                 FlattenOptions {
                     tolerance: 0.25 / (max_scale * zoom as f64),
@@ -201,7 +185,7 @@ struct DrawStyle {
     outlines: bool,
     bitmap_texture: Option<egui::TextureId>,
 }
-fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
+fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_paths: bool) {
     let DrawStyle {
         origin,
         zoom,
@@ -462,6 +446,7 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
             crate::vector::paint_gradient_path(
                 p,
                 commands,
+                item.path_fingerprint,
                 *fill_rule,
                 *stroke_width,
                 (fill, fill_gradient.as_ref()),
@@ -488,30 +473,43 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle) {
             let scale = (item.transform[0].hypot(item.transform[1]))
                 .max(item.transform[2].hypot(item.transform[3]))
                 .max(0.001);
-            crate::vector::paint_path(
-                p,
-                commands,
-                crate::vector::PathPaint {
-                    rule: *fill_rule,
-                    fill: if outlines {
-                        Color32::TRANSPARENT
-                    } else {
-                        color(*fill, alpha, tint)
-                    },
-                    stroke: if outlines {
-                        color([90, 110, 130, 255], alpha, tint)
-                    } else {
-                        color(*stroke, alpha, tint)
-                    },
-                    width: if outlines {
-                        1. / (scale * zoom as f64)
-                    } else {
-                        *stroke_width
-                    },
-                    tolerance: (0.25 / (scale * zoom as f64)).clamp(0.001, 1.) as f32,
+            let paint = crate::vector::PathPaint {
+                rule: *fill_rule,
+                fill: if outlines {
+                    Color32::TRANSPARENT
+                } else {
+                    color(*fill, alpha, tint)
                 },
-                screen,
-            );
+                stroke: if outlines {
+                    color([90, 110, 130, 255], alpha, tint)
+                } else {
+                    color(*stroke, alpha, tint)
+                },
+                width: if outlines {
+                    1. / (scale * zoom as f64)
+                } else {
+                    *stroke_width
+                },
+                tolerance: (0.25 / (scale * zoom as f64)).clamp(0.001, 1.) as f32,
+                fingerprint: item.path_fingerprint,
+            };
+            if retain_solid_paths {
+                crate::vector::paint_retained_stage_path(
+                    p,
+                    item,
+                    commands,
+                    paint,
+                    origin,
+                    zoom,
+                    if outlines {
+                        crate::vector::RetainedPathStyle::Outline
+                    } else {
+                        crate::vector::RetainedPathStyle::Artwork
+                    },
+                );
+            } else {
+                crate::vector::paint_path(p, commands, paint, screen);
+            }
         }
     }
 }
@@ -637,10 +635,10 @@ impl Editor {
                         .into_iter()
                         .filter(|&frame| frame != self.frame)
                         .map(|frame| {
-                            (
-                                frame,
-                                evaluate_scene(&eval_project, &id, frame, true, masking),
-                            )
+                            let mut scene =
+                                evaluate_scene(&eval_project, &id, frame, true, masking);
+                            crate::preview::prepare_stage_path_fingerprints(&mut scene);
+                            (frame, scene)
                         })
                         .collect();
                     let outlines = self.onion_outlines && !multiple;
@@ -1217,6 +1215,7 @@ impl Editor {
                         outlines: outlines || draw.outline_color.is_some(),
                         bitmap_texture,
                     },
+                    draw.clip_ids.is_empty(),
                 )
             });
             if let Err(error) = result {

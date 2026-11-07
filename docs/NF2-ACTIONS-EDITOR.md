@@ -164,7 +164,7 @@ Both Actions and Compiler errors consume structured diagnostics. Source-file err
 attached to the selected file. Only diagnostics belonging to the open script create gutter markers. Warnings use
 the existing amber NF2 marker and count; codes remain visible in compiler messages.
 
-Diagnostics underline their exact source range, including Unicode, tabs and wrapped lines. Hover opens an Error
+Diagnostics underline their exact source range, including Unicode, tabs, LF/CRLF/lone-CR and U+2028/U+2029 line separators, and wrapped lines; a clamped column never crosses into the next authored line. Hover opens an Error
 or Warning peek with the code and explanation; long explanations remain available on hover. F8 moves to the next
 problem and opens its peek while Actions has keyboard focus; ⇧F8 moves backwards, with wraparound. A paused debug
 session has priority for plain F8 (Continue); otherwise F8 outside Actions retains Convert to Symbol.

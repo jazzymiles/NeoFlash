@@ -6,7 +6,7 @@
 //! compatible with Adobe Flash CS5.5/CS6/Animate and round-trip importable by
 //! `crate::xfl` whenever the project stays within NeoFlash's XFL importer subset.
 
-use crate::{ImportError, source};
+use crate::{ImportError, source, xfl::media::inspect_audio_bytes};
 use neoflash_core::{
     Color, ColorTransform, Easing, Element, ElementKind, FilterSpec, FrameSound, GradientKind,
     GradientPaint, GradientStop, Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole,
@@ -609,8 +609,14 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
             .get(..6)
             .is_some_and(|p| p.eq_ignore_ascii_case("image/"));
         let is_aud_type = res.is_audio();
-        let want_img = is_img_type || referenced_bitmaps.contains(res.id.as_str());
-        let want_aud = is_aud_type || referenced_sounds.contains(res.id.as_str());
+        let referenced_as_bitmap = referenced_bitmaps.contains(res.id.as_str());
+        let referenced_as_sound = referenced_sounds.contains(res.id.as_str());
+        let has_authored_role = referenced_as_bitmap || referenced_as_sound;
+        // Authored use is authoritative: a resource that decodes as a bitmap remains
+        // exportable even when its imported MIME metadata was wrong. MIME classifies
+        // only otherwise-unreferenced library media, where no authored role can do so.
+        let want_img = referenced_as_bitmap || (!has_authored_role && is_img_type);
+        let want_aud = referenced_as_sound || (!has_authored_role && is_aud_type);
         if !want_img && !want_aud {
             return Err(ImportError::Container(format!(
                 "resource {:?} ({}) cannot be represented in XFL 2.2 .fla media library",
@@ -621,7 +627,23 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
             ImportError::Container(format!("invalid resource {:?}: {err}", res.path))
         })?;
 
-        if want_img && let Some((bytes, ext)) = normalize_bitmap_bytes(&raw) {
+        let bitmap = want_img.then(|| normalize_bitmap_bytes(&raw)).flatten();
+        let audio = want_aud.then(|| inspect_audio_bytes(&raw)).flatten();
+
+        if want_img && bitmap.is_none() {
+            return Err(ImportError::Container(format!(
+                "resource {:?} ({}) cannot be represented as an XFL bitmap; use decodable PNG or JPEG image data",
+                res.path, res.media_type
+            )));
+        }
+        if want_aud && audio.is_none() {
+            return Err(ImportError::Container(format!(
+                "resource {:?} ({}) cannot be represented as XFL audio; use PCM WAV or MP3 audio data",
+                res.path, res.media_type
+            )));
+        }
+
+        if let Some((bytes, ext)) = bitmap {
             if bytes.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
                 return Err(ImportError::Container(format!(
                     "bitmap resource {:?} exceeds 8 MiB XFL entry limit",
@@ -643,10 +665,9 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                     allow_smoothing: smoothed_bitmaps.contains(res.id.as_str()),
                 },
             );
-            continue;
         }
 
-        if want_aud && let Some((ext, duration_44, is_mp3)) = inspect_audio_bytes(&raw) {
+        if let Some(audio) = audio {
             if raw.len() as u64 > MAX_ARCHIVE_ENTRY_BYTES {
                 return Err(ImportError::Container(format!(
                     "audio resource {:?} exceeds 8 MiB XFL entry limit",
@@ -654,10 +675,16 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                 )));
             }
             let stem = clean_resource_stem(&res.path, "sound");
-            let item_name = dedup_exact_name(&mut used_sound_names, &format!("{stem}.{ext}"));
-            let file_name =
-                dedup_case_insensitive(&mut used_media_files_lower, &stem, &format!(".{ext}"));
-            let emit_mp3_sample_count = is_mp3 && custom_env_sounds.contains(res.id.as_str());
+            let item_name = dedup_exact_name(
+                &mut used_sound_names,
+                &format!("{stem}.{}", audio.extension),
+            );
+            let file_name = dedup_case_insensitive(
+                &mut used_media_files_lower,
+                &stem,
+                &format!(".{}", audio.extension),
+            );
+            let emit_mp3_sample_count = audio.is_mp3 && custom_env_sounds.contains(res.id.as_str());
             sound_order.push(res.id.clone());
             sounds.insert(
                 res.id.clone(),
@@ -666,7 +693,7 @@ fn collect_media(project: &Project) -> Result<MediaCollections, ImportError> {
                     href: format!("media/{file_name}"),
                     zip_path: format!("LIBRARY/media/{file_name}"),
                     bytes: raw,
-                    duration_44,
+                    duration_44: audio.duration_44,
                     emit_mp3_sample_count,
                 },
             );
@@ -752,88 +779,6 @@ fn normalize_bitmap_bytes(raw: &[u8]) -> Option<(Vec<u8>, &'static str)> {
         .write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
         .ok()?;
     Some((png_bytes, "png"))
-}
-
-fn inspect_audio_bytes(raw: &[u8]) -> Option<(&'static str, u64, bool)> {
-    if let Some(dur) = parse_wav_duration_44(raw) {
-        return Some(("wav", dur, false));
-    }
-    if looks_like_mp3(raw) {
-        return Some(("mp3", 44_100, true));
-    }
-    None
-}
-
-fn parse_wav_duration_44(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return None;
-    }
-    let mut pos = 12usize;
-    let mut fmt_info: Option<(u32, usize)> = None;
-    let mut data_len: Option<usize> = None;
-    while pos + 8 <= bytes.len() {
-        let tag = &bytes[pos..pos + 4];
-        let chunk_len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
-        let payload_start = pos + 8;
-        let payload_end = payload_start.checked_add(chunk_len)?;
-        if payload_end > bytes.len() {
-            return None;
-        }
-        let payload = &bytes[payload_start..payload_end];
-        if tag == b"fmt " {
-            if payload.len() < 16 {
-                return None;
-            }
-            let channels = u16::from_le_bytes(payload[2..4].try_into().ok()?);
-            let sample_rate = u32::from_le_bytes(payload[4..8].try_into().ok()?);
-            let block_align = u16::from_le_bytes(payload[12..14].try_into().ok()?);
-            let bits = u16::from_le_bytes(payload[14..16].try_into().ok()?);
-            if channels == 0 || sample_rate == 0 {
-                return None;
-            }
-            let derived_align = usize::from(channels) * usize::from(bits.max(8)).div_ceil(8);
-            let frame_bytes = usize::from(block_align).max(derived_align).max(1);
-            fmt_info = Some((sample_rate, frame_bytes));
-        } else if tag == b"data" {
-            data_len = Some(payload.len());
-        }
-        pos = payload_end.saturating_add(chunk_len & 1);
-    }
-    let (sample_rate, frame_bytes) = fmt_info?;
-    let data_bytes = data_len?;
-    if data_bytes < frame_bytes {
-        return None;
-    }
-    let sample_frames = (data_bytes / frame_bytes) as u64;
-    Some((sample_frames * 44_100) / u64::from(sample_rate))
-}
-
-fn looks_like_mp3(bytes: &[u8]) -> bool {
-    let mut start = 0usize;
-    if bytes.len() >= 10
-        && &bytes[..3] == b"ID3"
-        && (bytes[6] | bytes[7] | bytes[8] | bytes[9]) & 0x80 == 0
-    {
-        let tag_len = ((bytes[6] as usize) << 21)
-            | ((bytes[7] as usize) << 14)
-            | ((bytes[8] as usize) << 7)
-            | (bytes[9] as usize);
-        let footer = if (bytes[5] & 0x10) != 0 { 10 } else { 0 };
-        start = (10 + tag_len + footer).min(bytes.len());
-    }
-    let end = bytes
-        .len()
-        .saturating_sub(3)
-        .min(start.saturating_add(4096));
-    (start..end).any(|i| {
-        let h = &bytes[i..i + 4];
-        h[0] == 0xff
-            && (h[1] & 0xe0) == 0xe0
-            && ((h[1] >> 3) & 3) != 1
-            && ((h[1] >> 1) & 3) != 0
-            && ((h[2] >> 4) & 0xf) != 0xf
-            && ((h[2] >> 2) & 3) != 3
-    })
 }
 
 fn collect_actionscript_sources(project: &Project, doc_stem: &str) -> Vec<(String, String)> {
@@ -954,7 +899,7 @@ fn render_dom_document(project: &Project, ctx: &ExportContext) -> String {
     ]);
     writeln!(
         xml,
-        "<DOMDocument xmlns=\"{XFL_NS}\" width=\"{}\" height=\"{}\" frameRate=\"{}\" backgroundColor=\"{bg}\" xflVersion=\"2.2\">",
+        "<DOMDocument xmlns=\"{XFL_NS}\" width=\"{}\" height=\"{}\" frameRate=\"{}\" backgroundColor=\"{bg}\" xflVersion=\"2.2\" creatorInfo=\"NeoFlash\" versionInfo=\"NeoFlash XFL export 1\">",
         project.width.max(1),
         project.height.max(1),
         project.fps.max(1),
@@ -2538,7 +2483,7 @@ fn append_instance_filters(out: &mut String, filters: &[FilterSpec]) {
                     fmt_num(*blur_y),
                     color & 0xff_ffff,
                     fmt_num(*alpha),
-                    fmt_num(*strength * 100.0),
+                    fmt_num(*strength),
                 )
                 .unwrap();
                 if *inner {
@@ -2571,7 +2516,7 @@ fn append_instance_filters(out: &mut String, filters: &[FilterSpec]) {
                     fmt_num(*distance),
                     color & 0xff_ffff,
                     fmt_num(*alpha),
-                    fmt_num(*strength * 100.0),
+                    fmt_num(*strength),
                 )
                 .unwrap();
                 if *inner {
@@ -2610,7 +2555,7 @@ fn append_instance_filters(out: &mut String, filters: &[FilterSpec]) {
                     fmt_num(*highlight_alpha),
                     shadow_color & 0xff_ffff,
                     fmt_num(*shadow_alpha),
-                    fmt_num(*strength * 100.0),
+                    fmt_num(*strength),
                     escape_xml_attr(placement),
                 )
                 .unwrap();
@@ -2657,7 +2602,7 @@ fn append_instance_filters(out: &mut String, filters: &[FilterSpec]) {
                     fmt_num(*blur_x),
                     fmt_num(*blur_y),
                     fmt_num(*distance),
-                    fmt_num(*strength * 100.0),
+                    fmt_num(*strength),
                     escape_xml_attr(placement),
                 )
                 .unwrap();
@@ -3822,6 +3767,8 @@ mod tests {
             .read_to_string(&mut dom_xml)
             .unwrap();
         assert!(dom_xml.contains("xflVersion=\"2.2\""));
+        assert!(dom_xml.contains("creatorInfo=\"NeoFlash\""));
+        assert!(dom_xml.contains("versionInfo=\"NeoFlash XFL export 1\""));
 
         let mut pub_xml = String::new();
         archive
@@ -3830,6 +3777,115 @@ mod tests {
             .read_to_string(&mut pub_xml)
             .unwrap();
         assert!(pub_xml.contains("<ActionScriptVersion>2</ActionScriptVersion>"));
+    }
+
+    #[test]
+    fn export_fla_rejects_unrepresentable_media_before_writing_output() {
+        let cases: [(&str, &str, &str, &[u8]); 3] = [
+            (
+                "bad-image",
+                "assets/bad-image.png",
+                "image/png",
+                b"not a PNG",
+            ),
+            (
+                "bad-wav",
+                "audio/bad.wav",
+                "audio/wav",
+                b"RIFF\x04\0\0\0WAVE",
+            ),
+            (
+                "unsupported-ogg",
+                "audio/music.ogg",
+                "audio/ogg",
+                b"OggS\0unsupported",
+            ),
+        ];
+
+        for (index, (id, resource_path, media_type, bytes)) in cases.into_iter().enumerate() {
+            let mut project = Project::blank();
+            project.resources.push(
+                ResourceUnit::from_bytes(id, resource_path, media_type, bytes)
+                    .expect("bounded resource"),
+            );
+            let output = std::env::temp_dir().join(format!(
+                "neoflash-xfl-export-invalid-media-{}-{index}.fla",
+                std::process::id()
+            ));
+            let _ = fs::remove_file(&output);
+
+            let error = export_fla(&project, &output).expect_err("media must be rejected");
+            let message = error.to_string();
+            assert!(message.contains(resource_path), "{message}");
+            assert!(message.contains(media_type), "{message}");
+            assert!(!output.exists(), "failed export created {output:?}");
+        }
+    }
+
+    #[test]
+    fn authored_media_roles_override_mislabelled_mime_or_file_extensions() {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            1,
+            1,
+            image::Rgba([12, 34, 56, 255]),
+        ))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+        let wav = [
+            b'R', b'I', b'F', b'F', 44, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ',
+            16, 0, 0, 0, 1, 0, 1, 0, 0x44, 0xAC, 0, 0, 0x88, 0x58, 1, 0, 2, 0, 16, 0, b'd', b'a',
+            b't', b'a', 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+
+        let mut project = Project::blank();
+        project.format_version = 6;
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "bitmap-with-audio-mime",
+                "assets/picture.wav",
+                "audio/wav",
+                &png,
+            )
+            .unwrap(),
+        );
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "audio-with-image-extension",
+                "assets/not-really.png",
+                "audio/wav",
+                &wav,
+            )
+            .unwrap(),
+        );
+        let key = &mut project.symbols[0].timeline.layers[0].keyframes[0];
+        key.elements.push(Element {
+            id: "mislabelled-bitmap".into(),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::Bitmap {
+                resource_id: "bitmap-with-audio-mime".into(),
+                width: 1,
+                height: 1,
+                smoothing: true,
+            },
+            ..Default::default()
+        });
+        key.sound = Some(FrameSound::new("audio-with-image-extension"));
+        project.validate().expect("core-valid authored media roles");
+
+        let bytes = export_fla_bytes(&project).expect("authored roles classify media");
+        let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut dom_xml = String::new();
+        archive
+            .by_name("DOMDocument.xml")
+            .unwrap()
+            .read_to_string(&mut dom_xml)
+            .unwrap();
+        assert!(dom_xml.contains("<DOMBitmapItem name=\"picture.png\""));
+        assert!(dom_xml.contains("<DOMSoundItem name=\"not-really.wav\""));
+        assert!(archive.by_name("LIBRARY/media/picture.png").is_ok());
+        assert!(archive.by_name("LIBRARY/media/not-really.wav").is_ok());
     }
 
     #[test]
@@ -3919,6 +3975,77 @@ mod tests {
             ..Default::default()
         };
 
+        let expected_filters = vec![
+            FilterSpec::Blur {
+                blur_x: 6.0,
+                blur_y: 4.0,
+                quality: 2,
+            },
+            FilterSpec::Glow {
+                color: 0x336699,
+                alpha: 0.75,
+                blur_x: 8.0,
+                blur_y: 8.0,
+                strength: 1.2,
+                quality: 2,
+                inner: true,
+                knockout: false,
+            },
+            FilterSpec::DropShadow {
+                distance: 5.0,
+                angle: 45.0,
+                color: 0x112233,
+                alpha: 0.5,
+                blur_x: 4.0,
+                blur_y: 4.0,
+                strength: 0.75,
+                quality: 1,
+                inner: false,
+                knockout: false,
+                hide_object: false,
+            },
+            FilterSpec::Bevel {
+                distance: 3.0,
+                angle: 30.0,
+                highlight_color: 0xFEDCBA,
+                highlight_alpha: 0.8,
+                shadow_color: 0x123456,
+                shadow_alpha: 0.6,
+                blur_x: 5.0,
+                blur_y: 7.0,
+                strength: 1.05,
+                quality: 3,
+                placement: "full".into(),
+                knockout: false,
+            },
+            FilterSpec::GradientGlow {
+                distance: 2.0,
+                angle: 15.0,
+                colors: vec![0x102030, 0xA0B0C0],
+                alphas: vec![0.2, 0.9],
+                ratios: vec![0, 255],
+                blur_x: 6.0,
+                blur_y: 7.0,
+                strength: 1.3,
+                quality: 2,
+                placement: "outer".into(),
+                knockout: true,
+            },
+            FilterSpec::GradientBevel {
+                distance: 4.0,
+                angle: 60.0,
+                colors: vec![0x010203, 0xF0E0D0],
+                alphas: vec![0.4, 1.0],
+                ratios: vec![32, 224],
+                blur_x: 3.0,
+                blur_y: 9.0,
+                strength: 3.0,
+                quality: 1,
+                placement: "inner".into(),
+                knockout: false,
+            },
+        ];
+
         let root_sym = project.symbol_mut(&project.root.clone()).unwrap();
         root_sym.timeline.scripts.push(FrameScript {
             frame: 0,
@@ -3948,36 +4075,7 @@ mod tests {
                     tab_order: 3,
                     disabled: true,
                 }),
-                filters: vec![
-                    FilterSpec::Blur {
-                        blur_x: 6.0,
-                        blur_y: 4.0,
-                        quality: 2,
-                    },
-                    FilterSpec::Glow {
-                        color: 0x336699,
-                        alpha: 0.75,
-                        blur_x: 8.0,
-                        blur_y: 8.0,
-                        strength: 1.5,
-                        quality: 2,
-                        inner: true,
-                        knockout: false,
-                    },
-                    FilterSpec::DropShadow {
-                        distance: 5.0,
-                        angle: 45.0,
-                        color: 0x112233,
-                        alpha: 0.5,
-                        blur_x: 4.0,
-                        blur_y: 4.0,
-                        strength: 1.0,
-                        quality: 1,
-                        inner: false,
-                        knockout: false,
-                        hide_object: false,
-                    },
-                ],
+                filters: expected_filters.clone(),
                 scripts: vec![ObjectScript {
                     event: ObjectEvent::Click,
                     script: Script {
@@ -4024,6 +4122,13 @@ mod tests {
         assert!(dom_xml.contains("hasAccessibleData=\"true\""));
         assert!(dom_xml.contains("accName=\"Hero Box\""));
         assert!(dom_xml.contains("<BlurFilter blurX=\"6\" blurY=\"4\" quality=\"2\"/>"));
+        assert!(dom_xml.contains(
+            "<GlowFilter blurX=\"8\" blurY=\"8\" color=\"#336699\" alpha=\"0.75\" strength=\"1.2\""
+        ));
+        assert!(dom_xml.contains("<DropShadowFilter angle=\"45\" blurX=\"4\" blurY=\"4\" distance=\"5\" color=\"#112233\" alpha=\"0.5\" strength=\"0.75\""));
+        assert!(dom_xml.contains("<BevelFilter angle=\"30\" blurX=\"5\" blurY=\"7\" distance=\"3\" highlightColor=\"#FEDCBA\" highlightAlpha=\"0.8\" shadowColor=\"#123456\" shadowAlpha=\"0.6\" strength=\"1.05\""));
+        assert!(dom_xml.contains("<GradientGlowFilter angle=\"15\" blurX=\"6\" blurY=\"7\" distance=\"2\" strength=\"1.3\""));
+        assert!(dom_xml.contains("<GradientBevelFilter angle=\"60\" blurX=\"3\" blurY=\"9\" distance=\"4\" strength=\"3\""));
         assert!(dom_xml.contains("bold=\"true\""));
         assert!(dom_xml.contains("italic=\"true\""));
 
@@ -4092,15 +4197,7 @@ mod tests {
         assert_eq!(acc.description, "Clickable box");
         assert_eq!(acc.tab_order, 3);
         assert!(acc.disabled);
-        assert_eq!(imp_inst.filters.len(), 3);
-        assert_eq!(
-            imp_inst.filters[0],
-            FilterSpec::Blur {
-                blur_x: 6.0,
-                blur_y: 4.0,
-                quality: 2,
-            }
-        );
+        assert_eq!(imp_inst.filters, expected_filters);
         assert_eq!(imp_inst.scripts.len(), 1);
         assert_eq!(imp_inst.scripts[0].event, ObjectEvent::Click);
         assert_eq!(

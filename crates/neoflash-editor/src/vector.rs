@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct TessCacheKey {
     hash_a: u64,
     hash_b: u64,
@@ -30,6 +30,137 @@ struct TessCacheKey {
 const MAX_TESS_CACHE_ENTRIES: usize = 65_536;
 const MAX_TESS_CACHE_ELEMENTS: usize = 32_000_000;
 const MAX_BOUNDS_CACHE_ENTRIES: usize = 65_536;
+const MAX_SCREEN_MESH_CACHE_ENTRIES: usize = 32_768;
+const MAX_SCREEN_MESH_CACHE_ELEMENTS: usize = 4_000_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct VectorPaintVisibility {
+    pub(crate) fill: bool,
+    pub(crate) stroke: bool,
+}
+
+/// Effective vector passes, matching the renderer: an explicit gradient replaces the solid
+/// fallback, and a stroke also needs a positive authored width.
+pub(crate) fn vector_paint_visibility(kind: &ElementKind) -> Option<VectorPaintVisibility> {
+    let visible_alpha = |solid: &Color, gradient: Option<&GradientPaint>| {
+        gradient.map_or(solid[3] != 0, |paint| {
+            paint.stops.iter().any(|stop| stop.color[3] != 0)
+        })
+    };
+    match kind {
+        ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Path {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => Some(VectorPaintVisibility {
+            fill: fill[3] != 0,
+            stroke: stroke[3] != 0 && *stroke_width > 0.,
+        }),
+        ElementKind::PaintedPath {
+            fill,
+            stroke,
+            stroke_width,
+            fill_gradient,
+            stroke_gradient,
+            ..
+        } => Some(VectorPaintVisibility {
+            fill: visible_alpha(fill, fill_gradient.as_ref()),
+            stroke: visible_alpha(stroke, stroke_gradient.as_ref()) && *stroke_width > 0.,
+        }),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum RetainedPathStyle {
+    Artwork,
+    Outline,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum ScreenMeshPass {
+    Fill,
+    Stroke,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ScreenMeshSlot {
+    identity: u64,
+    pass: ScreenMeshPass,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ScreenMeshKey {
+    tessellation: TessCacheKey,
+    transform_bits: [u64; 6],
+    origin_bits: [u32; 2],
+    zoom_bits: u32,
+    color: [u8; 4],
+    style: RetainedPathStyle,
+}
+
+struct ScreenMeshEntry {
+    key: ScreenMeshKey,
+    mesh: Arc<egui::Mesh>,
+    weight: usize,
+}
+
+struct ScreenMeshCache {
+    entries: HashMap<ScreenMeshSlot, ScreenMeshEntry>,
+    total_elements: usize,
+    max_entries: usize,
+    max_elements: usize,
+}
+
+impl ScreenMeshCache {
+    fn new(max_entries: usize, max_elements: usize) -> Self {
+        Self {
+            entries: HashMap::with_capacity(max_entries.min(1024)),
+            total_elements: 0,
+            max_entries,
+            max_elements,
+        }
+    }
+
+    fn get(&self, slot: ScreenMeshSlot, key: ScreenMeshKey) -> Option<Arc<egui::Mesh>> {
+        self.entries
+            .get(&slot)
+            .filter(|entry| entry.key == key)
+            .map(|entry| entry.mesh.clone())
+    }
+
+    fn insert(&mut self, slot: ScreenMeshSlot, key: ScreenMeshKey, mesh: Arc<egui::Mesh>) {
+        if let Some(previous) = self.entries.remove(&slot) {
+            self.total_elements = self.total_elements.saturating_sub(previous.weight);
+        }
+        let weight = mesh.vertices.len().saturating_add(mesh.indices.len());
+        if self.max_entries == 0 || weight > self.max_elements {
+            return;
+        }
+        if self.entries.len() >= self.max_entries
+            || self.total_elements.saturating_add(weight) > self.max_elements
+        {
+            self.entries.clear();
+            self.total_elements = 0;
+        }
+        self.total_elements += weight;
+        self.entries
+            .insert(slot, ScreenMeshEntry { key, mesh, weight });
+    }
+}
 
 struct TessCache {
     entries: HashMap<TessCacheKey, Arc<VertexBuffers<Point, u32>>>,
@@ -49,11 +180,32 @@ thread_local! {
     static TESS_CACHE: RefCell<TessCache> = RefCell::new(TessCache::default());
     static BOUNDS_CACHE: RefCell<HashMap<(u64, u64, usize), Option<PathBounds>>> =
         RefCell::new(HashMap::with_capacity(1024));
+    static SCREEN_MESH_CACHE: RefCell<ScreenMeshCache> = RefCell::new(ScreenMeshCache::new(
+        MAX_SCREEN_MESH_CACHE_ENTRIES,
+        MAX_SCREEN_MESH_CACHE_ELEMENTS,
+    ));
 }
 
-pub(crate) fn path_bounds_cached(commands: &[PathCommand]) -> Option<PathBounds> {
-    let (ha, hb, _) = path_commands_fingerprint(commands);
-    let key = (ha, hb, commands.len());
+fn resolved_path_fingerprint(
+    commands: &[PathCommand],
+    supplied: Option<PathFingerprint>,
+) -> PathFingerprint {
+    supplied.unwrap_or_else(|| path_commands_fingerprint(commands))
+}
+
+fn bounds_cache_key(
+    commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
+) -> (u64, u64, usize) {
+    let fingerprint = resolved_path_fingerprint(commands, fingerprint);
+    (fingerprint.hash_a, fingerprint.hash_b, commands.len())
+}
+
+pub(crate) fn path_bounds_cached(
+    commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
+) -> Option<PathBounds> {
+    let key = bounds_cache_key(commands, fingerprint);
     if let Some(hit) = BOUNDS_CACHE.with(|cell| cell.borrow().get(&key).copied()) {
         return hit;
     }
@@ -68,42 +220,35 @@ pub(crate) fn path_bounds_cached(commands: &[PathCommand]) -> Option<PathBounds>
     computed
 }
 
-pub(crate) fn path_commands_fingerprint(commands: &[PathCommand]) -> (u64, u64, bool) {
-    let mut h1 = std::collections::hash_map::DefaultHasher::new();
-    let mut h2: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut mix = |tag: u8, vals: &[f64]| {
-        tag.hash(&mut h1);
-        h2 = (h2 ^ u64::from(tag)).wrapping_mul(0x0100_0000_01b3);
-        for &v in vals {
-            let bits = if v == 0.0 { 0 } else { v.to_bits() };
-            bits.hash(&mut h1);
-            h2 = (h2 ^ bits).wrapping_mul(0x0100_0000_01b3);
-        }
+fn tess_cache_key(
+    commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
+    rule: FillRule,
+    width: Option<f64>,
+    tolerance: f32,
+) -> (TessCacheKey, f32) {
+    let fingerprint = resolved_path_fingerprint(commands, fingerprint);
+    let effective_tolerance = if width.is_none() && !fingerprint.has_curves {
+        // Straight-line polygon fills do not flatten curves; reuse across all zoom levels.
+        0.01_f32
+    } else {
+        let log_step = (tolerance.clamp(0.0005, 2.0).log2() * 4.0).round();
+        2.0_f32.powf(log_step * 0.25).clamp(0.0005, 2.0)
     };
-    let mut has_curves = false;
-    for cmd in commands {
-        match *cmd {
-            PathCommand::MoveTo { x, y } => mix(1, &[x, y]),
-            PathCommand::LineTo { x, y } => mix(2, &[x, y]),
-            PathCommand::QuadraticTo { cx, cy, x, y } => {
-                has_curves = true;
-                mix(3, &[cx, cy, x, y]);
-            }
-            PathCommand::CubicTo {
-                cx1,
-                cy1,
-                cx2,
-                cy2,
-                x,
-                y,
-            } => {
-                has_curves = true;
-                mix(4, &[cx1, cy1, cx2, cy2, x, y]);
-            }
-            PathCommand::Close => mix(5, &[]),
-        }
-    }
-    (h1.finish(), h2, has_curves)
+    (
+        TessCacheKey {
+            hash_a: fingerprint.hash_a,
+            hash_b: fingerprint.hash_b,
+            len: commands.len(),
+            rule: match rule {
+                FillRule::NonZero => 0,
+                FillRule::EvenOdd => 1,
+            },
+            width_bits: width.map(|w| if w == 0.0 { 0 } else { w.to_bits() }),
+            tol_bits: effective_tolerance.to_bits(),
+        },
+        effective_tolerance,
+    )
 }
 
 pub(crate) fn tessellate_cached(
@@ -112,25 +257,17 @@ pub(crate) fn tessellate_cached(
     width: Option<f64>,
     tolerance: f32,
 ) -> Result<Arc<VertexBuffers<Point, u32>>, String> {
-    let (hash_a, hash_b, has_curves) = path_commands_fingerprint(commands);
-    let effective_tolerance = if width.is_none() && !has_curves {
-        // Straight-line polygon fills do not flatten curves; reuse across all zoom levels.
-        0.01_f32
-    } else {
-        let log_step = (tolerance.clamp(0.0005, 2.0).log2() * 4.0).round();
-        2.0_f32.powf(log_step * 0.25).clamp(0.0005, 2.0)
-    };
-    let key = TessCacheKey {
-        hash_a,
-        hash_b,
-        len: commands.len(),
-        rule: match rule {
-            FillRule::NonZero => 0,
-            FillRule::EvenOdd => 1,
-        },
-        width_bits: width.map(|w| if w == 0.0 { 0 } else { w.to_bits() }),
-        tol_bits: effective_tolerance.to_bits(),
-    };
+    tessellate_cached_with_fingerprint(commands, None, rule, width, tolerance)
+}
+
+pub(crate) fn tessellate_cached_with_fingerprint(
+    commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
+    rule: FillRule,
+    width: Option<f64>,
+    tolerance: f32,
+) -> Result<Arc<VertexBuffers<Point, u32>>, String> {
+    let (key, effective_tolerance) = tess_cache_key(commands, fingerprint, rule, width, tolerance);
     if let Some(hit) = TESS_CACHE.with(|cell| cell.borrow().entries.get(&key).cloned()) {
         return Ok(hit);
     }
@@ -225,6 +362,7 @@ pub(crate) struct PathPaint {
     pub stroke: Color32,
     pub width: f64,
     pub tolerance: f32,
+    pub fingerprint: Option<PathFingerprint>,
 }
 
 pub(crate) fn paint_path(
@@ -239,12 +377,13 @@ pub(crate) fn paint_path(
         stroke,
         width,
         tolerance,
+        fingerprint,
     } = paint;
     for (c, width) in [(fill, None), (stroke, Some(width))] {
         if c.a() == 0 || width.is_some_and(|w| w <= 0.) {
             continue;
         }
-        match tessellate_cached(commands, rule, width, tolerance) {
+        match tessellate_cached_with_fingerprint(commands, fingerprint, rule, width, tolerance) {
             Ok(geometry) => {
                 let mut mesh = egui::epaint::Mesh::default();
                 mesh.vertices.reserve(geometry.vertices.len());
@@ -261,6 +400,117 @@ pub(crate) fn paint_path(
                     message,
                     egui::FontId::monospace(crate::theme::PANEL_FONT),
                     UiPalette::current(p.ctx()).error_text,
+                );
+            }
+        }
+    }
+}
+
+fn screen_mesh_slot(item: &DrawItem, pass: ScreenMeshPass) -> ScreenMeshSlot {
+    let mut identity = std::collections::hash_map::DefaultHasher::new();
+    item.layer_id.hash(&mut identity);
+    item.instance_path.hash(&mut identity);
+    item.element_id.hash(&mut identity);
+    ScreenMeshSlot {
+        identity: identity.finish(),
+        pass,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn retained_screen_mesh(
+    item: &DrawItem,
+    commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
+    rule: FillRule,
+    width: Option<f64>,
+    tolerance: f32,
+    color: Color32,
+    origin: Pos2,
+    zoom: f32,
+    style: RetainedPathStyle,
+    pass: ScreenMeshPass,
+) -> Result<Arc<egui::Mesh>, String> {
+    let (tessellation, _) = tess_cache_key(commands, fingerprint, rule, width, tolerance);
+    let key = ScreenMeshKey {
+        tessellation,
+        transform_bits: item.transform.map(f64::to_bits),
+        origin_bits: [origin.x.to_bits(), origin.y.to_bits()],
+        zoom_bits: zoom.to_bits(),
+        color: color.to_array(),
+        style,
+    };
+    let slot = screen_mesh_slot(item, pass);
+    if let Some(mesh) = SCREEN_MESH_CACHE.with(|cache| cache.borrow().get(slot, key)) {
+        return Ok(mesh);
+    }
+
+    let geometry =
+        tessellate_cached_with_fingerprint(commands, fingerprint, rule, width, tolerance)?;
+    let mut mesh = egui::Mesh::default();
+    mesh.vertices.reserve(geometry.vertices.len());
+    for vertex in &geometry.vertices {
+        let local = Pos2::new(vertex.x, vertex.y);
+        let screen = origin + crate::stage::affine(item.transform, local).to_vec2() * zoom;
+        mesh.colored_vertex(screen, color);
+    }
+    mesh.indices.clone_from(&geometry.indices);
+    let mesh = Arc::new(mesh);
+    SCREEN_MESH_CACHE.with(|cache| cache.borrow_mut().insert(slot, key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Paint an evaluated solid Stage path from a retained screen-space mesh. Drafts, gradients and
+/// mask preparation deliberately keep their existing local-tessellation paths.
+pub(crate) fn paint_retained_stage_path(
+    painter: &egui::Painter,
+    item: &DrawItem,
+    commands: &[PathCommand],
+    paint: PathPaint,
+    origin: Pos2,
+    zoom: f32,
+    style: RetainedPathStyle,
+) {
+    let PathPaint {
+        rule,
+        fill,
+        stroke,
+        width,
+        tolerance,
+        fingerprint,
+    } = paint;
+    for (pass, color, width) in [
+        (ScreenMeshPass::Fill, fill, None),
+        (ScreenMeshPass::Stroke, stroke, Some(width)),
+    ] {
+        if color.a() == 0 || width.is_some_and(|value| value <= 0.) {
+            continue;
+        }
+        match retained_screen_mesh(
+            item,
+            commands,
+            fingerprint,
+            rule,
+            width,
+            tolerance,
+            color,
+            origin,
+            zoom,
+            style,
+            pass,
+        ) {
+            Ok(mesh) => {
+                painter.add(Shape::mesh(mesh));
+            }
+            Err(message) => {
+                let position =
+                    origin + crate::stage::affine(item.transform, Pos2::ZERO).to_vec2() * zoom;
+                painter.text(
+                    position,
+                    egui::Align2::LEFT_TOP,
+                    message,
+                    egui::FontId::monospace(crate::theme::PANEL_FONT),
+                    UiPalette::current(painter.ctx()).error_text,
                 );
             }
         }
@@ -1674,6 +1924,7 @@ impl Editor {
                     stroke: blue,
                     width: 1.5 / zoom as f64,
                     tolerance: 0.2,
+                    fingerprint: None,
                 },
                 screen,
             );
@@ -2307,6 +2558,7 @@ pub(crate) fn delete_anchors_from_path(
 pub(crate) fn paint_gradient_path(
     painter: &egui::Painter,
     commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
     rule: FillRule,
     width: f64,
     fill: (&Color, Option<&GradientPaint>),
@@ -2321,19 +2573,20 @@ pub(crate) fn paint_gradient_path(
         {
             continue;
         }
-        let geometry = match tessellate_cached(commands, rule, width, 0.1) {
-            Ok(value) => value,
-            Err(error) => {
-                painter.text(
-                    screen(Pos2::ZERO),
-                    egui::Align2::LEFT_TOP,
-                    error,
-                    egui::FontId::monospace(crate::theme::PANEL_FONT),
-                    UiPalette::current(painter.ctx()).error_text,
-                );
-                continue;
-            }
-        };
+        let geometry =
+            match tessellate_cached_with_fingerprint(commands, fingerprint, rule, width, 0.1) {
+                Ok(value) => value,
+                Err(error) => {
+                    painter.text(
+                        screen(Pos2::ZERO),
+                        egui::Align2::LEFT_TOP,
+                        error,
+                        egui::FontId::monospace(crate::theme::PANEL_FONT),
+                        UiPalette::current(painter.ctx()).error_text,
+                    );
+                    continue;
+                }
+            };
         let mut mesh = egui::Mesh::default();
         let sample = |p: Pos2| color(gradient.map_or(*solid, |g| g.sample(p.x as f64, p.y as f64)));
         for indices in geometry.indices.as_chunks::<3>().0 {
@@ -2391,5 +2644,414 @@ pub(crate) fn paint_gradient_path(
             egui::FontId::monospace(crate::theme::PANEL_FONT),
             UiPalette::current(painter.ctx()).error_text,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rectangle_commands(width: f64) -> Vec<PathCommand> {
+        vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::LineTo { x: width, y: 0. },
+            PathCommand::LineTo { x: width, y: 12. },
+            PathCommand::LineTo { x: 0., y: 12. },
+            PathCommand::Close,
+        ]
+    }
+
+    fn gradient(alpha: u8) -> GradientPaint {
+        GradientPaint {
+            kind: GradientKind::Linear,
+            matrix: [1., 0., 0., 1., 0., 0.],
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [20, 40, 60, alpha],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [80, 100, 120, alpha],
+                },
+            ],
+            focal_point_ratio: 0.,
+        }
+    }
+
+    fn rendered_path_passes(kind: &ElementKind) -> usize {
+        let ctx = egui::Context::default();
+        ctx.run(Default::default(), |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            match kind {
+                ElementKind::Path {
+                    commands,
+                    fill_rule,
+                    fill,
+                    stroke,
+                    stroke_width,
+                } => paint_path(
+                    &painter,
+                    commands,
+                    PathPaint {
+                        rule: *fill_rule,
+                        fill: Color32::from_rgba_unmultiplied(fill[0], fill[1], fill[2], fill[3]),
+                        stroke: Color32::from_rgba_unmultiplied(
+                            stroke[0], stroke[1], stroke[2], stroke[3],
+                        ),
+                        width: *stroke_width,
+                        tolerance: 0.1,
+                        fingerprint: None,
+                    },
+                    |point| point,
+                ),
+                ElementKind::PaintedPath {
+                    commands,
+                    fill_rule,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    fill_gradient,
+                    stroke_gradient,
+                } => paint_gradient_path(
+                    &painter,
+                    commands,
+                    None,
+                    *fill_rule,
+                    *stroke_width,
+                    (fill, fill_gradient.as_ref()),
+                    (stroke, stroke_gradient.as_ref()),
+                    |point| point,
+                    |color| Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]),
+                ),
+                _ => unreachable!("test cases are path renderers"),
+            }
+        })
+        .shapes
+        .iter()
+        .filter(|clipped| matches!(clipped.shape, Shape::Mesh(_)))
+        .count()
+    }
+
+    #[test]
+    fn vector_visibility_matches_renderer_and_stage_hit_testing() {
+        let commands = rectangle_commands(20.);
+        let cases = [
+            (
+                "solid fill",
+                ElementKind::Path {
+                    commands: commands.clone(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [20, 40, 60, 255],
+                    stroke: [0; 4],
+                    stroke_width: 3.,
+                },
+                VectorPaintVisibility {
+                    fill: true,
+                    stroke: false,
+                },
+                Pos2::new(10., 6.),
+            ),
+            (
+                "painted solid fallbacks",
+                ElementKind::PaintedPath {
+                    commands: commands.clone(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [20, 40, 60, 255],
+                    stroke: [80, 100, 120, 255],
+                    stroke_width: 3.,
+                    fill_gradient: None,
+                    stroke_gradient: None,
+                },
+                VectorPaintVisibility {
+                    fill: true,
+                    stroke: true,
+                },
+                Pos2::new(10., 6.),
+            ),
+            (
+                "opaque fill gradient overrides transparent solid",
+                ElementKind::PaintedPath {
+                    commands: commands.clone(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    stroke_width: 3.,
+                    fill_gradient: Some(gradient(255)),
+                    stroke_gradient: None,
+                },
+                VectorPaintVisibility {
+                    fill: true,
+                    stroke: false,
+                },
+                Pos2::new(10., 6.),
+            ),
+            (
+                "transparent fill gradient overrides opaque solid",
+                ElementKind::PaintedPath {
+                    commands: commands.clone(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [20, 40, 60, 255],
+                    stroke: [0; 4],
+                    stroke_width: 3.,
+                    fill_gradient: Some(gradient(0)),
+                    stroke_gradient: None,
+                },
+                VectorPaintVisibility {
+                    fill: false,
+                    stroke: false,
+                },
+                Pos2::new(10., 6.),
+            ),
+            (
+                "opaque stroke gradient overrides transparent solid",
+                ElementKind::PaintedPath {
+                    commands: commands.clone(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [0; 4],
+                    stroke_width: 3.,
+                    fill_gradient: None,
+                    stroke_gradient: Some(gradient(255)),
+                },
+                VectorPaintVisibility {
+                    fill: false,
+                    stroke: true,
+                },
+                Pos2::new(0., 6.),
+            ),
+            (
+                "transparent stroke gradient overrides opaque solid",
+                ElementKind::PaintedPath {
+                    commands: commands.clone(),
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [20, 40, 60, 255],
+                    stroke_width: 3.,
+                    fill_gradient: None,
+                    stroke_gradient: Some(gradient(0)),
+                },
+                VectorPaintVisibility {
+                    fill: false,
+                    stroke: false,
+                },
+                Pos2::new(0., 6.),
+            ),
+            (
+                "zero-width stroke",
+                ElementKind::PaintedPath {
+                    commands,
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [20, 40, 60, 255],
+                    stroke_width: 0.,
+                    fill_gradient: None,
+                    stroke_gradient: None,
+                },
+                VectorPaintVisibility {
+                    fill: false,
+                    stroke: false,
+                },
+                Pos2::new(0., 6.),
+            ),
+        ];
+        let ctx = egui::Context::default();
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        for (name, kind, expected, probe) in cases {
+            assert_eq!(vector_paint_visibility(&kind), Some(expected), "{name}");
+            assert_eq!(
+                rendered_path_passes(&kind),
+                usize::from(expected.fill) + usize::from(expected.stroke),
+                "renderer passes: {name}"
+            );
+            let item = DrawItem {
+                element_id: name.into(),
+                name: String::new(),
+                instance_path: vec![name.into()],
+                layer_id: "layer".into(),
+                transform: [1., 0., 0., 1., 0., 0.],
+                alpha: 1.,
+                color_transform: Default::default(),
+                path_fingerprint: None,
+                kind,
+            };
+            assert_eq!(
+                crate::stage::hit_item_with_slop(&item, &painter, probe, 1., 3.),
+                expected.fill || expected.stroke,
+                "stage hit: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn supplied_path_fingerprint_matches_fallback_bounds_and_tessellation_keys() {
+        let commands = vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::QuadraticTo {
+                cx: 20.,
+                cy: 30.,
+                x: 40.,
+                y: 0.,
+            },
+            PathCommand::LineTo { x: 0., y: 0. },
+            PathCommand::Close,
+        ];
+        let fingerprint = path_commands_fingerprint(&commands);
+
+        assert_eq!(
+            bounds_cache_key(&commands, None),
+            bounds_cache_key(&commands, Some(fingerprint))
+        );
+        assert_eq!(
+            path_bounds_cached(&commands, None),
+            path_bounds_cached(&commands, Some(fingerprint))
+        );
+        for width in [None, Some(3.5)] {
+            assert_eq!(
+                tess_cache_key(&commands, None, FillRule::EvenOdd, width, 0.123),
+                tess_cache_key(
+                    &commands,
+                    Some(fingerprint),
+                    FillRule::EvenOdd,
+                    width,
+                    0.123
+                )
+            );
+        }
+
+        let fallback = tessellate_cached(&commands, FillRule::EvenOdd, None, 0.123).unwrap();
+        let supplied = tessellate_cached_with_fingerprint(
+            &commands,
+            Some(fingerprint),
+            FillRule::EvenOdd,
+            None,
+            0.123,
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(&fallback, &supplied));
+    }
+
+    #[test]
+    fn retained_screen_mesh_reuses_arc_and_replaces_changed_draw_slot() {
+        SCREEN_MESH_CACHE.with(|cache| {
+            *cache.borrow_mut() = ScreenMeshCache::new(
+                MAX_SCREEN_MESH_CACHE_ENTRIES,
+                MAX_SCREEN_MESH_CACHE_ELEMENTS,
+            );
+        });
+        let commands = rectangle_commands(20.);
+        let fingerprint = path_commands_fingerprint(&commands);
+        let mut item = DrawItem {
+            element_id: "retained-path".into(),
+            name: String::new(),
+            instance_path: vec!["outer".into(), "retained-path".into()],
+            layer_id: "layer".into(),
+            transform: [1., 0., 0., 1., 5., 7.],
+            alpha: 1.,
+            color_transform: Default::default(),
+            path_fingerprint: Some(fingerprint),
+            kind: ElementKind::Path {
+                commands: commands.clone(),
+                fill_rule: FillRule::NonZero,
+                fill: [220, 40, 20, 255],
+                stroke: [0; 4],
+                stroke_width: 0.,
+            },
+        };
+        let origin = Pos2::new(30., 40.);
+        let color = Color32::from_rgb(220, 40, 20);
+        let build = |item: &DrawItem, commands: &[PathCommand], color, style| {
+            retained_screen_mesh(
+                item,
+                commands,
+                item.path_fingerprint,
+                FillRule::NonZero,
+                None,
+                0.1,
+                color,
+                origin,
+                1.5,
+                style,
+                ScreenMeshPass::Fill,
+            )
+            .unwrap()
+        };
+
+        let first = build(&item, &commands, color, RetainedPathStyle::Artwork);
+        let warm = build(&item, &commands, color, RetainedPathStyle::Artwork);
+        assert!(Arc::ptr_eq(&first, &warm));
+
+        item.transform[4] += 10.;
+        let moved = build(&item, &commands, color, RetainedPathStyle::Artwork);
+        assert!(!Arc::ptr_eq(&warm, &moved));
+        let recolored = build(
+            &item,
+            &commands,
+            Color32::from_rgb(20, 80, 230),
+            RetainedPathStyle::Artwork,
+        );
+        assert!(!Arc::ptr_eq(&moved, &recolored));
+
+        let changed_commands = rectangle_commands(28.);
+        item.path_fingerprint = Some(path_commands_fingerprint(&changed_commands));
+        let reshaped = build(
+            &item,
+            &changed_commands,
+            Color32::from_rgb(20, 80, 230),
+            RetainedPathStyle::Artwork,
+        );
+        assert!(!Arc::ptr_eq(&recolored, &reshaped));
+        let outlined = build(
+            &item,
+            &changed_commands,
+            Color32::from_rgb(20, 80, 230),
+            RetainedPathStyle::Outline,
+        );
+        assert!(!Arc::ptr_eq(&reshaped, &outlined));
+
+        SCREEN_MESH_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert_eq!(
+                cache.entries.len(),
+                1,
+                "changed drag positions replace one slot"
+            );
+        });
+    }
+
+    #[test]
+    fn retained_screen_mesh_cache_is_bounded_by_entries_and_elements() {
+        let commands = rectangle_commands(20.);
+        let fingerprint = path_commands_fingerprint(&commands);
+        let (tessellation, _) =
+            tess_cache_key(&commands, Some(fingerprint), FillRule::NonZero, None, 0.1);
+        let key = ScreenMeshKey {
+            tessellation,
+            transform_bits: [0; 6],
+            origin_bits: [0; 2],
+            zoom_bits: 1.0_f32.to_bits(),
+            color: [10, 20, 30, 255],
+            style: RetainedPathStyle::Artwork,
+        };
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(Pos2::ZERO, Color32::WHITE);
+        let mesh = Arc::new(mesh);
+        let slot = |identity| ScreenMeshSlot {
+            identity,
+            pass: ScreenMeshPass::Fill,
+        };
+
+        let mut by_entries = ScreenMeshCache::new(2, usize::MAX);
+        for identity in 0..3 {
+            by_entries.insert(slot(identity), key, mesh.clone());
+        }
+        assert!(by_entries.entries.len() <= 2);
+
+        let mut by_elements = ScreenMeshCache::new(10, 2);
+        for identity in 0..3 {
+            by_elements.insert(slot(identity), key, mesh.clone());
+        }
+        assert!(by_elements.total_elements <= 2);
+        assert!(by_elements.entries.len() <= 2);
     }
 }

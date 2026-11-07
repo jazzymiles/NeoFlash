@@ -385,6 +385,7 @@ fn preview(ui: &mut egui::Ui, dialog: &TraceDialog, busy: bool) {
                     },
                     width: preview.options.stroke_width * scale,
                     tolerance: 0.25 / zoom,
+                    fingerprint: None,
                 },
                 |p| art.min + p.to_vec2() * zoom,
             );

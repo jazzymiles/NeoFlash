@@ -63,13 +63,16 @@ impl RuntimeGraph {
         }
         Ok(())
     }
-    fn retire_objects(&mut self, retired: &BTreeSet<ObjectRef>) {
+    fn retire_objects(&mut self, retired: &BTreeSet<ObjectRef>) -> Vec<crate::SoundCommand> {
+        let mut sound_commands = vec![];
         self.forget_hierarchy(retired);
         for reference in retired {
             if let Some(node) = self.dynamic.remove(reference) {
                 self.graphics_cost -= node.graphics.cost();
             }
-            self.namespaces.remove(reference);
+            if let Some(mut namespace) = self.namespaces.remove(reference) {
+                sound_commands.extend(namespace.player.stop_and_drain_scoped_sounds(reference));
+            }
             self.prefix.remove(reference);
             self.suffix.remove(reference);
             self.loaders.remove(reference);
@@ -93,15 +96,20 @@ impl RuntimeGraph {
         self.retire_clipping(retired);
         self.events
             .retain(|event| !retired.contains(&event.target_ref));
+        sound_commands
     }
-    pub(super) fn retire_loader_children(&mut self, retired: &BTreeSet<ObjectRef>) {
+    pub(super) fn retire_loader_children(
+        &mut self,
+        retired: &BTreeSet<ObjectRef>,
+    ) -> Vec<crate::SoundCommand> {
         let children: BTreeSet<_> = retired
             .iter()
             .filter_map(|id| self.loaders.get(id).and_then(|s| s.content.clone()))
             .flat_map(|id| self.subtree(&id))
             .collect();
-        self.retire_objects(&children);
+        let sound_commands = self.retire_objects(&children);
         self.loaders.retain(|id, _| !retired.contains(id));
+        sound_commands
     }
 }
 impl Player {
@@ -354,7 +362,8 @@ impl Player {
             self.object_control(project, target, PlaybackCommand::Stop);
         }
         if as2_replace {
-            self.graph.retire_objects(&retired);
+            let retired_sound_commands = self.graph.retire_objects(&retired);
+            self.sound.extend(retired_sound_commands);
             if let Some(node) = self.graph.dynamic.get_mut(target) {
                 self.graph.graphics_cost -= node.graphics.cost();
                 node.graphics = GraphicsState::default();
@@ -491,6 +500,68 @@ enum LoaderPayload {
 mod tests {
     use super::*;
 
+    fn linked_stream_project() -> Project {
+        let mut project = Project::blank();
+        project.fps = 10;
+        project.format_version = 6;
+        project.resources.push(
+            ResourceUnit::from_bytes("song", "audio/song.mp3", "audio/mpeg", b"ID3").unwrap(),
+        );
+        project.symbols.push(Symbol {
+            id: "linked-sound".into(),
+            name: "Linked sound".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 4,
+                layers: vec![Layer {
+                    id: "music".into(),
+                    name: "music".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        sound: Some(FrameSound {
+                            sync: SoundSync::Stream,
+                            ..FrameSound::new("song")
+                        }),
+                        ..Keyframe::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: vec![],
+                guides: vec![],
+            },
+            class_name: None,
+            linkage_id: Some("LinkedSound".into()),
+        });
+        project.validate().unwrap();
+        project
+    }
+
+    fn stream_start_channels(commands: &[SoundCommand]) -> Vec<String> {
+        let mut channels: Vec<_> = commands
+            .iter()
+            .filter_map(|command| match command {
+                SoundCommand::StreamStart { channel, .. } => Some(channel.clone()),
+                _ => None,
+            })
+            .collect();
+        channels.sort();
+        channels
+    }
+
+    fn stream_stop_channels(commands: &[SoundCommand]) -> Vec<String> {
+        let mut channels: Vec<_> = commands
+            .iter()
+            .filter_map(|command| match command {
+                SoundCommand::StreamStop { channel } => Some(channel.clone()),
+                _ => None,
+            })
+            .collect();
+        channels.sort();
+        channels
+    }
+
     #[test]
     fn loader_replace_swf_enforces_dynamic_depth_graphics_and_event_budgets() {
         let project = Project::blank();
@@ -529,5 +600,42 @@ mod tests {
             .loader_replace_swf(&project, &loader, 3, 100, 100, None, false)
             .unwrap_err();
         assert!(err.0.contains("dynamic display object budget"));
+    }
+
+    #[test]
+    fn loader_replacement_recursively_stops_nested_linked_streams() {
+        let project = linked_stream_project();
+        let mut player = Player::new(&project);
+        let target = player.create_display(DynamicKind::MovieClip).unwrap();
+        let outer = player.create_linked(&project, "LinkedSound").unwrap();
+        player
+            .graph
+            .namespaces
+            .get_mut(&outer)
+            .unwrap()
+            .player
+            .create_linked(&project, "LinkedSound")
+            .unwrap();
+        player
+            .display_mutate(
+                &project,
+                DisplayMutation::Add {
+                    parent: target.clone(),
+                    child: outer.clone(),
+                    index: None,
+                },
+            )
+            .unwrap();
+
+        let starts = stream_start_channels(&player.drain_sound_commands());
+        assert_eq!(starts.len(), 2);
+        assert_ne!(starts[0], starts[1]);
+
+        player
+            .loader_replace(&project, &target, None, true)
+            .unwrap();
+        let stops = stream_stop_channels(&player.drain_sound_commands());
+        assert_eq!(stops, starts);
+        assert!(!player.object_alive(&outer));
     }
 }

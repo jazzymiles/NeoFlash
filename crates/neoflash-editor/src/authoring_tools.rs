@@ -1744,7 +1744,135 @@ fn simplify_round_spine(
     (out_pts, out_rad)
 }
 
+#[derive(Default)]
+struct RectSweepCounts {
+    tree: Vec<usize>,
+}
+
+impl RectSweepCounts {
+    fn with_len(len: usize) -> Self {
+        Self {
+            tree: vec![0; len + 1],
+        }
+    }
+
+    fn update(&mut self, index: usize, add: bool) {
+        let mut index = index + 1;
+        while index < self.tree.len() {
+            if add {
+                self.tree[index] += 1;
+            } else {
+                self.tree[index] -= 1;
+            }
+            index += index.isolate_lowest_one();
+        }
+    }
+
+    /// Number of entries whose compressed coordinate is below `end`.
+    fn prefix(&self, end: usize) -> usize {
+        let mut index = end;
+        let mut count = 0;
+        while index > 0 {
+            count += self.tree[index];
+            index &= index - 1;
+        }
+        count
+    }
+}
+
+fn nonadjacent_rects_overlap_bruteforce(boxes: &[Rect]) -> bool {
+    (0..boxes.len()).any(|i| ((i + 2)..boxes.len()).any(|j| boxes[i].intersects(boxes[j])))
+}
+
+/// Detect the same non-adjacent expanded-box intersections as the quadratic scan, using an X
+/// sweep and two Fenwick indexes over active Y interval endpoints. Touching bounds still count.
+fn nonadjacent_rects_overlap(boxes: &[Rect]) -> bool {
+    if boxes.len() < 3 {
+        return false;
+    }
+    if boxes.iter().any(|rect| {
+        [rect.min.x, rect.min.y, rect.max.x, rect.max.y]
+            .into_iter()
+            .any(|value| !value.is_finite())
+            || rect.min.x > rect.max.x
+            || rect.min.y > rect.max.y
+    }) {
+        return nonadjacent_rects_overlap_bruteforce(boxes);
+    }
+
+    let mut y_values: Vec<f32> = boxes
+        .iter()
+        .flat_map(|rect| [rect.min.y, rect.max.y])
+        .collect();
+    y_values.sort_by(f32::total_cmp);
+    y_values.dedup_by(|a, b| a.total_cmp(b).is_eq());
+
+    let coordinate = |value: f32| {
+        y_values
+            .binary_search_by(|candidate| candidate.total_cmp(&value))
+            .expect("rectangle endpoint was collected before the sweep")
+    };
+    let mut starts: Vec<usize> = (0..boxes.len()).collect();
+    starts.sort_by(|&a, &b| boxes[a].min.x.total_cmp(&boxes[b].min.x).then(a.cmp(&b)));
+    let mut ends: Vec<usize> = (0..boxes.len()).collect();
+    ends.sort_by(|&a, &b| boxes[a].max.x.total_cmp(&boxes[b].max.x).then(a.cmp(&b)));
+
+    let mut active = vec![false; boxes.len()];
+    let mut min_y = RectSweepCounts::with_len(y_values.len());
+    let mut max_y = RectSweepCounts::with_len(y_values.len());
+    let mut end_cursor = 0;
+    for index in starts {
+        let current = boxes[index];
+        while end_cursor < ends.len() && boxes[ends[end_cursor]].max.x < current.min.x {
+            let expired = ends[end_cursor];
+            if active[expired] {
+                min_y.update(coordinate(boxes[expired].min.y), false);
+                max_y.update(coordinate(boxes[expired].max.y), false);
+                active[expired] = false;
+            }
+            end_cursor += 1;
+        }
+
+        // Active X intervals already intersect `current`. Among them, Y intervals overlap when
+        // min_y <= current.max_y and max_y >= current.min_y. The two excluded sets are disjoint.
+        let mins_at_or_below = y_values.partition_point(|value| *value <= current.max.y);
+        let maxes_below = y_values.partition_point(|value| *value < current.min.y);
+        let mut overlaps = min_y.prefix(mins_at_or_below) - max_y.prefix(maxes_below);
+
+        // Consecutive spine segments share an endpoint and were deliberately excluded by the old
+        // `j = i + 2` scan. At most two such intervals can be active, so remove them from the count.
+        for neighbour in [
+            index.checked_sub(1),
+            (index + 1 < boxes.len()).then_some(index + 1),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if active[neighbour] && current.intersects(boxes[neighbour]) {
+                overlaps -= 1;
+            }
+        }
+        if overlaps > 0 {
+            return true;
+        }
+
+        min_y.update(coordinate(current.min.y), true);
+        max_y.update(coordinate(current.max.y), true);
+        active[index] = true;
+    }
+    false
+}
+
 fn round_brush_envelope(points: &[Pos2], pressures: &[f32], width: f32) -> Vec<PathCommand> {
+    round_brush_envelope_with_overlap_check(points, pressures, width, nonadjacent_rects_overlap)
+}
+
+fn round_brush_envelope_with_overlap_check(
+    points: &[Pos2],
+    pressures: &[f32],
+    width: f32,
+    overlaps: fn(&[Rect]) -> bool,
+) -> Vec<PathCommand> {
     if points.is_empty() || !width.is_finite() || width <= 0. {
         return vec![];
     }
@@ -1794,20 +1922,11 @@ fn round_brush_envelope(points: &[Pos2], pressures: &[f32], width: f32) -> Vec<P
     }
     if clean_single_contour && m > 3 {
         // Reject self-intersecting simplified spines so they take the disk+quad union path.
-        'outer: for i in 0..(m - 1) {
-            let a0 = pts[i];
-            let a1 = pts[i + 1];
-            let ra = radii[i].max(radii[i + 1]);
-            let box_a = Rect::from_two_pos(a0, a1).expand(ra);
-            for j in (i + 2)..(m - 1) {
-                let b0 = pts[j];
-                let b1 = pts[j + 1];
-                let rb = radii[j].max(radii[j + 1]);
-                if box_a.intersects(Rect::from_two_pos(b0, b1).expand(rb)) {
-                    clean_single_contour = false;
-                    break 'outer;
-                }
-            }
+        let boxes: Vec<_> = (0..(m - 1))
+            .map(|i| Rect::from_two_pos(pts[i], pts[i + 1]).expand(radii[i].max(radii[i + 1])))
+            .collect();
+        if overlaps(&boxes) {
+            clean_single_contour = false;
         }
     }
 
@@ -2759,4 +2878,116 @@ fn convex_tip_hull(mut points: Vec<Pos2>) -> Vec<Pos2> {
     }
     hull.pop();
     hull
+}
+
+#[cfg(test)]
+mod round_brush_overlap_tests {
+    use super::*;
+
+    fn random_unit(state: &mut u64) -> f32 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        (*state as u32) as f32 / u32::MAX as f32
+    }
+
+    #[test]
+    fn indexed_overlap_matches_the_previous_scan_including_touching_and_adjacency() {
+        let explicit = [
+            vec![],
+            vec![Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.))],
+            vec![
+                Rect::from_min_max(Pos2::new(0., 0.), Pos2::new(1., 1.)),
+                Rect::from_min_max(Pos2::new(1., 0.), Pos2::new(2., 1.)),
+                Rect::from_min_max(Pos2::new(2., 0.), Pos2::new(3., 1.)),
+            ],
+            vec![
+                Rect::from_min_max(Pos2::new(0., 0.), Pos2::new(1., 1.)),
+                Rect::from_min_max(Pos2::new(4., 4.), Pos2::new(5., 5.)),
+                Rect::from_min_max(Pos2::new(1., 1.), Pos2::new(2., 2.)),
+            ],
+        ];
+        for boxes in explicit {
+            assert_eq!(
+                nonadjacent_rects_overlap(&boxes),
+                nonadjacent_rects_overlap_bruteforce(&boxes)
+            );
+        }
+
+        let mut state = 0x8f37_14c2_9d05_6ab1_u64;
+        for len in 0..96 {
+            let boxes: Vec<_> = (0..len)
+                .map(|_| {
+                    // Quantised coordinates deliberately create equal and just-touching bounds.
+                    let x = (random_unit(&mut state) * 48.).floor() - 24.;
+                    let y = (random_unit(&mut state) * 48.).floor() - 24.;
+                    let width = (random_unit(&mut state) * 9.).floor();
+                    let height = (random_unit(&mut state) * 9.).floor();
+                    Rect::from_min_max(Pos2::new(x, y), Pos2::new(x + width, y + height))
+                })
+                .collect();
+            assert_eq!(
+                nonadjacent_rects_overlap(&boxes),
+                nonadjacent_rects_overlap_bruteforce(&boxes),
+                "rectangle count {len}"
+            );
+        }
+    }
+
+    #[test]
+    fn indexed_overlap_keeps_round_brush_commands_byte_for_byte() {
+        let mut state = 0x51a9_b20d_78e4_c633_u64;
+        for case in 0..64 {
+            let count = 4 + case % 61;
+            let mut points = Vec::with_capacity(count);
+            let mut pressures = Vec::with_capacity(count);
+            let mut point = Pos2::ZERO;
+            for index in 0..count {
+                if index > 0 {
+                    let angle = (random_unit(&mut state) - 0.5) * std::f32::consts::PI;
+                    let distance = 0.3 + random_unit(&mut state) * 8.;
+                    point += Vec2::angled(angle) * distance;
+                    if index % 13 == 0 {
+                        point = points[index / 3];
+                    }
+                }
+                points.push(point);
+                pressures.push(0.1 + random_unit(&mut state) * 0.9);
+            }
+            let width = 1. + random_unit(&mut state) * 60.;
+            let indexed = round_brush_envelope_with_overlap_check(
+                &points,
+                &pressures,
+                width,
+                nonadjacent_rects_overlap,
+            );
+            let previous = round_brush_envelope_with_overlap_check(
+                &points,
+                &pressures,
+                width,
+                nonadjacent_rects_overlap_bruteforce,
+            );
+            assert_eq!(indexed, previous, "round Brush case {case}");
+        }
+    }
+
+    #[test]
+    fn indexed_overlap_handles_the_maximum_disjoint_sweep_without_pair_scanning() {
+        // All X intervals overlap, but all Y intervals are disjoint. The previous scan considers
+        // 2,092,035 candidate pairs at the Brush's 2,048-point limit; the indexed result is false.
+        let count = 2047_usize;
+        let mut boxes: Vec<_> = (0..count)
+            .map(|index| {
+                let y = index as f32 * 3.;
+                Rect::from_min_max(Pos2::new(0., y), Pos2::new(10_000., y + 1.))
+            })
+            .collect();
+        let old_candidate_pairs = (count - 1) * (count - 2) / 2;
+        assert!(old_candidate_pairs > 2_000_000);
+        assert!(!nonadjacent_rects_overlap(&boxes));
+
+        // Touching is inclusive in egui::Rect::intersects and must still select the fallback.
+        boxes[count - 1] = Rect::from_min_max(Pos2::new(10_000., 1.), Pos2::new(10_001., 2.));
+        assert!(nonadjacent_rects_overlap(&boxes));
+    }
 }

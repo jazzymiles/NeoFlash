@@ -103,7 +103,7 @@ pub fn timeline_sound_resources(project: &Project) -> Vec<Id> {
     let mut ids: Vec<Id> = project
         .symbols
         .iter()
-        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(sound_layers)
         .flat_map(|layer| &layer.keyframes)
         .filter_map(|key| key.sound.as_ref())
         .filter(|sound| sound.sync != SoundSync::Stop)
@@ -238,6 +238,27 @@ impl SoundState {
     pub(crate) fn stop_all(&mut self) {
         self.streams.clear();
         self.push(SoundCommand::StopAll);
+    }
+
+    /// A parent player already emitted the one host-global StopAll command. Discard
+    /// linked pending starts and reset their local stream bookkeeping so streams can
+    /// synchronise again on the next advancing frame without following that StopAll.
+    pub(crate) fn clear_for_global_stop(&mut self) {
+        self.commands.clear();
+        self.streams.clear();
+        self.started = false;
+    }
+
+    pub(crate) fn has_started(&self) -> bool {
+        self.started
+    }
+
+    /// Preserve commands drained from linked players that are about to be retired.
+    pub(crate) fn extend(&mut self, commands: Vec<SoundCommand>) {
+        if !commands.is_empty() {
+            self.started = true;
+            self.commands.extend(commands);
+        }
     }
 
     /// Restart: forget pending commands; tell the host to silence what an earlier session started.

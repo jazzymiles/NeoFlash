@@ -140,6 +140,14 @@ impl Player {
     }
 
     pub(crate) fn with_source_root(project: &Project, source_root: Option<Id>) -> Self {
+        Self::with_source_root_playing(project, source_root, true)
+    }
+
+    pub(crate) fn with_source_root_playing(
+        project: &Project,
+        source_root: Option<Id>,
+        playing: bool,
+    ) -> Self {
         let mut player = Self {
             graph: crate::runtime_graph::RuntimeGraph::default(),
             source_root,
@@ -157,7 +165,7 @@ impl Player {
             scenes: vec![],
             sound: Default::default(),
         };
-        player.reset(project);
+        player.reset_with_playing(project, playing);
         player
     }
 
@@ -166,6 +174,15 @@ impl Player {
     }
 
     pub fn reset(&mut self, project: &Project) {
+        self.reset_with_playing(project, true);
+    }
+
+    fn reset_with_playing(&mut self, project: &Project, playing: bool) {
+        if self.linked_sound_started() {
+            // Linked players are retired by graph.reset(). Preserve the one global
+            // silence command that their already-started host audio still needs.
+            self.sound.stop_all();
+        }
         self.graph.reset();
         self.suppressed_content.clear();
         if self.source_root.is_none() {
@@ -177,7 +194,7 @@ impl Player {
         self.lifetimes.clear();
         self.scripts.clear();
         self.runtime_scripts.clear();
-        self.playing = true;
+        self.playing = playing;
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.sound.reset();
@@ -208,6 +225,7 @@ impl Player {
         if !playing {
             self.sound.stop_streams();
         }
+        self.set_linked_playing(playing);
     }
 
     /// Timeline sound commands produced since the last call, including those of
@@ -220,6 +238,9 @@ impl Player {
 
     /// AS2 `stopAllSounds()` / AS3 `SoundMixer.stopAll()`: stop every sound now.
     pub fn stop_all_sounds(&mut self) {
+        // One host StopAll is global. Clear linked pending starts and stream state
+        // before emitting it so the later linked drain cannot restart audio after it.
+        self.clear_linked_sounds_for_global_stop();
         self.sound.stop_all();
     }
 
@@ -266,6 +287,10 @@ impl Player {
 
     /// Explicit preview seek resets nested runtime state. Authoring scrub uses evaluate().
     pub fn seek(&mut self, project: &Project, frame: u32) {
+        // graph.reset() retires runtime-created linked players. Drain their pending
+        // commands and stream stops first, retaining the established root-before-linked
+        // command order in the root sound queue.
+        let linked_sound_commands = self.stop_and_drain_linked_streams();
         self.graph.reset();
         self.suppressed_content.clear();
         self.clocks.clear();
@@ -277,6 +302,7 @@ impl Player {
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.sound.stop_streams();
+        self.sound.extend(linked_sound_commands);
         let count = project
             .symbol(self.root_id(project))
             .map_or(1, |s| s.timeline.frame_count.max(1));
@@ -344,9 +370,21 @@ impl Player {
     }
 
     pub fn display_nodes(&self, project: &Project) -> Vec<DisplayNode> {
-        self.snapshot(project)
+        let scene = self.snapshot(project);
+        self.display_nodes_from_evaluation(project, &scene)
+    }
+
+    /// Add runtime identity and class metadata to the nodes of an evaluation that the
+    /// caller already owns. Runtime snapshots use this to avoid evaluating the same
+    /// authored tree once for display metadata and again for draw/mask metadata.
+    pub(crate) fn display_nodes_from_evaluation(
+        &self,
+        project: &Project,
+        scene: &Evaluation,
+    ) -> Vec<DisplayNode> {
+        scene
             .nodes
-            .into_iter()
+            .iter()
             .filter_map(|node| {
                 let lifetime_id = self.lifetime_id(&node.path)?.to_string();
                 let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id));
@@ -355,14 +393,18 @@ impl Player {
                     Some(SymbolKind::Graphic) => "graphic",
                     Some(SymbolKind::Button) => "button",
                     None if matches!(
-                        node.kind,
+                        node.kind.as_ref(),
                         Some(ElementKind::Text { .. } | ElementKind::TextBox { .. })
                     ) =>
                     {
                         "text"
                     }
-                    None if matches!(node.kind, Some(ElementKind::Bitmap { .. })) => "bitmap",
-                    None if matches!(node.kind, Some(ElementKind::Video { .. })) => "video",
+                    None if matches!(node.kind.as_ref(), Some(ElementKind::Bitmap { .. })) => {
+                        "bitmap"
+                    }
+                    None if matches!(node.kind.as_ref(), Some(ElementKind::Video { .. })) => {
+                        "video"
+                    }
                     None => "shape",
                 };
                 let class_name = if node.path.is_empty() && self.source_root.is_none() {
@@ -373,12 +415,12 @@ impl Player {
                 let symbol_id = if node.path.is_empty() && self.source_root.is_none() {
                     None
                 } else {
-                    node.symbol_id
+                    node.symbol_id.clone()
                 };
                 Some(DisplayNode {
-                    path: node.path,
+                    path: node.path.clone(),
                     lifetime_id,
-                    name: node.name,
+                    name: node.name.clone(),
                     owner: owner.into(),
                     symbol_id,
                     class_name,
@@ -391,8 +433,8 @@ impl Player {
                     independent: node.independent,
                     blend_mode: node.blend_mode,
                     cache_as_bitmap: node.cache_as_bitmap,
-                    filters: node.filters,
-                    kind: node.kind,
+                    filters: node.filters.clone(),
+                    kind: node.kind.clone(),
                 })
             })
             .collect()
@@ -591,7 +633,7 @@ impl Player {
                 let entered = forced.contains(&node.path) || moved;
                 if entered && let Some(symbol) = project.symbol(symbol_id) {
                     // A one-frame timeline that "loops" in place does not re-enter its frame.
-                    if moved || symbol.timeline.frame_count > 1 {
+                    if self.playing && (moved || symbol.timeline.frame_count > 1) {
                         self.sound.frame_entered(symbol, node.frame);
                     }
                     for script in &symbol.timeline.scripts {
@@ -634,7 +676,7 @@ impl Player {
                 })
             })
             .collect::<Vec<_>>();
-        self.graph.reconcile(&placements);
+        let retired_sound_commands = self.graph.reconcile(&placements);
         self.previous = scene
             .nodes
             .into_iter()
@@ -643,6 +685,7 @@ impl Player {
         self.lifetimes
             .retain(|path, _| self.previous.contains_key(path));
         self.sync_sound_streams(project);
+        self.sound.extend(retired_sound_commands);
     }
 
     /// Changes when a placement is recreated; stays stable across continuous keys.

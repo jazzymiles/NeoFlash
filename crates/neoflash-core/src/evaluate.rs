@@ -16,6 +16,10 @@ pub struct DrawItem<K = ElementKind> {
     pub alpha: f64,
     #[serde(default, skip_serializing_if = "crate::ColorTransform::is_identity")]
     pub color_transform: crate::ColorTransform,
+    /// Derived local-path cache hint. It is intentionally absent from serialized snapshots and
+    /// equality so renderer preparation never changes the public evaluation contract.
+    #[serde(skip)]
+    pub path_fingerprint: Option<PathFingerprint>,
     pub kind: K,
 }
 
@@ -44,6 +48,7 @@ impl<K> DrawItem<K> {
             transform: self.transform,
             alpha: self.alpha,
             color_transform: self.color_transform,
+            path_fingerprint: None,
             kind: map(self.kind),
         }
     }
@@ -1461,6 +1466,7 @@ impl Walker<'_> {
                             transform: world,
                             alpha: opacity,
                             color_transform,
+                            path_fingerprint: None,
                             kind,
                         });
                     }

@@ -88,9 +88,10 @@ pub use filters::{
     MAX_OBJECT_FILTERS, adjust_color_matrix, filter_padding, filter_rgba, validate_filters,
 };
 pub use geometry::{
-    FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds, flatten_path,
-    hit_test_path, nearest_path_segment, oval_path_commands, path_bounds, paths_have_same_topology,
-    polystar_path_commands, rectangle_path_commands, subdivide_path_at, validate_path_commands,
+    FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds,
+    PathFingerprint, flatten_path, hit_test_path, nearest_path_segment, oval_path_commands,
+    path_bounds, path_commands_fingerprint, paths_have_same_topology, polystar_path_commands,
+    rectangle_path_commands, subdivide_path_at, validate_path_commands,
 };
 pub use history::History;
 pub use library_folders::valid_library_folder;

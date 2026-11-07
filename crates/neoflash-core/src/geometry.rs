@@ -2,12 +2,67 @@
 //! are serialized. Helpers return a limit error instead of truncated geometry.
 use crate::{FillRule, PathCommand};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 use thiserror::Error;
 
 pub const MAX_PATH_COMMANDS: usize = 100_000;
 const MAX_FLATTENED_POINTS: usize = 1_000_000;
 const MAX_COORDINATE: f64 = 1e9;
 type Point = [f64; 2];
+
+/// Non-serialized identity for path geometry prepared during evaluation.
+///
+/// This is a derived cache hint only: renderers must remain correct when it is absent and document
+/// equality/serialization must never depend on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PathFingerprint {
+    pub hash_a: u64,
+    pub hash_b: u64,
+    pub has_curves: bool,
+}
+
+/// Fingerprint path content once so a renderer can share bounds/tessellation keys within a frame.
+pub fn path_commands_fingerprint(commands: &[PathCommand]) -> PathFingerprint {
+    let mut hash_a = std::collections::hash_map::DefaultHasher::new();
+    let mut hash_b: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |tag: u8, values: &[f64]| {
+        tag.hash(&mut hash_a);
+        hash_b = (hash_b ^ u64::from(tag)).wrapping_mul(0x0100_0000_01b3);
+        for &value in values {
+            let bits = if value == 0.0 { 0 } else { value.to_bits() };
+            bits.hash(&mut hash_a);
+            hash_b = (hash_b ^ bits).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    let mut has_curves = false;
+    for command in commands {
+        match *command {
+            PathCommand::MoveTo { x, y } => mix(1, &[x, y]),
+            PathCommand::LineTo { x, y } => mix(2, &[x, y]),
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                has_curves = true;
+                mix(3, &[cx, cy, x, y]);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                has_curves = true;
+                mix(4, &[cx1, cy1, cx2, cy2, x, y]);
+            }
+            PathCommand::Close => mix(5, &[]),
+        }
+    }
+    PathFingerprint {
+        hash_a: hash_a.finish(),
+        hash_b,
+        has_curves,
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct FlattenOptions {

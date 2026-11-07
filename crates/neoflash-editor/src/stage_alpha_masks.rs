@@ -6,7 +6,7 @@ use eframe::egui::{
     self, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureId, TextureOptions,
 };
 use egui::epaint::{ClippedPrimitive, Mesh, Primitive};
-use neoflash_core::{AuthoredScene, BlendMode, MaskCoverage};
+use neoflash_core::{AuthoredScene, BlendMode, MaskCoverage, path_commands_fingerprint};
 use std::{
     collections::{HashMap, HashSet},
     hash::{Hash, Hasher},
@@ -210,6 +210,7 @@ pub(super) fn paint(
                     outlines: style.outlines || draw.outline_color.is_some(),
                     ..style
                 },
+                false,
             )
         });
         let bounds = primitives
@@ -255,8 +256,8 @@ pub(super) fn paint(
             comp.clip_ids.hash(&mut hash);
             (comp.fill_rule as u8).hash(&mut hash);
             comp.matrix.map(f64::to_bits).hash(&mut hash);
-            let (ha, hb, _) = crate::vector::path_commands_fingerprint(&comp.commands);
-            [ha, hb].hash(&mut hash);
+            let fingerprint = path_commands_fingerprint(&comp.commands);
+            [fingerprint.hash_a, fingerprint.hash_b].hash(&mut hash);
         }
         if let Some(alpha_comps) = &clip.alpha_components {
             serde_json::to_vec(alpha_comps)

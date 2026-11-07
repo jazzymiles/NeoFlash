@@ -2289,6 +2289,7 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
             }),
             alpha: 1.,
             color_transform: Default::default(),
+            path_fingerprint: None,
             kind,
         };
         let origin = egui::pos2(100., 100.);
@@ -2382,6 +2383,7 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
             transform: transform_matrix(Transform::default()),
             alpha: 1.,
             color_transform: Default::default(),
+            path_fingerprint: None,
             kind: ElementKind::Path {
                 commands,
                 fill_rule: FillRule::NonZero,
@@ -2958,8 +2960,10 @@ fn t093_extreme_multi_brush_and_move_benchmark() {
             editor.set_selection(targets);
 
             // Measure live drag frame latency (transforming selected elements before release)
+            let selected_set: std::collections::HashSet<&str> =
+                selected_ids.iter().map(String::as_str).collect();
             for el in &mut editor.symbol_mut().timeline.layers[0].keyframes[0].elements {
-                if selected_ids.contains(&el.id) {
+                if selected_set.contains(el.id.as_str()) {
                     el.transform.x += dx;
                     el.transform.y += dy;
                 }

@@ -1,8 +1,10 @@
+use self::media::{looks_like_mp3 as looks_like_xfl_mp3, wav_duration_44 as parse_wav_duration_44};
 use crate::{ImportReport, Statistics, source};
 use neoflash_core::*;
 use roxmltree::{Document, Node, ParsingOptions};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+pub(crate) mod media;
 mod publish;
 mod shape;
 
@@ -23,6 +25,12 @@ pub(crate) fn convert(
         return None;
     }
     report.version = root.attribute("xflVersion").map(str::to_owned);
+    // NeoFlash's first XFL exporter wrote filter strength multiplied by 100 and
+    // did not identify its generator. Unmarked files are therefore ambiguous, so
+    // preserve their previous behavior instead of changing old exports' appearance.
+    // Adobe-authored documents and current NeoFlash exports carry creatorInfo and
+    // use the standard direct XFL value.
+    let direct_filter_strength = uses_direct_filter_strength(root);
     let has_publish_settings = files.contains_key("PublishSettings.xml");
     let publish = files
         .get("PublishSettings.xml")
@@ -44,6 +52,8 @@ pub(crate) fn convert(
         has_publish_settings,
         include_hidden_layers: publish.include_hidden_layers,
         text_warning: false,
+        direct_filter_strength,
+        legacy_filter_strength_warning: false,
     };
     parser.audit(
         root,
@@ -880,6 +890,15 @@ fn parse<'a>(xml: &'a str, path: &str, report: &mut ImportReport) -> Option<Docu
 fn elements<'a, 'b>(node: Node<'a, 'b>) -> impl Iterator<Item = Node<'a, 'b>> {
     node.children().filter(Node::is_element)
 }
+
+fn normalize_filter_strength(raw: f64, direct: bool) -> f64 {
+    (if direct { raw } else { raw / 100.0 }).clamp(0.0, 255.0)
+}
+
+fn uses_direct_filter_strength(root: Node<'_, '_>) -> bool {
+    root.attribute("creatorInfo").is_some()
+}
+
 fn child<'a, 'b>(node: Node<'a, 'b>, tag: &str) -> Option<Node<'a, 'b>> {
     elements(node).find(|n| n.tag_name().name() == tag)
 }
@@ -922,6 +941,8 @@ struct Parser<'a> {
     has_publish_settings: bool,
     include_hidden_layers: bool,
     text_warning: bool,
+    direct_filter_strength: bool,
+    legacy_filter_strength_warning: bool,
 }
 
 impl Parser<'_> {
@@ -1068,6 +1089,21 @@ impl Parser<'_> {
                 default
             }
         }
+    }
+
+    fn filter_strength(&mut self, node: Node<'_, '_>, file: &str) -> f64 {
+        let direct = self.direct_filter_strength;
+        let raw = self.number(node, "strength", if direct { 1.0 } else { 100.0 }, file);
+        if !direct && node.attribute("strength").is_some() && !self.legacy_filter_strength_warning {
+            self.legacy_filter_strength_warning = true;
+            let location = self.location(node, file);
+            self.report.warning(
+                "legacy_neoflash_filter_strength",
+                location,
+                "Unmarked XFL filter strength is interpreted with the legacy NeoFlash ×100 compatibility scale; resave with current NeoFlash or authoring metadata to use standard direct XFL values.",
+            );
+        }
+        normalize_filter_strength(raw, direct)
     }
 
     fn boolean(&mut self, node: Node<'_, '_>, attr: &str, default: bool, file: &str) -> bool {
@@ -1759,8 +1795,7 @@ impl Parser<'_> {
                     let rgba = self.color(f.attribute("color").unwrap_or("#000000"), alpha, &f_loc);
                     let color =
                         (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
-                    let raw_strength = self.number(f, "strength", 100.0, file);
-                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let strength = self.filter_strength(f, file);
                     let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
                     let inner = self.boolean(f, "inner", false, file);
                     let knockout = self.boolean(f, "knockout", false, file);
@@ -1803,8 +1838,7 @@ impl Parser<'_> {
                     let rgba = self.color(f.attribute("color").unwrap_or("#FF0000"), alpha, &f_loc);
                     let color =
                         (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
-                    let raw_strength = self.number(f, "strength", 100.0, file);
-                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let strength = self.filter_strength(f, file);
                     let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
                     let inner = self.boolean(f, "inner", false, file);
                     let knockout = self.boolean(f, "knockout", false, file);
@@ -1864,8 +1898,7 @@ impl Parser<'_> {
                     let shadow_color = (u32::from(s_rgba[0]) << 16)
                         | (u32::from(s_rgba[1]) << 8)
                         | u32::from(s_rgba[2]);
-                    let raw_strength = self.number(f, "strength", 100.0, file);
-                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let strength = self.filter_strength(f, file);
                     let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
                     let placement = match f.attribute("type").unwrap_or("inner") {
                         "outer" => "outer".to_owned(),
@@ -1922,8 +1955,7 @@ impl Parser<'_> {
                     let angle = self.number(f, "angle", 45.0, file).clamp(-360.0, 360.0);
                     let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
                     let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
-                    let raw_strength = self.number(f, "strength", 100.0, file);
-                    let strength = (raw_strength / 100.0).clamp(0.0, 255.0);
+                    let strength = self.filter_strength(f, file);
                     let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
                     let placement = match f.attribute("type").unwrap_or("inner") {
                         "outer" => "outer".to_owned(),
@@ -5400,78 +5432,6 @@ fn parse_xfl_sound_format_flags(format_str: &str) -> (u16, u32) {
     (flags, sample_rate)
 }
 
-fn parse_wav_duration_44(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return None;
-    }
-    let mut pos = 12usize;
-    let mut fmt_info: Option<(u32, usize)> = None;
-    let mut data_len: Option<usize> = None;
-    while pos + 8 <= bytes.len() {
-        let tag = &bytes[pos..pos + 4];
-        let chunk_len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
-        let payload_start = pos + 8;
-        let payload_end = payload_start.checked_add(chunk_len)?;
-        if payload_end > bytes.len() {
-            return None;
-        }
-        let payload = &bytes[payload_start..payload_end];
-        if tag == b"fmt " {
-            if payload.len() < 16 {
-                return None;
-            }
-            let channels = u16::from_le_bytes(payload[2..4].try_into().unwrap());
-            let sample_rate = u32::from_le_bytes(payload[4..8].try_into().unwrap());
-            let block_align = u16::from_le_bytes(payload[12..14].try_into().unwrap());
-            let bits = u16::from_le_bytes(payload[14..16].try_into().unwrap());
-            if channels == 0 || sample_rate == 0 {
-                return None;
-            }
-            let derived_align = usize::from(channels) * usize::from(bits.max(8)).div_ceil(8);
-            let frame_bytes = usize::from(block_align).max(derived_align).max(1);
-            fmt_info = Some((sample_rate, frame_bytes));
-        } else if tag == b"data" {
-            data_len = Some(payload.len());
-        }
-        pos = payload_end.saturating_add(chunk_len & 1);
-    }
-    let (sample_rate, frame_bytes) = fmt_info?;
-    let data_bytes = data_len?;
-    if data_bytes < frame_bytes {
-        return None;
-    }
-    let sample_frames = (data_bytes / frame_bytes) as u64;
-    Some((sample_frames * 44_100) / u64::from(sample_rate))
-}
-
-fn looks_like_xfl_mp3(bytes: &[u8]) -> bool {
-    let mut start = 0usize;
-    if bytes.len() >= 10
-        && &bytes[..3] == b"ID3"
-        && (bytes[6] | bytes[7] | bytes[8] | bytes[9]) & 0x80 == 0
-    {
-        let tag_len = ((bytes[6] as usize) << 21)
-            | ((bytes[7] as usize) << 14)
-            | ((bytes[8] as usize) << 7)
-            | (bytes[9] as usize);
-        let footer = if (bytes[5] & 0x10) != 0 { 10 } else { 0 };
-        start = (10 + tag_len + footer).min(bytes.len());
-    }
-    let end = bytes
-        .len()
-        .saturating_sub(3)
-        .min(start.saturating_add(4096));
-    (start..end).any(|i| {
-        let h = &bytes[i..i + 4];
-        h[0] == 0xff
-            && (h[1] & 0xe0) == 0xe0
-            && ((h[1] >> 3) & 3) != 1
-            && ((h[1] >> 1) & 3) != 0
-            && ((h[2] >> 4) & 0xf) != 0xf
-            && ((h[2] >> 2) & 3) != 3
-    })
-}
-
 fn classic_tween_matches(a: &Element, b: &Element) -> bool {
     a.name == b.name
         && match (&a.kind, &b.kind) {
@@ -5810,5 +5770,33 @@ fn normalize_xfl_masks(project: &mut Project, report: &mut ImportReport) {
                 layer.properties.mask = None;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marked_xfl_strength_is_direct_and_unmarked_neoflash_export_stays_compatible() {
+        let legacy = Document::parse(
+            r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" xflVersion="2.2"/>"#,
+        )
+        .unwrap();
+        let adobe = Document::parse(
+            r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" xflVersion="2.2" creatorInfo="Adobe Flash Professional CS5"/>"#,
+        )
+        .unwrap();
+        let neoflash = Document::parse(
+            r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" xflVersion="2.2" creatorInfo="NeoFlash" versionInfo="NeoFlash XFL export 1"/>"#,
+        )
+        .unwrap();
+
+        assert!(!uses_direct_filter_strength(legacy.root_element()));
+        assert!(uses_direct_filter_strength(adobe.root_element()));
+        assert!(uses_direct_filter_strength(neoflash.root_element()));
+        assert_eq!(normalize_filter_strength(150.0, false), 1.5);
+        assert_eq!(normalize_filter_strength(1.2, true), 1.2);
+        assert_eq!(normalize_filter_strength(30_000.0, false), 255.0);
     }
 }

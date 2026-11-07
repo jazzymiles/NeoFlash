@@ -89,7 +89,7 @@ Adapted algorithms keep their pinned sources and licences in the `*-PROVENANCE.m
 | Full AVM1/AVM2 behavior | Not implemented. Browser execution uses JavaScript semantics with selected AS3 primitive coercions and the bounded AS2 timeline behavior below. |
 
 The standalone handler API remains `neoflash_script::compile(&Script) -> Result<String, Vec<Diagnostic>>`. Publication first calls `compile_project(&Project)`, then `compile_with_program(&Script, &ProjectProgram)` for handlers. Diagnostics retain source language, one-based Unicode start/end positions, byte span, severity, optional code,
-source path and safe quick fixes. Actions and Compiler errors preserve file attribution and warning severity.
+source path and safe quick fixes. LF, CRLF, lone CR and Unicode U+2028/U+2029 separators share one bounded line scan, so an out-of-range column or fix cannot cross into the next authored line. Actions and Compiler errors preserve file attribution and warning severity.
 Actions underlines diagnostic ranges, opens explanations on hover or F8 navigation, and offers safe fixes by mouse
 or keyboard with one Undo. Stale source/context changes dismiss pending choices. Expression watches remain unavailable.
 ActionScript syntax recovery collects independent top-level statement errors; it never publishes recovered code.

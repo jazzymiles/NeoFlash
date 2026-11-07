@@ -1,8 +1,8 @@
 //! Ephemeral transport state. The serialized document stays authored and pure.
 use crate::app::Editor;
 use neoflash_core::{
-    AuthoredDraw, AuthoredPlayback, AuthoredScene, Id, Project, SoundCommand, evaluate_scene,
-    evaluate_scene_with_buttons,
+    AuthoredDraw, AuthoredPlayback, AuthoredScene, ElementKind, Id, Project, SoundCommand,
+    evaluate_scene, evaluate_scene_with_buttons, path_commands_fingerprint,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,6 +13,22 @@ pub(crate) struct AuthoringPreview {
     playback: AuthoredPlayback,
     /// Distinguishes playback sessions; a new session silences the previous one's sounds.
     epoch: u64,
+}
+
+/// Attach non-serialized geometry hints only for editor Stage consumers. Core/runtime/export
+/// evaluation deliberately leaves them absent so those paths do not pay an unused full-path scan.
+pub(crate) fn prepare_stage_path_fingerprints(scene: &mut AuthoredScene) {
+    for draw in &mut scene.draws {
+        if draw.item.path_fingerprint.is_some() {
+            continue;
+        }
+        draw.item.path_fingerprint = match &draw.item.kind {
+            ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
+                Some(path_commands_fingerprint(commands))
+            }
+            _ => None,
+        };
+    }
 }
 
 impl Editor {
@@ -79,13 +95,19 @@ impl Editor {
 
     pub(crate) fn current_authored_scene(&mut self, show_masking: bool) -> AuthoredScene {
         self.sync_authored_preview();
-        self.authored_scene_from_preview(self.authored_preview.as_ref(), show_masking)
+        let mut scene =
+            self.authored_scene_from_preview(self.authored_preview.as_ref(), show_masking);
+        prepare_stage_path_fingerprints(&mut scene);
+        scene
     }
 
     /// Picking uses the same clocks and masks as painting, including a paused
     /// preview. A direct edit must not expose a stale presentation to callers.
     pub(crate) fn presented_authored_scene(&self, show_masking: bool) -> AuthoredScene {
-        self.authored_scene_from_preview(self.valid_authored_preview(), show_masking)
+        let mut scene =
+            self.authored_scene_from_preview(self.valid_authored_preview(), show_masking);
+        prepare_stage_path_fingerprints(&mut scene);
+        scene
     }
 
     /// When `Edit multiple frames` is active, merge placements that exist only on other keyframes
@@ -93,9 +115,10 @@ impl Editor {
     /// and bounded without duplicating objects already present on `self.frame`.
     pub(crate) fn interactive_authored_scene(
         &self,
-        base: AuthoredScene,
+        mut base: AuthoredScene,
         show_masking: bool,
     ) -> AuthoredScene {
+        prepare_stage_path_fingerprints(&mut base);
         if !self.timeline_edit.edit_multiple {
             return base;
         }
@@ -150,6 +173,7 @@ impl Editor {
             }
             seen_top.extend(added_this_frame);
         }
+        prepare_stage_path_fingerprints(&mut merged);
         merged
     }
 

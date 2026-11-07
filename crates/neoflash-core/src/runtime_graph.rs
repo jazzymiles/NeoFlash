@@ -380,7 +380,10 @@ impl RuntimeGraph {
             generation: self.generation.to_string(),
         }
     }
-    pub(crate) fn reconcile(&mut self, placements: &[AuthoredPlacement]) {
+    pub(crate) fn reconcile(
+        &mut self,
+        placements: &[AuthoredPlacement],
+    ) -> Vec<crate::SoundCommand> {
         let active: HashMap<_, _> = placements
             .iter()
             .map(|p| (p.path.as_slice(), p.lifetime))
@@ -391,7 +394,7 @@ impl RuntimeGraph {
             .filter(|(path, node)| active.get(path.as_slice()) != Some(&node.lifetime))
             .map(|(_, node)| node.reference.clone())
             .collect();
-        self.retire_loader_children(&retired);
+        let retired_sound_commands = self.retire_loader_children(&retired);
         self.retire_hierarchy(&retired);
         self.authored
             .retain(|path, node| active.get(path.as_slice()) == Some(&node.lifetime));
@@ -436,6 +439,7 @@ impl RuntimeGraph {
                     .push(self.authored[&p.path].reference.clone());
             }
         }
+        retired_sound_commands
     }
     fn alive(&self, id: &ObjectRef) -> bool {
         self.paths.contains_key(id)
@@ -661,12 +665,12 @@ impl Player {
         project: &Project,
         capture: Option<(&ObjectRef, [f64; 6], ColorTransform)>,
     ) -> RuntimeSnapshot {
+        let base = self.authored_snapshot(project);
         let mut authored: HashMap<_, _> = self
-            .display_nodes(project)
+            .display_nodes_from_evaluation(project, &base)
             .into_iter()
             .filter_map(|node| self.object_ref(&node.path).map(|id| (id, node)))
             .collect();
-        let base = self.authored_snapshot(project);
         let mut layer_masks: Vec<_> = base
             .masks
             .iter()
@@ -701,14 +705,14 @@ impl Player {
             .collect();
         let mut linked_roots = HashMap::new();
         for (namespace, scope) in &self.graph.namespaces {
-            for node in scope.player.display_nodes(project) {
+            let source = scope.player.authored_snapshot(project);
+            for node in scope.player.display_nodes_from_evaluation(project, &source) {
                 if node.path.is_empty() {
                     linked_roots.insert(namespace.clone(), node);
                 } else if let Some(reference) = self.graph.linked_ref(namespace, &node.path) {
                     authored.insert(reference, node);
                 }
             }
-            let source = scope.player.authored_snapshot(project);
             layer_masks.extend(source.masks.iter().map(|plan| {
                 plan.resolve(&format!("{:?}", namespace), |path| {
                     self.graph.linked_ref(namespace, path)
@@ -1008,6 +1012,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            path_fingerprint: None,
                             kind: RuntimeDrawKind::VideoFrame {
                                 width: video.width,
                                 height: video.height,
@@ -1046,6 +1051,7 @@ impl Player {
                                 transform: affine_multiply(display.world, [1., 0., 0., 1., x, y]),
                                 alpha: 1.,
                                 color_transform: ColorTransform::default(),
+                                path_fingerprint: None,
                                 kind: RuntimeDrawKind::Element(kind),
                             },
                         });
@@ -1067,6 +1073,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            path_fingerprint: None,
                             kind: RuntimeDrawKind::TextField {
                                 field: Box::new(concatenated_color_transform.transform_text(field)),
                             },
@@ -1093,6 +1100,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            path_fingerprint: None,
                             kind: RuntimeDrawKind::BitmapPixels {
                                 pixel_ref: pixel.pixel_ref.clone(),
                                 width: pixel.width,
@@ -1127,6 +1135,7 @@ impl Player {
                             transform: display.world,
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
+                            path_fingerprint: None,
                             kind,
                         },
                     });
@@ -1160,6 +1169,7 @@ impl Player {
                                     transform: affine_multiply(display.world, run_matrix),
                                     alpha: 1.,
                                     color_transform: ColorTransform::default(),
+                                    path_fingerprint: None,
                                     kind: RuntimeDrawKind::TextField {
                                         field: Box::new(
                                             concatenated_color_transform.transform_text(&field),

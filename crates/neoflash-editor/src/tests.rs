@@ -1275,6 +1275,49 @@ fn locked_layer_blocks_accessibility_changes() {
 }
 
 #[test]
+fn stage_scene_prepares_path_fingerprints_without_taxing_general_evaluation() {
+    let commands = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::QuadraticTo {
+            cx: 20.,
+            cy: 30.,
+            x: 40.,
+            y: 0.,
+        },
+        PathCommand::Close,
+    ];
+    let mut project = Project::blank();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "stage-path".into(),
+            name: "Stage path".into(),
+            kind: ElementKind::Path {
+                commands: commands.clone(),
+                fill_rule: FillRule::NonZero,
+                fill: [20, 90, 180, 255],
+                stroke: [0; 4],
+                stroke_width: 0.,
+            },
+            ..Element::default()
+        });
+
+    assert!(
+        evaluate_scene(&project, &project.root, 0, true, true).draws[0]
+            .item
+            .path_fingerprint
+            .is_none()
+    );
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+    assert_eq!(
+        editor.current_authored_scene(true).draws[0]
+            .item
+            .path_fingerprint,
+        Some(path_commands_fingerprint(&commands))
+    );
+}
+
+#[test]
 fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or_scrubbing() {
     let (mut project, _) = tween_project(Easing::Linear);
     project.format_version = 5;

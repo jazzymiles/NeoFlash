@@ -1769,6 +1769,7 @@ impl Editor {
                             stroke: color,
                             width: (width / draft.scope.zoom) as f64,
                             tolerance: 0.25 / draft.scope.zoom,
+                            fingerprint: None,
                         },
                         |point| preview_rect.min + point.to_vec2() * draft.scope.zoom,
                     );

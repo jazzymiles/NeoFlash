@@ -74,6 +74,50 @@ fn path_roundtrips_every_command_and_defaults_fill_rule_for_compatibility() {
 }
 
 #[test]
+fn path_fingerprint_is_nonserialized_and_general_evaluation_stays_unhashed() {
+    let commands = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::QuadraticTo {
+            cx: 20.,
+            cy: 30.,
+            x: 40.,
+            y: 0.,
+        },
+        PathCommand::Close,
+    ];
+    let mut project = Project::blank();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "fingerprinted-path".into(),
+            name: "Fingerprinted path".into(),
+            kind: path(commands.clone()),
+            ..Element::default()
+        });
+
+    let mut item = evaluate(&project, &project.root, 0).remove(0);
+    assert!(
+        item.path_fingerprint.is_none(),
+        "general-purpose evaluation must not pay the editor's hashing cost"
+    );
+    item.path_fingerprint = Some(path_commands_fingerprint(&commands));
+    assert!(item.path_fingerprint.unwrap().has_curves);
+
+    let wire = serde_json::to_value(&item).unwrap();
+    assert!(wire.get("path_fingerprint").is_none());
+    let restored: DrawItem = serde_json::from_value(wire).unwrap();
+    assert!(restored.path_fingerprint.is_none());
+    assert_eq!(restored, item, "derived hints do not affect equality");
+    assert!(
+        item.clone()
+            .map_kind(std::convert::identity)
+            .path_fingerprint
+            .is_none(),
+        "kind mapping deliberately discards a possibly stale hint"
+    );
+}
+
+#[test]
 fn curve_bounds_use_extrema_instead_of_the_control_hull() {
     let quadratic = vec![
         PathCommand::MoveTo { x: 0., y: 0. },

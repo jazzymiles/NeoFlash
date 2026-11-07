@@ -628,6 +628,7 @@ mod tests {
             transform: matrix(),
             alpha: 1.,
             color_transform: neoflash_core::ColorTransform::default(),
+            path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 80.,
                 height: 40.,

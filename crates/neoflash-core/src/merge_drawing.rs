@@ -10,7 +10,7 @@
 //!   intersecting strokes split at their intersection points.
 
 use crate::evaluate::{affine_multiply, transform_matrix};
-use crate::geometry::{FlattenOptions, flatten_path};
+use crate::geometry::{FlattenOptions, MAX_PATH_COMMANDS, flatten_path};
 use crate::model::{Color, Element, ElementKind, FillRule, Id, PathCommand, Transform, new_id};
 use crate::runtime_graphics::GradientPaint;
 
@@ -18,6 +18,10 @@ const SNAP_EPS: f64 = 1e-2;
 const PARAM_EPS: f64 = 1e-6;
 const AREA_EPS: f64 = 0.25;
 const ADJACENT_TOL: f64 = 1.5;
+// Keep batch inputs below both public path limits. The point headroom matters for curves and for
+// the closing point accounted for by the shared flattener; a failed batch must never consume art.
+const REMERGE_BATCH_MAX_COMMANDS: usize = MAX_PATH_COMMANDS * 9 / 10;
+const REMERGE_BATCH_MAX_POINTS: usize = 60_000;
 
 /// Planar boolean operation between closed vector shapes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -909,6 +913,97 @@ impl SegmentBvh {
         false
     }
 
+    /// Whether an endpoint in this index lies in `bounds` and satisfies `predicate`.
+    ///
+    /// This is the reverse-containment query used by Merge: after edge intersections and
+    /// "A inside B" have been rejected, A and B interact only when a B boundary endpoint is
+    /// inside A. Traversing the existing 2D BVH avoids scanning every ring in a large moved batch
+    /// for every element on the keyframe.
+    fn any_endpoint_matching(
+        &self,
+        segments: &[([f64; 2], [f64; 2])],
+        bounds: ([f64; 2], [f64; 2]),
+        pad: f64,
+        mut predicate: impl FnMut([f64; 2]) -> bool,
+    ) -> bool {
+        if self.nodes.is_empty() {
+            return false;
+        }
+        let contains = |point: [f64; 2]| {
+            point[0] >= bounds.0[0] - pad
+                && point[0] <= bounds.1[0] + pad
+                && point[1] >= bounds.0[1] - pad
+                && point[1] <= bounds.1[1] + pad
+        };
+        let mut stack = [0u32; 64];
+        let mut sp = 1usize;
+        while sp > 0 {
+            sp -= 1;
+            let node = &self.nodes[stack[sp] as usize];
+            if !bounds_overlap((node.min, node.max), bounds, pad) {
+                continue;
+            }
+            if node.count > 0 {
+                let start = node.start as usize;
+                let end = start + node.count as usize;
+                for &idx in &self.indices[start..end] {
+                    let (a, b) = segments[idx];
+                    if (contains(a) && predicate(a)) || (contains(b) && predicate(b)) {
+                        return true;
+                    }
+                }
+            } else if sp + 2 <= stack.len() {
+                stack[sp] = node.right;
+                stack[sp + 1] = node.left;
+                sp += 2;
+            }
+        }
+        false
+    }
+
+    fn bounds_overlap_indices(
+        &self,
+        segments: &[([f64; 2], [f64; 2])],
+        bounds: ([f64; 2], [f64; 2]),
+        pad: f64,
+    ) -> Vec<usize> {
+        if self.nodes.is_empty() {
+            return Vec::new();
+        }
+        let mut result = Vec::new();
+        let mut stack = [0u32; 64];
+        let mut sp = 1usize;
+        while sp > 0 {
+            sp -= 1;
+            let node = &self.nodes[stack[sp] as usize];
+            if !bounds_overlap((node.min, node.max), bounds, pad) {
+                continue;
+            }
+            if node.count > 0 {
+                let start = node.start as usize;
+                let end = start + node.count as usize;
+                result.extend(self.indices[start..end].iter().copied().filter(|&index| {
+                    let (a, b) = segments[index];
+                    bounds_overlap(
+                        (
+                            [a[0].min(b[0]), a[1].min(b[1])],
+                            [a[0].max(b[0]), a[1].max(b[1])],
+                        ),
+                        bounds,
+                        pad,
+                    )
+                }));
+            } else if sp + 2 <= stack.len() {
+                stack[sp] = node.right;
+                stack[sp + 1] = node.left;
+                sp += 2;
+            }
+        }
+        result.sort_unstable();
+        result.dedup();
+        result
+    }
+
     fn node_within_dist(node: &BvhNode, pt: [f64; 2], radius: f64) -> bool {
         pt[0] >= node.min[0] - radius
             && pt[0] <= node.max[0] + radius
@@ -991,6 +1086,69 @@ impl SegmentBvh {
             }
         }
         false
+    }
+}
+
+/// Geometry prepared once for an incoming Merge fill. Besides segment/winding acceleration, the
+/// ring-level BVH lets each small existing island subtract only the moved contours whose 2D bounds
+/// can affect it. This is the same locality principle as VectorCraft's 2D overlap preflight, adapted
+/// to NeoFlash's different-colour subtraction semantics.
+struct PreparedMergeRings {
+    segments: Vec<([f64; 2], [f64; 2])>,
+    segment_bvh: SegmentBvh,
+    fill: PreparedRings,
+    ring_boxes: Vec<([f64; 2], [f64; 2])>,
+    ring_indices: Vec<usize>,
+    ring_bvh: SegmentBvh,
+}
+
+impl PreparedMergeRings {
+    fn new(rings: &[Vec<[f64; 2]>], rule: FillRule) -> Self {
+        let segments = if rule == FillRule::NonZero {
+            rings_to_segments(rings)
+        } else {
+            fill_boundary_segments(rings, rule)
+        };
+        let segment_bvh = SegmentBvh::from_segments(&segments);
+        let fill = PreparedRings::new(rings, rule);
+        let mut ring_boxes = Vec::with_capacity(rings.len());
+        let mut ring_indices = Vec::with_capacity(rings.len());
+        for (index, ring) in rings.iter().enumerate() {
+            if let Some((min, max)) = ring_bounds(ring) {
+                // A diagonal segment has exactly the ring's AABB in the generic BVH.
+                ring_boxes.push((min, max));
+                ring_indices.push(index);
+            }
+        }
+        let ring_bvh = SegmentBvh::from_segments(&ring_boxes);
+        Self {
+            segments,
+            segment_bvh,
+            fill,
+            ring_boxes,
+            ring_indices,
+            ring_bvh,
+        }
+    }
+
+    fn rings_overlapping(
+        &self,
+        rings: &[Vec<[f64; 2]>],
+        bounds: ([f64; 2], [f64; 2]),
+        pad: f64,
+    ) -> Vec<Vec<[f64; 2]>> {
+        let mut source_indices: Vec<usize> = self
+            .ring_bvh
+            .bounds_overlap_indices(&self.ring_boxes, bounds, pad)
+            .into_iter()
+            .filter_map(|box_index| self.ring_indices.get(box_index).copied())
+            .collect();
+        source_indices.sort_unstable();
+        source_indices.dedup();
+        source_indices
+            .into_iter()
+            .filter_map(|index| rings.get(index).cloned())
+            .collect()
     }
 }
 
@@ -1317,6 +1475,9 @@ fn rings_to_segments(rings: &[Vec<[f64; 2]>]) -> Vec<([f64; 2], [f64; 2])> {
     segs
 }
 
+type UnionSegments = Vec<([f64; 2], [f64; 2])>;
+type UnionSegmentMap = Vec<Vec<Option<usize>>>;
+
 /// When a `NonZero` compound path consists of many same-orientation contours (such as the
 /// overlapping circles, quads, or triangles of a Brush stroke), any sub-segment that lies deep
 /// inside another contour can never be part of the union boundary. Clipping each segment against
@@ -1327,7 +1488,7 @@ fn rings_to_segments(rings: &[Vec<[f64; 2]>]) -> Vec<([f64; 2], [f64; 2])> {
 fn cull_and_clip_union_segments_with_map(
     rings: &[Vec<[f64; 2]>],
     fill_rule: FillRule,
-) -> (Vec<([f64; 2], [f64; 2])>, Vec<Vec<Option<usize>>>) {
+) -> (UnionSegments, UnionSegmentMap) {
     let all_without_cull = |rings: &[Vec<[f64; 2]>]| {
         let mut segs = Vec::new();
         let mut map = Vec::with_capacity(rings.len());
@@ -2097,7 +2258,6 @@ fn rings_interact_with_prepared(
     segs_b: &[([f64; 2], [f64; 2])],
     bvh_b: &SegmentBvh,
     prepared_b: &PreparedRings,
-    rings_b: &[Vec<[f64; 2]>],
 ) -> bool {
     for ring in rings_a {
         let len = ring.len();
@@ -2116,18 +2276,9 @@ fn rings_interact_with_prepared(
         }
     }
     let pad = SNAP_EPS * 2.0;
-    for ring in rings_b {
-        if let Some(&pt) = ring.first()
-            && pt[0] >= bbox_a.0[0] - pad
-            && pt[0] <= bbox_a.1[0] + pad
-            && pt[1] >= bbox_a.0[1] - pad
-            && pt[1] <= bbox_a.1[1] + pad
-            && point_in_rings(pt, rings_a, rule_a)
-        {
-            return true;
-        }
-    }
-    false
+    bvh_b.any_endpoint_matching(segs_b, bbox_a, pad, |point| {
+        point_in_rings(point, rings_a, rule_a)
+    })
 }
 
 fn boolean_rings_with_interaction(
@@ -2795,8 +2946,8 @@ fn split_polyline_into_subsegments(
     out
 }
 
-fn is_already_normalized_merge_part(el: &Element) -> bool {
-    if !el.merge || !is_identity_transform(&el.transform) {
+fn has_normalized_merge_part_kind(el: &Element) -> bool {
+    if !el.merge {
         return false;
     }
     let (ElementKind::Path {
@@ -2828,6 +2979,10 @@ fn is_already_normalized_merge_part(el: &Element) -> bool {
         return move_tos <= 1;
     }
     false
+}
+
+fn is_already_normalized_merge_part(el: &Element) -> bool {
+    is_identity_transform(&el.transform) && has_normalized_merge_part_kind(el)
 }
 
 fn ensure_existing_merge_normalized(elements: &mut Vec<Element>) {
@@ -2902,11 +3057,7 @@ fn apply_merge_shape_to_keyframe_inner(
                 }
             }
             let new_bbox_opt = rings_bounds(&new_rings);
-            let mut cached_trim_fill: Option<(
-                Vec<([f64; 2], [f64; 2])>,
-                SegmentBvh,
-                PreparedRings,
-            )> = None;
+            let mut cached_trim_fill: Option<PreparedMergeRings> = None;
             let mut pending_union_rings: Vec<Vec<[f64; 2]>> = Vec::new();
 
             let mut next_elements = Vec::with_capacity(elements.len() + 2);
@@ -2941,25 +3092,15 @@ fn apply_merge_shape_to_keyframe_inner(
                         next_elements.push(existing);
                         continue;
                     }
-                    let (fill_segs, fill_bvh, prepared_fill) =
-                        cached_trim_fill.get_or_insert_with(|| {
-                            let segs = if new_rule == FillRule::NonZero {
-                                rings_to_segments(&new_rings)
-                            } else {
-                                fill_boundary_segments(&new_rings, new_rule)
-                            };
-                            let bvh = SegmentBvh::from_segments(&segs);
-                            let prep = PreparedRings::new(&new_rings, new_rule);
-                            (segs, bvh, prep)
-                        });
+                    let prepared_fill = cached_trim_fill
+                        .get_or_insert_with(|| PreparedMergeRings::new(&new_rings, new_rule));
                     if !rings_interact_with_prepared(
                         &ex_rings,
                         ex_rule,
                         ex_bbox,
-                        fill_segs,
-                        fill_bvh,
-                        prepared_fill,
-                        &new_rings,
+                        &prepared_fill.segments,
+                        &prepared_fill.segment_bvh,
+                        &prepared_fill.fill,
                     ) {
                         next_elements.push(existing);
                         continue;
@@ -2977,10 +3118,16 @@ fn apply_merge_shape_to_keyframe_inner(
                     }
                     // Different colour (or separated by new shape's outline stroke): subtract
                     // `new_fill` from `existing`.
+                    let local_new_rings =
+                        prepared_fill.rings_overlapping(&new_rings, ex_bbox, SNAP_EPS * 4.0);
+                    let Some(local_new_bbox) = rings_bounds(&local_new_rings) else {
+                        next_elements.push(existing);
+                        continue;
+                    };
                     let (mut diff, interacted) = boolean_rings_with_interaction(
                         &ex_rings,
                         ex_rule,
-                        &new_rings,
+                        &local_new_rings,
                         new_rule,
                         BooleanOp::Difference,
                     );
@@ -2988,15 +3135,15 @@ fn apply_merge_shape_to_keyframe_inner(
                         next_elements.push(existing);
                         continue;
                     }
-                    let extends_outside_new = ex_bbox.0[0] < new_bbox.0[0] - SNAP_EPS * 8.0
-                        || ex_bbox.0[1] < new_bbox.0[1] - SNAP_EPS * 8.0
-                        || ex_bbox.1[0] > new_bbox.1[0] + SNAP_EPS * 8.0
-                        || ex_bbox.1[1] > new_bbox.1[1] + SNAP_EPS * 8.0;
+                    let extends_outside_new = ex_bbox.0[0] < local_new_bbox.0[0] - SNAP_EPS * 8.0
+                        || ex_bbox.0[1] < local_new_bbox.0[1] - SNAP_EPS * 8.0
+                        || ex_bbox.1[0] > local_new_bbox.1[0] + SNAP_EPS * 8.0
+                        || ex_bbox.1[1] > local_new_bbox.1[1] + SNAP_EPS * 8.0;
                     if diff.is_empty() && extends_outside_new {
                         diff = boolean_rings_full(
                             &ex_rings,
                             ex_rule,
-                            &new_rings,
+                            &local_new_rings,
                             new_rule,
                             BooleanOp::Difference,
                         )
@@ -3041,24 +3188,15 @@ fn apply_merge_shape_to_keyframe_inner(
                         next_elements.push(existing);
                         continue;
                     };
-                    let (fill_segs, fill_bvh, prepared_fill) =
-                        cached_trim_fill.get_or_insert_with(|| {
-                            let segs = if new_rule == FillRule::NonZero {
-                                rings_to_segments(&new_rings)
-                            } else {
-                                fill_boundary_segments(&new_rings, new_rule)
-                            };
-                            let bvh = SegmentBvh::from_segments(&segs);
-                            let prep = PreparedRings::new(&new_rings, new_rule);
-                            (segs, bvh, prep)
-                        });
+                    let prepared_fill = cached_trim_fill
+                        .get_or_insert_with(|| PreparedMergeRings::new(&new_rings, new_rule));
                     let mut piece_idx = 0usize;
                     for poly in polylines {
                         for trimmed in trim_polyline_inside_prepared_fill(
                             &poly,
-                            fill_segs,
-                            fill_bvh,
-                            prepared_fill,
+                            &prepared_fill.segments,
+                            &prepared_fill.segment_bvh,
+                            &prepared_fill.fill,
                         ) {
                             let cmds = polyline_to_commands(&trimmed);
                             if cmds.len() >= 2 {
@@ -3296,19 +3434,211 @@ pub fn remerge_moved_elements_in_keyframe(
         return Vec::new();
     }
     let moved_set: std::collections::HashSet<&str> = moved_ids.iter().map(String::as_str).collect();
+    let original_moved_ids: Vec<Id> = elements
+        .iter()
+        .filter(|element| element.merge && moved_set.contains(element.id.as_str()))
+        .map(|element| element.id.clone())
+        .collect();
+    if original_moved_ids.is_empty() {
+        return Vec::new();
+    }
+
+    // Merge mutates several existing shapes while it works. Keep the operation atomic: a geometry
+    // limit or malformed path must leave the already-moved artwork intact instead of deleting the
+    // selected elements (the former unbounded batch did exactly that above the flattening budget).
+    let before = elements.clone();
+    if let Some(ids) = remerge_moved_elements_inner(elements, &moved_set) {
+        ids
+    } else {
+        *elements = before;
+        original_moved_ids
+    }
+}
+
+fn batch_flattened_point_count(commands: &[PathCommand]) -> Option<usize> {
+    let rings = flatten_closed_rings(commands);
+    if rings.is_empty() || rings.iter().any(|ring| signed_ring_area(ring) <= 0.0) {
+        return None;
+    }
+    // Concatenating NonZero paths is a union only when every candidate contributes non-negative
+    // winding everywhere. Strictly positive rings prove that cheaply. Any hole, clockwise shell,
+    // or degenerate contour takes the exact sequential path; containment alone is insufficient
+    // because two overlapping negative rings can create negative winding that a later positive
+    // candidate would cancel.
+    rings
+        .iter()
+        .try_fold(0usize, |total, ring| total.checked_add(ring.len()))
+}
+
+/// Bake a Stage transform once so the existing normalized-fill batch can actually accept real
+/// drag results. Merge fills are already planar parts; an affine transform preserves that fact.
+fn bake_batchable_moved_fill(element: Element) -> Element {
+    if is_already_normalized_merge_part(&element)
+        || !has_normalized_merge_part_kind(&element)
+        || !is_merge_fill(&element)
+    {
+        return element;
+    }
+    if let Some((Some(fill), strokes)) = decompose_element_to_merge_parts(&element)
+        && strokes.is_empty()
+    {
+        return fill;
+    }
+    element
+}
+
+/// Compatibility for a temporary compound cutter. The compound output is removed after it updates
+/// other paint, so authored IDs and names may differ; presentation and dormant paint state must
+/// still agree because they affect that one-pass interaction.
+fn merge_fill_batch_compatible(template: &Element, candidate: &Element) -> bool {
+    // Filters, object scripts and accessibility operate at element boundaries; even identical
+    // values on two disconnected shapes are not equivalent to one combined display object.
+    let has_default_presentation = |element: &Element| {
+        element.transform == Transform::default()
+            && element.scripts.is_empty()
+            && element.accessibility.is_none()
+            && element.visible
+            && !element.cache_as_bitmap
+            && element.blend_mode.is_normal()
+            && element.filters.is_empty()
+    };
+    if !has_default_presentation(template) || !has_default_presentation(candidate) {
+        return false;
+    }
+    match (&template.kind, &candidate.kind) {
+        (
+            ElementKind::Path {
+                fill_rule: template_rule,
+                fill: template_fill,
+                stroke: template_stroke,
+                stroke_width: template_stroke_width,
+                ..
+            },
+            ElementKind::Path {
+                fill_rule: candidate_rule,
+                fill: candidate_fill,
+                stroke: candidate_stroke,
+                stroke_width: candidate_stroke_width,
+                ..
+            },
+        ) => {
+            template_rule == candidate_rule
+                && template_fill == candidate_fill
+                && template_stroke == candidate_stroke
+                && template_stroke_width == candidate_stroke_width
+        }
+        (
+            ElementKind::PaintedPath {
+                fill_rule: template_rule,
+                fill: template_fill,
+                stroke: template_stroke,
+                fill_gradient: template_fill_gradient,
+                stroke_gradient: template_stroke_gradient,
+                stroke_width: template_stroke_width,
+                ..
+            },
+            ElementKind::PaintedPath {
+                fill_rule: candidate_rule,
+                fill: candidate_fill,
+                stroke: candidate_stroke,
+                fill_gradient: candidate_fill_gradient,
+                stroke_gradient: candidate_stroke_gradient,
+                stroke_width: candidate_stroke_width,
+                ..
+            },
+        ) => {
+            template_rule == candidate_rule
+                && template_fill == candidate_fill
+                && template_stroke == candidate_stroke
+                && template_fill_gradient == candidate_fill_gradient
+                && template_stroke_gradient == candidate_stroke_gradient
+                && template_stroke_width == candidate_stroke_width
+        }
+        _ => false,
+    }
+}
+
+fn batch_interacts_with_same_paint_fill(
+    elements: &[Element],
+    new_rings: &[Vec<[f64; 2]>],
+    new_rule: FillRule,
+    new_paint: &FillPaint,
+) -> bool {
+    let Some(new_bbox) = rings_bounds(new_rings) else {
+        return false;
+    };
+    let is_bbox_candidate = |existing: &Element| {
+        is_merge_fill(existing)
+            && extract_fill_paint(&existing.kind).as_ref() == Some(new_paint)
+            && element_fast_world_bounds(existing)
+                .is_some_and(|bounds| bounds_overlap(bounds, new_bbox, SNAP_EPS * 2.0))
+    };
+    if !elements.iter().any(is_bbox_candidate) {
+        return false;
+    }
+    let prepared = PreparedMergeRings::new(new_rings, new_rule);
+    elements.iter().any(|existing| {
+        if !is_bbox_candidate(existing) {
+            return false;
+        }
+        let Some((ex_commands, ex_rule)) = element_world_commands(existing) else {
+            return false;
+        };
+        let ex_rings = flatten_closed_rings(&ex_commands);
+        let Some(ex_bbox) = rings_bounds(&ex_rings) else {
+            return false;
+        };
+        bounds_overlap(ex_bbox, new_bbox, SNAP_EPS * 2.0)
+            && rings_interact_with_prepared(
+                &ex_rings,
+                ex_rule,
+                ex_bbox,
+                &prepared.segments,
+                &prepared.segment_bvh,
+                &prepared.fill,
+            )
+    })
+}
+
+fn apply_remerged_element(
+    elements: &mut Vec<Element>,
+    result_ids: &mut Vec<Id>,
+    element: Element,
+) -> bool {
+    let already_dissolved = is_already_normalized_merge_part(&element)
+        && matches!(
+            element_world_commands(&element),
+            Some((_, FillRule::NonZero))
+        );
+    let ids = apply_merge_shape_to_keyframe_inner(elements, element, already_dissolved);
+    if ids.is_empty() {
+        return false;
+    }
+    result_ids.extend(ids);
+    true
+}
+
+fn remerge_moved_elements_inner(
+    elements: &mut Vec<Element>,
+    moved_set: &std::collections::HashSet<&str>,
+) -> Option<Vec<Id>> {
     let mut moved = Vec::new();
     let mut remaining = Vec::with_capacity(elements.len());
     for el in elements.drain(..) {
         if el.merge && moved_set.contains(el.id.as_str()) {
-            moved.push(el);
+            moved.push(bake_batchable_moved_fill(el));
         } else {
             remaining.push(el);
         }
     }
     *elements = remaining;
     if moved.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
+    // The first exact application would normalize these parts too. Doing it once up front makes
+    // the same-paint interaction preflight match the subsequent compound pass without changing
+    // the atomic outer transaction.
+    ensure_existing_merge_normalized(elements);
     let batch_same_paint = moved.len() > 16;
     let mut result_ids = Vec::new();
     let mut idx = 0;
@@ -3319,15 +3649,32 @@ pub fn remerge_moved_elements_in_keyframe(
             && let Some(fp) = extract_fill_paint(&moved[idx].kind)
             && let Some((mut combined_cmds, FillRule::NonZero)) =
                 element_world_commands(&moved[idx])
+            && combined_cmds.len() <= REMERGE_BATCH_MAX_COMMANDS
+            && let Some(mut combined_points) = batch_flattened_point_count(&combined_cmds)
+            && combined_points <= REMERGE_BATCH_MAX_POINTS
         {
             let mut end = idx + 1;
-            while end < moved.len()
-                && is_already_normalized_merge_part(&moved[end])
-                && is_merge_fill(&moved[end])
-                && extract_fill_paint(&moved[end].kind).as_ref() == Some(&fp)
-                && let Some((cmds, FillRule::NonZero)) = element_world_commands(&moved[end])
-            {
+            while end < moved.len() {
+                if !is_already_normalized_merge_part(&moved[end])
+                    || !is_merge_fill(&moved[end])
+                    || extract_fill_paint(&moved[end].kind).as_ref() != Some(&fp)
+                    || !merge_fill_batch_compatible(&moved[idx], &moved[end])
+                {
+                    break;
+                }
+                let Some((cmds, FillRule::NonZero)) = element_world_commands(&moved[end]) else {
+                    break;
+                };
+                let Some(points) = batch_flattened_point_count(&cmds) else {
+                    break;
+                };
+                if combined_cmds.len().saturating_add(cmds.len()) > REMERGE_BATCH_MAX_COMMANDS
+                    || combined_points.saturating_add(points) > REMERGE_BATCH_MAX_POINTS
+                {
+                    break;
+                }
                 combined_cmds.extend(cmds);
+                combined_points += points;
                 end += 1;
             }
             if end > idx + 1 {
@@ -3339,22 +3686,52 @@ pub fn remerge_moved_elements_in_keyframe(
                     &fp,
                     true,
                 );
-                result_ids.extend(apply_merge_shape_to_keyframe_inner(elements, batched, true));
+                let (batch_commands, batch_rule) = element_world_commands(&batched)?;
+                let batch_rings = flatten_closed_rings(&batch_commands);
+                if batch_interacts_with_same_paint_fill(elements, &batch_rings, batch_rule, &fp) {
+                    // A real same-paint union must choose identities through the exact existing
+                    // order. Do not let the acceleration compound decide that policy.
+                    for element in &mut moved[idx..end] {
+                        if !apply_remerged_element(
+                            elements,
+                            &mut result_ids,
+                            std::mem::take(element),
+                        ) {
+                            return None;
+                        }
+                    }
+                    idx = end;
+                    continue;
+                }
+
+                // Use the compound only as a single cutter against other paints and strokes. The
+                // moved fills themselves remain separate authored elements with their original
+                // IDs, names and order.
+                let compound_id = batched.id.clone();
+                let ids = apply_merge_shape_to_keyframe_inner(elements, batched, true);
+                if ids.len() != 1 || ids[0] != compound_id {
+                    return None;
+                }
+                let compound_position = elements
+                    .iter()
+                    .rposition(|element| element.id == compound_id)?;
+                elements.remove(compound_position);
+                for element in &mut moved[idx..end] {
+                    let element = std::mem::take(element);
+                    result_ids.push(element.id.clone());
+                    elements.push(element);
+                }
                 idx = end;
                 continue;
             }
         }
-        let el = moved[idx].clone();
-        let already_dissolved = is_already_normalized_merge_part(&el)
-            && matches!(element_world_commands(&el), Some((_, FillRule::NonZero)));
-        result_ids.extend(apply_merge_shape_to_keyframe_inner(
-            elements,
-            el,
-            already_dissolved,
-        ));
+        let element = std::mem::take(&mut moved[idx]);
+        if !apply_remerged_element(elements, &mut result_ids, element) {
+            return None;
+        }
         idx += 1;
     }
-    result_ids
+    Some(result_ids)
 }
 
 /// Find all Merge-mode stroke IDs on `elements` that lie along or touch the boundary of the
@@ -3792,6 +4169,21 @@ mod tests {
             merge: true,
             ..Element::default()
         }
+    }
+
+    #[test]
+    fn prepared_merge_ring_index_limits_boolean_input_to_the_local_islands() {
+        let rings: Vec<Vec<[f64; 2]>> = (0..10_000)
+            .map(|index| {
+                let x = index as f64 * 8.0;
+                vec![[x, 0.0], [x + 2.0, 0.0], [x + 2.0, 2.0], [x, 2.0]]
+            })
+            .collect();
+        let prepared = PreparedMergeRings::new(&rings, FillRule::NonZero);
+        let target = 7_321usize;
+        let x = target as f64 * 8.0;
+        let local = prepared.rings_overlapping(&rings, ([x - 0.5, -0.5], [x + 2.5, 2.5]), SNAP_EPS);
+        assert_eq!(local, vec![rings[target].clone()]);
     }
 
     /// Adjacent triangles are how existing Brush artwork stores a continuous filled shape.

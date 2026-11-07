@@ -209,31 +209,93 @@ impl Diagnostic {
     }
 }
 
+#[derive(Clone, Copy)]
+struct LogicalLineBounds {
+    start: usize,
+    end: usize,
+    next_start: usize,
+}
+
+/// Scan logical lines, excluding their line endings from each returned range.
+fn logical_lines(source: &str) -> impl Iterator<Item = LogicalLineBounds> + '_ {
+    let mut chars = source.char_indices().peekable();
+    let mut line_start = 0usize;
+    let mut finished = false;
+
+    std::iter::from_fn(move || {
+        if finished {
+            return None;
+        }
+
+        while let Some((offset, character)) = chars.next() {
+            let mut next_start = match character {
+                '\n' | '\r' => offset + 1,
+                '\u{2028}' | '\u{2029}' => offset + character.len_utf8(),
+                _ => continue,
+            };
+            if character == '\r' && matches!(chars.peek(), Some((_, '\n'))) {
+                chars.next();
+                next_start += 1;
+            }
+
+            let bounds = LogicalLineBounds {
+                start: line_start,
+                end: offset,
+                next_start,
+            };
+            line_start = next_start;
+            return Some(bounds);
+        }
+
+        finished = true;
+        Some(LogicalLineBounds {
+            start: line_start,
+            end: source.len(),
+            next_start: source.len(),
+        })
+    })
+}
+
 /// Convert a 0-based byte offset in `source` to 1-based `(line, column)` Unicode character positions.
 pub fn byte_offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
     let mut offset = offset.min(source.len());
     while !source.is_char_boundary(offset) {
         offset -= 1;
     }
-    let prefix = &source[..offset];
-    let line = prefix.chars().filter(|c| *c == '\n').count() + 1;
-    let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
-    (line, column)
+
+    for (line, bounds) in logical_lines(source).enumerate() {
+        if offset <= bounds.end || offset < bounds.next_start {
+            let logical_offset = offset.min(bounds.end);
+            let column = source[bounds.start..logical_offset].chars().count() + 1;
+            return (line + 1, column);
+        }
+    }
+
+    (1, 1)
+}
+
+/// Return the byte range of a 1-based logical line, excluding its line ending.
+///
+/// Line zero addresses the first line, matching the coordinate conversion's
+/// existing saturating behavior. Lines beyond the source address its end.
+pub(crate) fn logical_line_byte_bounds(source: &str, line: usize) -> (usize, usize) {
+    let target_line = line.saturating_sub(1);
+    logical_lines(source)
+        .nth(target_line)
+        .map(|bounds| (bounds.start, bounds.end))
+        .unwrap_or((source.len(), source.len()))
 }
 
 /// Convert a 1-based `(line, column)` position in `source` to a 0-based byte offset.
 pub fn line_col_to_byte_offset(source: &str, line: usize, column: usize) -> usize {
-    let target_line = line.saturating_sub(1);
+    let (line_start, line_end) = logical_line_byte_bounds(source, line);
     let target_col = column.saturating_sub(1);
-    let mut byte_offset = 0usize;
-    for (idx, l) in source.split_inclusive('\n').enumerate() {
-        if idx == target_line {
-            let col_bytes: usize = l.chars().take(target_col).map(char::len_utf8).sum();
-            return (byte_offset + col_bytes).min(source.len());
-        }
-        byte_offset += l.len();
-    }
-    source.len()
+    let col_bytes: usize = source[line_start..line_end]
+        .chars()
+        .take(target_col)
+        .map(char::len_utf8)
+        .sum();
+    line_start + col_bytes
 }
 
 /// Compiled project program combining ActionScript classes and JavaScript/TypeScript modules.
@@ -846,5 +908,126 @@ mod tests {
         let input = script(ScriptLanguage::ActionScript3, "// привет\n  α + @");
         let error = Diagnostic::at(&input, input.source.find('@').unwrap(), "unsupported");
         assert_eq!((error.line, error.column), (2, 7));
+    }
+
+    #[test]
+    fn line_coordinates_support_all_script_line_terminators() {
+        for ending in ["\n", "\r\n", "\r", "\u{2028}", "\u{2029}"] {
+            let source = format!("α{ending}β");
+            let first_end = 'α'.len_utf8();
+            let second_start = first_end + ending.len();
+
+            assert_eq!(
+                logical_line_byte_bounds(&source, 0),
+                (0, first_end),
+                "line zero with {ending:?}"
+            );
+            assert_eq!(
+                logical_line_byte_bounds(&source, 1),
+                (0, first_end),
+                "first line with {ending:?}"
+            );
+            assert_eq!(
+                logical_line_byte_bounds(&source, 2),
+                (second_start, source.len()),
+                "second line with {ending:?}"
+            );
+            assert_eq!(
+                logical_line_byte_bounds(&source, usize::MAX),
+                (source.len(), source.len()),
+                "past final line with {ending:?}"
+            );
+
+            assert_eq!(line_col_to_byte_offset(&source, 0, 0), 0);
+            assert_eq!(line_col_to_byte_offset(&source, 1, usize::MAX), first_end);
+            assert_eq!(
+                line_col_to_byte_offset(&source, 2, 1),
+                second_start,
+                "second line start with {ending:?}"
+            );
+            assert_eq!(
+                line_col_to_byte_offset(&source, usize::MAX, 1),
+                source.len(),
+                "past final line with {ending:?}"
+            );
+
+            for offset in first_end..second_start {
+                assert_eq!(
+                    byte_offset_to_line_col(&source, offset),
+                    (1, 2),
+                    "offset {offset} inside {ending:?}"
+                );
+            }
+            assert_eq!(
+                byte_offset_to_line_col(&source, second_start),
+                (2, 1),
+                "offset after {ending:?}"
+            );
+            assert_eq!(
+                byte_offset_to_line_col(&source, usize::MAX),
+                (2, 2),
+                "past source end with {ending:?}"
+            );
+
+            for (line, column) in [(1, 1), (1, 2), (2, 1), (2, 2)] {
+                let offset = line_col_to_byte_offset(&source, line, column);
+                assert_eq!(
+                    byte_offset_to_line_col(&source, offset),
+                    (line, column),
+                    "round trip at {line}:{column} with {ending:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn final_empty_line_and_empty_source_have_stable_bounds() {
+        assert_eq!(logical_line_byte_bounds("", 1), (0, 0));
+        assert_eq!(line_col_to_byte_offset("", 1, usize::MAX), 0);
+
+        for ending in ["\n", "\r\n", "\r", "\u{2028}", "\u{2029}"] {
+            let source = format!("a{ending}");
+            assert_eq!(logical_line_byte_bounds(&source, 1), (0, 1));
+            assert_eq!(
+                logical_line_byte_bounds(&source, 2),
+                (source.len(), source.len())
+            );
+            assert_eq!(line_col_to_byte_offset(&source, 1, usize::MAX), 1);
+            assert_eq!(
+                line_col_to_byte_offset(&source, 2, usize::MAX),
+                source.len()
+            );
+            assert_eq!(
+                byte_offset_to_line_col(&source, source.len()),
+                (2, 1),
+                "final empty line after {ending:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn out_of_range_diagnostic_quick_fix_stays_on_its_logical_line() {
+        for ending in ["\n", "\r\n", "\r", "\u{2028}", "\u{2029}"] {
+            let source = format!("keep{ending}fo{ending}foo");
+            let diagnostic = Diagnostic::new(
+                ScriptLanguage::TypeScript,
+                2,
+                usize::MAX,
+                "Cannot find name 'fo'. Did you mean 'foo'?",
+            );
+            let fixes = diagnostic.quick_fixes(&source);
+            let fix = fixes
+                .iter()
+                .find(|fix| fix.replacement == "foo")
+                .expect("spelling correction");
+            let (line_start, line_end) = logical_line_byte_bounds(&source, 2);
+            assert_eq!(fix.span, (line_start, line_start + 2));
+            assert!(fix.span.1 <= line_end);
+            assert_eq!(
+                warnings::apply_quick_fix(&source, fix),
+                source.replacen("fo", "foo", 1),
+                "quick fix on line after {ending:?}"
+            );
+        }
     }
 }
