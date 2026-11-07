@@ -831,7 +831,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   and a double-click on the splitter switch them; the splitter grip is always visible. Layout only.
 
 ### R-055 · Compact Color state and narrower Preferences composition
-- **Status:** open
+- **Status:** answered (owner decision 2026-11-07; implemented)
 - **Requested by / for:** project owner · T-101 / V-D05
 - **Where:** Color panel and Preferences dialog shell/pages.
 - **Need:** A compact persistent Color state (swatches/chip, hex and alpha with on-demand full picker) plus a narrower
@@ -841,6 +841,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** T-099 §9; `target/ui-shots/color-dark.png`; `target/ui-shots/t066-preferences-publish-dark.png`;
   current Color and Preferences outlines/exports.
 - **Proposal (optional):** Treat the full SV/channels picker as an expanded state, not mandatory permanent chrome.
+- **Answer (T-101, 2026-11-07, owner-approved):** Compact Color by default (toggle + hex · alpha on top, recent
+  colours; the full picker opens below on demand and is remembered). Preferences 720 pt with a 160 pt category list
+  and 120 pt labels; the Code editor syntax grid and font select were tightened so every page keeps one width.
 
 ### R-056 · Pixel-aligned optical icon masters for small UI sizes
 - **Status:** open

@@ -5622,3 +5622,53 @@ fn right_dock_priority_switches_by_shortcut_and_splitter_double_click() {
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 }
+
+/// T-101 / R-055: the Color panel is compact by default (hex · alpha, recent colours) and opens the
+/// full picker on demand; the choice is a workspace preference, never document state.
+#[test]
+fn color_panel_is_compact_and_opens_the_picker_on_demand() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let before = editor.project.clone();
+    editor.show_panel(PanelId::Color);
+    let size = Vec2::new(1440., 900.);
+    let mut time = 0.;
+    let mut run = |editor: &mut Editor, events: Vec<Event>| {
+        time += 0.05;
+        let out = frame(editor, &ctx, size, time, events);
+        time += 0.05;
+        frame(editor, &ctx, size, time, vec![]);
+        out
+    };
+    assert!(!editor.workspace.color_picker_expanded);
+    let out = run(&mut editor, vec![]);
+    let show = named_bounds(&out, "Show color picker")
+        .expect("compact Color row")
+        .center();
+    assert!(named_bounds(&out, "Hide color picker").is_none());
+    run(
+        &mut editor,
+        vec![
+            Event::PointerMoved(show),
+            crate::tests::primary_button(show, true),
+        ],
+    );
+    run(&mut editor, vec![crate::tests::primary_button(show, false)]);
+    assert!(editor.workspace.color_picker_expanded);
+    let out = run(&mut editor, vec![]);
+    let hide = named_bounds(&out, "Hide color picker")
+        .expect("expanded picker")
+        .center();
+    run(
+        &mut editor,
+        vec![
+            Event::PointerMoved(hide),
+            crate::tests::primary_button(hide, true),
+        ],
+    );
+    run(&mut editor, vec![crate::tests::primary_button(hide, false)]);
+    assert!(!editor.workspace.color_picker_expanded);
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}

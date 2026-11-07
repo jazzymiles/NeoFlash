@@ -23,9 +23,11 @@ use neoflash_ui::icons::{self, i16};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 
-const LABEL: f32 = 150.0;
+const LABEL: f32 = 120.0;
 /// Dialog width of the reference (`dialog-preferences-*.png`).
-const WIDTH: f32 = 920.0;
+/// Narrower Preferences composition (R-055): 720 pt dialog, 160 pt category list, 120 pt labels.
+const WIDTH: f32 = 720.0;
+const SIDEBAR: f32 = 160.0;
 
 pub(crate) const PREFERENCE_PAGES: [&str; 9] = [
     "General",
@@ -375,10 +377,10 @@ impl Editor {
 fn body(ui: &mut Ui, draft: &mut PreferencesDraft) {
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
-            egui::vec2(196.0, 0.0),
+            egui::vec2(SIDEBAR, 0.0),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                ui.set_width(196.0);
+                ui.set_width(SIDEBAR);
                 ui.spacing_mut().item_spacing.y = 2.0;
                 let icons = [
                     i16::SETTINGS,
@@ -548,7 +550,7 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
             draft.code_editor.font.clone()
         };
         c::Select::new("prefs-code-font", &current_font)
-            .width(260.0)
+            .width(220.0)
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("prefs-code-font-list")
@@ -680,14 +682,15 @@ fn prefs_code_editor(ui: &mut Ui, draft: &mut PreferencesDraft) {
             ("Selection", nf.syntax_selection),
             ("Current line", nf.syntax_current_line),
         ];
+        // Three columns fit the narrower 720 pt dialog (R-055).
         egui::Grid::new("prefs-syntax")
             .num_columns(3)
-            .spacing(egui::vec2(space::S5, space::S1))
+            .spacing(egui::vec2(space::S3, space::S1))
             .show(ui, |ui| {
                 for (i, (name, color)) in tokens.iter().enumerate() {
                     ui.horizontal(|ui| {
                         c::swatch(ui, *color, 18.0);
-                        form_label(ui, name, 96.0);
+                        form_label(ui, name, 76.0);
                         let [r, g, b, _] = color.to_srgba_unmultiplied();
                         ui.label(
                             rich(format!("{r:02X}{g:02X}{b:02X}"), TextStyle::MonoSmall)

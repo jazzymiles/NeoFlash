@@ -2222,11 +2222,24 @@ impl Editor {
 
     pub(crate) fn color_panel_ui(&mut self, ui: &mut egui::Ui) {
         self.panel_title(ui, PanelId::Color, "Color");
+        // Compact state (R-055): the mixers read these and request a toggle / a recent colour.
+        let recent: Vec<Color> = self.workspace.recent_colors.clone();
+        ui.data_mut(|d| {
+            d.insert_temp(
+                color_picker_expanded(),
+                self.workspace.color_picker_expanded,
+            );
+            d.insert_temp(color_recent(), recent);
+            d.remove::<bool>(color_picker_toggle());
+        });
         egui::ScrollArea::vertical()
             .id_salt("color-content")
             .auto_shrink([false, false])
             .themed()
             .show(ui, |ui| self.color_panel_contents(ui));
+        if ui.data_mut(|d| d.remove_temp::<bool>(color_picker_toggle())) == Some(true) {
+            self.workspace.color_picker_expanded = !self.workspace.color_picker_expanded;
+        }
     }
 
     pub(crate) fn apply_drawing_gradients_to_element(&self, element: &mut Element) -> bool {
@@ -3334,6 +3347,17 @@ fn color_to_hsb(c: Color) -> Hsb {
     hsv(h, s, max, a)
 }
 
+/// Color panel compact state (R-055), shared with the mixers through egui temp data.
+fn color_picker_expanded() -> egui::Id {
+    egui::Id::new("color-picker-expanded")
+}
+fn color_picker_toggle() -> egui::Id {
+    egui::Id::new("color-picker-toggle")
+}
+fn color_recent() -> egui::Id {
+    egui::Id::new("color-recent")
+}
+
 fn color_mixer_ui(
     ui: &mut egui::Ui,
     hsb_cache_id: egui::Id,
@@ -3346,6 +3370,85 @@ fn color_mixer_ui(
         .filter(|cached| egui::Color32::from(*cached).to_srgba_unmultiplied() == *color)
         .unwrap_or_else(|| color_to_hsb(*color));
     let mut changed_id = None;
+    // Outside the Color panel (no flag set) the mixer keeps its full picker.
+    let expanded = ui
+        .data(|d| d.get_temp::<bool>(color_picker_expanded()))
+        .unwrap_or(true);
+    if !expanded {
+        // Compact: hex · alpha with the picker toggle, then recent colours.
+        let mut field_c32 =
+            egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
+        // The picker toggle leads the row, clear of the panel's overlay scroll bar.
+        ui.horizontal(|ui| {
+            if ui
+                .add(neoflash_ui::components::IconButton::new(
+                    neoflash_ui::icons::i16::CHEVRIGHT,
+                    "Show color picker",
+                ))
+                .clicked()
+            {
+                ui.data_mut(|d| d.insert_temp(color_picker_toggle(), true));
+            }
+            let w = ui.available_width();
+            let cf = ColorField::new(&mut field_c32, field_label)
+                .width(w)
+                .show(ui);
+            if cf.response.changed() {
+                *color = field_c32.to_srgba_unmultiplied();
+                changed_id = Some(cf.response.id);
+            }
+        });
+        let recent: Vec<Color> = ui.data(|d| d.get_temp(color_recent())).unwrap_or_default();
+        if !recent.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(space::S1, space::S1);
+                for c in recent {
+                    let c32 = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                    let r = ui
+                        .add(neoflash_ui::components::SwatchCell {
+                            color: c32,
+                            selected: c == *color,
+                        })
+                        .on_hover_text(format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]));
+                    if r.clicked() {
+                        *color = c;
+                        changed_id = Some(r.id);
+                    }
+                }
+            });
+        }
+        ui.data_mut(|d| d.insert_temp(hsb_cache_id, color_to_hsb(*color)));
+        return changed_id;
+    }
+
+    // Expanded (or outside the Color panel): the hex · alpha row stays on top, where the compact
+    // state shows it, and the picker opens below it (R-055).
+    let mut field_c32 =
+        egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
+    let in_color_panel = ui
+        .data(|d| d.get_temp::<bool>(color_picker_expanded()))
+        .is_some();
+    ui.horizontal(|ui| {
+        if in_color_panel
+            && ui
+                .add(neoflash_ui::components::IconButton::new(
+                    neoflash_ui::icons::i16::CHEVDOWN,
+                    "Hide color picker",
+                ))
+                .clicked()
+        {
+            ui.data_mut(|d| d.insert_temp(color_picker_toggle(), true));
+        }
+        let w = ui.available_width();
+        let cf = ColorField::new(&mut field_c32, field_label)
+            .width(w)
+            .show(ui);
+        if cf.response.changed() {
+            *color = field_c32.to_srgba_unmultiplied();
+            hsb = color_to_hsb(*color);
+            changed_id = Some(cf.response.id);
+        }
+    });
 
     let picker_r = ui.add(ColorPicker { color: &mut hsb });
     if picker_r.changed() {
@@ -3435,18 +3538,6 @@ fn color_mixer_ui(
             }
         }
     });
-
-    let mut field_c32 =
-        egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
-    let w = ui.available_width();
-    let cf = ColorField::new(&mut field_c32, field_label)
-        .width(w)
-        .show(ui);
-    if cf.response.changed() {
-        *color = field_c32.to_srgba_unmultiplied();
-        hsb = color_to_hsb(*color);
-        changed_id = Some(cf.response.id);
-    }
 
     ui.data_mut(|d| d.insert_temp(hsb_cache_id, hsb));
     changed_id

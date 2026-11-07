@@ -92,6 +92,11 @@
           "status": "working"
         },
         {
+          "id": "compact-color-panel",
+          "title": "Compact Color panel with recent colours and an on-demand colour picker",
+          "status": "working"
+        },
+        {
           "id": "dock-priority",
           "title": "Inspector and Library priority for the right dock by menu, shortcut or divider double-click",
           "status": "working"

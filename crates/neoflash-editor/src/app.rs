@@ -248,6 +248,23 @@ impl Editor {
             if std::env::var("NEOFLASH_SCREENSHOT_PRIORITY").as_deref() == Ok("library") {
                 s.workspace.dock.give_priority(PanelId::Library);
             }
+            // `NEOFLASH_SCREENSHOT_COLOR=expanded` shows the full Color picker (R-055);
+            // `NEOFLASH_SCREENSHOT_RECENT=1` fills the recent colours from the document palette.
+            if std::env::var("NEOFLASH_SCREENSHOT_COLOR").as_deref() == Ok("expanded") {
+                s.workspace.color_picker_expanded = true;
+            }
+            if std::env::var("NEOFLASH_SCREENSHOT_RECENT").as_deref() == Ok("1") {
+                s.workspace.recent_colors = vec![
+                    [0x0C, 0x10, 0x24, 255],
+                    [0xF0, 0xBE, 0x91, 255],
+                    [0xE5, 0x39, 0x35, 255],
+                    [0x2E, 0xA8, 0x4F, 255],
+                    [0x1E, 0x63, 0xD6, 255],
+                    [0xFF, 0xD4, 0x00, 255],
+                    [0xB0, 0x17, 0x7A, 255],
+                    [0xFF, 0xFF, 0xFF, 255],
+                ];
+            }
             match std::env::var("NEOFLASH_SCREENSHOT_ROWS").as_deref() {
                 Ok("short") => s.workspace.timeline.short_rows = true,
                 Ok("compact") => s.workspace.timeline.compact_rows = true,

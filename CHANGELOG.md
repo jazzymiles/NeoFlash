@@ -2,6 +2,10 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Compact Color panel and narrower Preferences (`T-101`): the Color panel now shows a compact hex · alpha row with
+  recent colours; the full colour picker opens below it with › and closes with ⌄, and the choice is remembered.
+  Preferences is narrower (720 pt) with the same controls and text sizes.
+
 - Properties and Library share the right dock better (`T-101`): **Inspector priority** (now the default) keeps a
   usable Library under Properties, **Library priority** gives the Library most of the height. Switch with
   **Window ▸ Inspector priority** (⌥⌘F3), **Window ▸ Library priority** (⌥⌘L) or by double-clicking the divider

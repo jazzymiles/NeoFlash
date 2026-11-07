@@ -1579,6 +1579,9 @@ pub struct WorkspacePrefs {
     pub density: DensityPref,
     /// Stage toolbar state (R-053).
     pub stage_toolbar: StageToolbarMode,
+    /// Color panel shows the full SV / hue / channel picker (R-055); off = compact hex · alpha row
+    /// with recent colours, the picker opens on demand.
+    pub color_picker_expanded: bool,
     pub panels: PanelVisibility,
     pub active_bottom: BottomTab,
     pub sizes: PanelSizes,
@@ -2471,6 +2474,7 @@ impl Default for WorkspacePrefs {
             template: WorkspaceTemplate::Classic,
             density: DensityPref::default(),
             stage_toolbar: StageToolbarMode::default(),
+            color_picker_expanded: false,
             timeline: TimelineView::default(),
             view_defaults: None,
             recent_colors: Vec::new(),
@@ -3196,6 +3200,7 @@ impl WorkspacePrefs {
             theme: self.theme,
             density: self.density,
             stage_toolbar: self.stage_toolbar,
+            color_picker_expanded: self.color_picker_expanded,
             ui_scale: self.ui_scale,
             undo_levels: self.undo_levels,
             shift_select: self.shift_select,
