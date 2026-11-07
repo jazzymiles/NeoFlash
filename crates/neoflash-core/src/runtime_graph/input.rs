@@ -169,10 +169,20 @@ impl Player {
                 "Input reference is stale or belongs to another player",
             ));
         }
-        self.runtime_snapshot(project).objects.into_iter()
-            .find(|node| &node.object_ref == target)
-            .and_then(|node| node.input)
-            .ok_or_else(|| error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive"))
+        let owner = self
+            .object_owner(project, target)
+            .ok_or_else(|| error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive"))?;
+        let mut state = self.graph.input_state(target, owner).ok_or_else(|| {
+            error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive")
+        })?;
+        if state
+            .hit_area
+            .as_ref()
+            .is_some_and(|reference| !self.object_owner(project, reference).is_some_and(sprite))
+        {
+            state.hit_area = None;
+        }
+        Ok(state)
     }
     pub fn object_input_update(
         &mut self,
@@ -185,13 +195,9 @@ impl Player {
                 "Input reference is stale or belongs to another player",
             ));
         }
-        let snapshot = self.runtime_snapshot(project);
-        let node = snapshot
-            .objects
-            .iter()
-            .find(|node| &node.object_ref == target)
+        let owner = self
+            .object_owner(project, target)
             .ok_or_else(|| error("Input target is absent from the display graph"))?;
-        let owner = node.display.owner.as_str();
         let defaults = DisplayInputState::for_owner(owner)
             .ok_or_else(|| error("Mouse input state requires an InteractiveObject; Shape, Bitmap and Video are not interactive"))?;
         if owner != "movie_clip" && !state.movieclip_enabled {
@@ -224,19 +230,12 @@ impl Player {
             if !sprite(owner) {
                 return Err(error("hitArea requires a Sprite or MovieClip target"));
             }
-            let source_node = snapshot
-                .objects
-                .iter()
-                .find(|node| &node.object_ref == source)
+            let source_owner = self
+                .object_owner(project, source)
                 .ok_or_else(|| error("hitArea source is stale or belongs to another player"))?;
-            if !sprite(&source_node.display.owner) {
+            if !sprite(source_owner) {
                 return Err(error("hitArea source must be a Sprite or MovieClip"));
             }
-            let inputs: HashMap<_, _> = snapshot
-                .objects
-                .iter()
-                .filter_map(|node| node.input.as_ref().map(|input| (&node.object_ref, input)))
-                .collect();
             let mut next = Some(source);
             let mut seen = BTreeSet::new();
             while let Some(current) = next {
@@ -246,9 +245,12 @@ impl Player {
                 if seen.len() > MAX_GRAPH_DEPTH {
                     return Err(error("hitArea reference chain exceeds 64 objects"));
                 }
-                next = inputs
+                next = self
+                    .graph
+                    .input_states
                     .get(current)
-                    .and_then(|input| input.hit_area.as_ref());
+                    .and_then(|input| input.hit_area.as_ref())
+                    .filter(|r| self.object_owner(project, r).is_some_and(sprite));
             }
         }
         if !state.movieclip_enabled || !state.button_mode {
@@ -279,6 +281,12 @@ impl Player {
             return Err(error(
                 "MovieClip pointer target is stale or belongs to another player",
             ));
+        }
+        if self.graph.movieclip_pointer.over.is_none()
+            && self.graph.movieclip_pointer.pressed.is_none()
+            && !self.graph.input_states.values().any(|s| s.button_mode)
+        {
+            return Ok(false);
         }
         let snapshot = self.runtime_snapshot(project);
         let eligible: BTreeSet<_> = snapshot

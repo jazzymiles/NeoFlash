@@ -132,15 +132,32 @@ impl Player {
 
     pub fn object_text_info(
         &self,
-        project: &Project,
+        _project: &Project,
         reference: &ObjectRef,
     ) -> Result<TextFieldState, TextError> {
-        self.runtime_snapshot(project)
-            .objects
-            .into_iter()
-            .find(|node| &node.object_ref == reference)
-            .and_then(|node| node.text)
-            .ok_or_else(|| TextError("requires a live TextField display object".into()))
+        if !self.graph.alive(reference) {
+            return Err(TextError("requires a live TextField display object".into()));
+        }
+        if let Some(state) = self.graph.text_states.get(reference) {
+            return Ok(state.clone());
+        }
+        if !self.graph.loaded_as2(reference) {
+            let kind = if let Some(path) = self.graph.paths.get(reference) {
+                self.previous.get(path).and_then(|node| node.kind.as_ref())
+            } else if let Some(address) = self.graph.linked_paths.get(reference) {
+                self.graph
+                    .namespaces
+                    .get(&address.namespace)
+                    .and_then(|scope| scope.player.previous.get(&address.path))
+                    .and_then(|node| node.kind.as_ref())
+            } else {
+                None
+            };
+            if let Some(state) = kind.and_then(TextFieldState::from_kind) {
+                return Ok(state);
+            }
+        }
+        Err(TextError("requires a live TextField display object".into()))
     }
     pub fn object_text_update(
         &mut self,

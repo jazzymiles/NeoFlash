@@ -1351,6 +1351,77 @@ impl Player {
         result
     }
 
+    pub(crate) fn object_owner(
+        &self,
+        project: &Project,
+        reference: &ObjectRef,
+    ) -> Option<&'static str> {
+        if !self.graph.alive(reference) {
+            return None;
+        }
+        if let Some(path) = self.graph.paths.get(reference) {
+            let node = self.previous.get(path)?;
+            return Some(Self::node_owner(project, node));
+        }
+        if let Some(address) = self.graph.linked_paths.get(reference) {
+            let scope = self.graph.namespaces.get(&address.namespace)?;
+            let node = scope.player.previous.get(&address.path)?;
+            return Some(Self::node_owner(project, node));
+        }
+        if let Some(node) = self.graph.dynamic.get(reference) {
+            if let Some(scope) = self.graph.namespaces.get(reference)
+                && let Some(root_node) = scope.player.previous.get(&[][..])
+            {
+                return Some(Self::node_owner(project, root_node));
+            }
+            return Some(match node.kind {
+                DynamicKind::Sprite => "sprite",
+                DynamicKind::Shape => "shape",
+                DynamicKind::MovieClip => "movie_clip",
+                DynamicKind::Bitmap => "bitmap",
+                DynamicKind::TextField => "text",
+                DynamicKind::Video => "video",
+                DynamicKind::Loader => "loader",
+                DynamicKind::Button => "button",
+                DynamicKind::TextLine => "text_line",
+                DynamicKind::MorphShape => "morph_shape",
+                DynamicKind::Avm1Movie => "avm1_movie",
+            });
+        }
+        None
+    }
+
+    pub(crate) fn object_name(&self, reference: &ObjectRef) -> Option<String> {
+        if !self.graph.alive(reference) {
+            return None;
+        }
+        if let Some(path) = self.graph.paths.get(reference) {
+            let node = self.previous.get(path)?;
+            return Some(
+                self.overrides
+                    .get(path)
+                    .and_then(|p| p.name.clone())
+                    .unwrap_or_else(|| node.name.clone()),
+            );
+        }
+        if let Some(address) = self.graph.linked_paths.get(reference) {
+            let scope = self.graph.namespaces.get(&address.namespace)?;
+            let node = scope.player.previous.get(&address.path)?;
+            return Some(
+                scope
+                    .player
+                    .overrides
+                    .get(&address.path)
+                    .and_then(|p| p.name.clone())
+                    .unwrap_or_else(|| node.name.clone()),
+            );
+        }
+        if let Some(node) = self.graph.dynamic.get(reference) {
+            return Some(node.name.clone());
+        }
+        None
+    }
+
     pub fn display_mutate(
         &mut self,
         project: &Project,
@@ -1368,14 +1439,9 @@ impl Player {
             ));
         }
         self.graph.validate_loader_mutation(&mutation)?;
-        let snapshot = self.runtime_snapshot(project);
-        let container = snapshot
-            .objects
-            .iter()
-            .find(|node| &node.object_ref == parent)
-            .expect("live parent");
+        let owner = self.object_owner(project, parent).expect("live parent");
         if !matches!(
-            container.display.owner.as_str(),
+            owner,
             "sprite" | "movie_clip" | "graphic" | "button" | "text_line"
         ) {
             return Err(error("This object cannot contain children"));
@@ -1424,13 +1490,16 @@ impl Player {
                 if depth + height > MAX_GRAPH_DEPTH {
                     return Err(error("Display graph nesting exceeds 64 objects"));
                 }
-                self.graph.validate_clipping(
-                    project,
-                    &snapshot,
-                    &self.graph.masks,
-                    &self.graph.scroll_rects,
-                    Some((&child, &parent)),
-                )?;
+                if !self.graph.masks.is_empty() || !self.graph.scroll_rects.is_empty() {
+                    let snapshot = self.runtime_snapshot(project);
+                    self.graph.validate_clipping(
+                        project,
+                        &snapshot,
+                        &self.graph.masks,
+                        &self.graph.scroll_rects,
+                        Some((&child, &parent)),
+                    )?;
+                }
                 if same {
                     let mut siblings = current;
                     let old = siblings
@@ -1752,21 +1821,15 @@ impl Player {
                 "Display reference is stale or belongs to another player",
             ));
         }
-        let snapshot = self.runtime_snapshot(project);
-        let container = snapshot
-            .objects
-            .iter()
-            .find(|node| &node.object_ref == parent)
+        let owner = self
+            .object_owner(project, parent)
             .ok_or_else(|| error("Container is absent from the display graph"))?;
-        if container.display.owner == "loader" {
+        if owner == "loader" {
             return Err(error(
                 "Loader owns its content child; use load/unload instead of child-list mutation",
             ));
         }
-        if !matches!(
-            container.display.owner.as_str(),
-            "sprite" | "movie_clip" | "graphic" | "text_line"
-        ) {
+        if !matches!(owner, "sprite" | "movie_clip" | "graphic" | "text_line") {
             return Err(error("removeChildren requires a DisplayObjectContainer"));
         }
         let children = self.graph.children(parent);
@@ -1834,29 +1897,19 @@ impl Player {
                 "Display reference is stale or belongs to another player",
             ));
         }
-        let snapshot = self.runtime_snapshot(project);
-        let container = snapshot
-            .objects
-            .iter()
-            .find(|node| &node.object_ref == target)
+        let owner = self
+            .object_owner(project, target)
             .ok_or_else(|| error("Container is absent from the display graph"))?;
-        if !matches!(
-            container.display.owner.as_str(),
-            "sprite" | "movie_clip" | "graphic" | "loader"
-        ) {
+        if !matches!(owner, "sprite" | "movie_clip" | "graphic" | "loader") {
             return Err(error("stopAllMovieClips requires a DisplayObjectContainer"));
         }
-        let clips: BTreeSet<_> = snapshot
-            .objects
-            .iter()
-            .filter(|node| node.display.owner == "movie_clip")
-            .map(|node| node.object_ref.clone())
-            .collect();
         // The receiver is part of subtree(). Source MovieClips in synchronized
         // authoring modes have no independent clock; object_control leaves them
         // to their parent timeline instead of inventing playback state.
         for reference in self.graph.subtree(target) {
-            if clips.contains(&reference) && !self.graph.loaded_as2(&reference) {
+            if self.object_owner(project, &reference) == Some("movie_clip")
+                && !self.graph.loaded_as2(&reference)
+            {
                 self.object_control(project, &reference, PlaybackCommand::Stop);
             }
         }

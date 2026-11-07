@@ -189,39 +189,33 @@ impl Player {
                 serde_json::to_string(&state).map_err(|e| error(&e.to_string()))
             }
             Command::Set { name, value } => {
-                let snapshot = self.runtime_snapshot(project);
-                let node = snapshot
-                    .objects
-                    .iter()
-                    .find(|node| &node.object_ref == target)
+                let owner = self
+                    .object_owner(project, target)
                     .ok_or_else(|| error("AS2 input target is unavailable"))?;
-                if !matches!(
-                    node.display.owner.as_str(),
-                    "movie_clip" | "button" | "text"
-                ) {
+                if !matches!(owner, "movie_clip" | "button" | "text") {
                     return Err(error(
                         "AS2 input preferences require MovieClip, Button or TextField",
                     ));
                 }
-                if name == "tabChildren" && node.display.owner == "text" {
+                if name == "tabChildren" && owner == "text" {
                     return Err(error("TextField has no tabChildren"));
                 }
-                if name == "focusEnabled" && node.display.owner != "movie_clip" {
+                if name == "focusEnabled" && owner != "movie_clip" {
                     return Err(error("focusEnabled belongs to MovieClip"));
                 }
-                if name == "forceSmoothing" && node.display.owner != "movie_clip" {
+                if name == "forceSmoothing" && owner != "movie_clip" {
                     return Err(error("forceSmoothing belongs to MovieClip"));
                 }
-                if name == "_lockroot" && node.display.owner != "movie_clip" {
+                if name == "_lockroot" && owner != "movie_clip" {
                     return Err(error("_lockroot belongs to MovieClip"));
                 }
-                if name == "enabled" && node.display.owner == "text" {
+                if name == "enabled" && owner == "text" {
                     return Err(error(
                         "AS2 TextField has no enabled switch; use type/selectable",
                     ));
                 }
                 if matches!(name.as_str(), "trackAsMenu" | "_focusrect")
-                    && !matches!(node.display.owner.as_str(), "movie_clip" | "button")
+                    && !matches!(owner, "movie_clip" | "button")
                 {
                     return Err(error(
                         "AS2 menu tracking and focus rectangles require MovieClip or Button",

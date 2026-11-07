@@ -119,8 +119,8 @@ pub struct Player {
     suppressed_content: HashMap<Vec<Id>, Option<Id>>,
     pub(crate) runtime_scripts: VecDeque<RuntimeScriptDispatch>,
     clocks: HashMap<Vec<Id>, Clock>,
-    overrides: HashMap<Vec<Id>, DisplayPatch>,
-    previous: HashMap<Vec<Id>, Node>,
+    pub(crate) overrides: HashMap<Vec<Id>, DisplayPatch>,
+    pub(crate) previous: HashMap<Vec<Id>, Node>,
     lifetimes: HashMap<Vec<Id>, u64>,
     next_lifetime: u64,
     scripts: VecDeque<ScriptDispatch>,
@@ -374,6 +374,25 @@ impl Player {
         self.display_nodes_from_evaluation(project, &scene)
     }
 
+    pub(crate) fn node_owner(project: &Project, node: &Node) -> &'static str {
+        let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id));
+        match symbol.map(|s| s.kind) {
+            Some(SymbolKind::MovieClip) => "movie_clip",
+            Some(SymbolKind::Graphic) => "graphic",
+            Some(SymbolKind::Button) => "button",
+            None if matches!(
+                node.kind.as_ref(),
+                Some(ElementKind::Text { .. } | ElementKind::TextBox { .. })
+            ) =>
+            {
+                "text"
+            }
+            None if matches!(node.kind.as_ref(), Some(ElementKind::Bitmap { .. })) => "bitmap",
+            None if matches!(node.kind.as_ref(), Some(ElementKind::Video { .. })) => "video",
+            None => "shape",
+        }
+    }
+
     /// Add runtime identity and class metadata to the nodes of an evaluation that the
     /// caller already owns. Runtime snapshots use this to avoid evaluating the same
     /// authored tree once for display metadata and again for draw/mask metadata.
@@ -388,25 +407,7 @@ impl Player {
             .filter_map(|node| {
                 let lifetime_id = self.lifetime_id(&node.path)?.to_string();
                 let symbol = node.symbol_id.as_ref().and_then(|id| project.symbol(id));
-                let owner = match symbol.map(|s| s.kind) {
-                    Some(SymbolKind::MovieClip) => "movie_clip",
-                    Some(SymbolKind::Graphic) => "graphic",
-                    Some(SymbolKind::Button) => "button",
-                    None if matches!(
-                        node.kind.as_ref(),
-                        Some(ElementKind::Text { .. } | ElementKind::TextBox { .. })
-                    ) =>
-                    {
-                        "text"
-                    }
-                    None if matches!(node.kind.as_ref(), Some(ElementKind::Bitmap { .. })) => {
-                        "bitmap"
-                    }
-                    None if matches!(node.kind.as_ref(), Some(ElementKind::Video { .. })) => {
-                        "video"
-                    }
-                    None => "shape",
-                };
+                let owner = Self::node_owner(project, node);
                 let class_name = if node.path.is_empty() && self.source_root.is_none() {
                     project.document_class.clone()
                 } else {
@@ -826,12 +827,7 @@ impl Player {
         if self.lifetime_id(&dispatch.target_path) != Some(dispatch.target_lifetime) {
             return false;
         }
-        let scene = self.snapshot(project);
-        let Some(node) = scene
-            .nodes
-            .iter()
-            .find(|node| node.path == dispatch.target_path)
-        else {
+        let Some(node) = self.previous.get(&dispatch.target_path) else {
             return false;
         };
         match dispatch.event {
@@ -875,12 +871,14 @@ impl Player {
     }
 
     /// Returns the local property, even if a hidden ancestor prevents rendering.
-    pub fn visible(&self, project: &Project, path: &[Id]) -> Option<bool> {
-        self.snapshot(project)
-            .nodes
-            .iter()
-            .find(|node| node.path == path)
-            .map(|node| node.visible)
+    pub fn visible(&self, _project: &Project, path: &[Id]) -> Option<bool> {
+        let node = self.previous.get(path)?;
+        Some(
+            self.overrides
+                .get(path)
+                .and_then(|p| p.visible)
+                .unwrap_or(node.visible),
+        )
     }
 
     pub fn set_property(&mut self, path: &[Id], property: &str, value: f64) -> bool {
@@ -985,14 +983,35 @@ impl Player {
         })
     }
 
+    pub(crate) fn node_transform(&self, project: &Project, path: &[Id]) -> Option<Transform> {
+        if path.len() > 1
+            && (1..path.len()).any(|k| {
+                self.overrides
+                    .get(&path[..k])
+                    .is_some_and(|p| p.scale_x.is_some() || p.scale_y.is_some())
+            })
+        {
+            let scene = self.snapshot(project);
+            return scene
+                .nodes
+                .iter()
+                .find(|n| n.path == path)
+                .map(|n| n.transform);
+        }
+        let mut t = self.previous.get(path)?.transform;
+        if let Some(patch) = self.overrides.get(path) {
+            patch.apply(&mut t);
+        }
+        Some(t)
+    }
+
     pub fn property(&self, project: &Project, path: &[Id], property: &str) -> Option<f64> {
         if let Some(reference) = self.object_ref(path)
             && let Some(value) = self.transform_property_override(&reference, property)
         {
             return Some(value);
         }
-        let scene = self.snapshot(project);
-        let t = scene.nodes.iter().find(|n| n.path == path)?.transform;
+        let t = self.node_transform(project, path)?;
         match property {
             "x" => Some(t.x),
             "y" => Some(t.y),

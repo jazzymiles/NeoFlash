@@ -426,6 +426,15 @@
     }
     return Object.freeze({ methods, dispatch, prune, release: target => records.delete(target),
       clear: () => { records = options.weakTargets ? new WeakMap() : new Map(); },
+      targetsWith(type) {
+        if (options.weakTargets) return null;
+        type = String(type);
+        const list = [];
+        for (const [target, record] of records) {
+          if (alive(target) && (record.get(type) || []).some(item => callback(item))) list.push(target);
+        }
+        return list;
+      },
       broadcast(type, targets) {
         // Explicit host list snapshots the active lifetimes; new placements wait for the next broadcast.
         if (depth === 0 && batches === 0) invocations = 0;

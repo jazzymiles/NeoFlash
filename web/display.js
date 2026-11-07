@@ -121,7 +121,7 @@
       if (!staticTextLifetimes.has(id)) staticTextLifetimes.set(id, !node.name);
       return staticTextLifetimes.get(id);
     }
-    let snapshotCache=null,nodesCache=null,childMapCache=null;
+    let snapshotCache=null,nodesCache=null,childMapCache=null,as2SettingsCache=null;
     const ownerCache=new Map();
     const readOnlyPlayerMethods=new Set([
       'runtime_snapshot_json','display_nodes_json','scene_json','accessibility_json',
@@ -143,7 +143,7 @@
       'filter_padding','filter_rgba','amf_encode','amf_decode','sol_encode','sol_decode',
       'text_layout_json','text_query_json','portable_measure_text_json',
       'parse_html_text_json','serialize_html_text_json','text_to_outlines_json',
-      'loader_content',
+      'loader_content','scripts_json','sound_commands_json','display_events_json',
     ]);
     const visualOnlyPlayerMethods=new Set([
       'set_property','object_set_property','set_visible','object_set_visible',
@@ -153,7 +153,7 @@
       'object_set_scroll_rect','object_set_mask','object_set_bitmap',
       'object_set_smoothing','object_set_pixel_snapping','object_video_update',
       'graphics_apply','graphics_copy_from','set_morph_shape_ops','set_text_line_draws',
-      'sound_commands_json','stop_all_sounds','set_playing',
+      'stop_all_sounds','set_playing',
       'bitmap_create','bitmap_set_pixels','bitmap_color_transform','bitmap_apply_filter',
       'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_set_pixel','bitmap_fill_rect',
       'bitmap_copy_pixels','bitmap_clone','bitmap_scroll','bitmap_dispose','pixel_decode','pixel_release',
@@ -183,6 +183,21 @@
           });
           continue;
         }
+        if(methodName==='object_movieclip_pointer'){
+          const orig=player.object_movieclip_pointer;
+          Object.defineProperty(player,'object_movieclip_pointer',{
+            configurable:true,writable:true,
+            value:function(...args){
+              const changed=orig.apply(this,args);
+              if(changed){
+                player.__nfRawSnapshot=null;
+                for(const inv of player.__nfInvalidators)inv(false,false);
+              }
+              return changed;
+            },
+          });
+          continue;
+        }
         if(readOnlyPlayerMethods.has(methodName))continue;
         const orig=player[methodName];
         const visualOnly=visualOnlyPlayerMethods.has(methodName);
@@ -193,25 +208,64 @@
             if((methodName==='as2_settings_command'||methodName==='as2_render_command'||methodName==='as2_input_command')&&typeof args[args.length-1]==='string'&&args[args.length-1].includes('"op":"get"')){
               isReadOnlyCmd=true;
             }
+            const prevFrame=methodName==='step'&&typeof this.current_frame==='function'?this.current_frame():-1;
+            const result=orig.apply(this,args);
+            const nextFrame=methodName==='step'&&typeof this.current_frame==='function'?this.current_frame():-2;
+            const noopStep=methodName==='step'&&prevFrame>=0&&prevFrame===nextFrame;
             if(!isReadOnlyCmd){
-              player.__nfRawSnapshot=null;
-              for(const inv of player.__nfInvalidators)inv(visualOnly,methodName==='reset');
+              if(!noopStep)player.__nfRawSnapshot=null;
+              for(const inv of player.__nfInvalidators)inv(visualOnly,methodName==='reset',methodName,args,result,noopStep);
             }
-            return orig.apply(this,args);
+            return result;
           },
         });
       }
     }
-    player.__nfInvalidators.push((visualOnly,isReset)=>{
+    function updateNodeTransformInCache(key,name,value){
+      if(!graph||!nodesCache?.__byKey)return false;
+      const node=nodesCache.__byKey.get(key);
+      if(!node||!node.transform)return false;
+      if(name==='x'||name==='y'){
+        node.transform[name]=value;
+        if(node.local_matrix)node.local_matrix[name==='x'?4:5]=value;
+      }else if((name==='rotation'||(name==='scale_x'&&value>=0)||(name==='scale_y'&&value>=0))&&!node.transform.skew){
+        node.transform[name]=name==='rotation'?(value%360):value;
+        if(node.local_matrix)node.local_matrix=matrix(node.transform);
+      }else{
+        return false;
+      }
+      const updateWorld=n=>{
+        const localM=n.local_matrix||matrix(n.transform);
+        const p=n.parent_ref?nodesCache.__byKey.get(refKey(n.parent_ref)):null;
+        n.world=p?multiply(p.world,localM):localM;
+        if(n.children?.length){
+          for(const chRef of n.children){
+            const ch=nodesCache.__byKey.get(refKey(chRef));
+            if(ch)updateWorld(ch);
+          }
+        }
+      };
+      updateWorld(node);
+      return true;
+    }
+    player.__nfInvalidators.push((visualOnly,isReset,methodName,args,result,noopStep)=>{
+      if(noopStep&&nodesCache&&!nodesCache.__hasMultiFrameChild)return;
+      if(noopStep)player.__nfRawSnapshot=null;
       snapshotCache=null;
-      nodesCache=null;
+      if(methodName==='object_set_property'&&result===true&&args?.length===3&&updateNodeTransformInCache(args[0],args[1],args[2])){
+        // Updated transform and world matrices in-place in nodesCache.
+      }else{
+        nodesCache=null;
+      }
       if(!visualOnly)childMapCache=null;
-      if(isReset)ownerCache.clear();
+      if(isReset){ownerCache.clear();as2SettingsCache=null;}
     });
     function indexNodes(list){
       if(!list.__byKey){
         const byKey=new Map();
+        let hasMultiFrameChild=false;
         for(const node of list){
+          if((node.parent_ref!==null&&node.total_frames>1)||node.owner==='loader')hasMultiFrameChild=true;
           const k=nodeKey(node);
           byKey.set(k,node);
           const lifetime=graph?node.object_ref?.generation:node.lifetime_id;
@@ -221,6 +275,7 @@
           }
         }
         Object.defineProperty(list,'__byKey',{value:byKey,enumerable:false});
+        Object.defineProperty(list,'__hasMultiFrameChild',{value:hasMultiFrameChild,enumerable:false});
       }
       return list;
     }
@@ -299,6 +354,10 @@
     }
     function relative(node, target, list) {
       if (!target) return node.world;
+      if (nodeKey(node) === nodeKey(target)) return identity;
+      if (!target.scroll_rect && target.world[0] === 1 && target.world[1] === 0 && target.world[2] === 0 && target.world[3] === 1 && target.world[4] === 0 && target.world[5] === 0) {
+        return node.world;
+      }
       if (descendant(node,target,list)) {
         const chain=[];
         for(let current=node;nodeKey(current)!==nodeKey(target);current=parentNode(current,list))chain.push(current);
@@ -312,14 +371,33 @@
       const destination=space===null || space===getStage() ? null : descriptor(space,list);
       let box=null;
       const include=(x,y)=>{ if (!Number.isFinite(x)||!Number.isFinite(y)) throw new RangeError('Display bounds exceed the finite coordinate range.'); box=box ? {left:Math.min(box.left,x),top:Math.min(box.top,y),right:Math.max(box.right,x),bottom:Math.max(box.bottom,y)} : {left:x,top:y,right:x,bottom:y}; };
-      for(const leaf of list) {
-        if(!descendant(leaf,source,list))continue;
+      let leaves;
+      if (graph && list.__byKey) {
+        leaves=[];
+        const queue=[source];
+        for (let qi=0; qi<queue.length; qi++) {
+          const cur=queue[qi];
+          leaves.push(cur);
+          if (!cur.scroll_rect && cur.children?.length) {
+            for (const chRef of cur.children) {
+              const ch=list.__byKey.get(refKey(chRef));
+              if (ch) queue.push(ch);
+            }
+          }
+        }
+      } else {
+        leaves=list;
+      }
+      for(const leaf of leaves) {
+        if(!graph&&!descendant(leaf,source,list))continue;
         // A scroll viewport replaces that subtree's reported bounds, even when
         // its content is smaller. Keep mask geometry out of this bounds rule:
         // masks affect painting/picking, not the unmasked script geometry.
-        let cropped=false;
-        for(let ancestor=parentNode(leaf,list);ancestor&&descendant(ancestor,source,list);ancestor=parentNode(ancestor,list))if(ancestor.scroll_rect){cropped=true;break;}
-        if(cropped)continue;
+        if(!graph){
+          let cropped=false;
+          for(let ancestor=parentNode(leaf,list);ancestor&&descendant(ancestor,source,list);ancestor=parentNode(ancestor,list))if(ancestor.scroll_rect){cropped=true;break;}
+          if(cropped)continue;
+        }
         if(leaf.scroll_rect){
           const rect=leaf.scroll_rect;
           const m=destination&&nodeKey(leaf)===nodeKey(destination)?identity:multiply(relative(leaf,destination,list),[1,0,0,1,rect.x,rect.y]);
@@ -328,8 +406,11 @@
         }
         const shapes=leaf.video?[{type:'video_frame',...leaf.video}]:leaf.text?[{type:'text_field',field:leaf.text}]:leaf.owner==='bitmap'?(leaf.bitmap&&!leaf.bitmap.disposed?[{type:'bitmap_pixels',width:leaf.bitmap.width,height:leaf.bitmap.height}]:[]):leaf.fte_draws?.length?leaf.fte_draws.map(r=>({type:'fte_run',...r})):leaf.kind?[leaf.kind]:[];
         if(leaf.owner==='text_line'&&!shapes.length){const tb=getFte3D()?.textLineBounds?.(nodeProxy(leaf));if(tb)shapes.push({type:'fte_run',x:tb.x,y:tb.y,width:tb.width,font_size:tb.height/1.2});}
-        for(const kind of [...shapes,...(leaf.graphics||[])]) {
-        const m=relative(leaf,destination,list),stroke=strokes?(kind.stroke_width||0)/2:0;
+        const allKinds=leaf.graphics?.length?(shapes.length?[...shapes,...leaf.graphics]:leaf.graphics):shapes;
+        if(!allKinds.length)continue;
+        const m=relative(leaf,destination,list);
+        for(const kind of allKinds) {
+        const stroke=strokes?(kind.stroke_width||0)/2:0;
         const corners=(x,y,w,h)=>{for(const [px,py] of [[x,y],[x+w,y],[x+w,y+h],[x,y+h]]){const p=point(m,px,py);include(p.x,p.y);}};
         if(kind.type==='text_field'){const b=getText().bounds(kind.field);if(b)corners(b.left,b.top,b.right-b.left,b.bottom-b.top);}
         else if(kind.type==='fte_run')corners(kind.x,kind.y,(kind.width||kind.text.length*kind.font_size*0.6),kind.font_size*1.2);
@@ -443,7 +524,7 @@
     const containerOwners=['movie_clip','sprite','graphic','loader','text_line'];
     const spriteOwners=['movie_clip','sprite','graphic'];
     const interactiveOwners=['movie_clip','sprite','graphic','button','text','loader','text_line'];
-    function requireContainer(target) {const node=descriptor(target);if(!containerOwners.includes(node.owner))throw new TypeError('Child traversal requires a display container.');return node;}
+    function requireContainer(target) {const {owner}=ownerInfo(target);if(!containerOwners.includes(owner))throw new TypeError('Child traversal requires a display container.');}
     function convert(target,value,toGlobal) {
       if(!value || !Number.isFinite(value.x)||!Number.isFinite(value.y))throw new TypeError('Coordinate conversion requires finite point.x and point.y.');
       const m=descriptor(target).world,p=point(toGlobal?m:inverse(m),value.x,value.y);return new Point(p.x,p.y);
@@ -473,12 +554,12 @@
     }
     const graphicsCache=new WeakMap(),graphicsTargets=new WeakMap();
     function graphics(target) {
-      descriptor(target);
+      ownerInfo(target);
       if(graphicsCache.has(target))return graphicsCache.get(target);
       const number=(value,name)=>{if(typeof value!=='number'||!Number.isFinite(value))throw new TypeError(`Graphics ${name} must be a finite number.`);return value;};
       const rgb=value=>{if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('Graphics color requires an RGB integer from 0 through 0xffffff.');return value;};
       const opacity=value=>{number(value,'alpha');if(value<0||value>1)throw new RangeError('Graphics alpha requires 0 through 1.');return value;};
-      const apply=op=>{descriptor(target);player.graphics_apply(referenceOf(target).key,JSON.stringify([op]));};
+      const apply=op=>{ownerInfo(target);player.graphics_apply(referenceOf(target).key,JSON.stringify([op]));};
       const rectangle=(op,x,y,width,height)=>apply({op,x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height')});
       // AIR Graphics/GraphicsPathCommand and the Adobe AS2 MovieClip reference
       // define stop ranges, the 1638.4 gradient square and WIDE_* dummy pairs.
@@ -593,7 +674,7 @@
           if(triCommands.length)apply({op:'draw_path',commands:triCommands,fill_rule:'nonzero'});
         },
         drawGraphicsData:graphicsData=>{
-          descriptor(target);
+          ownerInfo(target);
           if(!graphicsData||typeof graphicsData[Symbol.iterator]!=='function')throw new TypeError('Graphics.drawGraphicsData requires a Vector.<IGraphicsData>.');
           for(const item of graphicsData){
             if(!IGraphicsData.__nfIs(item))throw new TypeError('Graphics.drawGraphicsData elements must implement IGraphicsData.');
@@ -682,7 +763,7 @@
           }
           return graphicsVectors.dataVector(items);
         },
-        copyFrom:source=>{const owner=graphicsTargets.get(source);if(!owner)throw new TypeError('Graphics.copyFrom requires a Graphics facade from the same player.');descriptor(target);descriptor(owner);player.graphics_copy_from(referenceOf(target).key,referenceOf(owner).key);},
+        copyFrom:source=>{const owner=graphicsTargets.get(source);if(!owner)throw new TypeError('Graphics.copyFrom requires a Graphics facade from the same player.');ownerInfo(target);ownerInfo(owner);player.graphics_copy_from(referenceOf(target).key,referenceOf(owner).key);},
         drawEllipse:(x,y,width,height)=>rectangle('draw_ellipse',x,y,width,height),
         drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
       };
@@ -696,7 +777,7 @@
     }
     function containerMethods(target) {
       const ref=()=>{requireContainer(target);return referenceOf(target).objectRef;};
-      const childRef=child=>{descriptor(child);return referenceOf(child).objectRef;};
+      const childRef=child=>{ownerInfo(child);return referenceOf(child).objectRef;};
       return {
         addChild:child=>{mutate({op:'add',parent:ref(),child:childRef(child),index:null});return child;},
         addChildAt:(child,index)=>{if(!Number.isInteger(index)||index<0)throw new RangeError('Child index requires a nonnegative integer.');mutate({op:'add',parent:ref(),child:childRef(child),index});return child;},
@@ -807,8 +888,15 @@
       if(!Number.isInteger(value)||value<0||value>1048575)throw new RangeError('AS2 runtime depth requires an integer from 0 through 1048575.');
       return value;
     }
+    function createDynamic(allocation) {
+      const ref=JSON.parse(player.create_display(allocation));
+      const proxy=proxyForRef(ref);
+      const r=referenceOf(proxy);
+      if(r)ownerCache.set(`${r.key}\0${r.lifetime}`,{owner:allocation==='text_field'?'text':allocation,staticText:false});
+      return proxy;
+    }
     function placeAtDepth(parent,child,depth,deliver=true) {
-      requireContainer(parent);descriptor(child);
+      requireContainer(parent);ownerInfo(child);
       const packet=JSON.parse(player.as2_place_depth(referenceOf(parent).key,referenceOf(child).key,legacyDepth(depth)));
       if(deliver)onMutation(packet.events);return packet.events;
     }
@@ -828,10 +916,10 @@
         else {const ordinary=referenceOf(clip)?.as2TimelineRef?.(key);if(ordinary)ordinary.set(value);else clip[key]=value;}
       }
     }
-    function targetPath(target) {descriptor(target);return player.as2_target_path(referenceOf(target).key,false);}
+    function targetPath(target) {ownerInfo(target);return player.as2_target_path(referenceOf(target).key,false);}
     function resolveTarget(value,relative=proxyFor([]),legacyCase=false) {
-      if(typeof value!=='string'){descriptor(value);return value;}
-      descriptor(relative);
+      if(typeof value!=='string'){ownerInfo(value);return value;}
+      ownerInfo(relative);
       const ref=JSON.parse(
         legacyCase&&typeof player.as2_resolve_target_case==='function'
           ? player.as2_resolve_target_case(referenceOf(relative).key,value,true)
@@ -894,7 +982,7 @@
           if(name===undefined||name===null)name=String(name);
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('createEmptyMovieClip requires a name of at most 4096 UTF-8 bytes.');
           legacyDepth(depth);
-          const clip=proxyForRef(JSON.parse(player.create_display('movie_clip')));clip.name=name;
+          const clip=createDynamic('movie_clip');clip.name=name;
           placeAtDepth(target,clip,depth);return clip;
         },
         removeMovieClip:()=>{
@@ -924,7 +1012,12 @@
     const callbackNames=new Set([...existingCallbackNames,'onMouseDown','onMouseMove','onMouseUp','onKeyDown','onKeyUp','onSetFocus','onKillFocus','onDragOver','onDragOut','onUnload']);
     const as2InputNames={enabled:'enabled',focusEnabled:'focus_enabled',tabEnabled:'tab_enabled',tabIndex:'tab_index',tabChildren:'tab_children',trackAsMenu:'track_as_menu',_focusrect:'focus_rect',forceSmoothing:'force_smoothing',_lockroot:'lock_root'};
     let as2TabActive=false,pressedInside=false;
-    function as2Settings(request={op:'get'}){return JSON.parse(player.as2_settings_command(JSON.stringify(request)));}
+    function as2Settings(request={op:'get'}){
+      if(request.op==='get'&&as2SettingsCache)return as2SettingsCache;
+      const res=JSON.parse(player.as2_settings_command(JSON.stringify(request)));
+      as2SettingsCache=res;
+      return res;
+    }
     function as2GlobalPropRef(name,check=null){
       if(!['_quality','_highquality','_focusrect','_soundbuftime'].includes(name))return null;
       return {
@@ -955,7 +1048,7 @@
       }
       as2Settings(request);
     }
-    function as2Input(target,request={op:'get'}){descriptor(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
+    function as2Input(target,request={op:'get'}){ownerInfo(target);return JSON.parse(player.as2_input_command(referenceOf(target).key,JSON.stringify(request)));}
     function buttonLike(target){const ref=referenceOf(target),record=ref&&legacy.get(ref.key+'\u0000'+ref.lifetime);return [...buttonCallbacks].some(name=>hasCallback(record,name))||Boolean(record?.authoredButton?.some(entry=>entry.event==='keyPress'));}
     function as2CanFocus(target){if(target===null)return true;const ok=as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});if(ok)as2TabActive=true;return ok;}
     function as2Ref(target,name){
@@ -1056,9 +1149,9 @@
     function buttonHit(node,x,y) {
       return (node.button_hits||[]).some(item=>leafHit({...node,world:multiply(node.world,item.transform),kind:item.kind,graphics:[],text:null,video:null,bitmap:null},x,y));
     }
-    function shapeHit(target,x,y,snapshot=JSON.parse(player.runtime_snapshot_json()),respectVisibility=false){
-      const list=snapshot.objects,source=descriptor(target,list);
-      for(const node of list)if(descendant(node,source,list)&&(!respectVisibility||node.effective_visible)&&(!node.clip_ids?.length||clipsContain?.(snapshot,node.clip_ids,x,y))&&leafHit(node,x,y))return true;
+    function shapeHit(target,x,y,snap=snapshot(),respectVisibility=false){
+      const list=snap.objects,source=descriptor(target,list);
+      for(const node of list)if(descendant(node,source,list)&&(!respectVisibility||node.effective_visible)&&(!node.clip_ids?.length||clipsContain?.(snap,node.clip_ids,x,y))&&leafHit(node,x,y))return true;
       return false;
     }
     function resolveInput(target,list=nodes(),x=null,y=null){
@@ -1086,13 +1179,13 @@
     }
     function pickDetails(x,y,exclude=null){
       if(!Number.isFinite(x)||!Number.isFinite(y))return null;
-      const snapshot=JSON.parse(player.runtime_snapshot_json()),list=snapshot.objects,painted=new Set(snapshot.draws.map(item=>refKey(item.owner_ref))),excluded=exclude&&alive(exclude)?descriptor(exclude,list):null;
+      const snap=snapshot(),list=snap.objects,painted=new Set(snap.draws.map(item=>refKey(item.owner_ref))),excluded=exclude&&alive(exclude)?descriptor(exclude,list):null;
       // Runtime objects are emitted in display preorder; reversing it tests the
       // foremost child before its container and earlier siblings.
       for(let i=list.length-1;i>=0;i--){const node=list[i];if(node.on_stage===false||node.effective_visible===false||(excluded&&descendant(node,excluded,list)))continue;
-        if(node.clip_ids?.length&&!clipsContain?.(snapshot,node.clip_ids,x,y))continue;
+        if(node.clip_ids?.length&&!clipsContain?.(snap,node.clip_ids,x,y))continue;
         const area=node.input?.hit_area;
-        const hit=area?shapeHit(proxyForRef(area),x,y,snapshot):node.owner==='button'&&node.button_hits?.length?buttonHit(node,x,y):painted.has(nodeKey(node))&&leafHit(node,x,y);
+        const hit=area?shapeHit(proxyForRef(area),x,y,snap):node.owner==='button'&&node.button_hits?.length?buttonHit(node,x,y):painted.has(nodeKey(node))&&leafHit(node,x,y);
         if(!hit)continue;const result=inputRoute(nodeProxy(node),list,x,y);if(result)return result;
       }
       return null;
@@ -1209,7 +1302,7 @@
     function methods(target) {
       const {owner,staticText}=ownerInfo(target);
       const result={
-        getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},
+        getDepth:()=>{ownerInfo(target);return player.as2_get_depth(referenceOf(target).key);},
         hitTestPoint:(x,y,shape=false)=>hitTestPoint(target,x,y,shape),hitTestObject:other=>hitTestObject(target,other),
         hitTest:(...args)=>args.length===1?hitTestObject(target,args[0]):hitTestPoint(target,args[0],args[1],args[2]??false),
         getBounds: space=>bounds(target,space===undefined?target:space,true),
@@ -1326,7 +1419,8 @@
     function get(target,name) {
       const {owner,staticText}=ownerInfo(target);
       if(!knownDisplayNames.has(name)&&!['text','video','text_line','morph_shape'].includes(owner))return UNHANDLED;
-      if(name==='_target'){descriptor(target);return player.as2_target_path(referenceOf(target).key,true);}
+      if(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(owner))return graphics(target);
+      if(name==='_target'){ownerInfo(target);return player.as2_target_path(referenceOf(target).key,true);}
       if(name==='_framesloaded')return descriptor(target).total_frames;
       if(name==='_url'){descriptor(target);const loadedUrl=getLoader()?.urlForDisplay?.(target);if(loadedUrl)return loadedUrl;if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
       if(name==='_focusrect'&&['movie_clip','button'].includes(owner)){const value=as2Input(target).focus_rect;return value===null?undefined:value;}
@@ -1374,30 +1468,30 @@
       }
       if(owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
       if(name==='filters'){
-        descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
+        ownerInfo(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
         return host.fromSpecs(JSON.parse(player.object_filters(referenceOf(target).key)));
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground'].includes(name)){
-        descriptor(target);
+        ownerInfo(target);
         if(name==='blendMode'&&getFte3D()?.isBlendModeShaderActive(target))return 'shader';
         if(typeof player.as2_render_command!=='function')return name==='blendMode'?'normal':name==='cacheAsBitmap'?false:null;
         return JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true})))[name];
       }
       if(name==='scale9Grid'){
-        descriptor(target);
+        ownerInfo(target);
         if(typeof player.as2_render_command!=='function')return null;
         const grid=JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify({op:'get',as3:true}))).scale9Grid;
         return grid?new Rectangle(grid[0],grid[1],grid[2],grid[3]):null;
       }
-      if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
+      if(name==='loaderInfo'){ownerInfo(target);return getLoader()?.infoForDisplay(target)||null;}
       if(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
       if(name==='mask'){
-        descriptor(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
+        ownerInfo(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
         return value===null?null:proxyForRef(value);
       }
       if(name==='scrollRect'){
-        descriptor(target);const value=JSON.parse(player.object_scroll_rect(referenceOf(target).key));
+        ownerInfo(target);const value=JSON.parse(player.object_scroll_rect(referenceOf(target).key));
         return value===null?null:new Rectangle(value.x,value.y,value.width,value.height);
       }
       if(owner==='text'&&staticText){
@@ -1552,7 +1646,7 @@
         }
       }
       if(name==='name'||name==='_name') {
-        descriptor(target); if(typeof value!=='string')throw new TypeError('Display name must be a string.');
+        ownerInfo(target); if(typeof value!=='string')throw new TypeError('Display name must be a string.');
         if(!invoke(target,'set_name',value))throw new RangeError('Display name must be at most 4096 UTF-8 bytes.');return true;
       }
       if(name==='width'||name==='height'||name==='_width'||name==='_height') {
@@ -1837,7 +1931,7 @@
         if(name==='StaticText'){const err=new RangeError('Error #2012: StaticText$ class cannot be instantiated.');err.name='ArgumentError';err.errorID=2012;throw err;}
         if(name==='DisplayObject'||name==='InteractiveObject'||name==='DisplayObjectContainer')throw new TypeError(`ArgumentError: Error #2012: ${name}$ class cannot be instantiated.`);
         if(!graph||!allocation)throw new TypeError(`Dynamic new ${name}() is not supported. Use an authored instance for this owner.`);
-        return proxyForRef(JSON.parse(player.create_display(allocation)));
+        return createDynamic(allocation);
       }
       function NativeDisplay(...args){if(name==='Bitmap'){bitmapArguments(args);const receiver=allocate();initializeBitmap(receiver,args);return receiver;}if(name==='SimpleButton'){simpleButtonArguments(args);const receiver=allocate();initializeSimpleButton(receiver,args);return receiver;}if(name==='StaticText')return allocate();if(args.length)throw new TypeError(`${name} construction requires no arguments.`);return allocate();}
       if((allocation||name==='SimpleButton')&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
@@ -1865,7 +1959,7 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;ownerCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;as2SettingsCache=null;ownerCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

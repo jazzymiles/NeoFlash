@@ -1004,10 +1004,23 @@
         const dimensions = options.getSize(); resize(dimensions[0], dimensions[1]);
       });
     }
+    function resolveBroadcastTargets(type, targets) {
+      if (typeof targets !== 'function') return [stage, ...targets];
+      if (typeof hub.targetsWith === 'function') {
+        const active = hub.targetsWith(type);
+        if (active) {
+          if (active.length === 0) return [];
+          const nonStage = active.filter(t => t !== stage);
+          if (nonStage.length <= 1) return active.includes(stage) ? [stage, ...nonStage] : nonStage;
+        }
+      }
+      return [stage, ...targets()];
+    }
     function flushRender(targets = []) {
       if (!invalidated) return false;
       invalidated = false;
-      hub.broadcast(Event.RENDER || 'render', [stage, ...targets]);
+      const list = resolveBroadcastTargets(Event.RENDER || 'render', targets);
+      if (list.length) hub.broadcast(Event.RENDER || 'render', list);
       return true;
     }
     function resetState() {
@@ -1035,6 +1048,19 @@
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
       colorAssigned: () => colorAssigned, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       tick(targets = [], onConstructed = null) {
+        if (typeof targets === 'function') {
+          let cached = null;
+          const lazy = () => (cached ??= targets());
+          for (const type of [Event.ENTER_FRAME || 'enterFrame', Event.FRAME_CONSTRUCTED || 'frameConstructed']) {
+            const list = resolveBroadcastTargets(type, lazy);
+            if (list.length) hub.broadcast(type, list);
+          }
+          onConstructed?.();
+          const exitList = resolveBroadcastTargets(Event.EXIT_FRAME || 'exitFrame', lazy);
+          if (exitList.length) hub.broadcast(Event.EXIT_FRAME || 'exitFrame', exitList);
+          flushRender(lazy);
+          return;
+        }
         const list = [stage, ...targets];
         hub.broadcast(Event.ENTER_FRAME || 'enterFrame', list);
         hub.broadcast(Event.FRAME_CONSTRUCTED || 'frameConstructed', list);

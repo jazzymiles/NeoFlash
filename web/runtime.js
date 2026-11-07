@@ -253,7 +253,7 @@
     function draw(context,snapshot,{width=context.canvas.width,height=context.canvas.height,semantic=true}={}) {
       const scene=snapshot.draws;
       clippings.beginFrame();
-      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[],snapshot?.filter_groups||[]),objects=snapshot?new Map((snapshot.objects||[]).map(node=>[JSON.stringify(node.object_ref),node])):null;
+      const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[],snapshot?.filter_groups||[]),objects=snapshot?(snapshot.objects?.__byKey||new Map((snapshot.objects||[]).map(node=>[JSON.stringify(node.object_ref),node]))):null;
       const semanticOwners=new Set((semantic?snapshot?.semantics||[]:[]).map(node=>JSON.stringify(node.owner_ref))),needsCoverage=new Map(),clippedBounds=new Map();
       const semanticCoverage=item=>{const key=JSON.stringify(item.owner_ref);if(needsCoverage.has(key))return needsCoverage.get(key);let needed=false;for(let node=objects?.get(key);node;node=objects.get(JSON.stringify(node.parent_ref)))if(semanticOwners.has(JSON.stringify(node.object_ref))){needed=true;break;}needsCoverage.set(key,needed);return needed;};
       const paintBoundsCache=new Map(),geometryBoundsCache=new Map();
@@ -407,7 +407,7 @@
     function stopTimers() {timerRenderGeneration++;easingHost?.reset?.();broadcasterHost?.reset?.();timerHost?.reset();}
     function flushStageRender() {
       if(!stageHost)return;
-      if(display&&(typeof player.runtime_snapshot_json==='function'||typeof player.display_nodes_json==='function'))stageHost.flushRender(display.nodes().map(node=>display.nodeProxy(node)));
+      if(display&&(typeof player.runtime_snapshot_json==='function'||typeof player.display_nodes_json==='function'))stageHost.flushRender(()=>display.nodes().map(node=>display.nodeProxy(node)));
       else stageHost.flushRender([]);
     }
     function afterTimerEvent() {if(inDispatch)return;dispatchScripts();flushStageRender();if(typeof context!=='undefined')render();}
@@ -1084,47 +1084,61 @@
     function attachNewInstances(scope=null) {
       if(!display)return;
       display.prune();eventHub?.prune();
-      const nodes=display.nodes(),byRef=new Map(nodes.map(node=>[JSON.stringify(node.object_ref),node]));
-      const depth=node=>{let result=0;while(node?.parent_ref){node=byRef.get(JSON.stringify(node.parent_ref));result++;}return result;};
-      const withinScope=node=>{
-        if(!scope)return true;
-        const key=references.get(scope).key;
-        for(let current=node;current;current=byRef.get(JSON.stringify(current.parent_ref)))if(JSON.stringify(current.object_ref)===key)return true;
-        return false;
-      };
-      // Initialize authored descendants in each namespace before their linked
-      // container constructor. Native allocation reserves its own root first.
-      for(const node of nodes.sort((a,b)=>graphMode?depth(b)-depth(a):b.path.length-a.path.length)) {
-        if(graphMode&&!withinScope(node))continue;
-        const symbolId=node.symbol_id||node.kind?.symbol_id;
-        const symLinkage=symbolId&&typeof project!=='undefined'?project?.symbols?.find(s=>s.id===symbolId)?.linkage_id:null;
-        const hasRegistered=Boolean(symLinkage&&registeredClasses.has(symLinkage));
-        if(graphMode&&node.authored_path===null&&!node.class_name&&!hasRegistered)continue;
-        const key=graphMode?JSON.stringify(node.object_ref):JSON.stringify(node.path),previous=attachedClasses.get(key);
-        const lifetime=graphMode?node.object_ref.generation:node.lifetime_id;
-        if(graphMode?!player.object_alive(key):player.lifetime_id(key)!==lifetime)continue;
-        if(previous===lifetime)continue;
-        attachedClasses.set(key,lifetime);
-        const receiver=graphMode?proxyForRef(node.object_ref):proxyFor(node.path);
-        const registered=hasRegistered?registeredClasses.get(symLinkage):undefined;
-        if(hasRegistered){
-          if(registered!==null){
-            if(registered.kind==='project')program.attach(registered.name,receiver);
-            else{
-              if(registered.ctor.prototype&&typeof registered.ctor.prototype==='object')Object.setPrototypeOf(receiver,registered.ctor.prototype);
-              Object.defineProperty(receiver,'__constructor__',{configurable:true,writable:true,enumerable:false,value:registered.ctor});
-              Reflect.apply(registered.ctor,receiver,[]);
+      if(!scope){
+        for(const key of attachedClasses.keys())if(graphMode?!player.object_alive(key):!player.lifetime_id(key))attachedClasses.delete(key);
+      }
+      const hasSymbolClasses=Boolean(typeof project!=='undefined'&&project?.symbols?.some(s=>s.class_name));
+      const needRootClass=Boolean(typeof project!=='undefined'&&project?.document_class&&attachedClasses.size===0);
+      const needNodeScan=!graphMode||Boolean(scope)||hasSymbolClasses||registeredClasses.size>0||needRootClass;
+      if(needNodeScan){
+        const nodes=display.nodes(),byRef=nodes.__byKey||new Map(nodes.map(node=>[JSON.stringify(node.object_ref),node]));
+        const depth=node=>{let result=0;while(node?.parent_ref){node=byRef.get(JSON.stringify(node.parent_ref));result++;}return result;};
+        const withinScope=node=>{
+          if(!scope)return true;
+          const key=references.get(scope).key;
+          for(let current=node;current;current=byRef.get(JSON.stringify(current.parent_ref)))if(JSON.stringify(current.object_ref)===key)return true;
+          return false;
+        };
+        const candidates=[];
+        for(const node of nodes){
+          if(graphMode&&!withinScope(node))continue;
+          const symbolId=node.symbol_id||node.kind?.symbol_id;
+          const symLinkage=symbolId&&registeredClasses.size>0&&typeof project!=='undefined'?project?.symbols?.find(s=>s.id===symbolId)?.linkage_id:null;
+          const hasRegistered=Boolean(symLinkage&&registeredClasses.has(symLinkage));
+          if(graphMode&&node.authored_path===null&&!node.class_name&&!hasRegistered)continue;
+          if(!node.class_name&&!hasRegistered)continue;
+          const key=graphMode?JSON.stringify(node.object_ref):JSON.stringify(node.path),previous=attachedClasses.get(key);
+          const lifetime=graphMode?node.object_ref.generation:node.lifetime_id;
+          if(previous===lifetime)continue;
+          candidates.push({node,key,lifetime,symLinkage,hasRegistered});
+        }
+        // Initialize authored descendants in each namespace before their linked
+        // container constructor. Native allocation reserves its own root first.
+        candidates.sort((a,b)=>graphMode?depth(b.node)-depth(a.node):b.node.path.length-a.node.path.length);
+        for(const {node,key,lifetime,symLinkage,hasRegistered} of candidates) {
+          if(graphMode?!player.object_alive(key):player.lifetime_id(key)!==lifetime)continue;
+          if(attachedClasses.get(key)===lifetime)continue;
+          attachedClasses.set(key,lifetime);
+          const receiver=graphMode?proxyForRef(node.object_ref):proxyFor(node.path);
+          const registered=hasRegistered?registeredClasses.get(symLinkage):undefined;
+          if(hasRegistered){
+            if(registered!==null){
+              if(registered.kind==='project')program.attach(registered.name,receiver);
+              else{
+                if(registered.ctor.prototype&&typeof registered.ctor.prototype==='object')Object.setPrototypeOf(receiver,registered.ctor.prototype);
+                Object.defineProperty(receiver,'__constructor__',{configurable:true,writable:true,enumerable:false,value:registered.ctor});
+                Reflect.apply(registered.ctor,receiver,[]);
+              }
+              display.refreshLegacyCallbacks(receiver,true);
             }
-            display.refreshLegacyCallbacks(receiver,true);
+          }else if(node.class_name){
+            if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
+            program.attach(node.class_name,receiver);
+            if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver,true);
           }
-        }else if(node.class_name){
-          if(!program?.attach)throw new Error(`Linked class ${node.class_name} has no compiled project program.`);
-          program.attach(node.class_name,receiver);
-          if(program.dialect?.(node.class_name)==='as2')display.refreshLegacyCallbacks(receiver,true);
         }
       }
       if(scope)return;
-      for(const key of attachedClasses.keys())if(graphMode?!player.object_alive(key):!player.lifetime_id(key))attachedClasses.delete(key);
       drainDisplayEvents();
       // Canonical refs are never reused; retire cache entries without retaining every
       // prior authored placement forever. Externally held stale proxies still reject access.
@@ -1192,7 +1206,7 @@
       try {
         if(display){
           display.enterFrame();
-          if(stageHost)stageHost.tick(display.nodes().map(node=>display.nodeProxy(node)),dispatchFrameLabelEvents);
+          if(stageHost)stageHost.tick(()=>display.nodes().map(node=>display.nodeProxy(node)),dispatchFrameLabelEvents);
           else dispatchFrameLabelEvents();
         }
       }
@@ -1404,34 +1418,24 @@
           if (name === 'currentFrame' && sceneCount() > 1) {assertAlive();return JSON.parse(call('clip_metadata')).scene_frame;} // AS3 frames are scene-relative.
           if (name === '_currentframe' || name === 'currentFrame') return call('clip_frame') + 1;
           if (name === '_totalframes' || name === 'totalFrames') return call('clip_frame_count');
-          if (ownsTimelineMetadata(name)) return timelineMetadata(name);
-          if (Object.hasOwn(methods, name)) return methods[name];
-          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();return airHost.getDisplayProperty(proxy,name);}
-          if(display){const value=display.get(proxy,name);if(value!==display.UNHANDLED)return value;}
-          if (name === 'visible' || name === '_visible') {
-            assertAlive();
-            return call('visible');
-          }
           if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
             const value = call('property',propertyMap[name]);
             return percentage.has(name) ? value * 100 : propertyMap[name]==='rotation' ? ((value%360)>180?value%360-360:(value%360)<-180?value%360+360:value%360) : value;
           }
+          if (name === 'visible' || name === '_visible') {
+            assertAlive();
+            return call('visible');
+          }
+          if (Object.hasOwn(methods, name)) return methods[name];
+          if (ownsTimelineMetadata(name)) return timelineMetadata(name);
+          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();return airHost.getDisplayProperty(proxy,name);}
+          if(display){const value=display.get(proxy,name);if(value!==display.UNHANDLED)return value;}
           return dynamicGet(name);
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
-          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(proxyOwner())){as2StageHost.menuRef(proxy,'menu').set(value);return true;}
-          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();if(airHost.setDisplayProperty(proxy,name,value))return true;}
-          if(display&&display.set(proxy,name,value)){if(name==='text')as2ObjectHost?.textChanged(proxy);return true;}
-          if (name === 'visible' || name === '_visible') {
-            assertAlive();
-            const visible = name === '_visible' ? as2Visibility(value) : Boolean(value);
-            if (visible === null) return true;
-            if (!call('set_visible',visible)) {
-              throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
-            }
-          } else if (Object.hasOwn(propertyMap, name)) {
+          if (Object.hasOwn(propertyMap, name)) {
             assertAlive();
             if (name.startsWith('_')) {
               value = Number(value);
@@ -1441,10 +1445,23 @@
             if (!call('set_property',propertyMap[name],percentage.has(name)?value/100:value)) {
               throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
             }
-          } else if (ownsTimelineMetadata(name)||['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
+            return true;
+          }
+          if (name === 'visible' || name === '_visible') {
+            assertAlive();
+            const visible = name === '_visible' ? as2Visibility(value) : Boolean(value);
+            if (visible === null) return true;
+            if (!call('set_visible',visible)) {
+              throw new Error(`Cannot change ${name} on inactive display object ${key}.`);
+            }
+            return true;
+          }
+          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(proxyOwner())){as2StageHost.menuRef(proxy,'menu').set(value);return true;}
+          if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();if(airHost.setDisplayProperty(proxy,name,value))return true;}
+          if(display&&display.set(proxy,name,value)){if(name==='text')as2ObjectHost?.textChanged(proxy);return true;}
+          if (ownsTimelineMetadata(name)||['currentFrame', 'totalFrames', '_currentframe', '_totalframes', '_root', '_parent', 'root', 'parent'].includes(name)) {
             throw new Error(`${name} is read-only.`);
           } else return dynamicSet(name,value);
-          return true;
         },
       });
       const ownerNativeKeys=()=>{
@@ -1559,7 +1576,7 @@
     }
     function render() {
       flushStageRender();
-      let snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       assertUnfilteredEditing(stageHost?.stage.focus);
@@ -1581,9 +1598,9 @@
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
       const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width,height});
       const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
-      const semanticScene=snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene;
-      const rawSemNodes=snapshot?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):JSON.parse(player.accessibility_json());
+      const rawSemNodes=snapshot?(snapshot.semantics.length?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):[]):JSON.parse(player.accessibility_json());
       const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
+      const semanticScene=enrichedSemNodes.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
       const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
@@ -1593,7 +1610,7 @@
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event,details=false) {
-      let snapshot=graphMode?JSON.parse(player.runtime_snapshot_json()):null;
+      let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips):new Map();

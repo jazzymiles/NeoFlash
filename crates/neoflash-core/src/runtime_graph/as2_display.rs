@@ -369,27 +369,24 @@ impl Player {
     }
     pub fn as2_target_path(
         &self,
-        project: &Project,
+        _project: &Project,
         target: &ObjectRef,
         slash: bool,
     ) -> Result<String, DisplayError> {
         if !self.graph.on_stage(target) {
             return Err(error("AS2 target paths require an attached display object"));
         }
-        let snapshot = self.runtime_snapshot(project);
         let mut names = vec![];
         for reference in self.graph.route(target).into_iter().rev().skip(1) {
-            let node = snapshot
-                .objects
-                .iter()
-                .find(|node| node.object_ref == reference)
+            let name = self
+                .object_name(&reference)
                 .ok_or_else(|| error("AS2 path target is stale"))?;
-            if node.display.name.is_empty() || node.display.name.contains(['/', '.', ':']) {
+            if name.is_empty() || name.contains(['/', '.', ':']) {
                 return Err(error(
                     "AS2 string paths require nonempty instance names without slash, dot or colon; pass a display object instead",
                 ));
             }
-            names.push(node.display.name.as_str());
+            names.push(name);
         }
         Ok(if slash {
             format!("/{}", names.join("/"))
@@ -462,7 +459,7 @@ impl Player {
             current = locked_root;
             tail = rest;
         }
-        let snapshot = self.runtime_snapshot(project);
+        let _ = project;
         // Slash paths preserve '..'; dotted paths use _parent explicitly.
         let parts: Vec<_> = if tail.contains('/') || tail == ".." {
             tail.split('/').collect()
@@ -484,21 +481,21 @@ impl Player {
                 continue;
             }
             let children = self.graph.children(&current);
-            let child = snapshot
-                .objects
+            let child = children
                 .iter()
-                .find(|node| children.contains(&node.object_ref) && node.display.name == part)
+                .find(|child_ref| self.object_name(child_ref).is_some_and(|name| name == part))
                 .or_else(|| {
                     case_insensitive.then(|| {
-                        snapshot.objects.iter().find(|node| {
-                            children.contains(&node.object_ref) && eq_part(&node.display.name, part)
+                        children.iter().find(|child_ref| {
+                            self.object_name(child_ref)
+                                .is_some_and(|name| eq_part(&name, part))
                         })
                     })?
                 });
             let Some(child) = child else {
                 return Ok(None);
             };
-            current = child.object_ref.clone();
+            current = child.clone();
         }
         Ok(Some(current))
     }

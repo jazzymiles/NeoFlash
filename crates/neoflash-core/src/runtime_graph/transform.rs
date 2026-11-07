@@ -265,11 +265,7 @@ impl Player {
         } else {
             (self, self.graph.paths.get(reference)?)
         };
-        scope
-            .display_nodes(project)
-            .into_iter()
-            .find(|node| &node.path == path)
-            .map(|node| node.transform)
+        scope.node_transform(project, path)
     }
     pub fn object_matrix(
         &self,
