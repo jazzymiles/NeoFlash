@@ -400,6 +400,7 @@ impl crate::app::Editor {
 
     /// Sets the selected authored text field's `auto_size` mode (`"none"`, `"left"`, `"center"`, `"right"`)
     /// and resizes/anchors its bounding box to fit its natural text layout in a single Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_selected_text_auto_size(&mut self, mode: &str) -> Result<(f64, f64), String> {
         self.finish_edits();
         let normalized = mode.trim().to_ascii_lowercase();

@@ -954,6 +954,7 @@ impl Editor {
         true
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_symbol_shared_library(
         &mut self,
         symbol_id: &str,
@@ -972,6 +973,7 @@ impl Editor {
         true
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn sync_shared_library(&mut self, donor: &neoflash_core::Project) -> usize {
         let mut candidate = self.project.clone();
         let count = candidate.resolve_shared_library_symbols(donor);

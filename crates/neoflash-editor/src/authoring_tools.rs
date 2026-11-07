@@ -2324,6 +2324,7 @@ impl Editor {
 
     /// Update the radial gradient `focal_point_ratio` (`-0.98..=0.98`) on the selected gradient
     /// fill in one `"Gradient focal point"` Undo step (`T-128`, `editor-paint-effects :: focal-handles`).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_selected_gradient_focal_point(&mut self, focal_ratio: f64) -> bool {
         self.finish_edits();
         let Some(target) = self
