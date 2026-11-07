@@ -331,7 +331,13 @@ impl Editor {
         if std::env::var("NEOFLASH_SCREENSHOT_SELECT").as_deref() == Ok("motion") {
             s.set_tool(Tool::Select);
             if let Some(layer) = s.symbol().timeline.layers.get(s.layer)
-                && let Some(element) = sample_layer_in(&s.symbol().timeline, layer, s.frame).first()
+                && let Some(element) = sample_layer_in_at_fps(
+                    &s.symbol().timeline,
+                    layer,
+                    s.frame,
+                    f64::from(s.project.fps),
+                )
+                .first()
             {
                 s.set_selection(vec![crate::selection::SelectionTarget {
                     layer: layer.id.clone(),

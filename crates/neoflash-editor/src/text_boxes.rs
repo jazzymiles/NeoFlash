@@ -419,13 +419,14 @@ impl crate::app::Editor {
             .symbol_mut(&sym_id)
             .ok_or_else(|| "Active symbol not found.".to_string())?;
         let mut new_size = None;
-        let measure_segments =
-            |segments: &[String], seg_format: &TextFormat| -> Result<Vec<f64>, neoflash_core::TextError> {
-                Ok(segments
-                    .iter()
-                    .map(|s| s.chars().count() as f64 * seg_format.size * 0.56)
-                    .collect())
-            };
+        let measure_segments = |segments: &[String],
+                                seg_format: &TextFormat|
+         -> Result<Vec<f64>, neoflash_core::TextError> {
+            Ok(segments
+                .iter()
+                .map(|s| s.chars().count() as f64 * seg_format.size * 0.56)
+                .collect())
+        };
         for layer in &mut sym.timeline.layers {
             if layer.id != sel.layer {
                 continue;
@@ -440,24 +441,17 @@ impl crate::app::Editor {
             {
                 let mut state = TextFieldState::from_kind(&el.kind)
                     .ok_or_else(|| "Selected element is not a text object.".to_string())?;
-                let old_width = state
-                    .box_size
-                    .map(|b| b.width)
-                    .unwrap_or_else(|| {
-                        layout_text(&state, measure_segments)
-                            .map(|l| l.surface.width)
-                            .unwrap_or(100.0)
-                            .max(4.0)
-                    });
+                let old_width = state.box_size.map(|b| b.width).unwrap_or_else(|| {
+                    layout_text(&state, measure_segments)
+                        .map(|l| l.surface.width)
+                        .unwrap_or(100.0)
+                        .max(4.0)
+                });
                 state.as2_viewport.auto_size = normalized.clone();
                 if normalized != "none" {
-                    let layout = layout_text(&state, measure_segments)
-                        .map_err(|e| e.to_string())?;
-                    let natural_w = layout
-                        .lines
-                        .iter()
-                        .map(|l| l.width)
-                        .fold(0.0_f64, f64::max);
+                    let layout =
+                        layout_text(&state, measure_segments).map_err(|e| e.to_string())?;
+                    let natural_w = layout.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max);
                     let natural_h = layout
                         .lines
                         .last()
@@ -495,8 +489,9 @@ impl crate::app::Editor {
                 break;
             }
         }
-        let size =
-            new_size.ok_or_else(|| "Selected text element was not found on the current frame.".to_string())?;
+        let size = new_size.ok_or_else(|| {
+            "Selected text element was not found on the current frame.".to_string()
+        })?;
         candidate.upgrade_format_for_features();
         candidate.validate().map_err(|e| e.to_string())?;
         self.transact_named("Text auto-size", |s| {

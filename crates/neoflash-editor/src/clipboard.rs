@@ -401,10 +401,11 @@ impl Editor {
         let layer_id = candidate.symbol(&symbol_id).unwrap().timeline.layers[self.layer]
             .id
             .clone();
+        let fps = f64::from(candidate.fps);
         {
             let layer = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline.layers[self.layer];
             if !layer.keyframes.iter().any(|k| k.frame == self.frame) {
-                let elements = neoflash_core::sample_layer(layer, self.frame);
+                let elements = neoflash_core::sample_layer_at_fps(layer, self.frame, fps);
                 let tween = layer.key_at(self.frame).and_then(|k| k.tween);
                 layer.keyframes.push(neoflash_core::Keyframe {
                     frame: self.frame,
@@ -534,10 +535,11 @@ impl Editor {
         let layer_id = candidate.symbol(&symbol_id).unwrap().timeline.layers[self.layer]
             .id
             .clone();
+        let fps = f64::from(candidate.fps);
         {
             let layer = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline.layers[self.layer];
             if !layer.keyframes.iter().any(|k| k.frame == self.frame) {
-                let elements = neoflash_core::sample_layer(layer, self.frame);
+                let elements = neoflash_core::sample_layer_at_fps(layer, self.frame, fps);
                 let tween = layer.key_at(self.frame).and_then(|k| k.tween);
                 layer.keyframes.push(neoflash_core::Keyframe {
                     frame: self.frame,

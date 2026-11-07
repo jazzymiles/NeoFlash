@@ -97,7 +97,7 @@ impl Editor {
             .iter()
             .find(|layer| layer.id == sampled[0].0.layer)
             .unwrap();
-        let elements = sample_layer(layer, self.frame);
+        let elements = sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps));
         let indices: Vec<_> = elements
             .iter()
             .enumerate()
@@ -406,6 +406,7 @@ impl Editor {
         let export = symbol.linkage_id.is_some();
         // Validate the complete proposed document before creating an undo entry.
         let mut project = self.project.clone();
+        let fps = f64::from(project.fps);
         let layer = project
             .symbol_mut(&draft.symbol)
             .unwrap()
@@ -415,7 +416,7 @@ impl Editor {
             .find(|layer| layer.id == draft.sampled[0].0.layer)
             .unwrap();
         if !layer.keyframes.iter().any(|key| key.frame == draft.frame) {
-            let sampled = sample_layer(layer, draft.frame);
+            let sampled = sample_layer_at_fps(layer, draft.frame, fps);
             let mut key = layer.key_at(draft.frame).cloned().unwrap();
             key.frame = draft.frame;
             key.label.clear();

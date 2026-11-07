@@ -300,15 +300,14 @@ fn infer_command_step(before: &Project, after: &Project) -> Option<AuthoringComm
                 if key_b.elements.len() < key_a.elements.len() {
                     return Some(AuthoringCommandStep::DeleteSelection);
                 }
-                if key_b.elements.len() > key_a.elements.len() {
-                    if let Some(added) = key_b.elements.last()
-                        && let Some(orig) = key_a.elements.last()
-                    {
-                        return Some(AuthoringCommandStep::DuplicateSelection {
-                            offset_x: added.transform.x - orig.transform.x,
-                            offset_y: added.transform.y - orig.transform.y,
-                        });
-                    }
+                if key_b.elements.len() > key_a.elements.len()
+                    && let Some(added) = key_b.elements.last()
+                    && let Some(orig) = key_a.elements.last()
+                {
+                    return Some(AuthoringCommandStep::DuplicateSelection {
+                        offset_x: added.transform.x - orig.transform.x,
+                        offset_y: added.transform.y - orig.transform.y,
+                    });
                 }
                 for (el_a, el_b) in key_a.elements.iter().zip(&key_b.elements) {
                     if el_a.id != el_b.id || el_a == el_b {

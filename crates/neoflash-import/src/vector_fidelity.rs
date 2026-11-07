@@ -707,7 +707,7 @@ fn shape_node_to_commands(node: Node<'_, '_>) -> Option<Vec<PathCommand>> {
                 x: nums[0],
                 y: nums[1],
             });
-            for pair in nums[2..].chunks_exact(2) {
+            for pair in nums[2..].as_chunks::<2>().0 {
                 cmds.push(PathCommand::LineTo {
                     x: pair[0],
                     y: pair[1],
@@ -758,14 +758,14 @@ fn text_to_outline_commands(text: &str, x: f64, y: f64, font_size: f64) -> Vec<P
     cmds
 }
 
-fn parse_svg_defs(
-    root: Node<'_, '_>,
-) -> (
+type SvgDefinitions = (
     BTreeMap<String, GradientPaint>,
     BTreeMap<String, Vec<PathCommand>>,
     BTreeMap<String, Vec<PathCommand>>,
     BTreeMap<String, String>,
-) {
+);
+
+fn parse_svg_defs(root: Node<'_, '_>) -> SvgDefinitions {
     let mut gradients = BTreeMap::new();
     let mut clip_paths = BTreeMap::new();
     let mut masks = BTreeMap::new();
@@ -1609,7 +1609,7 @@ fn tokenize_pdf_content(stream: &str) -> Vec<String> {
             continue;
         }
         if ch == '%' {
-            while let Some(c) = chars.next() {
+            for c in chars.by_ref() {
                 if c == '\n' || c == '\r' {
                     break;
                 }

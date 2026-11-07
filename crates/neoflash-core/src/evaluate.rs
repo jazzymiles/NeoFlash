@@ -1,5 +1,6 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 pub(crate) const MAX_DEPTH: usize = 64;
 pub(crate) const MAX_NODES: usize = 100_000;
@@ -528,44 +529,60 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
     e
 }
 
+/// Sample a layer using the legacy/default 24 fps expression clock.
+///
+/// Project-aware rendering should call [`sample_layer_at_fps`] so expression `time` and `fps`
+/// variables match the document frame rate.
 pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
+    sample_layer_at_fps(layer, frame, 24.0)
+}
+
+/// Sample a layer with an explicit document frame rate for property-expression evaluation.
+pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> {
     let Some(key) = layer.key_at(frame) else {
         return vec![];
     };
     if key.keyed_properties.is_some()
         || (key.tween.is_some() && key.tween_kind == TweenKind::Motion)
     {
-        let mut elements = sample_motion(layer, frame);
+        let elements = sample_motion(layer, frame);
         let start_key = motion_span(layer, frame).map(|(s, _, _)| s).unwrap_or(key);
+        return apply_keyframe_rigs_and_appearances(elements, start_key, None, 0.0, frame, fps);
+    }
+    let Some(ease) = key.tween else {
         return apply_keyframe_rigs_and_appearances(
-            elements.as_mut_slice(),
-            start_key,
+            key.elements.clone(),
+            key,
             None,
             0.0,
             frame,
+            fps,
         );
-    }
-    let Some(ease) = key.tween else {
-        let mut elements = key.elements.clone();
-        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0, frame);
     };
     let Some(next) = next_key(layer, key.frame) else {
-        let mut elements = key.elements.clone();
-        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0, frame);
+        return apply_keyframe_rigs_and_appearances(
+            key.elements.clone(),
+            key,
+            None,
+            0.0,
+            frame,
+            fps,
+        );
     };
     let t = easing(
         (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
         ease,
     );
     if key.tween_kind == TweenKind::Shape {
-        return crate::shape_tween::shape_tween_elements_with_hints(
+        let elements = crate::shape_tween::shape_tween_elements_with_hints(
             &key.elements,
             &next.elements,
             &key.shape_hints,
             t,
         );
+        return apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps);
     }
-    let mut elements: Vec<Element> = key
+    let elements: Vec<Element> = key
         .elements
         .iter()
         .map(|e| {
@@ -575,7 +592,7 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
                 .map_or_else(|| e.clone(), |n| interpolate_classic(e, n, t, key))
         })
         .collect();
-    apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, Some(next), t, frame)
+    apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps)
 }
 
 fn interpolate_asset_warp_rig(a: &AssetWarpRig, b: Option<&AssetWarpRig>, t: f64) -> AssetWarpRig {
@@ -614,12 +631,26 @@ fn interpolate_asset_warp_rig(a: &AssetWarpRig, b: Option<&AssetWarpRig>, t: f64
 }
 
 fn apply_keyframe_rigs_and_appearances(
-    elements: &mut [Element],
+    mut elements: Vec<Element>,
     key: &Keyframe,
     next: Option<&Keyframe>,
     t: f64,
     frame: u32,
+    fps: f64,
 ) -> Vec<Element> {
+    fn reserve_synthetic_id(occupied: &mut HashSet<Id>, preferred: Id) -> Id {
+        if occupied.insert(preferred.clone()) {
+            return preferred;
+        }
+        for suffix in 2_u32.. {
+            let candidate = format!("{preferred}-{suffix}");
+            if occupied.insert(candidate.clone()) {
+                return candidate;
+            }
+        }
+        unreachable!("the bounded sampled layer always leaves a free synthetic ID")
+    }
+
     // 0. Apply deterministic property expressions (`property_expressions`, T-121).
     if !key.property_expressions.is_empty() {
         for (idx, el) in elements.iter_mut().enumerate() {
@@ -627,7 +658,7 @@ fn apply_keyframe_rigs_and_appearances(
                 &mut el.transform,
                 &key.property_expressions,
                 frame,
-                24.0,
+                fps,
                 idx as u32,
             );
         }
@@ -644,7 +675,7 @@ fn apply_keyframe_rigs_and_appearances(
                 lerp(armature.target_pos[1], next_arm.target_pos[1], t),
             ];
         }
-        crate::geometry::solve_ik_armature(elements, &arm);
+        crate::geometry::solve_ik_armature(&mut elements, &arm);
     }
 
     // 2. Apply element parenting hierarchy (`element_parents`) so children inherit parent transforms.
@@ -698,9 +729,11 @@ fn apply_keyframe_rigs_and_appearances(
 
     // 3b. Apply non-destructive vector effects (`vector_effects`, T-120).
     let mut working_elements: Vec<Element> = if key.vector_effects.is_empty() {
-        elements.to_vec()
+        elements
     } else {
-        let snapshot: Vec<Element> = elements.to_vec();
+        let snapshot = elements.clone();
+        let mut occupied_ids: HashSet<Id> =
+            elements.iter().map(|element| element.id.clone()).collect();
         let mut vec_out = Vec::with_capacity(elements.len());
         for el in elements.iter() {
             if let Some(veff) = key.vector_effects(&el.id) {
@@ -711,9 +744,12 @@ fn apply_keyframe_rigs_and_appearances(
                         .iter()
                         .find(|cand| cand.id == blend_spec.target_element_id)
                 {
-                    vec_out.extend(crate::vector_effects::generate_vector_blend_steps(
+                    for mut step in crate::vector_effects::generate_vector_blend_steps(
                         &expanded, target_el, blend_spec,
-                    ));
+                    ) {
+                        step.id = reserve_synthetic_id(&mut occupied_ids, step.id);
+                        vec_out.push(step);
+                    }
                 }
             } else {
                 vec_out.push(el.clone());
@@ -726,10 +762,25 @@ fn apply_keyframe_rigs_and_appearances(
     if key.appearances.is_empty() {
         return working_elements;
     }
+    // Reserve every input ID before expanding any appearance. Generated glyph/line/paint IDs
+    // therefore cannot steal the identity of an authored element or an earlier blend step that
+    // happens to appear later in painter order.
+    let mut occupied_ids: HashSet<Id> = working_elements
+        .iter()
+        .map(|element| element.id.clone())
+        .collect();
     let mut out = Vec::with_capacity(working_elements.len());
     for el in working_elements.drain(..) {
         if let Some(app) = key.appearance(&el.id) {
-            out.extend(crate::geometry::evaluate_element_appearance(&el, app));
+            let mut kept_input_id = false;
+            for mut evaluated in crate::geometry::evaluate_element_appearance(&el, app) {
+                if evaluated.id == el.id && !kept_input_id {
+                    kept_input_id = true;
+                } else {
+                    evaluated.id = reserve_synthetic_id(&mut occupied_ids, evaluated.id);
+                }
+                out.push(evaluated);
+            }
         } else {
             out.push(el);
         }
@@ -1301,7 +1352,17 @@ fn apply_motion_curve(
 /// `snap_to_guide`) on a layer guided by a motion guide move their objects'
 /// registration points along the guide's first stroke.
 pub fn sample_layer_in(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<Element> {
-    let mut elements = sample_layer(layer, frame);
+    sample_layer_in_at_fps(timeline, layer, frame, 24.0)
+}
+
+/// Sample a layer within its timeline with an explicit document frame rate for expressions.
+pub fn sample_layer_in_at_fps(
+    timeline: &Timeline,
+    layer: &Layer,
+    frame: u32,
+    fps: f64,
+) -> Vec<Element> {
+    let mut elements = sample_layer_at_fps(layer, frame, fps);
     let Some(guide) = layer
         .properties
         .motion_guide
@@ -1573,6 +1634,21 @@ pub fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
     start
 }
 
+pub(crate) fn instance_frame_from_age(
+    playback: InstancePlayback,
+    age: u32,
+    frame_count: u32,
+) -> u32 {
+    let count = frame_count.max(1);
+    match playback {
+        InstancePlayback::Independent | InstancePlayback::Loop => age % count,
+        InstancePlayback::LoopFrom(start) => age.saturating_add(start) % count,
+        InstancePlayback::PlayOnce => age.min(count - 1),
+        InstancePlayback::PlayOnceFrom(start) => age.saturating_add(start).min(count - 1),
+        InstancePlayback::SingleFrame(frame) => frame.min(count - 1),
+    }
+}
+
 pub fn evaluate(project: &Project, symbol_id: &str, frame: u32) -> Vec<DrawItem> {
     snapshot_mode(project, symbol_id, frame, &|_| None, &|_| None, true).items
 }
@@ -1802,13 +1878,13 @@ impl Scale9Mapping {
     }
 }
 
-fn symbol_natural_bounds(symbol: &Symbol, frame: u32, fallback: [f64; 4]) -> [f64; 4] {
+fn symbol_natural_bounds(symbol: &Symbol, frame: u32, fallback: [f64; 4], fps: f64) -> [f64; 4] {
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     for layer in &symbol.timeline.layers {
-        for e in sample_layer_in(&symbol.timeline, layer, frame) {
+        for e in sample_layer_in_at_fps(&symbol.timeline, layer, frame, fps) {
             let tx = e.transform.x;
             let ty = e.transform.y;
             match &e.kind {
@@ -1875,6 +1951,7 @@ impl Walker<'_> {
                 &symbol.timeline,
                 frame,
                 parent,
+                f64::from(self.project.fps),
             ));
         self.result
             .blend_groups
@@ -1883,6 +1960,7 @@ impl Walker<'_> {
                 frame,
                 parent,
                 self.include_guides,
+                f64::from(self.project.fps),
             ));
         // Layer zero is the backmost layer; list order is painter order everywhere.
         let active_camera = sample_timeline_camera(&symbol.timeline, frame);
@@ -1917,7 +1995,9 @@ impl Walker<'_> {
             } else {
                 (inherited.matrix, inherited.color_transform)
             };
-            for mut e in sample_layer_in(&symbol.timeline, layer, frame) {
+            for mut e in
+                sample_layer_in_at_fps(&symbol.timeline, layer, frame, f64::from(self.project.fps))
+            {
                 if !self.include_guides && active_controllers.iter().any(|cid| cid == &e.id) {
                     continue;
                 }
@@ -2054,27 +2134,13 @@ impl Walker<'_> {
                     } else if child.kind == SymbolKind::Button {
                         button_frame.min(2).min(count - 1)
                     } else if synced_layer {
-                        match playback {
-                            InstancePlayback::Independent | InstancePlayback::Loop => age % count,
-                            InstancePlayback::LoopFrom(start) => age.saturating_add(*start) % count,
-                            InstancePlayback::PlayOnce => age.min(count - 1),
-                            InstancePlayback::PlayOnceFrom(start) => {
-                                age.saturating_add(*start).min(count - 1)
-                            }
-                            InstancePlayback::SingleFrame(f) => (*f).min(count - 1),
-                        }
+                        instance_frame_from_age(*playback, age, count)
                     } else {
                         match playback {
                             InstancePlayback::Independent => {
                                 (self.clock)(&path).unwrap_or(age % count) % count
                             }
-                            InstancePlayback::Loop => age % count,
-                            InstancePlayback::LoopFrom(start) => age.saturating_add(*start) % count,
-                            InstancePlayback::PlayOnce => age.min(count - 1),
-                            InstancePlayback::PlayOnceFrom(start) => {
-                                age.saturating_add(*start).min(count - 1)
-                            }
-                            InstancePlayback::SingleFrame(f) => (*f).min(count - 1),
+                            _ => instance_frame_from_age(*playback, age, count),
                         }
                     };
                     node.symbol_id = Some(child.id.clone());
@@ -2099,7 +2165,12 @@ impl Walker<'_> {
                         let mut unscaled = e.transform;
                         unscaled.scale_x = e.transform.scale_x.signum();
                         unscaled.scale_y = e.transform.scale_y.signum();
-                        let bounds = symbol_natural_bounds(child, child_frame, grid);
+                        let bounds = symbol_natural_bounds(
+                            child,
+                            child_frame,
+                            grid,
+                            f64::from(self.project.fps),
+                        );
                         (
                             affine_multiply(layer_world_base, transform_matrix(unscaled)),
                             Some(Scale9Mapping {

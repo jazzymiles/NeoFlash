@@ -426,16 +426,16 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 
 | Item | Spec | UI source | Engine block | Registry |
 | --- | --- | --- | --- | --- |
-| W3.1 Export image PNG + SVG — done | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (DL-04 done) | E-22 | `web-html5-export` |
-| W3.2 Export image PSD / AI / PDF — done | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (DL-04 done) | E-22 | `web-html5-export` |
+| W3.1 Export image PNG + SVG — working (basic export) | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (DL-04 remains partial while advanced option controls are inert) | E-22 | `web-html5-export` |
+| W3.2 Export image PSD / AI / PDF — partial (documented fidelity and option fallbacks) | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (layered PSD; EPS-compatible AI and raster-backed PDF; PSD groups/smart objects/editable text/colour conversion pending) | E-22 | `web-html5-export` |
 | W3.3 Export video — done | DL-05 | `panels/export_video.rs` (DL-05 done) | E-23 | `web-html5-export`, `web-media-assets` |
 | W3.4 Export audio, Sound properties, Edit envelope — done | DL-06, DL-08, DL-09 | `panels/export_audio.rs` (DL-06 done), `panels/sound_properties.rs` (DL-08 done), `panels/edit_envelope.rs` (DL-09 done) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
-| W3.5 Import video, Import PSD — done | DL-07, DL-10 | `panels/import_video.rs` (DL-07 done), `neoflash_import::psd` (DL-10 done) | E-19, E-24 | `web-media-assets`, `imports-*` |
+| W3.5 Import video, Import PSD — partial | DL-07, DL-10 | `panels/import_video.rs` imports validated media into the document; authored playback remains partial. `neoflash_import::psd` is a tested importer library; editor/CLI wiring remains. | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
-| W3.8 Font embedding + text embed rows — done | DL-11, PR-01 | `panels/font_embedding.rs` (DL-11 done) | E-26 | `web-font-portability` |
+| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | `panels/font_embedding.rs` stores real license-permitted font binaries and metadata; browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
 | W3.9 Deco, Spray, Bone/IK — done | TO-03…05 | `panels/live_planned.rs` (`apply_deco_pattern`, `apply_spray_brush_burst`, `live_bone_properties`) | E-27, E-28 | `editor-advanced-drawing` |
-| W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — done | DL-15, DL-17, AC-07, CO-02 | `panels/live_planned.rs` (`apply_bitmap_swatch_tile`, `live_bitmap_fill`), `panels/actions.rs` (`Script assist`) | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
+| W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. 9-slice/shared-library/accessibility engines have tested commands, but their complete authoring controls remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
 **W3.6 · Preferences (DL-01) & W3.7 · Shortcut editor** — **done** across all 8 active pages (`panels/preferences.rs`,
 `commands.rs`, `recovery.rs`): modal dialog with per-page draft groups and `Reset to defaults`, live theme preview,

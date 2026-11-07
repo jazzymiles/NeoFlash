@@ -230,12 +230,13 @@ pub(crate) fn layer_mask_plans(
     timeline: &Timeline,
     frame: u32,
     parent: &[Id],
+    fps: f64,
 ) -> Vec<LayerMaskPlan> {
     let paths = |layer: &Layer| -> Vec<Vec<Id>> {
         if !layer_effectively_visible(timeline, layer) {
             return vec![];
         }
-        sample_layer(layer, frame)
+        crate::evaluate::sample_layer_at_fps(layer, frame, fps)
             .into_iter()
             .map(|e| {
                 let mut path = parent.to_vec();
@@ -304,6 +305,7 @@ pub(crate) fn layer_blend_plans(
     frame: u32,
     parent: &[Id],
     include_guides: bool,
+    fps: f64,
 ) -> Vec<AuthoredBlendGroupPlan> {
     let is_descendant = |layer: &Layer, folder_id: &str| -> bool {
         let mut current = layer.properties.parent.as_deref();
@@ -356,7 +358,7 @@ pub(crate) fn layer_blend_plans(
             {
                 continue;
             }
-            for e in sample_layer_in(timeline, child, frame) {
+            for e in crate::evaluate::sample_layer_in_at_fps(timeline, child, frame, fps) {
                 let mut path = parent.to_vec();
                 path.push(e.id);
                 roots.push(path);
@@ -389,15 +391,16 @@ pub(crate) fn layer_blend_plans(
         if layer_blend.is_normal() {
             continue;
         }
-        let roots: Vec<Vec<Id>> = sample_layer_in(timeline, layer, frame)
-            .into_iter()
-            .filter(|e| layer_blend == BlendMode::Layer || e.blend_mode.is_normal())
-            .map(|e| {
-                let mut path = parent.to_vec();
-                path.push(e.id);
-                path
-            })
-            .collect();
+        let roots: Vec<Vec<Id>> =
+            crate::evaluate::sample_layer_in_at_fps(timeline, layer, frame, fps)
+                .into_iter()
+                .filter(|e| layer_blend == BlendMode::Layer || e.blend_mode.is_normal())
+                .map(|e| {
+                    let mut path = parent.to_vec();
+                    path.push(e.id);
+                    path
+                })
+                .collect();
         if !roots.is_empty() {
             let mut identity = parent.to_vec();
             identity.push(layer.id.clone());

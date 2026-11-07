@@ -9,6 +9,9 @@ use neoflash_core::{ResourceUnit, new_id};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
+use serde::{Deserialize, Serialize};
+
+const FONT_EMBEDDING_METADATA_PATH: &str = "fonts/embedding.json";
 
 const RANGE_SPECS: [(&str, usize); 8] = [
     ("Uppercase [A–Z] (27)", 27),
@@ -32,7 +35,7 @@ const FONT_FAMILIES: [&str; 6] = [
 
 const FONT_STYLES: [&str; 4] = ["Regular", "Semi Bold", "Bold", "Italic"];
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct EmbeddedFontEntry {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -69,6 +72,7 @@ impl EmbeddedFontEntry {
 pub(crate) struct FontEmbeddingDraft {
     pub(crate) entries: Vec<EmbeddedFontEntry>,
     pub(crate) selected: usize,
+    original_entries: Vec<EmbeddedFontEntry>,
 }
 
 impl Default for FontEmbeddingDraft {
@@ -107,6 +111,7 @@ impl Default for FontEmbeddingDraft {
                 },
             ],
             selected: 0,
+            original_entries: Vec::new(),
         }
     }
 }
@@ -145,116 +150,211 @@ pub(crate) fn update_font_embedding_draft(
     }
 }
 
-fn build_embedded_font_stub(entry: &EmbeddedFontEntry) -> Vec<u8> {
-    let mut out = Vec::new();
-    // TrueType sfnt 0x00010000 header + NFEM metadata block
-    out.extend_from_slice(&[0x00, 0x01, 0x00, 0x00]);
-    out.extend_from_slice(&1u16.to_be_bytes());
-    out.extend_from_slice(&16u16.to_be_bytes());
-    out.extend_from_slice(&0u16.to_be_bytes());
-    out.extend_from_slice(&0u16.to_be_bytes());
-    out.extend_from_slice(b"NFEM");
-    let meta = format!(
-        "{}|{}|{}|{}|{}",
-        entry.name,
-        entry.family,
-        entry.style,
-        entry.glyph_count(),
-        entry.class_name
-    );
-    out.extend_from_slice(meta.as_bytes());
-    out
+#[cfg(test)]
+pub(crate) fn set_inline_font_embedding_draft(ctx: &egui::Context, draft: FontEmbeddingDraft) {
+    ctx.data_mut(|data| data.insert_temp(inline_draft_id(), draft));
+}
+
+fn stored_embedding_entries(project: &neoflash_core::Project) -> Vec<EmbeddedFontEntry> {
+    project
+        .resources
+        .iter()
+        .find(|resource| {
+            resource
+                .path
+                .eq_ignore_ascii_case(FONT_EMBEDDING_METADATA_PATH)
+        })
+        .and_then(|resource| resource.decoded_bytes().ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn embedding_draft_for_project(project: &neoflash_core::Project) -> FontEmbeddingDraft {
+    let mut draft = FontEmbeddingDraft::default();
+    let stored_entries = stored_embedding_entries(project);
+    let existing_fonts: Vec<EmbeddedFontEntry> = project
+        .resources
+        .iter()
+        .filter(|resource| neoflash_export::is_font_resource(resource))
+        .map(|resource| {
+            let family = neoflash_export::font_family_for_resource(resource);
+            let class_name: String = family
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .collect();
+            EmbeddedFontEntry {
+                id: resource.id.clone(),
+                name: family.clone(),
+                family,
+                style: "Regular".to_owned(),
+                ranges: [true, true, true, true, false, false, false, false],
+                extra_chars: String::new(),
+                export_for_actionscript: !class_name.is_empty(),
+                class_name,
+            }
+        })
+        .collect();
+    if !stored_entries.is_empty() {
+        draft.entries = stored_entries;
+        draft.original_entries = draft.entries.clone();
+    } else if !existing_fonts.is_empty() {
+        draft.entries = existing_fonts;
+        draft.original_entries = draft.entries.clone();
+    }
+    draft.selected = 0;
+    draft
 }
 
 impl Editor {
     /// Open the `Font embedding` modal dialog (`DL-11`).
     pub(crate) fn open_font_embedding(&mut self, ctx: &egui::Context) {
         self.finish_edits();
-        let mut draft = FontEmbeddingDraft::default();
-        let existing_fonts: Vec<EmbeddedFontEntry> = self
-            .project
-            .resources
-            .iter()
-            .filter(|r| neoflash_export::is_font_resource(r))
-            .map(|r| {
-                let family = neoflash_export::font_family_for_resource(r);
-                let class_name: String = family
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric())
-                    .collect();
-                EmbeddedFontEntry {
-                    id: r.id.clone(),
-                    name: family.clone(),
-                    family,
-                    style: "Regular".to_owned(),
-                    ranges: [true, true, true, true, false, false, false, false],
-                    extra_chars: String::new(),
-                    export_for_actionscript: !class_name.is_empty(),
-                    class_name,
-                }
-            })
-            .collect();
-        if !existing_fonts.is_empty() {
-            draft.entries = existing_fonts;
-            draft.selected = 0;
-        }
+        let draft = embedding_draft_for_project(&self.project);
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
     }
 
     pub(crate) fn cancel_font_embedding(&mut self, ctx: &egui::Context) {
-        ctx.data_mut(|d| d.remove::<FontEmbeddingDraft>(draft_id()));
+        ctx.data_mut(|data| {
+            data.remove::<FontEmbeddingDraft>(draft_id());
+            data.remove::<FontEmbeddingDraft>(inline_draft_id());
+        });
     }
 
     /// Commit the active `Font embedding` draft into `self.project.resources` in one
     /// `"Font embedding"` Undo step.
-    pub(crate) fn confirm_font_embedding(&mut self, ctx: &egui::Context) -> usize {
+    pub(crate) fn confirm_font_embedding(&mut self, ctx: &egui::Context) -> Result<usize, String> {
         let draft = ctx
             .data(|d| d.get_temp::<FontEmbeddingDraft>(draft_id()))
             .or_else(|| ctx.data(|d| d.get_temp::<FontEmbeddingDraft>(inline_draft_id())))
-            .unwrap_or_default();
+            .unwrap_or_else(|| embedding_draft_for_project(&self.project));
 
         let count = draft.entries.len();
+        let original_fonts: Vec<_> = self
+            .project
+            .resources
+            .iter()
+            .filter(|resource| neoflash_export::is_font_resource(resource))
+            .cloned()
+            .collect();
+        let metadata_id = self
+            .project
+            .resources
+            .iter()
+            .find(|resource| {
+                resource
+                    .path
+                    .eq_ignore_ascii_case(FONT_EMBEDDING_METADATA_PATH)
+            })
+            .map(|resource| resource.id.clone())
+            .unwrap_or_else(|| new_id("res"));
+        let mut candidate = self.project.clone();
+        candidate.resources.retain(|resource| {
+            !neoflash_export::is_font_resource(resource)
+                && !resource
+                    .path
+                    .eq_ignore_ascii_case(FONT_EMBEDDING_METADATA_PATH)
+        });
+        let mut saved_entries = Vec::with_capacity(draft.entries.len());
+        for entry in &draft.entries {
+            let clean_stem: String = entry
+                .name
+                .trim()
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric()
+                        || character == '-'
+                        || character == '_'
+                        || character == ' '
+                    {
+                        character
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let stem = if clean_stem.trim().is_empty() {
+                "EmbeddedFont"
+            } else {
+                clean_stem.trim()
+            };
+            let path = format!("fonts/{stem}.ttf");
+            let existing = original_fonts
+                .iter()
+                .find(|resource| resource.id == entry.id);
+            let face_unchanged = draft
+                .original_entries
+                .iter()
+                .find(|original| original.id == entry.id)
+                .map(|original| original.family == entry.family && original.style == entry.style)
+                .unwrap_or(false);
+            let unit = if let Some(existing) = existing.filter(|_| face_unchanged) {
+                existing.clone()
+            } else {
+                let bytes = match crate::fonts::embeddable_font_bytes(&entry.family, &entry.style) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        let error = format!("Could not update font embedding: {error}");
+                        self.message(&error);
+                        return Err(error);
+                    }
+                };
+                let resource_id = existing
+                    .map(|resource| resource.id.clone())
+                    .unwrap_or_else(|| new_id("res"));
+                match ResourceUnit::from_bytes(resource_id, path, "font/ttf", &bytes) {
+                    Ok(unit) => unit,
+                    Err(error) => {
+                        let error = format!("Could not update font embedding: {error}");
+                        self.message(&error);
+                        return Err(error);
+                    }
+                }
+            };
+            let mut stored_entry = entry.clone();
+            stored_entry.id = unit.id.clone();
+            candidate.resources.push(unit);
+            saved_entries.push(stored_entry);
+        }
+        let metadata = match serde_json::to_vec(&saved_entries)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                ResourceUnit::from_bytes(
+                    metadata_id,
+                    FONT_EMBEDDING_METADATA_PATH,
+                    "application/json",
+                    &bytes,
+                )
+                .map_err(|error| error.to_string())
+            }) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let error = format!("Could not update font embedding: {error}");
+                self.message(&error);
+                return Err(error);
+            }
+        };
+        if !saved_entries.is_empty() {
+            candidate.resources.push(metadata);
+        }
+        candidate.format_version = candidate.format_version.max(3);
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            let error = format!("Could not update font embedding: {error}");
+            self.message(&error);
+            return Err(error);
+        }
+
         self.finish_edits();
         self.transact_named("Font embedding", |editor| {
-            editor
-                .project
-                .resources
-                .retain(|r| !neoflash_export::is_font_resource(r));
-            for entry in &draft.entries {
-                let clean_stem: String = entry
-                    .name
-                    .trim()
-                    .chars()
-                    .map(|c| {
-                        if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ' {
-                            c
-                        } else {
-                            '_'
-                        }
-                    })
-                    .collect();
-                let stem = if clean_stem.trim().is_empty() {
-                    "EmbeddedFont"
-                } else {
-                    clean_stem.trim()
-                };
-                let path = format!("fonts/{stem}.ttf");
-                let stub = build_embedded_font_stub(entry);
-                let res_id = if entry.id.starts_with("res_") {
-                    entry.id.clone()
-                } else {
-                    new_id("res")
-                };
-                if let Ok(unit) = ResourceUnit::from_bytes(res_id, path, "font/ttf", &stub) {
-                    editor.project.resources.push(unit);
-                    editor.project.format_version = editor.project.format_version.max(3);
-                }
-            }
+            editor.project = candidate;
         });
 
-        ctx.data_mut(|d| d.remove::<FontEmbeddingDraft>(draft_id()));
+        ctx.data_mut(|data| {
+            data.remove::<FontEmbeddingDraft>(draft_id());
+            data.remove::<FontEmbeddingDraft>(inline_draft_id());
+        });
         self.message(format!("Updated font embedding ({count} font(s))."));
-        count
+        Ok(count)
     }
 
     pub(crate) fn font_embedding_body(
@@ -413,12 +513,11 @@ impl Editor {
         let ctx = ui.ctx().clone();
         let mut draft = ctx
             .data(|d| d.get_temp::<FontEmbeddingDraft>(inline_draft_id()))
-            .unwrap_or_default();
+            .unwrap_or_else(|| embedding_draft_for_project(&self.project));
         let (close_cancel, do_apply) = self.font_embedding_body(ui, &mut draft);
         ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft));
         if do_apply {
-            self.confirm_font_embedding(&ctx);
-            return true;
+            return self.confirm_font_embedding(&ctx).is_ok();
         }
         close_cancel
     }
@@ -467,7 +566,7 @@ impl Editor {
             return;
         }
         if do_apply {
-            self.confirm_font_embedding(ctx);
+            let _ = self.confirm_font_embedding(ctx);
         }
     }
 }

@@ -6,6 +6,13 @@ use font_kit::{
 };
 use std::collections::HashSet;
 
+const BUNDLED_INTER_REGULAR: &[u8] =
+    include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
+const BUNDLED_INTER_SEMIBOLD: &[u8] =
+    include_bytes!("../../neoflash-ui/assets/fonts/Inter-SemiBold.ttf");
+const BUNDLED_ROBOTO_MONO: &[u8] =
+    include_bytes!("../../neoflash-ui/assets/fonts/RobotoMono-Regular.ttf");
+
 pub struct Fonts {
     pub families: Vec<String>,
     definitions: FontDefinitions,
@@ -254,9 +261,155 @@ fn load_system_font(family: &str, properties: &Properties) -> Result<FontData, S
     Ok(data)
 }
 
+/// Return a complete, renderable font binary suitable for an authored `ResourceUnit`.
+/// Bundled OFL faces are deterministic; other families use the exact selected system face.
+pub(crate) fn embeddable_font_bytes(family: &str, style: &str) -> Result<Vec<u8>, String> {
+    let family = family.trim();
+    let style = style.trim();
+    let bundled = match (family, style) {
+        ("Inter", "Regular") => Some(BUNDLED_INTER_REGULAR),
+        ("Inter", "Semi Bold") => Some(BUNDLED_INTER_SEMIBOLD),
+        ("Roboto Mono", "Regular") => Some(BUNDLED_ROBOTO_MONO),
+        _ => None,
+    };
+    if let Some(bytes) = bundled {
+        ensure_font_embedding_allowed(bytes, family, style)?;
+        return Ok(bytes.to_vec());
+    }
+
+    let properties = Properties {
+        weight: if style.eq_ignore_ascii_case("Bold") {
+            Weight::BOLD
+        } else if style.eq_ignore_ascii_case("Semi Bold") {
+            Weight::SEMIBOLD
+        } else {
+            Weight::NORMAL
+        },
+        style: if style.eq_ignore_ascii_case("Italic") {
+            Style::Italic
+        } else {
+            Style::Normal
+        },
+        ..Properties::new()
+    };
+    let handle = SystemSource::new()
+        .select_best_match(&[FamilyName::Title(family.to_owned())], &properties)
+        .map_err(|error| format!("Font '{family}' ({style}) is unavailable: {error:?}"))?;
+    let bytes = handle
+        .load()
+        .map_err(|error| format!("Cannot load font '{family}' ({style}): {error:?}"))?
+        .copy_font_data()
+        .ok_or_else(|| format!("Font '{family}' ({style}) does not expose embeddable data."))?
+        .as_ref()
+        .clone();
+    ab_glyph::FontRef::try_from_slice_and_index(&bytes, 0).map_err(|_| {
+        format!(
+            "Font '{family}' ({style}) is a collection or unsupported outline; choose a standalone TrueType face."
+        )
+    })?;
+    ensure_font_embedding_allowed(&bytes, family, style)?;
+    Ok(bytes)
+}
+
+/// Refuse faces whose OpenType permissions explicitly prohibit embedding.
+///
+/// OS/2.fsType bit 1 is the OpenType `Restricted License Embedding` flag. A missing OS/2 table
+/// does not assert a restriction, while a malformed permissions table is rejected rather than
+/// guessed.
+fn ensure_font_embedding_allowed(bytes: &[u8], family: &str, style: &str) -> Result<(), String> {
+    if bytes.starts_with(b"ttcf") {
+        return Err(format!(
+            "Font '{family}' ({style}) is a collection; choose a standalone TrueType or OpenType face so embedding permissions can be verified."
+        ));
+    }
+    let num_tables = bytes
+        .get(4..6)
+        .and_then(|value| value.try_into().ok())
+        .map(u16::from_be_bytes)
+        .ok_or_else(|| format!("Font '{family}' ({style}) has an invalid OpenType header."))?;
+    let records_end = usize::from(num_tables)
+        .checked_mul(16)
+        .and_then(|length| 12usize.checked_add(length))
+        .ok_or_else(|| format!("Font '{family}' ({style}) has an invalid OpenType table list."))?;
+    if records_end > bytes.len() {
+        return Err(format!(
+            "Font '{family}' ({style}) has an incomplete OpenType table list."
+        ));
+    }
+    for record in bytes[12..records_end].as_chunks::<16>().0 {
+        if &record[..4] != b"OS/2" {
+            continue;
+        }
+        let offset =
+            u32::from_be_bytes(record[8..12].try_into().expect("four-byte slice")) as usize;
+        let length =
+            u32::from_be_bytes(record[12..16].try_into().expect("four-byte slice")) as usize;
+        let table_end = offset
+            .checked_add(length)
+            .ok_or_else(|| format!("Font '{family}' ({style}) has an invalid OS/2 table range."))?;
+        if length < 10 || table_end > bytes.len() {
+            return Err(format!(
+                "Font '{family}' ({style}) has an invalid OS/2 permissions table."
+            ));
+        }
+        let fs_type = u16::from_be_bytes(
+            bytes[offset + 8..offset + 10]
+                .try_into()
+                .expect("two-byte slice"),
+        );
+        if fs_type & 0x0002 != 0 {
+            return Err(format!(
+                "Font '{family}' ({style}) forbids embedding (Restricted License Embedding)."
+            ));
+        }
+        if fs_type & 0x0004 != 0 && fs_type & 0x0008 == 0 {
+            return Err(format!(
+                "Font '{family}' ({style}) permits Preview & Print embedding only, not embedding in an editable authoring document."
+            ));
+        }
+        break;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restricted_font_embedding_permission_is_rejected() {
+        let mut font = vec![0_u8; 38];
+        font[..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+        font[4..6].copy_from_slice(&1_u16.to_be_bytes());
+        font[12..16].copy_from_slice(b"OS/2");
+        font[20..24].copy_from_slice(&28_u32.to_be_bytes());
+        font[24..28].copy_from_slice(&10_u32.to_be_bytes());
+        font[36..38].copy_from_slice(&0x0002_u16.to_be_bytes());
+
+        let error = ensure_font_embedding_allowed(&font, "Restricted", "Regular")
+            .expect_err("restricted embedding must fail");
+        assert!(error.contains("Restricted License Embedding"));
+        font[36..38].copy_from_slice(&0x0004_u16.to_be_bytes());
+        let error = ensure_font_embedding_allowed(&font, "Preview only", "Regular")
+            .expect_err("preview-and-print embedding must fail for editable projects");
+        assert!(error.contains("Preview & Print"));
+        font[36..38].copy_from_slice(&0x0008_u16.to_be_bytes());
+        ensure_font_embedding_allowed(&font, "Editable", "Regular")
+            .expect("editable embedding is allowed");
+        font[36..38].copy_from_slice(&0x0100_u16.to_be_bytes());
+        ensure_font_embedding_allowed(&font, "No subsetting", "Regular")
+            .expect("no-subsetting is allowed because complete bytes are stored");
+        font[36..38].copy_from_slice(&0_u16.to_be_bytes());
+        ensure_font_embedding_allowed(&font, "Installable", "Regular")
+            .expect("installable embedding is allowed");
+
+        let mut collection = b"ttcf\0\x01\0\0\0\0\0\x01\0\0\0\x10".to_vec();
+        collection.resize(32, 0);
+        let error = ensure_font_embedding_allowed(&collection, "Collection", "Regular")
+            .expect_err("collection permissions cannot be inferred from the TTC header");
+        assert!(error.contains("collection"));
+    }
+
     #[test]
     #[cfg(target_os = "macos")]
     fn system_collection_font_can_be_installed_without_panicking() {

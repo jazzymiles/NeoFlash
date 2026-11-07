@@ -377,7 +377,7 @@ fn preview_window(
                     .inner_margin(egui::Margin::same(pad as i8))
                     .show(ui, |ui| {
                         ui.set_width(width - 2.0 * pad);
-                        if let Some(ed) = editor.as_deref_mut() {
+                        if let Some(ed) = &mut editor {
                             close |= ed.live_planned_panel_body(ui, panel, state);
                         } else {
                             banner(ui);
@@ -396,7 +396,7 @@ fn window_title_bar(
     ui: &mut Ui,
     panel: PlannedPanel,
     width: f32,
-    mut editor: Option<&mut Editor>,
+    editor: Option<&mut Editor>,
 ) -> (bool, egui::Vec2) {
     let nf = neoflash_ui::palette(ui.ctx());
     let (rect, _) =
@@ -444,7 +444,7 @@ fn window_title_bar(
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
         |ui| {
             if panel == PlannedPanel::TestMovie {
-                if let Some(ed) = editor.as_deref_mut() {
+                if let Some(ed) = editor {
                     ed.live_test_movie_title_actions(ui);
                 } else {
                     ui.scope(|ui| {

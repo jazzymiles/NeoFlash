@@ -96,6 +96,7 @@ export async function verifyGradientGraphics(root,cargo) {
     assert.ok(readBack.some(item=>host.program().is(item,'flash.display.GraphicsSolidFill')));
     const brushBmp=new BitmapData(4,4,true,0xff22aa88);
     dataShape.graphics.clear();
+    assert.equal(paints(dataShape).length,0,'direct native Graphics calls remain synchronous before host reads');
     dataShape.graphics.lineStyle(3,0,1);
     dataShape.graphics.lineBitmapStyle(brushBmp,null,true,false);
     dataShape.graphics.moveTo(0,0);dataShape.graphics.lineTo(24,18);

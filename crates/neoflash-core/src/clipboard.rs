@@ -500,6 +500,7 @@ impl ClipboardPayload {
             element.transform.x += offset[0];
             element.transform.y += offset[1];
         }
+        let fps = f64::from(candidate.fps);
         let timeline = &mut candidate.symbol_mut(symbol_id).unwrap().timeline;
         let layer_idx = timeline
             .layers
@@ -511,7 +512,8 @@ impl ClipboardPayload {
             .iter()
             .any(|k| k.frame == frame)
         {
-            let elements = sample_layer_in(timeline, &timeline.layers[layer_idx], frame);
+            let elements =
+                sample_layer_in_at_fps(timeline, &timeline.layers[layer_idx], frame, fps);
             let layer = &mut timeline.layers[layer_idx];
             let active = layer
                 .keyframes

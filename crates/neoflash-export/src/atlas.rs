@@ -5,7 +5,7 @@
 //! deterministically via MaxRects Best-Short-Side-Fit (`BSSF`), and emits a PNG sheet alongside
 //! TexturePacker-compatible JSON Array, JSON Hash (PixiJS / Phaser), or Starling XML metadata.
 
-use crate::{ExportError, video::render_authored_scene_rgba};
+use crate::{ExportError, atomic_write, video::render_authored_scene_rgba};
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{Project, evaluate_scene, flatten_scenes_with_ranges};
 use serde::{Deserialize, Serialize};
@@ -644,8 +644,8 @@ pub fn export_project_atlas(
         .unwrap_or("spritesheet.png");
 
     let rendered = render_project_atlas(project, image_filename, options)?;
-    fs::write(&image_path, &rendered.png_bytes)?;
-    fs::write(&metadata_path, &rendered.metadata_text)?;
+    atomic_write(&image_path, &rendered.png_bytes)?;
+    atomic_write(&metadata_path, rendered.metadata_text.as_bytes())?;
 
     Ok(AtlasExportReport {
         image_path,

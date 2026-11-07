@@ -257,7 +257,7 @@ impl Editor {
             return None;
         }
         let layer = &self.symbol().timeline.layers[self.target_layer_index(target)?];
-        sample_layer(layer, self.frame)
+        sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
             .into_iter()
             .find(|element| element.id == target.element)
             .or_else(|| {
@@ -334,7 +334,7 @@ impl Editor {
             .filter(|layer| self.layer_is_selectable(layer))
         {
             let mut seen = HashSet::new();
-            for element in sample_layer(layer, self.frame) {
+            for element in sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps)) {
                 let target = SelectionTarget {
                     layer: layer.id.clone(),
                     element: element.id.clone(),
@@ -387,6 +387,7 @@ impl Editor {
     }
     /// Make `frame` a keyframe of the layer (a ◆ property key inside a motion tween).
     pub(crate) fn ensure_key_at(&mut self, layer_id: &str, frame: u32, blank: bool) {
+        let fps = f64::from(self.project.fps);
         let Some(layer) = self
             .symbol_mut()
             .timeline
@@ -403,7 +404,7 @@ impl Editor {
             }
             return;
         }
-        let sampled = sample_layer(layer, frame);
+        let sampled = sample_layer_at_fps(layer, frame, fps);
         let motion = motion_span(layer, frame).map(|(start, ..)| (start.tween, start.tween_kind));
         let mut key = if blank {
             Keyframe {

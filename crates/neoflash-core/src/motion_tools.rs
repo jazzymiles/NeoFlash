@@ -6,7 +6,9 @@
 //! - Preview Work Area (`PreviewWorkArea`), rich Timeline Markers (`TimelineMarker`), and Stage A/B
 //!   comparison snapshots (`StageSnapshotAB`).
 
-use crate::{Element, Id, Keyframe, Layer, Timeline, Transform, TweenProperty, sample_layer};
+use crate::{
+    Element, Id, Keyframe, Layer, Timeline, Transform, TweenProperty, sample_layer_at_fps,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -729,7 +731,7 @@ pub fn apply_wiggler_to_keyframes(
     let eff_fps = fps.max(1.0);
     let mut sampled_frames = Vec::new();
     for f in start_frame..=end_frame {
-        let mut elements = sample_layer(layer, f);
+        let mut elements = sample_layer_at_fps(layer, f, eff_fps);
         let Some(el) = elements.iter_mut().find(|e| e.id == target_id) else {
             continue;
         };
@@ -920,7 +922,45 @@ impl Timeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ElementKind, LayerProperties};
+    use crate::{ElementKind, LayerProperties, Project, evaluate};
+
+    #[test]
+    fn property_expression_time_uses_the_document_frame_rate() {
+        let mut project = Project::blank();
+        project.format_version = 9;
+        project.symbols[0].timeline.layers[0].keyframes[0] = Keyframe {
+            frame: 0,
+            elements: vec![Element {
+                id: "clocked".into(),
+                kind: ElementKind::Rectangle {
+                    width: 10.0,
+                    height: 10.0,
+                    fill: [255; 4],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            }],
+            property_expressions: vec![PropertyExpression {
+                property: TweenProperty::X,
+                expression: "time".into(),
+                ..PropertyExpression::default()
+            }],
+            ..Keyframe::default()
+        };
+
+        project.fps = 30;
+        let at_30 = evaluate(&project, &project.root, 30);
+        assert!((at_30[0].transform[4] - 1.0).abs() < 1e-9);
+
+        project.fps = 60;
+        let at_60 = evaluate(&project, &project.root, 30);
+        assert!((at_60[0].transform[4] - 0.5).abs() < 1e-9);
+
+        // The compatibility wrapper intentionally retains its historical 24 fps clock.
+        let legacy = crate::sample_layer(&project.symbols[0].timeline.layers[0], 24);
+        assert!((legacy[0].transform.x - 1.0).abs() < 1e-9);
+    }
 
     #[test]
     fn expressions_motion_sketch_wiggler_and_work_area_behave_deterministically() {

@@ -2118,6 +2118,153 @@ fn t103_history_command_steps_and_saved_command_replay() {
 }
 
 #[test]
+fn history_selection_mutations_apply_to_every_selected_layer() {
+    use crate::selection::SelectionTarget;
+    use neoflash_core::AuthoringCommandStep;
+
+    let mut project = Project::blank();
+    let first_layer = project.symbols[0].timeline.layers[0].id.clone();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "first".into(),
+            name: "First".into(),
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    let mut second = project.symbols[0].timeline.layers[0].clone();
+    second.id = "second-layer".into();
+    second.name = "Second".into();
+    second.keyframes[0].elements[0].id = "second".into();
+    second.keyframes[0].elements[0].name = "Second".into();
+    project.symbols[0].timeline.layers.push(second);
+    let before = project.clone();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let original_targets = vec![
+        SelectionTarget {
+            layer: first_layer,
+            element: "first".into(),
+        },
+        SelectionTarget {
+            layer: "second-layer".into(),
+            element: "second".into(),
+        },
+    ];
+    editor.set_selection(original_targets.clone());
+    let applied = editor
+        .execute_command_steps(
+            "Duplicate both layers",
+            &[AuthoringCommandStep::DuplicateSelection {
+                offset_x: 4.0,
+                offset_y: 6.0,
+            }],
+        )
+        .expect("duplicate both layers");
+    assert_eq!(applied, 2);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        2
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .len(),
+        2
+    );
+    assert_eq!(editor.selection.targets.len(), 2);
+    assert!(
+        editor
+            .selection
+            .targets
+            .iter()
+            .all(|target| target.element != "first" && target.element != "second")
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    editor.set_selection(original_targets);
+    let applied = editor
+        .execute_command_steps(
+            "Delete both layers",
+            &[AuthoringCommandStep::DeleteSelection],
+        )
+        .expect("delete both layers");
+    assert_eq!(applied, 2);
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    assert!(
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    assert!(editor.selection.is_empty());
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn history_replay_rejects_cross_layer_duplicate_ids_atomically() {
+    use crate::selection::SelectionTarget;
+    use neoflash_core::AuthoringCommandStep;
+
+    let mut project = Project::blank();
+    let first_layer = project.symbols[0].timeline.layers[0].id.clone();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "duplicate-import-id".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255; 4],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    let mut unselected = project.symbols[0].timeline.layers[0].clone();
+    unselected.id = "unselected-layer".into();
+    unselected.name = "Imported duplicate ID".into();
+    project.symbols[0].timeline.layers.push(unselected);
+    assert!(
+        project.validate().is_err(),
+        "fixture must model corrupt import data"
+    );
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project.clone());
+    editor.set_selection(vec![SelectionTarget {
+        layer: first_layer,
+        element: "duplicate-import-id".into(),
+    }]);
+    assert!(
+        editor
+            .execute_command_steps(
+                "Move selected layer only",
+                &[AuthoringCommandStep::Translate { dx: 5.0, dy: 0.0 }],
+            )
+            .is_err()
+    );
+    assert_eq!(editor.project, project, "failed replay must be atomic");
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
 fn t104_t105_curve_split_planar_bucket_brush_modes_and_variable_width() {
     use neoflash_core::{
         BrushPaintMode, StrokeProfilePreset, StrokeWidthProfile, apply_brush_stroke_with_mode,
@@ -2750,6 +2897,16 @@ fn t114_appearance_stack_modifiers_swatches_styles_and_text_bindings() {
 fn t118_timeline_video_sync_cue_points_and_codec_diagnostics() {
     let mut project = Project::blank();
     project.format_version = 9;
+    project.resources.push(
+        ResourceUnit::from_bytes(
+            "vid-1",
+            "video/intro.mp4",
+            "video/mp4",
+            b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41",
+        )
+        .unwrap(),
+    );
+    project.validate().unwrap();
     let ctx = egui::Context::default();
     let mut editor = Editor::from_project(&ctx, project);
     let before = editor.project.clone();
@@ -2777,6 +2934,13 @@ fn t118_timeline_video_sync_cue_points_and_codec_diagnostics() {
     let crossed = neoflash_core::collect_crossed_cue_points(&span.cue_points, 100, 600);
     assert_eq!(crossed.len(), 1);
     assert_eq!(crossed[0].name, "intro_end");
+    editor.project.validate().unwrap();
+
+    let valid = editor.project.clone();
+    let mut missing = span.clone();
+    missing.resource = "missing-video".into();
+    assert!(!editor.set_keyframe_video_span(Some(missing)));
+    assert_eq!(editor.project, valid, "invalid video edit must be atomic");
 
     undo_restores(&mut editor, &before);
 }
@@ -3071,6 +3235,66 @@ fn t121_motion_expressions_sketch_wiggler_work_area_and_markers() {
     editor.undo();
     editor.undo();
     undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn editor_sampling_uses_the_document_frame_rate() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    project.fps = 30;
+    project.symbols[0].timeline.frame_count = 61;
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "fps-actor".into(),
+            name: "FPS actor".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255; 4],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .property_expressions
+        .push(PropertyExpression {
+            property: TweenProperty::X,
+            expression: "time * 120".into(),
+            enabled: true,
+            ..PropertyExpression::default()
+        });
+    project.validate().expect("30 fps project validates");
+
+    let ctx = egui::Context::default();
+    let mut at_30 = Editor::from_project(&ctx, project.clone());
+    at_30.frame = 30;
+    at_30.select_single_id("fps-actor".into());
+    assert!((at_30.selected_sampled().unwrap().transform.x - 120.0).abs() < 1e-6);
+    assert!(
+        (at_30.capture_stage_snapshot_ab("30 fps").elements[0]
+            .transform
+            .x
+            - 120.0)
+            .abs()
+            < 1e-6
+    );
+
+    project.fps = 60;
+    project.validate().expect("60 fps project validates");
+    let mut at_60 = Editor::from_project(&ctx, project);
+    at_60.frame = 30;
+    at_60.select_single_id("fps-actor".into());
+    assert!((at_60.selected_sampled().unwrap().transform.x - 60.0).abs() < 1e-6);
+    assert!(
+        (at_60.capture_stage_snapshot_ab("60 fps").elements[0]
+            .transform
+            .x
+            - 60.0)
+            .abs()
+            < 1e-6
+    );
 }
 
 #[test]

@@ -588,7 +588,8 @@ impl Editor {
             let Some(layer) = timeline.layers.iter().find(|l| l.id == layer_id) else {
                 continue;
             };
-            let elements = sample_layer_in(timeline, layer, frame);
+            let elements =
+                sample_layer_in_at_fps(timeline, layer, frame, f64::from(self.project.fps));
             if elements.len() < 2 {
                 continue;
             }
@@ -747,7 +748,12 @@ impl Editor {
                     .iter()
                     .find(|l| l.id == layer_id)
                     .is_some_and(|layer| {
-                        let sampled = sample_layer_in(&editor.symbol().timeline, layer, frame);
+                        let sampled = sample_layer_in_at_fps(
+                            &editor.symbol().timeline,
+                            layer,
+                            frame,
+                            f64::from(editor.project.fps),
+                        );
                         Self::reordered_layer_elements(
                             &sampled,
                             &layer.properties.groups,
@@ -972,7 +978,8 @@ impl Editor {
                     let parent = instance.transform;
                     let mut children = Vec::new();
                     for layer in &symbol.timeline.layers {
-                        for mut child in sample_layer(layer, 0) {
+                        for mut child in sample_layer_at_fps(layer, 0, f64::from(self.project.fps))
+                        {
                             let Some(mut transform) =
                                 affine_transform(child.transform, transform_matrix(parent))
                             else {
@@ -1288,11 +1295,14 @@ impl Editor {
             return;
         };
         let selected_ids: HashSet<Id> = sampled.into_iter().map(|(t, _)| t.element).collect();
-        let ordered_elements: Vec<Element> =
-            sample_layer(&self.symbol().timeline.layers[layer_idx], self.frame)
-                .into_iter()
-                .filter(|e| selected_ids.contains(&e.id))
-                .collect();
+        let ordered_elements: Vec<Element> = sample_layer_at_fps(
+            &self.symbol().timeline.layers[layer_idx],
+            self.frame,
+            f64::from(self.project.fps),
+        )
+        .into_iter()
+        .filter(|e| selected_ids.contains(&e.id))
+        .collect();
         let Some(combined) = combine_elements_boolean(&ordered_elements, op, crop_by_top) else {
             self.message("Combine objects requires at least two closed vector shapes.");
             return;
@@ -1363,7 +1373,8 @@ impl Editor {
             {
                 continue;
             }
-            let sampled = sample_layer_in(timeline, layer, self.frame);
+            let sampled =
+                sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps));
             let mut seen_unselected = false;
             let mut unselected_count = 0usize;
             let mut group_unit_index: HashMap<String, usize> = HashMap::new();

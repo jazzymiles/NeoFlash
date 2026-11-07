@@ -570,21 +570,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         }
                     }
                 }
-                if let Some(cam) = &key.camera {
-                    if ![cam.x, cam.y, cam.rotation]
+                if let Some(cam) = &key.camera
+                    && (![cam.x, cam.y, cam.rotation]
                         .iter()
                         .all(|v| v.is_finite() && v.abs() <= 1e6)
                         || !cam.zoom.is_finite()
                         || !(0.01..=100.0).contains(&cam.zoom)
                         || !cam.focal_length.is_finite()
                         || !(10.0..=1e6).contains(&cam.focal_length)
-                        || cam.color_transform.validate().is_err()
-                    {
-                        add(
-                            format!("{kp}.camera"),
-                            "camera pose requires finite x/y/rotation within +-1e6, zoom in 0.01..=100, and focal_length in 10..=1e6".into(),
-                        );
-                    }
+                        || cam.color_transform.validate().is_err())
+                {
+                    add(
+                        format!("{kp}.camera"),
+                        "camera pose requires finite x/y/rotation within +-1e6, zoom in 0.01..=100, and focal_length in 10..=1e6".into(),
+                    );
                 }
                 for (pli, link) in key.element_parents.iter().enumerate() {
                     if link.child_id == link.parent_id {
@@ -657,6 +656,18 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     }
                 }
                 for (ai, app) in key.appearances.iter().enumerate() {
+                    if let Some(element) = key.elements.iter().find(|e| e.id == app.element_id)
+                        && let Err(mi) =
+                            crate::geometry::validate_element_appearance_complexity(element, app)
+                    {
+                        add(
+                            format!("{kp}.appearances[{ai}].modifiers[{mi}]"),
+                            format!(
+                                "appearance modifier stack exceeds the {} path-command budget",
+                                crate::MAX_PATH_COMMANDS
+                            ),
+                        );
+                    }
                     for (mi, modifier) in app.modifiers.iter().enumerate() {
                         match modifier {
                             VectorModifier::OffsetContour { delta } => {
@@ -895,6 +906,35 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 format!("{kp}.shape_hints[{hi}]"),
                                 "shape hint coordinates must be finite and within 0..=1".into(),
                             );
+                        }
+                    }
+                }
+                if let Some(video) = &key.video {
+                    match project.resources.iter().find(|r| r.id == video.resource) {
+                        Some(resource) if resource.is_video() => {}
+                        Some(_) => add(
+                            format!("{kp}.video.resource"),
+                            format!("resource '{}' is not video (video/*)", video.resource),
+                        ),
+                        None => add(
+                            format!("{kp}.video.resource"),
+                            format!("video resource '{}' does not exist", video.resource),
+                        ),
+                    }
+                    for (ci, cue) in video.cue_points.iter().enumerate() {
+                        if cue.name.trim().is_empty() {
+                            add(
+                                format!("{kp}.video.cue_points[{ci}].name"),
+                                "video cue point name must be non-empty".into(),
+                            );
+                        }
+                        for (pi, (name, _)) in cue.parameters.iter().enumerate() {
+                            if name.trim().is_empty() {
+                                add(
+                                    format!("{kp}.video.cue_points[{ci}].parameters[{pi}]"),
+                                    "video cue point parameter name must be non-empty".into(),
+                                );
+                            }
                         }
                     }
                 }

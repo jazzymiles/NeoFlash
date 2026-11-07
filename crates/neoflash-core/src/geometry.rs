@@ -1554,13 +1554,43 @@ pub fn apply_vector_modifier(
     commands: &[PathCommand],
     modifier: &crate::VectorModifier,
 ) -> Vec<PathCommand> {
-    match modifier {
+    apply_vector_modifier_checked(commands, modifier).unwrap_or_else(|| commands.to_vec())
+}
+
+/// Apply one modifier without ever materializing a result above the shared path-command budget.
+/// `None` means the modifier would exceed the budget; callers can then keep the unmodified path.
+fn apply_vector_modifier_checked(
+    commands: &[PathCommand],
+    modifier: &crate::VectorModifier,
+) -> Option<Vec<PathCommand>> {
+    if commands.len() > MAX_PATH_COMMANDS {
+        return None;
+    }
+    // Mirror and Repeater have exact multiplicative sizes. Check these before either branch
+    // clones a command so a chained appearance cannot briefly allocate an enormous intermediate.
+    let exact_len = match modifier {
+        crate::VectorModifier::Mirror { axis_x, axis_y } => commands
+            .len()
+            .checked_mul(if axis_x.is_some() { 2 } else { 1 })?
+            .checked_mul(if axis_y.is_some() { 2 } else { 1 })?,
+        crate::VectorModifier::Repeater { copies, .. } => commands
+            .len()
+            .checked_mul((*copies).clamp(1, 64) as usize)?,
+        crate::VectorModifier::OffsetContour { .. } | crate::VectorModifier::LiveCorners { .. } => {
+            commands.len()
+        }
+    };
+    if exact_len > MAX_PATH_COMMANDS {
+        return None;
+    }
+
+    let output = match modifier {
         crate::VectorModifier::OffsetContour { delta } => {
             if delta.abs() <= 1e-6 || !delta.is_finite() {
-                return commands.to_vec();
+                return Some(commands.to_vec());
             }
             let Ok(contours) = flatten_path(commands, FlattenOptions::default()) else {
-                return commands.to_vec();
+                return Some(commands.to_vec());
             };
             let mut out = Vec::new();
             for contour in contours {
@@ -1597,10 +1627,10 @@ pub fn apply_vector_modifier(
         crate::VectorModifier::LiveCorners { radius } => {
             let r = radius.clamp(0.0, 1e6);
             if r <= 1e-6 {
-                return commands.to_vec();
+                return Some(commands.to_vec());
             }
             let Ok(contours) = flatten_path(commands, FlattenOptions::default()) else {
-                return commands.to_vec();
+                return Some(commands.to_vec());
             };
             let mut out = Vec::new();
             for contour in contours {
@@ -1809,7 +1839,30 @@ pub fn apply_vector_modifier(
             }
             out
         }
+    };
+    (output.len() <= MAX_PATH_COMMANDS).then_some(output)
+}
+
+fn apply_appearance_modifiers_checked(
+    mut commands: Vec<PathCommand>,
+    modifiers: &[crate::VectorModifier],
+) -> Result<Vec<PathCommand>, usize> {
+    for (index, modifier) in modifiers.iter().enumerate() {
+        commands = apply_vector_modifier_checked(&commands, modifier).ok_or(index)?;
     }
+    Ok(commands)
+}
+
+/// Validate the cumulative evaluated path size of one appearance, returning the first modifier
+/// whose output would exceed [`MAX_PATH_COMMANDS`]. Orphan/non-path metadata is handled elsewhere.
+pub(crate) fn validate_element_appearance_complexity(
+    element: &crate::Element,
+    appearance: &crate::ElementAppearance,
+) -> Result<(), usize> {
+    let Some((commands, _)) = element.to_path_commands() else {
+        return Ok(());
+    };
+    apply_appearance_modifiers_checked(commands, &appearance.modifiers).map(|_| ())
 }
 
 /// Expand a `PatternBrushKind` stroke along `commands` into concrete path geometry (T-114).
@@ -2112,12 +2165,14 @@ pub fn evaluate_element_appearance(
         }
     }
 
-    let Some((mut commands, fill_rule)) = element.to_path_commands() else {
+    let Some((commands, fill_rule)) = element.to_path_commands() else {
         return vec![element.clone()];
     };
-    for modifier in &appearance.modifiers {
-        commands = apply_vector_modifier(&commands, modifier);
-    }
+    // Reject the entire synthetic expansion if any modifier would cross the path budget. Keeping
+    // the authored element is deterministic and avoids exposing a silently partial modifier stack.
+    let Ok(commands) = apply_appearance_modifiers_checked(commands, &appearance.modifiers) else {
+        return vec![element.clone()];
+    };
 
     if appearance.entries.is_empty() {
         let mut modified = element.clone();
@@ -2265,4 +2320,70 @@ pub fn evaluate_element_appearance(
         out.push(item);
     }
     out
+}
+
+#[cfg(test)]
+mod appearance_complexity_tests {
+    use super::*;
+    use crate::{Element, ElementAppearance, ElementKind, Project, VectorModifier};
+
+    fn rectangle() -> Element {
+        Element {
+            id: "shape".into(),
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }
+    }
+
+    fn repeater(copies: u32) -> VectorModifier {
+        VectorModifier::Repeater {
+            copies,
+            offset_x: 1.0,
+            offset_y: 0.0,
+            scale_step: 1.0,
+            rotation_step: 0.0,
+        }
+    }
+
+    #[test]
+    fn appearance_repeaters_are_bounded_without_changing_ordinary_stacks() {
+        let element = rectangle();
+        let ordinary = ElementAppearance {
+            element_id: element.id.clone(),
+            modifiers: vec![repeater(2)],
+            ..ElementAppearance::default()
+        };
+        let ordinary_result = evaluate_element_appearance(&element, &ordinary);
+        let ElementKind::Path { commands, .. } = &ordinary_result[0].kind else {
+            panic!("ordinary modifier should still evaluate to a path");
+        };
+        assert_eq!(commands.len(), 10);
+
+        let oversized = ElementAppearance {
+            element_id: element.id.clone(),
+            modifiers: vec![repeater(64), repeater(64), repeater(64)],
+            ..ElementAppearance::default()
+        };
+        assert_eq!(
+            evaluate_element_appearance(&element, &oversized),
+            vec![element.clone()],
+            "an over-budget stack must keep the authored element, not a partial expansion"
+        );
+
+        let mut project = Project::blank();
+        project.format_version = 9;
+        project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![element];
+        project.symbols[0].timeline.layers[0].keyframes[0].appearances = vec![oversized];
+        let issues = crate::validate(&project);
+        assert!(issues.iter().any(|issue| {
+            issue.path == "symbols[0].timeline.layers[0].keyframes[0].appearances[0].modifiers[2]"
+                && issue.message.contains("100000 path-command budget")
+        }));
+    }
 }

@@ -105,6 +105,7 @@ pub(crate) fn move_anchor(path: &mut [PathCommand], index: usize, delta: [f64; 2
 /// their geometry, so they bypass this reconciliation. Inserting a positional key subdivides
 /// the original segment rather than replacing the curve with straight lines.
 pub(crate) fn rebase_motion_paths(before: &Project, project: &mut Project) {
+    let fps = f64::from(project.fps);
     for symbol in &mut project.symbols {
         let Some(old_symbol) = before.symbol(&symbol.id) else {
             continue;
@@ -116,13 +117,13 @@ pub(crate) fn rebase_motion_paths(before: &Project, project: &mut Project) {
                 .iter()
                 .find(|old| old.id == layer.id)
             {
-                rebase_layer_motion_paths(old, layer);
+                rebase_layer_motion_paths(old, layer, fps);
             }
         }
     }
 }
 
-pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer) {
+pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer, fps: f64) {
     let starts: Vec<_> = layer
         .keyframes
         .iter()
@@ -149,7 +150,7 @@ pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer) {
             .first()
             .is_none_or(|e| e.id != reference.id)
         {
-            reanchor_changed_reference(before, layer, start_index, reference, path);
+            reanchor_changed_reference(before, layer, start_index, reference, path, fps);
             continue;
         }
         let mut frames: Vec<_> = motion_path_waypoints(before, frame, &reference.id)
@@ -182,7 +183,7 @@ pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer) {
                 if delta[0].hypot(delta[1]) <= 1e-9 {
                     continue;
                 }
-                let Some(shown) = sample_layer(before, key.frame)
+                let Some(shown) = sample_layer_at_fps(before, key.frame, fps)
                     .into_iter()
                     .find(|e| e.id == reference.id)
                 else {
@@ -224,7 +225,7 @@ pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer) {
                 .and_then(|k| k.elements.iter().find(|e| e.id == reference.id))
                 .map(|e| e.transform)
                 .or_else(|| {
-                    sample_layer(before, key.frame)
+                    sample_layer_at_fps(before, key.frame, fps)
                         .into_iter()
                         .find(|e| e.id == reference.id)
                         .map(|e| e.transform)
@@ -249,7 +250,7 @@ pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer) {
                     let [x, y] = endpoint(*path.last().unwrap());
                     path.push(PathCommand::LineTo { x, y });
                 } else {
-                    let old_position = sample_layer(before, key.frame)
+                    let old_position = sample_layer_at_fps(before, key.frame, fps)
                         .into_iter()
                         .find(|e| e.id == reference.id)
                         .map(|e| [e.transform.x, e.transform.y])
@@ -288,6 +289,7 @@ fn reanchor_changed_reference(
     start_index: usize,
     reference: &Element,
     mut path: Vec<PathCommand>,
+    fps: f64,
 ) {
     let start = &layer.keyframes[start_index];
     let Some(next_reference) = start.elements.first() else {
@@ -338,7 +340,7 @@ fn reanchor_changed_reference(
                 })
                 .cloned()
                 .or_else(|| {
-                    sample_layer(&uncurved, key.frame)
+                    sample_layer_at_fps(&uncurved, key.frame, fps)
                         .into_iter()
                         .find(|element| element.id == reference.id)
                 })
@@ -381,7 +383,7 @@ fn reanchor_changed_reference(
     }
     let replacement: Vec<_> = (frame..end)
         .map(|at| {
-            let mut elements = sample_layer(&sampling, at);
+            let mut elements = sample_layer_at_fps(&sampling, at, fps);
             elements.retain(|element| order.contains(&element.id));
             elements.sort_by_key(|element| order.iter().position(|id| id == &element.id));
             let metadata = layer.keyframes.iter().find(|key| key.frame == at);
@@ -470,10 +472,11 @@ impl Editor {
                     .iter()
                     .min_by_key(|(f, _)| f.abs_diff(self.frame))
                     .map_or(curve.start, |(f, _)| *f);
-                let position = sample_layer(layer, selected_frame)
-                    .into_iter()
-                    .find(|e| e.id == first.id)
-                    .map_or(endpoint(curve.path[0]), |e| [e.transform.x, e.transform.y]);
+                let position =
+                    sample_layer_at_fps(layer, selected_frame, f64::from(self.project.fps))
+                        .into_iter()
+                        .find(|e| e.id == first.id)
+                        .map_or(endpoint(curve.path[0]), |e| [e.transform.x, e.transform.y]);
                 curve
                     .path
                     .iter()

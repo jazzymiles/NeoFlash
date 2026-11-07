@@ -59,17 +59,26 @@ pub(crate) fn update_export_image_draft(
     }
 }
 
+#[cfg(test)]
+pub(crate) fn set_inline_export_image_draft(ctx: &egui::Context, draft: ExportImageDraft) {
+    ctx.data_mut(|data| data.insert_temp(inline_draft_id(), draft));
+}
+
 impl Editor {
     /// Open the `Export image` modal dialog (`DL-04`).
     pub(crate) fn open_export_image(&mut self, ctx: &egui::Context) {
         self.finish_edits();
-        let options = ImageExportOptions::for_project(&self.project, self.frame);
+        let mut options = ImageExportOptions::for_project(&self.project, self.frame);
+        options.symbol_id = Some(self.symbol_id().to_owned());
         let draft = ExportImageDraft { options };
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
     }
 
     pub(crate) fn cancel_export_image(&mut self, ctx: &egui::Context) {
-        ctx.data_mut(|d| d.remove::<ExportImageDraft>(draft_id()));
+        ctx.data_mut(|data| {
+            data.remove::<ExportImageDraft>(draft_id());
+            data.remove::<ExportImageDraft>(inline_draft_id());
+        });
     }
 
     /// Export image(s) to `path` using the active `Export image` draft and close the dialog on success.
@@ -81,12 +90,17 @@ impl Editor {
         let draft = ctx
             .data(|d| d.get_temp::<ExportImageDraft>(draft_id()))
             .or_else(|| ctx.data(|d| d.get_temp::<ExportImageDraft>(inline_draft_id())))
-            .unwrap_or_else(|| ExportImageDraft {
-                options: ImageExportOptions::for_project(&self.project, self.frame),
+            .unwrap_or_else(|| {
+                let mut options = ImageExportOptions::for_project(&self.project, self.frame);
+                options.symbol_id = Some(self.symbol_id().to_owned());
+                ExportImageDraft { options }
             });
         let report =
             export_project_image(&self.project, path, &draft.options).map_err(|e| e.to_string())?;
-        ctx.data_mut(|d| d.remove::<ExportImageDraft>(draft_id()));
+        ctx.data_mut(|data| {
+            data.remove::<ExportImageDraft>(draft_id());
+            data.remove::<ExportImageDraft>(inline_draft_id());
+        });
         self.message(format!(
             "Exported {} to {} ({}×{}, {} file(s)).",
             report.format.label(),
@@ -113,6 +127,16 @@ impl Editor {
         }
 
         let symbol_id = self.symbol_id().to_owned();
+        match &mut draft.options.range {
+            ImageExportRange::WholeMovie => draft.options.symbol_id = None,
+            ImageExportRange::CurrentScene { scene_id } => {
+                *scene_id = symbol_id.clone();
+                draft.options.symbol_id = Some(symbol_id.clone());
+            }
+            ImageExportRange::CurrentFrame(_) | ImageExportRange::Frames { .. } => {
+                draft.options.symbol_id = Some(symbol_id.clone());
+            }
+        }
         let total_frames = self.symbol().timeline.frame_count.max(1);
         let (res_w, res_h) = draft.options.resolved_dimensions(&self.project);
         let (start_f, end_f) = draft
@@ -145,8 +169,8 @@ impl Editor {
                     if draft.options.format == ImageExportFormat::Svg {
                         draft.options.transparent_background = true;
                     }
-                    if let Some(ext_fmt) = external_format.as_deref_mut() {
-                        *ext_fmt = fmt_idx;
+                    if let Some(ext_fmt) = &mut external_format {
+                        **ext_fmt = fmt_idx;
                     }
                 }
 
@@ -164,6 +188,7 @@ impl Editor {
                                 .clicked()
                             {
                                 draft.options.range = ImageExportRange::CurrentFrame(self.frame);
+                                draft.options.symbol_id = Some(symbol_id.clone());
                                 ui.close();
                             }
                             if ui
@@ -174,6 +199,7 @@ impl Editor {
                                 .clicked()
                             {
                                 draft.options.range = ImageExportRange::WholeMovie;
+                                draft.options.symbol_id = None;
                                 ui.close();
                             }
                             if ui
@@ -186,6 +212,7 @@ impl Editor {
                                 draft.options.range = ImageExportRange::CurrentScene {
                                     scene_id: symbol_id.clone(),
                                 };
+                                draft.options.symbol_id = Some(symbol_id.clone());
                                 ui.close();
                             }
                             if ui
@@ -199,6 +226,7 @@ impl Editor {
                                     start: 0,
                                     end: total_frames.saturating_sub(1),
                                 };
+                                draft.options.symbol_id = Some(symbol_id.clone());
                                 ui.close();
                             }
                         });
@@ -218,6 +246,7 @@ impl Editor {
                             start: start_f,
                             end: (start_f + count - 1).min(total_frames.saturating_sub(1)),
                         };
+                        draft.options.symbol_id = Some(symbol_id.clone());
                     }
                 });
 
@@ -538,11 +567,17 @@ impl Editor {
         let ctx = ui.ctx().clone();
         let mut draft = ctx
             .data(|d| d.get_temp::<ExportImageDraft>(inline_draft_id()))
-            .unwrap_or_else(|| ExportImageDraft {
-                options: ImageExportOptions::for_project(&self.project, self.frame),
+            .unwrap_or_else(|| {
+                let mut options = ImageExportOptions::for_project(&self.project, self.frame);
+                options.symbol_id = Some(self.symbol_id().to_owned());
+                ExportImageDraft { options }
             });
         let (close_cancel, do_export) = self.export_image_body(ui, &mut draft, Some(export_format));
         ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft.clone()));
+        if close_cancel {
+            self.cancel_export_image(&ctx);
+            return true;
+        }
         if do_export {
             let ext = draft.options.format.extension();
             let default_name = format!(
@@ -554,13 +589,17 @@ impl Editor {
                 .set_file_name(&default_name)
                 .add_filter(draft.options.format.label(), &[ext])
                 .save_file()
-                && let Err(err) = self.confirm_export_image_to_path(&ctx, &path)
             {
-                self.message(format!("Export image failed: {err}"));
+                return match self.confirm_export_image_to_path(&ctx, &path) {
+                    Ok(_) => true,
+                    Err(err) => {
+                        self.message(format!("Export image failed: {err}"));
+                        false
+                    }
+                };
             }
-            return true;
         }
-        close_cancel
+        false
     }
 
     pub(crate) fn export_image_dialog(&mut self, ctx: &egui::Context) {

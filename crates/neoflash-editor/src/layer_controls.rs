@@ -6,7 +6,9 @@ use neoflash_core::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 
-static SELECTED_LAYER_ROWS: LazyLock<Mutex<HashMap<(Id, Id), BTreeSet<Id>>>> =
+type SelectedLayerRows = HashMap<(Id, Id), BTreeSet<Id>>;
+
+static SELECTED_LAYER_ROWS: LazyLock<Mutex<SelectedLayerRows>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone)]
@@ -363,8 +365,8 @@ impl Editor {
                     set.insert(layers[row_idx].id.clone());
                 }
             } else {
-                for i in self.layer.min(index)..=self.layer.max(index) {
-                    set.insert(layers[i].id.clone());
+                for layer in &layers[self.layer.min(index)..=self.layer.max(index)] {
+                    set.insert(layer.id.clone());
                 }
             }
             if let Ok(mut guard) = SELECTED_LAYER_ROWS.lock() {
@@ -1091,6 +1093,7 @@ impl Editor {
         if !self.can_merge_timeline_layer(index) {
             return;
         }
+        let fps = f64::from(self.project.fps);
         let timeline = &self.symbol().timeline;
         let first = &timeline.layers[index];
         let next = &timeline.layers[index + 1];
@@ -1185,7 +1188,7 @@ impl Editor {
         merged.keyframes = frames
             .into_iter()
             .map(|frame| {
-                let mut elements = sample_layer_in(timeline, first, frame);
+                let mut elements = sample_layer_in_at_fps(timeline, first, frame, fps);
                 if differing_layer_blends && !first_blend.is_normal() {
                     for el in &mut elements {
                         if el.blend_mode.is_normal() {
@@ -1193,7 +1196,7 @@ impl Editor {
                         }
                     }
                 }
-                let mut next_elements = sample_layer_in(timeline, next, frame);
+                let mut next_elements = sample_layer_in_at_fps(timeline, next, frame, fps);
                 if differing_layer_blends && !next_blend.is_normal() {
                     for el in &mut next_elements {
                         if el.blend_mode.is_normal() {

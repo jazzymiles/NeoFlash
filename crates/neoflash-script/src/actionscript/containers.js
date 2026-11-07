@@ -4,6 +4,17 @@
 // profile, not historical AVM iteration order. Fixed project traits are filtered
 // by the program registry. Native objects with hidden storage diagnose.
 const __nfContainerLimit=1000000;
+// Runtime-owned native facades can opt into direct method lookup. A shared
+// WeakSet keeps the brand invisible to ActionScript and avoids probing user
+// Proxy objects with a private Symbol property.
+const __nfDirectNativeMethods=(()=>{
+    const key=Symbol.for('neoflash.actionscript.direct-native-methods.v1');
+    const existing=globalThis[key];
+    if(existing instanceof WeakSet)return existing;
+    const registry=new WeakSet();
+    Object.defineProperty(globalThis,key,{value:registry,configurable:true});
+    return registry;
+})();
 function __nfContainerKey(key){
     if(typeof key==='symbol'||typeof key==='bigint')throw new __nfTypeError('ActionScript property keys do not support Symbol or BigInt in this profile.');
     const name=__nfString(key);if(name.length>__nfContainerLimit)throw new __nfTypeError('Property key exceeds 1000000 UTF-16 units.');return name;
@@ -206,6 +217,15 @@ function __nfContainerRef(receiver,key,as3,caller,legacyCase){
 }
 function __nfContainerMethod(receiver,key,as3,caller,legacyCase){
     if(!as3&&receiver==null)return ()=>undefined;
+    // Graphics and other explicitly branded host facades have already
+    // validated their receiver and own method surface. Avoid probing every
+    // XML/Dictionary/Vector/Array/String/Date family for each native call, but
+    // retain the same synchronous lookup, receiver binding and error path.
+    if(receiver!=null&&(typeof receiver==='object'||typeof receiver==='function')&&__nfDirectNativeMethods.has(receiver)){
+        key=__nfLegacyKey(receiver,key,as3,legacyCase);
+        const method=receiver[key];
+        return (...args)=>__nfApply(method,receiver,args);
+    }
     if(typeof __nfXML!=='undefined'&&__nfXML?.is(receiver))return __nfXML.method(receiver,key,as3);
     if(__nfDictionaryIs(receiver)||(typeof __nfVectorIs==='function'&&__nfVectorIs(receiver))){
         const method=__nfContainerRef(receiver,key,as3).get();

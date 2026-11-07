@@ -237,7 +237,9 @@ impl Editor {
         if old_sym_id.is_none() && self.can_swap_layer_symbol(self.layer, new_symbol_id) {
             let timeline = &self.symbol().timeline;
             if let Some(layer) = timeline.layers.get(self.layer) {
-                for el in sample_layer_in(timeline, layer, self.frame) {
+                for el in
+                    sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps))
+                {
                     if let ElementKind::Instance { symbol_id, .. } = &el.kind {
                         target_el_id = Some(el.id);
                         old_sym_id = Some(symbol_id.clone());
@@ -522,6 +524,7 @@ impl Editor {
         let count = placed.len();
         self.set_playing(false);
         let symbol_id = self.symbol_id().to_owned();
+        let fps = f64::from(candidate.fps);
         let timeline = &mut candidate
             .symbol_mut(&symbol_id)
             .ok_or("The current symbol was removed.")?
@@ -559,7 +562,7 @@ impl Editor {
                 label: String::new(),
                 ..Default::default()
             });
-            key.elements = sample_layer(layer, self.frame);
+            key.elements = sample_layer_at_fps(layer, self.frame, fps);
             key.frame = self.frame;
             key.label.clear();
             layer.keyframes.push(key);

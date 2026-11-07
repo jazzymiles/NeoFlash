@@ -3,6 +3,7 @@
 //! bottom Undo · Redo · Clear history icon row, plus bounded authoring command replay (`Repeat`,
 //! `Replay steps`, `Copy steps`, `Save as command`).
 use crate::app::Editor;
+use crate::selection::SelectionTarget;
 use crate::theme::ScrollTheme as _;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Ui};
@@ -10,7 +11,7 @@ use neoflash_core::{AuthoringCommandStep, SavedCommand, apply_command_steps_to_e
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl Editor {
     /// Replay a slice of `AuthoringCommandStep`s on the current stage selection in one Undo step.
@@ -20,13 +21,14 @@ impl Editor {
         steps: &[AuthoringCommandStep],
     ) -> Result<usize, String> {
         self.finish_edits();
-        let mut selected_ids: Vec<String> = self
-            .selection
-            .targets
-            .iter()
-            .map(|t| t.element.clone())
-            .collect();
-        if selected_ids.is_empty() {
+        let mut selected_by_layer = HashMap::<String, Vec<String>>::new();
+        for target in &self.selection.targets {
+            selected_by_layer
+                .entry(target.layer.clone())
+                .or_default()
+                .push(target.element.clone());
+        }
+        if selected_by_layer.is_empty() {
             return Err("Select at least one stage element first.".into());
         }
         let mut candidate = self.project.clone();
@@ -43,19 +45,32 @@ impl Editor {
             return Err("Active symbol not found.".into());
         };
         let mut total_applied = 0usize;
+        let mut resulting_targets = Vec::new();
         for layer in &mut sym.timeline.layers {
             let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
                 continue;
             };
             let key = &mut layer.keyframes[key_idx];
-            if key.elements.iter().any(|e| selected_ids.contains(&e.id)) {
-                total_applied += apply_command_steps_to_elements(
-                    &mut key.elements,
-                    &mut selected_ids,
-                    steps,
-                    &valid_symbols,
-                )?;
+            let Some(mut layer_selected_ids) = selected_by_layer.get(&layer.id).cloned() else {
+                continue;
+            };
+            layer_selected_ids
+                .retain(|id| key.elements.iter().any(|element| element.id == id.as_str()));
+            if layer_selected_ids.is_empty() {
+                continue;
             }
+            total_applied += apply_command_steps_to_elements(
+                &mut key.elements,
+                &mut layer_selected_ids,
+                steps,
+                &valid_symbols,
+            )?;
+            resulting_targets.extend(layer_selected_ids.into_iter().map(|element| {
+                SelectionTarget {
+                    layer: layer.id.clone(),
+                    element,
+                }
+            }));
         }
         if total_applied == 0 {
             return Err("No selected elements matched the command steps.".into());
@@ -65,11 +80,7 @@ impl Editor {
         let last_step = steps.last().cloned();
         self.transact_named(label, |s| {
             s.project = candidate;
-            let targets = selected_ids
-                .iter()
-                .filter_map(|id| s.target_for_id(id))
-                .collect();
-            s.set_selection(targets);
+            s.set_selection(resulting_targets);
         });
         if let Some(step) = last_step {
             self.history.record_command_step(step);

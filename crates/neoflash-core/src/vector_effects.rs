@@ -8,7 +8,7 @@
 //! - Deterministic evaluation and `expand_vector_effects` baking into editable contours.
 
 use crate::{
-    Color, Element, ElementKind, Id, Keyframe, PathCommand, Timeline, new_id, path_bounds,
+    Color, Element, ElementKind, Id, Keyframe, PathCommand, Timeline, path_bounds,
     shape_tween_elements,
 };
 use serde::{Deserialize, Serialize};
@@ -251,7 +251,10 @@ pub fn apply_envelope_warp_to_point(
         EnvelopeWarpPreset::CustomGrid => {
             let rows = warp.rows.max(1) as usize;
             let cols = warp.cols.max(1) as usize;
-            if warp.control_points.len() == (rows + 1) * (cols + 1) {
+            let grid_len = rows
+                .checked_add(1)
+                .and_then(|rows| cols.checked_add(1).and_then(|cols| rows.checked_mul(cols)));
+            if grid_len.is_some_and(|len| warp.control_points.len() == len) {
                 let gx = u * (cols as f64);
                 let gy = v * (rows as f64);
                 let c0 = (gx.floor() as usize).min(cols.saturating_sub(1));
@@ -411,7 +414,11 @@ pub fn generate_vector_blend_steps(
             .into_iter()
             .next()
             .unwrap_or_else(|| start_element.clone());
-        step_el.id = new_id("blend-step");
+        // Evaluation must be pure: allocating a fresh global ID here made the same authored
+        // frame produce different runtime paths on every sample. Keep each generated step tied
+        // to its source element and ordinal instead (matching the deterministic IDs used by the
+        // other non-destructive appearance expanders).
+        step_el.id = format!("{}-blend-step-{i}", start_element.id);
         step_el.name = format!("{} Blend {}", start_element.name, i);
         step_el.transform.x = lerp_f64(start_element.transform.x, end_element.transform.x, t);
         step_el.transform.y = lerp_f64(start_element.transform.y, end_element.transform.y, t);
@@ -503,7 +510,31 @@ impl GradientMesh {
         if row > self.rows || col > self.cols {
             return false;
         }
-        let idx = (row * (self.cols + 1) + col) as usize;
+        let Some(vertex_count) = gradient_mesh_vertex_count(self.rows, self.cols) else {
+            return false;
+        };
+        // A truncated or otherwise inconsistent grid is malformed. Do not let a low index
+        // (notably 0,0) mutate an apparently valid prefix when the declared dimensions cannot
+        // actually be represented by the stored vertex array.
+        if self.vertices.len() < vertex_count {
+            return false;
+        }
+        let Some(idx) = usize::try_from(row)
+            .ok()
+            .and_then(|row| {
+                usize::try_from(self.cols)
+                    .ok()
+                    .and_then(|cols| cols.checked_add(1))
+                    .and_then(|stride| row.checked_mul(stride))
+            })
+            .and_then(|offset| {
+                usize::try_from(col)
+                    .ok()
+                    .and_then(|col| offset.checked_add(col))
+            })
+        else {
+            return false;
+        };
         let Some(v) = self.vertices.get_mut(idx) else {
             return false;
         };
@@ -515,7 +546,11 @@ impl GradientMesh {
     pub fn sample_mesh(&self, u: f64, v: f64) -> ([f64; 2], Color) {
         let rows = self.rows.max(1) as usize;
         let cols = self.cols.max(1) as usize;
-        if self.vertices.len() < (rows + 1) * (cols + 1) {
+        let Some(vertex_count) = gradient_mesh_vertex_count(self.rows.max(1), self.cols.max(1))
+        else {
+            return ([0.0, 0.0], [0, 0, 0, 255]);
+        };
+        if self.vertices.len() < vertex_count {
             return ([0.0, 0.0], [0, 0, 0, 255]);
         }
         let u = u.clamp(0.0, 1.0);
@@ -553,6 +588,13 @@ impl GradientMesh {
         let color = lerp_color(top_c, bot_c, sv);
         ([px, py], color)
     }
+}
+
+fn gradient_mesh_vertex_count(rows: u32, cols: u32) -> Option<usize> {
+    usize::try_from(rows)
+        .ok()?
+        .checked_add(1)?
+        .checked_mul(usize::try_from(cols).ok()?.checked_add(1)?)
 }
 
 // ============================================================================
@@ -854,7 +896,11 @@ pub fn apply_procedural_effect_to_path(
                         cur = start;
                         out.push(PathCommand::Close);
                     }
-                    other => out.push(other),
+                    other @ (PathCommand::QuadraticTo { x, y, .. }
+                    | PathCommand::CubicTo { x, y, .. }) => {
+                        cur = (x, y);
+                        out.push(other);
+                    }
                 }
             }
             out
@@ -863,11 +909,13 @@ pub fn apply_procedural_effect_to_path(
             let sub = detail.clamp(1, 16);
             let mut out = Vec::new();
             let mut cur = (0.0, 0.0);
+            let mut start = (0.0, 0.0);
             let mut step_idx = 0u32;
             for cmd in commands {
                 match *cmd {
                     PathCommand::MoveTo { x, y } => {
                         cur = (x, y);
+                        start = (x, y);
                         out.push(PathCommand::MoveTo { x, y });
                     }
                     PathCommand::LineTo { x, y } => {
@@ -891,7 +939,15 @@ pub fn apply_procedural_effect_to_path(
                         }
                         cur = (x, y);
                     }
-                    other => out.push(other),
+                    PathCommand::Close => {
+                        cur = start;
+                        out.push(PathCommand::Close);
+                    }
+                    other @ (PathCommand::QuadraticTo { x, y, .. }
+                    | PathCommand::CubicTo { x, y, .. }) => {
+                        cur = (x, y);
+                        out.push(other);
+                    }
                 }
             }
             out
@@ -1079,7 +1135,7 @@ impl Timeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Transform;
+    use crate::{AppearancePaintEntry, ElementAppearance, Layer, LayerProperties, Transform};
 
     #[test]
     fn freeform_gradient_envelope_warp_blend_mesh_perspective_and_procedural_effects() {
@@ -1194,5 +1250,208 @@ mod tests {
         let p0 = pgrid.project_point(PerspectivePlane::LeftGrid, [64.0, 32.0]);
         let snapped = pgrid.snap_point([p0[0] + 2.0, p0[1] - 1.5], 12.0);
         assert!((snapped[0] - p0[0]).abs() < 1e-6 && (snapped[1] - p0[1]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn procedural_line_effects_continue_from_curve_endpoints() {
+        let commands = vec![
+            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+            PathCommand::CubicTo {
+                cx1: 2.0,
+                cy1: 4.0,
+                cx2: 8.0,
+                cy2: 4.0,
+                x: 10.0,
+                y: 0.0,
+            },
+            PathCommand::LineTo { x: 20.0, y: 0.0 },
+        ];
+
+        let zigzag = apply_procedural_effect_to_path(
+            &ProceduralVectorEffect::ZigZag {
+                size: 2.0,
+                ridges_per_segment: 1,
+                smooth: false,
+            },
+            &commands,
+        );
+        assert!(matches!(
+            zigzag.get(2),
+            Some(PathCommand::LineTo { x, y })
+                if (*x - 15.0).abs() < 1e-9 && (*y - 2.0).abs() < 1e-9
+        ));
+
+        let rough = apply_procedural_effect_to_path(
+            &ProceduralVectorEffect::Roughen {
+                size: 0.0,
+                detail: 2,
+                seed: 7,
+            },
+            &commands,
+        );
+        assert!(matches!(
+            rough.get(2),
+            Some(PathCommand::LineTo { x, y })
+                if (*x - 15.0).abs() < 1e-9 && y.abs() < 1e-9
+        ));
+    }
+
+    #[test]
+    fn vector_blend_evaluation_uses_stable_ids() {
+        let start = Element {
+            id: "start".into(),
+            name: "Start".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let end = Element {
+            id: "end".into(),
+            transform: crate::Transform {
+                x: 100.0,
+                ..crate::Transform::default()
+            },
+            ..start.clone()
+        };
+        let spec = VectorBlendSpec {
+            target_element_id: end.id.clone(),
+            spacing: VectorBlendSpacing::SpecifiedSteps(3),
+            align_to_path: false,
+            spine: None,
+        };
+
+        let first = generate_vector_blend_steps(&start, &end, &spec);
+        let second = generate_vector_blend_steps(&start, &end, &spec);
+        assert_eq!(first, second);
+        assert_eq!(
+            first
+                .iter()
+                .map(|element| element.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "start-blend-step-1",
+                "start-blend-step-2",
+                "start-blend-step-3"
+            ]
+        );
+    }
+
+    #[test]
+    fn sampled_vector_blend_ids_avoid_authored_collisions_deterministically() {
+        let rectangle = |id: &str, x: f64| Element {
+            id: id.into(),
+            transform: Transform {
+                x,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let layer = Layer {
+            id: "layer".into(),
+            name: "Layer".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![
+                    rectangle("start", 0.0),
+                    rectangle("target", 100.0),
+                    rectangle("start-blend-step-1", 200.0),
+                    rectangle("start-blend-step-1-2", 300.0),
+                    rectangle("start-app-1", 400.0),
+                    rectangle("start-app-1-2", 500.0),
+                ],
+                vector_effects: vec![ElementVectorEffects {
+                    element_id: "start".into(),
+                    vector_blend: Some(VectorBlendSpec {
+                        target_element_id: "target".into(),
+                        spacing: VectorBlendSpacing::SpecifiedSteps(2),
+                        align_to_path: false,
+                        spine: None,
+                    }),
+                    ..ElementVectorEffects::default()
+                }],
+                appearances: vec![ElementAppearance {
+                    element_id: "start".into(),
+                    entries: vec![
+                        AppearancePaintEntry::Fill {
+                            color: [255, 0, 0, 255],
+                            gradient: None,
+                            swatch_id: None,
+                            offset: [0.0, 0.0],
+                            opacity: 1.0,
+                        },
+                        AppearancePaintEntry::Fill {
+                            color: [0, 0, 255, 255],
+                            gradient: None,
+                            swatch_id: None,
+                            offset: [0.0, 0.0],
+                            opacity: 1.0,
+                        },
+                    ],
+                    ..ElementAppearance::default()
+                }],
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        };
+
+        let first = crate::sample_layer(&layer, 0);
+        let second = crate::sample_layer(&layer, 0);
+        let first_ids: Vec<_> = first.iter().map(|element| element.id.clone()).collect();
+        let second_ids: Vec<_> = second.iter().map(|element| element.id.clone()).collect();
+        assert_eq!(first_ids, second_ids);
+        assert_eq!(first_ids.len(), 9);
+        assert_eq!(
+            first_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            9
+        );
+        assert!(first_ids.iter().any(|id| id == "start-blend-step-1-3"));
+        assert!(first_ids.iter().any(|id| id == "start-app-1-3"));
+    }
+
+    #[test]
+    fn malformed_mesh_dimensions_fail_closed_without_overflow() {
+        let mut mesh = GradientMesh {
+            rows: u32::MAX,
+            cols: u32::MAX,
+            vertices: vec![GradientMeshPatchVertex {
+                position: [0.0, 0.0],
+                handle_u: [0.0, 0.0],
+                handle_v: [0.0, 0.0],
+                color: [1, 2, 3, 4],
+            }],
+        };
+        assert_eq!(mesh.sample_mesh(0.5, 0.5), ([0.0, 0.0], [0, 0, 0, 255]));
+        assert!(!mesh.set_vertex_color(0, 0, [255; 4]));
+        assert!(!mesh.set_vertex_color(1, 1, [255; 4]));
+        assert_eq!(mesh.vertices[0].color, [1, 2, 3, 4]);
+
+        let warp = EnvelopeWarp {
+            preset: EnvelopeWarpPreset::CustomGrid,
+            rows: u32::MAX,
+            cols: u32::MAX,
+            control_points: Vec::new(),
+            ..EnvelopeWarp::default()
+        };
+        assert_eq!(
+            apply_envelope_warp_to_point(&warp, [5.0, 5.0], [0.0, 0.0, 10.0, 10.0]),
+            [5.0, 5.0]
+        );
     }
 }

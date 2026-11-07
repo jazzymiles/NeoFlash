@@ -498,6 +498,9 @@ struct CompiledRegex {
     match_case: bool,
 }
 
+type RegexCaptures = [Option<(usize, usize)>; 10];
+type RegexMatch = (usize, usize, RegexCaptures);
+
 impl CompiledRegex {
     fn compile(pattern: &str, match_case: bool) -> Option<Self> {
         if pattern.is_empty() {
@@ -518,10 +521,7 @@ impl CompiledRegex {
             .collect()
     }
 
-    fn find_all_with_captures(
-        &self,
-        text: &str,
-    ) -> Vec<(usize, usize, [Option<(usize, usize)>; 10])> {
+    fn find_all_with_captures(&self, text: &str) -> Vec<RegexMatch> {
         let indexed: Vec<(usize, char)> = text.char_indices().collect();
         let len = indexed.len();
         let byte_at = |ci: usize| if ci < len { indexed[ci].0 } else { text.len() };

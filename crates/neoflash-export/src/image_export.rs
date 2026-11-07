@@ -2,15 +2,18 @@
 //! PNG, SVG, PSD (layered Photoshop v1), AI (Illustrator vector), and PDF 1.4.
 
 use crate::{
-    ExportError, SvgOptions, render_frame_svg, render_project_frame_rgba, video_scene_ranges,
+    ExportError, SvgOptions, atomic_write, render_frame_svg, render_project_frame_rgba,
+    video_scene_ranges,
 };
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
-    LayerRole, Project, evaluate_scene, flatten_scenes_with_ranges, layer_effectively_visible,
+    AuthoredDraw, AuthoredScene, Color, ColorTransform, ElementKind, FillRule, LayerRole,
+    PathCommand, Project, evaluate_scene, flatten_scenes_with_ranges, layer_effectively_visible,
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    fmt::Write as _,
     fs,
     io::Cursor,
     path::{Path, PathBuf},
@@ -126,10 +129,13 @@ impl ImageExportRange {
             }
             Self::WholeMovie => (0, last),
             Self::CurrentScene { scene_id } => {
-                for (sym_id, _name, start, frames) in video_scene_ranges(project) {
+                if symbol_id == Some(scene_id.as_str()) {
+                    return (0, last);
+                }
+                for (sym_id, _name, start_1, end_1) in video_scene_ranges(project) {
                     if &sym_id == scene_id {
-                        let s = start.min(last);
-                        let e = start.saturating_add(frames.saturating_sub(1)).min(last);
+                        let s = start_1.saturating_sub(1).min(last);
+                        let e = end_1.saturating_sub(1).min(last);
                         return (s, e.max(s));
                     }
                 }
@@ -334,6 +340,24 @@ fn numbered_output_path(base: &Path, frame_offset: u32, total_frames: u32, ext: 
     parent.join(format!("{stem}_{:04}.{ext}", frame_offset + 1))
 }
 
+fn safe_svg_id_prefix(value: &str) -> String {
+    let mut prefix = String::with_capacity(value.len().max(3));
+    for ch in value.trim().chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':') {
+            prefix.push(ch);
+        } else {
+            prefix.push('_');
+        }
+    }
+    if prefix.is_empty() {
+        return "nf-".to_owned();
+    }
+    if !prefix.starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_') {
+        prefix.insert_str(0, "nf-");
+    }
+    prefix
+}
+
 fn encode_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
     let img = RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
         ExportError::InvalidProject(format!(
@@ -347,6 +371,8 @@ fn encode_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, Exp
     Ok(cursor.into_inner())
 }
 
+const MAX_PSD_EXPORT_BYTES: usize = 256 * 1024 * 1024;
+
 fn build_psd_bytes(
     project: &Project,
     symbol_id: Option<&str>,
@@ -355,56 +381,59 @@ fn build_psd_bytes(
     height: u32,
     options: &ImageExportOptions,
 ) -> Result<(Vec<u8>, usize), ExportError> {
-    let composite = render_project_frame_rgba(
-        project,
-        symbol_id,
-        frame,
-        width,
-        height,
-        options.transparent_background,
-        false,
-    )?;
+    let flattened_project = if symbol_id.is_none() && !project.scenes.is_empty() {
+        Some(flatten_scenes_with_ranges(project).0)
+    } else {
+        None
+    };
+    let project = flattened_project.as_ref().unwrap_or(project);
 
-    // Collect per-layer RGBA buffers when psd_keep_layers is true.
-    let mut layer_records: Vec<(String, Vec<u8>)> = Vec::new();
-    if options.psd_keep_layers {
-        let sym_id = symbol_id
-            .map(str::to_owned)
-            .unwrap_or_else(|| project.root.clone());
-        if let Some(sym) = project.symbol(&sym_id) {
-            let mut bitmap_cache = HashMap::new();
-            for (idx, layer) in sym.timeline.layers.iter().enumerate().rev() {
-                if matches!(layer.properties.role, LayerRole::Guide | LayerRole::Folder) {
-                    continue;
-                }
-                if !layer_effectively_visible(&sym.timeline, layer) {
-                    continue;
-                }
-                let mut single_proj = project.clone();
-                if let Some(target_sym) = single_proj.symbol_mut(&sym_id) {
-                    for (other_idx, other_layer) in
-                        target_sym.timeline.layers.iter_mut().enumerate()
-                    {
-                        if other_idx != idx {
-                            other_layer.visible = false;
-                        }
-                    }
-                }
-                let scene = evaluate_scene(&single_proj, &sym_id, frame, false, true);
-                let rgba = crate::render_authored_scene_rgba(
-                    &single_proj,
-                    &scene,
-                    width,
-                    height,
-                    true,
-                    &mut bitmap_cache,
-                );
-                layer_records.push((layer.name.clone(), rgba));
+    // Collect only layer identities and names. Pixel buffers are rendered and
+    // appended one layer at a time below, so memory does not grow by a full
+    // RGBA frame for every visible layer.
+    let mut layer_records: Vec<(usize, String)> = Vec::new();
+    let sym_id = symbol_id
+        .map(str::to_owned)
+        .unwrap_or_else(|| project.root.clone());
+    if options.psd_keep_layers
+        && let Some(sym) = project.symbol(&sym_id)
+    {
+        for (idx, layer) in sym.timeline.layers.iter().enumerate().rev() {
+            if matches!(layer.properties.role, LayerRole::Guide | LayerRole::Folder) {
+                continue;
             }
+            if !layer_effectively_visible(&sym.timeline, layer) {
+                continue;
+            }
+            layer_records.push((idx, layer.name.clone()));
         }
     }
 
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| ExportError::InvalidProject("PSD pixel count overflowed".into()))?;
+    let frame_bytes = pixel_count
+        .checked_mul(4)
+        .ok_or_else(|| ExportError::InvalidProject("PSD frame byte count overflowed".into()))?;
+    let per_layer_bytes = frame_bytes
+        .checked_add(8)
+        .ok_or_else(|| ExportError::InvalidProject("PSD layer byte count overflowed".into()))?;
+    let predicted_pixel_bytes = per_layer_bytes
+        .checked_mul(layer_records.len())
+        .and_then(|layers| layers.checked_add(frame_bytes))
+        .and_then(|bytes| bytes.checked_add(2))
+        .ok_or_else(|| ExportError::InvalidProject("PSD output size overflowed".into()))?;
+    if predicted_pixel_bytes > MAX_PSD_EXPORT_BYTES {
+        return Err(ExportError::InvalidProject(format!(
+            "Layered PSD pixel data would require at least {} MiB, exceeding the {} MiB bounded export limit; reduce dimensions or disable Keep layers",
+            predicted_pixel_bytes.div_ceil(1024 * 1024),
+            MAX_PSD_EXPORT_BYTES / (1024 * 1024)
+        )));
+    }
+
     let mut out = Vec::new();
+    out.try_reserve(predicted_pixel_bytes.saturating_add(4096))
+        .map_err(|_| ExportError::InvalidProject("PSD output allocation failed".into()))?;
     // 1. File Header (26 bytes)
     out.extend_from_slice(b"8BPS");
     out.extend_from_slice(&1u16.to_be_bytes()); // version 1 (PSD)
@@ -436,73 +465,679 @@ fn build_psd_bytes(
     out.extend_from_slice(&res_block);
 
     // 4. Layer and Mask Information Section
-    let pixel_count = (width as usize) * (height as usize);
-    let channel_data_len = 2 + pixel_count; // 2-byte compression=0 + raw plane
+    let channel_data_len = pixel_count
+        .checked_add(2)
+        .ok_or_else(|| ExportError::InvalidProject("PSD channel size overflowed".into()))?;
     if layer_records.is_empty() {
         out.extend_from_slice(&0u32.to_be_bytes());
     } else {
-        let mut layer_info = Vec::new();
-        layer_info.extend_from_slice(&(layer_records.len() as u16).to_be_bytes());
-        for (name, _) in &layer_records {
-            layer_info.extend_from_slice(&0i32.to_be_bytes()); // top
-            layer_info.extend_from_slice(&0i32.to_be_bytes()); // left
-            layer_info.extend_from_slice(&(height as i32).to_be_bytes()); // bottom
-            layer_info.extend_from_slice(&(width as i32).to_be_bytes()); // right
-            layer_info.extend_from_slice(&4u16.to_be_bytes()); // 4 channels
+        let layer_count = i16::try_from(layer_records.len()).map_err(|_| {
+            ExportError::InvalidProject("PSD v1 supports at most 32767 layer records".into())
+        })?;
+        let channel_data_len = u32::try_from(channel_data_len).map_err(|_| {
+            ExportError::InvalidProject("PSD v1 channel data exceeds its 32-bit limit".into())
+        })?;
+        let mut layer_metadata = Vec::new();
+        layer_metadata.extend_from_slice(&layer_count.to_be_bytes());
+        for (_, name) in &layer_records {
+            layer_metadata.extend_from_slice(&0i32.to_be_bytes()); // top
+            layer_metadata.extend_from_slice(&0i32.to_be_bytes()); // left
+            layer_metadata.extend_from_slice(&(height as i32).to_be_bytes()); // bottom
+            layer_metadata.extend_from_slice(&(width as i32).to_be_bytes()); // right
+            layer_metadata.extend_from_slice(&4u16.to_be_bytes()); // 4 channels
             for ch_id in [0i16, 1, 2, -1] {
-                layer_info.extend_from_slice(&ch_id.to_be_bytes());
-                layer_info.extend_from_slice(&(channel_data_len as u32).to_be_bytes());
+                layer_metadata.extend_from_slice(&ch_id.to_be_bytes());
+                layer_metadata.extend_from_slice(&channel_data_len.to_be_bytes());
             }
-            layer_info.extend_from_slice(b"8BIM");
-            layer_info.extend_from_slice(b"norm");
-            layer_info.push(255); // opacity
-            layer_info.push(0); // clipping
-            layer_info.push(0); // flags (visible)
-            layer_info.push(0); // filler
+            layer_metadata.extend_from_slice(b"8BIM");
+            layer_metadata.extend_from_slice(b"norm");
+            layer_metadata.push(255); // opacity
+            layer_metadata.push(0); // clipping
+            layer_metadata.push(0); // flags (visible)
+            layer_metadata.push(0); // filler
 
             // Extra data field: mask (0 bytes) + blending ranges (0 bytes) + Pascal name padded to 4 bytes
             let name_bytes = name.as_bytes();
             let name_len = name_bytes.len().min(255);
             let pascal_total = (1 + name_len + 3) & !3;
             let extra_len = 4 + 4 + pascal_total;
-            layer_info.extend_from_slice(&(extra_len as u32).to_be_bytes());
-            layer_info.extend_from_slice(&0u32.to_be_bytes()); // layer mask data length
-            layer_info.extend_from_slice(&0u32.to_be_bytes()); // layer blending ranges length
-            layer_info.push(name_len as u8);
-            layer_info.extend_from_slice(&name_bytes[..name_len]);
-            for _ in (1 + name_len)..pascal_total {
-                layer_info.push(0);
-            }
+            layer_metadata.extend_from_slice(&(extra_len as u32).to_be_bytes());
+            layer_metadata.extend_from_slice(&0u32.to_be_bytes()); // layer mask data length
+            layer_metadata.extend_from_slice(&0u32.to_be_bytes()); // layer blending ranges length
+            layer_metadata.push(name_len as u8);
+            layer_metadata.extend_from_slice(&name_bytes[..name_len]);
+            layer_metadata.resize(layer_metadata.len() + pascal_total - (1 + name_len), 0);
         }
-        // Channel image data for each layer (R, G, B, A planes)
-        for (_, rgba) in &layer_records {
+
+        let layer_pixels_len = per_layer_bytes
+            .checked_mul(layer_records.len())
+            .ok_or_else(|| ExportError::InvalidProject("PSD layer data overflowed".into()))?;
+        let layer_info_len = layer_metadata
+            .len()
+            .checked_add(layer_pixels_len)
+            .ok_or_else(|| ExportError::InvalidProject("PSD layer section overflowed".into()))?;
+        let padded_layer_info_len = layer_info_len + (layer_info_len & 1);
+        let section_len = 4usize
+            .checked_add(padded_layer_info_len)
+            .and_then(|len| len.checked_add(4))
+            .ok_or_else(|| ExportError::InvalidProject("PSD layer section overflowed".into()))?;
+        let predicted_total = out
+            .len()
+            .checked_add(4)
+            .and_then(|len| len.checked_add(section_len))
+            .and_then(|len| len.checked_add(2))
+            .and_then(|len| len.checked_add(frame_bytes))
+            .ok_or_else(|| ExportError::InvalidProject("PSD output size overflowed".into()))?;
+        if predicted_total > MAX_PSD_EXPORT_BYTES {
+            return Err(ExportError::InvalidProject(format!(
+                "Layered PSD output would require {} MiB, exceeding the {} MiB bounded export limit; reduce dimensions or disable Keep layers",
+                predicted_total.div_ceil(1024 * 1024),
+                MAX_PSD_EXPORT_BYTES / (1024 * 1024)
+            )));
+        }
+        let section_len = u32::try_from(section_len).map_err(|_| {
+            ExportError::InvalidProject("PSD v1 layer section exceeds its 32-bit limit".into())
+        })?;
+        let layer_info_len_u32 = u32::try_from(padded_layer_info_len).map_err(|_| {
+            ExportError::InvalidProject("PSD v1 layer information exceeds its 32-bit limit".into())
+        })?;
+        out.extend_from_slice(&section_len.to_be_bytes());
+        out.extend_from_slice(&layer_info_len_u32.to_be_bytes());
+        out.extend_from_slice(&layer_metadata);
+
+        let mut bitmap_cache = HashMap::new();
+        // Channel image data for each layer (R, G, B, A planes), rendered one
+        // layer at a time in the same bottom-to-top record order as before.
+        for (layer_index, _) in &layer_records {
+            let mut single_proj = project.clone();
+            if let Some(target_sym) = single_proj.symbol_mut(&sym_id) {
+                for (other_idx, other_layer) in target_sym.timeline.layers.iter_mut().enumerate() {
+                    if other_idx != *layer_index {
+                        other_layer.visible = false;
+                    }
+                }
+            }
+            let scene = evaluate_scene(&single_proj, &sym_id, frame, false, true);
+            let rgba = crate::render_authored_scene_rgba(
+                &single_proj,
+                &scene,
+                width,
+                height,
+                true,
+                &mut bitmap_cache,
+            );
+            if rgba.len() != frame_bytes {
+                return Err(ExportError::InvalidProject(format!(
+                    "PSD layer renderer returned {} bytes for a {width}x{height} RGBA frame",
+                    rgba.len()
+                )));
+            }
             for c_idx in [0usize, 1, 2, 3] {
-                layer_info.extend_from_slice(&0u16.to_be_bytes()); // raw compression
-                for px in rgba.chunks_exact(4) {
-                    layer_info.push(px[c_idx]);
+                out.extend_from_slice(&0u16.to_be_bytes()); // raw compression
+                for px in rgba.as_chunks::<4>().0 {
+                    out.push(px[c_idx]);
                 }
             }
         }
-        if layer_info.len() % 2 != 0 {
-            layer_info.push(0);
+        if layer_info_len & 1 != 0 {
+            out.push(0);
         }
-        let mut section = Vec::new();
-        section.extend_from_slice(&(layer_info.len() as u32).to_be_bytes());
-        section.extend_from_slice(&layer_info);
-        section.extend_from_slice(&0u32.to_be_bytes()); // global layer mask info length = 0
-        out.extend_from_slice(&(section.len() as u32).to_be_bytes());
-        out.extend_from_slice(&section);
+        out.extend_from_slice(&0u32.to_be_bytes()); // global layer mask info length = 0
     }
 
     // 5. Composite Image Data Section (Raw planar R, G, B, A)
+    let final_len = out
+        .len()
+        .checked_add(2)
+        .and_then(|len| len.checked_add(frame_bytes))
+        .ok_or_else(|| ExportError::InvalidProject("PSD output size overflowed".into()))?;
+    if final_len > MAX_PSD_EXPORT_BYTES {
+        return Err(ExportError::InvalidProject(format!(
+            "PSD output would require {} MiB, exceeding the {} MiB bounded export limit; reduce dimensions",
+            final_len.div_ceil(1024 * 1024),
+            MAX_PSD_EXPORT_BYTES / (1024 * 1024)
+        )));
+    }
+    let composite = render_project_frame_rgba(
+        project,
+        symbol_id,
+        frame,
+        width,
+        height,
+        options.transparent_background,
+        false,
+    )?;
+    if composite.len() != frame_bytes {
+        return Err(ExportError::InvalidProject(format!(
+            "PSD composite renderer returned {} bytes for a {width}x{height} RGBA frame",
+            composite.len()
+        )));
+    }
     out.extend_from_slice(&0u16.to_be_bytes()); // compression = 0 (Raw)
     for c_idx in [0usize, 1, 2, 3] {
-        for px in composite.chunks_exact(4) {
+        for px in composite.as_chunks::<4>().0 {
             out.push(px[c_idx]);
         }
     }
 
     Ok((out, layer_records.len().max(1)))
+}
+
+fn ps_num(value: f64) -> String {
+    let mut value = format!("{value:.6}");
+    while value.contains('.') && value.ends_with('0') {
+        value.pop();
+    }
+    if value.ends_with('.') {
+        value.pop();
+    }
+    if value == "-0" { "0".into() } else { value }
+}
+
+fn ps_comment(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
+}
+
+fn ps_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'(' | b')' | b'\\' => {
+                out.push('\\');
+                out.push(char::from(byte));
+            }
+            0x20..=0x7e => out.push(char::from(byte)),
+            _ => {
+                let _ = write!(out, "\\{byte:03o}");
+            }
+        }
+    }
+    out
+}
+
+fn ps_rgb(out: &mut String, color: Color) {
+    let _ = writeln!(
+        out,
+        "{} {} {} setrgbcolor",
+        ps_num(f64::from(color[0]) / 255.0),
+        ps_num(f64::from(color[1]) / 255.0),
+        ps_num(f64::from(color[2]) / 255.0)
+    );
+}
+
+fn ps_path(out: &mut String, commands: &[PathCommand]) -> bool {
+    if commands.is_empty() {
+        return false;
+    }
+    out.push_str("newpath\n");
+    let mut current = (0.0, 0.0);
+    let mut start = current;
+    for command in commands {
+        match *command {
+            PathCommand::MoveTo { x, y } => {
+                let _ = writeln!(out, "{} {} moveto", ps_num(x), ps_num(y));
+                current = (x, y);
+                start = current;
+            }
+            PathCommand::LineTo { x, y } => {
+                let _ = writeln!(out, "{} {} lineto", ps_num(x), ps_num(y));
+                current = (x, y);
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let c1 = (
+                    current.0 + (cx - current.0) * 2.0 / 3.0,
+                    current.1 + (cy - current.1) * 2.0 / 3.0,
+                );
+                let c2 = (x + (cx - x) * 2.0 / 3.0, y + (cy - y) * 2.0 / 3.0);
+                let _ = writeln!(
+                    out,
+                    "{} {} {} {} {} {} curveto",
+                    ps_num(c1.0),
+                    ps_num(c1.1),
+                    ps_num(c2.0),
+                    ps_num(c2.1),
+                    ps_num(x),
+                    ps_num(y)
+                );
+                current = (x, y);
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let _ = writeln!(
+                    out,
+                    "{} {} {} {} {} {} curveto",
+                    ps_num(cx1),
+                    ps_num(cy1),
+                    ps_num(cx2),
+                    ps_num(cy2),
+                    ps_num(x),
+                    ps_num(y)
+                );
+                current = (x, y);
+            }
+            PathCommand::Close => {
+                out.push_str("closepath\n");
+                current = start;
+            }
+        }
+    }
+    true
+}
+
+fn ps_paint(
+    out: &mut String,
+    rule: FillRule,
+    fill: Color,
+    stroke: Color,
+    stroke_width: f64,
+    transform: ColorTransform,
+) {
+    let fill = transform.apply(fill);
+    let stroke = transform.apply(stroke);
+    if fill[3] > 0 {
+        out.push_str("gsave\n");
+        ps_rgb(out, fill);
+        out.push_str(if rule == FillRule::EvenOdd {
+            "eofill\n"
+        } else {
+            "fill\n"
+        });
+        out.push_str("grestore\n");
+    }
+    if stroke_width > 0.0 && stroke[3] > 0 {
+        ps_rgb(out, stroke);
+        let _ = writeln!(out, "{} setlinewidth", ps_num(stroke_width));
+        out.push_str("1 setlinecap\n1 setlinejoin\nstroke\n");
+    }
+}
+
+fn rectangle_path(width: f64, height: f64) -> [PathCommand; 5] {
+    [
+        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+        PathCommand::LineTo { x: width, y: 0.0 },
+        PathCommand::LineTo {
+            x: width,
+            y: height,
+        },
+        PathCommand::LineTo { x: 0.0, y: height },
+        PathCommand::Close,
+    ]
+}
+
+fn ellipse_path(width: f64, height: f64) -> [PathCommand; 6] {
+    const K: f64 = 0.552_284_749_830_793_6;
+    let (rx, ry) = (width * 0.5, height * 0.5);
+    [
+        PathCommand::MoveTo { x: width, y: ry },
+        PathCommand::CubicTo {
+            cx1: width,
+            cy1: ry + K * ry,
+            cx2: rx + K * rx,
+            cy2: height,
+            x: rx,
+            y: height,
+        },
+        PathCommand::CubicTo {
+            cx1: rx - K * rx,
+            cy1: height,
+            cx2: 0.0,
+            cy2: ry + K * ry,
+            x: 0.0,
+            y: ry,
+        },
+        PathCommand::CubicTo {
+            cx1: 0.0,
+            cy1: ry - K * ry,
+            cx2: rx - K * rx,
+            cy2: 0.0,
+            x: rx,
+            y: 0.0,
+        },
+        PathCommand::CubicTo {
+            cx1: rx + K * rx,
+            cy1: 0.0,
+            cx2: width,
+            cy2: ry - K * ry,
+            x: width,
+            y: ry,
+        },
+        PathCommand::Close,
+    ]
+}
+
+fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool {
+    let transform = draw.item.color_transform;
+    let opaque = |color: Color| matches!(transform.apply(color)[3], 0 | 255);
+    if !draw.clip_ids.is_empty()
+        || !draw.blend_mode.is_normal()
+        || (draw.item.alpha - 1.0).abs() > 1e-9
+    {
+        return false;
+    }
+    match &draw.item.kind {
+        ElementKind::Rectangle { fill, stroke, .. }
+        | ElementKind::Ellipse { fill, stroke, .. }
+        | ElementKind::Path { fill, stroke, .. } => opaque(*fill) && opaque(*stroke),
+        ElementKind::PaintedPath {
+            fill,
+            stroke,
+            fill_gradient,
+            stroke_gradient,
+            ..
+        } => {
+            fill_gradient.is_none() && stroke_gradient.is_none() && opaque(*fill) && opaque(*stroke)
+        }
+        ElementKind::Text {
+            text,
+            font_family,
+            font_size,
+            color,
+        } => {
+            let outlines = options.ai_text_as_outlines || !text.is_ascii();
+            opaque(*color)
+                && (!outlines
+                    || text.trim().is_empty()
+                    || !neoflash_core::TextFieldState::static_text_to_outline_commands(
+                        text,
+                        font_family,
+                        *font_size,
+                        None,
+                    )
+                    .is_empty())
+        }
+        ElementKind::TextBox { text, format, .. } => {
+            let outlines = options.ai_text_as_outlines || !text.is_ascii();
+            opaque([
+                ((format.color >> 16) & 0xff) as u8,
+                ((format.color >> 8) & 0xff) as u8,
+                (format.color & 0xff) as u8,
+                255,
+            ]) && (!outlines
+                || text.trim().is_empty()
+                || !neoflash_core::TextFieldState::static_text_to_outline_commands(
+                    text,
+                    &format.font,
+                    format.size,
+                    None,
+                )
+                .is_empty())
+        }
+        ElementKind::Instance { .. } => true,
+        ElementKind::Bitmap { .. } | ElementKind::Video { .. } => false,
+    }
+}
+
+fn ps_scene_supported(
+    project: &Project,
+    scene: &AuthoredScene,
+    options: &ImageExportOptions,
+) -> bool {
+    let filtered: HashSet<&str> = project
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|keyframe| &keyframe.elements)
+        .filter(|element| !element.filters.is_empty())
+        .map(|element| element.id.as_str())
+        .collect();
+    (options.transparent_background || matches!(project.background[3], 0 | 255))
+        && scene.draws.iter().all(|draw| {
+            !draw
+                .item
+                .instance_path
+                .iter()
+                .any(|id| filtered.contains(id.as_str()))
+                && ps_draw_supported(draw, options)
+        })
+}
+
+#[derive(Clone, Copy)]
+struct PsShapeStyle {
+    rule: FillRule,
+    fill: Color,
+    stroke: Color,
+    stroke_width: f64,
+    transform: ColorTransform,
+    strokes_as_strokes: bool,
+}
+
+fn ps_shape(out: &mut String, commands: &[PathCommand], style: PsShapeStyle) {
+    if ps_path(out, commands) {
+        ps_paint(
+            out,
+            style.rule,
+            style.fill,
+            if style.strokes_as_strokes {
+                style.stroke
+            } else {
+                [0; 4]
+            },
+            if style.strokes_as_strokes {
+                style.stroke_width
+            } else {
+                0.0
+            },
+            style.transform,
+        );
+    }
+    if !style.strokes_as_strokes
+        && style.stroke_width > 0.0
+        && style.transform.apply(style.stroke)[3] > 0
+    {
+        let outline = neoflash_core::expand_variable_width_stroke(
+            commands,
+            style.stroke_width,
+            &neoflash_core::StrokeWidthProfile::default(),
+        );
+        if ps_path(out, &outline) {
+            ps_paint(
+                out,
+                FillRule::NonZero,
+                style.stroke,
+                [0; 4],
+                0.0,
+                style.transform,
+            );
+        }
+    }
+}
+
+fn ps_text(
+    out: &mut String,
+    text: &str,
+    font: &str,
+    size: f64,
+    color: Color,
+    transform: ColorTransform,
+    outlines: bool,
+) {
+    if outlines || !text.is_ascii() {
+        let commands =
+            neoflash_core::TextFieldState::static_text_to_outline_commands(text, font, size, None);
+        if ps_path(out, &commands) {
+            ps_paint(out, FillRule::NonZero, color, [0; 4], 0.0, transform);
+        }
+    } else {
+        ps_rgb(out, transform.apply(color));
+        let _ = writeln!(
+            out,
+            "/Helvetica findfont {} scalefont setfont",
+            ps_num(size)
+        );
+        let _ = writeln!(out, "0 {} moveto ({}) show", ps_num(size), ps_string(text));
+    }
+}
+
+fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) {
+    let item = &draw.item;
+    let matrix = item.transform;
+    out.push_str("gsave\n");
+    let _ = writeln!(
+        out,
+        "[{} {} {} {} {} {}] concat",
+        ps_num(matrix[0]),
+        ps_num(matrix[1]),
+        ps_num(matrix[2]),
+        ps_num(matrix[3]),
+        ps_num(matrix[4]),
+        ps_num(matrix[5])
+    );
+    match &item.kind {
+        ElementKind::Rectangle {
+            width,
+            height,
+            fill,
+            stroke,
+            stroke_width,
+        } => {
+            ps_shape(
+                out,
+                &rectangle_path(*width, *height),
+                PsShapeStyle {
+                    rule: FillRule::NonZero,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                    transform: item.color_transform,
+                    strokes_as_strokes: options.ai_strokes_as_strokes,
+                },
+            );
+        }
+        ElementKind::Ellipse {
+            width,
+            height,
+            fill,
+            stroke,
+            stroke_width,
+        } => {
+            ps_shape(
+                out,
+                &ellipse_path(*width, *height),
+                PsShapeStyle {
+                    rule: FillRule::NonZero,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                    transform: item.color_transform,
+                    strokes_as_strokes: options.ai_strokes_as_strokes,
+                },
+            );
+        }
+        ElementKind::Path {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+        }
+        | ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => {
+            ps_shape(
+                out,
+                commands,
+                PsShapeStyle {
+                    rule: *fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                    transform: item.color_transform,
+                    strokes_as_strokes: options.ai_strokes_as_strokes,
+                },
+            );
+        }
+        ElementKind::Text {
+            text,
+            font_family,
+            font_size,
+            color,
+        } => {
+            ps_text(
+                out,
+                text,
+                font_family,
+                *font_size,
+                *color,
+                item.color_transform,
+                options.ai_text_as_outlines,
+            );
+        }
+        ElementKind::TextBox { text, format, .. } => {
+            let color = [
+                ((format.color >> 16) & 0xff) as u8,
+                ((format.color >> 8) & 0xff) as u8,
+                (format.color & 0xff) as u8,
+                255,
+            ];
+            ps_text(
+                out,
+                text,
+                &format.font,
+                format.size,
+                color,
+                item.color_transform,
+                options.ai_text_as_outlines,
+            );
+        }
+        ElementKind::Instance { .. } | ElementKind::Bitmap { .. } | ElementKind::Video { .. } => {}
+    }
+    out.push_str("grestore\n");
+}
+
+fn ps_raster_fallback(
+    project: &Project,
+    scene: &AuthoredScene,
+    width: u32,
+    height: u32,
+    transparent: bool,
+    mut out: String,
+) -> Vec<u8> {
+    let mut cache = HashMap::new();
+    let rgba =
+        crate::render_authored_scene_rgba(project, scene, width, height, transparent, &mut cache);
+    out.push_str("%%NeoFlashRasterFallback: unsupported vector feature\n");
+    let _ = writeln!(out, "gsave\n{width} {height} scale");
+    let _ = writeln!(out, "/picstr {} string def", width.saturating_mul(3));
+    let _ = writeln!(
+        out,
+        "{width} {height} 8\n[{width} 0 0 -{height} 0 {height}]"
+    );
+    out.push_str("{ currentfile picstr readhexstring pop } false 3 colorimage\n");
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut line = 0usize;
+    for pixel in rgba.as_chunks::<4>().0 {
+        let alpha = u16::from(pixel[3]);
+        for channel in &pixel[..3] {
+            let value = ((u16::from(*channel) * alpha + 255 * (255 - alpha)) / 255) as u8;
+            out.push(char::from(HEX[(value >> 4) as usize]));
+            out.push(char::from(HEX[(value & 15) as usize]));
+            line += 2;
+            if line >= 72 {
+                out.push('\n');
+                line = 0;
+            }
+        }
+    }
+    if line != 0 {
+        out.push('\n');
+    }
+    out.push_str("grestore\nshowpage\n%%EOF\n");
+    out.into_bytes()
 }
 
 fn build_ai_bytes(
@@ -512,50 +1147,116 @@ fn build_ai_bytes(
     height: u32,
     options: &ImageExportOptions,
 ) -> Result<(Vec<u8>, usize, usize), ExportError> {
-    let mut svg_project = project.clone();
+    let mut eval_project = project.clone();
     if options.svg_include_hidden_guides {
-        for sym in &mut svg_project.symbols {
-            for layer in &mut sym.timeline.layers {
-                layer.visible = true;
+        for symbol in &mut eval_project.symbols {
+            for layer in &mut symbol.timeline.layers {
+                if layer.properties.role == LayerRole::Guide {
+                    layer.visible = true;
+                }
             }
         }
     }
-    let svg_opts = SvgOptions {
-        symbol_id: options.symbol_id.clone(),
+    if options.symbol_id.is_none() && !eval_project.scenes.is_empty() {
+        eval_project = flatten_scenes_with_ranges(&eval_project).0;
+    }
+    let target = options
+        .symbol_id
+        .as_deref()
+        .unwrap_or(eval_project.root.as_str());
+    let scene = evaluate_scene(
+        &eval_project,
+        target,
         frame,
-        end_frame: None,
-        width: Some(width),
-        height: Some(height),
-        transparent_background: options.transparent_background,
-        text_as_outlines: options.ai_text_as_outlines,
-        precision: options.svg_precision.clamp(1, 6),
-    };
-    let (svg_markup, path_count, _) = render_frame_svg(&svg_project, &svg_opts)?;
-    let layer_count = project
-        .symbol(&project.root)
-        .map(|s| s.timeline.layers.len().max(1))
+        options.svg_include_hidden_guides,
+        true,
+    );
+    let layer_count = eval_project
+        .symbol(target)
+        .map(|symbol| symbol.timeline.layers.len().max(1))
         .unwrap_or(1);
-    let content = format!(
-        "%!PS-Adobe-3.0\n\
+    let path_count = scene.draws.len();
+    let mut content = format!(
+        "%!PS-Adobe-3.0 EPSF-3.0\n\
          %%Creator: NeoFlash ({})\n\
          %%Title: {}\n\
          %%BoundingBox: 0 0 {} {}\n\
          %%HiResBoundingBox: 0.0 0.0 {}.0 {}.0\n\
+         %%LanguageLevel: 2\n\
+         %%Pages: 1\n\
          %AI5_FileFormat 12.0\n\
          %%EndComments\n\
-         % NeoFlash Embedded SVG Vector Stream ({} layers, {} paths)\n\
-         {}\n\
-         %%EOF\n",
-        options.ai_version,
-        project.name,
+         %%Page: 1 1\n",
+        ps_comment(&options.ai_version),
+        ps_comment(&project.name),
         width,
         height,
         width,
         height,
-        layer_count,
-        path_count,
-        svg_markup
     );
+    if !ps_scene_supported(&eval_project, &scene, options) {
+        let bytes = ps_raster_fallback(
+            &eval_project,
+            &scene,
+            width,
+            height,
+            options.transparent_background,
+            content,
+        );
+        return Ok((bytes, layer_count, path_count));
+    }
+
+    content.push_str("gsave\n");
+    let scale_x = f64::from(width) / f64::from(eval_project.width.max(1));
+    let scale_y = f64::from(height) / f64::from(eval_project.height.max(1));
+    let _ = writeln!(
+        content,
+        "[{} 0 0 -{} 0 {height}] concat",
+        ps_num(scale_x),
+        ps_num(scale_y)
+    );
+    if !options.transparent_background && eval_project.background[3] == 255 {
+        ps_path(
+            &mut content,
+            &rectangle_path(
+                f64::from(eval_project.width.max(1)),
+                f64::from(eval_project.height.max(1)),
+            ),
+        );
+        ps_paint(
+            &mut content,
+            FillRule::NonZero,
+            eval_project.background,
+            [0; 4],
+            0.0,
+            ColorTransform::default(),
+        );
+    }
+
+    let layer_names: HashMap<&str, &str> = eval_project
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .map(|layer| (layer.id.as_str(), layer.name.as_str()))
+        .collect();
+    let mut current_layer = None;
+    for draw in &scene.draws {
+        let layer_id = draw.item.layer_id.as_str();
+        if options.ai_each_layer && current_layer != Some(layer_id) {
+            if current_layer.is_some() {
+                content.push_str("%AI5_EndLayer--\n");
+            }
+            content.push_str("%AI5_BeginLayer\n");
+            let name = layer_names.get(layer_id).copied().unwrap_or(layer_id);
+            let _ = writeln!(content, "%AI5_Name: ({})", ps_string(name));
+            current_layer = Some(layer_id);
+        }
+        ps_draw(&mut content, draw, options);
+    }
+    if options.ai_each_layer && current_layer.is_some() {
+        content.push_str("%AI5_EndLayer--\n");
+    }
+    content.push_str("grestore\nshowpage\n%%EOF\n");
     Ok((content.into_bytes(), layer_count, path_count))
 }
 
@@ -577,7 +1278,7 @@ fn build_pdf_bytes(
         false,
     )?;
     let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0 {
         let a = u16::from(px[3]);
         let blend = |ch: u8| -> u8 { ((u16::from(ch) * a + 255 * (255 - a)) / 255) as u8 };
         rgb.push(blend(px[0]));
@@ -689,7 +1390,9 @@ pub fn export_project_image(
                 if options.svg_include_hidden_guides {
                     for sym in &mut eval_proj.symbols {
                         for layer in &mut sym.timeline.layers {
-                            layer.visible = true;
+                            if layer.properties.role == LayerRole::Guide {
+                                layer.visible = true;
+                            }
                         }
                     }
                 }
@@ -700,13 +1403,14 @@ pub fn export_project_image(
                     width: Some(width),
                     height: Some(height),
                     transparent_background: options.transparent_background,
+                    include_guides: options.svg_include_hidden_guides,
                     text_as_outlines: options.svg_text_as_outlines,
                     precision: options.svg_precision.clamp(1, 6),
                 };
                 let (mut markup, elems, _) = render_frame_svg(&eval_proj, &svg_opts)?;
                 path_count += elems;
-                if !options.svg_id_prefix.trim().is_empty() && options.svg_id_prefix != "nf-" {
-                    let prefix = options.svg_id_prefix.trim();
+                let prefix = safe_svg_id_prefix(&options.svg_id_prefix);
+                if prefix != "nf-" {
                     markup = markup.replace("id=\"nf-", &format!("id=\"{prefix}"));
                     markup = markup.replace("url(#nf-", &format!("url(#{prefix}"));
                 }
@@ -748,7 +1452,7 @@ pub fn export_project_image(
             )?,
         };
         total_bytes += bytes.len();
-        fs::write(&out_path, &bytes)?;
+        atomic_write(&out_path, &bytes)?;
         files.push(out_path);
     }
 
@@ -767,6 +1471,41 @@ pub fn export_project_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neoflash_core::{
+        Element, ElementKind, Keyframe, Layer, LayerProperties, Symbol, Transform, new_id,
+    };
+
+    #[test]
+    fn current_scene_range_uses_zero_based_inclusive_scene_bounds() {
+        let mut project = Project::blank();
+        let root_id = project.root.clone();
+        project.symbol_mut(&root_id).unwrap().timeline.frame_count = 3;
+        let mut second_scene: Symbol = project.symbol(&root_id).unwrap().clone();
+        second_scene.id = new_id("scene");
+        second_scene.name = "Second scene".to_owned();
+        second_scene.timeline.frame_count = 2;
+        project.symbols.push(second_scene.clone());
+        project.scenes = vec![root_id.clone(), second_scene.id.clone()];
+
+        assert_eq!(
+            ImageExportRange::CurrentScene { scene_id: root_id }.resolve_frames(&project, None),
+            (0, 2)
+        );
+        assert_eq!(
+            ImageExportRange::CurrentScene {
+                scene_id: second_scene.id.clone(),
+            }
+            .resolve_frames(&project, None),
+            (3, 4)
+        );
+        assert_eq!(
+            ImageExportRange::CurrentScene {
+                scene_id: second_scene.id.clone(),
+            }
+            .resolve_frames(&project, Some(&second_scene.id)),
+            (0, 1)
+        );
+    }
 
     #[test]
     fn exports_png_svg_psd_ai_and_pdf_images() {
@@ -797,13 +1536,236 @@ mod tests {
                     assert!(s.contains("<svg"));
                 }
                 ImageExportFormat::Psd => assert!(bytes.starts_with(b"8BPS")),
-                ImageExportFormat::Ai => assert!(bytes.starts_with(b"%!PS-Adobe-3.0")),
+                ImageExportFormat::Ai => {
+                    let postscript = String::from_utf8_lossy(&bytes);
+                    assert!(postscript.starts_with("%!PS-Adobe-3.0 EPSF-3.0"));
+                    assert!(postscript.ends_with("%%EOF\n"));
+                    assert!(!postscript.contains("<svg"));
+                    assert!(postscript.contains("moveto") || postscript.contains("colorimage"));
+                }
                 ImageExportFormat::Pdf => {
                     assert!(bytes.starts_with(b"%PDF-1.4"));
                     assert!(bytes.ends_with(b"%%EOF\n"));
                 }
             }
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn layered_psd_streaming_preserves_records_and_rejects_oversized_output() {
+        fn solid_layer(name: &str, color: [u8; 4]) -> Layer {
+            Layer {
+                id: new_id("layer"),
+                name: name.to_owned(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: new_id("element"),
+                        name: name.to_owned(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 16.0,
+                            height: 8.0,
+                            fill: color,
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            }
+        }
+
+        let mut project = Project::blank();
+        project.width = 16;
+        project.height = 8;
+        let root_id = project.root.clone();
+        project.symbol_mut(&root_id).unwrap().timeline.layers = vec![
+            solid_layer("Top", [0, 255, 0, 255]),
+            solid_layer("Bottom", [255, 0, 0, 255]),
+        ];
+        let mut options = ImageExportOptions::for_project(&project, 0);
+        options.psd_keep_layers = true;
+        options.transparent_background = true;
+
+        let (bytes, layer_count) =
+            build_psd_bytes(&project, None, 0, 16, 8, &options).expect("stream layered PSD");
+        let (header, layers, composite) =
+            neoflash_import::parse_psd_document(&bytes).expect("parse streamed PSD");
+        assert_eq!((header.width, header.height, header.version), (16, 8, 1));
+        assert_eq!(layer_count, 2);
+        assert_eq!(
+            layers
+                .iter()
+                .map(|layer| layer.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Bottom", "Top"],
+            "PSD records keep their established bottom-to-top order"
+        );
+        assert!(layers.iter().all(|layer| {
+            layer
+                .rgba_pixels
+                .as_ref()
+                .is_some_and(|pixels| pixels.len() == 16 * 8 * 4)
+        }));
+        assert_eq!(composite.as_ref().map(Vec::len), Some(16 * 8 * 4));
+
+        let mut scene_project = Project::blank();
+        scene_project.width = 16;
+        scene_project.height = 8;
+        let scene_root = scene_project.root.clone();
+        {
+            let root = scene_project.symbol_mut(&scene_root).unwrap();
+            root.name = "Scene One".into();
+            root.timeline.frame_count = 1;
+            root.timeline.layers = vec![solid_layer("Scene One layer", [255, 0, 0, 255])];
+        }
+        let mut second_scene: Symbol = scene_project.symbol(&scene_root).unwrap().clone();
+        second_scene.id = new_id("scene");
+        second_scene.name = "Scene Two".into();
+        second_scene.timeline.layers = vec![solid_layer("Scene Two layer", [0, 0, 255, 255])];
+        let second_scene_id = second_scene.id.clone();
+        scene_project.symbols.push(second_scene);
+        scene_project.scenes = vec![scene_root, second_scene_id];
+        scene_project.format_version = 6;
+
+        let (scene_bytes, _) = build_psd_bytes(&scene_project, None, 1, 16, 8, &options)
+            .expect("stream flattened second-scene PSD");
+        let (_, scene_layers, _) = neoflash_import::parse_psd_document(&scene_bytes)
+            .expect("parse second-scene layered PSD");
+        let second_pixels = scene_layers
+            .iter()
+            .find(|layer| layer.name == "Scene Two layer")
+            .and_then(|layer| layer.rgba_pixels.as_ref())
+            .expect("flattened second-scene layer record");
+        let center = (4 * 16 + 8) * 4;
+        assert_eq!(
+            &second_pixels[center..center + 4],
+            &[0, 0, 255, 255],
+            "whole-movie PSD layers sample the flattened global scene frame"
+        );
+
+        options.psd_keep_layers = false;
+        let error = build_psd_bytes(&project, None, 0, 8192, 8192, &options)
+            .expect_err("oversized PSD is rejected before allocating a frame");
+        assert!(error.to_string().contains("bounded export limit"));
+    }
+
+    #[test]
+    fn ai_export_emits_vector_eps_and_falls_back_for_inherited_alpha() {
+        let mut project = Project::blank();
+        let root_id = project.root.clone();
+        let element = Element {
+            id: new_id("element"),
+            name: "EPS rectangle".to_owned(),
+            transform: Transform {
+                x: 7.0,
+                y: 9.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        };
+        project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements =
+            vec![element];
+
+        let mut options = ImageExportOptions::for_project(&project, 0);
+        options.transparent_background = true;
+        let (vector, _, _) = build_ai_bytes(&project, 0, 320, 200, &options).unwrap();
+        let vector = String::from_utf8(vector).unwrap();
+        assert!(!vector.contains("NeoFlashRasterFallback"));
+        assert!(vector.contains("[1 0 0 1 7 9] concat"));
+        assert!(vector.contains("lineto"));
+
+        options.ai_strokes_as_strokes = false;
+        let (outlined, _, _) = build_ai_bytes(&project, 0, 320, 200, &options).unwrap();
+        let outlined = String::from_utf8(outlined).unwrap();
+        assert!(!outlined.contains("NeoFlashRasterFallback"));
+        assert!(!outlined.contains("setlinewidth"));
+
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.layers[0].keyframes[0].elements[0]
+            .transform
+            .alpha = 0.5;
+        let (alpha, _, _) = build_ai_bytes(&project, 0, 320, 200, &options).unwrap();
+        let alpha = String::from_utf8(alpha).unwrap();
+        assert!(alpha.contains("NeoFlashRasterFallback"));
+        assert!(alpha.contains("colorimage"));
+        assert!(!alpha.contains("<svg"));
+    }
+
+    #[test]
+    fn svg_image_export_includes_only_guides_and_sanitizes_custom_id_prefix() {
+        fn rectangle_layer(name: &str, role: LayerRole, color: [u8; 4]) -> Layer {
+            Layer {
+                id: new_id("layer"),
+                name: name.to_owned(),
+                visible: false,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: new_id("element"),
+                        name: name.to_owned(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 20.0,
+                            height: 20.0,
+                            fill: color,
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties {
+                    role,
+                    ..LayerProperties::default()
+                },
+            }
+        }
+
+        let mut project = Project::blank();
+        let root_id = project.root.clone();
+        project.symbol_mut(&root_id).unwrap().timeline.layers = vec![
+            rectangle_layer("hidden artwork", LayerRole::Normal, [255, 0, 0, 255]),
+            rectangle_layer("hidden guide", LayerRole::Guide, [0, 255, 0, 255]),
+        ];
+        project.format_version = 4;
+
+        let dir =
+            std::env::temp_dir().join(format!("nf2-svg-guide-export-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut options = ImageExportOptions::for_project(&project, 0);
+        options.format = ImageExportFormat::Svg;
+        options.transparent_background = true;
+        options.svg_include_hidden_guides = true;
+        options.svg_id_prefix = "9 unsafe\" onload=\"alert(1)".to_owned();
+        let report = export_project_image(&project, &dir.join("guides.svg"), &options)
+            .expect("SVG guide export");
+        let svg = fs::read_to_string(&report.files[0]).expect("read SVG guide export");
+        assert!(
+            svg.contains("#00ff00"),
+            "requested hidden guide was omitted"
+        );
+        assert!(
+            !svg.contains("#ff0000"),
+            "including guides must not reveal ordinary hidden artwork"
+        );
+        assert!(!svg.contains("onload=\"alert"));
+        assert_eq!(safe_svg_id_prefix("9 unsafe\"id"), "nf-9_unsafe_id");
         let _ = fs::remove_dir_all(&dir);
     }
 }

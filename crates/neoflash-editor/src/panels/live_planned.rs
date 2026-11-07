@@ -260,7 +260,8 @@ impl Editor {
         ui.add(c::Badge::new(&badge, c::BadgeType::Neutral));
     }
 
-    /// Apply a procedural or imported bitmap tile fill to the selected shape (or create one).
+    /// Apply a procedural bitmap tile to the selected shape, or add the tile resource when there
+    /// is no selection, in one atomic Undo transaction.
     pub(crate) fn apply_bitmap_swatch_tile(&mut self, tile_index: usize) -> Result<String, String> {
         let tile_colors: [(Color32, Color32); 6] = [
             (
@@ -290,43 +291,60 @@ impl Editor {
         ];
         let idx = tile_index.min(tile_colors.len() - 1);
         let (c0, c1) = tile_colors[idx];
-        self.fill = [c0.r(), c0.g(), c0.b(), c0.a()];
-
-        let existing_id = self
-            .project
+        let resource_path = format!("bitmaps/tile_{}.png", idx + 1);
+        let mut candidate = self.project.clone();
+        let matching_resource = candidate
             .resources
             .iter()
-            .find(|r| r.is_image())
-            .map(|r| r.id.clone());
-
-        let res_id = if let Some(id) = existing_id {
-            id
+            .find(|resource| resource.path.eq_ignore_ascii_case(&resource_path));
+        let res_id = if let Some(resource) = matching_resource {
+            if !resource.is_image() {
+                return Err(format!(
+                    "Resource path {resource_path} is already used by non-image content."
+                ));
+            }
+            resource.id.clone()
         } else {
             let png = make_procedural_tile_png(c0, c1);
             let id = new_id("res");
-            let unit = ResourceUnit::from_bytes(
-                id.clone(),
-                format!("bitmaps/tile_{}.png", idx + 1),
-                "image/png",
-                &png,
-            )
-            .map_err(|e| e.to_string())?;
-            self.transact_named("Import bitmap fill", |editor| {
-                editor.project.resources.push(unit);
-                editor.project.format_version = editor.project.format_version.max(3);
-                editor.project.upgrade_format_for_features();
-            });
+            let unit = ResourceUnit::from_bytes(id.clone(), resource_path, "image/png", &png)
+                .map_err(|e| e.to_string())?;
+            candidate.resources.push(unit);
+            candidate.format_version = candidate.format_version.max(3);
             id
         };
 
-        if self.selection.single().is_some() {
-            let _ = self.set_selected_bitmap_fill(
-                res_id.clone(),
-                [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                true,
-                true,
-            );
+        let mut label = "Import bitmap fill";
+        if let Some(target) = self.selection.single().cloned() {
+            if !self.target_editable(&target) {
+                return Err(
+                    "Select an editable vector shape before applying a bitmap fill.".into(),
+                );
+            }
+            crate::bitmaps::apply_bitmap_fill_to_project(
+                &mut candidate,
+                self.symbol_id(),
+                &target.layer,
+                self.frame,
+                neoflash_core::AuthoredBitmapFill {
+                    element_id: target.element,
+                    resource_id: res_id.clone(),
+                    matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                    repeat: true,
+                    smoothing: true,
+                },
+            )?;
+            label = "Bitmap fill";
         }
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|error| error.to_string())?;
+        if candidate != self.project {
+            self.finish_edits();
+            self.transact_named(label, |editor| {
+                editor.project = candidate;
+            });
+        }
+        self.fill = [c0.r(), c0.g(), c0.b(), c0.a()];
         Ok(res_id)
     }
 
@@ -589,7 +607,7 @@ impl Editor {
                     .changed();
                 geom_changed |= ui
                     .add(
-                        c::Field::new(&mut y_ref(&mut y), "Y")
+                        c::Field::new(y_ref(&mut y), "Y")
                             .prefix("Y")
                             .decimals(1)
                             .width(field),

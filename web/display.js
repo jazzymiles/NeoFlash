@@ -2,6 +2,7 @@
 (function (global) {
   'use strict';
   const UNHANDLED = Symbol('unhandled display member');
+  const directNativeMethods=(()=>{const key=Symbol.for('neoflash.actionscript.direct-native-methods.v1'),existing=globalThis[key];if(existing instanceof WeakSet)return existing;const registry=new WeakSet();Object.defineProperty(globalThis,key,{value:registry,configurable:true});return registry;})();
   const graphicsInstances=new WeakSet();
   class Graphics {constructor(){throw new TypeError('Graphics is created by Sprite, Shape or MovieClip; use the object.graphics property.');}}
   Graphics.__nfIs=value=>graphicsInstances.has(value);
@@ -768,7 +769,7 @@
         drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
       };
       const facade=new Proxy(Object.freeze(methods),{get:(target,name)=>{if(typeof name==='symbol'||name==='then')return undefined;if(Object.hasOwn(target,name))return target[name];throw new TypeError(`Graphics.${name} is not implemented in the path/gradient profile; bitmap/shader fills, triangles and graphics-data objects remain unsupported.`);},set:()=>{throw new TypeError('Graphics members are read-only.');}});
-      graphicsInstances.add(facade);graphicsTargets.set(facade,target);graphicsCache.set(target,facade);return facade;
+      directNativeMethods.add(facade);graphicsInstances.add(facade);graphicsTargets.set(facade,target);graphicsCache.set(target,facade);return facade;
     }
     function mutate(operation,deliver=true) {
       const packet=JSON.parse(player.display_mutate(JSON.stringify(operation)));

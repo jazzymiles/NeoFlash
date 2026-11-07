@@ -3,7 +3,7 @@ use crate::{app::Editor, paint_controls::property_row};
 use eframe::egui;
 use neoflash_core::{
     ElementKind, Id, InstancePlayback, LayerRole, SymbolKind, layer_effectively_locked,
-    layer_effectively_visible, new_id, sample_layer_in,
+    layer_effectively_visible, new_id, sample_layer_in_at_fps,
 };
 use std::collections::HashSet;
 
@@ -569,7 +569,8 @@ impl Editor {
         {
             return false;
         }
-        let sampled = sample_layer_in(timeline, layer, self.frame);
+        let sampled =
+            sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps));
         let has_at_frame = sampled.iter().any(|el| {
             matches!(
                 &el.kind,
@@ -624,15 +625,18 @@ impl Editor {
         let (layer_id, target_element_ids, ensure_at_playhead) = {
             let timeline = &self.symbol().timeline;
             let layer = &timeline.layers[layer_index];
-            let sampled_ids: HashSet<Id> = sample_layer_in(timeline, layer, self.frame)
-                .into_iter()
-                .filter_map(|el| match &el.kind {
-                    ElementKind::Instance { symbol_id, .. } if symbol_id != target_symbol_id => {
-                        Some(el.id)
-                    }
-                    _ => None,
-                })
-                .collect();
+            let sampled_ids: HashSet<Id> =
+                sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps))
+                    .into_iter()
+                    .filter_map(|el| match &el.kind {
+                        ElementKind::Instance { symbol_id, .. }
+                            if symbol_id != target_symbol_id =>
+                        {
+                            Some(el.id)
+                        }
+                        _ => None,
+                    })
+                    .collect();
             if !sampled_ids.is_empty() {
                 (layer.id.clone(), sampled_ids, true)
             } else {
@@ -904,10 +908,18 @@ impl Editor {
         if !neoflash_core::valid_library_folder(&normalized) || sym.folder == normalized {
             return false;
         }
-        let symbol_id = symbol_id.to_string();
-        let target_folder = normalized.clone();
-        self.transact_named("Move symbol", move |s| {
-            let _ = s.project.move_library_symbol(&symbol_id, &target_folder);
+        let mut candidate = self.project.clone();
+        if let Err(error) = candidate.move_library_symbol(symbol_id, &normalized) {
+            self.message(error);
+            return false;
+        }
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Could not move symbol: {error}"));
+            return false;
+        }
+        self.transact_named("Move symbol", |editor| {
+            editor.project = candidate;
         });
         let dest = if normalized.is_empty() {
             "Library root"
@@ -936,10 +948,18 @@ impl Editor {
         if destination == from || destination.starts_with(&format!("{from}/")) {
             return false;
         }
-        let from_clone = from.clone();
-        let dest_clone = destination.clone();
-        self.transact_named("Move folder", move |s| {
-            let _ = s.project.relocate_library_folder(&from_clone, &dest_clone);
+        let mut candidate = self.project.clone();
+        if let Err(error) = candidate.relocate_library_folder(&from, &destination) {
+            self.message(error);
+            return false;
+        }
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Could not move folder: {error}"));
+            return false;
+        }
+        self.transact_named("Move folder", |editor| {
+            editor.project = candidate;
         });
         self.message(format!("Moved folder “{from}” to “{destination}”."));
         true
@@ -966,9 +986,15 @@ impl Editor {
         if self.project.shared_library(symbol_id) == shared {
             return false;
         }
-        let symbol_id = symbol_id.to_string();
-        self.transact_named("Shared library linkage", move |s| {
-            let _ = s.project.set_shared_library(&symbol_id, shared);
+        let mut candidate = self.project.clone();
+        candidate.set_shared_library(symbol_id, shared);
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Could not update shared library linkage: {error}"));
+            return false;
+        }
+        self.transact_named("Shared library linkage", |editor| {
+            editor.project = candidate;
         });
         true
     }
@@ -978,6 +1004,11 @@ impl Editor {
         let mut candidate = self.project.clone();
         let count = candidate.resolve_shared_library_symbols(donor);
         if count == 0 {
+            return 0;
+        }
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Could not synchronize shared library: {error}"));
             return 0;
         }
         self.transact_named("Sync shared library", move |s| {

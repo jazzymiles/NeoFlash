@@ -235,6 +235,13 @@ impl ResourceUnit {
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("image/"))
     }
 
+    /// Video resources (`video/*`) can be attached to authored timeline video spans.
+    pub fn is_video(&self) -> bool {
+        self.media_type
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("video/"))
+    }
+
     /// O(1) decoded length for canonical data in a validated document. This is
     /// not a validator; use decoded_bytes() when handling untrusted resource data.
     pub fn byte_len(&self) -> usize {

@@ -1308,7 +1308,7 @@ impl Editor {
     }
     fn find_nearest_open_endpoint(&self, pt: Pos2, tol: f32) -> Option<OpenEndpointMatch> {
         let layer = self.symbol().timeline.layers.get(self.layer)?;
-        let sampled = sample_layer(layer, self.frame);
+        let sampled = sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps));
         let no_gradients = self.authoring_modify.drawing_fill_gradient.is_none()
             && self.authoring_modify.drawing_stroke_gradient.is_none();
         let mut best: Option<(f32, OpenEndpointMatch)> = None;
@@ -1367,7 +1367,7 @@ impl Editor {
             _ => return None,
         };
         let layer = self.symbol().timeline.layers.get(self.layer)?;
-        let sampled = sample_layer(layer, self.frame);
+        let sampled = sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps));
         let existing = sampled.iter().find(|e| e.id == primary.element_id)?;
         let ElementKind::Path {
             commands: existing_cmds,
@@ -2324,7 +2324,10 @@ impl Editor {
             {
                 continue;
             }
-            for element in sample_layer(layer, self.frame).into_iter().rev() {
+            for element in sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+                .into_iter()
+                .rev()
+            {
                 let target = crate::selection::SelectionTarget {
                     layer: layer.id.clone(),
                     element: element.id.clone(),

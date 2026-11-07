@@ -26,8 +26,10 @@ use neoflash_core::{ElementKind, Project, SceneRange, Script, ScriptLanguage};
 use serde::Serialize;
 use std::{
     collections::BTreeSet,
-    fs,
+    fs::{self, OpenOptions},
+    io::Write as _,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 use thiserror::Error;
 
@@ -1679,10 +1681,39 @@ pub(crate) fn write_package(
     Ok(output_dir.join(&last.0))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temp = path.with_extension(format!("neoflash-{}.tmp", std::process::id()));
-    fs::write(&temp, bytes)?;
-    fs::rename(temp, path)
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static TEMP_ID: AtomicU64 = AtomicU64::new(1);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("output");
+    for _ in 0..32 {
+        let temp = parent.join(format!(
+            ".{name}.neoflash-{}-{}.tmp",
+            std::process::id(),
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let write_result = (|| {
+            file.write_all(bytes)?;
+            file.flush()
+        })();
+        drop(file);
+        let result = write_result.and_then(|()| fs::rename(&temp, path));
+        if result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        return result;
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not reserve a unique temporary export file",
+    ))
 }
 
 pub(crate) fn html_escape(value: &str) -> String {
@@ -1770,6 +1801,42 @@ mod tests {
         fs::create_dir_all(path).unwrap();
         fs::write(path.join("neoflash_web.js"), "var NeoFlashWasm;").unwrap();
         fs::write(path.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+    }
+    #[test]
+    fn atomic_write_uses_distinct_temps_and_cleans_them_after_parallel_replacement() {
+        let dir = temp();
+        let png = dir.join("sheet.png");
+        let json = dir.join("sheet.json");
+        let mut workers = Vec::new();
+        for index in 0..16u8 {
+            let path = if index % 2 == 0 {
+                png.clone()
+            } else {
+                json.clone()
+            };
+            workers.push(std::thread::spawn(move || {
+                let bytes = vec![index; 1024];
+                atomic_write(&path, &bytes).expect("parallel atomic write");
+            }));
+        }
+        for worker in workers {
+            worker.join().expect("atomic writer thread");
+        }
+        for path in [&png, &json] {
+            let bytes = fs::read(path).expect("final atomic output");
+            assert_eq!(bytes.len(), 1024);
+            assert!(bytes.iter().all(|byte| *byte == bytes[0]));
+        }
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".neoflash-"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temporary files leaked: {leftovers:?}"
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn export_escapes_title_and_keeps_sources_external() {

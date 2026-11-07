@@ -882,11 +882,13 @@ mod tests {
             ],
         }];
 
-        let mut profile = PublishProfile::default();
-        profile.network_profile = NetworkSimulationProfile {
-            preset: NetworkPreset::Slow3G,
-            delayed_assets: vec!["images/heavy_bg.png".into()],
-            extra_asset_delay_ms: 300,
+        let mut profile = PublishProfile {
+            network_profile: NetworkSimulationProfile {
+                preset: NetworkPreset::Slow3G,
+                delayed_assets: vec!["images/heavy_bg.png".into()],
+                extra_asset_delay_ms: 300,
+            },
+            ..PublishProfile::default()
         };
 
         let sim = simulate_network_startup(&project, &profile).expect("simulation succeeds");

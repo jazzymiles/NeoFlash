@@ -8,11 +8,35 @@
 use crate::{ImportError, ImportFormat, ImportReport, Statistics};
 use neoflash_core::{
     BlendMode, Color, Element, ElementKind, FillRule, InstancePlayback, Keyframe, Layer,
-    LayerProperties, LayerRole, MaskMode, PathCommand, Project, ResourceUnit, Symbol, SymbolKind,
-    Timeline, Transform, new_id,
+    LayerProperties, LayerRole, MAX_BITMAP_DIMENSION, MaskMode, PathCommand, Project, ResourceUnit,
+    Symbol, SymbolKind, Timeline, Transform, new_id,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, io::Read, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::Read,
+    path::Path,
+};
+
+/// Maximum aggregate allocation for decoded PSD channel planes and retained
+/// RGBA buffers. Compressed source bytes and the final encoded project
+/// resources have their own independent document limits.
+const MAX_PSD_DECODE_BYTES: usize = 128 * 1024 * 1024;
+pub(crate) const MAX_PSD_FILE_BYTES: usize = 512 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PsdDecodePlan {
+    All,
+    CompositeOnly,
+    LayersWithCompositeFallback,
+}
+
+#[derive(Debug, Default)]
+struct PsdDecodeReport {
+    budget_skipped_layers: BTreeSet<usize>,
+    composite_budget_skipped: bool,
+}
 
 /// How PSD layers are mapped into the NeoFlash document structure.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,12 +154,44 @@ pub struct PsdLayerRecord {
 
 impl PsdLayerRecord {
     pub fn width(&self) -> u32 {
-        (self.right - self.left).max(0) as u32
+        (i64::from(self.right) - i64::from(self.left)).clamp(0, i64::from(u32::MAX)) as u32
     }
 
     pub fn height(&self) -> u32 {
-        (self.bottom - self.top).max(0) as u32
+        (i64::from(self.bottom) - i64::from(self.top)).clamp(0, i64::from(u32::MAX)) as u32
     }
+}
+
+/// Parsed PSD header, layer records, and optional merged composite RGBA pixels.
+pub type ParsedPsdDocument = (PsdHeader, Vec<PsdLayerRecord>, Option<Vec<u8>>);
+type ParsedPsdDocumentWithReport = (
+    PsdHeader,
+    Vec<PsdLayerRecord>,
+    Option<Vec<u8>>,
+    PsdDecodeReport,
+);
+
+fn portable_pixel_count(width: usize, height: usize) -> Option<usize> {
+    if width == 0
+        || height == 0
+        || width > MAX_BITMAP_DIMENSION as usize
+        || height > MAX_BITMAP_DIMENSION as usize
+    {
+        return None;
+    }
+    width.checked_mul(height)
+}
+
+fn checked_section_end(
+    start: usize,
+    len: usize,
+    limit: usize,
+    section: &str,
+) -> Result<usize, ImportError> {
+    start
+        .checked_add(len)
+        .filter(|end| *end <= limit)
+        .ok_or_else(|| ImportError::Container(format!("PSD {section} section exceeds file bounds")))
 }
 
 fn read_u8(data: &[u8], pos: &mut usize) -> Result<u8, ImportError> {
@@ -260,7 +316,7 @@ pub fn encode_packbits_channel(pixels: &[u8], row_width: usize, height: usize) -
                 run_len += 1;
             }
             if run_len >= 2 {
-                let header = -((run_len as i8) - 1);
+                let header = (1i16 - run_len as i16) as i8;
                 encoded_row.push(header as u8);
                 encoded_row.push(run_val);
                 idx += run_len;
@@ -317,7 +373,9 @@ fn parse_tysh_block(block: &[u8]) -> Option<PsdTextLayerData> {
             let byte_len = (char_len as usize).saturating_mul(2);
             if tpos + byte_len <= rest.len() {
                 let units: Vec<u16> = rest[tpos..tpos + byte_len]
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| u16::from_be_bytes([c[0], c[1]]))
                     .filter(|&u| u != 0)
                     .collect();
@@ -408,10 +466,11 @@ fn decode_channel_slice(
     height: usize,
     version: u16,
 ) -> Result<Vec<u8>, String> {
-    let pixel_count = width.saturating_mul(height);
-    if pixel_count == 0 {
-        return Ok(Vec::new());
-    }
+    let pixel_count = portable_pixel_count(width, height).ok_or_else(|| {
+        format!(
+            "channel dimensions {width}x{height} exceed the portable bitmap limit {MAX_BITMAP_DIMENSION}x{MAX_BITMAP_DIMENSION}"
+        )
+    })?;
     if raw_block.len() < 2 {
         return Err("channel block shorter than 2-byte compression header".into());
     }
@@ -437,11 +496,15 @@ fn decode_channel_slice(
             Ok(decode_packbits_rle(rle_data, pixel_count))
         }
         2 => {
-            let mut decoder = flate2::read::ZlibDecoder::new(payload);
+            let decoder = flate2::read::ZlibDecoder::new(payload);
             let mut out = Vec::new();
             decoder
+                .take(pixel_count.saturating_add(1) as u64)
                 .read_to_end(&mut out)
                 .map_err(|e| format!("zlib channel error: {e}"))?;
+            if out.len() > pixel_count {
+                return Err("zlib channel expands beyond its declared dimensions".into());
+            }
             out.resize(pixel_count, 0);
             Ok(out)
         }
@@ -455,8 +518,8 @@ fn combine_channels_to_rgba(
     color_mode: u16,
     decoded_channels: &BTreeMap<i16, Vec<u8>>,
 ) -> Vec<u8> {
-    let pixel_count = width.saturating_mul(height);
-    let mut rgba = vec![0u8; pixel_count * 4];
+    let pixel_count = portable_pixel_count(width, height).unwrap_or(0);
+    let mut rgba = vec![0u8; pixel_count.saturating_mul(4)];
     let r_plane = decoded_channels.get(&0);
     let g_plane = decoded_channels.get(&1);
     let b_plane = decoded_channels.get(&2);
@@ -483,8 +546,46 @@ fn combine_channels_to_rgba(
     rgba
 }
 
-fn encode_rgba_png(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
-    let img = image::RgbaImage::from_raw(width, height, rgba_bytes.to_vec())
+fn combine_contiguous_planes_to_rgba(
+    width: usize,
+    height: usize,
+    color_mode: u16,
+    channel_count: usize,
+    planes: &[u8],
+) -> Vec<u8> {
+    let pixel_count = portable_pixel_count(width, height).unwrap_or(0);
+    let mut rgba = vec![0u8; pixel_count.saturating_mul(4)];
+    let sample = |channel: usize, pixel: usize| {
+        channel
+            .checked_mul(pixel_count)
+            .and_then(|offset| offset.checked_add(pixel))
+            .and_then(|offset| planes.get(offset))
+            .copied()
+            .unwrap_or(0)
+    };
+    for pixel in 0..pixel_count {
+        let red = sample(0, pixel);
+        let (green, blue) = if color_mode == 1 {
+            (red, red)
+        } else {
+            (sample(1, pixel), sample(2, pixel))
+        };
+        let alpha = if channel_count >= 4 {
+            sample(3, pixel)
+        } else {
+            255
+        };
+        let offset = pixel * 4;
+        rgba[offset] = red;
+        rgba[offset + 1] = green;
+        rgba[offset + 2] = blue;
+        rgba[offset + 3] = alpha;
+    }
+    rgba
+}
+
+fn encode_rgba_png(width: u32, height: u32, rgba_bytes: Vec<u8>) -> Result<Vec<u8>, ImportError> {
+    let img = image::RgbaImage::from_raw(width, height, rgba_bytes)
         .ok_or_else(|| ImportError::Container("Invalid RGBA buffer dimensions".into()))?;
     let mut png_bytes = Vec::new();
     img.write_to(
@@ -496,9 +597,15 @@ fn encode_rgba_png(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<Vec<u8>
 }
 
 /// Parse a binary `.psd` / `.psb` file into its header, layer records, and optional merged composite RGBA8 buffer.
-pub fn parse_psd_document(
+pub fn parse_psd_document(bytes: &[u8]) -> Result<ParsedPsdDocument, ImportError> {
+    let (header, layers, composite, _) = parse_psd_document_with_plan(bytes, PsdDecodePlan::All)?;
+    Ok((header, layers, composite))
+}
+
+fn parse_psd_document_with_plan(
     bytes: &[u8],
-) -> Result<(PsdHeader, Vec<PsdLayerRecord>, Option<Vec<u8>>), ImportError> {
+    decode_plan: PsdDecodePlan,
+) -> Result<ParsedPsdDocumentWithReport, ImportError> {
     if bytes.len() < 26 || &bytes[0..4] != b"8BPS" {
         return Err(ImportError::Container(
             "Invalid PSD signature (expected '8BPS')".into(),
@@ -535,21 +642,11 @@ pub fn parse_psd_document(
 
     // 1. Color Mode Data
     let color_mode_len = read_u32_be(bytes, &mut pos)? as usize;
-    if pos + color_mode_len > bytes.len() {
-        return Err(ImportError::Container(
-            "PSD Color Mode Data section exceeds file bounds".into(),
-        ));
-    }
-    pos += color_mode_len;
+    pos = checked_section_end(pos, color_mode_len, bytes.len(), "Color Mode Data")?;
 
     // 2. Image Resources
     let resources_len = read_u32_be(bytes, &mut pos)? as usize;
-    if pos + resources_len > bytes.len() {
-        return Err(ImportError::Container(
-            "PSD Image Resources section exceeds file bounds".into(),
-        ));
-    }
-    pos += resources_len;
+    pos = checked_section_end(pos, resources_len, bytes.len(), "Image Resources")?;
 
     // 3. Layer and Mask Information
     let layer_mask_len = if version == 2 {
@@ -557,30 +654,48 @@ pub fn parse_psd_document(
     } else {
         read_u32_be(bytes, &mut pos)? as usize
     };
-    if pos + layer_mask_len > bytes.len() {
-        return Err(ImportError::Container(
-            "PSD Layer and Mask section exceeds file bounds".into(),
-        ));
-    }
-    let layer_mask_end = pos + layer_mask_len;
+    let layer_mask_end = checked_section_end(pos, layer_mask_len, bytes.len(), "Layer and Mask")?;
 
     let mut layers = Vec::new();
+    let mut decode_report = PsdDecodeReport::default();
+    let mut retained_decoded_bytes = 0usize;
     if layer_mask_len > 0 {
+        let layer_info_length_bytes = if version == 2 { 8 } else { 4 };
+        checked_section_end(
+            pos,
+            layer_info_length_bytes,
+            layer_mask_end,
+            "Layer Information length",
+        )?;
         let layer_info_len = if version == 2 {
             read_u64_be(bytes, &mut pos)? as usize
         } else {
             read_u32_be(bytes, &mut pos)? as usize
         };
-        if layer_info_len > 0 && pos + 2 <= layer_mask_end {
+        let layer_info_end =
+            checked_section_end(pos, layer_info_len, layer_mask_end, "Layer Information")?;
+        if layer_info_len > 0 && pos.saturating_add(2) <= layer_info_end {
             let raw_layer_count = read_i16_be(bytes, &mut pos)?;
             let layer_count = raw_layer_count.unsigned_abs() as usize;
 
             for layer_idx in 0..layer_count {
+                checked_section_end(pos, 18, layer_info_end, "layer record")?;
                 let top = read_i32_be(bytes, &mut pos)?;
                 let left = read_i32_be(bytes, &mut pos)?;
                 let bottom = read_i32_be(bytes, &mut pos)?;
                 let right = read_i32_be(bytes, &mut pos)?;
                 let num_channels = read_u16_be(bytes, &mut pos)? as usize;
+                let channel_metadata_bytes = num_channels
+                    .checked_mul(if version == 2 { 10 } else { 6 })
+                    .ok_or_else(|| {
+                        ImportError::Container("PSD layer channel count overflow".into())
+                    })?;
+                checked_section_end(
+                    pos,
+                    channel_metadata_bytes,
+                    layer_info_end,
+                    "layer channel metadata",
+                )?;
 
                 let mut channels_meta = Vec::with_capacity(num_channels);
                 for _ in 0..num_channels {
@@ -593,11 +708,7 @@ pub fn parse_psd_document(
                     channels_meta.push((ch_id, ch_len));
                 }
 
-                if pos + 12 > layer_mask_end {
-                    return Err(ImportError::Container(
-                        "Truncated PSD layer blend record".into(),
-                    ));
-                }
+                checked_section_end(pos, 16, layer_info_end, "layer blend record")?;
                 let blend_sig = &bytes[pos..pos + 4];
                 if blend_sig != b"8BIM" {
                     return Err(ImportError::Container(format!(
@@ -614,22 +725,19 @@ pub fn parse_psd_document(
                 let visible = (flags & 0x02) == 0;
 
                 let extra_len = read_u32_be(bytes, &mut pos)? as usize;
-                if pos + extra_len > layer_mask_end {
-                    return Err(ImportError::Container(
-                        "PSD layer extra data exceeds Layer section".into(),
-                    ));
-                }
-                let extra_end = pos + extra_len;
+                let extra_end =
+                    checked_section_end(pos, extra_len, layer_info_end, "layer extra data")?;
 
                 // Layer mask data
+                checked_section_end(pos, 4, extra_end, "layer mask data length")?;
                 let mask_data_len = read_u32_be(bytes, &mut pos)? as usize;
                 let has_layer_mask = mask_data_len > 0;
-                pos = (pos + mask_data_len).min(extra_end);
+                pos = checked_section_end(pos, mask_data_len, extra_end, "layer mask data")?;
 
                 // Blending ranges
-                if pos + 4 <= extra_end {
+                if pos.saturating_add(4) <= extra_end {
                     let ranges_len = read_u32_be(bytes, &mut pos)? as usize;
-                    pos = (pos + ranges_len).min(extra_end);
+                    pos = checked_section_end(pos, ranges_len, extra_end, "layer blending ranges")?;
                 }
 
                 // Pascal string layer name (padded to 4-byte boundary)
@@ -644,7 +752,7 @@ pub fn parse_psd_document(
                     }
                     let total_pascal = 1 + name_len;
                     let padded = (total_pascal + 3) & !3;
-                    pos = (pos + padded - 1).min(extra_end);
+                    pos = checked_section_end(pos, padded - 1, extra_end, "layer Pascal name")?;
                 }
 
                 let mut section_divider = PsdSectionDivider::Normal;
@@ -654,7 +762,7 @@ pub fn parse_psd_document(
                 let mut is_smart_object = false;
 
                 // Additional Layer Information tagged blocks
-                while pos + 12 <= extra_end {
+                while pos.saturating_add(12) <= extra_end {
                     let sig = &bytes[pos..pos + 4];
                     if sig != b"8BIM" && sig != b"8B64" {
                         break;
@@ -664,7 +772,12 @@ pub fn parse_psd_document(
                     key_bytes.copy_from_slice(&bytes[pos..pos + 4]);
                     pos += 4;
                     let block_len = read_u32_be(bytes, &mut pos)? as usize;
-                    let block_end = (pos + block_len).min(extra_end);
+                    let block_end = checked_section_end(
+                        pos,
+                        block_len,
+                        extra_end,
+                        "additional layer information",
+                    )?;
                     let block = &bytes[pos..block_end];
 
                     match &key_bytes {
@@ -676,7 +789,9 @@ pub fn parse_psd_document(
                                 let byte_len = char_count.saturating_mul(2);
                                 if 4 + byte_len <= block.len() {
                                     let units: Vec<u16> = block[4..4 + byte_len]
-                                        .chunks_exact(2)
+                                        .as_chunks::<2>()
+                                        .0
+                                        .iter()
                                         .map(|c| u16::from_be_bytes([c[0], c[1]]))
                                         .filter(|&u| u != 0)
                                         .collect();
@@ -725,7 +840,12 @@ pub fn parse_psd_document(
 
                     // Tagged blocks are padded to even (or 4-byte) boundary
                     let padded_len = (block_len + 1) & !1;
-                    pos = (pos + padded_len).min(extra_end);
+                    pos = checked_section_end(
+                        pos,
+                        padded_len,
+                        extra_end,
+                        "additional layer information padding",
+                    )?;
                 }
 
                 pos = extra_end;
@@ -750,29 +870,60 @@ pub fn parse_psd_document(
                 });
             }
 
-            // Channel Image Data for each layer
-            for layer in &mut layers {
+            // Channel Image Data for each layer. Retained RGBA plus all
+            // temporary channel planes for the current layer must fit the
+            // aggregate decode budget; metadata and stream position are kept
+            // even when pixels are represented by an explicit placeholder.
+            let decode_layer_pixels = decode_plan != PsdDecodePlan::CompositeOnly;
+            for (layer_index, layer) in layers.iter_mut().enumerate() {
                 let lw = layer.width() as usize;
                 let lh = layer.height() as usize;
+                let pixel_count = portable_pixel_count(lw, lh);
+                let relevant_channels: BTreeSet<i16> = layer
+                    .channels_meta
+                    .iter()
+                    .map(|(channel, _)| *channel)
+                    .filter(|channel| (-1..=2).contains(channel))
+                    .collect();
+                let transient_bytes = pixel_count
+                    .and_then(|pixels| {
+                        pixels.checked_mul(4usize.saturating_add(relevant_channels.len()))
+                    })
+                    .and_then(|bytes| retained_decoded_bytes.checked_add(bytes));
+                let within_budget =
+                    transient_bytes.is_some_and(|total| total <= MAX_PSD_DECODE_BYTES);
+                let should_decode = decode_layer_pixels
+                    && pixel_count.is_some()
+                    && !relevant_channels.is_empty()
+                    && within_budget;
+                if decode_layer_pixels
+                    && pixel_count.is_some()
+                    && !relevant_channels.is_empty()
+                    && !within_budget
+                {
+                    decode_report.budget_skipped_layers.insert(layer_index);
+                }
                 let mut decoded_channels = BTreeMap::new();
                 for &(ch_id, ch_len) in &layer.channels_meta {
-                    let end = (pos + ch_len).min(layer_mask_end);
+                    let end = checked_section_end(
+                        pos,
+                        ch_len,
+                        layer_info_end,
+                        "layer channel image data",
+                    )?;
                     let slice = &bytes[pos..end];
                     pos = end;
-                    if lw > 0
-                        && lh > 0
+                    if should_decode
+                        && relevant_channels.contains(&ch_id)
                         && let Ok(plane) = decode_channel_slice(slice, lw, lh, version)
                     {
                         decoded_channels.insert(ch_id, plane);
                     }
                 }
-                if lw > 0 && lh > 0 && !decoded_channels.is_empty() {
-                    layer.rgba_pixels = Some(combine_channels_to_rgba(
-                        lw,
-                        lh,
-                        color_mode,
-                        &decoded_channels,
-                    ));
+                if should_decode && !decoded_channels.is_empty() {
+                    let rgba = combine_channels_to_rgba(lw, lh, color_mode, &decoded_channels);
+                    retained_decoded_bytes = retained_decoded_bytes.saturating_add(rgba.len());
+                    layer.rgba_pixels = Some(rgba);
                 }
             }
         }
@@ -786,42 +937,64 @@ pub fn parse_psd_document(
         let comp = read_u16_be(bytes, &mut pos)?;
         let w = width as usize;
         let h = height as usize;
-        let plane_pixels = w.saturating_mul(h);
+        let Some(plane_pixels) = portable_pixel_count(w, h) else {
+            return Ok((header, layers, None, decode_report));
+        };
         let ch_count = (channels as usize).clamp(1, 4);
         let payload = &bytes[pos..];
-        let mut planes = BTreeMap::new();
-        match comp {
-            0 if payload.len() >= plane_pixels => {
-                for ch in 0..ch_count {
-                    let start = ch * plane_pixels;
-                    if start + plane_pixels <= payload.len() {
-                        let key = if ch == 3 { -1 } else { ch as i16 };
-                        planes.insert(key, payload[start..start + plane_pixels].to_vec());
+        let decode_composite_pixels = match decode_plan {
+            PsdDecodePlan::All | PsdDecodePlan::CompositeOnly => true,
+            PsdDecodePlan::LayersWithCompositeFallback => layers.is_empty(),
+        };
+        if decode_composite_pixels {
+            let source_bytes = plane_pixels.checked_mul(ch_count);
+            let output_bytes = plane_pixels.checked_mul(4);
+            let transient_bytes = match comp {
+                0 => output_bytes,
+                1 => source_bytes
+                    .and_then(|source| output_bytes.and_then(|output| source.checked_add(output))),
+                _ => None,
+            };
+            let within_budget = transient_bytes
+                .and_then(|bytes| retained_decoded_bytes.checked_add(bytes))
+                .is_some_and(|total| total <= MAX_PSD_DECODE_BYTES);
+            if !within_budget && matches!(comp, 0 | 1) {
+                decode_report.composite_budget_skipped = true;
+            } else {
+                match comp {
+                    0 if payload.len() >= plane_pixels => {
+                        let rgba =
+                            combine_contiguous_planes_to_rgba(w, h, color_mode, ch_count, payload);
+                        composite_rgba = Some(rgba);
                     }
-                }
-            }
-            1 => {
-                let table_bytes = h * ch_count * if version == 2 { 4 } else { 2 };
-                if payload.len() >= table_bytes {
-                    let rle_payload = &payload[table_bytes..];
-                    let decoded_all = decode_packbits_rle(rle_payload, plane_pixels * ch_count);
-                    for ch in 0..ch_count {
-                        let start = ch * plane_pixels;
-                        if start + plane_pixels <= decoded_all.len() {
-                            let key = if ch == 3 { -1 } else { ch as i16 };
-                            planes.insert(key, decoded_all[start..start + plane_pixels].to_vec());
+                    1 => {
+                        let row_count_size = if version == 2 { 4 } else { 2 };
+                        let table_bytes = h
+                            .checked_mul(ch_count)
+                            .and_then(|rows| rows.checked_mul(row_count_size));
+                        let decoded_len = plane_pixels.checked_mul(ch_count);
+                        if let (Some(table_bytes), Some(decoded_len)) = (table_bytes, decoded_len)
+                            && payload.len() >= table_bytes
+                        {
+                            let decoded_all =
+                                decode_packbits_rle(&payload[table_bytes..], decoded_len);
+                            let rgba = combine_contiguous_planes_to_rgba(
+                                w,
+                                h,
+                                color_mode,
+                                ch_count,
+                                &decoded_all,
+                            );
+                            composite_rgba = Some(rgba);
                         }
                     }
+                    _ => {}
                 }
             }
-            _ => {}
-        }
-        if !planes.is_empty() {
-            composite_rgba = Some(combine_channels_to_rgba(w, h, color_mode, &planes));
         }
     }
 
-    Ok((header, layers, composite_rgba))
+    Ok((header, layers, composite_rgba, decode_report))
 }
 
 fn outline_paths_for_text(text: &str, font_size: f64, color: Color) -> ElementKind {
@@ -879,13 +1052,37 @@ fn outline_paths_for_text(text: &str, font_size: f64, color: Color) -> ElementKi
 /// - `psd-vector-mask-approximated`
 /// - `psd-smart-object-rasterized`
 /// - `psd-text-outlines-approximated`
+/// - `psd-composite-bitmap-too-large` / `psd-layer-bitmap-too-large`
+/// - `psd-composite-pixels-unavailable` / `psd-layer-pixels-unavailable`
+/// - `psd-composite-decode-budget-exceeded` / `psd-layer-decode-budget-exceeded`
 pub fn import_psd_into_project(
     project: &mut Project,
     bytes: &[u8],
     source_name: &str,
     options: &PsdImportOptions,
 ) -> Result<ImportReport, ImportError> {
-    let (header, psd_layers, composite_rgba) = parse_psd_document(bytes)?;
+    let mut candidate = project.clone();
+    let report = import_psd_into_project_inner(&mut candidate, bytes, source_name, options)?;
+    candidate.validate().map_err(|error| {
+        ImportError::Container(format!("PSD import produced an invalid project: {error}"))
+    })?;
+    *project = candidate;
+    Ok(report)
+}
+
+fn import_psd_into_project_inner(
+    project: &mut Project,
+    bytes: &[u8],
+    source_name: &str,
+    options: &PsdImportOptions,
+) -> Result<ImportReport, ImportError> {
+    let decode_plan = if options.layer_mapping == PsdLayerMapping::FlattenComposite {
+        PsdDecodePlan::CompositeOnly
+    } else {
+        PsdDecodePlan::LayersWithCompositeFallback
+    };
+    let (header, mut psd_layers, composite_rgba, decode_report) =
+        parse_psd_document_with_plan(bytes, decode_plan)?;
     let mut report = ImportReport {
         source: source_name.to_owned(),
         format: ImportFormat::Unknown,
@@ -909,26 +1106,84 @@ pub fn import_psd_into_project(
 
     // Handle FlattenComposite or 0-layer PSDs
     if options.layer_mapping == PsdLayerMapping::FlattenComposite || psd_layers.is_empty() {
-        let rgba = composite_rgba
-            .unwrap_or_else(|| vec![255u8; (header.width as usize) * (header.height as usize) * 4]);
-        let png = encode_rgba_png(header.width, header.height, &rgba)?;
-        let res_id = new_id("resource");
-        let res_path = format!("psd/{}_composite.png", res_id);
-        let unit = ResourceUnit::from_bytes(res_id.clone(), res_path, "image/png", &png)
-            .map_err(|e| ImportError::Container(e.to_string()))?;
-        project.resources.push(unit);
-
-        let element = Element {
-            id: new_id("element"),
-            name: format!("{source_name} Composite"),
-            transform: Transform::default(),
-            kind: ElementKind::Bitmap {
-                resource_id: res_id,
-                width: header.width,
-                height: header.height,
-                smoothing: true,
-            },
-            ..Element::default()
+        let element = if portable_pixel_count(header.width as usize, header.height as usize)
+            .is_some()
+        {
+            if let Some(rgba) = composite_rgba {
+                let png = encode_rgba_png(header.width, header.height, rgba)?;
+                let res_id = new_id("resource");
+                let res_path = format!("psd/{}_composite.png", res_id);
+                let unit = ResourceUnit::from_bytes(res_id.clone(), res_path, "image/png", &png)
+                    .map_err(|e| ImportError::Container(e.to_string()))?;
+                project.resources.push(unit);
+                Element {
+                    id: new_id("element"),
+                    name: format!("{source_name} Composite"),
+                    transform: Transform::default(),
+                    kind: ElementKind::Bitmap {
+                        resource_id: res_id,
+                        width: header.width,
+                        height: header.height,
+                        smoothing: true,
+                    },
+                    ..Element::default()
+                }
+            } else {
+                if decode_report.composite_budget_skipped {
+                    report.warning(
+                        "psd-composite-decode-budget-exceeded",
+                        source_name,
+                        format!(
+                            "PSD composite pixels exceeded the {} MiB aggregate decode budget; inserted an explicit vector placeholder.",
+                            MAX_PSD_DECODE_BYTES / (1024 * 1024)
+                        ),
+                    );
+                } else {
+                    report.warning(
+                        "psd-composite-pixels-unavailable",
+                        source_name,
+                        "PSD composite pixels were missing or unreadable; inserted an explicit vector placeholder.",
+                    );
+                }
+                Element {
+                    id: new_id("element"),
+                    name: format!("{source_name} Composite placeholder"),
+                    transform: Transform::default(),
+                    kind: ElementKind::Rectangle {
+                        width: f64::from(header.width),
+                        height: f64::from(header.height),
+                        fill: [180, 180, 180, 255],
+                        stroke: [255, 255, 255, 255],
+                        stroke_width: 1.0,
+                    },
+                    ..Element::default()
+                }
+            }
+        } else {
+            report.warning(
+                "psd-composite-bitmap-too-large",
+                source_name,
+                format!(
+                    "PSD composite {}x{} exceeds the portable {}x{} bitmap limit; inserted an explicit placeholder instead of allocating an unsafe image.",
+                    header.width,
+                    header.height,
+                    MAX_BITMAP_DIMENSION,
+                    MAX_BITMAP_DIMENSION
+                ),
+            );
+            Element {
+                id: new_id("element"),
+                name: format!("{source_name} Composite placeholder"),
+                transform: Transform::default(),
+                kind: ElementKind::Rectangle {
+                    width: header.width as f64,
+                    height: header.height as f64,
+                    fill: [180, 180, 180, 255],
+                    stroke: [255, 255, 255, 255],
+                    stroke_width: 1.0,
+                },
+                ..Element::default()
+            }
         };
         let layer = Layer {
             id: new_id("layer"),
@@ -1000,7 +1255,7 @@ pub fn import_psd_into_project(
     let mut folder_stack: Vec<String> = Vec::new();
 
     // Walk top-to-bottom (reverse of PSD bottom-to-top array)
-    for (i, rec) in psd_layers.iter().enumerate().rev() {
+    for (i, rec) in psd_layers.iter_mut().enumerate().rev() {
         let loc = format!("{source_name}::{}", rec.name);
 
         if rec.section_divider == PsdSectionDivider::BoundingSectionEnd {
@@ -1134,28 +1389,93 @@ pub fn import_psd_into_project(
                 kind,
                 ..Element::default()
             }
-        } else {
+        } else if portable_pixel_count(rec.width() as usize, rec.height() as usize).is_some() {
             let lw = rec.width().max(1);
             let lh = rec.height().max(1);
-            let rgba = rec
-                .rgba_pixels
-                .clone()
-                .unwrap_or_else(|| vec![180u8; (lw as usize) * (lh as usize) * 4]);
-            let png = encode_rgba_png(lw, lh, &rgba)?;
-            let res_id = new_id("resource");
-            let safe_stem: String = rec
-                .name
-                .chars()
-                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                .collect();
-            let res_path = format!("psd/{}_{}.png", safe_stem, res_id);
-            let unit = ResourceUnit::from_bytes(res_id.clone(), res_path, "image/png", &png)
-                .map_err(|e| ImportError::Container(e.to_string()))?;
-            project.resources.push(unit);
+            if let Some(rgba) = rec.rgba_pixels.take() {
+                let png = encode_rgba_png(lw, lh, rgba)?;
+                let res_id = new_id("resource");
+                let safe_stem: String = rec
+                    .name
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                    .collect();
+                let res_path = format!("psd/{}_{}.png", safe_stem, res_id);
+                let unit = ResourceUnit::from_bytes(res_id.clone(), res_path, "image/png", &png)
+                    .map_err(|e| ImportError::Container(e.to_string()))?;
+                project.resources.push(unit);
 
+                Element {
+                    id: new_id("element"),
+                    name: rec.name.clone(),
+                    transform: Transform {
+                        x: rec.left as f64,
+                        y: rec.top as f64,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::Bitmap {
+                        resource_id: res_id,
+                        width: lw,
+                        height: lh,
+                        smoothing: true,
+                    },
+                    ..Element::default()
+                }
+            } else {
+                if decode_report.budget_skipped_layers.contains(&i) {
+                    report.warning(
+                        "psd-layer-decode-budget-exceeded",
+                        loc.clone(),
+                        format!(
+                            "PSD layer pixels exceeded the {} MiB aggregate decode budget; retained the layer with an explicit vector placeholder.",
+                            MAX_PSD_DECODE_BYTES / (1024 * 1024)
+                        ),
+                    );
+                } else {
+                    report.warning(
+                        "psd-layer-pixels-unavailable",
+                        loc.clone(),
+                        "PSD layer pixels were missing or unreadable; inserted an explicit vector placeholder.",
+                    );
+                }
+                Element {
+                    id: new_id("element"),
+                    name: format!("{} placeholder", rec.name),
+                    transform: Transform {
+                        x: rec.left as f64,
+                        y: rec.top as f64,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::Rectangle {
+                        width: f64::from(lw),
+                        height: f64::from(lh),
+                        fill: [180, 180, 180, 255],
+                        stroke: [255, 255, 255, 255],
+                        stroke_width: 1.0,
+                    },
+                    ..Element::default()
+                }
+            }
+        } else {
+            report.warning(
+                "psd-layer-bitmap-too-large",
+                loc.clone(),
+                format!(
+                    "PSD layer '{}' is {}x{}, exceeding the portable {}x{} bitmap limit; inserted an explicit placeholder instead of allocating an unsafe image.",
+                    rec.name,
+                    rec.width(),
+                    rec.height(),
+                    MAX_BITMAP_DIMENSION,
+                    MAX_BITMAP_DIMENSION
+                ),
+            );
             Element {
                 id: new_id("element"),
-                name: rec.name.clone(),
+                name: format!("{} placeholder", rec.name),
                 transform: Transform {
                     x: rec.left as f64,
                     y: rec.top as f64,
@@ -1163,11 +1483,12 @@ pub fn import_psd_into_project(
                     ..Transform::default()
                 },
                 blend_mode: mapped_blend,
-                kind: ElementKind::Bitmap {
-                    resource_id: res_id,
-                    width: lw,
-                    height: lh,
-                    smoothing: true,
+                kind: ElementKind::Rectangle {
+                    width: (rec.width().max(1) as f64).min(1e9),
+                    height: (rec.height().max(1) as f64).min(1e9),
+                    fill: [180, 180, 180, 255],
+                    stroke: [255, 255, 255, 255],
+                    stroke_width: 1.0,
                 },
                 ..Element::default()
             }
@@ -1299,10 +1620,10 @@ pub fn import_psd_into_project(
             root.timeline.frame_count = root.timeline.frame_count.max(frame_count);
             root.timeline.layers = vec![single_layer];
         }
-    } else if let Some(root) = project.symbol_mut(&root_id) {
-        if !built_layers.is_empty() {
-            root.timeline.layers = built_layers;
-        }
+    } else if let Some(root) = project.symbol_mut(&root_id)
+        && !built_layers.is_empty()
+    {
+        root.timeline.layers = built_layers;
     }
 
     if !project.resources.is_empty() {
@@ -1340,7 +1661,22 @@ pub fn import_psd_path(
     path: &Path,
     options: &PsdImportOptions,
 ) -> Result<(Project, ImportReport), ImportError> {
-    let bytes = fs::read(path)?;
+    if std::fs::metadata(path)?.len() > MAX_PSD_FILE_BYTES as u64 {
+        return Err(ImportError::Container(format!(
+            "PSD/PSB container exceeds the {} MiB file limit",
+            MAX_PSD_FILE_BYTES / (1024 * 1024)
+        )));
+    }
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(MAX_PSD_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_PSD_FILE_BYTES {
+        return Err(ImportError::Container(format!(
+            "PSD/PSB container exceeds the {} MiB file limit",
+            MAX_PSD_FILE_BYTES / (1024 * 1024)
+        )));
+    }
     let name = path
         .file_stem()
         .and_then(|s| s.to_str())

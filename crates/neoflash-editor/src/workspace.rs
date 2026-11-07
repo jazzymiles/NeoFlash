@@ -3680,8 +3680,10 @@ mod tests {
     }
     #[test]
     fn version_two_builtin_layout_refreshes_without_losing_preferences_or_named_presets() {
-        let mut legacy = WorkspacePrefs::default();
-        legacy.version = 2;
+        let mut legacy = WorkspacePrefs {
+            version: 2,
+            ..WorkspacePrefs::default()
+        };
         legacy.apply_template(WorkspaceTemplate::Developer);
         legacy.version = 2;
         legacy.panels.library = false;

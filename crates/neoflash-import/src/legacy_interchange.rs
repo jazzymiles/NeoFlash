@@ -319,7 +319,7 @@ pub fn import_ase_palette(bytes: &[u8]) -> Result<Vec<GlobalSwatch>, ImportError
             )));
         }
         let mut utf16_units = Vec::with_capacity(char_count);
-        for chunk in payload[2..2 + name_byte_len].chunks_exact(2) {
+        for chunk in payload[2..2 + name_byte_len].as_chunks::<2>().0 {
             let unit = u16::from_be_bytes([chunk[0], chunk[1]]);
             if unit != 0 {
                 utf16_units.push(unit);
@@ -1128,10 +1128,9 @@ fn collect_fxg_text(node: Node<'_, '_>) -> String {
         } else if desc.is_element()
             && matches!(desc.tag_name().name(), "br" | "p")
             && !out.is_empty()
+            && !out.ends_with('\n')
         {
-            if !out.ends_with('\n') {
-                out.push('\n');
-            }
+            out.push('\n');
         }
     }
     out.trim().to_owned()
@@ -2174,11 +2173,13 @@ pub fn generate_pwa_offline_manifest(project: &Project, start_url: &str) -> (Str
         slug.trim_matches('-'),
         project.format_version
     );
+    let start_url_js =
+        serde_json::to_string(resolved_start).unwrap_or_else(|_| "\"./index.html\"".to_owned());
 
     let sw_js = format!(
         r#"const CACHE_NAME = "{cache_name}";
 const PRECACHE_URLS = [
-  "{resolved_start}",
+  {start_url_js},
   "./index.html",
   "./player.js",
   "./audio.js",
@@ -2513,5 +2514,13 @@ mod tests {
         assert_eq!(parsed_manifest["start_url"], "./index.html");
         assert!(sw_js.contains("self.addEventListener(\"install\""));
         assert!(sw_js.contains("self.addEventListener(\"fetch\""));
+
+        let hostile_start = "./index.html\"], self.pwned = true, [\"";
+        let (_, escaped_sw) = generate_pwa_offline_manifest(&project, hostile_start);
+        assert!(escaped_sw.contains(&serde_json::to_string(hostile_start).unwrap()));
+        assert!(
+            !escaped_sw.contains("\n  \"./index.html\"], self.pwned"),
+            "start_url escaped its generated JavaScript string"
+        );
     }
 }

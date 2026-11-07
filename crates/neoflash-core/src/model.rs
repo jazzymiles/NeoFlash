@@ -2645,30 +2645,29 @@ impl Project {
                     for app in &mut key.appearances {
                         let fill_linked = app.fill_swatch_id.as_deref() == Some(swatch_id);
                         let stroke_linked = app.stroke_swatch_id.as_deref() == Some(swatch_id);
-                        if fill_linked || stroke_linked {
-                            if let Some(el) =
+                        if (fill_linked || stroke_linked)
+                            && let Some(el) =
                                 key.elements.iter_mut().find(|e| e.id == app.element_id)
-                            {
-                                match &mut el.kind {
-                                    ElementKind::Rectangle { fill, stroke, .. }
-                                    | ElementKind::Ellipse { fill, stroke, .. }
-                                    | ElementKind::Path { fill, stroke, .. }
-                                    | ElementKind::PaintedPath { fill, stroke, .. } => {
-                                        if fill_linked {
-                                            *fill = new_color;
-                                            updated += 1;
-                                        }
-                                        if stroke_linked {
-                                            *stroke = new_color;
-                                            updated += 1;
-                                        }
-                                    }
-                                    ElementKind::Text { color, .. } if fill_linked => {
-                                        *color = new_color;
+                        {
+                            match &mut el.kind {
+                                ElementKind::Rectangle { fill, stroke, .. }
+                                | ElementKind::Ellipse { fill, stroke, .. }
+                                | ElementKind::Path { fill, stroke, .. }
+                                | ElementKind::PaintedPath { fill, stroke, .. } => {
+                                    if fill_linked {
+                                        *fill = new_color;
                                         updated += 1;
                                     }
-                                    _ => {}
+                                    if stroke_linked {
+                                        *stroke = new_color;
+                                        updated += 1;
+                                    }
                                 }
+                                ElementKind::Text { color, .. } if fill_linked => {
+                                    *color = new_color;
+                                    updated += 1;
+                                }
+                                _ => {}
                             }
                         }
                         for entry in &mut app.entries {
@@ -2875,12 +2874,22 @@ impl Layer {
 
     /// Bake all IK armatures across `start_frame..=end_frame` into ordinary keyframes with solved bone transforms (T-113).
     pub fn bake_ik_span_to_keyframes(&mut self, start_frame: u32, end_frame: u32) -> usize {
+        self.bake_ik_span_to_keyframes_at_fps(start_frame, end_frame, 24.0)
+    }
+
+    /// Bake IK armatures using the document frame rate for property-expression evaluation.
+    pub fn bake_ik_span_to_keyframes_at_fps(
+        &mut self,
+        start_frame: u32,
+        end_frame: u32,
+        fps: f64,
+    ) -> usize {
         if end_frame < start_frame {
             return 0;
         }
         let mut sampled_frames = Vec::new();
         for f in start_frame..=end_frame {
-            let elements = crate::evaluate::sample_layer(self, f);
+            let elements = crate::evaluate::sample_layer_at_fps(self, f, fps);
             sampled_frames.push((f, elements));
         }
         let mut baked = 0usize;

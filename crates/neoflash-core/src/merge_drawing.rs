@@ -4520,10 +4520,10 @@ pub fn paint_bucket_planar_face(
             }
             let mut ring = cycle.clone();
             ring.push(cycle[0]);
-            if point_in_rings(seed, &[ring.clone()], FillRule::EvenOdd) {
-                if best_face.as_ref().is_none_or(|(best_a, _)| area < *best_a) {
-                    best_face = Some((area, ring));
-                }
+            if point_in_rings(seed, &[ring.clone()], FillRule::EvenOdd)
+                && best_face.as_ref().is_none_or(|(best_a, _)| area < *best_a)
+            {
+                best_face = Some((area, ring));
             }
         }
     }

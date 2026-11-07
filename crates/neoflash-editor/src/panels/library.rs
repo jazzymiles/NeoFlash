@@ -607,7 +607,8 @@ impl Editor {
                     self.resource_library(ui);
                     return;
                 }
-                let released = ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+                let released =
+                    ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
                 let release_pos = ui.input(|i| i.pointer.interact_pos());
                 let drag_moved = release_pos
                     .zip(self.library_panel.drag_press)
@@ -656,9 +657,12 @@ impl Editor {
                                 "",
                             );
                             let drag_folder = path.clone();
-                            capture_row_drag(&mut self.library_panel, ui, &response.row, move || {
-                                LibraryDrag::Folder(drag_folder)
-                            });
+                            capture_row_drag(
+                                &mut self.library_panel,
+                                ui,
+                                &response.row,
+                                move || LibraryDrag::Folder(drag_folder),
+                            );
                             if released
                                 && drag_moved
                                 && release_pos.is_some_and(|pos| response.row.rect.contains(pos))

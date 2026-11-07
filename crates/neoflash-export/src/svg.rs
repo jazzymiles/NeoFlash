@@ -4,7 +4,7 @@
 //! self-contained SVG markup with `<defs>` gradient/clip-path/filter definitions, vector paths,
 //! affine transforms, embedded bitmaps, and text/outline rendering.
 
-use crate::ExportError;
+use crate::{ExportError, atomic_write};
 use neoflash_core::{
     AuthoredDraw, AuthoredScene, Color, ColorTransform, ElementKind, FillRule, FilterSpec,
     GradientKind, GradientPaint, PathCommand, Project, evaluate_scene, flatten_scenes_with_ranges,
@@ -32,6 +32,10 @@ pub struct SvgOptions {
     pub height: Option<u32>,
     /// Omit the opaque stage background rectangle when `true`.
     pub transparent_background: bool,
+    /// Include authored guide layers in the exported scene. Hidden guides must be made visible
+    /// explicitly by the higher-level export workflow; ordinary hidden artwork stays hidden.
+    #[serde(default)]
+    pub include_guides: bool,
     /// Convert static text elements into `<path>` outlines using `static_text_to_outline_commands`.
     pub text_as_outlines: bool,
     /// Coordinate decimal precision (`1..=6`, default `2`).
@@ -47,6 +51,7 @@ impl Default for SvgOptions {
             width: None,
             height: None,
             transparent_background: false,
+            include_guides: false,
             text_as_outlines: false,
             precision: 2,
         }
@@ -344,8 +349,13 @@ pub fn render_frame_svg(
         .symbol_id
         .as_deref()
         .unwrap_or(eval_project.root.as_str());
-    let scene: AuthoredScene =
-        evaluate_scene(&eval_project, target_symbol, options.frame, false, true);
+    let scene: AuthoredScene = evaluate_scene(
+        &eval_project,
+        target_symbol,
+        options.frame,
+        options.include_guides,
+        true,
+    );
 
     let stage_w = eval_project.width.max(1);
     let stage_h = eval_project.height.max(1);
@@ -771,7 +781,7 @@ pub fn export_project_svg(
 
     if end_frame == options.frame {
         let (svg, elems, defs) = render_frame_svg(project, options)?;
-        fs::write(output_path, svg)?;
+        atomic_write(output_path, svg.as_bytes())?;
         files.push(output_path.to_path_buf());
         total_elements += elems;
         total_defs += defs;
@@ -787,7 +797,7 @@ pub fn export_project_svg(
             frame_opts.end_frame = None;
             let (svg, elems, defs) = render_frame_svg(project, &frame_opts)?;
             let file_path = dir.join(format!("{stem}_{:04}.svg", f + 1));
-            fs::write(&file_path, svg)?;
+            atomic_write(&file_path, svg.as_bytes())?;
             files.push(file_path);
             total_elements += elems;
             total_defs += defs;

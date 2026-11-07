@@ -2308,6 +2308,7 @@ dependencies = [
  "gif",
  "image",
  "neoflash-core",
+ "neoflash-import",
  "neoflash-script",
  "serde",
  "serde_json",

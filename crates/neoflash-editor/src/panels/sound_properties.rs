@@ -271,7 +271,7 @@ impl Editor {
         }
         let mut unit = ResourceUnit::from_bytes(resource_id, trimmed, new_media_type, bytes)
             .map_err(|e| e.to_string())?;
-        unit.audio_export = self.project.resources[index].audio_export.clone();
+        unit.audio_export = self.project.resources[index].audio_export;
         self.commit_sound_resource_unit(index, unit, None)
     }
 

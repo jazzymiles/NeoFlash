@@ -3,7 +3,7 @@
 
 use crate::{
     AccessibleRole, Element, ElementKind, Id, Keyframe, LayerRole, Project, SymbolKind, Timeline,
-    path_bounds, sample_layer_in,
+    path_bounds, sample_layer_in_at_fps,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -226,6 +226,8 @@ pub struct AccessibilityDiagnostic {
     pub message: String,
 }
 
+type OrderedAccessibilityNode = (Option<u32>, Option<i32>, [f64; 2], AccessibilityTreeNode);
+
 fn estimate_element_bounds(el: &Element) -> [f64; 4] {
     let tx = el.transform.x;
     let ty = el.transform.y;
@@ -303,13 +305,21 @@ fn infer_role(
 }
 
 fn collect_frame_elements_and_ext<'a>(
+    project: &Project,
     timeline: &'a Timeline,
     frame: u32,
-) -> (Vec<Element>, HashMap<String, &'a ExtendedAccessibility>) {
+) -> (
+    Vec<Element>,
+    HashMap<String, &'a ExtendedAccessibility>,
+    HashMap<String, u32>,
+) {
     let mut elements = Vec::new();
     let mut ext_map = HashMap::new();
+    let mut child_frames = HashMap::new();
     for layer in &timeline.layers {
-        if !layer.visible || matches!(layer.properties.role, LayerRole::Guide | LayerRole::Folder) {
+        if !crate::authored_layers::layer_effectively_visible(timeline, layer)
+            || matches!(layer.properties.role, LayerRole::Guide | LayerRole::Folder)
+        {
             continue;
         }
         if let Some(key) = layer.key_at(frame) {
@@ -317,13 +327,32 @@ fn collect_frame_elements_and_ext<'a>(
                 ext_map.insert(ext.element_id.clone(), ext);
             }
         }
-        for el in sample_layer_in(timeline, layer, frame) {
+        for el in sample_layer_in_at_fps(timeline, layer, frame, f64::from(project.fps)) {
             if el.visible {
+                if let ElementKind::Instance {
+                    symbol_id,
+                    playback,
+                } = &el.kind
+                    && let Some(child) = project.symbol(symbol_id)
+                {
+                    let count = child.timeline.frame_count.max(1);
+                    let age = if crate::authored_layers::layer_effectively_synced(timeline, layer) {
+                        frame
+                    } else {
+                        frame.saturating_sub(crate::evaluate::placement_start(layer, frame, &el.id))
+                    };
+                    let child_frame = if child.kind == SymbolKind::Button {
+                        0
+                    } else {
+                        crate::evaluate::instance_frame_from_age(*playback, age, count)
+                    };
+                    child_frames.insert(el.id.clone(), child_frame);
+                }
                 elements.push(el);
             }
         }
     }
-    (elements, ext_map)
+    (elements, ext_map, child_frames)
 }
 
 /// Resolve the ordered accessibility tree for `timeline` at `frame` (`T-117`).
@@ -349,7 +378,8 @@ fn resolve_tree_recursive(
         return Vec::new();
     }
 
-    let (elements, ext_map) = collect_frame_elements_and_ext(timeline, frame);
+    let (elements, ext_map, child_frames) =
+        collect_frame_elements_and_ext(project, timeline, frame);
     let mut text_candidates: Vec<(String, String, [f64; 2])> = Vec::new();
     let mut element_by_id: HashMap<String, &Element> = HashMap::new();
 
@@ -361,7 +391,7 @@ fn resolve_tree_recursive(
         }
     }
 
-    let mut nodes: Vec<(Option<u32>, Option<i32>, [f64; 2], AccessibilityTreeNode)> = Vec::new();
+    let mut nodes: Vec<OrderedAccessibilityNode> = Vec::new();
 
     for el in &elements {
         let ext = ext_map.get(&el.id).copied();
@@ -466,7 +496,10 @@ fn resolve_tree_recursive(
                 && let Some(sym) = project.symbol(symbol_id)
                 && sym.kind != SymbolKind::Button
             {
-                let child_frame = frame % sym.timeline.frame_count.max(1);
+                let child_frame = child_frames
+                    .get(&el.id)
+                    .copied()
+                    .unwrap_or(frame % sym.timeline.frame_count.max(1));
                 children = resolve_tree_recursive(project, &sym.timeline, child_frame, depth + 1);
             }
         }
@@ -533,7 +566,7 @@ pub fn validate_accessibility_tree(
     frame: u32,
 ) -> Vec<AccessibilityDiagnostic> {
     let mut diagnostics = Vec::new();
-    let (elements, ext_map) = collect_frame_elements_and_ext(timeline, frame);
+    let (elements, ext_map, _) = collect_frame_elements_and_ext(project, timeline, frame);
     let valid_ids: HashSet<&str> = elements.iter().map(|e| e.id.as_str()).collect();
 
     for (eid, ext) in &ext_map {
@@ -800,5 +833,122 @@ mod tests {
         assert!(diags.iter().any(|d| d.code == "duplicate-tab-index"));
         assert!(diags.iter().any(|d| d.code == "missing-accessible-name"));
         assert!(diags.iter().any(|d| d.code == "broken-aria-reference"));
+    }
+
+    #[test]
+    fn nested_accessibility_follows_instance_playback_and_folder_visibility() {
+        let text = |id: &str, value: &str| Element {
+            id: id.into(),
+            kind: ElementKind::Text {
+                text: value.into(),
+                font_family: "sans-serif".into(),
+                font_size: 16.0,
+                color: [0, 0, 0, 255],
+            },
+            ..Element::default()
+        };
+        let child = Symbol {
+            id: "child".into(),
+            name: "Child".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 3,
+                layers: vec![Layer {
+                    id: "child-layer".into(),
+                    name: "Child layer".into(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![
+                        Keyframe {
+                            frame: 0,
+                            elements: vec![text("frame-zero", "Zero")],
+                            ..Keyframe::default()
+                        },
+                        Keyframe {
+                            frame: 2,
+                            elements: vec![text("frame-two", "Two")],
+                            ..Keyframe::default()
+                        },
+                    ],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            class_name: None,
+            linkage_id: None,
+        };
+        let root = Symbol {
+            id: "root".into(),
+            name: "Root".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![
+                    Layer {
+                        id: "content".into(),
+                        name: "Content".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            elements: vec![Element {
+                                id: "child-instance".into(),
+                                kind: ElementKind::Instance {
+                                    symbol_id: "child".into(),
+                                    playback: InstancePlayback::SingleFrame(2),
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        }],
+                        properties: LayerProperties {
+                            parent: Some("folder".into()),
+                            ..LayerProperties::default()
+                        },
+                    },
+                    Layer {
+                        id: "folder".into(),
+                        name: "Folder".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: Vec::new(),
+                        properties: LayerProperties {
+                            role: LayerRole::Folder,
+                            ..LayerProperties::default()
+                        },
+                    },
+                ],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            class_name: None,
+            linkage_id: None,
+        };
+        let mut project = Project {
+            format_version: 9,
+            name: "Nested accessibility".into(),
+            width: 640,
+            height: 480,
+            fps: 24,
+            background: [255; 4],
+            root: "root".into(),
+            symbols: vec![root, child],
+            library_folders: Vec::new(),
+            sources: Vec::new(),
+            resources: Vec::new(),
+            document_class: None,
+            scenes: Vec::new(),
+        };
+
+        let tree = resolve_frame_accessibility_tree(&project, &project.symbols[0].timeline, 0);
+        assert_eq!(tree[0].children[0].element_id, "frame-two");
+
+        project.symbols[0].timeline.layers[1].visible = false;
+        assert!(
+            resolve_frame_accessibility_tree(&project, &project.symbols[0].timeline, 0).is_empty()
+        );
     }
 }

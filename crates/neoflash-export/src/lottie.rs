@@ -14,10 +14,10 @@ use base64::Engine as _;
 use image::{ExtendedColorType, ImageEncoder as _};
 use neoflash_core::{
     BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FillRule, GradientKind,
-    GradientPaint, InstancePlayback, Layer, LayerRole, PathCommand, Project, Symbol, Timeline,
-    Transform, TweenKind, TweenProperty, effective_property_ease, flatten_scenes_with_ranges,
-    layer_effective_blend_mode, layer_effectively_synced, layer_effectively_visible, motion_span,
-    placement_start, sample_layer_in,
+    GradientPaint, InstancePlayback, Keyframe, Layer, LayerRole, PathCommand, Project, Symbol,
+    Timeline, Transform, TweenKind, TweenProperty, effective_property_ease,
+    flatten_scenes_with_ranges, layer_effective_blend_mode, layer_effectively_synced,
+    layer_effectively_visible, motion_span, placement_start, sample_layer_in_at_fps,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -290,6 +290,7 @@ struct ExternalImageFile {
 struct LottieBuilder<'a> {
     project: &'a Project,
     options: &'a LottieOptions,
+    source_fps: f64,
     fps: f64,
     comp_w: u32,
     comp_h: u32,
@@ -709,7 +710,8 @@ impl<'a> LottieBuilder<'a> {
         stack: &mut Vec<String>,
         next_ind: &mut u32,
     ) -> Vec<Value> {
-        let first_elements = sample_layer_in(timeline, layer, span.start_frame);
+        let first_elements =
+            sample_layer_in_at_fps(timeline, layer, span.start_frame, self.source_fps);
         if first_elements.is_empty() {
             return Vec::new();
         }
@@ -742,7 +744,8 @@ impl<'a> LottieBuilder<'a> {
         // element, avoiding O(N_elements^2 * N_frames) overhead on multi-shape layers (T-060).
         let dense = layer.properties.motion_guide.is_some()
             || layer.keyframes.iter().any(|k| {
-                k.motion_path.is_some()
+                !k.property_expressions.is_empty()
+                    || k.motion_path.is_some()
                     || k.orient_to_path
                     || matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
                     || k.property_eases
@@ -767,7 +770,7 @@ impl<'a> LottieBuilder<'a> {
         let mut tracks: Vec<String> = Vec::new();
         let mut track_samples: BTreeMap<String, Vec<(u32, Element)>> = BTreeMap::new();
         for f in sample_frames {
-            for el in sample_layer_in(timeline, layer, f) {
+            for el in sample_layer_in_at_fps(timeline, layer, f, self.source_fps) {
                 if !track_samples.contains_key(&el.id) {
                     tracks.push(el.id.clone());
                     track_samples.insert(el.id.clone(), Vec::new());
@@ -819,7 +822,7 @@ impl<'a> LottieBuilder<'a> {
         let mut frame_shapes: Vec<(u32, Element)> = Vec::new();
         let mut single_track = true;
         for f in span.start_frame..span.end_frame {
-            let mut els = sample_shape_tween_frame(timeline, layer, f);
+            let mut els = sample_shape_tween_frame(timeline, layer, f, self.source_fps);
             if els.len() == 1 && els[0].to_path_commands().is_some() {
                 frame_shapes.push((f, els.pop().unwrap()));
             } else {
@@ -847,7 +850,7 @@ impl<'a> LottieBuilder<'a> {
         // Fallback: emit 1-frame slices for arbitrary multi-shape topology changes.
         let mut out = Vec::new();
         for f in (span.start_frame..span.end_frame).rev() {
-            let els = sample_layer_in(timeline, layer, f);
+            let els = sample_layer_in_at_fps(timeline, layer, f, self.source_fps);
             for el in els.into_iter().rev() {
                 if let Some(shape_group) = self.element_to_shape_group(&el, [0.0, 0.0], true) {
                     let ind = *next_ind;
@@ -1572,7 +1575,8 @@ impl<'a> LottieBuilder<'a> {
         // or bounce/elastic easing; if so, emit exact per-frame keyframes from `samples`.
         let dense = layer.properties.motion_guide.is_some()
             || layer.keyframes.iter().any(|k| {
-                k.motion_path.is_some()
+                !k.property_expressions.is_empty()
+                    || k.motion_path.is_some()
                     || k.orient_to_path
                     || matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
                     || k.property_eases
@@ -1759,9 +1763,10 @@ impl<'a> LottieBuilder<'a> {
             );
         }
         let inv_target = invert_affine(neoflash_core::transform_matrix(target_transform));
+        let fps = self.source_fps;
         let mask_contours_at = |frame: u32| -> Vec<LottieBezier> {
             let mut out = Vec::new();
-            for el in sample_layer_in(timeline, mask_layer, frame) {
+            for el in sample_layer_in_at_fps(timeline, mask_layer, frame, fps) {
                 let Some((cmds, _)) = el.to_path_commands() else {
                     continue;
                 };
@@ -1783,7 +1788,10 @@ impl<'a> LottieBuilder<'a> {
 
         let mask_animated = last_frame > first_frame + 1
             && (mask_layer.keyframes.len() > 1
-                || mask_layer.keyframes.iter().any(|k| k.tween.is_some()));
+                || mask_layer
+                    .keyframes
+                    .iter()
+                    .any(|k| k.tween.is_some() || !k.property_expressions.is_empty()));
         let mask_invert = mask_layer.properties.mask_invert;
         let mask_mode_for_index = |idx: usize| -> (bool, &'static str) {
             if mask_invert {
@@ -1910,37 +1918,61 @@ fn collect_layer_spans(layer: &Layer, layer_end: u32) -> Vec<LayerSpan> {
     spans
 }
 
-fn sample_shape_tween_frame(timeline: &Timeline, layer: &Layer, frame: u32) -> Vec<Element> {
-    if let Some((idx, kf)) = layer
+fn sample_shape_tween_frame(
+    timeline: &Timeline,
+    layer: &Layer,
+    frame: u32,
+    fps: f64,
+) -> Vec<Element> {
+    fn has_post_shape_evaluation(key: &Keyframe) -> bool {
+        !key.property_expressions.is_empty()
+            || !key.ik_armatures.is_empty()
+            || !key.element_parents.is_empty()
+            || !key.asset_warps.is_empty()
+            || !key.vector_effects.is_empty()
+            || !key.appearances.is_empty()
+    }
+
+    // Plain endpoint keys keep the shape tween's resampled topology. That lets Lottie encode a
+    // single animated path even when the authored endpoint primitives have different command
+    // counts. Advanced keys must go through the shared evaluator so expressions, rigs, effects,
+    // and appearances are not silently dropped at exact keyframes.
+    if let Some((idx, key)) = layer
         .keyframes
         .iter()
         .enumerate()
-        .find(|(_, k)| k.frame == frame)
+        .find(|(_, key)| key.frame == frame)
     {
-        if kf.tween.is_some()
-            && kf.tween_kind == TweenKind::Shape
-            && let Some(next_kf) = layer.keyframes.get(idx + 1)
+        if key.tween.is_some()
+            && key.tween_kind == TweenKind::Shape
+            && let Some(next) = layer.keyframes.get(idx + 1)
+            && !has_post_shape_evaluation(key)
+            && !has_post_shape_evaluation(next)
         {
             return neoflash_core::shape_tween_elements_with_hints(
-                &kf.elements,
-                &next_kf.elements,
-                &kf.shape_hints,
+                &key.elements,
+                &next.elements,
+                &key.shape_hints,
                 0.0,
             );
         }
         if idx > 0 {
-            let prev_kf = &layer.keyframes[idx - 1];
-            if prev_kf.tween.is_some() && prev_kf.tween_kind == TweenKind::Shape {
+            let previous = &layer.keyframes[idx - 1];
+            if previous.tween.is_some()
+                && previous.tween_kind == TweenKind::Shape
+                && !has_post_shape_evaluation(previous)
+                && !has_post_shape_evaluation(key)
+            {
                 return neoflash_core::shape_tween_elements_with_hints(
-                    &prev_kf.elements,
-                    &kf.elements,
-                    &prev_kf.shape_hints,
+                    &previous.elements,
+                    &key.elements,
+                    &previous.shape_hints,
                     1.0,
                 );
             }
         }
     }
-    sample_layer_in(timeline, layer, frame)
+    sample_layer_in_at_fps(timeline, layer, frame, fps)
 }
 
 fn collect_transform_keyframes(
@@ -2613,6 +2645,7 @@ where
     let mut builder = LottieBuilder {
         project: &working_project,
         options,
+        source_fps: f64::from(working_project.fps.max(1)),
         fps: f64::from(fps_u32),
         comp_w: working_project.width.max(1),
         comp_h: working_project.height.max(1),
@@ -3123,7 +3156,7 @@ mod tests {
     use super::*;
     use neoflash_core::{
         FrameScript, GradientStop, Keyframe, LayerProperties, OvalOptions, PrimitiveOptions,
-        RectangleOptions, Script, ScriptLanguage, SymbolKind,
+        PropertyExpression, RectangleOptions, Script, ScriptLanguage, SymbolKind, TweenProperty,
     };
 
     struct TestOutputDir(PathBuf);
@@ -3151,6 +3184,233 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn property_expression_sampling_uses_source_document_fps() {
+        let mut project = Project::blank();
+        project.fps = 30;
+        project.format_version = 9;
+        let root_id = project.root.clone();
+        let element = Element {
+            id: "expression-shape".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 61;
+        root.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![element.clone()],
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Motion,
+                property_expressions: vec![PropertyExpression {
+                    property: TweenProperty::X,
+                    expression: "value + time".into(),
+                    ..PropertyExpression::default()
+                }],
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 60,
+                elements: vec![element],
+                ..Keyframe::default()
+            },
+        ];
+        project.validate().expect("expression project validates");
+
+        let position_at_30 = |fps| {
+            let mut project = project.clone();
+            project.fps = fps;
+            let (value, _) = export_lottie_value(
+                &project,
+                &LottieOptions {
+                    include_background: false,
+                    ..LottieOptions::default()
+                },
+            )
+            .unwrap();
+            value["layers"][0]["ks"]["p"]["k"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|key| key["t"] == 30)
+                .unwrap()["s"][0]
+                .as_f64()
+                .unwrap()
+        };
+        assert!((position_at_30(30) - 1.0).abs() < 1e-9);
+        assert!((position_at_30(60) - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn exact_shape_keys_use_the_shared_effect_aware_sampler() {
+        use neoflash_core::{
+            ElementAppearance, ElementVectorEffects, FreeformGradient, FreeformGradientPoint,
+            VectorModifier, sample_layer_in_at_fps,
+        };
+
+        let rectangle = |width| Element {
+            id: "shape".into(),
+            kind: ElementKind::Rectangle {
+                width,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let start = Keyframe {
+            frame: 0,
+            elements: vec![rectangle(10.0)],
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Shape,
+            property_expressions: vec![PropertyExpression {
+                property: TweenProperty::X,
+                expression: "value + 7".into(),
+                ..PropertyExpression::default()
+            }],
+            vector_effects: vec![ElementVectorEffects {
+                element_id: "shape".into(),
+                freeform_gradient: Some(FreeformGradient {
+                    points: vec![FreeformGradientPoint {
+                        id: "green".into(),
+                        position: [0.0, 0.0],
+                        color: [0, 255, 0, 255],
+                        radius: 10.0,
+                        weight: 1.0,
+                    }],
+                    lines: Vec::new(),
+                }),
+                ..ElementVectorEffects::default()
+            }],
+            appearances: vec![ElementAppearance {
+                element_id: "shape".into(),
+                modifiers: vec![VectorModifier::Repeater {
+                    copies: 2,
+                    offset_x: 20.0,
+                    offset_y: 0.0,
+                    scale_step: 1.0,
+                    rotation_step: 0.0,
+                }],
+                ..ElementAppearance::default()
+            }],
+            ..Keyframe::default()
+        };
+        let end = Keyframe {
+            frame: 10,
+            elements: vec![rectangle(20.0)],
+            property_expressions: vec![PropertyExpression {
+                property: TweenProperty::Y,
+                expression: "value + 3".into(),
+                ..PropertyExpression::default()
+            }],
+            ..Keyframe::default()
+        };
+        let layer = Layer {
+            id: "shape-layer".into(),
+            name: "Shape".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![start, end],
+            properties: LayerProperties::default(),
+        };
+        let timeline = Timeline {
+            frame_count: 11,
+            layers: vec![layer],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        };
+
+        for frame in [0, 10] {
+            let exported = sample_shape_tween_frame(&timeline, &timeline.layers[0], frame, 30.0);
+            let shared = sample_layer_in_at_fps(&timeline, &timeline.layers[0], frame, 30.0);
+            assert_eq!(exported, shared);
+        }
+        assert_eq!(
+            sample_shape_tween_frame(&timeline, &timeline.layers[0], 0, 30.0)[0]
+                .transform
+                .x,
+            7.0
+        );
+        assert_eq!(
+            sample_shape_tween_frame(&timeline, &timeline.layers[0], 10, 30.0)[0]
+                .transform
+                .y,
+            3.0
+        );
+    }
+
+    #[test]
+    fn simple_shape_tween_keeps_one_animated_shape_track() {
+        let mut project = Project::blank();
+        project.fps = 30;
+        project.format_version = 6;
+        let root_id = project.root.clone();
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 11;
+        root.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "morph".into(),
+                    kind: ElementKind::Rectangle {
+                        width: 40.0,
+                        height: 20.0,
+                        fill: [255, 0, 0, 255],
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Shape,
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 10,
+                elements: vec![Element {
+                    id: "morph".into(),
+                    kind: ElementKind::Ellipse {
+                        width: 50.0,
+                        height: 30.0,
+                        fill: [0, 0, 255, 255],
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            },
+        ];
+
+        let (value, _) = export_lottie_value(
+            &project,
+            &LottieOptions {
+                include_background: false,
+                ..LottieOptions::default()
+            },
+        )
+        .unwrap();
+        let layers = value["layers"].as_array().unwrap();
+        assert_eq!(
+            layers.len(),
+            1,
+            "simple morph should not become frame slices"
+        );
+        assert_eq!(layers[0]["ty"], 4);
+        let items = layers[0]["shapes"][0]["it"].as_array().unwrap();
+        let path = items.iter().find(|item| item["ty"] == "sh").unwrap();
+        assert_eq!(path["ks"]["a"], 1, "morph path should remain animated");
     }
 
     #[test]

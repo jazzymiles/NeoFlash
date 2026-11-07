@@ -79,7 +79,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | partial (Library + Stage Swap done; R-012) | editor / yes | P2 |
 | PR-07 | Properties — Graphic thumbnail strip | Properties | done (`panels/live_planned.rs` + `authoring_symbols.rs`) | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
-| PR-09 | Properties — Video playback & cue points | Properties | done (`timeline_video.rs`) | yes | P3 |
+| PR-09 | Properties — Video playback & cue points | Properties | partial (`timeline_video.rs`; full authored playback UI remains) | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | done | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
@@ -114,18 +114,18 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-01 | Preferences (9 pages) | Dialog | done (8 pages wired; Updates + design/subsystem items disabled) | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | done | editor | P1 |
 | DL-03 | Publish settings | HTML5 size settings | done (`panels/publish_settings.rs`) | yes | P2 |
-| DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Dialog | done (`panels/export_image.rs` + `neoflash_export::image_export`) | yes | P2 (PNG/SVG) / P3 |
+| DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Dialog | partial (`panels/export_image.rs` + `neoflash_export::image_export`; documented format fallbacks) | yes | P2 (PNG/SVG) / P3 |
 | DL-05 | Export video | Dialog | done (`panels/export_video.rs`) | yes | P3 |
 | DL-06 | Export audio | Dialog | done | yes | P3 |
-| DL-07 | Import video | Dialog | done (`panels/import_video.rs`) | yes | P3 |
+| DL-07 | Import video | Dialog | partial (`panels/import_video.rs`; validated authoring import, playback remains partial) | yes | P3 |
 | DL-08 | Sound properties | Dialog | done | yes | P3 |
 | DL-09 | Edit envelope | Dialog | done | yes | P3 |
-| DL-10 | Import PSD to library | Importer | done (`neoflash_import::psd`) | yes | P3 |
+| DL-10 | Import PSD to library | Importer | partial (`neoflash_import::psd`; editor/CLI wiring remains) | yes | P3 |
 | DL-11 | Font embedding | Dialog | done (`panels/font_embedding.rs`) | yes | P3 |
 | DL-12 | Test Movie window | Window | done (`panels/live_planned.rs` + browser host) | yes | P2 |
 | DL-13 | Find and replace | Dialog | done (`panels/find_replace.rs`) | editor | P2 |
 | DL-14 | Movie Explorer | Panel | done (`panels/movie_explorer.rs`) | editor | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | done (`Symbol::set_scale9_grid`) | yes | P3 |
+| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | partial (tested engine/editor commands; full authoring controls remain) | yes | P3 |
 | DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | done (Armature disabled) | editor / yes | P2 |
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
@@ -602,9 +602,11 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Data: `ElementKind::PaintedPath { fill_gradient, stroke_gradient: Option<GradientPaint> }`.
 - Acceptance: switching a filled path to Radial creates a 2-stop gradient with one Undo; stops editable; HTML5 matches.
 
-**CO-02 · Fill type Bitmap fill (+ "Color — Bitmap fill" panel)** — disabled
-- Purpose: fill with a library bitmap (grid + Import…, Lock fill). Data: none (`editor-paint-effects` limit).
-  **NEW** bitmap paint. Depends on: engine. P3.
+**CO-02 · Fill type Bitmap fill (+ "Color — Bitmap fill" panel)** — done (`panels/live_planned.rs`, `bitmaps.rs`)
+- The Color fill-type entry opens the working panel. Its tile grid imports a deterministic bitmap resource and applies
+  an `AuthoredBitmapFill` (resource, UV matrix, repeat and smoothing) to an editable selected vector shape in one Undo
+  step; applying without a shape imports the tile for later use. Imported library bitmaps can be bound through the same
+  engine path. Invalid or locked targets leave the document unchanged.
 
 **CO-03 · Swatches tab, panel ⋯ Add swatch, colour picker area** — partial (`NF2/Color Picker` SV/HSB/RGB area, Color panel ⋯ `Add swatch` and dockable `Swatches` panel `PP-10` work; inline Color/Swatches tab switch inside Color panel remains open)
 - Purpose: Color panel tabs Color / Swatches; ⋯ menu Add swatch · Help · Close · Close group; `NF2/Color Picker`
@@ -868,8 +870,9 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   same-root document cancellation. Future acceptance: settings persist in the file; Loop off stops playback; trace stripped when
   "Include trace()" is off.
 
-**DL-04 · Export image (`⌥⇧⌘S`)** — done (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
-- Done: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; `Background` (`Stage colour`, `Transparent`); and per-format options (`PNG` bit depth/interlace/smooth/dither/optimize, `SVG` embed/link/outlines/minify/CSS/precision, `PSD` layered v1 binary vs flat, `AI` compatibility/artboards, `PDF` single-page vector).
+**DL-04 · Export image (`⌥⇧⌘S`)** — partial (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
+- Working: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; and `Background` (`Stage colour`, `Transparent`). PNG and SVG are direct exports. PSD writes a layered v1 document when supported. AI is an EPS-compatible PostScript subset and uses a raster fallback for unsupported scene features; PDF is currently raster-backed. Every destination file is written atomically.
+- Pending: SVG image-link/CSS-class generation and PSD folder groups, smart objects, editable text and colour-space conversion. Their approved controls are present but do not yet alter exported content. Native Illustrator/PDF editability beyond the documented fallbacks also remains open.
 
 **DL-05 · Export video** — done (`panels/export_video.rs`, `neoflash_export::video`, `File ▸ Export ▸ Export video…`, `Library ▸ Export symbol as video…`, CLI `--video`):
 - Done: 840 pt modal dialog with format tabs `MP4 · WebM · MOV · GIF · PNG seq.`; live rendered stage preview thumbnail (`render_project_frame_rgba`) with cancellable background `VideoAsyncWorker` progress bar (`Exporting frames f / N`) and pause/resume (`Preview while rendering · ⏸ to pause`); `Range` (`Whole movie (all scenes)`, `Current scene`, `Frames From..To`); `Video` (`W × H` with aspect-lock toggle, `1x` / `2x` / `0.5x` scale, `FPS`, per-format `Codec: H.264 / H.265 / VP9 / AV1 / Apple ProRes / GIF 256-colour / PNG 8-bit`, `Quality` slider `0..=100` with live bitrate caption); `Content` (`Render nested movie clip animation and scripts (runtime capture)`, `Stop at last frame` vs `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps` / `Opus 160 kbps` / `PCM 16-bit`, `Transparent bg (MOV/WebM/GIF/PNG seq.)`); and live footer estimate (`~ X.X MB · MM:SS · W×H`). Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
@@ -877,8 +880,12 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 **DL-06 · Export audio (`⌥⇧⌘A`)** — done (`panels/export_audio.rs`, `neoflash_export::audio`, `File ▸ Export ▸ Export audio…`, `Library ▸ Export audio…`, CLI `--audio`):
 - Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).
 
-**DL-07 · Import video** — done (`panels/import_video.rs`, `File ▸ Import ▸ Import video…`):
-- Done: 720 pt modal dialog and live floating panel with preview + trim `In` / `Out`; `File` + `Browse…`; deployment (`Embed video in timeline (synchronized frames)` -> `VideoSyncMode::Stream`, `Load external video with playback component` -> `VideoSyncMode::Event`, `Progressive download from a web server`); symbol type (`Movie clip`, `Graphic`), codec (`H.264 (MP4)`, `VP9 (WebM)`, `AV1 (MP4)`), `Place instance on stage`, `Expand timeline to fit video`, `Include audio track`, `Match document frame rate to video`; and single-step `"Import video"` Undo.
+**DL-07 · Import video** — partial (`panels/import_video.rs`, `File ▸ Import ▸ Import video…`):
+- Working: the 720 pt modal dialog and live floating panel choose a real local MP4/WebM/Ogg resource, validate its
+  container/codec diagnostics, set the timeline video span, optionally place a video element, extend the timeline and
+  match the document FPS in one `"Import video"` Undo step. Identical media is reused and colliding resource paths are
+  made unique. Read, format or project-validation failures leave both the draft and document unchanged. The authored
+  playback/cue-point surface in PR-09 and true URL-backed progressive deployment remain incomplete.
 
 **DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
 source path and decoded format/duration/size stats, configures per-resource `Export` compression (`Compression: MP3 | Default | WAV (PCM) | Original`, `Bit rate: 64`–`320 kbps`, `Quality: Fast | Medium | Best`, `Convert stereo to mono`, and live `"Result: … — N % of original"` caption in `ResourceUnit.audio_export`, format 9), auditions the transcoded preview with `Test`/`Stop`, reloads from the recorded import path
@@ -888,12 +895,12 @@ audition). P3.
 | ID | Absent / promoted dialog / panel (reference §9) | Purpose | Depends on | Prio |
 | --- | --- | --- | --- | --- |
 | DL-09 | Edit envelope — **done** (`panels/edit_envelope.rs`) | Modal dialog with Left/right `EnvelopeLane`s (`1..=8` draggable stereo points in format-7 `FrameSound.envelope`, `SoundEffect::Custom`), presets, seconds/frames ruler, zoom, Play/Stop preview, one Undo | TL-07 audio model (done) | P3 |
-| DL-10 | Import PSD to library | Layer list + per-layer options, placement, keep positions, stage size | **NEW** PSD reader in `neoflash-import` | P3 |
-| DL-11 | Font embedding | Font list, character ranges, extra chars, export for AS + class, glyph count | `web-font-portability` (planned) | P3 |
+| DL-10 | Import PSD to library — **partial** | The bounded PSD/PSB reader and project conversion options work in `neoflash-import`; the author-facing editor/CLI workflow is not wired yet | importer library complete enough for supported files; UI/CLI wiring open | P3 |
+| DL-11 | Font embedding — **done for full resources** (`panels/font_embedding.rs`) | Font list, character ranges, extra chars, export for AS + class, glyph count; stores real embeddable font binaries plus metadata and rejects restricted licenses atomically. Range/class choices are retained as metadata; browser-loadable subset and complete generated-class output remain partial. | `web-font-portability` export policy | P3 |
 | DL-12 | Test Movie window | Native window: stage, transport, speed, fps/memory badge, Output drawer | Embedded runtime host (today Test Movie opens a browser) | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced | 9-slice guides; runtime shared library export/import URL; authortime sharing source | **NEW** symbol fields; runtime 9-slice scaling | P3 |
+| DL-15 | Convert to Symbol ▸ Advanced — **partial** | Tested 9-slice and shared-library model/editor commands exist; the complete Advanced dialog controls are not connected | authoring controls remain | P3 |
 | DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), `Mask mode` (`Geometry`, `Alpha`, `Luminance`) + `Invert mask` (`R-048`), Outline colour + outlines toggle, Layer height `Compact`/`Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 
@@ -919,7 +926,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, HTML5/Video Publish, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; Import video and Export image open planned previews; Publish settings has live HTML5 size and Video (MP4) controls |
+| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, validated Import video, HTML5/Video Publish, Export image…, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; PSD import lacks editor wiring; authored video playback and the documented image-format fidelity limits remain partial; Publish settings has live HTML5 size and Video (MP4) controls |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences, Keyboard shortcuts and Customize tools | Editing commands require the appropriate active document, selection and history |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |

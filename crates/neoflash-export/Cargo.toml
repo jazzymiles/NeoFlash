@@ -20,3 +20,6 @@ ab_glyph = "0.2.32"
 gif = "0.14.2"
 color_quant = "1.1.0"
 symphonia = { version = "0.5.5", default-features = false, features = ["mp3", "pcm", "wav"] }
+
+[dev-dependencies]
+neoflash-import = { path = "../neoflash-import" }

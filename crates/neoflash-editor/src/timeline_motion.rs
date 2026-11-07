@@ -56,6 +56,7 @@ pub(crate) struct MotionClip {
     /// Pose shown on the last frame of a motion span (held after it).
     hold: Transform,
     source: Timeline,
+    source_fps: f64,
     source_layer: usize,
     source_start: u32,
     source_element: Id,
@@ -120,10 +121,10 @@ fn relative(base: &Transform, pose: &Transform, target: &Transform) -> Transform
 }
 
 /// Layer content at `frame` as a new keyframe (labels and scripts stay where they are).
-fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32) -> Keyframe {
+fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32, fps: f64) -> Keyframe {
     Keyframe {
         frame,
-        elements: sample_layer_in(timeline, layer, frame),
+        elements: sample_layer_in_at_fps(timeline, layer, frame, fps),
         ..Default::default()
     }
 }
@@ -201,10 +202,11 @@ impl Editor {
                     });
                 }
             }
-            let hold = sample_layer_in(timeline, layer, end - 1)
-                .into_iter()
-                .find(|e| e.id == id)
-                .map_or(keys[0].pose, |e| e.transform);
+            let hold =
+                sample_layer_in_at_fps(timeline, layer, end - 1, f64::from(self.project.fps))
+                    .into_iter()
+                    .find(|e| e.id == id)
+                    .map_or(keys[0].pose, |e| e.transform);
             return Ok(MotionClip {
                 kind: TweenKind::Motion,
                 ease: start.tween.unwrap_or(Easing::Linear),
@@ -214,6 +216,7 @@ impl Editor {
                 keys,
                 hold,
                 source: timeline.clone(),
+                source_fps: f64::from(self.project.fps),
                 source_layer: self.layer,
                 source_start: start.frame,
                 source_element: id,
@@ -260,6 +263,7 @@ impl Editor {
             ],
             hold: last,
             source: timeline.clone(),
+            source_fps: f64::from(self.project.fps),
             source_layer: self.layer,
             source_start: key.frame,
             source_element: id,
@@ -323,10 +327,11 @@ impl Editor {
             // otherwise the shared displacement would also move unrelated target objects.
             let mut keys = Vec::with_capacity(clip.length as usize);
             for offset in 0..clip.length {
-                let Some(element) = sample_layer_in(
+                let Some(element) = sample_layer_in_at_fps(
                     &clip.source,
                     &clip.source.layers[clip.source_layer],
                     clip.source_start + offset,
+                    clip.source_fps,
                 )
                 .into_iter()
                 .find(|element| element.id == clip.source_element) else {
@@ -353,11 +358,12 @@ impl Editor {
         }
         let at = self.frame;
         let end = at + clip.length;
+        let target_fps = f64::from(self.project.fps);
         self.transact(|s| {
             let timeline = &mut s.symbol_mut().timeline;
             let original = timeline.layers[index].clone();
             let snapshot = timeline.clone();
-            let Some(template) = sample_layer_in(&snapshot, &original, at)
+            let Some(template) = sample_layer_in_at_fps(&snapshot, &original, at, target_fps)
                 .into_iter()
                 .find(|e| e.id == id)
             else {
@@ -375,7 +381,7 @@ impl Editor {
                     .iter()
                     .find(|k| k.frame == frame && k.keyed_properties.is_none())
                     .cloned()
-                    .unwrap_or_else(|| sampled_key(&snapshot, &original, frame))
+                    .unwrap_or_else(|| sampled_key(&snapshot, &original, frame, target_fps))
             };
             let mut keys = vec![];
             for (i, recorded) in clip.keys.iter().enumerate() {
@@ -384,7 +390,7 @@ impl Editor {
                 let mut key = if i == 0 || clip.kind != TweenKind::Motion {
                     key_at(frame)
                 } else {
-                    sampled_key(&snapshot, &original, frame)
+                    sampled_key(&snapshot, &original, frame, target_fps)
                 };
                 place(
                     &mut key,
@@ -490,6 +496,7 @@ impl Editor {
         let (index, id) = self.selected_object().unwrap();
         let at = self.frame;
         let target_timeline = self.symbol().timeline.clone();
+        let target_fps = f64::from(self.project.fps);
         let original = &target_timeline.layers[index];
         // Ease alone edits the existing span's timing without replacing its authored poses.
         if !options.properties[..8].iter().any(|chosen| *chosen) {
@@ -525,7 +532,7 @@ impl Editor {
             self.message("The pasted motion exceeds the 10,000-frame timeline limit.");
             return;
         };
-        let Some(target) = sample_layer_in(&target_timeline, original, at)
+        let Some(target) = sample_layer_in_at_fps(&target_timeline, original, at, target_fps)
             .into_iter()
             .find(|e| e.id == id)
         else {
@@ -583,13 +590,14 @@ impl Editor {
                 .iter()
                 .find(|k| k.frame == frame)
                 .cloned()
-                .unwrap_or_else(|| sampled_key(&target_timeline, original, frame));
-            key.elements = sample_layer_in(&target_timeline, original, frame);
+                .unwrap_or_else(|| sampled_key(&target_timeline, original, frame, target_fps));
+            key.elements = sample_layer_in_at_fps(&target_timeline, original, frame, target_fps);
             if (at..=paste_end).contains(&frame)
-                && let Some(copied) = sample_layer_in(
+                && let Some(copied) = sample_layer_in_at_fps(
                     &source,
                     &source.layers[clip.source_layer],
                     clip.source_start + frame - at,
+                    clip.source_fps,
                 )
                 .into_iter()
                 .find(|e| e.id == clip.source_element)
@@ -668,7 +676,12 @@ impl Editor {
             if continuation < target_timeline.frame_count
                 && !layer.keyframes.iter().any(|k| k.frame == continuation)
             {
-                keys.push(sampled_key(&target_timeline, original, continuation));
+                keys.push(sampled_key(
+                    &target_timeline,
+                    original,
+                    continuation,
+                    target_fps,
+                ));
             }
             layer
                 .keyframes
@@ -697,7 +710,7 @@ impl Editor {
             .min(timeline.frame_count)
             .max(last + 1);
         let position = |frame| {
-            sample_layer_in(timeline, layer, frame)
+            sample_layer_in_at_fps(timeline, layer, frame, f64::from(self.project.fps))
                 .into_iter()
                 .find(|e| e.id == element)
                 .map(|e| [e.transform.x, e.transform.y])
@@ -793,6 +806,7 @@ impl Editor {
                 d.began = true;
             }
         }
+        let fps = f64::from(self.project.fps);
         let Some(layer) = self
             .symbol_mut()
             .timeline
@@ -817,7 +831,7 @@ impl Editor {
             element.transform.x = to[0];
             element.transform.y = to[1];
         }
-        crate::timeline_motion_curve::rebase_layer_motion_paths(&before, layer);
+        crate::timeline_motion_curve::rebase_layer_motion_paths(&before, layer, fps);
     }
 
     /// End the key point drag: one Undo step when it moved.

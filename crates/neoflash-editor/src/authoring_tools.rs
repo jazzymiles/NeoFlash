@@ -523,9 +523,13 @@ impl Editor {
         let mut element = self
             .target_layer_index(&hit.target)
             .and_then(|idx| {
-                sample_layer(&self.symbol().timeline.layers[idx], self.frame)
-                    .into_iter()
-                    .find(|e| e.id == hit.target.element)
+                sample_layer_at_fps(
+                    &self.symbol().timeline.layers[idx],
+                    self.frame,
+                    f64::from(self.project.fps),
+                )
+                .into_iter()
+                .find(|e| e.id == hit.target.element)
             })
             .unwrap_or_else(|| Element {
                 kind: hit.kind.clone(),
@@ -580,10 +584,13 @@ impl Editor {
             let Some(index) = self.target_layer_index(target) else {
                 continue;
             };
-            let Some(element) = sample_layer(&self.symbol().timeline.layers[index], self.frame)
-                .into_iter()
-                .find(|element| element.id == target.element)
-            else {
+            let Some(element) = sample_layer_at_fps(
+                &self.symbol().timeline.layers[index],
+                self.frame,
+                f64::from(self.project.fps),
+            )
+            .into_iter()
+            .find(|element| element.id == target.element) else {
                 continue;
             };
             let layer = &self.symbol().timeline.layers[index];
@@ -1046,10 +1053,8 @@ impl Editor {
                         let radial = gradient.kind == GradientKind::Radial;
                         let focal_point_ratio = gradient.focal_point_ratio;
                         let edge = affine(hit.matrix, affine(matrix, Pos2::new(819.2, 0.)));
-                        let center = affine(
-                            hit.matrix,
-                            Pos2::new(matrix[4] as f32, matrix[5] as f32),
-                        );
+                        let center =
+                            affine(hit.matrix, Pos2::new(matrix[4] as f32, matrix[5] as f32));
                         let focal = affine(
                             hit.matrix,
                             affine(matrix, Pos2::new((focal_point_ratio * 819.2) as f32, 0.)),
@@ -1062,8 +1067,7 @@ impl Editor {
                             && focal_screen.distance(pos) < 12.
                             && (modifiers.alt
                                 || (focal_point_ratio.abs() > 0.03
-                                    && focal_screen.distance(pos)
-                                        < center_screen.distance(pos)));
+                                    && focal_screen.distance(pos) < center_screen.distance(pos)));
                         self.set_selection(vec![hit.target.clone()]);
                         Some(GradientGesture {
                             target: hit.target,
@@ -1327,11 +1331,13 @@ impl Editor {
                     let Some(index) = self.target_layer_index(&target) else {
                         continue;
                     };
-                    let Some(element) =
-                        sample_layer(&self.symbol().timeline.layers[index], self.frame)
-                            .into_iter()
-                            .find(|e| e.id == target.element)
-                    else {
+                    let Some(element) = sample_layer_at_fps(
+                        &self.symbol().timeline.layers[index],
+                        self.frame,
+                        f64::from(self.project.fps),
+                    )
+                    .into_iter()
+                    .find(|e| e.id == target.element) else {
                         continue;
                     };
                     let kind = if mode == EraserMode::Objects {

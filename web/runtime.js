@@ -1258,7 +1258,7 @@
       const call=(name,...args)=>player[objectRef?'object_'+({clip_frame:'frame',clip_frame_count:'frame_count',clip_metadata:'metadata'}[name]||name):name](key,...args);
       const custom = Object.create(null);
       function assertAlive() {
-        if (!live()) throw new Error(`Display object ${key} was removed or replaced.`);
+        if (!live()) throw new ReferenceError(`Display object ${key} was removed or replaced.`);
       }
       function proxyOwner(){return display?(display.ownerOf?display.ownerOf(proxy):display.descriptor(proxy).owner):null;}
       function ownsTimelineMetadata(name){

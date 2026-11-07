@@ -90,8 +90,8 @@ pub use clipboard::{
 pub use evaluate::{
     DrawItem, GuidePath, affine_multiply, camera_layer_matrix, easing, effective_property_ease,
     evaluate, guide_polyline, motion_path_polyline, motion_path_segment, motion_path_waypoints,
-    motion_span, placement_start, property_value, sample_layer, sample_layer_in,
-    sample_timeline_camera, transform_matrix,
+    motion_span, placement_start, property_value, sample_layer, sample_layer_at_fps,
+    sample_layer_in, sample_layer_in_at_fps, sample_timeline_camera, transform_matrix,
 };
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, IDENTITY_COLOR_MATRIX, MAX_FILTER_PIXELS,

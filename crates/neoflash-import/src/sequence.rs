@@ -6,13 +6,19 @@
 //! keyframes on a single layer, separate layers, or inside a reusable Graphic symbol.
 
 use crate::{ImportError, ImportFormat, ImportReport, Statistics};
-use image::GenericImageView;
+use image::{GenericImageView, ImageReader, Limits};
 use neoflash_core::{
-    Element, ElementKind, InstancePlayback, Keyframe, Layer, LayerProperties, Project,
-    ResourceUnit, Symbol, SymbolKind, Timeline, Transform, new_id,
+    Element, ElementKind, InstancePlayback, Keyframe, Layer, LayerProperties, MAX_RESOURCE_BYTES,
+    MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, Project, ResourceUnit, Symbol, SymbolKind, Timeline,
+    Transform, new_id,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::{Cursor, Read},
+    path::Path,
+};
 
 /// How imported sequence frames are arranged in the destination [`Project`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,7 +215,22 @@ fn decode_or_normalize_image_bytes(bytes: &[u8]) -> Result<(Vec<u8>, String, u32
     if bytes.is_empty() {
         return Err("image file is empty".into());
     }
-    let img = image::load_from_memory(bytes).map_err(|e| format!("cannot decode image: {e}"))?;
+    if bytes.len() > neoflash_core::MAX_RESOURCE_BYTES {
+        return Err(format!(
+            "encoded image exceeds the {} MiB resource limit",
+            neoflash_core::MAX_RESOURCE_BYTES / (1024 * 1024)
+        ));
+    }
+    let format = image::guess_format(bytes).map_err(|e| format!("cannot detect image: {e}"))?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(neoflash_core::MAX_BITMAP_DIMENSION);
+    limits.max_image_height = Some(neoflash_core::MAX_BITMAP_DIMENSION);
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(limits);
+    let img = reader
+        .decode()
+        .map_err(|e| format!("cannot decode bounded image: {e}"))?;
     let (w, h) = img.dimensions();
     if w == 0 || h == 0 {
         return Err("image has zero width or height".into());
@@ -269,6 +290,22 @@ fn unique_resource_path(project: &Project, desired: &str) -> String {
 /// - `sequence-unreadable-frame`: corrupted or undecodable frame images (represented by an explicit
 ///   placeholder rectangle so frame timing and content are never silently dropped)
 pub fn import_image_sequence_bytes(
+    project: &mut Project,
+    entries: &[(String, Vec<u8>)],
+    options: &ImageSequenceImportOptions,
+) -> Result<ImportReport, ImportError> {
+    let mut candidate = project.clone();
+    let report = import_image_sequence_bytes_inner(&mut candidate, entries, options)?;
+    candidate.validate().map_err(|error| {
+        ImportError::Container(format!(
+            "Image sequence import produced an invalid project: {error}"
+        ))
+    })?;
+    *project = candidate;
+    Ok(report)
+}
+
+fn import_image_sequence_bytes_inner(
     project: &mut Project,
     entries: &[(String, Vec<u8>)],
     options: &ImageSequenceImportOptions,
@@ -613,10 +650,43 @@ pub fn import_image_sequence<P: AsRef<Path>>(
     paths: &[P],
     options: &ImageSequenceImportOptions,
 ) -> Result<ImportReport, ImportError> {
+    if paths.len() > MAX_RESOURCES {
+        return Err(ImportError::Container(format!(
+            "Image sequence contains {} files, exceeding the {MAX_RESOURCES}-resource limit",
+            paths.len()
+        )));
+    }
     let mut entries = Vec::with_capacity(paths.len());
+    let mut total_bytes = 0usize;
     for p in paths {
         let path = p.as_ref();
-        let bytes = fs::read(path)?;
+        if std::fs::metadata(path)?.len() > MAX_RESOURCE_BYTES as u64 {
+            return Err(ImportError::Container(format!(
+                "Image sequence entry '{}' exceeds the {} MiB resource limit",
+                path.display(),
+                MAX_RESOURCE_BYTES / (1024 * 1024)
+            )));
+        }
+        let mut bytes = Vec::new();
+        File::open(path)?
+            .take(MAX_RESOURCE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_RESOURCE_BYTES {
+            return Err(ImportError::Container(format!(
+                "Image sequence entry '{}' exceeds the {} MiB resource limit",
+                path.display(),
+                MAX_RESOURCE_BYTES / (1024 * 1024)
+            )));
+        }
+        total_bytes = total_bytes
+            .checked_add(bytes.len())
+            .ok_or_else(|| ImportError::Container("Image sequence byte count overflowed".into()))?;
+        if total_bytes > MAX_RESOURCE_TOTAL_BYTES {
+            return Err(ImportError::Container(format!(
+                "Image sequence input exceeds the {} MiB aggregate resource limit",
+                MAX_RESOURCE_TOTAL_BYTES / (1024 * 1024)
+            )));
+        }
         entries.push((path.display().to_string(), bytes));
     }
     import_image_sequence_bytes(project, &entries, options)

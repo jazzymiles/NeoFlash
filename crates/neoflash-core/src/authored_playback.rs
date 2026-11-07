@@ -35,6 +35,11 @@ impl AuthoredPlayback {
     }
 
     pub fn set_looping(&mut self, looping: bool) {
+        // Re-enabling loop after a non-looping preview reached its last frame must also resume
+        // the transport that the terminal-frame guard paused.
+        if looping && !self.looping {
+            self.player.set_playing(true);
+        }
         self.looping = looping;
     }
 
@@ -94,5 +99,28 @@ impl AuthoredPlayback {
         // arbitrary frame/object handlers cannot accumulate in an editor preview.
         self.player.drain_scripts();
         self.player.runtime_scripts.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_looping_preview_stops_at_last_frame_and_can_resume_looping() {
+        let mut project = Project::blank();
+        project.symbols[0].timeline.frame_count = 3;
+        let root = project.root.clone();
+        let mut preview = AuthoredPlayback::new(&project, &root, 0);
+
+        preview.set_looping(false);
+        preview.tick(&project);
+        preview.tick(&project);
+        preview.tick(&project);
+        assert_eq!(preview.frame(), 2);
+
+        preview.set_looping(true);
+        preview.tick(&project);
+        assert_eq!(preview.frame(), 0);
     }
 }

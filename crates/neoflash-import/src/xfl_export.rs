@@ -12,7 +12,7 @@ use neoflash_core::{
     GradientPaint, GradientStop, Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole,
     ObjectEvent, ObjectScript, PathCommand, Project, ResourceUnit, Script, ScriptLanguage,
     SoundEffect, SoundSync, Symbol, SymbolKind, TextAlign, Timeline, Transform, TweenKind,
-    sample_layer_in, transform_matrix, valid_library_folder,
+    sample_layer_in_at_fps, transform_matrix, valid_library_folder,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -261,6 +261,7 @@ struct SoundExport {
 struct ExportContext {
     doc_stem: String,
     as_version: u8,
+    fps: f64,
     include_hidden_layers: bool,
     folders: Vec<String>,
     symbol_order: Vec<Id>,
@@ -308,6 +309,7 @@ impl ExportContext {
         Ok(Self {
             doc_stem,
             as_version,
+            fps: f64::from(project.fps.max(1)),
             include_hidden_layers,
             folders,
             symbol_order,
@@ -1295,7 +1297,7 @@ fn prepare_layer(
         }];
     }
 
-    let baked_keys = expand_motion_spans(timeline, layer, timeline_frames);
+    let baked_keys = expand_motion_spans(timeline, layer, timeline_frames, ctx.fps);
     let split_key_sets = split_multi_element_continuous_instances(&baked_keys, ctx);
     let total_splits = split_key_sets.len();
     let mut out = Vec::with_capacity(total_splits);
@@ -1323,7 +1325,12 @@ fn prepare_layer(
 
 /// Evaluates `TweenKind::Motion` property-track spans into standard pose keyframes so
 /// XFL 2.2 receives classic tweens without unsupported `MotionObjectXML` payloads.
-fn expand_motion_spans(timeline: &Timeline, layer: &Layer, timeline_frames: u32) -> Vec<Keyframe> {
+fn expand_motion_spans(
+    timeline: &Timeline,
+    layer: &Layer,
+    timeline_frames: u32,
+    fps: f64,
+) -> Vec<Keyframe> {
     let mut sorted = layer.keyframes.clone();
     sorted.sort_by_key(|k| k.frame);
     // Deduplicate same-frame keys if any exist by keeping the last entry at each frame.
@@ -1373,7 +1380,7 @@ fn expand_motion_spans(timeline: &Timeline, layer: &Layer, timeline_frames: u32)
                 let has_following_frame = f + 1 < bake_end || next_ord_frame == Some(bake_end);
                 out.push(Keyframe {
                     frame: f,
-                    elements: sample_layer_in(timeline, layer, f),
+                    elements: sample_layer_in_at_fps(timeline, layer, f, fps),
                     tween: has_following_frame.then_some(Easing::Linear),
                     tween_kind: TweenKind::Classic,
                     label,
@@ -1385,7 +1392,7 @@ fn expand_motion_spans(timeline: &Timeline, layer: &Layer, timeline_frames: u32)
                 let (label, sound) = meta_by_frame.remove(&bake_end).unwrap_or_default();
                 out.push(Keyframe {
                     frame: bake_end,
-                    elements: sample_layer_in(timeline, layer, bake_end),
+                    elements: sample_layer_in_at_fps(timeline, layer, bake_end, fps),
                     tween: None,
                     tween_kind: TweenKind::Classic,
                     label,
@@ -3694,6 +3701,69 @@ mod tests {
         assert!(!fmt_num(1.0e-7).contains(['e', 'E']));
         assert_eq!(fmt_num(f64::NAN), "0");
         assert_eq!(fmt_num(f64::INFINITY), "0");
+    }
+
+    #[test]
+    fn motion_expression_baking_uses_the_document_frame_rate() {
+        use neoflash_core::{PropertyExpression, TweenProperty};
+
+        let element = Element {
+            id: "expression-shape".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let start = Keyframe {
+            frame: 0,
+            elements: vec![element.clone()],
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Motion,
+            property_expressions: vec![PropertyExpression {
+                property: TweenProperty::X,
+                expression: "value + time".into(),
+                ..PropertyExpression::default()
+            }],
+            ..Keyframe::default()
+        };
+        let end = Keyframe {
+            frame: 60,
+            elements: vec![element],
+            ..Keyframe::default()
+        };
+        let layer = Layer {
+            id: "expression-layer".into(),
+            name: "Expression".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![start, end],
+            properties: LayerProperties::default(),
+        };
+        let timeline = Timeline {
+            frame_count: 61,
+            layers: vec![layer.clone()],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        };
+
+        let at_30_fps = expand_motion_spans(&timeline, &layer, 61, 30.0);
+        let at_60_fps = expand_motion_spans(&timeline, &layer, 61, 60.0);
+        let x_at = |frames: &[Keyframe], frame| {
+            frames
+                .iter()
+                .find(|key| key.frame == frame)
+                .unwrap()
+                .elements[0]
+                .transform
+                .x
+        };
+        assert!((x_at(&at_30_fps, 30) - 1.0).abs() < 1e-9);
+        assert!((x_at(&at_60_fps, 30) - 0.5).abs() < 1e-9);
     }
 
     #[test]

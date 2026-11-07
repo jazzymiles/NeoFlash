@@ -115,6 +115,122 @@ fn format_6_features_need_version_6() {
 }
 
 #[test]
+fn shape_tweens_apply_expression_vector_effect_and_appearance_stacks() {
+    use neoflash_core::{
+        ElementAppearance, ElementVectorEffects, FreeformGradient, FreeformGradientPoint,
+        PropertyExpression, VectorModifier, sample_layer_at_fps, shape_tween_elements,
+    };
+
+    let start_element = rect("shape", 0.0, 0.0);
+    let mut end_element = rect("shape", 20.0, 0.0);
+    if let ElementKind::Rectangle { width, height, .. } = &mut end_element.kind {
+        *width = 20.0;
+        *height = 30.0;
+    }
+
+    let baseline = shape_tween_elements(
+        std::slice::from_ref(&start_element),
+        std::slice::from_ref(&end_element),
+        0.5,
+    );
+    let baseline_commands = baseline[0]
+        .to_path_commands()
+        .expect("shape tween produces a path")
+        .0
+        .len();
+
+    let mut start = key(0, vec![start_element]);
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Shape;
+    start.property_expressions = vec![PropertyExpression {
+        property: TweenProperty::X,
+        expression: "value + time".into(),
+        ..PropertyExpression::default()
+    }];
+    start.vector_effects = vec![ElementVectorEffects {
+        element_id: "shape".into(),
+        freeform_gradient: Some(FreeformGradient {
+            points: vec![FreeformGradientPoint {
+                id: "green".into(),
+                position: [0.0, 0.0],
+                color: [10, 200, 30, 255],
+                radius: 100.0,
+                weight: 1.0,
+            }],
+            lines: Vec::new(),
+        }),
+        ..ElementVectorEffects::default()
+    }];
+    start.appearances = vec![ElementAppearance {
+        element_id: "shape".into(),
+        modifiers: vec![VectorModifier::Repeater {
+            copies: 2,
+            offset_x: 25.0,
+            offset_y: 0.0,
+            scale_step: 1.0,
+            rotation_step: 0.0,
+        }],
+        ..ElementAppearance::default()
+    }];
+    let tween_layer = layer("shape", vec![start, key(10, vec![end_element])]);
+
+    let sampled = sample_layer_at_fps(&tween_layer, 5, 10.0);
+    assert_eq!(sampled.len(), 1);
+    assert!((sampled[0].transform.x - (baseline[0].transform.x + 0.5)).abs() < 1e-9);
+    let (commands, _) = sampled[0]
+        .to_path_commands()
+        .expect("effects preserve editable vector output");
+    assert_eq!(commands.len(), baseline_commands * 2);
+    match &sampled[0].kind {
+        ElementKind::Path { fill, .. } | ElementKind::PaintedPath { fill, .. } => {
+            assert_eq!(*fill, [10, 200, 30, 255]);
+        }
+        other => panic!("expected evaluated shape path, got {other:?}"),
+    }
+}
+
+#[test]
+fn project_frame_edits_bake_expressions_at_the_document_frame_rate() {
+    use neoflash_core::{FrameRange, PropertyExpression, TimelineEdit, copy_frames, edit_frames};
+
+    let mut start = key(0, vec![rect("clocked", 0.0, 0.0)]);
+    start.property_expressions = vec![PropertyExpression {
+        property: TweenProperty::X,
+        expression: "time".into(),
+        ..PropertyExpression::default()
+    }];
+    let mut project = project(61, vec![layer("animated", vec![start])]);
+    project.fps = 60;
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    let root = project.root.clone();
+    let range = FrameRange {
+        layers: vec!["animated".into()],
+        start: 30,
+        end: 30,
+    };
+
+    let copied = copy_frames(&project, &root, &range, false).unwrap();
+    assert!((copied.layers[0].keyframes[0].elements[0].transform.x - 0.5).abs() < 1e-9);
+
+    edit_frames(
+        &mut project,
+        &root,
+        TimelineEdit::ConvertToKeyframes {
+            range,
+            blank: false,
+        },
+    )
+    .unwrap();
+    let baked = project.symbol(&root).unwrap().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 30)
+        .unwrap();
+    assert!((baked.elements[0].transform.x - 0.5).abs() < 1e-9);
+}
+
+#[test]
 fn classic_tween_follows_its_motion_guide() {
     // An L-shaped guide: (0,0) → (100,0) → (100,100). The object moves from the
     // start of the path to its end along the corner, not on the straight diagonal.

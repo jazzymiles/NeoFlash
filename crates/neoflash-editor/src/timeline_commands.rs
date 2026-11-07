@@ -39,6 +39,7 @@ fn property_changed(a: &Transform, b: &Transform, property: TweenProperty) -> bo
 /// that changed; the other tracks keep interpolating. Unkeyed values stored on property keys are
 /// then refreshed to the displayed pose so later edits start from what the stage shows.
 pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Project) {
+    let fps = f64::from(project.fps);
     for symbol in &mut project.symbols {
         let old_symbol = before.symbol(&symbol.id);
         for layer in &mut symbol.timeline.layers {
@@ -57,7 +58,7 @@ pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Projec
                         Some(old_key) if old_key.keyed_properties.is_some() => {
                             old_key.elements.clone()
                         }
-                        _ if keyed.is_empty() => sample_layer(old, key.frame),
+                        _ if keyed.is_empty() => sample_layer_at_fps(old, key.frame, fps),
                         _ => continue,
                     };
                     for element in &key.elements {
@@ -83,7 +84,7 @@ pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Projec
                 let Some(keyed) = key.keyed_properties.clone() else {
                     continue;
                 };
-                let shown = sample_layer(&snapshot, key.frame);
+                let shown = sample_layer_at_fps(&snapshot, key.frame, fps);
                 for element in &mut key.elements {
                     if let Some(pose) = shown.iter().find(|e| e.id == element.id) {
                         for property in TweenProperty::ALL {
@@ -1427,10 +1428,11 @@ impl Editor {
             return 0;
         }
         let layer_idx = self.layer;
+        let fps = f64::from(self.project.fps);
         let mut baked = 0usize;
         self.transact_named("Bake IK span to keyframes", |editor| {
             let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
-            baked = layer.bake_ik_span_to_keyframes(start_frame, end_frame);
+            baked = layer.bake_ik_span_to_keyframes_at_fps(start_frame, end_frame, fps);
         });
         baked
     }
@@ -1547,11 +1549,32 @@ impl Editor {
             return false;
         };
         let key_frame = key.frame;
+        if key.video == video {
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        let mut candidate = self.project.clone();
+        let Some(layer) = candidate
+            .symbol_mut(&symbol_id)
+            .and_then(|symbol| symbol.timeline.layers.get_mut(layer_idx))
+        else {
+            return false;
+        };
+        let Some(key) = layer
+            .keyframes
+            .iter_mut()
+            .find(|key| key.frame == key_frame)
+        else {
+            return false;
+        };
+        key.video = video;
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            self.message(format!("Could not set timeline video span: {error}"));
+            return false;
+        }
         self.transact_named("Set timeline video span", |editor| {
-            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
-            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
-                k.video = video;
-            }
+            editor.project = candidate;
         });
         true
     }
@@ -1763,7 +1786,7 @@ impl Editor {
             sym.timeline.frame_count = sym.timeline.frame_count.max(max_frame + 1);
             let layer = &mut sym.timeline.layers[layer_idx];
             for &(f, pos) in &pts {
-                let mut elements = neoflash_core::sample_layer(layer, f);
+                let mut elements = neoflash_core::sample_layer_at_fps(layer, f, fps);
                 if let Some(el) = elements.iter_mut().find(|e| e.id == eid) {
                     el.transform.x = pos[0];
                     el.transform.y = pos[1];
@@ -1842,7 +1865,12 @@ impl Editor {
         let tl = &self.symbol().timeline;
         for layer in &tl.layers {
             if layer.visible {
-                elements.extend(neoflash_core::sample_layer_in(tl, layer, self.frame));
+                elements.extend(neoflash_core::sample_layer_in_at_fps(
+                    tl,
+                    layer,
+                    self.frame,
+                    f64::from(self.project.fps),
+                ));
             }
         }
         neoflash_core::StageSnapshotAB {

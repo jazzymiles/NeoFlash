@@ -233,6 +233,57 @@ fn format_bitmap_stats(unit: &neoflash_core::ResourceUnit) -> String {
     }
 }
 
+pub(crate) fn apply_bitmap_fill_to_project(
+    project: &mut Project,
+    symbol_id: &str,
+    layer_id: &str,
+    frame: u32,
+    fill: neoflash_core::AuthoredBitmapFill,
+) -> Result<(), String> {
+    if !project
+        .resources
+        .iter()
+        .any(|resource| resource.id == fill.resource_id && resource.is_image())
+    {
+        return Err(format!(
+            "Bitmap resource {} was not found.",
+            fill.resource_id
+        ));
+    }
+    let symbol = project
+        .symbol_mut(symbol_id)
+        .ok_or_else(|| "Active symbol not found.".to_string())?;
+    let layer = symbol
+        .timeline
+        .layers
+        .iter_mut()
+        .find(|layer| layer.id == layer_id)
+        .ok_or_else(|| "Selected layer was not found.".to_string())?;
+    let key_index = layer
+        .keyframes
+        .iter()
+        .rposition(|key| key.frame <= frame)
+        .ok_or_else(|| "Selected element was not found on the current frame.".to_string())?;
+    let key = &mut layer.keyframes[key_index];
+    if !key
+        .elements
+        .iter()
+        .any(|element| element.id == fill.element_id)
+    {
+        return Err("Selected element was not found on the current frame.".into());
+    }
+    if let Some(existing) = key
+        .bitmap_fills
+        .iter_mut()
+        .find(|existing| existing.element_id == fill.element_id)
+    {
+        *existing = fill;
+    } else {
+        key.bitmap_fills.push(fill);
+    }
+    Ok(())
+}
+
 impl crate::app::Editor {
     fn resolve_bitmap_properties_target(
         &self,
@@ -437,49 +488,34 @@ impl crate::app::Editor {
         smoothing: bool,
     ) -> Result<(), String> {
         self.finish_edits();
-        let Some(el_id) = self.selection.single().map(|t| t.element.clone()) else {
+        let Some(target) = self
+            .selection
+            .single()
+            .filter(|target| self.target_editable(target))
+            .cloned()
+        else {
             return Err("Select a shape element first.".into());
         };
         let mut candidate = self.project.clone();
         let sym_id = self.symbol_id().to_owned();
-        let frame = self.frame;
-        let Some(sym) = candidate.symbol_mut(&sym_id) else {
-            return Err("Active symbol not found.".into());
-        };
-        let mut updated = false;
-        for layer in &mut sym.timeline.layers {
-            let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
-                continue;
-            };
-            let key = &mut layer.keyframes[key_idx];
-            if key.elements.iter().any(|e| e.id == el_id) {
-                if let Some(existing) = key
-                    .bitmap_fills
-                    .iter_mut()
-                    .find(|bf| bf.element_id == el_id)
-                {
-                    existing.resource_id = resource_id;
-                    existing.matrix = matrix;
-                    existing.repeat = repeat;
-                    existing.smoothing = smoothing;
-                } else {
-                    key.bitmap_fills.push(neoflash_core::AuthoredBitmapFill {
-                        element_id: el_id,
-                        resource_id,
-                        matrix,
-                        repeat,
-                        smoothing,
-                    });
-                }
-                updated = true;
-                break;
-            }
-        }
-        if !updated {
-            return Err("Selected element was not found on the current frame.".into());
-        }
+        apply_bitmap_fill_to_project(
+            &mut candidate,
+            &sym_id,
+            &target.layer,
+            self.frame,
+            neoflash_core::AuthoredBitmapFill {
+                element_id: target.element,
+                resource_id,
+                matrix,
+                repeat,
+                smoothing,
+            },
+        )?;
         candidate.upgrade_format_for_features();
         candidate.validate().map_err(|e| e.to_string())?;
+        if candidate == self.project {
+            return Ok(());
+        }
         self.transact_named("Bitmap fill", |s| {
             s.project = candidate;
         });

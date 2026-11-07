@@ -5673,15 +5673,49 @@ fn color_panel_is_compact_and_opens_the_picker_on_demand() {
     assert!(!editor.history.can_undo());
 }
 
+#[test]
+fn export_image_defaults_to_the_active_scene() {
+    use crate::panels::export_image::export_image_draft;
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.new_scene();
+    let active_scene = editor.symbol_id().to_owned();
+    editor.frame = 0;
+
+    editor.open_export_image(&ctx);
+    let draft = export_image_draft(&ctx).expect("export draft");
+    assert_eq!(
+        draft.options.symbol_id.as_deref(),
+        Some(active_scene.as_str())
+    );
+    assert_eq!(
+        draft
+            .options
+            .range
+            .resolve_frames(&editor.project, draft.options.symbol_id.as_deref()),
+        (0, 0)
+    );
+}
+
 /// T-126 / T-127: Export image (PNG/SVG/PSD/AI/PDF), Import video, Stroke style, Font embedding,
 /// Bitmap fill swatch tiling, Deco pattern, Spray brush burst, and Stage context-menu Swap/Duplicate
 /// symbol all work end-to-end with single-step Undo/Redo and valid project documents.
 #[test]
 fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     use crate::panels::{
-        export_image::{has_export_image_dialog, update_export_image_draft},
-        font_embedding::has_font_embedding_dialog,
-        import_video::has_import_video_dialog,
+        export_image::{
+            ExportImageDraft, export_image_draft, has_export_image_dialog,
+            set_inline_export_image_draft, update_export_image_draft,
+        },
+        font_embedding::{
+            FontEmbeddingDraft, font_embedding_draft, has_font_embedding_dialog,
+            set_inline_font_embedding_draft, update_font_embedding_draft,
+        },
+        import_video::{
+            ImportVideoDraft, has_import_video_dialog, import_video_draft,
+            set_inline_import_video_draft, update_import_video_draft,
+        },
         stroke_style::has_stroke_style_dialog,
     };
     use neoflash_export::ImageExportFormat;
@@ -5699,30 +5733,167 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_export_image_dialog(&ctx));
     assert!(editor.has_modal_dialog_in(&ctx));
+    let failed_export_parent = tmp_dir.join("not-a-directory");
+    std::fs::write(&failed_export_parent, b"file").unwrap();
+    let export_before_failure = editor.project.clone();
+    let export_error = editor
+        .confirm_export_image_to_path(&ctx, &failed_export_parent.join("image.png"))
+        .expect_err("export into a file path must fail");
+    assert!(!export_error.is_empty());
+    assert_eq!(editor.project, export_before_failure);
+    assert!(
+        has_export_image_dialog(&ctx),
+        "failed export must keep the draft open"
+    );
     for fmt in ImageExportFormat::ALL {
         editor.open_export_image(&ctx);
         update_export_image_draft(&ctx, |d| d.options.format = fmt);
+        set_inline_export_image_draft(
+            &ctx,
+            ExportImageDraft {
+                options: neoflash_export::ImageExportOptions::for_project(&editor.project, 0),
+            },
+        );
         let out_path = tmp_dir.join(format!("export.{}", fmt.extension()));
         let report = editor
             .confirm_export_image_to_path(&ctx, &out_path)
             .expect("export image succeeds");
         assert!(out_path.exists());
         assert!(report.total_bytes > 0);
+        assert!(
+            export_image_draft(&ctx).is_none(),
+            "successful export must clear modal and inline drafts"
+        );
     }
     assert!(!has_export_image_dialog(&ctx));
-    let _ = std::fs::remove_dir_all(&tmp_dir);
+    set_inline_export_image_draft(
+        &ctx,
+        ExportImageDraft {
+            options: neoflash_export::ImageExportOptions::for_project(&editor.project, 0),
+        },
+    );
+    editor.cancel_export_image(&ctx);
+    assert!(
+        export_image_draft(&ctx).is_none(),
+        "inline Cancel must clear the draft"
+    );
 
     // 2. Import video modal dialog + Undo/Redo + validation.
     let before_video = editor.project.clone();
     Editor::open_planned(&ctx, "File ▸ Import ▸ Import video…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_import_video_dialog(&ctx));
-    let _vid_res = editor
+    update_import_video_draft(&ctx, |draft| {
+        draft.file_path = tmp_dir.join("missing.mp4").display().to_string();
+    });
+    assert!(editor.confirm_import_video(&ctx).is_err());
+    assert_eq!(
+        editor.project, before_video,
+        "failed import mutated document"
+    );
+    assert!(has_import_video_dialog(&ctx), "failed import closed dialog");
+
+    let oversized_video_path = tmp_dir.join("oversized.mp4");
+    std::fs::File::create(&oversized_video_path)
+        .unwrap()
+        .set_len((neoflash_core::MAX_RESOURCE_BYTES + 1) as u64)
+        .unwrap();
+    update_import_video_draft(&ctx, |draft| {
+        draft.file_path = oversized_video_path.display().to_string();
+    });
+    let oversized_error = editor
+        .confirm_import_video(&ctx)
+        .expect_err("oversized video must be rejected before import");
+    assert!(oversized_error.contains("16 MiB resource limit"));
+    assert_eq!(
+        editor.project, before_video,
+        "oversized import mutated document"
+    );
+    assert!(
+        has_import_video_dialog(&ctx),
+        "oversized import closed dialog"
+    );
+
+    let video_path = tmp_dir.join("clip.mp4");
+    std::fs::write(
+        &video_path,
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41",
+    )
+    .unwrap();
+    update_import_video_draft(&ctx, |draft| {
+        draft.file_path = video_path.display().to_string();
+    });
+    set_inline_import_video_draft(&ctx, ImportVideoDraft::default());
+    let vid_res = editor
         .confirm_import_video(&ctx)
         .expect("import video succeeds");
     assert!(!has_import_video_dialog(&ctx));
+    assert!(
+        import_video_draft(&ctx).is_none(),
+        "successful modal import must clear a stale inline draft"
+    );
     assert_eq!(editor.history.undo_label(), Some("Import video"));
     editor.project.validate().expect("valid after import video");
+    let after_first_video = editor.project.clone();
+
+    editor.open_import_video(&ctx);
+    update_import_video_draft(&ctx, |draft| {
+        draft.file_path = video_path.display().to_string();
+    });
+    let reused = editor
+        .confirm_import_video(&ctx)
+        .expect("repeated identical video import succeeds");
+    assert_eq!(
+        reused, vid_res,
+        "identical video bytes must reuse the resource"
+    );
+    assert_eq!(
+        editor.project.resources.len(),
+        after_first_video.resources.len(),
+        "repeated import created an orphan resource"
+    );
+    editor
+        .project
+        .validate()
+        .expect("repeat import stays valid");
+    editor.undo();
+    assert_eq!(editor.project, after_first_video);
+
+    std::fs::write(
+        &video_path,
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp42",
+    )
+    .unwrap();
+    editor.open_import_video(&ctx);
+    update_import_video_draft(&ctx, |draft| {
+        draft.file_path = video_path.display().to_string();
+    });
+    let distinct = editor
+        .confirm_import_video(&ctx)
+        .expect("same-name video with different bytes succeeds");
+    assert_ne!(distinct, vid_res);
+    let video_resources: Vec<_> = editor
+        .project
+        .resources
+        .iter()
+        .filter(|resource| resource.is_video())
+        .collect();
+    assert_eq!(video_resources.len(), 2);
+    assert_ne!(
+        video_resources[0].path.to_ascii_lowercase(),
+        video_resources[1].path.to_ascii_lowercase(),
+        "different video bytes need distinct logical paths"
+    );
+    editor
+        .project
+        .validate()
+        .expect("same-name videos stay valid");
+    editor.undo();
+    assert_eq!(
+        editor.project, after_first_video,
+        "one Undo must remove the distinct resource and placement"
+    );
+
     editor.undo();
     assert_eq!(editor.project, before_video);
     editor.redo();
@@ -5731,6 +5902,7 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
         .validate()
         .expect("valid after redo import video");
     editor.undo();
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 
     // 3. Stroke style modal dialog on a selected shape + Undo/Redo + validation.
     let rect_id = new_id("rect");
@@ -5769,14 +5941,53 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     Editor::open_planned(&ctx, "Library menu ▸ Font embedding…");
     editor.drain_converted_entry_triggers(&ctx);
     assert!(has_font_embedding_dialog(&ctx));
-    let embedded = editor.confirm_font_embedding(&ctx);
+    update_font_embedding_draft(&ctx, |draft| {
+        draft.entries[0].family = "NeoFlash definitely missing font".into();
+    });
+    assert!(editor.confirm_font_embedding(&ctx).is_err());
+    assert_eq!(
+        editor.project, before_fonts,
+        "failed font embedding mutated document"
+    );
+    assert!(
+        has_font_embedding_dialog(&ctx),
+        "failed font embedding closed dialog"
+    );
+    update_font_embedding_draft(&ctx, |draft| {
+        draft.entries[0].family = "Inter".into();
+    });
+    set_inline_font_embedding_draft(&ctx, FontEmbeddingDraft::default());
+    let embedded = editor.confirm_font_embedding(&ctx).expect("embed fonts");
     assert_eq!(embedded, 3);
     assert!(!has_font_embedding_dialog(&ctx));
+    assert!(
+        font_embedding_draft(&ctx).is_none(),
+        "successful modal embedding must clear a stale inline draft"
+    );
     assert_eq!(editor.history.undo_label(), Some("Font embedding"));
     editor
         .project
         .validate()
         .expect("valid after font embedding");
+    let embedded_fonts: Vec<_> = editor
+        .project
+        .resources
+        .iter()
+        .filter(|resource| neoflash_export::is_font_resource(resource))
+        .collect();
+    assert_eq!(embedded_fonts.len(), 3);
+    for font in embedded_fonts {
+        let bytes = font.decoded_bytes().expect("embedded font bytes");
+        ab_glyph::FontRef::try_from_slice_and_index(&bytes, 0)
+            .expect("font dialog must embed a real renderable face");
+    }
+    assert!(
+        editor
+            .project
+            .resources
+            .iter()
+            .any(|resource| { resource.path.eq_ignore_ascii_case("fonts/embedding.json") })
+    );
     editor.undo();
     assert_eq!(editor.project, before_fonts);
 
@@ -5913,7 +6124,10 @@ fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work(
         [120.0, 120.0],
         [40.0, 120.0],
     ]);
-    assert!(!inside_ids.is_empty(), "lasso should slice and select inside fill piece");
+    assert!(
+        !inside_ids.is_empty(),
+        "lasso should slice and select inside fill piece"
+    );
     assert_eq!(editor.history.undo_label(), Some("Lasso split fill"));
     editor
         .project
@@ -5984,7 +6198,7 @@ fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work(
     let mut sym = editor.symbol().clone();
     sym.id = sym_id.clone();
     sym.name = "Badge".to_owned();
-    sym.kind = SymbolKind::Graphic;
+    sym.kind = SymbolKind::MovieClip;
     sym.class_name = None;
     sym.linkage_id = Some("shared.Badge".to_owned());
     crate::panels::scene::refresh_timeline_ids(&mut sym.timeline);
@@ -5993,7 +6207,11 @@ fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work(
         ed.project.library_folders.push("UI".to_owned());
         ed.project.library_folders.push("Archive".to_owned());
     });
-    assert!(editor.drag_drop_symbol_to_folder(&sym_id, "UI"));
+    assert!(
+        editor.drag_drop_symbol_to_folder(&sym_id, "UI"),
+        "{}",
+        editor.status
+    );
     assert_eq!(editor.history.undo_label(), Some("Move symbol"));
     assert_eq!(
         editor
@@ -6106,4 +6324,130 @@ fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work(
     assert!(playback.is_looping());
     playback.set_looping(false);
     assert!(!playback.is_looping());
+}
+
+#[test]
+fn t129_editor_resource_and_library_mutations_are_atomic() {
+    let ctx = egui::Context::default();
+    let mut project = Project::demo();
+    project.format_version = project.format_version.max(3);
+    project.resources.push(
+        ResourceUnit::from_bytes(
+            "unrelated-image",
+            "bitmaps/photo.png",
+            "image/png",
+            b"unrelated image bytes",
+        )
+        .unwrap(),
+    );
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "bitmap-target".into(),
+            name: "Bitmap target".into(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 30.0,
+                fill: [10, 20, 30, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.select_single_id("bitmap-target".into());
+    let before_bitmap = editor.project.clone();
+    let tile_id = editor
+        .apply_bitmap_swatch_tile(0)
+        .expect("apply procedural bitmap tile");
+    assert_ne!(tile_id, "unrelated-image");
+    assert!(editor.project.resources.iter().any(|resource| {
+        resource.id == tile_id && resource.path.eq_ignore_ascii_case("bitmaps/tile_1.png")
+    }));
+    let key = editor.symbol().timeline.layers[0]
+        .key_at(editor.frame)
+        .unwrap();
+    assert!(
+        key.bitmap_fills
+            .iter()
+            .any(|fill| fill.element_id == "bitmap-target" && fill.resource_id == tile_id)
+    );
+    assert_eq!(editor.history.undo_label(), Some("Bitmap fill"));
+    editor.undo();
+    assert_eq!(
+        editor.project, before_bitmap,
+        "one Undo must remove both the procedural tile and its binding"
+    );
+
+    let mut symbol = editor.symbol().clone();
+    symbol.id = "library-symbol".into();
+    symbol.name = "Library symbol".into();
+    symbol.kind = SymbolKind::Graphic;
+    symbol.class_name = None;
+    symbol.linkage_id = None;
+    symbol.folder = "Source".into();
+    crate::panels::scene::refresh_timeline_ids(&mut symbol.timeline);
+    editor.transact_named("Library fixture", |editor| {
+        editor.project.symbols.push(symbol);
+        editor.project.library_folders.extend([
+            "Source".into(),
+            "Destination".into(),
+            "Destination/Source".into(),
+        ]);
+        editor.project.format_version = editor.project.format_version.max(4);
+    });
+    let before_failed_moves = editor.project.clone();
+    assert!(!editor.drag_drop_folder_to_folder("Source", "Destination"));
+    let root_id = editor.project.root.clone();
+    assert!(!editor.drag_drop_symbol_to_folder(&root_id, "Destination"));
+    assert_eq!(editor.project, before_failed_moves);
+
+    let font = ResourceUnit::from_bytes(
+        "res_preserved_font",
+        "fonts/Preserved.ttf",
+        "font/ttf",
+        b"\x00\x01\x00\x00original-font-bytes",
+    )
+    .unwrap();
+    editor.transact_named("Font fixture", |editor| {
+        editor.project.resources.push(font.clone());
+        editor.project.format_version = editor.project.format_version.max(3);
+    });
+    editor.open_font_embedding(&ctx);
+    assert_eq!(
+        editor.confirm_font_embedding(&ctx),
+        Ok(1),
+        "{}",
+        editor.status
+    );
+    assert_eq!(
+        editor
+            .project
+            .resources
+            .iter()
+            .find(|resource| resource.id == font.id),
+        Some(&font),
+        "font dialog must preserve imported font bytes when the face is unchanged"
+    );
+
+    editor.open_font_embedding(&ctx);
+    crate::panels::font_embedding::update_font_embedding_draft(&ctx, |draft| {
+        draft.entries[0].family = "Inter".into();
+        draft.entries[0].style = "Regular".into();
+    });
+    assert_eq!(editor.confirm_font_embedding(&ctx), Ok(1));
+    let changed = editor
+        .project
+        .resources
+        .iter()
+        .find(|resource| resource.id == font.id)
+        .expect("changed font keeps its resource identity");
+    assert_ne!(
+        changed.data_base64, font.data_base64,
+        "changing the selected face must replace stale imported bytes"
+    );
+    let changed_bytes = changed.decoded_bytes().unwrap();
+    ab_glyph::FontRef::try_from_slice_and_index(&changed_bytes, 0)
+        .expect("changed face embeds a real font");
+    editor.project.validate().unwrap();
 }

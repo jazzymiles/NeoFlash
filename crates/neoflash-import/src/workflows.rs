@@ -9,8 +9,10 @@ pub use crate::vector_fidelity::*;
 mod tests {
     use super::*;
     use neoflash_core::{
-        BlendMode, ElementKind, InstancePlayback, LayerRole, MaskMode, SymbolKind,
+        BlendMode, ElementKind, InstancePlayback, LayerRole, MaskMode, Project, ResourceUnit,
+        SymbolKind,
     };
+    use std::io::Write as _;
 
     fn make_test_png(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
         let img = image::RgbaImage::from_fn(width, height, |_, _| image::Rgba(rgba));
@@ -41,7 +43,7 @@ mod tests {
         let png1 = make_test_png(32, 24, [255, 0, 0, 255]);
         let png2 = make_test_png(32, 24, [0, 255, 0, 255]);
         let png4 = make_test_png(32, 24, [0, 0, 255, 255]);
-        let entries = vec![
+        let entries = [
             ("walk_0001.png".to_string(), png1.clone()),
             ("walk_0002.png".to_string(), png2.clone()),
             ("walk_0004.png".to_string(), png4.clone()),
@@ -178,10 +180,10 @@ mod tests {
             b
         };
 
-        let rle_r = encode_packbits_channel(&vec![200u8; 16], 4, 4);
-        let rle_g = encode_packbits_channel(&vec![100u8; 16], 4, 4);
-        let rle_b = encode_packbits_channel(&vec![50u8; 16], 4, 4);
-        let rle_a = encode_packbits_channel(&vec![255u8; 16], 4, 4);
+        let rle_r = encode_packbits_channel(&[200u8; 16], 4, 4);
+        let rle_g = encode_packbits_channel(&[100u8; 16], 4, 4);
+        let rle_b = encode_packbits_channel(&[50u8; 16], 4, 4);
+        let rle_a = encode_packbits_channel(&[255u8; 16], 4, 4);
 
         // Extra block for vmsk on Layer 1
         let mut vmsk_block = Vec::new();
@@ -452,6 +454,262 @@ mod tests {
                 .layers
                 .len(),
             1
+        );
+    }
+
+    fn minimal_flat_psd(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"8BPS");
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&[0; 6]);
+        bytes.extend_from_slice(&4u16.to_be_bytes());
+        bytes.extend_from_slice(&height.to_be_bytes());
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&8u16.to_be_bytes());
+        bytes.extend_from_slice(&3u16.to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes
+    }
+
+    fn single_layer_psd(bounds: [i32; 4], channel: Vec<u8>) -> Vec<u8> {
+        let mut bytes = minimal_flat_psd(16, 16);
+        bytes.truncate(bytes.len() - 4);
+
+        let mut layer_info = Vec::new();
+        layer_info.extend_from_slice(&1i16.to_be_bytes());
+        for coordinate in bounds {
+            layer_info.extend_from_slice(&coordinate.to_be_bytes());
+        }
+        layer_info.extend_from_slice(&1u16.to_be_bytes());
+        layer_info.extend_from_slice(&0i16.to_be_bytes());
+        layer_info.extend_from_slice(&(channel.len() as u32).to_be_bytes());
+        layer_info.extend_from_slice(b"8BIMnorm");
+        layer_info.extend_from_slice(&[255, 0, 0, 0]);
+        layer_info.extend_from_slice(&12u32.to_be_bytes());
+        layer_info.extend_from_slice(&0u32.to_be_bytes());
+        layer_info.extend_from_slice(&0u32.to_be_bytes());
+        layer_info.extend_from_slice(&[1, b'X', 0, 0]);
+        layer_info.extend_from_slice(&channel);
+
+        let mut layer_mask = Vec::new();
+        layer_mask.extend_from_slice(&(layer_info.len() as u32).to_be_bytes());
+        layer_mask.extend_from_slice(&layer_info);
+        bytes.extend_from_slice(&(layer_mask.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&layer_mask);
+        bytes
+    }
+
+    fn two_large_uniform_layers_psd(width: usize, height: usize) -> Vec<u8> {
+        let mut bytes = minimal_flat_psd(width as u32, height as u32);
+        bytes.truncate(bytes.len() - 4);
+        let pixels = vec![7u8; width * height];
+        let channel = encode_packbits_channel(&pixels, width, height);
+
+        let mut layer_info = Vec::new();
+        layer_info.extend_from_slice(&2i16.to_be_bytes());
+        for name in *b"AB" {
+            layer_info.extend_from_slice(&0i32.to_be_bytes());
+            layer_info.extend_from_slice(&0i32.to_be_bytes());
+            layer_info.extend_from_slice(&(height as i32).to_be_bytes());
+            layer_info.extend_from_slice(&(width as i32).to_be_bytes());
+            layer_info.extend_from_slice(&1u16.to_be_bytes());
+            layer_info.extend_from_slice(&0i16.to_be_bytes());
+            layer_info.extend_from_slice(&(channel.len() as u32).to_be_bytes());
+            layer_info.extend_from_slice(b"8BIMnorm");
+            layer_info.extend_from_slice(&[255, 0, 0, 0]);
+            layer_info.extend_from_slice(&12u32.to_be_bytes());
+            layer_info.extend_from_slice(&0u32.to_be_bytes());
+            layer_info.extend_from_slice(&0u32.to_be_bytes());
+            layer_info.extend_from_slice(&[1, name, 0, 0]);
+        }
+        layer_info.extend_from_slice(&channel);
+        layer_info.extend_from_slice(&channel);
+
+        let mut layer_mask = Vec::new();
+        layer_mask.extend_from_slice(&(layer_info.len() as u32).to_be_bytes());
+        layer_mask.extend_from_slice(&layer_info);
+        bytes.extend_from_slice(&(layer_mask.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&layer_mask);
+        bytes
+    }
+
+    #[test]
+    fn psd_and_sequence_imports_bound_large_images_and_commit_atomically() {
+        let oversized = minimal_flat_psd(neoflash_core::MAX_BITMAP_DIMENSION + 1, 16);
+        let (project, report) =
+            import_psd_bytes(&oversized, "oversized.psd", &PsdImportOptions::default())
+                .expect("oversized PSD is represented safely");
+        project.validate().expect("placeholder project validates");
+        assert!(project.resources.is_empty());
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "psd-composite-bitmap-too-large")
+        );
+        assert!(matches!(
+            &project.symbol(&project.root).unwrap().timeline.layers[0].keyframes[0].elements[0]
+                .kind,
+            ElementKind::Rectangle { .. }
+        ));
+
+        let extreme = single_layer_psd(
+            [i32::MIN, i32::MIN, i32::MAX, i32::MAX],
+            0u16.to_be_bytes().to_vec(),
+        );
+        let (extreme_project, extreme_report) =
+            import_psd_bytes(&extreme, "extreme.psd", &PsdImportOptions::default())
+                .expect("extreme layer bounds are represented by a placeholder");
+        extreme_project
+            .validate()
+            .expect("extreme layer placeholder validates");
+        assert!(
+            extreme_report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "psd-layer-bitmap-too-large")
+        );
+
+        let mut zlib = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        zlib.write_all(&[1, 2]).unwrap();
+        let mut over_expanding_channel = 2u16.to_be_bytes().to_vec();
+        over_expanding_channel.extend_from_slice(&zlib.finish().unwrap());
+        let compressed = single_layer_psd([0, 0, 1, 1], over_expanding_channel);
+        let (_, compressed_layers, _) =
+            parse_psd_document(&compressed).expect("bounded zlib channel parses safely");
+        assert_eq!(compressed_layers.len(), 1);
+        assert!(
+            compressed_layers[0].rgba_pixels.is_none(),
+            "a channel expanding past its declared dimensions must not be retained"
+        );
+        let (_, compressed_report) = import_psd_bytes(
+            &compressed,
+            "over-expanding.psd",
+            &PsdImportOptions::default(),
+        )
+        .expect("malformed channel receives an explicit placeholder");
+        assert!(
+            compressed_report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "psd-layer-pixels-unavailable")
+        );
+
+        let aggregate = two_large_uniform_layers_psd(4096, 4096);
+        let (aggregate_project, aggregate_report) = import_psd_bytes(
+            &aggregate,
+            "aggregate-budget.psd",
+            &PsdImportOptions::default(),
+        )
+        .expect("aggregate PSD decode budget preserves the document safely");
+        aggregate_project
+            .validate()
+            .expect("aggregate-budget placeholders validate");
+        assert_eq!(
+            aggregate_project
+                .symbol(&aggregate_project.root)
+                .unwrap()
+                .timeline
+                .layers
+                .len(),
+            2,
+            "budget exhaustion must retain both PSD layers"
+        );
+        assert!(
+            aggregate_report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "psd-layer-decode-budget-exceeded")
+        );
+
+        let temp_root = std::env::temp_dir();
+        let oversized_image_path = temp_root.join(format!(
+            "neoflash-oversized-sequence-{}.png",
+            std::process::id()
+        ));
+        let oversized_image = std::fs::File::create(&oversized_image_path).unwrap();
+        oversized_image
+            .set_len((neoflash_core::MAX_RESOURCE_BYTES + 1) as u64)
+            .unwrap();
+        drop(oversized_image);
+        let mut path_target = Project::blank();
+        let image_error = import_image_sequence(
+            &mut path_target,
+            &[&oversized_image_path],
+            &ImageSequenceImportOptions::default(),
+        )
+        .expect_err("filesystem sequence wrapper rejects oversized input before reading it");
+        std::fs::remove_file(&oversized_image_path).unwrap();
+        assert!(image_error.to_string().contains("resource limit"));
+
+        let oversized_psd_path =
+            temp_root.join(format!("neoflash-oversized-psd-{}.psd", std::process::id()));
+        let oversized_psd = std::fs::File::create(&oversized_psd_path).unwrap();
+        oversized_psd
+            .set_len((crate::psd::MAX_PSD_FILE_BYTES + 1) as u64)
+            .unwrap();
+        drop(oversized_psd);
+        let psd_error = import_psd_path(&oversized_psd_path, &PsdImportOptions::default())
+            .expect_err("filesystem PSD wrapper rejects oversized input before reading it");
+        std::fs::remove_file(&oversized_psd_path).unwrap();
+        assert!(psd_error.to_string().contains("file limit"));
+
+        let png = make_test_png(2, 2, [1, 2, 3, 255]);
+        let entries = vec![
+            ("frame_0001.png".to_owned(), png.clone()),
+            ("frame_0002.png".to_owned(), png),
+        ];
+        let mut sequence_target = Project::blank();
+        for index in 0..(neoflash_core::MAX_RESOURCES - 1) {
+            sequence_target.resources.push(
+                ResourceUnit::from_bytes(
+                    format!("seed-{index}"),
+                    format!("seed/{index}.bin"),
+                    "application/octet-stream",
+                    b"x",
+                )
+                .unwrap(),
+            );
+        }
+        sequence_target.format_version = 3;
+        sequence_target.validate().expect("seed project validates");
+        let sequence_before = serde_json::to_vec(&sequence_target).unwrap();
+        assert!(
+            import_image_sequence_bytes(
+                &mut sequence_target,
+                &entries,
+                &ImageSequenceImportOptions::default(),
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_vec(&sequence_target).unwrap(),
+            sequence_before,
+            "the second frame crossing the resource limit must not retain the first frame"
+        );
+
+        let mut invalid_psd_target = Project::blank();
+        invalid_psd_target.width = 0;
+        let psd_before = serde_json::to_string(&invalid_psd_target).unwrap();
+        let options = PsdImportOptions {
+            resize_stage_to_canvas: false,
+            ..PsdImportOptions::default()
+        };
+        assert!(
+            import_psd_into_project(
+                &mut invalid_psd_target,
+                &minimal_flat_psd(16, 16),
+                "valid.psd",
+                &options,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_string(&invalid_psd_target).unwrap(),
+            psd_before,
+            "failed PSD import must not partially mutate the destination"
         );
     }
 

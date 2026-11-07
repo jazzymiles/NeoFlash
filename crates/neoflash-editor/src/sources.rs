@@ -1127,6 +1127,13 @@ fn hint_popover(
     clicked
 }
 
+type CodeEditorResult = (
+    egui::Response,
+    (usize, usize),
+    Option<diagnostics_ui::Action>,
+    Option<(usize, bool)>,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn code_editor(
     ui: &mut egui::Ui,
@@ -1139,12 +1146,7 @@ fn code_editor(
     prefs: &CodeEditorPrefs,
     diagnostics: &[Diagnostic],
     diagnostic_ui: &mut diagnostics_ui::DiagnosticUi,
-) -> (
-    egui::Response,
-    (usize, usize),
-    Option<diagnostics_ui::Action>,
-    Option<(usize, bool)>,
-) {
+) -> CodeEditorResult {
     let ctx = ui.ctx().clone();
     let checked_source = source.clone();
     let mut diagnostic_action = None;

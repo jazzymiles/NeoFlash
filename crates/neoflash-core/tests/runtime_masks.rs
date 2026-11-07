@@ -187,8 +187,10 @@ fn cached_authored_mixed_masks_share_transformed_gradient_and_decoded_png_alpha(
         let paint = image.fill_bitmap.as_ref().unwrap();
         let rgba = player.bitmap_pixels(&paint.pixel_ref).unwrap();
         assert_eq!(
-            rgba.chunks_exact(4)
-                .map(|p| paint.color_transform.apply(p.try_into().unwrap())[3])
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| paint.color_transform.apply(*p)[3])
                 .collect::<Vec<_>>(),
             [0, 32, 64]
         );

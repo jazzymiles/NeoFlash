@@ -289,6 +289,7 @@ pub fn inspect_video_resource(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Project, ResourceUnit};
 
     #[test]
     fn frame_to_video_time_sync_clamps_and_loops_deterministically() {
@@ -392,5 +393,43 @@ mod tests {
         assert_eq!(bad_diags.len(), 1);
         assert_eq!(bad_diags[0].code, "video-unknown-container");
         assert!(bad_diags[0].is_error);
+    }
+
+    #[test]
+    fn project_validation_requires_a_video_resource_for_timeline_spans() {
+        let mut project = Project::blank();
+        project.format_version = 9;
+        project.symbols[0].timeline.layers[0].keyframes[0].video = Some(TimelineVideoSpan {
+            resource: "clip".into(),
+            cue_points: vec![VideoCuePoint {
+                name: "intro".into(),
+                time_ms: 0,
+                kind: VideoCuePointKind::Event,
+                parameters: Vec::new(),
+            }],
+            ..TimelineVideoSpan::default()
+        });
+
+        assert!(
+            project
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("video resource 'clip' does not exist")
+        );
+        project.resources.push(
+            ResourceUnit::from_bytes("clip", "video/clip.bin", "application/octet-stream", b"x")
+                .unwrap(),
+        );
+        assert!(
+            project
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("is not video (video/*)")
+        );
+
+        project.resources[0].media_type = "VIDEO/MP4".into();
+        project.validate().unwrap();
     }
 }

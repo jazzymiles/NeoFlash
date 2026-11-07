@@ -800,8 +800,8 @@ fn nf2_actions_panel_reports_caret_planned_tools_and_jumps_to_diagnostics() {
     assert_eq!(has("Auto-format"), Some(false));
     assert_eq!(has("Apply line comment"), Some(false));
     assert_eq!(has("Debug options"), Some(false));
-    assert_eq!(has("Collapse between braces"), Some(true));
-    assert_eq!(has("Script assist"), Some(true));
+    assert_eq!(has("Collapse between braces"), Some(false));
+    assert_eq!(has("Script assist"), Some(false));
     // The sidebar shows the toolbox and Script navigator.
     assert!(
         has("Search toolbox").is_some() && has("Current selection").is_some(),

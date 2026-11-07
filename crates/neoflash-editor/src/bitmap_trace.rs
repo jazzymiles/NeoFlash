@@ -345,7 +345,7 @@ fn resolve_bitmap_element_depth(
                 .timeline
                 .layers
                 .iter()
-                .flat_map(|l| sample_layer(l, single_frame))
+                .flat_map(|l| sample_layer_at_fps(l, single_frame, f64::from(project.fps)))
                 .collect();
             if children.len() != 1 {
                 return None;
@@ -430,7 +430,9 @@ impl Editor {
             let Some(key) = layer.key_at(self.frame) else {
                 continue;
             };
-            for sampled in sample_layer_in(timeline, layer, self.frame) {
+            for sampled in
+                sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps))
+            {
                 let target = SelectionTarget {
                     layer: layer.id.clone(),
                     element: sampled.id.clone(),
@@ -599,9 +601,14 @@ impl Editor {
         if current != Some(&target.source_element) {
             return Err("The bitmap changed during tracing. Close and reopen Trace bitmap.".into());
         }
-        let sampled_now = sample_layer_in(&self.symbol().timeline, layer, self.frame)
-            .into_iter()
-            .find(|e| e.id == target.target.element);
+        let sampled_now = sample_layer_in_at_fps(
+            &self.symbol().timeline,
+            layer,
+            self.frame,
+            f64::from(self.project.fps),
+        )
+        .into_iter()
+        .find(|e| e.id == target.target.element);
         let resolved_now = sampled_now
             .as_ref()
             .and_then(|s| resolve_bitmap_element(&self.project, &target.source_element, s));

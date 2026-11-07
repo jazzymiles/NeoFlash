@@ -167,9 +167,14 @@ impl Editor {
         frame: u32,
     ) -> Option<f64> {
         let layer = self.span_layer(span)?;
-        sample_layer_in(&self.symbol().timeline, layer, frame)
-            .first()
-            .map(|e| to_display(property, transform_property_value(&e.transform, property)))
+        sample_layer_in_at_fps(
+            &self.symbol().timeline,
+            layer,
+            frame,
+            f64::from(self.project.fps),
+        )
+        .first()
+        .map(|e| to_display(property, transform_property_value(&e.transform, property)))
     }
 
     /// Stored value of `property` (display units) on the key at `frame`.

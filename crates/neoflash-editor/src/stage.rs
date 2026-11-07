@@ -1057,9 +1057,10 @@ impl Editor {
             {
                 continue;
             }
-            for el in sample_layer_in(timeline, layer, self.frame)
-                .into_iter()
-                .rev()
+            for el in
+                sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps))
+                    .into_iter()
+                    .rev()
             {
                 let ElementKind::Instance { symbol_id, .. } = &el.kind else {
                     continue;
