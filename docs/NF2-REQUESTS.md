@@ -846,7 +846,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   and 120 pt labels; the Code editor syntax grid and font select were tightened so every page keeps one width.
 
 ### R-056 · Pixel-aligned optical icon masters for small UI sizes
-- **Status:** open
+- **Status:** answered 2026-11-07 (owner decision "1 pt on the grid"): optical masters on 12 / 16 / 20 grids in Figma
+  and `exports/icons`, size-matched drawing in `neoflash_ui::icons`; rules in `docs/DESIGN-SYSTEM.md`. A 24 px grid is
+  not needed (no 24 pt icon slot).
 - **Requested by / for:** project owner · T-101 / V-D06
 - **Where:** small Timeline, tool, layer-state and icon-only controls across NF2.
 - **Need:** Define optical vector masters on 16/20/24 grids, integer placement and consistent small-size stroke rules;

@@ -16,6 +16,7 @@ fn main() {
     for path in [
         &tokens_path,
         &dump_path,
+        &root.join("exports/icons/12"),
         &root.join("exports/icons/16"),
         &root.join("exports/icons/20"),
         &root.join("exports/cursors"),
@@ -200,7 +201,8 @@ fn const_name(name: &str) -> String {
 
 fn icons_rs(root: &Path) -> String {
     let mut s = String::new();
-    for size in ["16", "20"] {
+    // 12 px masters exist for every 16 px icon (compact rows and fields); 20 px for tools.
+    for size in ["12", "16", "20"] {
         writeln!(
             s,
             "/// `NF2 Icon/{size}/*` ({size} px grid).\npub mod i{size} {{\n    use super::Icon;"

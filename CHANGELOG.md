@@ -2,6 +2,11 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Sharper icons (`T-101`): every icon now has a pixel-aligned master for 12, 16 and 20 pt. Lines are one pixel wide
+  and sit exactly on the pixel grid, circles stay round and dots stay centred on their lines (info, help, warning,
+  recent, sliders). Short and Compact layer rows and small field buttons use the 12 pt set; Classic Flash density
+  shows 16 pt tool icons instead of shrinking the 20 pt ones.
+
 - Compact Color panel and narrower Preferences (`T-101`): the Color panel now shows a compact hex · alpha row with
   recent colours; the full colour picker opens below it with › and closes with ⌄, and the choice is remembered.
   Preferences is narrower (720 pt) with the same controls and text sizes.

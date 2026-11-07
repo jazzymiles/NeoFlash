@@ -832,7 +832,7 @@ impl Editor {
     ) -> egui::Response {
         let key = self.tool_display_key(spec);
         let a11y_label = self.tool_accessible_label(spec, &key);
-        let mut btn = nf::ToolButton::new(spec.icon.nf2(true), spec.name)
+        let mut btn = nf::ToolButton::new(spec.icon.tool_glyph(), spec.name)
             .selected(selected)
             .flyout(flyout);
         if self.workspace.general.tooltip_shortcuts && !key.is_empty() {

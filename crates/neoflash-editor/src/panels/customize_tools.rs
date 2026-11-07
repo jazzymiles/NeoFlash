@@ -122,7 +122,7 @@ fn rail_column(ui: &mut egui::Ui, draft: &mut CustomizeToolsDraft, catalogue: &[
                     let response = ui
                         .add(
                             nf::ToolButton::new(
-                                first.map_or(i20::PLUS, |s| s.icon.nf2(true)),
+                                first.map_or(i20::PLUS, |s| s.icon.tool_glyph()),
                                 &format!("Slot {}", index + 1),
                             )
                             .selected(index == draft.selected_slot)

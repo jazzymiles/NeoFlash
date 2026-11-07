@@ -33,7 +33,7 @@ pub fn show(ctx: &egui::Context, area: Rect, cursor: Cursor) -> bool {
     if !area.contains(pos) {
         return false;
     }
-    let Some(tex) = crate::icons::texture(ctx, cursor.name, cursor.svg, SIZE, false) else {
+    let Some(tex) = crate::icons::texture(ctx, (cursor.name, 0), cursor.svg, SIZE, false) else {
         ctx.set_cursor_icon(system_fallback(cursor));
         return true;
     };

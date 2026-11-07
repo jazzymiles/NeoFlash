@@ -30,6 +30,12 @@ pub(crate) enum Icon {
 }
 
 impl Icon {
+    /// The tool-rail glyph for the current density: the 20 px tool master, or the 16 px master in
+    /// Classic Flash density (`icon_tool` 16 pt), so tool icons are drawn at their own grid, never
+    /// scaled (R-056).
+    pub(crate) fn tool_glyph(self) -> neoflash_ui::Icon {
+        self.nf2(neoflash_ui::metrics::icon_tool() >= 20.0)
+    }
     /// NF2 icon for this role. `tool` picks the 20 px tool glyph where one exists.
     pub(crate) fn nf2(self, tool: bool) -> neoflash_ui::Icon {
         use neoflash_ui::icons::{i16, i20};
@@ -63,14 +69,18 @@ impl Icon {
 }
 
 /// Paint an NF2 icon centred in `rect`, tinted with `stroke.color`. Rects of 20 pt or more use the
-/// 20 px tool grid; smaller rects use the 16 px grid, scaled down only below 16.
+/// 20 px tool grid; smaller rects use the largest optical master that fits (16 or 12 px) and scale
+/// only below 12.
 pub(crate) fn paint_icon(p: &Painter, rect: Rect, icon: Icon, stroke: Stroke) {
     let size = rect.width().min(rect.height());
     if !size.is_finite() || size <= 0. {
         return;
     }
     let nf = icon.nf2(size >= neoflash_ui::metrics::icon_tool());
-    let side = nf.side().min(size);
+    let side = [nf.side(), 16.0, 12.0]
+        .into_iter()
+        .find(|&s| s <= size)
+        .unwrap_or(size);
     neoflash_ui::icons::paint_sized(p, p.ctx(), rect, nf, side, stroke.color);
 }
 
