@@ -283,7 +283,7 @@ impl Editor {
         // NF2 top bar (48 pt): logo · menu bar · centred title + Unsaved badge · workspace · Test Movie · Publish.
         let nf = neoflash_ui::palette(ctx);
         egui::TopBottomPanel::top("menu")
-            .exact_height(neoflash_ui::metrics::TOP_BAR)
+            .exact_height(neoflash_ui::metrics::top_bar())
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
@@ -1043,6 +1043,16 @@ impl Editor {
                 let mut selected = self.workspace.theme == theme;
                 if menu_toggle(ui, &mut selected, name, "").clicked() {
                     self.set_theme(ctx, theme);
+                    ui.close();
+                }
+            }
+        });
+        let density = self.workspace.density;
+        menu_popup(ui, "Density", "Classic Flash", "", |ui| {
+            for option in crate::workspace::DensityPref::ALL {
+                let mut selected = density == option;
+                if menu_toggle(ui, &mut selected, option.label(), "").clicked() {
+                    self.set_density(ctx, option);
                     ui.close();
                 }
             }

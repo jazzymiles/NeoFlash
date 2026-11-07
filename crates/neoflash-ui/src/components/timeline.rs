@@ -6,10 +6,7 @@
 //! Frame `n` (1-based) starts at `origin + (n − 1) × frame_width` ([`Geometry::frame_x`]).
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::{
-    FrameView, LAYER_COLUMN, LAYER_INDENT, LAYER_MODE, LAYER_ROW, LAYER_TOGGLE, LAYERS_HEADER,
-    TIMELINE_RULER,
-};
+use crate::metrics::{FrameView, LAYER_INDENT, LAYER_MODE, LAYER_ROW, LAYER_TOGGLE};
 use crate::theme::{cr, palette};
 use crate::tokens::{Palette, TextStyle, radius, space};
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui};
@@ -602,7 +599,10 @@ pub fn layers_header_with(
     columns: LayersHeaderColumns,
 ) -> LayersHeaderResponse {
     let p = palette(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, LAYERS_HEADER), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(width, crate::metrics::layers_header()),
+        Sense::hover(),
+    );
     ui.painter().rect_filled(rect, cr(0.0), p.bg_panel);
     ui.painter().hline(
         rect.x_range(),
@@ -1297,9 +1297,9 @@ pub fn paint_playhead(
     }
 }
 
-/// Default sizes for callers.
-pub const RULER: f32 = TIMELINE_RULER;
-pub const LAYERS: f32 = LAYER_COLUMN;
+/// Comfortable default sizes (use `metrics::timeline_ruler()` / `layer_column()` for layout).
+pub const RULER: f32 = crate::metrics::TIMELINE_RULER;
+pub const LAYERS: f32 = crate::metrics::LAYER_COLUMN;
 
 /// Small helper so callers can position a marker for a 1-based frame in a row.
 pub fn marker_cell(geo: &Geometry, row: Rect, frame: u32) -> Rect {

@@ -1,6 +1,5 @@
 //! `NF2/Segmented Control` made of `NF2/Segment`s (Selection / Tool, Align to Selection / Stage, RGB / HSB).
 use super::{State, a11y, galley, text_at};
-use crate::metrics::ROW;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Response, Sense, Stroke, StrokeKind, Ui};
@@ -27,7 +26,10 @@ impl Segmented {
         } else {
             inner + 6.0
         };
-        let (outer, _) = ui.allocate_exact_size(egui::vec2(total, ROW + 6.0), Sense::hover());
+        let (outer, _) = ui.allocate_exact_size(
+            egui::vec2(total, crate::metrics::row() + 6.0),
+            Sense::hover(),
+        );
         ui.painter().rect_filled(outer, cr(radius::LG), p.bg_field);
         ui.painter().rect_stroke(
             outer,
@@ -40,8 +42,10 @@ impl Segmented {
         let mut clicked = None;
         for ((v, label), w) in options.iter().zip(widths) {
             let w = w * scale;
-            let rect =
-                egui::Rect::from_min_size(egui::pos2(x, outer.top() + 3.0), egui::vec2(w, ROW));
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(x, outer.top() + 3.0),
+                egui::vec2(w, crate::metrics::row()),
+            );
             let id = ui.id().with(("segment", label));
             let response = ui.interact(rect, id, Sense::click());
             let s = State::of(ui, &response);

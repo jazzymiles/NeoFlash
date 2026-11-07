@@ -755,7 +755,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `docs/NF2-REQUESTS.md` R-035, `interface/design-system/docs/data/outline/interface-editor-main.txt`, `crates/neoflash-ui/src/components/headers.rs` (`DocumentTab`), `crates/neoflash-editor/src/document_chrome.rs`.
 
 ### R-051 · Comfortable and Compact / Classic Flash editor density profiles
-- **Status:** open
+- **Status:** answered (owner decision 2026-11-07; implemented)
 - **Requested by / for:** project owner · T-101 / V-D01 (approved T-099 visual audit)
 - **Where:** NF2 editor shell, main/document bars, dock headers, panels, Timeline and status chrome.
 - **Need:** Two complete metric profiles with identical information architecture and behavior: the current readable
@@ -772,6 +772,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Partial answer (T-101, 2026-11-07, owner):** Type scale B for every profile (Title 12, Body 11, Small 10, new
   Caption 10, Mono 11/10; see DESIGN-SYSTEM.md). Timeline control sizes per profile: Comfortable 32 / Compact 28 /
   Classic Flash 24 pt; layer-height presets 28 / 22 / 16. Profile switching and editor-wide metrics remain open.
+- **Answer (T-101, 2026-11-07, owner-approved):** Three runtime profiles Comfortable / Compact / Classic Flash with
+  the metrics recorded in DESIGN-SYSTEM.md; behaviour and composition are identical. Switch in Preferences ▸ General
+  ▸ Density (live preview, Cancel restores) and Window ▸ Density; a profile change selects its layer-row preset
+  (28/22/16) and default layer-column width; default Comfortable.
 
 ### R-052 · Responsive Timeline controls, transport-sized Play and compact layer header
 - **Status:** open

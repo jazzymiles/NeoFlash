@@ -2,7 +2,7 @@
 //! variables, compiler errors).
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::{CONTROL, LAYER_INDENT, ROW};
+use crate::metrics::LAYER_INDENT;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Ui, Widget};
@@ -66,7 +66,7 @@ impl<'a> TreeItem<'a> {
     pub fn show(self, ui: &mut Ui) -> TreeItemResponse {
         let p = palette(ui.ctx());
         let (rect, row) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), CONTROL),
+            egui::vec2(ui.available_width(), crate::metrics::control()),
             Sense::click_and_drag(),
         );
         let s = State::of(ui, &row);
@@ -178,7 +178,10 @@ impl Widget for TableRow<'_> {
         } else {
             Sense::click()
         };
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), sense);
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), crate::metrics::row()),
+            sense,
+        );
         let s = State::of(ui, &response);
         match self.kind {
             TableRowKind::Header => ui.painter().rect_filled(rect, cr(0.0), p.bg_raised),

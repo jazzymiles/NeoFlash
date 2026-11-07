@@ -3,7 +3,7 @@
 //!
 //! Depth comes from surface levels (`bg/app → bg/panel → bg/raised → bg/field`); borders are separators only.
 use crate::icons::{Icon, i16};
-use crate::metrics::{self, SHADOW_DIALOG, SHADOW_POPOVER};
+use crate::metrics::{SHADOW_DIALOG, SHADOW_POPOVER};
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Stroke, StrokeKind, Ui};
@@ -414,6 +414,6 @@ pub fn drag_ghost(ctx: &egui::Context, label: &str) {
         });
 }
 
-/// Fixed height of the window regions, for callers laying out egui panels.
-pub const TOP_BAR: f32 = metrics::TOP_BAR;
-pub const STATUS_BAR: f32 = metrics::STATUS_BAR;
+/// Comfortable height of the window regions (use `metrics::top_bar()` / `status_bar()` for layout).
+pub const TOP_BAR: f32 = crate::metrics::TOP_BAR;
+pub const STATUS_BAR: f32 = crate::metrics::STATUS_BAR;

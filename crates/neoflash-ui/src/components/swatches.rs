@@ -6,7 +6,6 @@
 //! generated ([`default_palette`]) instead of being copied from the reference as hex literals.
 use super::{IconButton, SwatchCell};
 use crate::icons::{self, Icon, i16};
-use crate::metrics;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, space};
 use eframe::egui::{
@@ -140,7 +139,7 @@ impl SwatchesPopover<'_> {
         ui.spacing_mut().item_spacing.y = space::S2;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
-            let field = ui.available_width() - 3.0 * metrics::CONTROL - 3.0 * space::S2;
+            let field = ui.available_width() - 3.0 * crate::metrics::control() - 3.0 * space::S2;
             super::ColorField::new(self.color, "Colour")
                 .width(field)
                 .show(ui);

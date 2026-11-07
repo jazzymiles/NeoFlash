@@ -124,7 +124,7 @@ impl Editor {
             "Search toolbox",
         ));
         ui.add_space(space::S1);
-        let toolbox_h = (ui.available_height() - navigator_h - space::S2).max(ROW_MIN);
+        let toolbox_h = (ui.available_height() - navigator_h - space::S2).max(row_min());
         egui::ScrollArea::vertical()
             .id_salt("actions-toolbox")
             .max_height(toolbox_h)
@@ -496,7 +496,9 @@ impl Editor {
     }
 }
 
-const ROW_MIN: f32 = 2. * neoflash_ui::metrics::CONTROL;
+fn row_min() -> f32 {
+    2. * neoflash_ui::metrics::control()
+}
 
 /// What double-clicking a toolbox entry inserts.
 pub(crate) fn toolbox_insertion(member: &Member, language: ScriptLanguage) -> CodeCommand {

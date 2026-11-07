@@ -1,7 +1,6 @@
 //! `NF2/Field` multi-line variant (Accessibility description, notes): the field frame around a
 //! wrapped `TextEdit`, `NF2/Body`, optional hint and character limit.
 use super::{State, a11y};
-use crate::metrics::CONTROL;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Color32, Response, Sense, Stroke, StrokeKind, Ui, Widget};
@@ -44,7 +43,7 @@ impl Widget for TextArea<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let line = TextStyle::Body.spec().line_height;
-        let height = (self.rows as f32 * line + space::S2 * 2.0).max(CONTROL);
+        let height = (self.rows as f32 * line + space::S2 * 2.0).max(crate::metrics::control());
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::hover());
         let edit_id = response.id.with("edit");

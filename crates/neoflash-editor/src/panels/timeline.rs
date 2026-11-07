@@ -8,7 +8,7 @@ use crate::theme::ScrollTheme as _;
 use crate::{
     layer_controls::{layer_color, layer_depth, layer_kind, visible_layer_indices},
     theme::UiPalette,
-    timeline_paint::{RULER_HEIGHT, frame_at_x, timeline_cell_at},
+    timeline_paint::{frame_at_x, ruler_height, timeline_cell_at},
     workspace::PanelId,
 };
 use eframe::egui::{self, Align2, Pos2, Rect, Sense, Stroke, Vec2};
@@ -153,9 +153,9 @@ impl Editor {
             let view = self.workspace.timeline;
             let button_states = self.symbol().kind == SymbolKind::Button;
             let cell_width = if button_states { 64. } else { self.timeline_cell };
-            let height = (ui.available_height() - RULER_HEIGHT).max(25.);
+            let height = (ui.available_height() - ruler_height()).max(25.);
             let (header, _) = ui.allocate_exact_size(
-                Vec2::new(ui.available_width(), RULER_HEIGHT),
+                Vec2::new(ui.available_width(), ruler_height()),
                 Sense::hover(),
             );
             let divider_x = header.left() + layer_column_width;
@@ -180,7 +180,7 @@ impl Editor {
             let show_mode = layer_column_width >= 260.;
             let header_toggles = ui
                 .scope_builder(
-                    egui::UiBuilder::new().max_rect(Rect::from_min_size(header.min, Vec2::new(layer_column_width, RULER_HEIGHT))),
+                    egui::UiBuilder::new().max_rect(Rect::from_min_size(header.min, Vec2::new(layer_column_width, ruler_height()))),
                     |ui| {
                         tl::layers_header_with(
                             ui,
@@ -719,7 +719,7 @@ impl Editor {
                 } else {
                     None
                 };
-                let seconds_row = if view.show_seconds && !button_states { RULER_HEIGHT * 0.45 } else { 0. };
+                let seconds_row = if view.show_seconds && !button_states { ruler_height() * 0.45 } else { 0. };
                 if button_states {
                     // Button symbols: Up · Over · Down · Hit instead of frame numbers.
                     for (frame, name) in crate::authoring_symbols::BUTTON_STATES.iter().enumerate().take(count as usize) {

@@ -69,7 +69,7 @@ pub(crate) fn paint_icon(p: &Painter, rect: Rect, icon: Icon, stroke: Stroke) {
     if !size.is_finite() || size <= 0. {
         return;
     }
-    let nf = icon.nf2(size >= neoflash_ui::metrics::ICON_TOOL);
+    let nf = icon.nf2(size >= neoflash_ui::metrics::icon_tool());
     let side = nf.side().min(size);
     neoflash_ui::icons::paint_sized(p, p.ctx(), rect, nf, side, stroke.color);
 }
@@ -134,7 +134,7 @@ fn menu_row(
 ) -> Response {
     // NF2/Menu Item: 28 pt row, 24 pt check column, label, shortcut right-aligned, ▸ for submenus.
     let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width().max(1.), crate::theme::ROW_HEIGHT),
+        Vec2::new(ui.available_width().max(1.), crate::theme::row_h()),
         Sense::click(),
     );
     let p = neoflash_ui::palette(ui.ctx());

@@ -584,7 +584,7 @@ impl Widget for CompilerMessage<'_> {
             + message.size().y
             + location.as_ref().map_or(0.0, |g| g.size().y + 2.0);
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(width, h.max(crate::metrics::ROW)),
+            egui::vec2(width, h.max(crate::metrics::row())),
             Sense::click(),
         );
         let s = State::of(ui, &response);

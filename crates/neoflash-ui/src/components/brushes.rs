@@ -7,7 +7,6 @@
 //! (black + white double ring), because it sits on artwork.
 use super::{State, a11y, focus, galley, text_at};
 use crate::icons::{self, Icon};
-use crate::metrics::ROW;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{
@@ -73,7 +72,8 @@ impl Widget for ToolFlyoutItem<'_> {
         let width = self
             .width
             .unwrap_or_else(|| ui.available_width().max(min_w));
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, ROW), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::row()), Sense::click());
         let s = State::of(ui, &response);
         if ui.is_rect_visible(rect) {
             if s.hovered {

@@ -1,9 +1,6 @@
 //! Bounded property rows and non-destructive RGBA editing shared by panels,
 //! composed from NF2 fields (`neoflash_ui::components`).
-use crate::{
-    app::Editor,
-    theme::{CONTROL_HEIGHT, LABEL_WIDTH, PROPERTY_ROW_HEIGHT},
-};
+use crate::{app::Editor, theme::LABEL_WIDTH};
 use eframe::egui::{self, Response};
 use neoflash_core::Color;
 use neoflash_ui::{
@@ -42,16 +39,16 @@ pub(crate) fn property_row<R>(
     let label_width = LABEL_WIDTH;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = space::S2;
-        ui.set_min_height(PROPERTY_ROW_HEIGHT - ui.spacing().item_spacing.y);
+        ui.set_min_height(crate::theme::property_row_h() - ui.spacing().item_spacing.y);
         // ComboBox::height controls its menu; its button uses interact_size.
-        ui.spacing_mut().interact_size.y = CONTROL_HEIGHT;
+        ui.spacing_mut().interact_size.y = crate::theme::control_h();
         ui.allocate_ui_with_layout(
-            egui::vec2(label_width, CONTROL_HEIGHT),
+            egui::vec2(label_width, crate::theme::control_h()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 // Reserve the whole label column, while keeping the label
                 // itself at its left edge rather than centering its widget.
-                ui.set_min_size(egui::vec2(label_width, CONTROL_HEIGHT));
+                ui.set_min_size(egui::vec2(label_width, crate::theme::control_h()));
                 ui.set_max_width(label_width);
                 let color = if ui.is_enabled() {
                     nf_palette(ui.ctx()).text_secondary
@@ -217,7 +214,8 @@ pub(crate) fn color_row(
             let swatch = color_swatch(ui, label, value);
             // Figma Background row: swatch 22 · hex 116 · α 134 (of 288 with 8 pt gaps).
             let alpha_width = ((ui.available_width() - space::S2) * 134. / 250.).max(64.);
-            let hex_width = (ui.available_width() - alpha_width - space::S2).max(CONTROL_HEIGHT);
+            let hex_width =
+                (ui.available_width() - alpha_width - space::S2).max(crate::theme::control_h());
             let hex = hex_field(ui, prefix, label, value, hex_width);
             let mut alpha = value[3] as f64 / 255. * 100.;
             let before = alpha;
@@ -259,8 +257,10 @@ pub(crate) fn color_row(
 /// on RGB only, so alpha and hidden RGB of transparent paints are preserved.
 fn color_swatch(ui: &mut egui::Ui, label: &str, value: &mut Color) -> Response {
     // Figma `NF2/Swatch` 22 × 22 at the row's left edge; the hit area keeps the 32 pt row height.
-    let (rect, mut response) =
-        ui.allocate_exact_size(egui::vec2(22., CONTROL_HEIGHT), egui::Sense::click());
+    let (rect, mut response) = ui.allocate_exact_size(
+        egui::vec2(22., crate::theme::control_h()),
+        egui::Sense::click(),
+    );
     let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.));
     let shown = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
     neoflash_ui::components::display::paint_swatch(ui, chip, shown, space::S1);

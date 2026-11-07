@@ -70,7 +70,7 @@ pub fn spacing(style: &mut egui::Style) {
     let s = &mut style.spacing;
     s.item_spacing = egui::vec2(space::S2, space::S2);
     s.button_padding = egui::vec2(space::S3, space::S1 + 2.0);
-    s.interact_size = egui::vec2(metrics::CONTROL, metrics::CONTROL);
+    s.interact_size = egui::vec2(crate::metrics::control(), crate::metrics::control());
     s.icon_width = metrics::ICON_UI;
     s.icon_width_inner = 8.0;
     s.icon_spacing = space::S2;

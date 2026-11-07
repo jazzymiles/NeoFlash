@@ -352,7 +352,7 @@ impl DiagnosticUi {
                             &format!("{} fixes for {}", menu.fixes.len(), menu.code),
                         );
                         egui::ScrollArea::vertical()
-                            .max_height(8. * neoflash_ui::metrics::ROW)
+                            .max_height(8. * neoflash_ui::metrics::row())
                             .themed()
                             .show(ui, |ui| {
                                 for (index, fix) in menu.fixes.iter().enumerate() {

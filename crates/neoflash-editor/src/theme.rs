@@ -8,22 +8,36 @@ use std::sync::LazyLock;
 use neoflash_ui::metrics as nf;
 /// `NF2/Body` size (11 since the owner-approved type scale B, 2026-11-07).
 pub(crate) const PANEL_FONT: f32 = neoflash_ui::TextStyle::Body.spec().size;
-/// Fields, buttons, icon buttons (`NF2/Field`, `NF2/Button`).
-pub(crate) const CONTROL_HEIGHT: f32 = nf::CONTROL;
+/// Fields, buttons, icon buttons (`NF2/Field`, `NF2/Button`) at the current density.
+pub(crate) fn control_h() -> f32 {
+    nf::control()
+}
 pub(crate) const LABEL_WIDTH: f32 = 76.;
 /// `NF2/Small` size (10 since type scale B).
 pub(crate) const SECONDARY_FONT: f32 = neoflash_ui::TextStyle::Small.spec().size;
-/// Tree rows, menu items, layer rows (`NF2/Tree Item`, `NF2/TL Layer`).
-pub(crate) const ROW_HEIGHT: f32 = nf::ROW;
+/// Tree rows, menu items (`NF2/Tree Item`) at the current density.
+pub(crate) fn row_h() -> f32 {
+    nf::row()
+}
 /// One inspector field row.
-pub(crate) const PROPERTY_ROW_HEIGHT: f32 = nf::CONTROL;
+pub(crate) fn property_row_h() -> f32 {
+    nf::control()
+}
 /// Panel tabs / floating panel header (`NF2/Panel Tab`).
-pub(crate) const HEADER_HEIGHT: f32 = nf::PANEL_TAB;
-pub(crate) const FOOTER_HEIGHT: f32 = nf::CONTROL;
+pub(crate) fn header_h() -> f32 {
+    nf::panel_tab()
+}
+pub(crate) fn footer_h() -> f32 {
+    nf::control()
+}
 /// Docked tools rail (`NF2/Tools Panel` Layout = 1 Column).
-pub(crate) const TOOLS_WIDTH: f32 = nf::TOOLS_RAIL;
-/// Bottom dock: controls 44 + timeline body 336 (dock tabs 40 come from the group header).
-pub(crate) const TIMELINE_HEIGHT: f32 = nf::BOTTOM_DOCK - nf::DOCK_TAB;
+pub(crate) fn tools_w() -> f32 {
+    nf::tools_rail()
+}
+/// Bottom dock: controls + timeline body (dock tabs come from the group header).
+pub(crate) fn timeline_h() -> f32 {
+    nf::BOTTOM_DOCK - nf::dock_tab()
+}
 pub(crate) const TIMELINE_MIN_HEIGHT: f32 = 200.;
 
 /// Install NF2 spacing and text styles once (fonts are installed by `fonts.rs`).
@@ -309,8 +323,8 @@ impl ThemedScrollArea {
                         (egui::Key::ArrowUp, egui::Key::ArrowDown)
                     };
                     for (key, delta) in [
-                        (back, -ROW_HEIGHT),
-                        (forward, ROW_HEIGHT),
+                        (back, -row_h()),
+                        (forward, row_h()),
                         (egui::Key::PageUp, -result.inner_rect.size()[axis]),
                         (egui::Key::PageDown, result.inner_rect.size()[axis]),
                     ] {
@@ -514,7 +528,7 @@ mod tests {
                 repeat: false,
                 modifiers: egui::Modifiers::NONE,
             }]);
-            assert_eq!(scroll.state.offset.y, before + ROW_HEIGHT);
+            assert_eq!(scroll.state.offset.y, before + row_h());
             assert!(ctx.memory(|memory| memory.has_focus(focus)));
             assert!(
                 out.shapes

@@ -10,7 +10,6 @@
 //! focusable and keeps its id when a row re-wraps.
 use super::{galley, text_at};
 use crate::icons::{self, Icon};
-use crate::metrics::CONTROL;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{
@@ -77,8 +76,12 @@ impl<'a, N: Numeric> DragField<'a, N> {
 impl<N: Numeric> Widget for DragField<'_, N> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let width = self.width.unwrap_or(ui.available_width()).max(CONTROL);
-        let (rect, outer) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::hover());
+        let width = self
+            .width
+            .unwrap_or(ui.available_width())
+            .max(crate::metrics::control());
+        let (rect, outer) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let frame_shape = ui.painter().add(egui::Shape::Noop);
         let enabled = ui.is_enabled();
         let (lo, hi) = (self.range.start().to_f64(), self.range.end().to_f64());

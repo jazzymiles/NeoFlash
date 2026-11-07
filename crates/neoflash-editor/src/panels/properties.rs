@@ -278,8 +278,8 @@ impl Editor {
                 let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::S2;
-                    let pair_width = ui.available_width() - crate::theme::CONTROL_HEIGHT - space::S2;
-                    ui.allocate_ui_with_layout(egui::vec2(pair_width, crate::theme::CONTROL_HEIGHT), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    let pair_width = ui.available_width() - crate::theme::control_h() - space::S2;
+                    ui.allocate_ui_with_layout(egui::vec2(pair_width, crate::theme::control_h()), egui::Layout::top_down(egui::Align::Min), |ui| {
                         for r in numeric_pair(ui, ["W", "H"], [&mut width, &mut height], 1. ..=8192., 1.) { changes.note(r); }
                     });
                     let link = ui.add(nf::IconButton::new(i16::LINK, "Constrain stage proportions").selected(linked));
@@ -580,7 +580,7 @@ pub(crate) fn inspector_section<R>(
     content: impl FnOnce(&mut egui::Ui) -> R,
 ) {
     ui.scope(|ui| {
-        ui.spacing_mut().interact_size.y = crate::theme::CONTROL_HEIGHT;
+        ui.spacing_mut().interact_size.y = crate::theme::control_h();
         SectionHeader::new(title)
             .id_salt(("inspector-section", title))
             .default_open(!matches!(title, "Behavior / linkage" | "Accessibility"))

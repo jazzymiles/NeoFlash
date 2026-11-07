@@ -432,7 +432,7 @@ impl Editor {
         grab_offset.x = grab_offset.x.clamp(0., size.x);
         grab_offset.y = grab_offset
             .y
-            .clamp(0., neoflash_ui::metrics::PANEL_HEADER * zoom);
+            .clamp(0., neoflash_ui::metrics::panel_header() * zoom);
         Some((floating_group, size / zoom, grab_offset))
     }
 
@@ -1059,7 +1059,7 @@ fn panel_title_tab(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let grip = neoflash_ui::metrics::ICON_UI;
     let size = egui::vec2(
         space::S2 + grip + space::S1 + space::S3 + galley.size().x + space::S3,
-        neoflash_ui::metrics::PANEL_TAB,
+        neoflash_ui::metrics::panel_tab(),
     );
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     if ui.is_rect_visible(rect) {

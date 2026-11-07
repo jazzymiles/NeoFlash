@@ -397,7 +397,7 @@ impl Editor {
             // Reserve search, the item-count row, three list rows and the footer.
             let reserved = metrics::CONTROL * 2.
                 + metrics::ROW * 3.
-                + crate::theme::FOOTER_HEIGHT
+                + crate::theme::footer_h()
                 + 1.
                 + 7. * spacing;
             let image_budget = height
@@ -579,7 +579,7 @@ impl Editor {
             &mut rows,
         );
         let mut action = None;
-        let footer = crate::theme::FOOTER_HEIGHT + 1. + 2. * ui.spacing().item_spacing.y;
+        let footer = crate::theme::footer_h() + 1. + 2. * ui.spacing().item_spacing.y;
         let tree_height = (ui.available_height() - footer).max(0.);
         egui::ScrollArea::vertical()
             .id_salt("library-tree")
@@ -1004,7 +1004,7 @@ impl Editor {
     fn library_footer(&mut self, ui: &mut egui::Ui, selected: &Option<LibrarySymbol>) {
         let width = ui.available_width();
         ui.allocate_ui_with_layout(
-            Vec2::new(width, crate::theme::FOOTER_HEIGHT),
+            Vec2::new(width, crate::theme::footer_h()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.spacing_mut().item_spacing.x = space::S1;

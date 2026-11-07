@@ -50,7 +50,7 @@ impl Editor {
         }
         let p = neoflash_ui::palette(ctx);
         egui::TopBottomPanel::top("document-tabs")
-            .exact_height(neoflash_ui::metrics::PANEL_HEADER)
+            .exact_height(neoflash_ui::metrics::panel_header())
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
@@ -85,11 +85,11 @@ impl Editor {
         let mut activate = None;
         let mut close = None;
         ui.allocate_ui_with_layout(
-            egui::vec2(width, nf::headers::DOCUMENT_TAB_HEIGHT),
+            egui::vec2(width, nf::headers::document_tab_height()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.spacing_mut().item_spacing.x = space::S1;
-                let max_tabs_width = (width - neoflash_ui::metrics::CONTROL - space::S1).max(0.);
+                let max_tabs_width = (width - neoflash_ui::metrics::control() - space::S1).max(0.);
                 let tabs = self.document_tabs();
                 egui::ScrollArea::horizontal()
                     .id_salt("document-strip")

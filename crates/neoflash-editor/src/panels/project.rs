@@ -367,8 +367,8 @@ impl Editor {
         ui.add(c::Search::new(&mut self.project_panel.filter, "Find file").width(w));
 
         let query = self.project_panel.filter.trim().to_lowercase();
-        let footer_reserve = crate::theme::CONTROL_HEIGHT + 20.0 + space::S1 * 3.0;
-        let tree_h = (ui.available_height() - footer_reserve).max(crate::theme::CONTROL_HEIGHT);
+        let footer_reserve = crate::theme::control_h() + 20.0 + space::S1 * 3.0;
+        let tree_h = (ui.available_height() - footer_reserve).max(crate::theme::control_h());
 
         let all_dirs = self.all_source_folders();
         let sources_snapshot = self.project.sources.clone();

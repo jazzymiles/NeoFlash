@@ -56,6 +56,8 @@ pub(crate) struct PreferencesDraft {
     /// Theme to restore on Cancel (the draft theme is previewed live).
     pub(crate) original_theme: ThemeMode,
     pub(crate) theme: ThemeMode,
+    /// Density profile; previewed live while the dialog is open (the editor applies the draft's).
+    pub(crate) density: crate::workspace::DensityPref,
     pub(crate) ui_scale: f32,
     pub(crate) undo_levels: f64,
     pub(crate) shift_select: bool,
@@ -91,6 +93,7 @@ impl PreferencesDraft {
             page,
             original_theme: prefs.theme,
             theme: prefs.theme,
+            density: prefs.density,
             ui_scale: prefs.ui_scale,
             undo_levels: prefs.undo_levels as f64,
             shift_select: prefs.shift_select,
@@ -119,6 +122,7 @@ impl PreferencesDraft {
         match self.page {
             PAGE_GENERAL => {
                 self.theme = defaults.theme;
+                self.density = defaults.density;
                 self.ui_scale = defaults.ui_scale;
                 self.undo_levels = defaults.undo_levels as f64;
                 self.shift_select = defaults.shift_select;
@@ -231,6 +235,11 @@ impl Editor {
         w.timeline.compact_rows = draft.timeline.compact_rows;
         w.timeline.show_seconds = draft.timeline.show_seconds;
         w.timeline.snap_playhead = draft.timeline.snap_playhead;
+        // A new density brings its own layer-row preset and layer-column width (after the
+        // Timeline page's row choice, which still described the previous profile).
+        if draft.density != w.density {
+            w.set_density(draft.density);
+        }
         w.onion_range = draft.onion.map(|n| n.round().max(0.0) as u32);
         w.default_ease = draft.default_ease;
         w.text_font = draft.text_font.clone();
@@ -422,6 +431,14 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
         );
         // Follow system has no control in the design (caption only): NF2-REQUESTS R-012.
         disabled(ui, |ui| caption(ui, "or follow system"));
+    });
+    row(ui, "Density", |ui| {
+        c::Segmented::show(
+            ui,
+            &mut draft.density,
+            &crate::workspace::DensityPref::ALL.map(|d| (d, d.label())),
+            false,
+        );
     });
     row(ui, "UI scale", |ui| {
         c::Select::options(

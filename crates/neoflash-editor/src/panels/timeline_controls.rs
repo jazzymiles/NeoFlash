@@ -17,7 +17,7 @@ use eframe::egui::{self, Sense, Stroke, Vec2};
 use neoflash_core::*;
 use neoflash_ui::components::{self as nf, IconButton, IconButtonType, IconGroup, MenuItem};
 use neoflash_ui::icons::i16;
-use neoflash_ui::metrics::{CONTROL, FrameView, TIMELINE_CONTROLS};
+use neoflash_ui::metrics::FrameView;
 use neoflash_ui::tokens::space;
 use neoflash_ui::{TextStyle, typography};
 use std::collections::HashMap;
@@ -167,7 +167,7 @@ fn hidden_menu_rows(c: Ctl) -> usize {
 fn estimated_width(c: Ctl) -> f32 {
     match c {
         Ctl::Div1 | Ctl::Div2 | Ctl::Div3 => 1. + space::S2,
-        Ctl::Transport => 5. * CONTROL + 4. * GROUP_GAP,
+        Ctl::Transport => 5. * neoflash_ui::metrics::control() + 4. * GROUP_GAP,
         Ctl::Frame => 72.,
         Ctl::Timecode => 60.,
         Ctl::Scene => 120.,
@@ -176,7 +176,7 @@ fn estimated_width(c: Ctl) -> f32 {
         Ctl::Insert | Ctl::Tween => 3. * 28. + 6.,
         Ctl::Slider => SLIDER,
         Ctl::Flex => 0.,
-        _ => CONTROL,
+        _ => neoflash_ui::metrics::control(),
     }
 }
 
@@ -267,7 +267,10 @@ impl Editor {
     ) -> ControlsOutcome {
         let p = neoflash_ui::palette(ui.ctx());
         let width = ui.available_width();
-        let (bar, _) = ui.allocate_exact_size(Vec2::new(width, TIMELINE_CONTROLS), Sense::hover());
+        let (bar, _) = ui.allocate_exact_size(
+            Vec2::new(width, neoflash_ui::metrics::timeline_controls()),
+            Sense::hover(),
+        );
         ui.painter().hline(
             bar.x_range(),
             bar.bottom() - 0.5,
@@ -303,7 +306,7 @@ impl Editor {
             .collect();
         let used = controls_width(&row);
         // Adaptive alignment: the transport starts above frame 1 only when everything fits with it.
-        let compact_actions = 4. * CONTROL + 3. * GROUP_GAP;
+        let compact_actions = 4. * neoflash_ui::metrics::control() + 3. * GROUP_GAP;
         let align = (layer_column - 2. * GAP - compact_actions).max(0.);
         let align = if hidden.is_empty() && used + align <= inner.width() {
             align

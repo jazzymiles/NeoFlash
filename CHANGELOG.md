@@ -2,6 +2,11 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Density profiles (`T-101`): **Preferences ▸ General ▸ Density** and **Window ▸ Density** switch the editor between
+  Comfortable, Compact and Classic Flash. The profiles change only sizes — top bar, panel headers, fields, buttons,
+  tool buttons, Timeline controls, frame ruler, default layer rows (28/22/16) and layer column — so laptops and
+  classic Flash workflows get more room for the Stage and Timeline without different behaviour. Preferences previews
+  the profile live; Cancel restores the saved one.
 - Library lifecycle, Smart Rename 2.0, History command replay, exact curve splitting, planar Paint Bucket, Brush paint modes, variable-width strokes, rich-text/HTML authoring, Bitmap properties, 9-slice scaling, Classic/Motion tween controls, Graphic Frame Picker, Auto Lip-Sync, SVG export and Sprite-Sheet / Texture-Atlas publishing (`T-100`, `T-102`–`T-111`):
   - **Library lifecycle, Movie Explorer & Smart Rename 2.0 (`T-100`):** added `Select unused items` (`select_unused_library_items`), `Delete unused items` (`delete_unused_library_items`), bulk folder moves (`bulk_move_library_symbols`) and bulk symbol-type changes (`bulk_set_symbol_kind`) in the Library; `Select Symbol Instances` on the current frame and `Copy All Text to Clipboard` in `Movie Explorer`; and `Smart Rename 2.0` (`preview_smart_rename`, `apply_smart_rename`, `rename_instance_in_span`) with regex capture backreferences (`$0`, `$&`, `$1`–`$9`), sequence/context tokens (`{n}`, `{n:02}`, `{n:03}`, `{index}`, `{symbol}`, `{layer}`, `{scene}`, `{old}`), identifier case transforms (`CamelCase`, `PascalCase`, `SnakeCase`, `ScreamingSnakeCase`, `KebabCase`) and collision policies (`AutoNumber`, `Skip`, `Stop`).
   - **History command steps, Replay & Save as Command (`T-103`):** added `AuthoringCommandStep` and `SavedCommand` in `neoflash-core::history`, automatic step inference on `History::commit` and explicit recording, plus `Replay`, `Copy steps`, `Repeat command` and `Run saved command` in the `History` panel (`panels/history.rs`).

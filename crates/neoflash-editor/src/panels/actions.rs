@@ -11,7 +11,6 @@ use eframe::egui;
 use neoflash_core::*;
 use neoflash_ui::components::{self as nf, code::Severity};
 use neoflash_ui::icons::i16;
-use neoflash_ui::metrics::CONTROL;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 
 /// Toolbar commands of the NF2 Actions panel in Figma order. Commands without an action are not
@@ -101,7 +100,9 @@ impl Editor {
             .collect();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
-            let search = (ui.available_width() - 2. * (CONTROL + space::S2)).max(80.);
+            let search = (ui.available_width()
+                - 2. * (neoflash_ui::metrics::control() + space::S2))
+                .max(80.);
             ui.add(nf::Search::new(&mut filter, "Filter output").width(search));
             let copy_sc = self.tooltip_sc(crate::commands::CommandId::EditCopy);
             let mut copy_btn = nf::IconButton::new(i16::COPY, "Copy output");
@@ -317,7 +318,7 @@ impl Editor {
             if sidebar.clicked() {
                 self.actions_ui.sidebar = !self.actions_ui.sidebar;
             }
-            let right = 140. + CONTROL + 2. * 2.;
+            let right = 140. + neoflash_ui::metrics::control() + 2. * 2.;
             // In a wrapped row `available_width` is the full row width, not what is left of it.
             let rest = ui.max_rect().right() - ui.cursor().left() - right - space::S4;
             if rest > 0. {

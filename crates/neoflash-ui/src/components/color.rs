@@ -2,7 +2,6 @@
 //! `NF2/Registration Picker`, `NF2/Icon Group`.
 use super::{State, a11y, display::paint_swatch};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::CONTROL;
 use crate::theme::{cr, palette};
 use crate::tokens::{radius, space};
 use eframe::egui::{self, Color32, Rect, Response, Sense, Stroke, StrokeKind, Ui, Widget};
@@ -25,7 +24,8 @@ pub struct ColorWell {
 impl Widget for ColorWell {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(74.0, CONTROL), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(74.0, crate::metrics::control()), Sense::click());
         let s = State::of(ui, &response);
         let (bg, border) = if self.active {
             (p.accent_subtle, p.accent_default)
@@ -371,8 +371,13 @@ pub struct IconGroup<'a> {
 impl IconGroup<'_> {
     pub fn show(self, ui: &mut Ui) -> Option<usize> {
         let p = palette(ui.ctx());
-        let w = self.items.len() as f32 * 28.0 + 6.0;
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 34.0), Sense::hover());
+        // Items are a control minus 4 pt; the group is a control plus 2 pt (34 / 28 at Comfortable).
+        let item = crate::metrics::control() - 4.0;
+        let w = self.items.len() as f32 * item + 6.0;
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(w, crate::metrics::control() + 2.0),
+            Sense::hover(),
+        );
         ui.painter().rect_filled(rect, cr(radius::LG), p.bg_field);
         ui.painter().rect_stroke(
             rect,
@@ -391,7 +396,7 @@ impl IconGroup<'_> {
                     if ui
                         .add(
                             super::IconButton::new(*icon, name)
-                                .side(28.0)
+                                .side(item)
                                 .selected(self.selected == Some(i)),
                         )
                         .clicked()

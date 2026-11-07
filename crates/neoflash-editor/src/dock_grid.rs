@@ -10,7 +10,6 @@ use crate::{
 };
 use eframe::egui;
 
-const HEADER: f32 = crate::theme::HEADER_HEIGHT;
 const SPLITTER: f32 = 6.;
 const AREA_GRIP: f32 = 6.;
 /// Drag strip above the docked tools rail (the rail itself has no header in NF2).
@@ -104,8 +103,8 @@ pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rec
 impl Editor {
     pub(crate) fn dock_grid(&mut self, ctx: &egui::Context) {
         let mut content = ctx.viewport_rect();
-        content.min.y += neoflash_ui::metrics::TOP_BAR;
-        content.max.y -= neoflash_ui::metrics::STATUS_BAR;
+        content.min.y += neoflash_ui::metrics::top_bar();
+        content.max.y -= neoflash_ui::metrics::status_bar();
         self.register_dock_viewport(ctx, DockSurface::Main, content);
         self.continue_panel_drag(ctx);
         // NF2: the bottom dock spans the full window width; tools rail and inspector sit above it.
@@ -149,7 +148,7 @@ impl Editor {
         let available = ctx.available_rect();
         let (minimum, maximum) = if edge.vertical() {
             let min = if tools_only {
-                crate::theme::TOOLS_WIDTH
+                crate::theme::tools_w()
                     + AREA_GRIP
                     + if available.height() < 472. { 12. } else { 0. }
             } else {
@@ -554,11 +553,11 @@ impl Editor {
         let header_h = if tools_only {
             TOOLS_GRIP
         } else if wide {
-            neoflash_ui::metrics::DOCK_TAB
+            neoflash_ui::metrics::dock_tab()
         } else if single {
-            neoflash_ui::metrics::PANEL_HEADER
+            neoflash_ui::metrics::panel_header()
         } else {
-            HEADER
+            crate::theme::header_h()
         };
         let header = egui::Rect::from_min_max(
             rect.min,

@@ -5,7 +5,9 @@ use eframe::egui::Pos2;
 #[cfg(test)]
 pub(crate) const ROW_HEIGHT: f32 = neoflash_ui::metrics::LAYER_ROW;
 /// `NF2/TL Ruler` / `NF2/TL Layers Header` height.
-pub(crate) const RULER_HEIGHT: f32 = neoflash_ui::metrics::TIMELINE_RULER;
+pub(crate) fn ruler_height() -> f32 {
+    neoflash_ui::metrics::timeline_ruler()
+}
 
 /// Actual editable cells exclude the end gutter and the space below the layers.
 pub(crate) fn timeline_cell_at(

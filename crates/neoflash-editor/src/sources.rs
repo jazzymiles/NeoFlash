@@ -345,7 +345,7 @@ impl Editor {
             })
             .collect();
         let message_count = feedback.as_ref().map_or(0, |(_, _, d)| d.len().max(1));
-        let bar_h = neoflash_ui::metrics::SCRIPT_TAB + 2.;
+        let bar_h = neoflash_ui::metrics::script_tab() + 2.;
         let full = ui.available_rect_before_wrap();
         let diag_h = if message_count == 0 {
             0.
@@ -657,8 +657,9 @@ impl Editor {
                 .as_ref()
                 .map_or("No source files", |u| u.path.as_str())
                 .to_owned();
-            let select_w = (ui.available_width() - 160. - 3. * neoflash_ui::metrics::CONTROL - 16.)
-                .clamp(120., 320.);
+            let select_w =
+                (ui.available_width() - 160. - 3. * neoflash_ui::metrics::control() - 16.)
+                    .clamp(120., 320.);
             nf::Select::new("project_source_file", &file_label)
                 .icon(neoflash_ui::icons::i16::FILE_CODE)
                 .width(select_w)
@@ -1085,14 +1086,14 @@ fn hint_popover(
                 ui.set_width(220.);
                 egui::ScrollArea::vertical()
                     .id_salt(id.with("code-hints-scroll"))
-                    .max_height(8. * neoflash_ui::metrics::ROW)
+                    .max_height(8. * neoflash_ui::metrics::row())
                     .themed()
                     .show(ui, |ui| {
                         for (index, item) in items.iter().enumerate() {
                             if index == state.selected {
                                 let row = egui::Rect::from_min_size(
                                     ui.cursor().min,
-                                    egui::vec2(ui.available_width(), neoflash_ui::metrics::ROW),
+                                    egui::vec2(ui.available_width(), neoflash_ui::metrics::row()),
                                 );
                                 ui.painter().rect_filled(row, radius::MD, p.bg_hover);
                             }

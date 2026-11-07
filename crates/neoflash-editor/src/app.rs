@@ -217,6 +217,16 @@ impl Editor {
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_ROWS=short|compact` captures the Frame View row heights.
         if is_screenshot {
+            // `NEOFLASH_SCREENSHOT_DENSITY=compact|classic` captures a density profile.
+            match std::env::var("NEOFLASH_SCREENSHOT_DENSITY").as_deref() {
+                Ok("compact") => s
+                    .workspace
+                    .set_density(crate::workspace::DensityPref::Compact),
+                Ok("classic") => s
+                    .workspace
+                    .set_density(crate::workspace::DensityPref::ClassicFlash),
+                _ => {}
+            }
             match std::env::var("NEOFLASH_SCREENSHOT_ROWS").as_deref() {
                 Ok("short") => s.workspace.timeline.short_rows = true,
                 Ok("compact") => s.workspace.timeline.compact_rows = true,
@@ -470,6 +480,28 @@ impl Editor {
         [self.onion_before, self.onion_after] = self.workspace.onion_range;
         self.fonts
             .ensure_loaded(ctx, &self.workspace.code_editor.font);
+    }
+    /// Switch the density profile (Window ▸ Density): sizes only, identical behaviour.
+    pub(crate) fn set_density(
+        &mut self,
+        ctx: &egui::Context,
+        density: crate::workspace::DensityPref,
+    ) {
+        self.workspace.set_density(density);
+        self.apply_density(ctx);
+    }
+    /// Make NF2 metrics follow the current density (the Preferences draft while the dialog is open)
+    /// and re-install egui spacing when it changed.
+    pub(crate) fn apply_density(&self, ctx: &egui::Context) {
+        let density = self
+            .preferences
+            .as_ref()
+            .map_or(self.workspace.density, |draft| draft.density)
+            .ui();
+        neoflash_ui::metrics::set_density(density);
+        if ctx.style().spacing.interact_size.y != neoflash_ui::metrics::control() {
+            crate::theme::initialize_editor_style(ctx);
+        }
     }
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
         self.workspace.theme = theme;
@@ -2359,6 +2391,7 @@ impl eframe::App for Editor {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.apply_density(ctx);
         self.poll_debugger(ctx);
         let native_quit = crate::native_quit::take_requested();
         if (native_quit || ctx.input(|i| i.viewport().close_requested())) && !self.allow_close {

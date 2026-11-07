@@ -343,7 +343,7 @@ impl Widget for EaseGraph {
 pub fn ease_preview_track(ui: &mut Ui, bezier: [f32; 4], progress: f32, width: f32) -> Response {
     let p = palette(ui.ctx());
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(width, crate::metrics::ROW), Sense::hover());
+        ui.allocate_exact_size(egui::vec2(width, crate::metrics::row()), Sense::hover());
     ui.painter().rect_filled(rect, cr(radius::MD), p.bg_field);
     ui.painter().rect_stroke(
         rect,

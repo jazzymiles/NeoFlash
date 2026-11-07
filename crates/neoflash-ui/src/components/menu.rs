@@ -4,7 +4,7 @@
 //! 24 px check column, label (`NF2/Body`), shortcut right-aligned (`NF2/Small`, `text/tertiary`), ▸ for submenus.
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::{MENU_SECTION, MENU_SEPARATOR, ROW};
+use crate::metrics::MENU_SEPARATOR;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Stroke, Ui, Widget};
@@ -80,7 +80,8 @@ impl Widget for MenuItem<'_> {
         };
         let min_w = 24.0 + label_w + short_w + space::S3 + if self.submenu { 16.0 } else { 0.0 };
         let width = ui.available_width().max(min_w);
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, ROW), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::row()), Sense::click());
         let s = State::of(ui, &response);
         let open = self.submenu && response.hovered();
         if s.enabled && (s.hovered || open || self.highlighted) {
@@ -93,7 +94,7 @@ impl Widget for MenuItem<'_> {
         } else {
             p.text_primary
         };
-        let col = Rect::from_min_size(rect.min, egui::vec2(24.0, ROW));
+        let col = Rect::from_min_size(rect.min, egui::vec2(24.0, crate::metrics::row()));
         if self.checked {
             icons::paint(
                 ui.painter(),
@@ -166,7 +167,7 @@ impl Widget for MenuItem<'_> {
 pub fn menu_section(ui: &mut Ui, label: &str) {
     let p = palette(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), MENU_SECTION),
+        egui::vec2(ui.available_width(), crate::metrics::menu_section()),
         Sense::hover(),
     );
     text_at(
@@ -237,7 +238,7 @@ pub fn popover_frame(ctx: &egui::Context) -> egui::Frame {
 pub fn menu_style(style: &mut egui::Style) {
     style.spacing.item_spacing = egui::vec2(0.0, 0.0);
     style.spacing.button_padding = egui::vec2(space::S2, space::S1);
-    style.spacing.interact_size.y = ROW;
+    style.spacing.interact_size.y = crate::metrics::row();
     style.spacing.menu_margin = egui::Margin::same(space::S1 as i8);
     style.visuals.menu_corner_radius = cr(radius::LG);
 }
@@ -281,7 +282,7 @@ pub fn menu_bar<R>(ui: &mut Ui, content: impl FnOnce(&mut Ui) -> R) -> R {
                 // Figma top bar: ~30 pt between menu titles = 2 × 12 padding + 6 spacing.
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.spacing_mut().button_padding = egui::vec2(space::S3, space::S1);
-                ui.spacing_mut().interact_size.y = ROW;
+                ui.spacing_mut().interact_size.y = crate::metrics::row();
                 ui.visuals_mut().override_text_color = Some(p.text_secondary);
                 content(ui)
             })

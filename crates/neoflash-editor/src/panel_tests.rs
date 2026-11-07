@@ -5387,3 +5387,70 @@ fn timeline_horizontal_scrollbar_is_only_visible_when_frames_overflow() {
         "timeline scrollbar must remain available when frames overflow"
     );
 }
+
+/// T-101 / R-051: a density profile resizes NF2 chrome (Play, fields, rows) without changing
+/// behaviour; the Preferences draft previews it live and Cancel / Save behave like the theme.
+#[test]
+fn density_profiles_resize_chrome_and_follow_preferences_preview() {
+    use crate::workspace::{DensityPref, WorkspacePrefs};
+    use neoflash_ui::metrics;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let before = editor.project.clone();
+    let size = Vec2::new(1440., 900.);
+    let mut time = 0.;
+    let mut run = |editor: &mut Editor| {
+        let mut out = None;
+        for _ in 0..3 {
+            time += 0.05;
+            editor.apply_density(&ctx);
+            out = Some(frame(editor, &ctx, size, time, vec![]));
+        }
+        out.unwrap()
+    };
+    let play = |out: &egui::FullOutput| named_bounds(out, "Play preview").expect("Play").height();
+
+    let out = run(&mut editor);
+    assert_eq!(play(&out), 32.);
+    assert_eq!(ctx.style().spacing.interact_size.y, 32.);
+
+    editor.set_density(&ctx, DensityPref::ClassicFlash);
+    let out = run(&mut editor);
+    assert_eq!(play(&out), 24.);
+    assert_eq!(ctx.style().spacing.interact_size.y, 24.);
+    assert!(editor.workspace.timeline.compact_rows);
+    assert_eq!(editor.workspace.timeline.row_height(), 16.);
+    assert_eq!(editor.workspace.sizes.layer_column_width, 292.);
+
+    // Preferences previews the draft's density; Cancel (dropping the draft) restores the saved one.
+    editor.open_preferences(0);
+    editor.preferences.as_mut().unwrap().density = DensityPref::Compact;
+    editor.apply_density(&ctx);
+    assert_eq!(metrics::control(), 28.);
+    editor.preferences = None;
+    editor.apply_density(&ctx);
+    assert_eq!(metrics::control(), 24.);
+
+    // Save applies the profile with its layer-row preset and column width.
+    editor.open_preferences(0);
+    editor.preferences.as_mut().unwrap().density = DensityPref::Comfortable;
+    let draft = editor.preferences.take().unwrap();
+    editor.save_preferences(&ctx, &draft);
+    let out = run(&mut editor);
+    assert_eq!(play(&out), 32.);
+    assert_eq!(editor.workspace.density, DensityPref::Comfortable);
+    assert!(!editor.workspace.timeline.short_rows && !editor.workspace.timeline.compact_rows);
+    assert_eq!(
+        editor.workspace.sizes.layer_column_width,
+        metrics::LAYER_COLUMN_MODE_SOLO
+    );
+
+    // Saved preferences from before density existed load as Comfortable.
+    let prefs: WorkspacePrefs = serde_json::from_str("{}").unwrap();
+    assert_eq!(prefs.density, DensityPref::Comfortable);
+    let json = serde_json::to_string(&editor.workspace).unwrap();
+    assert!(json.contains("\"density\":\"comfortable\""));
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}

@@ -46,7 +46,7 @@ pub fn drag_ghost_at(painter: &egui::Painter, ctx: &egui::Context, pos: egui::Po
     );
     let size = egui::vec2(
         space::S3 + 16.0 + space::S2 + g.size().x + space::S3,
-        crate::metrics::ROW,
+        crate::metrics::row(),
     );
     let rect = Rect::from_min_size(pos, size);
     painter.add(

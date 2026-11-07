@@ -1,6 +1,124 @@
 //! Fixed geometry from the NF2 reference (`interface/design-system/docs/NeoFlash-Design-System.codex.md`).
 //! These numbers are not Figma variables, so they live here instead of `tokens.json`.
 //! All values are logical points (egui points), independent of display scale.
+//!
+//! **Density profiles (T-101 / R-051, owner-approved 2026-11-07).** The `pub const` values are the
+//! Comfortable reference sizes from Figma. Layout code calls the lower-case functions ([`control`],
+//! [`row`], [`top_bar`] …), which return the size for the current [`Density`]. The editor sets the
+//! profile once per frame with [`set_density`]; it is kept per UI thread, so tests stay isolated.
+
+use std::cell::Cell;
+
+/// Editor-wide density profile: identical behaviour and information architecture, different sizes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Density {
+    /// The readable reference profile (NF2 v2.2 sizes).
+    #[default]
+    Comfortable,
+    /// Denser chrome for laptops.
+    Compact,
+    /// Classic Flash: densest chrome, 24 pt minimum targets.
+    ClassicFlash,
+}
+
+impl Density {
+    pub const ALL: [Self; 3] = [Self::Comfortable, Self::Compact, Self::ClassicFlash];
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Comfortable => "Comfortable",
+            Self::Compact => "Compact",
+            Self::ClassicFlash => "Classic Flash",
+        }
+    }
+    /// Comfortable / Compact / Classic Flash value.
+    pub const fn pick(self, comfortable: f32, compact: f32, classic: f32) -> f32 {
+        match self {
+            Self::Comfortable => comfortable,
+            Self::Compact => compact,
+            Self::ClassicFlash => classic,
+        }
+    }
+}
+
+thread_local! {
+    static DENSITY: Cell<Density> = const { Cell::new(Density::Comfortable) };
+}
+
+/// Density used by the metric functions on this UI thread.
+pub fn density() -> Density {
+    DENSITY.with(Cell::get)
+}
+
+/// Set the density for this UI thread (the editor does it at the start of every frame).
+pub fn set_density(density: Density) {
+    DENSITY.with(|cell| cell.set(density));
+}
+
+macro_rules! density_metrics {
+    ($($(#[$doc:meta])* $name:ident = $comfortable:expr, $compact:expr, $classic:expr;)*) => {
+        $($(#[$doc])* pub fn $name() -> f32 {
+            density().pick($comfortable, $compact, $classic)
+        })*
+    };
+}
+
+density_metrics! {
+    /// [`CONTROL`] for the current density: fields, selects, buttons, icon buttons SM.
+    control = CONTROL, 28.0, 24.0;
+    /// [`ROW`]: tree rows, menu items, table rows.
+    row = ROW, 24.0, 20.0;
+    /// [`PANEL_TAB`].
+    panel_tab = PANEL_TAB, 30.0, 26.0;
+    /// [`PANEL_HEADER`].
+    panel_header = PANEL_HEADER, 32.0, 28.0;
+    /// [`SECTION_HEADER`].
+    section_header = SECTION_HEADER, 28.0, 24.0;
+    /// [`DOCK_TAB`].
+    dock_tab = DOCK_TAB, 32.0, 28.0;
+    /// [`ICON_BUTTON_MD`].
+    icon_button_md = ICON_BUTTON_MD, 32.0, 28.0;
+    /// [`STATUS_BAR`].
+    status_bar = STATUS_BAR, 22.0, 20.0;
+    /// [`MENU_SECTION`].
+    menu_section = MENU_SECTION, 22.0, 20.0;
+    /// [`SCRIPT_TAB`].
+    script_tab = SCRIPT_TAB, 26.0, 22.0;
+    /// [`DIALOG_HEADER`].
+    dialog_header = DIALOG_HEADER, 52.0, 44.0;
+    /// [`MIN_HIT`]: never below 24 pt (WCAG 2.2 target size).
+    min_hit = MIN_HIT, 28.0, 24.0;
+    /// [`ICON_TOOL`].
+    icon_tool = ICON_TOOL, 20.0, 16.0;
+    /// [`TOP_BAR`].
+    top_bar = TOP_BAR, 40.0, 32.0;
+    /// [`TOOLS_RAIL`].
+    tools_rail = TOOLS_RAIL, 48.0, 40.0;
+    /// [`TOOLS_TWO_COLUMNS`].
+    tools_two_columns = TOOLS_TWO_COLUMNS, 68.0, 56.0;
+    /// [`TOOL_BUTTON`].
+    tool_button = TOOL_BUTTON, 28.0, 24.0;
+    /// [`INSPECTOR`] default width.
+    inspector = INSPECTOR, 288.0, 256.0;
+    /// [`TIMELINE_CONTROLS`].
+    timeline_controls = TIMELINE_CONTROLS, 40.0, 32.0;
+    /// [`BREADCRUMB`].
+    breadcrumb = BREADCRUMB, 30.0, 26.0;
+    /// [`ZOOM_CONTROL`].
+    zoom_control = ZOOM_CONTROL, 36.0, 30.0;
+    /// [`STAGE_RULER`].
+    stage_ruler = STAGE_RULER, 18.0, 16.0;
+    /// [`TIMELINE_RULER`].
+    timeline_ruler = TIMELINE_RULER, 26.0, 22.0;
+    /// [`LAYER_COLUMN`] default width.
+    layer_column = LAYER_COLUMN, 240.0, 200.0;
+    /// [`LAYERS_HEADER`].
+    layers_header = LAYERS_HEADER, 26.0, 22.0;
+}
+
+/// Default layer-row height of the current density (Normal 28 / Short 22 / Compact 16 presets).
+pub fn default_layer_row() -> f32 {
+    density().pick(LAYER_ROW, LAYER_ROW_SHORT, LAYER_ROW_COMPACT)
+}
 
 // §3.2 Control heights.
 /// Fields, selects, buttons, icon buttons SM, stepper / combo fields.

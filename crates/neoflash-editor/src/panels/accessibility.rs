@@ -79,7 +79,7 @@ impl Editor {
         let mut metadata = element.accessibility.clone();
         egui::ScrollArea::vertical().id_salt("accessibility_form").auto_shrink([false, false]).themed().show(ui, |ui| {
             // Wide docks keep the form at two inspector widths (NF2 floating panel proportions).
-                ui.set_max_width(ui.available_width().min(2. * neoflash_ui::metrics::INSPECTOR));
+                ui.set_max_width(ui.available_width().min(2. * neoflash_ui::metrics::inspector()));
             ui.spacing_mut().item_spacing.y = space::S2;
             ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
                 let mut enabled = metadata.is_some();

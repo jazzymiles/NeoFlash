@@ -1,7 +1,7 @@
 //! `NF2/Button`, `NF2/Icon Button`, `NF2/Tool Button`.
 use super::{State, a11y, fill, focus, galley, text_at};
 use crate::icons::{self, Icon};
-use crate::metrics::{CONTROL, ICON_BUTTON_MD, TOOL_BUTTON};
+
 use crate::theme::palette;
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Color32, Response, Sense, Ui, Widget};
@@ -84,7 +84,8 @@ impl Widget for Button<'_> {
             .width
             .unwrap_or(hug)
             .max(hug.min(self.width.unwrap_or(hug)));
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::click());
         let s = State::of(ui, &response);
         let (bg, border, fg) = match (self.kind, s.enabled, s.hovered) {
             (_, false, _) => (p.bg_hover, None, p.text_disabled),
@@ -201,8 +202,8 @@ impl Widget for IconButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let side = self.side.unwrap_or(match self.size {
-            IconButtonSize::SM => CONTROL,
-            IconButtonSize::MD => ICON_BUTTON_MD,
+            IconButtonSize::SM => crate::metrics::control(),
+            IconButtonSize::MD => crate::metrics::icon_button_md(),
         });
         let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
         let s = State::of(ui, &response);
@@ -277,8 +278,10 @@ pub const CORNER_HIT: f32 = 12.0;
 impl Widget for ToolButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
-        let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(TOOL_BUTTON, TOOL_BUTTON), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(crate::metrics::tool_button(), crate::metrics::tool_button()),
+            Sense::click(),
+        );
         let s = State::of(ui, &response);
         let (bg, fg) = match (self.selected, s.enabled, s.hovered) {
             (_, false, _) => (Color32::TRANSPARENT, p.text_disabled),

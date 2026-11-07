@@ -5,7 +5,6 @@
 //! Escape restores the value from before editing, units are shown in the value ("5.00 s", "100 %").
 use super::{State, a11y, fill, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::CONTROL;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Color32, Rect, Response, Sense, Stroke, StrokeKind, Ui, Widget};
@@ -131,7 +130,8 @@ impl Widget for Field<'_> {
         let width = self
             .width
             .unwrap_or(ui.available_width().clamp(64.0, 160.0));
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let id = response.id;
         let edit_id = id.with("edit");
         let (lo, hi) = (*self.range.start(), *self.range.end());
@@ -405,7 +405,8 @@ impl Widget for TextField<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let width = self.width.unwrap_or(ui.available_width());
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let edit_id = response.id.with("edit");
         let focused = ui.memory(|m| m.has_focus(edit_id));
         frame(ui, rect, State::of(ui, &response), focused);
@@ -475,7 +476,8 @@ impl Widget for Search<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let p = palette(ui.ctx());
         let width = self.width.unwrap_or(ui.available_width());
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let edit_id = response.id.with("edit");
         let focused = ui.memory(|m| m.has_focus(edit_id));
         frame(ui, rect, State::of(ui, &response), focused);
@@ -566,7 +568,8 @@ impl<'a> Select<'a> {
     pub fn show<R>(self, ui: &mut Ui, menu: impl FnOnce(&mut Ui) -> R) -> (Response, Option<R>) {
         let p = palette(ui.ctx());
         let width = self.width.unwrap_or(ui.available_width().min(200.0));
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::click());
         let response = ui.interact(rect, ui.id().with(self.id_salt), Sense::click()) | response;
         let s = State::of(ui, &response);
         let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
@@ -684,7 +687,8 @@ impl<'a> ColorField<'a> {
     pub fn show(self, ui: &mut Ui) -> ColorFieldResponse {
         let p = palette(ui.ctx());
         let width = self.width.unwrap_or(ui.available_width().min(200.0));
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, CONTROL), Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, crate::metrics::control()), Sense::hover());
         let id = response.id;
         frame(ui, rect, State::of(ui, &response), false);
         let sw = Rect::from_center_size(

@@ -355,7 +355,7 @@ pub struct PanelSizes {
 impl Default for PanelSizes {
     fn default() -> Self {
         Self {
-            timeline_height: crate::theme::TIMELINE_HEIGHT,
+            timeline_height: crate::theme::timeline_h(),
             bottom_height: 190.,
             library_width: 280.,
             layer_column_width: neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
@@ -845,7 +845,7 @@ impl Default for DockLayout {
         // one full-width bottom dock with Timeline · Actions · Output · Accessibility.
         Self {
             top: DockArea {
-                size: crate::theme::TIMELINE_HEIGHT,
+                size: crate::theme::timeline_h(),
                 groups: vec![],
             },
             bottom: DockArea {
@@ -864,12 +864,12 @@ impl Default for DockLayout {
             },
             // Base Tools layout is two columns; one column (with a "…" overflow) is the narrow variant.
             left: DockArea {
-                size: neoflash_ui::metrics::TOOLS_TWO_COLUMNS + 6.,
+                size: neoflash_ui::metrics::tools_two_columns() + 6.,
                 groups: vec![group(3, vec![PanelId::Tools])],
             },
             right: DockArea {
                 // 320 pt panel + the 6 pt resize strip, so rows keep the Figma 288 pt width.
-                size: neoflash_ui::metrics::INSPECTOR + 6.,
+                size: neoflash_ui::metrics::inspector() + 6.,
                 groups: vec![
                     DockGroup {
                         weight: 0.83, // Figma editor-main: Properties 488 of 588 pt, Library 100.
@@ -1472,11 +1472,37 @@ impl DocumentDefaults {
     }
 }
 
+/// Editor density profile (Preferences ▸ General ▸ Density, Window ▸ Density; T-101 / R-051).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DensityPref {
+    #[default]
+    Comfortable,
+    Compact,
+    ClassicFlash,
+}
+
+impl DensityPref {
+    pub const ALL: [Self; 3] = [Self::Comfortable, Self::Compact, Self::ClassicFlash];
+    pub fn ui(self) -> neoflash_ui::metrics::Density {
+        match self {
+            Self::Comfortable => neoflash_ui::metrics::Density::Comfortable,
+            Self::Compact => neoflash_ui::metrics::Density::Compact,
+            Self::ClassicFlash => neoflash_ui::metrics::Density::ClassicFlash,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        self.ui().label()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspacePrefs {
     pub version: u32,
     pub theme: ThemeMode,
+    /// Density profile: sizes of the editor chrome; behaviour is identical in every profile.
+    pub density: DensityPref,
     pub panels: PanelVisibility,
     pub active_bottom: BottomTab,
     pub sizes: PanelSizes,
@@ -2367,6 +2393,7 @@ impl Default for WorkspacePrefs {
             dock: DockLayout::default(),
             floating: Vec::new(),
             template: WorkspaceTemplate::Classic,
+            density: DensityPref::default(),
             timeline: TimelineView::default(),
             view_defaults: None,
             recent_colors: Vec::new(),
@@ -2584,15 +2611,15 @@ impl WorkspaceTemplate {
         };
         let area = |size: f32, groups: Vec<DockGroup>| DockArea { size, groups };
         let tools = |size: f32| area(size + 6., vec![group(3, vec![Tools], 1.)]);
-        let two_columns = neoflash_ui::metrics::TOOLS_TWO_COLUMNS;
-        let inspector = neoflash_ui::metrics::INSPECTOR + 6.;
+        let two_columns = neoflash_ui::metrics::tools_two_columns();
+        let inspector = neoflash_ui::metrics::inspector() + 6.;
         let mut visible = PanelVisibility::default();
         let (dock, bottom) = match self {
             Self::Classic => (DockLayout::default(), BottomTab::Properties),
             Self::Animator => {
                 visible.transform = true;
                 let dock = DockLayout {
-                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    top: area(crate::theme::timeline_h(), vec![]),
                     bottom: area(
                         520.,
                         vec![group(
@@ -2644,7 +2671,7 @@ impl WorkspaceTemplate {
                 visible.transform = true;
                 visible.color = true;
                 let dock = DockLayout {
-                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    top: area(crate::theme::timeline_h(), vec![]),
                     bottom: area(
                         300.,
                         vec![group(
@@ -2703,7 +2730,7 @@ impl WorkspaceTemplate {
                 );
                 bottom.active = Actions;
                 let dock = DockLayout {
-                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    top: area(crate::theme::timeline_h(), vec![]),
                     bottom: area(560., vec![bottom]),
                     left: tools(two_columns),
                     right: area(
@@ -2738,7 +2765,7 @@ impl WorkspaceTemplate {
             }
             Self::Essentials => {
                 let dock = DockLayout {
-                    top: area(crate::theme::TIMELINE_HEIGHT, vec![]),
+                    top: area(crate::theme::timeline_h(), vec![]),
                     bottom: area(
                         300.,
                         vec![group(
@@ -2754,7 +2781,7 @@ impl WorkspaceTemplate {
                             1.,
                         )],
                     ),
-                    left: tools(neoflash_ui::metrics::TOOLS_RAIL),
+                    left: tools(neoflash_ui::metrics::tools_rail()),
                     right: area(
                         280.,
                         vec![group(
@@ -3068,6 +3095,20 @@ impl WorkspacePrefs {
         self.general.recent_files.clear();
     }
 
+    /// Switch the density profile. Its layer-row preset (Normal / Short / Compact) and default
+    /// layer-column width become current; the user can still change both afterwards.
+    pub fn set_density(&mut self, density: DensityPref) {
+        self.density = density;
+        let d = density.ui();
+        self.timeline.short_rows = d == neoflash_ui::metrics::Density::Compact;
+        self.timeline.compact_rows = d == neoflash_ui::metrics::Density::ClassicFlash;
+        self.sizes.layer_column_width = d.pick(
+            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,
+            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 40.,
+            neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO - 80.,
+        );
+    }
+
     /// Reset layout only. Theme is a separate user preference. The caller may
     /// remove known egui PanelState IDs, but must preserve authoring/input state.
     /// Replace the layout with a built-in template, keeping theme and remembered window geometry.
@@ -3075,6 +3116,7 @@ impl WorkspacePrefs {
         let (dock, panels, active_bottom) = template.layout();
         *self = Self {
             theme: self.theme,
+            density: self.density,
             ui_scale: self.ui_scale,
             undo_levels: self.undo_levels,
             shift_select: self.shift_select,
@@ -3734,7 +3776,7 @@ mod tests {
         assert_eq!(
             loaded.sizes,
             PanelSizes {
-                timeline_height: crate::theme::TIMELINE_HEIGHT,
+                timeline_height: crate::theme::timeline_h(),
                 bottom_height: 190.,
                 library_width: 248.,
                 layer_column_width: neoflash_ui::metrics::LAYER_COLUMN_MODE_SOLO,

@@ -92,6 +92,11 @@
           "status": "working"
         },
         {
+          "id": "density-profiles",
+          "title": "Comfortable, Compact and Classic Flash density profiles from Preferences or Window ▸ Density",
+          "status": "working"
+        },
+        {
           "id": "timeline-responsive-controls",
           "title": "Timeline controls hide by priority into the More menu instead of being clipped at narrow widths",
           "status": "working"

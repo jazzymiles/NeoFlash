@@ -2,7 +2,6 @@
 //! Scene ▸ symbol ▸ nested symbol. Clicking an item goes up; the optional ▾ lists siblings.
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, i16};
-use crate::metrics::ROW;
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Ui, Widget};
@@ -47,7 +46,8 @@ impl Widget for BreadcrumbItem<'_> {
             + g.size().x
             + space::S2
             + if self.menu { 16.0 } else { 0.0 };
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(w, ROW), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(w, crate::metrics::row()), Sense::click());
         let s = State::of(ui, &response);
         if self.current || s.hovered {
             ui.painter().rect_filled(rect, cr(radius::MD), p.bg_hover);
@@ -100,7 +100,7 @@ impl Widget for BreadcrumbItem<'_> {
 /// `NF2/Breadcrumb Separator` — ›.
 pub fn breadcrumb_separator(ui: &mut Ui) {
     let p = palette(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, ROW), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, crate::metrics::row()), Sense::hover());
     icons::paint(
         &ui.painter().with_clip_rect(rect.expand(4.0)),
         ui.ctx(),

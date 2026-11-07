@@ -126,8 +126,8 @@ impl Editor {
         let undo_labels: Vec<String> = self.history.undo_labels().map(str::to_owned).collect();
         let redo_labels: Vec<String> = self.history.redo_labels().map(str::to_owned).collect();
         let undo_len = undo_labels.len();
-        let footer_h = crate::theme::CONTROL_HEIGHT + space::S2;
-        let list_h = (ui.available_height() - footer_h).max(crate::theme::CONTROL_HEIGHT);
+        let footer_h = crate::theme::control_h() + space::S2;
+        let list_h = (ui.available_height() - footer_h).max(crate::theme::control_h());
         let mut target_step = None;
         let mut replay_step = None;
         let mut copy_step = None;

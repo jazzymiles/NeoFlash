@@ -2,9 +2,7 @@
 //! `NF2/Panel Header`, `NF2/Floating Panel Header`, `NF2/Dialog Header`.
 use super::{State, a11y, galley, text_at};
 use crate::icons::{self, Icon, i16};
-use crate::metrics::{
-    DIALOG_HEADER, DOCK_TAB, PANEL_HEADER, PANEL_TAB, SCRIPT_TAB, SECTION_HEADER,
-};
+
 use crate::theme::{cr, palette};
 use crate::tokens::{TextStyle, radius, space};
 use eframe::egui::{self, Rect, Response, Sense, Stroke, Ui, Widget};
@@ -23,7 +21,7 @@ impl Widget for DockTab<'_> {
             self.label,
             self.icon,
             self.active,
-            DOCK_TAB,
+            crate::metrics::dock_tab(),
             TextStyle::Body,
             space::S4,
         )
@@ -43,7 +41,7 @@ impl Widget for PanelTab<'_> {
             self.label,
             None,
             self.active,
-            PANEL_TAB,
+            crate::metrics::panel_tab(),
             TextStyle::SmallStrong,
             space::S3,
         )
@@ -128,7 +126,8 @@ impl Widget for ScriptTab<'_> {
             + g.size().x
             + if self.pinned { space::S2 + 16.0 } else { 0.0 }
             + space::S3;
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(w, SCRIPT_TAB), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(w, crate::metrics::script_tab()), Sense::click());
         let s = State::of(ui, &response);
         let fg = if self.active || s.hovered {
             p.text_primary
@@ -213,7 +212,7 @@ impl<'a> SectionHeader<'a> {
             .data_mut(|d| d.get_persisted::<bool>(id))
             .unwrap_or(self.default_open);
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), SECTION_HEADER),
+            egui::vec2(ui.available_width(), crate::metrics::section_header()),
             Sense::click(),
         );
         if response.clicked() {
@@ -281,7 +280,7 @@ impl PanelHeader<'_> {
     pub fn show(self, ui: &mut Ui, trailing: impl FnOnce(&mut Ui)) -> (Response, Response) {
         let p = palette(ui.ctx());
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), PANEL_HEADER),
+            egui::vec2(ui.available_width(), crate::metrics::panel_header()),
             Sense::click_and_drag(),
         );
         ui.painter().hline(
@@ -335,7 +334,7 @@ impl FloatingPanelHeader<'_> {
     pub fn show(self, ui: &mut Ui) -> FloatingHeaderResponse {
         let p = palette(ui.ctx());
         let (rect, drag) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), PANEL_TAB),
+            egui::vec2(ui.available_width(), crate::metrics::panel_tab()),
             Sense::click_and_drag(),
         );
         ui.painter().hline(
@@ -406,7 +405,7 @@ impl DialogHeader<'_> {
     pub fn show(self, ui: &mut Ui) -> bool {
         let p = palette(ui.ctx());
         let (rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), DIALOG_HEADER),
+            egui::vec2(ui.available_width(), crate::metrics::dialog_header()),
             Sense::hover(),
         );
         text_at(
@@ -432,8 +431,10 @@ impl DialogHeader<'_> {
 /// Width limits of `NF2/Document Tab` (R-035): 96–220 pt, the label ends with "…" beyond that.
 pub const DOCUMENT_TAB_MIN: f32 = 96.0;
 pub const DOCUMENT_TAB_MAX: f32 = 220.0;
-/// Height of `NF2/Document Tab` (same as controls in the top bar).
-pub const DOCUMENT_TAB_HEIGHT: f32 = crate::metrics::CONTROL;
+/// Height of `NF2/Document Tab` (same as controls in the top bar) at the current density.
+pub fn document_tab_height() -> f32 {
+    crate::metrics::control()
+}
 
 /// What the 16 pt trailing slot of a document tab shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -532,7 +533,7 @@ impl<'a> DocumentTab<'a> {
         let folder_w = folder_text.as_deref().map_or(0.0, probe);
         let width = document_tab_width(label_w + folder_w);
         let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(width, DOCUMENT_TAB_HEIGHT), Sense::click());
+            ui.allocate_exact_size(egui::vec2(width, document_tab_height()), Sense::click());
         let enabled = ui.is_enabled();
         // Pointer anywhere over the tab, including its × (which takes the hover hit itself).
         let hovered = enabled && ui.rect_contains_pointer(rect);

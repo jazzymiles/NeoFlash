@@ -16,8 +16,13 @@ impl IconGroup<'_> {
         shortcuts: &[Option<&str>],
     ) -> Option<usize> {
         let p = palette(ui.ctx());
-        let w = self.items.len() as f32 * 28.0 + 6.0;
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 34.0), Sense::hover());
+        // Items are a control minus 4 pt; the group is a control plus 2 pt (34 / 28 at Comfortable).
+        let item = crate::metrics::control() - 4.0;
+        let w = self.items.len() as f32 * item + 6.0;
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(w, crate::metrics::control() + 2.0),
+            Sense::hover(),
+        );
         ui.painter().rect_filled(rect, cr(radius::LG), p.bg_field);
         ui.painter().rect_stroke(
             rect,
@@ -34,7 +39,7 @@ impl IconGroup<'_> {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 for (i, (icon, name)) in self.items.iter().enumerate() {
                     let mut button = super::IconButton::new(*icon, name)
-                        .side(28.0)
+                        .side(item)
                         .selected(self.selected == Some(i));
                     if let Some(Some(key)) = shortcuts.get(i) {
                         button = button.shortcut(key);

@@ -139,7 +139,7 @@ impl Editor {
             .filter(|rect| rect.is_finite() && rect.is_positive())
             .unwrap_or_else(|| {
                 let mut window = ctx.content_rect();
-                window.max.y -= neoflash_ui::metrics::STATUS_BAR;
+                window.max.y -= neoflash_ui::metrics::status_bar();
                 window
             });
         let available = viewport.width() - 2. * space::S4;

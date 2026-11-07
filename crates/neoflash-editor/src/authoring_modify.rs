@@ -3681,7 +3681,7 @@ fn field_pair(
     let [a, b] = values;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = space::S2;
-        let link_width = crate::theme::CONTROL_HEIGHT + space::S2;
+        let link_width = crate::theme::control_h() + space::S2;
         let width = ((ui.available_width() - link_width - space::S2) / 2.).max(64.);
         let first = number_field(ui, prefixes[0], a, range.clone(), 1., suffix, Some(width));
         let second = number_field(ui, prefixes[1], b, range, 1., suffix, Some(width));
