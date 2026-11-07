@@ -127,7 +127,8 @@ async function run(opts) {
     } catch (e) { failed.push(it.id + ' ' + it.png + ': ' + e.message); }
   }
   if (opts.icons) {
-    const sys = figma.root.children.find(p => p.name === 'v2 · System & Components');
+    // NF2 v2.2 (T-123): live components; 'v2 · … (archive)' pages are clones with instances only.
+    const sys = figma.root.children.find(p => p.name === 'v2.2 · System & Components');
     await sys.loadAsync();
     const comps = sys.findAll(n => n.type === 'COMPONENT' && /^NF2 (Icon|Cursor)\//.test(n.name));
     let k = 0;
