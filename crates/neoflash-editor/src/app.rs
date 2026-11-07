@@ -244,6 +244,10 @@ impl Editor {
                 }
                 _ => {}
             }
+            // `NEOFLASH_SCREENSHOT_PRIORITY=library` captures Library priority (R-054).
+            if std::env::var("NEOFLASH_SCREENSHOT_PRIORITY").as_deref() == Ok("library") {
+                s.workspace.dock.give_priority(PanelId::Library);
+            }
             match std::env::var("NEOFLASH_SCREENSHOT_ROWS").as_deref() {
                 Ok("short") => s.workspace.timeline.short_rows = true,
                 Ok("compact") => s.workspace.timeline.compact_rows = true,
@@ -523,6 +527,12 @@ impl Editor {
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
         self.workspace.theme = theme;
         theme.apply(ctx);
+    }
+    /// Inspector / Library priority (R-054): show `panel` and give its stacked dock group the larger
+    /// share of the side dock. Layout only; the document is untouched.
+    pub(crate) fn give_dock_priority(&mut self, panel: PanelId) {
+        self.show_panel(panel);
+        self.workspace.dock.give_priority(panel);
     }
     pub(crate) fn show_panel(&mut self, panel: PanelId) {
         self.panels_hidden = false;
@@ -1944,6 +1954,12 @@ impl Editor {
         }
         if self.take_command_shortcut(ctx, C::WindowHidePanels) {
             self.toggle_hide_panels();
+        }
+        if self.take_command_shortcut(ctx, C::WindowInspectorPriority) {
+            self.give_dock_priority(PanelId::Properties);
+        }
+        if self.take_command_shortcut(ctx, C::WindowLibraryPriority) {
+            self.give_dock_priority(PanelId::Library);
         }
 
         // Unavailable items: consume only after active registry commands have had a chance to run,

@@ -816,7 +816,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   not requested and is not implemented.
 
 ### R-054 · Inspector / Library priority layouts and fast focus expansion
-- **Status:** open
+- **Status:** answered (owner decision 2026-11-07; implemented)
 - **Requested by / for:** project owner · T-101 / V-D04
 - **Where:** right dock composition containing Properties and Library.
 - **Need:** Define saved `Inspector priority` and `Library priority` layouts, a clearer splitter and fast keyboard/
@@ -826,6 +826,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** T-099 §9; `midnight-express-3-{dark,light}.png`, `t027-compact-dark.png`, `t068-dark.png`; current
   Properties and Library panel outlines.
 - **Proposal (optional):** A reversible focus action that expands the requested panel without changing document state.
+- **Answer (T-101, 2026-11-07, owner-approved):** Inspector priority (Properties 68 % / Library 32 %, default) and
+  Library priority (the reverse) for stacked side-dock groups; Window ▸ Inspector / Library priority (⌥⌘F3 / ⌥⌘L)
+  and a double-click on the splitter switch them; the splitter grip is always visible. Layout only.
 
 ### R-055 · Compact Color state and narrower Preferences composition
 - **Status:** open

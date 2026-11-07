@@ -1004,6 +1004,25 @@ impl Editor {
             toggle(self, ui, index);
         }
         nf::menu_separator(ui);
+        for (label, panel, cmd) in [
+            (
+                "Inspector priority",
+                PanelId::Properties,
+                C::WindowInspectorPriority,
+            ),
+            (
+                "Library priority",
+                PanelId::Library,
+                C::WindowLibraryPriority,
+            ),
+        ] {
+            let mut on = self.workspace.dock.has_priority(panel);
+            if menu_toggle(ui, &mut on, label, &self.sc(cmd)).clicked() {
+                self.give_dock_priority(panel);
+                ui.close();
+            }
+        }
+        nf::menu_separator(ui);
         toggle(self, ui, 16);
         Self::planned_menu_toggle(ui, "Window ▸ Debugger", "");
         for index in 17..21 {

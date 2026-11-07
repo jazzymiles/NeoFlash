@@ -258,7 +258,13 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
             geometry.outer_position,
             [expected_position.x, expected_position.y]
         );
-        assert_eq!(geometry.inner_size, [preview_size.x, preview_size.y]);
+        // Group weights are fractions (0.68 / 0.32), so compare sizes to a hundredth of a point.
+        let [width, height] = geometry.inner_size;
+        assert!(
+            (width - preview_size.x).abs() < 0.01 && (height - preview_size.y).abs() < 0.01,
+            "{:?} vs {preview_size:?}",
+            geometry.inner_size
+        );
         assert!(!editor.panel_drag_preview_visible());
         assert!(!editor.dirty());
         assert!(!editor.history.can_undo());

@@ -328,11 +328,25 @@ impl Editor {
                         egui::pos2(end + SPLITTER, rect.bottom()),
                     )
                 };
-                let response = ui.interact(
-                    separator,
-                    ui.id().with(("dock-split", group.id, next.id)),
-                    egui::Sense::drag(),
-                );
+                let response = ui
+                    .interact(
+                        separator,
+                        ui.id().with(("dock-split", group.id, next.id)),
+                        egui::Sense::click_and_drag(),
+                    )
+                    .on_hover_text("Drag to resize · double-click to swap priority");
+                // Double-click swaps priority between the two groups (R-054).
+                if response.double_clicked()
+                    && let Some(&panel) = (if group.weight < next.weight {
+                        group
+                    } else {
+                        next
+                    })
+                    .tabs
+                    .first()
+                {
+                    self.workspace.dock.give_priority(panel);
+                }
                 // NF2 Splitter: panel surface with a 1 px separator, accent grip while hovered/dragged.
                 ui.painter()
                     .rect_filled(separator, 0., neoflash_ui::palette(ui.ctx()).bg_panel);

@@ -92,6 +92,11 @@
           "status": "working"
         },
         {
+          "id": "dock-priority",
+          "title": "Inspector and Library priority for the right dock by menu, shortcut or divider double-click",
+          "status": "working"
+        },
+        {
           "id": "stage-toolbar-states",
           "title": "Stage toolbar as a floating bar, collapsed corner pill or Flash-style edit bar",
           "status": "working"

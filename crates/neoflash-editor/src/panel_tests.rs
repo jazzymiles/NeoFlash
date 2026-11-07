@@ -5528,3 +5528,97 @@ fn stage_toolbar_states_follow_density_and_never_cover_artwork_in_edit_bar() {
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 }
+
+/// T-101 / R-054: Inspector / Library priority give the stacked right-dock group the larger share;
+/// ⌥⌘L / ⌥⌘F3 and a double-click on the splitter switch it. Layout only, never the document.
+#[test]
+fn right_dock_priority_switches_by_shortcut_and_splitter_double_click() {
+    use crate::workspace::{DockLayout, PanelId};
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let before = editor.project.clone();
+    let size = Vec2::new(1440., 900.);
+    let weight = |editor: &Editor, panel: PanelId| {
+        editor
+            .workspace
+            .dock
+            .right
+            .groups
+            .iter()
+            .find(|g| g.tabs.contains(&panel))
+            .unwrap()
+            .weight
+    };
+    // Default: Inspector priority, and Library keeps a usable share.
+    assert!(editor.workspace.dock.has_priority(PanelId::Properties));
+    assert_eq!(
+        weight(&editor, PanelId::Library),
+        1. - DockLayout::PRIORITY_WEIGHT
+    );
+    frame(&mut editor, &ctx, size, 0.0, vec![]);
+    let key = |key, t| {
+        vec![egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::ALT | egui::Modifiers::COMMAND,
+        }]
+        .into_iter()
+        .chain(std::iter::once(egui::Event::PointerMoved(Pos2::new(t, t))))
+        .collect::<Vec<_>>()
+    };
+    frame(&mut editor, &ctx, size, 0.1, key(egui::Key::L, 5.));
+    assert!(editor.workspace.dock.has_priority(PanelId::Library));
+    assert_eq!(
+        weight(&editor, PanelId::Library),
+        DockLayout::PRIORITY_WEIGHT
+    );
+    frame(&mut editor, &ctx, size, 0.2, key(egui::Key::F3, 6.));
+    assert!(editor.workspace.dock.has_priority(PanelId::Properties));
+    // Double-click on the splitter between Properties and Library gives the smaller group priority.
+    let mut out = frame(&mut editor, &ctx, size, 0.3, vec![]);
+    for i in 0..3 {
+        out = frame(&mut editor, &ctx, size, 0.35 + i as f64 * 0.02, vec![]);
+    }
+    // The splitter sits directly above the Library group's header (its "Library" title).
+    let search = named_bounds(&out, "Search library").expect("Library search");
+    let header = out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.label() == Some("Library"))
+        .filter_map(|(_, n)| n.bounds())
+        .map(|b| {
+            Rect::from_min_max(
+                Pos2::new(b.x0 as f32, b.y0 as f32),
+                Pos2::new(b.x1 as f32, b.y1 as f32),
+            )
+        })
+        .filter(|r| r.bottom() <= search.top() + 1. && r.left() >= search.left() - 40.)
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("Library header above its search");
+    let split = Pos2::new(search.center().x, header.top() - 3.);
+    for (t, pressed) in [(1.0, true), (1.02, false), (1.06, true), (1.08, false)] {
+        frame(
+            &mut editor,
+            &ctx,
+            size,
+            t,
+            vec![
+                Event::PointerMoved(split),
+                crate::tests::primary_button(split, pressed),
+            ],
+        );
+    }
+    assert!(
+        editor.workspace.dock.has_priority(PanelId::Library),
+        "double-click on the splitter at {split:?}"
+    );
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}

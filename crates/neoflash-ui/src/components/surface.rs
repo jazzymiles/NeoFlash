@@ -411,36 +411,31 @@ pub fn splitter(
 ) {
     let p = palette(ctx);
     let active = response.hovered() || response.dragged();
-    let c = if active {
+    let line = if active {
         p.accent_default
     } else {
         p.border_subtle
     };
-    if vertical {
-        painter.vline(rect.center().x, rect.y_range(), Stroke::new(1.0_f32, c));
-        if active {
-            painter.rect_filled(
-                Rect::from_center_size(rect.center(), egui::vec2(3.0, 24.0)),
-                cr(1.5),
-                c,
-            );
-        }
+    // The 24 × 3 grip is always visible (R-054: a splitter you can find), accent while active.
+    let grip = if active {
+        p.accent_default
     } else {
-        painter.hline(rect.x_range(), rect.center().y, Stroke::new(1.0_f32, c));
-        if active {
-            painter.rect_filled(
-                Rect::from_center_size(rect.center(), egui::vec2(24.0, 3.0)),
-                cr(1.5),
-                c,
-            );
-        }
-    }
-    if active {
-        ctx.set_cursor_icon(if vertical {
-            egui::CursorIcon::ResizeHorizontal
-        } else {
-            egui::CursorIcon::ResizeVertical
-        });
+        p.border_strong
+    };
+    if vertical {
+        painter.vline(rect.center().x, rect.y_range(), Stroke::new(1.0_f32, line));
+        painter.rect_filled(
+            Rect::from_center_size(rect.center(), egui::vec2(3.0, 24.0)),
+            cr(1.5),
+            grip,
+        );
+    } else {
+        painter.hline(rect.x_range(), rect.center().y, Stroke::new(1.0_f32, line));
+        painter.rect_filled(
+            Rect::from_center_size(rect.center(), egui::vec2(24.0, 3.0)),
+            cr(1.5),
+            grip,
+        );
     }
 }
 

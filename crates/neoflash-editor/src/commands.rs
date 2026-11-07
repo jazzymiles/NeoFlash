@@ -743,6 +743,8 @@ pub enum CommandId {
     WindowProject,
     WindowBrushes,
     WindowHidePanels,
+    WindowInspectorPriority,
+    WindowLibraryPriority,
     // Tools
     ToolSelect,
     ToolSubselect,
@@ -860,6 +862,8 @@ const S_ALT_CMD_T: &[Shortcut] = &[Shortcut::alt_cmd(Key::T)];
 const S_CMD_F2: &[Shortcut] = &[Shortcut::cmd(Key::F2)];
 const S_CMD_F3: &[Shortcut] = &[Shortcut::cmd(Key::F3)];
 const S_CMD_L: &[Shortcut] = &[Shortcut::cmd(Key::L)];
+const S_ALT_CMD_L: &[Shortcut] = &[Shortcut::alt_cmd(Key::L)];
+const S_ALT_CMD_F3: &[Shortcut] = &[Shortcut::alt_cmd(Key::F3)];
 const S_F9: &[Shortcut] = &[Shortcut::none(Key::F9)];
 const S_CMD_K: &[Shortcut] = &[Shortcut::cmd(Key::K)];
 const S_SHIFT_CMD_F9: &[Shortcut] = &[Shortcut::shift_cmd(Key::F9)];
@@ -1003,6 +1007,8 @@ impl CommandId {
         Self::WindowProject,
         Self::WindowBrushes,
         Self::WindowHidePanels,
+        Self::WindowInspectorPriority,
+        Self::WindowLibraryPriority,
         Self::ToolSelect,
         Self::ToolSubselect,
         Self::ToolTransform,
@@ -1890,6 +1896,22 @@ impl CommandId {
                 title: "Window ▸ Hide panels",
                 keywords: "",
                 defaults: S_F4,
+                allow_when_typing: false,
+            },
+            Self::WindowInspectorPriority => CommandMeta {
+                id: "window.inspector_priority",
+                category: C::Window,
+                title: "Window ▸ Inspector priority",
+                keywords: "properties dock expand focus",
+                defaults: S_ALT_CMD_F3,
+                allow_when_typing: false,
+            },
+            Self::WindowLibraryPriority => CommandMeta {
+                id: "window.library_priority",
+                category: C::Window,
+                title: "Window ▸ Library priority",
+                keywords: "library dock expand focus",
+                defaults: S_ALT_CMD_L,
                 allow_when_typing: false,
             },
             Self::ToolSelect => CommandMeta {

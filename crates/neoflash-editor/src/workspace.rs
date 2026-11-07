@@ -833,6 +833,43 @@ pub struct DockLayout {
     pub right: DockArea,
     next_group: u32,
 }
+impl DockLayout {
+    /// Share of a stacked side-dock area the priority group gets (R-054 Inspector / Library priority).
+    pub const PRIORITY_WEIGHT: f32 = 0.68;
+
+    /// Give the stacked group holding `panel` priority in its side area (the others share the rest).
+    /// Returns false when the panel is not in a stacked left / right area.
+    pub fn give_priority(&mut self, panel: PanelId) -> bool {
+        for area in [&mut self.left, &mut self.right] {
+            if area.groups.len() < 2 || !area.groups.iter().any(|g| g.tabs.contains(&panel)) {
+                continue;
+            }
+            let others = (1. - Self::PRIORITY_WEIGHT) / (area.groups.len() - 1) as f32;
+            for group in &mut area.groups {
+                group.weight = if group.tabs.contains(&panel) {
+                    Self::PRIORITY_WEIGHT
+                } else {
+                    others
+                };
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Whether the stacked group holding `panel` currently has the larger share of its area.
+    pub fn has_priority(&self, panel: PanelId) -> bool {
+        [&self.left, &self.right].into_iter().any(|area| {
+            let total: f32 = area.groups.iter().map(|g| g.weight).sum();
+            area.groups.len() > 1
+                && area
+                    .groups
+                    .iter()
+                    .any(|g| g.tabs.contains(&panel) && g.weight > total / 2.)
+        })
+    }
+}
+
 impl Default for DockLayout {
     fn default() -> Self {
         let group = |id, tabs: Vec<PanelId>| DockGroup {
@@ -872,7 +909,8 @@ impl Default for DockLayout {
                 size: neoflash_ui::metrics::inspector() + 6.,
                 groups: vec![
                     DockGroup {
-                        weight: 0.83, // Figma editor-main: Properties 488 of 588 pt, Library 100.
+                        // Inspector priority (R-054): Properties over a Library that stays usable.
+                        weight: DockLayout::PRIORITY_WEIGHT,
                         ..group(
                             5,
                             vec![
@@ -894,7 +932,7 @@ impl Default for DockLayout {
                         )
                     },
                     DockGroup {
-                        weight: 0.17,
+                        weight: 1. - DockLayout::PRIORITY_WEIGHT,
                         ..group(4, vec![PanelId::Library])
                     },
                 ],

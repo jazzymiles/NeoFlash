@@ -2,6 +2,11 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Properties and Library share the right dock better (`T-101`): **Inspector priority** (now the default) keeps a
+  usable Library under Properties, **Library priority** gives the Library most of the height. Switch with
+  **Window ▸ Inspector priority** (⌥⌘F3), **Window ▸ Library priority** (⌥⌘L) or by double-clicking the divider
+  between them. Dock dividers now always show their grip.
+
 - Stage toolbar states (`T-101`): the zoom / view toolbar no longer has to cover the drawing. **Collapsed** shows a
   small zoom pill in the Stage corner that expands while the pointer is over it; **Edit bar** docks the toolbar and
   the breadcrumb in a classic Flash bar above the Stage; **Floating** keeps the previous bar. Choose it in
