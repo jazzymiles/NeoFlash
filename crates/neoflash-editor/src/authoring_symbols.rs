@@ -814,6 +814,87 @@ impl Editor {
         });
         true
     }
+
+    /// Swap editable selected symbol instance(s) to the currently selected Library symbol if valid,
+    /// or to the next compatible non-scene Library symbol (`CM-04`). One Undo step.
+    pub(crate) fn swap_selected_instance_with_library_or_next(&mut self) -> bool {
+        if let Some(lib_id) = self.library_selected.clone()
+            && self.can_swap_instance_symbol(&lib_id)
+        {
+            return self.swap_instance_symbol(&lib_id);
+        }
+        let candidate = self
+            .project
+            .symbols
+            .iter()
+            .find(|s| self.can_swap_instance_symbol(&s.id))
+            .map(|s| s.id.clone());
+        if let Some(target_id) = candidate {
+            self.swap_instance_symbol(&target_id)
+        } else {
+            self.message("Select another symbol in the Library to swap this instance.");
+            false
+        }
+    }
+
+    /// Duplicate the symbol of the selected Stage instance and swap the selected instance to the
+    /// newly duplicated symbol in one `"Duplicate symbol"` Undo step (`CM-04`).
+    pub(crate) fn duplicate_selected_instance_symbol(&mut self) -> Option<Id> {
+        let (target, src_symbol_id) = self.sampled_targets().into_iter().find_map(|(t, el)| {
+            if !self.target_editable(&t) {
+                return None;
+            }
+            match &el.kind {
+                ElementKind::Instance { symbol_id, .. } if !self.project.is_scene(symbol_id) => {
+                    Some((t, symbol_id.clone()))
+                }
+                _ => None,
+            }
+        })?;
+        let source = self.project.symbol(&src_symbol_id).cloned()?;
+        self.finish_edits();
+        let existing: HashSet<String> = self
+            .project
+            .symbols
+            .iter()
+            .map(|s| s.name.to_lowercase())
+            .collect();
+        let mut name = format!("{} copy", source.name);
+        let mut n = 2_usize;
+        while existing.contains(&name.to_lowercase()) {
+            name = format!("{} copy {n}", source.name);
+            n += 1;
+        }
+        let new_sym_id = new_id("symbol");
+        let mut copy = source;
+        copy.id = new_sym_id.clone();
+        copy.name = name.clone();
+        copy.class_name = None;
+        copy.linkage_id = None;
+        crate::panels::scene::refresh_timeline_ids(&mut copy.timeline);
+        let new_id_for_tx = new_sym_id.clone();
+        self.transact_named("Duplicate symbol", move |s| {
+            s.project.symbols.push(copy);
+            s.ensure_key_for(&target.layer, false);
+            let frame = s.frame;
+            if let Some(layer) = s
+                .symbol_mut()
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == target.layer)
+                && let Some(element) = layer
+                    .key_at_mut(frame)
+                    .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                && let ElementKind::Instance { symbol_id, .. } = &mut element.kind
+            {
+                *symbol_id = new_id_for_tx;
+            }
+        });
+        self.library_selected = Some(new_sym_id.clone());
+        self.message(format!("Duplicated symbol to “{name}”."));
+        Some(new_sym_id)
+    }
 }
 
 fn adapt_swapped_playback(

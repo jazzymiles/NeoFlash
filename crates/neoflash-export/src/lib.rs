@@ -3,6 +3,7 @@
 pub mod atlas;
 pub mod audio;
 pub mod fonts;
+pub mod image_export;
 pub mod lottie;
 pub mod profiles;
 pub mod publish;
@@ -11,6 +12,7 @@ pub mod video;
 pub use atlas::*;
 pub use audio::*;
 pub use fonts::*;
+pub use image_export::*;
 pub use lottie::*;
 pub use profiles::*;
 pub use publish::{

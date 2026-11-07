@@ -590,6 +590,7 @@ impl Editor {
     }
     /// A drop above a visual row belongs after that row's group in painter
     /// order. A drop below every visual row belongs at painter index zero.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn reorder_timeline_layer_visual(&mut self, layer_id: &str, before: Option<&str>) {
         let layers = &self.symbol().timeline.layers;
         let Some(index) = layers.iter().position(|layer| layer.id == layer_id) else {
@@ -809,6 +810,7 @@ impl Editor {
     }
     /// Reorder document rows in painter order. A folder carries descendants;
     /// a mask carries its targets. Explicit parent/mask IDs are preserved.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn reorder_timeline_layer(&mut self, layer_id: &str, before: Option<&str>) {
         self.reorder_and_reparent_timeline_layer(layer_id, before, None);
     }

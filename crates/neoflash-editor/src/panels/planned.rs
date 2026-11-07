@@ -204,15 +204,11 @@ pub(crate) fn menu_items(ui: &mut Ui) {
 }
 
 impl Editor {
-    /// Draw open planned-panel previews. Read-only: they never touch the project.
+    /// Draw open floating panels/dialogs (`PlannedPanel::ALL`) with live interactive `Editor` bindings.
     pub(crate) fn planned_panels(&mut self, ctx: &egui::Context) {
         self.drain_converted_entry_triggers(ctx);
         open_from_env(ctx);
-        if self.debugger.has_presentation() {
-            show_planned_panels_with(ctx, Some(&mut |ui| self.debugger_contents(ui)));
-        } else {
-            show_planned_panels(ctx);
-        }
+        show_planned_panels_with(ctx, Some(self));
     }
 }
 
@@ -250,14 +246,12 @@ fn open_from_env(ctx: &egui::Context) {
 }
 
 /// Draw every open preview (free function so tests can run it without an editor).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn show_planned_panels(ctx: &egui::Context) {
     show_planned_panels_with(ctx, None);
 }
 
-fn show_planned_panels_with(
-    ctx: &egui::Context,
-    mut debugger: Option<&mut dyn FnMut(&mut Ui) -> bool>,
-) {
+fn show_planned_panels_with(ctx: &egui::Context, mut editor: Option<&mut Editor>) {
     let mut state = planned_state(ctx);
     if state.open.is_empty() {
         return;
@@ -265,7 +259,7 @@ fn show_planned_panels_with(
     let mut closed = Vec::new();
     let open = state.open.clone();
     for (i, (panel, pos)) in open.into_iter().enumerate() {
-        let (close, new_pos) = preview_window(ctx, panel, pos, &mut state, &mut debugger);
+        let (close, new_pos) = preview_window(ctx, panel, pos, &mut state, editor.as_deref_mut());
         state.open[i].1 = new_pos;
         if close {
             closed.push(panel);
@@ -288,7 +282,7 @@ fn preview_window(
     panel: PlannedPanel,
     pos: egui::Pos2,
     state: &mut PlannedState,
-    debugger: &mut Option<&mut dyn FnMut(&mut Ui) -> bool>,
+    mut editor: Option<&mut Editor>,
 ) -> (bool, egui::Pos2) {
     let nf = neoflash_ui::palette(ctx);
     let mut close = false;
@@ -366,7 +360,7 @@ fn preview_window(
                         );
                     }
                     Chrome::Window => {
-                        let (c2, d) = window_title_bar(ui, panel, width);
+                        let (c2, d) = window_title_bar(ui, panel, width, editor.as_deref_mut());
                         close = c2;
                         delta = d;
                     }
@@ -383,10 +377,8 @@ fn preview_window(
                     .inner_margin(egui::Margin::same(pad as i8))
                     .show(ui, |ui| {
                         ui.set_width(width - 2.0 * pad);
-                        if panel == PlannedPanel::Debugger && debugger.is_some() {
-                            if let Some(draw) = debugger {
-                                close |= draw(ui);
-                            }
+                        if let Some(ed) = editor.as_deref_mut() {
+                            close |= ed.live_planned_panel_body(ui, panel, state);
                         } else {
                             banner(ui);
                             ui.add_space(space::S1);
@@ -400,7 +392,12 @@ fn preview_window(
 
 /// macOS-style title bar of a preview window: close / minimise / zoom dots (`danger`, `warning`,
 /// `success` tokens; only close reacts), title, panel-specific trailing actions. Returns (close, drag delta).
-fn window_title_bar(ui: &mut Ui, panel: PlannedPanel, width: f32) -> (bool, egui::Vec2) {
+fn window_title_bar(
+    ui: &mut Ui,
+    panel: PlannedPanel,
+    width: f32,
+    mut editor: Option<&mut Editor>,
+) -> (bool, egui::Vec2) {
     let nf = neoflash_ui::palette(ui.ctx());
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(width, WINDOW_TITLE_BAR), egui::Sense::hover());
@@ -447,10 +444,14 @@ fn window_title_bar(ui: &mut Ui, panel: PlannedPanel, width: f32) -> (bool, egui
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
         |ui| {
             if panel == PlannedPanel::TestMovie {
-                ui.scope(|ui| {
-                    ui.disable();
-                    super::planned_documents::test_movie_title_actions(ui);
-                });
+                if let Some(ed) = editor.as_deref_mut() {
+                    ed.live_test_movie_title_actions(ui);
+                } else {
+                    ui.scope(|ui| {
+                        ui.disable();
+                        super::planned_documents::test_movie_title_actions(ui);
+                    });
+                }
             }
         },
     );

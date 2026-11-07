@@ -5672,3 +5672,174 @@ fn color_panel_is_compact_and_opens_the_picker_on_demand() {
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 }
+
+/// T-126 / T-127: Export image (PNG/SVG/PSD/AI/PDF), Import video, Stroke style, Font embedding,
+/// Bitmap fill swatch tiling, Deco pattern, Spray brush burst, and Stage context-menu Swap/Duplicate
+/// symbol all work end-to-end with single-step Undo/Redo and valid project documents.
+#[test]
+fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
+    use crate::panels::{
+        export_image::{has_export_image_dialog, update_export_image_draft},
+        font_embedding::has_font_embedding_dialog,
+        import_video::has_import_video_dialog,
+        stroke_style::has_stroke_style_dialog,
+    };
+    use neoflash_export::ImageExportFormat;
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.project.validate().expect("demo validates");
+
+    // 1. Export image modal dialog across PNG, SVG, PSD, AI, and PDF.
+    let tmp_dir = std::env::temp_dir().join(format!("neoflash_t126_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    Editor::open_planned(&ctx, "File ▸ Export ▸ Export image…");
+    editor.drain_converted_entry_triggers(&ctx);
+    assert!(has_export_image_dialog(&ctx));
+    assert!(editor.has_modal_dialog_in(&ctx));
+    for fmt in ImageExportFormat::ALL {
+        editor.open_export_image(&ctx);
+        update_export_image_draft(&ctx, |d| d.options.format = fmt);
+        let out_path = tmp_dir.join(format!("export.{}", fmt.extension()));
+        let report = editor
+            .confirm_export_image_to_path(&ctx, &out_path)
+            .expect("export image succeeds");
+        assert!(out_path.exists());
+        assert!(report.total_bytes > 0);
+    }
+    assert!(!has_export_image_dialog(&ctx));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    // 2. Import video modal dialog + Undo/Redo + validation.
+    let before_video = editor.project.clone();
+    Editor::open_planned(&ctx, "File ▸ Import ▸ Import video…");
+    editor.drain_converted_entry_triggers(&ctx);
+    assert!(has_import_video_dialog(&ctx));
+    let _vid_res = editor
+        .confirm_import_video(&ctx)
+        .expect("import video succeeds");
+    assert!(!has_import_video_dialog(&ctx));
+    assert_eq!(editor.history.undo_label(), Some("Import video"));
+    editor.project.validate().expect("valid after import video");
+    editor.undo();
+    assert_eq!(editor.project, before_video);
+    editor.redo();
+    editor
+        .project
+        .validate()
+        .expect("valid after redo import video");
+    editor.undo();
+
+    // 3. Stroke style modal dialog on a selected shape + Undo/Redo + validation.
+    let rect_id = new_id("rect");
+    editor.transact_named("Add rect", |ed| {
+        let l_idx = ed.layer;
+        let f_idx = ed.frame;
+        if let Some(k) = ed.symbol_mut().timeline.layers[l_idx].key_at_mut(f_idx) {
+            k.elements.push(Element {
+                id: rect_id.clone(),
+                name: "box".to_owned(),
+                kind: ElementKind::Rectangle {
+                    width: 80.0,
+                    height: 60.0,
+                    fill: [200, 100, 50, 255],
+                    stroke: [20, 30, 40, 255],
+                    stroke_width: 2.0,
+                },
+                ..Element::default()
+            });
+        }
+    });
+    editor.select_single_id(rect_id);
+    let before_stroke = editor.project.clone();
+    Editor::open_planned(&ctx, "Tool options ▸ Stroke style…");
+    editor.drain_converted_entry_triggers(&ctx);
+    assert!(has_stroke_style_dialog(&ctx));
+    assert!(editor.confirm_stroke_style(&ctx));
+    assert!(!has_stroke_style_dialog(&ctx));
+    assert_eq!(editor.history.undo_label(), Some("Stroke style"));
+    editor.project.validate().expect("valid after stroke style");
+    editor.undo();
+    assert_eq!(editor.project, before_stroke);
+
+    // 4. Font embedding modal dialog + Undo/Redo + validation.
+    let before_fonts = editor.project.clone();
+    Editor::open_planned(&ctx, "Library menu ▸ Font embedding…");
+    editor.drain_converted_entry_triggers(&ctx);
+    assert!(has_font_embedding_dialog(&ctx));
+    let embedded = editor.confirm_font_embedding(&ctx);
+    assert_eq!(embedded, 3);
+    assert!(!has_font_embedding_dialog(&ctx));
+    assert_eq!(editor.history.undo_label(), Some("Font embedding"));
+    editor
+        .project
+        .validate()
+        .expect("valid after font embedding");
+    editor.undo();
+    assert_eq!(editor.project, before_fonts);
+
+    // 5. Bitmap fill swatch tile, Deco pattern, Spray brush burst + Undo/Redo.
+    let _bmp_id = editor
+        .apply_bitmap_swatch_tile(0)
+        .expect("bitmap fill swatch tile");
+    editor.project.validate().expect("valid after bitmap fill");
+    let deco_added = editor.apply_deco_pattern(0, 100.0, 16.0);
+    assert!(deco_added > 0);
+    assert_eq!(editor.history.undo_label(), Some("Deco pattern"));
+    editor.project.validate().expect("valid after deco pattern");
+    editor.undo();
+
+    let spray_added = editor.apply_spray_brush_burst(true, 100.0, 100.0);
+    assert_eq!(spray_added, 5);
+    assert_eq!(editor.history.undo_label(), Some("Spray brush"));
+    editor.project.validate().expect("valid after spray brush");
+    editor.undo();
+
+    // 6. Stage context-menu Duplicate symbol & Swap symbol on an instance.
+    let child_sym_id = new_id("sym");
+    let mut child_sym = editor.symbol().clone();
+    child_sym.id = child_sym_id.clone();
+    child_sym.name = "Star".to_owned();
+    child_sym.kind = SymbolKind::Graphic;
+    child_sym.class_name = None;
+    child_sym.linkage_id = None;
+    crate::panels::scene::refresh_timeline_ids(&mut child_sym.timeline);
+    editor.transact_named("Add child symbol", |ed| {
+        ed.project.symbols.push(child_sym);
+    });
+    let inst_id = new_id("inst");
+    editor.transact_named("Place instance", |ed| {
+        let l_idx = ed.layer;
+        let f_idx = ed.frame;
+        if let Some(k) = ed.symbol_mut().timeline.layers[l_idx].key_at_mut(f_idx) {
+            k.elements.push(Element {
+                id: inst_id.clone(),
+                name: "star_inst".to_owned(),
+                kind: ElementKind::Instance {
+                    symbol_id: child_sym_id.clone(),
+                    playback: InstancePlayback::Loop,
+                },
+                ..Element::default()
+            });
+        }
+    });
+    editor.select_single_id(inst_id);
+    let before_dup = editor.project.clone();
+    let dup_sym_id = editor
+        .duplicate_selected_instance_symbol()
+        .expect("duplicates instance symbol");
+    assert_ne!(dup_sym_id, child_sym_id);
+    assert_eq!(editor.history.undo_label(), Some("Duplicate symbol"));
+    editor
+        .project
+        .validate()
+        .expect("valid after duplicate symbol");
+    editor.library_selected = Some(child_sym_id.clone());
+    assert!(editor.swap_selected_instance_with_library_or_next());
+    assert_eq!(editor.history.undo_label(), Some("Swap symbol"));
+    editor.undo();
+    editor.undo();
+    assert_eq!(editor.project, before_dup);
+}

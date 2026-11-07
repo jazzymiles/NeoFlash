@@ -998,8 +998,14 @@ impl Editor {
             ui.close();
         }
         Self::unavailable_item(ui, "Edit in new window", "");
-        Self::unavailable_item(ui, "Swap symbol…", "");
-        Self::unavailable_item(ui, "Duplicate symbol…", "");
+        if menu_item_enabled(ui, instance.is_some(), "Swap symbol…", "").clicked() {
+            let _ = self.swap_selected_instance_with_library_or_next();
+            ui.close();
+        }
+        if menu_item_enabled(ui, instance.is_some(), "Duplicate symbol…", "").clicked() {
+            let _ = self.duplicate_selected_instance_symbol();
+            ui.close();
+        }
         nf::menu_separator(ui);
         if crate::ui_icons::menu_item_enabled(
             ui,

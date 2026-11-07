@@ -842,6 +842,11 @@
           "id": "vector-effects-mesh-perspective",
           "title": "Freeform gradients, envelope warps, multi-step vector blends, gradient meshes, perspective grid snapping and procedural vector effects with Expand/Bake",
           "status": "working"
+        },
+        {
+          "id": "stroke-style-deco-spray-ik-panels",
+          "title": "Stroke style modal dialog (Solid/Dashed/Dotted/Ragged/Stipple/Hatched) and live Deco, Spray brush and IK bone tool panels",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -849,6 +854,8 @@
         "docs/ROADMAP.md",
         "crates/neoflash-core/src/merge_drawing.rs",
         "crates/neoflash-core/src/vector_effects.rs",
+        "crates/neoflash-editor/src/panels/stroke_style.rs",
+        "crates/neoflash-editor/src/panels/live_planned.rs",
         "crates/neoflash-editor/src/authoring_tools.rs",
         "crates/neoflash-editor/src/authoring_modify.rs",
         "crates/neoflash-editor/src/vector.rs",
@@ -937,10 +944,16 @@
           "id": "alpha-masks",
           "title": "Alpha, luminance and inverted masks",
           "status": "working"
+        },
+        {
+          "id": "bitmap-fill-panel",
+          "title": "Color — Bitmap fill panel with Library/swatch tiling, scale, rotation and smoothing",
+          "status": "working"
         }
       ],
       "evidence": [
         "docs/BACKLOG.md",
+        "crates/neoflash-editor/src/panels/live_planned.rs",
         "docs/ROADMAP.md",
         "docs/decisions/0022-runtime-gradient-graphics.md",
         "docs/decisions/0023-runtime-masks-and-scroll-rectangles.md",
@@ -1767,10 +1780,17 @@
           "id": "playable-as2-as3-games",
           "title": "Playable AS2 and AS3 Snake, Arkanoid and Tetris .nflash example games verified through script compilation, HTML5 export and WASM execution",
           "status": "working"
+        },
+        {
+          "id": "image-export-dialog",
+          "title": "Export image modal dialog (PNG, SVG, layered PSD, Illustrator AI and vector PDF)",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/src/image_export.rs",
+        "crates/neoflash-editor/src/panels/export_image.rs",
         "crates/neoflash-export/src/profiles.rs",
         "crates/neoflash-export/tests/games_script_export.rs",
         "examples/snake-as2.nflash",
@@ -2370,6 +2390,7 @@
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-editor/src/panels/font_embedding.rs",
         "docs/ROADMAP.md",
         "README.md",
         "crates/neoflash-export/src/fonts.rs",
@@ -2439,10 +2460,16 @@
           "id": "psd-sequence-vector-import",
           "title": "Layered PSD/PSB import, numbered image-sequence import and high-fidelity SVG/PDF/AI vector import with layer/text/mask/transform options and location-aware fidelity reports",
           "status": "working"
+        },
+        {
+          "id": "import-video-dialog",
+          "title": "Import video modal dialog with Stream/Event deployment, trim range, Stage placement and timeline expansion",
+          "status": "working"
         }
       ],
       "evidence": [
         "docs/ROADMAP.md",
+        "crates/neoflash-editor/src/panels/import_video.rs",
         "crates/neoflash-import/src/psd.rs",
         "crates/neoflash-import/src/sequence.rs",
         "crates/neoflash-import/src/vector_fidelity.rs",

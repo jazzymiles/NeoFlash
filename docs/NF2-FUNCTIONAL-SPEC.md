@@ -73,59 +73,59 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee, transformation point done) | editor | P2 |
 | PR-01 | Properties — Text (full NF2 variant) | Properties | partial | yes | P2 |
 | PR-02 | Properties — Oval / Rectangle primitive options | Properties | done | yes | P2 |
-| PR-03 | Stroke style (line style, cap, join, miter, hinting, scale) + Stroke style dialog | Properties / dialog | absent | yes | P2 |
+| PR-03 | Stroke style (line style, cap, join, miter, hinting, scale) + Stroke style dialog | Properties / dialog | done (`panels/stroke_style.rs`) | yes | P2 |
 | PR-04 | Properties — Movie clip: colour effect styles | Properties | partial (R-012) | editor | P1 |
-| PR-05 | Properties — Movie clip: Display & Filters tabs | Properties | preview | yes | P2 |
-| PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | partial (Library Swap done; R-012) | editor / yes | P2 |
-| PR-07 | Properties — Graphic thumbnail strip | Properties | partial | editor | P3 |
+| PR-05 | Properties — Movie clip: Display & Filters tabs | Properties | done (`panels/filters.rs`) | yes | P2 |
+| PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | partial (Library + Stage Swap done; R-012) | editor / yes | P2 |
+| PR-07 | Properties — Graphic thumbnail strip | Properties | done (`panels/live_planned.rs` + `authoring_symbols.rs`) | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
-| PR-09 | Properties — Video playback & cue points | Properties | partial | yes | P3 |
+| PR-09 | Properties — Video playback & cue points | Properties | done (`timeline_video.rs`) | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | done | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
-| CO-02 | Color panel fill type: Bitmap fill (+ Bitmap fill panel) | Color | disabled | yes | P3 |
+| CO-02 | Color panel fill type: Bitmap fill (+ Bitmap fill panel) | Color | done (`panels/live_planned.rs` + `bitmaps.rs`) | yes | P3 |
 | CO-03 | Color panel: Swatches tab, panel menu Add swatch, picker area | Color | partial (Add swatch + Swatches panel done) | editor | P1 |
 | LI-01 | Library: delete / duplicate item | Library | done | editor | P1 |
-| LI-02 | Library: bitmap / sound / font / video items, document select, pin | Library | absent | editor | P2 |
+| LI-02 | Library: bitmap / sound / font / video items, document select, pin | Library | partial (bitmap/sound/video/font items done) | editor | P2 |
 | AC-01 | Actions toolbar: auto-format | Actions | partial (re-indent only) | yes | P2 |
 | AC-02 | Actions toolbar: show code hint (+ hint popover) | Actions | done | yes | P2 |
-| AC-03 | Actions toolbar: debug options | Actions | partial | yes | P3 |
-| AC-04 | Actions toolbar: collapse between braces / expand all (folding) | Actions | disabled | editor | P2 |
+| AC-03 | Actions toolbar: debug options | Actions | done | yes | P3 |
+| AC-04 | Actions toolbar: collapse between braces / expand all (folding) | Actions | done (`sources.rs`) | editor | P2 |
 | AC-05 | Actions toolbar: block comment / line comment / uncomment | Actions | done | UI-only | P1 |
 | AC-06 | Actions toolbar: toolbox sidebar + script navigator | Actions | done | yes | P2 |
-| AC-07 | Script assist | Actions | disabled | yes | P3 |
-| AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | partial | yes | P2 |
-| OU-01 | Output: Show All / Errors / Warnings / Trace, timestamps | Output | absent | editor | P1 |
-| OU-02 | Output: trace() from Test Movie | Output | absent | yes | P2 |
+| AC-07 | Script assist | Actions | done (`sources.rs` + `panels/actions.rs`) | yes | P3 |
+| AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | done (`sources.rs`) | yes | P2 |
+| OU-01 | Output: Show All / Errors / Warnings / Trace, timestamps | Output | done | editor | P1 |
+| OU-02 | Output: trace() from Test Movie | Output | done | yes | P2 |
 | PP-01 | Ease panel | Planned panel | done | editor | P1 |
 | PP-02 | Motion editor | Planned panel | partial | yes | P2 |
 | PP-03 | Properties — Motion tween | Planned panel | done | yes | P2 (= PR-10) |
-| PP-04 | Debugger | Planned panel | partial | yes | P3 |
+| PP-04 | Debugger | Planned panel | done (`debugger.rs` + `sources.rs` + `live_planned.rs`) | yes | P3 |
 | PP-05 | Project | Planned panel | done | editor | P2 |
-| PP-06 | Code snippets | Planned panel | preview | editor | P2 |
-| PP-07 | Compiler errors | Planned panel | preview | editor (+small) | P1 |
+| PP-06 | Code snippets | Planned panel | done (`panels/code_snippets.rs`) | editor | P2 |
+| PP-07 | Compiler errors | Planned panel | done (`panels/compiler_errors.rs`) | editor (+small) | P1 |
 | PP-08 | Scene | Planned panel | done | yes | P2 |
 | PP-09 | History | Planned panel | done | editor (+small) | P1 |
 | PP-10 | Swatches | Planned panel | done | editor | P1 |
 | PP-11 | Info | Planned panel | done | editor | P1 |
 | PP-12 | Rulers, guides & grid (View settings) | Popover | working | UI-only | P1 (= ST-06) |
 | PP-13 | Properties — Sound | Planned panel | partial | yes | P3 (= PR-08) |
-| PP-14 | Properties — Display & filters | Planned panel | preview | yes | P2 (= PR-05) |
+| PP-14 | Properties — Display & filters | Planned panel | done (`panels/filters.rs`) | yes | P2 (= PR-05) |
 | DL-01 | Preferences (9 pages) | Dialog | done (8 pages wired; Updates + design/subsystem items disabled) | editor | P1–P3 per page |
 | DL-02 | Document settings | Planned dialog | done | editor | P1 |
-| DL-03 | Publish settings | HTML5 size settings | partial | yes | P2 |
-| DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Planned dialog | preview | yes | P2 (PNG/SVG) / P3 |
-| DL-05 | Export video | Planned dialog | preview | yes | P3 |
+| DL-03 | Publish settings | HTML5 size settings | done (`panels/publish_settings.rs`) | yes | P2 |
+| DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Dialog | done (`panels/export_image.rs` + `neoflash_export::image_export`) | yes | P2 (PNG/SVG) / P3 |
+| DL-05 | Export video | Dialog | done (`panels/export_video.rs`) | yes | P3 |
 | DL-06 | Export audio | Dialog | done | yes | P3 |
-| DL-07 | Import video | Planned dialog | preview | yes | P3 |
+| DL-07 | Import video | Dialog | done (`panels/import_video.rs`) | yes | P3 |
 | DL-08 | Sound properties | Dialog | done | yes | P3 |
 | DL-09 | Edit envelope | Dialog | done | yes | P3 |
-| DL-10 | Import PSD to library | Dialog | absent | yes | P3 |
-| DL-11 | Font embedding | Dialog | absent | yes | P3 |
-| DL-12 | Test Movie window | Window | absent | yes | P2 |
-| DL-13 | Find and replace | Dialog | absent | editor | P2 |
-| DL-14 | Movie Explorer | Panel | absent | editor | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | absent | yes | P3 |
+| DL-10 | Import PSD to library | Importer | done (`neoflash_import::psd`) | yes | P3 |
+| DL-11 | Font embedding | Dialog | done (`panels/font_embedding.rs`) | yes | P3 |
+| DL-12 | Test Movie window | Window | done (`panels/live_planned.rs` + browser host) | yes | P2 |
+| DL-13 | Find and replace | Dialog | done (`panels/find_replace.rs`) | editor | P2 |
+| DL-14 | Movie Explorer | Panel | done (`panels/movie_explorer.rs`) | editor | P2 |
+| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | done (`Symbol::set_scale9_grid`) | yes | P3 |
 | DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | done (Armature disabled) | editor / yes | P2 |
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
@@ -868,14 +868,8 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   same-root document cancellation. Future acceptance: settings persist in the file; Loop off stops playback; trace stripped when
   "Include trace()" is off.
 
-**DL-04 · Export image** — `export_image` (format tabs PNG · SVG · PSD · AI · PDF)
-- Controls: preview "Frame n of N · W × H"; range current frame / frames; size linked + scale; background stage /
-  transparent; per-format options (SVG: images embed/link, text outlines, minify, CSS classes, hidden & guide layers,
-  precision, ID prefix; PSD: layers / flatten, folders → groups, symbols → smart objects, editable text, colour,
-  resolution; AI: version, layers / keyframes → artboards, strokes, text outlines).
-- Depends on: engine — **NEW** rasteriser for PNG (shared with native preview?) and SVG writer from `evaluate`
-  draw items. PSD/AI/PDF P3. Acceptance: PNG of frame 1 equals the HTML5 canvas frame within tolerance; SVG opens in
-  a browser with the same geometry.
+**DL-04 · Export image (`⌥⇧⌘S`)** — done (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
+- Done: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; `Background` (`Stage colour`, `Transparent`); and per-format options (`PNG` bit depth/interlace/smooth/dither/optimize, `SVG` embed/link/outlines/minify/CSS/precision, `PSD` layered v1 binary vs flat, `AI` compatibility/artboards, `PDF` single-page vector).
 
 **DL-05 · Export video** — done (`panels/export_video.rs`, `neoflash_export::video`, `File ▸ Export ▸ Export video…`, `Library ▸ Export symbol as video…`, CLI `--video`):
 - Done: 840 pt modal dialog with format tabs `MP4 · WebM · MOV · GIF · PNG seq.`; live rendered stage preview thumbnail (`render_project_frame_rgba`) with cancellable background `VideoAsyncWorker` progress bar (`Exporting frames f / N`) and pause/resume (`Preview while rendering · ⏸ to pause`); `Range` (`Whole movie (all scenes)`, `Current scene`, `Frames From..To`); `Video` (`W × H` with aspect-lock toggle, `1x` / `2x` / `0.5x` scale, `FPS`, per-format `Codec: H.264 / H.265 / VP9 / AV1 / Apple ProRes / GIF 256-colour / PNG 8-bit`, `Quality` slider `0..=100` with live bitrate caption); `Content` (`Render nested movie clip animation and scripts (runtime capture)`, `Stop at last frame` vs `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps` / `Opus 160 kbps` / `PCM 16-bit`, `Transparent bg (MOV/WebM/GIF/PNG seq.)`); and live footer estimate (`~ X.X MB · MM:SS · W×H`). Acceptance: 5 s MP4 at 24 fps has 120 frames matching the timeline.
@@ -883,10 +877,8 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 **DL-06 · Export audio (`⌥⇧⌘A`)** — done (`panels/export_audio.rs`, `neoflash_export::audio`, `File ▸ Export ▸ Export audio…`, `Library ▸ Export audio…`, CLI `--audio`):
 - Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).
 
-**DL-07 · Import video** — `import_video`: preview + trim In/Out; File + Browse…; deployment Embed in timeline / Load
-external / Progressive; symbol type, codec, place on stage, expand timeline, include audio, match frame rate; summary.
-Depends on: engine (PR-09 model; embedding = frame extraction is large). P3. Acceptance: "Load external video" creates
-a Video element bound to the imported resource with Autoplay.
+**DL-07 · Import video** — done (`panels/import_video.rs`, `File ▸ Import ▸ Import video…`):
+- Done: 720 pt modal dialog and live floating panel with preview + trim `In` / `Out`; `File` + `Browse…`; deployment (`Embed video in timeline (synchronized frames)` -> `VideoSyncMode::Stream`, `Load external video with playback component` -> `VideoSyncMode::Event`, `Progressive download from a web server`); symbol type (`Movie clip`, `Graphic`), codec (`H.264 (MP4)`, `VP9 (WebM)`, `AV1 (MP4)`), `Place instance on stage`, `Expand timeline to fit video`, `Include audio track`, `Match document frame rate to video`; and single-step `"Import video"` Undo.
 
 **DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
 source path and decoded format/duration/size stats, configures per-resource `Export` compression (`Compression: MP3 | Default | WAV (PCM) | Original`, `Bit rate: 64`–`320 kbps`, `Quality: Fast | Medium | Best`, `Convert stereo to mono`, and live `"Result: … — N % of original"` caption in `ResourceUnit.audio_export`, format 9), auditions the transcoded preview with `Test`/`Stop`, reloads from the recorded import path

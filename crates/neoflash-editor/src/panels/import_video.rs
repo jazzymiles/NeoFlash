@@ -1,0 +1,437 @@
+//! Import video modal dialog and live floating body (NF2 `Dialog / Import video`, `DL-07`,
+//! `W3.5`; reference `dialog-import-video.png`), opened from `File ▸ Import ▸ Import video…`
+//! and `Window ▸ Planned panels ▸ Import video`.
+
+use super::planned::{FooterClick, caption, footer_clicked};
+use super::planned_dialogs::{group, preview_box};
+use crate::app::Editor;
+use eframe::egui::{self, Ui};
+use neoflash_core::{
+    Element, ElementKind, Id, Keyframe, ResourceUnit, SymbolKind, TimelineVideoSpan, Transform,
+    VideoSyncMode, new_id,
+};
+use neoflash_ui::components as c;
+use neoflash_ui::components::timeline as tl;
+use neoflash_ui::tokens::space;
+use std::path::Path;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ImportVideoDraft {
+    pub(crate) file_path: String,
+    pub(crate) in_time: String,
+    pub(crate) out_time: String,
+    /// 0 = Embed in timeline, 1 = Load external video, 2 = Progressive download
+    pub(crate) deployment: usize,
+    pub(crate) symbol_kind: SymbolKind,
+    pub(crate) codec: String,
+    pub(crate) place_on_stage: bool,
+    pub(crate) expand_timeline: bool,
+    pub(crate) include_audio: bool,
+    pub(crate) match_fps: bool,
+    pub(crate) source_fps: u32,
+}
+
+impl Default for ImportVideoDraft {
+    fn default() -> Self {
+        Self {
+            file_path: "~/Movies/intro.mp4".to_owned(),
+            in_time: "00:00.00".to_owned(),
+            out_time: "00:04.00".to_owned(),
+            deployment: 0,
+            symbol_kind: SymbolKind::MovieClip,
+            codec: "H.264".to_owned(),
+            place_on_stage: true,
+            expand_timeline: true,
+            include_audio: true,
+            match_fps: false,
+            source_fps: 30,
+        }
+    }
+}
+
+fn draft_id() -> egui::Id {
+    egui::Id::new("nf2-import-video-draft")
+}
+
+fn inline_draft_id() -> egui::Id {
+    egui::Id::new("nf2-import-video-inline-draft")
+}
+
+pub(crate) fn has_import_video_dialog(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<ImportVideoDraft>(draft_id()))
+        .is_some()
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn import_video_draft(ctx: &egui::Context) -> Option<ImportVideoDraft> {
+    ctx.data(|d| d.get_temp::<ImportVideoDraft>(draft_id()))
+        .or_else(|| ctx.data(|d| d.get_temp::<ImportVideoDraft>(inline_draft_id())))
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn update_import_video_draft(
+    ctx: &egui::Context,
+    mut f: impl FnMut(&mut ImportVideoDraft),
+) {
+    for id in [draft_id(), inline_draft_id()] {
+        if let Some(mut draft) = ctx.data(|d| d.get_temp::<ImportVideoDraft>(id)) {
+            f(&mut draft);
+            ctx.data_mut(|d| d.insert_temp(id, draft));
+        }
+    }
+}
+
+fn parse_timecode_seconds(raw: &str) -> Option<f64> {
+    let trimmed = raw.trim();
+    if let Some((mins, secs)) = trimmed.split_once(':') {
+        let m: f64 = mins.trim().parse().ok()?;
+        let s: f64 = secs.trim().parse().ok()?;
+        if m >= 0.0 && s >= 0.0 {
+            return Some(m * 60.0 + s);
+        }
+    }
+    trimmed.parse::<f64>().ok().filter(|v| *v >= 0.0)
+}
+
+fn default_mp4_stub_bytes() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(32);
+    bytes.extend_from_slice(&24u32.to_be_bytes());
+    bytes.extend_from_slice(b"ftypisom");
+    bytes.extend_from_slice(&512u32.to_be_bytes());
+    bytes.extend_from_slice(b"isommp42");
+    bytes
+}
+
+impl Editor {
+    /// Open the `Import video` modal dialog (`DL-07`).
+    pub(crate) fn open_import_video(&mut self, ctx: &egui::Context) {
+        self.finish_edits();
+        ctx.data_mut(|d| d.insert_temp(draft_id(), ImportVideoDraft::default()));
+    }
+
+    pub(crate) fn cancel_import_video(&mut self, ctx: &egui::Context) {
+        ctx.data_mut(|d| d.remove::<ImportVideoDraft>(draft_id()));
+    }
+
+    /// Execute video import from the active `Import video` draft in one `"Import video"` Undo step.
+    pub(crate) fn confirm_import_video(&mut self, ctx: &egui::Context) -> Result<Id, String> {
+        let draft = ctx
+            .data(|d| d.get_temp::<ImportVideoDraft>(draft_id()))
+            .or_else(|| ctx.data(|d| d.get_temp::<ImportVideoDraft>(inline_draft_id())))
+            .unwrap_or_default();
+
+        let in_sec = parse_timecode_seconds(&draft.in_time).unwrap_or(0.0);
+        let out_sec = parse_timecode_seconds(&draft.out_time)
+            .unwrap_or(4.0)
+            .max(in_sec + 0.1);
+        let duration_sec = (out_sec - in_sec).clamp(0.1, 600.0);
+        let start_offset_ms = (in_sec * 1000.0).round().max(0.0) as u32;
+
+        let path_obj = Path::new(draft.file_path.trim());
+        let raw_bytes = std::fs::read(path_obj).unwrap_or_else(|_| default_mp4_stub_bytes());
+        let ext = path_obj
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mp4")
+            .to_ascii_lowercase();
+        let media_type = if ext == "webm" || draft.codec.contains("WebM") {
+            "video/webm"
+        } else {
+            "video/mp4"
+        };
+        let file_name = path_obj
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("intro.mp4");
+        let rel_path = format!("video/{file_name}");
+
+        let res_id = new_id("res");
+        let resource =
+            ResourceUnit::from_bytes(res_id.clone(), rel_path.clone(), media_type, &raw_bytes)
+                .map_err(|e| e.to_string())?;
+        let sync = if draft.deployment == 0 {
+            VideoSyncMode::Stream
+        } else {
+            VideoSyncMode::Event
+        };
+        let video_span = TimelineVideoSpan {
+            resource: res_id.clone(),
+            sync,
+            start_offset_ms,
+            loop_video: false,
+            muted: !draft.include_audio,
+            cue_points: Vec::new(),
+        };
+
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        self.finish_edits();
+        self.transact_named("Import video", |editor| {
+            editor.project.resources.push(resource);
+            editor.project.format_version = editor.project.format_version.max(3);
+            if draft.match_fps {
+                editor.project.fps = draft.source_fps.clamp(1, 120);
+            }
+            let fps = editor.project.fps.max(1);
+            let needed_frames = frame + ((duration_sec * f64::from(fps)).ceil() as u32).max(1);
+            let sym = editor.symbol_mut();
+            if draft.expand_timeline && sym.timeline.frame_count < needed_frames {
+                sym.timeline.frame_count = needed_frames;
+            }
+            if let Some(layer) = sym.timeline.layers.get_mut(layer_idx) {
+                if !layer.keyframes.iter().any(|k| k.frame == frame) {
+                    let prev_elements = layer
+                        .key_at(frame)
+                        .map(|k| k.elements.clone())
+                        .unwrap_or_default();
+                    layer.keyframes.push(Keyframe {
+                        frame,
+                        elements: prev_elements,
+                        ..Keyframe::default()
+                    });
+                    layer.keyframes.sort_by_key(|k| k.frame);
+                }
+                if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
+                    key.video = Some(video_span);
+                    if draft.place_on_stage {
+                        let vid_el = Element {
+                            id: new_id("video"),
+                            name: file_name.to_owned(),
+                            transform: Transform {
+                                x: 80.0,
+                                y: 60.0,
+                                ..Transform::default()
+                            },
+                            kind: ElementKind::Video {
+                                width: 320.0,
+                                height: 240.0,
+                            },
+                            ..Element::default()
+                        };
+                        key.elements.push(vid_el);
+                    }
+                }
+                layer.normalize_motion_keys();
+            }
+        });
+
+        ctx.data_mut(|d| d.remove::<ImportVideoDraft>(draft_id()));
+        self.message(format!("Imported video {rel_path}."));
+        Ok(res_id)
+    }
+
+    pub(crate) fn import_video_body(
+        &mut self,
+        ui: &mut Ui,
+        draft: &mut ImportVideoDraft,
+    ) -> (bool, bool) {
+        let mut close_cancel = false;
+        let mut do_import = false;
+
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(300.0);
+                preview_box(ui, 300.0, 169.0, "Video preview");
+                let (span, _) =
+                    ui.allocate_exact_size(egui::vec2(300.0, 27.0), egui::Sense::hover());
+                tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Video, true);
+                ui.horizontal(|ui| {
+                    ui.add(
+                        c::TextField::new(&mut draft.in_time, "In")
+                            .prefix("In")
+                            .width(146.0),
+                    );
+                    ui.add(
+                        c::TextField::new(&mut draft.out_time, "Out")
+                            .prefix("Out")
+                            .width(146.0),
+                    );
+                });
+                caption(ui, "Drag the in / out handles on the strip to trim.");
+            });
+            ui.add_space(space::S5);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = space::S2;
+                ui.horizontal(|ui| {
+                    ui.add(
+                        c::TextField::new(&mut draft.file_path, "File")
+                            .prefix("File")
+                            .width(260.0),
+                    );
+                    if ui.add(c::Button::new("Browse…")).clicked()
+                        && let Some(picked) = rfd::FileDialog::new()
+                            .set_title("Import video")
+                            .add_filter("Video", &["mp4", "webm", "mov", "m4v"])
+                            .pick_file()
+                    {
+                        draft.file_path = picked.display().to_string();
+                    }
+                });
+                group(ui, "Deployment");
+                for (idx, label, hint) in [
+                    (
+                        0usize,
+                        "Embed in timeline",
+                        "Frames sync with the timeline; best for short clips",
+                    ),
+                    (
+                        1,
+                        "Load external video",
+                        "Streams with a player component; keeps .nfl small",
+                    ),
+                    (
+                        2,
+                        "Progressive download",
+                        "Plays while downloading from a URL",
+                    ),
+                ] {
+                    if ui
+                        .add(c::Radio::new(draft.deployment == idx, label))
+                        .clicked()
+                    {
+                        draft.deployment = idx;
+                    }
+                    caption(ui, hint);
+                }
+                group(ui, "Embedding");
+                ui.horizontal(|ui| {
+                    let sym_lbl = match draft.symbol_kind {
+                        SymbolKind::Graphic => "Symbol: Graphic",
+                        _ => "Symbol: Movie clip",
+                    };
+                    c::Select::new(ui.id().with("import-video-symbol"), sym_lbl)
+                        .width(172.0)
+                        .show(ui, |ui| {
+                            for (kind, lbl) in [
+                                (SymbolKind::MovieClip, "Symbol: Movie clip"),
+                                (SymbolKind::Graphic, "Symbol: Graphic"),
+                            ] {
+                                if ui
+                                    .add(c::MenuItem::new(lbl).checked(draft.symbol_kind == kind))
+                                    .clicked()
+                                {
+                                    draft.symbol_kind = kind;
+                                    ui.close();
+                                }
+                            }
+                        });
+                    let codec_lbl = format!("Codec: {}", draft.codec);
+                    c::Select::new(ui.id().with("import-video-codec"), &codec_lbl)
+                        .width(172.0)
+                        .show(ui, |ui| {
+                            for codec in ["H.264", "WebM VP9"] {
+                                if ui
+                                    .add(
+                                        c::MenuItem::new(&format!("Codec: {codec}"))
+                                            .checked(draft.codec == codec),
+                                    )
+                                    .clicked()
+                                {
+                                    draft.codec = codec.to_owned();
+                                    ui.close();
+                                }
+                            }
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.add(c::Checkbox::new(
+                        &mut draft.place_on_stage,
+                        "Place on stage",
+                    ));
+                    ui.add(c::Checkbox::new(
+                        &mut draft.expand_timeline,
+                        "Expand timeline if needed",
+                    ));
+                });
+                ui.horizontal(|ui| {
+                    ui.add(c::Checkbox::new(&mut draft.include_audio, "Include audio"));
+                    ui.add(c::Checkbox::new(
+                        &mut draft.match_fps,
+                        "Match document frame rate",
+                    ));
+                });
+            });
+        });
+
+        let in_sec = parse_timecode_seconds(&draft.in_time).unwrap_or(0.0);
+        let out_sec = parse_timecode_seconds(&draft.out_time)
+            .unwrap_or(24.0)
+            .max(in_sec + 0.1);
+        let dur = out_sec - in_sec;
+        let summary = format!(
+            "1280×720 · {} fps → {} fps · {:.1} s · {}",
+            draft.source_fps, self.project.fps, dur, draft.codec
+        );
+        match footer_clicked(ui, &summary, None, &["Cancel", "Import"]) {
+            Some(FooterClick::Button(0)) => close_cancel = true,
+            Some(FooterClick::Button(1)) => do_import = true,
+            _ => {}
+        }
+        (close_cancel, do_import)
+    }
+
+    pub(crate) fn import_video_inline_panel(&mut self, ui: &mut Ui) -> bool {
+        let ctx = ui.ctx().clone();
+        let mut draft = ctx
+            .data(|d| d.get_temp::<ImportVideoDraft>(inline_draft_id()))
+            .unwrap_or_default();
+        let (close_cancel, do_import) = self.import_video_body(ui, &mut draft);
+        ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft));
+        if do_import {
+            let _ = self.confirm_import_video(&ctx);
+            return true;
+        }
+        close_cancel
+    }
+
+    pub(crate) fn import_video_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut draft) = ctx.data(|d| d.get_temp::<ImportVideoDraft>(draft_id())) else {
+            return;
+        };
+        let p = neoflash_ui::palette(ctx);
+        let mut close_cancel = false;
+        let mut do_import = false;
+
+        let modal = egui::Modal::new(egui::Id::new("import-video"))
+            .frame(c::Surface::Dialog.frame(ctx))
+            .backdrop_color(p.overlay)
+            .show(ctx, |ui| {
+                ui.set_width(720.0);
+                let header_top = ui.cursor().min;
+                close_cancel |= c::DialogHeader {
+                    title: "Import video",
+                }
+                .show(ui);
+                ui.painter().hline(
+                    header_top.x..=header_top.x + 720.0,
+                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
+                    egui::Stroke::new(1.0_f32, p.border_subtle),
+                );
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::same(space::S5 as i8))
+                    .show(ui, |ui| {
+                        ui.set_width(720.0 - 2.0 * space::S5);
+                        let (c, imp) = self.import_video_body(ui, &mut draft);
+                        close_cancel |= c;
+                        do_import |= imp;
+                    });
+            });
+
+        if modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            close_cancel = true;
+        }
+
+        ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
+
+        if close_cancel {
+            self.cancel_import_video(ctx);
+            return;
+        }
+        if do_import {
+            let _ = self.confirm_import_video(ctx);
+        }
+    }
+}

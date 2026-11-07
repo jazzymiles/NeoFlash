@@ -2308,6 +2308,7 @@ pub struct BreakpointSpec {
 }
 
 impl BreakpointSpec {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new(line: usize) -> Self {
         Self {
             line: line.max(1),
@@ -2317,12 +2318,14 @@ impl BreakpointSpec {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn with_condition(mut self, condition: impl Into<String>) -> Self {
         let condition = condition.into();
         self.condition = (!condition.trim().is_empty()).then(|| condition.trim().to_owned());
         self
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn with_watch_property(mut self, watch_property: impl Into<String>) -> Self {
         let watch_property = watch_property.into();
         self.watch_property =
@@ -2362,6 +2365,7 @@ impl DebuggerVariable {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn object(
         name: impl Into<String>,
         class_name: impl Into<String>,
@@ -2652,6 +2656,7 @@ pub fn compute_fold_regions(source: &str) -> Vec<FoldRegion> {
 }
 
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(not(test), allow(dead_code))]
 struct DebuggerAuthoringState {
     breakpoints: std::collections::BTreeMap<String, Vec<BreakpointSpec>>,
     last_watched_values: std::collections::BTreeMap<(String, usize, String), String>,
@@ -2757,6 +2762,7 @@ impl EvalValue {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn split_var_path(path: &str) -> Vec<String> {
     let mut segments = Vec::new();
     let mut current = String::new();
@@ -2796,6 +2802,7 @@ fn find_variable_in_slice<'a>(
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn find_variable_in_slice_mut<'a>(
     vars: &'a mut [DebuggerVariable],
     segments: &[String],
@@ -3172,6 +3179,7 @@ impl Editor {
     }
 
     /// Returns `true` if `path` has a breakpoint at `line` (1-based).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn has_breakpoint(&self, path: &str, line: usize) -> bool {
         let key = Self::normalize_breakpoint_key(path);
         let line = line.max(1);
@@ -3188,6 +3196,7 @@ impl Editor {
     }
 
     /// Configure a conditional or data/property-change breakpoint on `spec.line` in `path`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_breakpoint_spec(&mut self, path: &str, mut spec: BreakpointSpec) {
         let key = Self::normalize_breakpoint_key(path);
         spec.line = spec.line.max(1);
@@ -3227,6 +3236,7 @@ impl Editor {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn breakpoint_spec(&self, path: &str, line: usize) -> Option<BreakpointSpec> {
         let key = Self::normalize_breakpoint_key(path);
         let line = line.max(1);
@@ -3245,6 +3255,7 @@ impl Editor {
 
     /// Evaluate whether execution should pause at `(path, line)`, checking any breakpoint condition
     /// and data/property-change watch, and incrementing `hit_count` when triggered.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn should_pause_at_breakpoint(&mut self, path: &str, line: usize) -> bool {
         let key = Self::normalize_breakpoint_key(path);
         let line = line.max(1);
@@ -3309,6 +3320,7 @@ impl Editor {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_paused_debugger_scopes(&mut self, scopes: Vec<DebuggerScope>) {
         self.with_authoring_state_mut(|state| {
             state.paused_scopes = scopes;
@@ -3321,6 +3333,7 @@ impl Editor {
     }
 
     /// Inspect a potentially nested `DebuggerVariable` by path (e.g. `"player.stats.hp"` or `"items[0]"`).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn inspect_debugger_variable_path(
         &self,
         scope_idx: usize,
@@ -3336,6 +3349,7 @@ impl Editor {
     }
 
     /// Edit a variable or nested object property in the paused debugger scope and refresh watches.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_debugger_variable_value(
         &mut self,
         scope_idx: usize,
@@ -3538,6 +3552,7 @@ impl Editor {
     }
 
     /// Return the visible 1-based `(line_number, line_text)` pairs after applying active fold regions.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn visible_source_lines(&self, source: &str) -> Vec<(usize, String)> {
         let regions = compute_fold_regions(source);
         let folded = self.folded_lines();

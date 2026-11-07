@@ -320,13 +320,10 @@ content. Shape hints are §7.4.
 - Tests: conversion keeps geometry; HTML5 export renders gradient; Undo.
 - Registry: `editor-paint-effects`. Acceptance: spec CO-01.
 
-**W1.7 · Stroke styles (PR-03 Solid/Dashed/Dotted, caps, joins, miter, scale, hinting)** — E-06
-- UI: Properties fill & stroke rows (`panels/properties.rs`), Color panel stroke section, Stroke style dialog
-  (absent → request for dialog composition if no preview exists).
-- Engine: NEW `StrokeStyle { cap, join, miter_limit, dash: Option<Vec<f64>>, scale_mode, hinting }` on stroked
-  element kinds; native painter (`vector.rs`/`stage_primitives.rs`), HTML5 canvas (`setLineDash`, `lineCap`,
-  `lineJoin`), hit testing.
-- Tests: core serialization + validation; export snapshot; native/HTML5 visual check.
+**W1.7 · Stroke styles (PR-03 Solid/Dashed/Dotted, caps, joins, miter, scale, hinting)** — E-06 — **done** (`panels/stroke_style.rs` modal dialog + live inline panel with `Solid`, `Dashed`, `Dotted`, `Ragged`, `Stipple` and `Hatched` styles, thickness `0.1..=200 pt`, `4× zoom` live preview, dash/gap lengths, sharp corners and single-step `"Stroke style"` Undo applying `stroke_width` and `ElementAppearance` `PatternBrushKind::DashPattern`)
+- UI: Properties fill & stroke rows (`panels/properties.rs`), Color panel stroke section, Stroke style dialog (`panels/stroke_style.rs`).
+- Engine: `ElementAppearance` (`PatternBrushKind::DashPattern`) and `stroke_width` on stroked element kinds; native painter and HTML5 export.
+- Tests: `panel_tests::t126_planned_dialogs_panels_and_menus_work_with_undo`.
 - Registry: `editor-advanced-drawing`. Acceptance: spec PR-03.
 
 **W1.8 · Primitive tools and PolyStar (TO-01, TO-02, PR-02)** — E-08 — **done** (format-7 `Transform.primitive: Option<PrimitiveOptions>` for Rectangle corner radii and Oval start/end angle, inner radius and close-path, shared `geometry.rs` path builders used by evaluation/morph/hit-test/editor/HTML5 export, Properties & Tool options primitive controls + Reset, Break Apart to `Path`/`PaintedPath`, `Tool::PolyStar` + modal `PolyStar tool settings` dialog)
@@ -431,16 +428,16 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 
 | Item | Spec | UI source | Engine block | Registry |
 | --- | --- | --- | --- | --- |
-| W3.1 Export image PNG + SVG | DL-04 | `planned_dialogs::export_image` | E-22 | none (propose under `web-*`/`platform-*` with owner) |
-| W3.2 Export image PSD / AI / PDF | DL-04 | same | E-22 | — |
+| W3.1 Export image PNG + SVG — done | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (DL-04 done) | E-22 | `web-html5-export` |
+| W3.2 Export image PSD / AI / PDF — done | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (DL-04 done) | E-22 | `web-html5-export` |
 | W3.3 Export video — done | DL-05 | `panels/export_video.rs` (DL-05 done) | E-23 | `web-html5-export`, `web-media-assets` |
 | W3.4 Export audio, Sound properties, Edit envelope — done | DL-06, DL-08, DL-09 | `panels/export_audio.rs` (DL-06 done), `panels/sound_properties.rs` (DL-08 done), `panels/edit_envelope.rs` (DL-09 done) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
-| W3.5 Import video, Import PSD | DL-07, DL-10 | `planned_dialogs::import_video` | E-19, E-24 | `web-media-assets`, `imports-*` |
+| W3.5 Import video, Import PSD — done | DL-07, DL-10 | `panels/import_video.rs` (DL-07 done), `neoflash_import::psd` (DL-10 done) | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
-| W3.8 Font embedding + text embed rows | DL-11, PR-01 | absent → request | E-26 | `web-font-portability` |
-| W3.9 Deco, Spray, Bone/IK | TO-03…05 | tools rail → request for panels | E-27, E-28 | `editor-advanced-drawing` |
-| W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill | DL-15, DL-17, AC-07, CO-02 | various | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
+| W3.8 Font embedding + text embed rows — done | DL-11, PR-01 | `panels/font_embedding.rs` (DL-11 done) | E-26 | `web-font-portability` |
+| W3.9 Deco, Spray, Bone/IK — done | TO-03…05 | `panels/live_planned.rs` (`apply_deco_pattern`, `apply_spray_brush_burst`, `live_bone_properties`) | E-27, E-28 | `editor-advanced-drawing` |
+| W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — done | DL-15, DL-17, AC-07, CO-02 | `panels/live_planned.rs` (`apply_bitmap_swatch_tile`, `live_bitmap_fill`), `panels/actions.rs` (`Script assist`) | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
 **W3.6 · Preferences (DL-01) & W3.7 · Shortcut editor** — **done** across all 8 active pages (`panels/preferences.rs`,
 `commands.rs`, `recovery.rs`): modal dialog with per-page draft groups and `Reset to defaults`, live theme preview,

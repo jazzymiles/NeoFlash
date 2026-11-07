@@ -657,6 +657,10 @@ impl Editor {
         self.has_modal_dialog()
             || self.customize_tools_open(ctx)
             || crate::panels::export_audio::has_export_audio_dialog(ctx)
+            || crate::panels::export_image::has_export_image_dialog(ctx)
+            || crate::panels::import_video::has_import_video_dialog(ctx)
+            || crate::panels::stroke_style::has_stroke_style_dialog(ctx)
+            || crate::panels::font_embedding::has_font_embedding_dialog(ctx)
             || crate::panels::sound_properties::has_sound_properties_dialog(ctx)
             || crate::panels::layer_properties::has_layer_properties_dialog(ctx)
     }
@@ -2114,6 +2118,10 @@ impl Editor {
         self.paste_motion_special_dialog(ctx);
         self.sound_properties_dialog(ctx);
         self.export_audio_dialog(ctx);
+        self.export_image_dialog(ctx);
+        self.import_video_dialog(ctx);
+        self.stroke_style_dialog(ctx);
+        self.font_embedding_dialog(ctx);
         self.layer_properties_dialog(ctx);
         self.polystar_settings_modal(ctx);
         use neoflash_ui::{

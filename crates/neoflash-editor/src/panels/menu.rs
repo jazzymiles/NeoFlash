@@ -88,8 +88,12 @@ const WINDOW_PANELS: [(&str, &str, PanelId); 21] = [
 enum ConvertedTrigger {
     DocumentSettings,
     PublishSettings,
+    ExportImage,
     ExportVideo,
     ExportAudio,
+    ImportVideo,
+    StrokeStyle,
+    FontEmbedding,
     /// Preferences opened on a page (`panels/preferences.rs`).
     Preferences(usize),
     AddSwatch,
@@ -116,8 +120,12 @@ impl Editor {
             "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
                 Some(ConvertedTrigger::PublishSettings)
             }
+            "File ▸ Export ▸ Export image…" => Some(ConvertedTrigger::ExportImage),
             "File ▸ Export ▸ Export video…" => Some(ConvertedTrigger::ExportVideo),
             "File ▸ Export ▸ Export audio…" => Some(ConvertedTrigger::ExportAudio),
+            "File ▸ Import ▸ Import video…" => Some(ConvertedTrigger::ImportVideo),
+            "Tool options ▸ Stroke style…" => Some(ConvertedTrigger::StrokeStyle),
+            "Library menu ▸ Font embedding…" => Some(ConvertedTrigger::FontEmbedding),
             "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
                 crate::panels::preferences::PAGE_GENERAL,
             )),
@@ -169,8 +177,12 @@ impl Editor {
             match trigger {
                 ConvertedTrigger::DocumentSettings => self.open_document_settings(),
                 ConvertedTrigger::PublishSettings => self.open_publish_settings(),
+                ConvertedTrigger::ExportImage => self.open_export_image(ctx),
                 ConvertedTrigger::ExportVideo => self.open_export_video(None),
                 ConvertedTrigger::ExportAudio => self.open_export_audio(ctx, None),
+                ConvertedTrigger::ImportVideo => self.open_import_video(ctx),
+                ConvertedTrigger::StrokeStyle => self.open_stroke_style(ctx),
+                ConvertedTrigger::FontEmbedding => self.open_font_embedding(ctx),
                 ConvertedTrigger::Preferences(page) => self.open_preferences(page),
                 ConvertedTrigger::AddSwatch => {
                     self.add_active_swatch(ctx);
