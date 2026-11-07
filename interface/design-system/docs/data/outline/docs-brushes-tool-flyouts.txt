@@ -1,4 +1,4 @@
-F Shelf / Brushes & tool flyouts 1000×590 [V gap 24]
+F Shelf / Brushes & tool flyouts 1000×582 [V gap 24]
   T "Brushes, pencil and tool flyouts"
   F NF2/Tool Flyout Item 276×80 [V gap 8]
     F Active=True 260×28 [H gap 8]
@@ -47,6 +47,6 @@ F Shelf / Brushes & tool flyouts 1000×590 [V gap 24]
   F NF2/Brush Cursor 344×120 [H gap 16]
     F State=Idle 96×96
     F State=Resize 96×96
-      F Size chip 46×18 [H gap 0]
+      F Size chip 43×16 [H gap 0]
         T "56 px"
     F State=Eraser 96×96

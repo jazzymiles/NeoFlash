@@ -1,8 +1,8 @@
-F NF2 / Timeline — states legend 1320×804 [V gap 32]
+F NF2 / Timeline — states legend 1320×782 [V gap 32]
   T "Timeline — states legend"
   T "Flash / Macromedia Flash semantics: layer types, column toggles, frame spans and markers. Every item is an NF2/TL component instance."
-  F Columns 1240×612 [H gap 48]
-    F Layer types 576×612 [V gap 10]
+  F Columns 1240×604 [H gap 48]
+    F Layer types 576×604 [V gap 10]
       T "Layer types"
       F Item 576×28 [H gap 16]
         I NF2/TL Layer {Editing=false, Indent 2=false, Indent 1=false, Label=Layer, Type=Layer, Selected=False, Size=Default} 280×28 "Layer"
@@ -50,7 +50,7 @@ F NF2 / Timeline — states legend 1320×804 [V gap 32]
       F Item 576×28 [H gap 16]
         I NF2/TL Layer {Indent 2=true, Editing=true, Indent 1=false, Label=hand, Type=Masked, Selected=True, Size=Default} 280×28 "hand"
         T "Selected + current layer (pencil)"
-    F Frame states 616×516 [V gap 10]
+    F Frame states 616×512 [V gap 10]
       T "Frames (12 px per frame)"
       F Sample 616×28 [H gap 16]
         F Sample 240×28

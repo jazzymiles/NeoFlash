@@ -1,6 +1,6 @@
-F Dialog / Preferences — Drawing 920×641 [V gap 0]
+F Dialog / Preferences — Drawing 920×625 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×514 [H gap 0]
+  F Main 918×498 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,21 +11,21 @@ F Dialog / Preferences — Drawing 920×641 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×514 [V gap 16]
-      F Default mode 650×60 [V gap 10]
+    F Content 698×498 [V gap 16]
+      F Default mode 650×56 [V gap 10]
         T "Default mode"
         F Row 650×34 [H gap 8]
           T "New shapes"
           F Segments 233×34 [H gap 2]
-            I NF2/Segment {Label=Merge drawing, Selected=False} 111×28 "Merge drawing"
-            I NF2/Segment {Label=Object drawing, Selected=True} 114×28 "Object drawing"
-      F Pen tool 650×46 [V gap 10]
+            I NF2/Segment {Label=Merge drawing, Selected=False} 96×28 "Merge drawing"
+            I NF2/Segment {Label=Object drawing, Selected=True} 99×28 "Object drawing"
+      F Pen tool 650×42 [V gap 10]
         T "Pen tool"
         F Row 650×20 [H gap 8]
-          I NF2/Switch {Label=Show pen preview, On=True} 151×20 "Show pen preview"
-          I NF2/Switch {Label=Show solid points, On=False} 146×20 "Show solid points"
-          I NF2/Switch {Label=Precise cursors, On=False} 133×20 "Precise cursors"
-      F Recognition 650×226 [V gap 10]
+          I NF2/Switch {Label=Show pen preview, On=True} 134×18 "Show pen preview"
+          I NF2/Switch {Label=Show solid points, On=False} 130×18 "Show solid points"
+          I NF2/Switch {Label=Precise cursors, On=False} 119×18 "Precise cursors"
+      F Recognition 650×222 [V gap 10]
         T "Recognition"
         F Row 650×32 [H gap 8]
           T "Connect lines"
@@ -42,15 +42,15 @@ F Dialog / Preferences — Drawing 920×641 [V gap 0]
         F Row 650×32 [H gap 8]
           T "Click accuracy"
           I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
-      F Snapping 650×58 [V gap 10]
+      F Snapping 650×54 [V gap 10]
         T "Snapping"
         F Row 650×32 [H gap 8]
           T "Tolerance"
           I NF2/Stepper Field {Prefix=px, Label=8, State=Default} 120×32 "px" "8"
-          I NF2/Switch {Label=Snap to pixels, On=False} 125×20 "Snap to pixels"
-          I NF2/Switch {Label=Snap align, On=True} 102×20 "Snap align"
+          I NF2/Switch {Label=Snap to pixels, On=False} 111×18 "Snap to pixels"
+          I NF2/Switch {Label=Snap align, On=True} 93×18 "Snap align"
   F Row 918×65 [H gap 8]
-    I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 130×32 "Reset to defaults"
-    F Spacer 592×2
-    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
-    I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 55×32 "Save"
+    I NF2/Button {Icon=false, Label=Reset to defaults, Type=Ghost, State=Default} 114×32 "Reset to defaults"
+    F Spacer 619×2
+    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+    I NF2/Button {Icon=false, Label=Save, Type=Primary, State=Default} 50×32 "Save"

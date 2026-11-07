@@ -1,8 +1,8 @@
 F Timeline — Button symbol (cta_btn) 900×300
   F Breadcrumb 172×28 [H gap 0]
-    I NF2/Breadcrumb Item {Menu=false, Label=Scene 1, Type=Scene, State=Link} 81×28 "Scene 1"
+    I NF2/Breadcrumb Item {Menu=false, Label=Scene 1, Type=Scene, State=Link} 73×28 "Scene 1"
     I NF2/Breadcrumb Separator 12×28
-    I NF2/Breadcrumb Item {Menu=false, Label=cta_btn, Type=Button, State=Current} 79×28 "cta_btn"
+    I NF2/Breadcrumb Item {Menu=false, Label=cta_btn, Type=Button, State=Current} 72×28 "cta_btn"
   F Frame 336×30
     T "Up"
     T "Over"
@@ -36,20 +36,20 @@ F Timeline — Button symbol (cta_btn) 900×300
   R Rectangle 83×27
   E Ellipse 6×6
   R Rectangle 2×114
-  F State previews 676×66 [H gap 12]
-    F State Up 160×66 [V gap 6]
+  F State previews 676×63 [H gap 12]
+    F State Up 160×63 [V gap 6]
       F Button 160×44 [H gap 0]
         T "BUILT TO BE INTERACTIVE"
       T "Up"
-    F State Over 160×66 [V gap 6]
+    F State Over 160×63 [V gap 6]
       F Button 160×44 [H gap 0]
         T "BUILT TO BE INTERACTIVE"
       T "Over  ·  editing"
-    F State Down 160×66 [V gap 6]
+    F State Down 160×63 [V gap 6]
       F Button 160×44 [H gap 0]
         T "BUILT TO BE INTERACTIVE"
       T "Down"
-    F State Hit 160×66 [V gap 6]
+    F State Hit 160×63 [V gap 6]
       F Button 160×44 [H gap 0]
         T "hit area (invisible)"
       T "Hit"

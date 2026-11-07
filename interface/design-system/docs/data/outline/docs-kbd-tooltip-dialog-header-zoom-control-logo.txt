@@ -1,8 +1,8 @@
 F Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo 700×298 [V gap 12]
   T "Kbd · Tooltip · Dialog header · Zoom control · Logo"
-  F NF2/Kbd 28×20 [H gap 0]
+  F NF2/Kbd 27×20 [H gap 0]
     T "F6"
-  F NF2/Tooltip 99×30 [H gap 8]
+  F NF2/Tooltip 90×30 [H gap 8]
     T "Selection"
     F Key 17×18 [H gap 0]
       T "V"

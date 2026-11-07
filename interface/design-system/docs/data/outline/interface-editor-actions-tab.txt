@@ -3,20 +3,20 @@ F NF2 / Editor — Actions tab 1920×1080
     I NF2/Logo 28×28
     T "NeoFlash"
     F gap 8×4
-    I NF2/Button {Icon=false, Label=File, Type=Ghost, State=Default} 46×32 "File"
-    I NF2/Button {Icon=false, Label=Edit, Type=Ghost, State=Default} 49×32 "Edit"
-    I NF2/Button {Icon=false, Label=View, Type=Ghost, State=Default} 55×32 "View"
-    I NF2/Button {Icon=false, Label=Modify, Type=Ghost, State=Default} 68×32 "Modify"
-    I NF2/Button {Icon=false, Label=Insert, Type=Ghost, State=Default} 61×32 "Insert"
-    I NF2/Button {Icon=false, Label=Control, Type=Ghost, State=Default} 70×32 "Control"
-    I NF2/Button {Icon=false, Label=Window, Type=Ghost, State=Default} 75×32 "Window"
-    F Spacer 923×4
+    I NF2/Button {Icon=false, Label=File, Type=Ghost, State=Default} 43×32 "File"
+    I NF2/Button {Icon=false, Label=Edit, Type=Ghost, State=Default} 45×32 "Edit"
+    I NF2/Button {Icon=false, Label=View, Type=Ghost, State=Default} 50×32 "View"
+    I NF2/Button {Icon=false, Label=Modify, Type=Ghost, State=Default} 61×32 "Modify"
+    I NF2/Button {Icon=false, Label=Insert, Type=Ghost, State=Default} 55×32 "Insert"
+    I NF2/Button {Icon=false, Label=Control, Type=Ghost, State=Default} 63×32 "Control"
+    I NF2/Button {Icon=false, Label=Window, Type=Ghost, State=Default} 67×32 "Window"
+    F Spacer 998×4
     I NF2/Select {Label=Classic workspace, State=Default} 176×32 "Classic workspace"
-    I NF2/Button {Icon=true, Label=Test Movie, Type=Secondary, State=Default} 118×32 "Test Movie"
-    I NF2/Button {Icon=true, Label=Publish, Type=Primary, State=Default} 94×32 "Publish"
-    F Project title 182×22 [H gap 8]
+    I NF2/Button {Icon=true, Label=Test Movie, Type=Secondary, State=Default} 108×32 "Test Movie"
+    I NF2/Button {Icon=true, Label=Publish, Type=Primary, State=Default} 87×32 "Publish"
+    F Project title 167×22 [H gap 8]
       T "Ideas in motion"
-      I NF2/Badge {Label=Unsaved, Type=Warning} 79×22 "Unsaved"
+      I NF2/Badge {Label=Unsaved, Type=Warning} 70×22 "Unsaved"
   I NF2/Tools Panel {Layout=1 Column} 56×588
   F Canvas 1544×588
     F Stage — "Ideas in motion" (user content, vector) 720×452
@@ -36,18 +36,18 @@ F NF2 / Editor — Actions tab 1920×1080
       I NF2/Stage Ruler {Orientation=Vertical} 20×1000 "-200" "-100" "0" "100" "200" "300" "400" "500" "600" "700" "800" "900"
       I NF2/Stage Ruler {Orientation=Horizontal} 1600×20 "-500" "-400" "-300" "-200" "-100" "0" "100" "200" "300" "400" "500" "600"
       I NF2/Ruler Corner 20×20
-    F Breadcrumb 183×34 [H gap 4]
+    F Breadcrumb 160×34 [H gap 4]
       T "Scene 1"
       I NF2 Icon/16/chevright 16×16
       T "Ideas in motion"
     F Stage info 89×22 [H gap 8]
-      I NF2/Badge {Label=960 × 600, Type=Neutral} 89×22 "960 × 600"
+      I NF2/Badge {Label=960 × 600, Type=Neutral} 79×22 "960 × 600"
     I NF2/Zoom Control 365×42 "75%"
   F Inspector 320×588 [V gap 0]
     F Properties 319×488 [V gap 0]
       I NF2/Panel Header 319×40 "Properties"
       F Body 319×448 [V gap 12]
-        I NF2/Segmented Control 137×34 "Selection" "Tool"
+        I NF2/Segmented Control 124×34 "Selection" "Tool"
         I NF2/Section Header {Label=Stage, State=Expanded} 287×32 "Stage"
         I NF2/Field {Show prefix=true, Prefix=Name, Label=Ideas in motion, State=Default} 287×32 "Name" "Ideas in motion"
         F Size 287×32 [H gap 8]
@@ -64,8 +64,8 @@ F NF2 / Editor — Actions tab 1920×1080
           I NF2/Field {Show prefix=true, Prefix=Frames, Label=120, State=Default} 140×32 "Frames" "120"
         I NF2/Section Header {Label=Publish, State=Expanded} 287×32 "Publish"
         F Publish row 198×62 [V gap 8]
-          I NF2/Badge {Label=HTML5 · Rust / WebAssembly, Type=Accent} 198×22 "HTML5 · Rust / WebAssembly"
-          I NF2/Button {Icon=false, Label=Publish settings…, Type=Secondary, State=Default} 136×32 "Publish settings…"
+          I NF2/Badge {Label=HTML5 · Rust / WebAssembly, Type=Accent} 170×22 "HTML5 · Rust / WebAssembly"
+          I NF2/Button {Icon=false, Label=Publish settings…, Type=Secondary, State=Default} 119×32 "Publish settings…"
     F Library 319×100 [V gap 0]
       I NF2/Panel Header 319×40 "Library"
       F Body 319×216 [V gap 8]
@@ -78,11 +78,11 @@ F NF2 / Editor — Actions tab 1920×1080
         I NF2/Tree Item {Label=Resource files (0), Type=Folder Closed, Selected=False} 303×32 "Resource files (0)"
   F Bottom dock 1920×420 [V gap 0]
     F Dock tabs 1920×40 [H gap 0]
-      I NF2/Dock Tab {Label=Timeline, State=Inactive} 105×40 "Timeline"
-      I NF2/Dock Tab {Label=Actions, State=Active} 100×40 "Actions"
-      I NF2/Dock Tab {Label=Output, State=Inactive} 96×40 "Output"
-      I NF2/Dock Tab {Label=Accessibility, State=Inactive} 131×40 "Accessibility"
-      F Spacer 1408×4
+      I NF2/Dock Tab {Label=Timeline, State=Inactive} 97×40 "Timeline"
+      I NF2/Dock Tab {Label=Actions, State=Active} 92×40 "Actions"
+      I NF2/Dock Tab {Label=Output, State=Inactive} 89×40 "Output"
+      I NF2/Dock Tab {Label=Accessibility, State=Inactive} 119×40 "Accessibility"
+      F Spacer 1443×4
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
     F Actions (docked) 1920×380 [V gap 0]
@@ -101,8 +101,8 @@ F NF2 / Editor — Actions tab 1920×1080
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-        F Frame 1060×4
-        I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 125×32 "Script assist"
+        F Frame 1072×4
+        I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 113×32 "Script assist"
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       F Main 1920×304 [H gap 0]
         F Sidebar 248×304 [V gap 0]
@@ -117,7 +117,7 @@ F NF2 / Editor — Actions tab 1920×1080
               I NF2/Tree Item {Label=Animator, Type=Symbol, Selected=False} 215×28 "Animator"
             F Indent 231×28 [H gap 0]
               I NF2/Tree Item {Label=Motion, Type=Symbol, Selected=False} 215×28 "Motion"
-          F Script navigator 231×167 [V gap 0]
+          F Script navigator 231×163 [V gap 0]
             T "Script navigator"
             I NF2/Tree Item {Label=Current selection, Type=Folder Open, Selected=False} 231×28 "Current selection"
             F Indent 231×28 [H gap 0]
@@ -181,24 +181,24 @@ F NF2 / Editor — Actions tab 1920×1080
               I NF2/Menu Item {Submenu=false, Shortcut=void, Label=stop(), State=Default} 220×28 "stop()" "void"
               I NF2/Menu Item {Submenu=false, Shortcut=int, Label=time, State=Default} 220×28 "time" "int"
       F Script bar 1920×32 [H gap 0]
-        I NF2/Script Tab {Pinned=true, Label=orbit : Frame 1, State=Active} 143×30 "orbit : Frame 1"
-        I NF2/Script Tab {Pinned=false, Label=labels : Frame 1, State=Inactive} 128×30 "labels : Frame 1"
-        F Frame 1359×4
+        I NF2/Script Tab {Pinned=true, Label=orbit : Frame 1, State=Active} 130×30 "orbit : Frame 1"
+        I NF2/Script Tab {Pinned=false, Label=labels : Frame 1, State=Inactive} 114×30 "labels : Frame 1"
+        F Frame 1411×4
         T "Line 19, Col 10  ·  20 lines  ·  No errors"
   F Status bar 1920×24 [H gap 12]
     T "Ready"
     T "Stage 960 × 600 · 24 fps · 120 frames"
-    F Spacer 1165×4
-    F Hint 67×20 [H gap 6]
-      I NF2/Kbd 28×20 "F5"
+    F Spacer 1245×4
+    F Hint 62×20 [H gap 6]
+      I NF2/Kbd 27×20 "F5"
       T "frame"
-    F Hint 87×20 [H gap 6]
-      I NF2/Kbd 28×20 "F6"
+    F Hint 78×20 [H gap 6]
+      I NF2/Kbd 27×20 "F6"
       T "keyframe"
-    F Hint 121×20 [H gap 6]
-      I NF2/Kbd 28×20 "F7"
+    F Hint 107×20 [H gap 6]
+      I NF2/Kbd 27×20 "F7"
       T "blank keyframe"
-    F Hint 106×20 [H gap 6]
-      I NF2/Kbd 38×20 "⌘ ↵"
+    F Hint 96×20 [H gap 6]
+      I NF2/Kbd 36×20 "⌘ ↵"
       T "Test Movie"
-  I NF2/Tooltip 99×30 "Selection" "V"
+  I NF2/Tooltip 90×30 "Selection" "V"

@@ -1,4 +1,4 @@
-F Shelf / Timeline 2.0 — layers 974×728 [V gap 16]
+F Shelf / Timeline 2.0 — layers 974×916 [V gap 16]
   T "Timeline 2.0 — layer rows (Flash-style layer types and column toggles)"
   F NF2/TL Toggle 900×62 [H gap 12]
     F Kind=Visibility, Value=Visible 20×28 [H gap 0]
@@ -9,7 +9,7 @@ F Shelf / Timeline 2.0 — layers 974×728 [V gap 16]
       I NF2 Icon/16/lock 16×16
     F Kind=Outline, Value=Solid 20×28 [H gap 0]
     F Kind=Outline, Value=Outline 20×28 [H gap 0]
-  F NF2/TL Layer 924×512 [H gap 12]
+  F NF2/TL Layer 924×708 [H gap 12]
     F Type=Layer, Selected=False, Size=Default 280×28 [H gap 4]
       F Indent 1 14×16
       F Indent 2 14×16
@@ -210,206 +210,406 @@ F Shelf / Timeline 2.0 — layers 974×728 [V gap 16]
       I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×28
       I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×28
       I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×28
-    F Type=Layer, Selected=False, Size=Compact 280×18 [H gap 4]
+    F Type=Layer, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/layer 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Layer, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Layer, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/layer 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Masked, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Masked, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/masked 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Masked, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Masked, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/masked 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Folder Open, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Folder Open, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       I NF2 Icon/16/chevdown 12×12
       I NF2 Icon/16/folderopen 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Folder Open, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Folder Open, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       I NF2 Icon/16/chevdown 12×12
       I NF2 Icon/16/folderopen 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Folder Closed, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Folder Closed, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       I NF2 Icon/16/chevright 12×12
       I NF2 Icon/16/folder 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Folder Closed, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Folder Closed, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       I NF2 Icon/16/chevright 12×12
       I NF2 Icon/16/folder 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Guide, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Guide, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/guide 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Guide, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Guide, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/guide 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Motion Guide, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Motion Guide, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/motionguide 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Motion Guide, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Motion Guide, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/motionguide 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Mask, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Mask, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/mask 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Mask, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Mask, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/mask 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Sound, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Sound, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/waveform 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Sound, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Sound, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/waveform 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Video, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Video, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/video 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Video, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Video, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/video 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Armature, Selected=False, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Armature, Selected=False, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/armature 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
-    F Type=Armature, Selected=True, Size=Compact 280×18 [H gap 4]
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Armature, Selected=True, Size=Compact 280×16 [H gap 4]
       F Indent 1 14×12
       F Indent 2 14×12
       F Disclosure 12×12
       I NF2 Icon/16/armature 12×12
       T "Layer"
       I NF2 Icon/16/pencil 12×12
-      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×18
-      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×18
-      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×18
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×16
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×16
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×16
+    F Type=Layer, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/layer 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Layer, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/layer 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Masked, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/masked 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Masked, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/masked 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Folder Open, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      I NF2 Icon/16/chevdown 12×12
+      I NF2 Icon/16/folderopen 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Folder Open, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      I NF2 Icon/16/chevdown 12×12
+      I NF2 Icon/16/folderopen 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Folder Closed, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      I NF2 Icon/16/chevright 12×12
+      I NF2 Icon/16/folder 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Folder Closed, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      I NF2 Icon/16/chevright 12×12
+      I NF2 Icon/16/folder 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Guide, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/guide 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Guide, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/guide 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Motion Guide, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/motionguide 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Motion Guide, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/motionguide 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Mask, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/mask 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Mask, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/mask 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Sound, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/waveform 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Sound, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/waveform 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Video, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/video 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Video, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/video 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Armature, Selected=False, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/armature 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
+    F Type=Armature, Selected=True, Size=Short 280×22 [H gap 4]
+      F Indent 1 14×12
+      F Indent 2 14×12
+      F Disclosure 12×12
+      I NF2 Icon/16/armature 12×12
+      T "Layer"
+      I NF2 Icon/16/pencil 12×12
+      I NF2/TL Toggle {Kind=Visibility, Value=Visible} 20×22
+      I NF2/TL Toggle {Kind=Lock, Value=Unlocked} 20×22
+      I NF2/TL Toggle {Kind=Outline, Value=Solid} 20×22
   F NF2/TL Layers Header 280×32 [H gap 4]
     T "Layers"
     F eye 20×24 [H gap 0]

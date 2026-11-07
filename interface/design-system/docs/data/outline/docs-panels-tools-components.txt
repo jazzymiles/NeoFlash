@@ -1,4 +1,4 @@
-F Shelf / Panels & Tools — components 688×1985 [V gap 16]
+F Shelf / Panels & Tools — components 688×1961 [V gap 16]
   T "Panels & Tools — components"
   F NF2/Tool Button 400×66 [H gap 12]
     F State=Default 32×32 [H gap 0]
@@ -25,17 +25,17 @@ F Shelf / Panels & Tools — components 688×1985 [V gap 16]
       I NF2 Icon/16/bucket 16×16
       I NF2 Icon/16/chevdown 16×16
   F NF2/Panel Tab 400×70 [H gap 12]
-    F State=Active 52×36 [H gap 0]
+    F State=Active 47×36 [H gap 0]
       T "Panel"
-    F State=Inactive 52×36 [H gap 0]
+    F State=Inactive 47×36 [H gap 0]
       T "Panel"
   F NF2/Floating Panel Header 280×36 [H gap 0]
     F Grip 20×36 [H gap 0]
       I NF2 Icon/16/grip-h 16×16
-    I NF2/Panel Tab {Label=Panel, State=Active} 52×36 "Panel"
-    I NF2/Panel Tab {Label=Panel, State=Inactive} 52×36 "Panel"
-    I NF2/Panel Tab {Label=Panel, State=Inactive} 52×36 "Panel"
-    F Spacer 118×4
+    I NF2/Panel Tab {Label=Panel, State=Active} 47×36 "Panel"
+    I NF2/Panel Tab {Label=Panel, State=Inactive} 47×36 "Panel"
+    I NF2/Panel Tab {Label=Panel, State=Inactive} 47×36 "Panel"
+    F Spacer 123×4
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
@@ -53,9 +53,9 @@ F Shelf / Panels & Tools — components 688×1985 [V gap 16]
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 30×28
   F NF2/Radio 300×50 [H gap 12]
-    F Selected=True 61×16 [H gap 6]
+    F Selected=True 55×16 [H gap 6]
       T "Option"
-    F Selected=False 61×16 [H gap 6]
+    F Selected=False 55×16 [H gap 6]
       T "Option"
   F NF2/Color Field 200×32 [H gap 8]
     T "233043"
@@ -98,11 +98,11 @@ F Shelf / Panels & Tools — components 688×1985 [V gap 16]
       I NF2 Icon/16/submenu 16×16
   F NF2/Menu Separator 200×9 [V gap 0]
   F NF2/Script Tab 480×64 [H gap 12]
-    F State=Active 96×30 [H gap 6]
+    F State=Active 90×30 [H gap 6]
       I NF2 Icon/16/frame 16×16
       T "Script"
       I NF2 Icon/16/pin 16×16
-    F State=Inactive 96×30 [H gap 6]
+    F State=Inactive 90×30 [H gap 6]
       I NF2 Icon/16/frame 16×16
       T "Script"
       I NF2 Icon/16/pin 16×16
@@ -119,7 +119,7 @@ F Shelf / Panels & Tools — components 688×1985 [V gap 16]
   F NF2/Divider 300×54 [H gap 12]
     F Direction=Vertical 1×20
     F Direction=Horizontal 200×1
-  F NF2/Tools Panel 196×646 [H gap 24]
+  F NF2/Tools Panel 196×630 [H gap 24]
     F Layout=1 Column 56×588 [V gap 1]
       I NF2/Tool Button {Flyout=true, State=Selected} 32×32
       I NF2/Tool Button {Flyout=true, State=Default} 32×32
@@ -141,7 +141,7 @@ F Shelf / Panels & Tools — components 688×1985 [V gap 16]
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 20×20
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 20×20
       I NF2/Tool Button {Flyout=false, State=Selected} 32×32
-    F Layout=2 Columns 82×612 [V gap 6]
+    F Layout=2 Columns 82×596 [V gap 6]
       T "Tools"
       F Tool grid 66×338 [V gap 2]
         F Row 66×32 [H gap 2]

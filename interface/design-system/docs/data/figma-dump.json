@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-05T16:33:48.832Z",
+ "generated": "2026-11-07T13:50:53.156Z",
  "file": "Interface test",
  "pages": [
   {
@@ -141,32 +141,494 @@
    ]
   },
   {
-   "name": "v2 · System & Components",
+   "name": "v2 · System & Components (archive)",
+   "id": "209:31",
+   "frames": [
+    {
+     "id": "209:34",
+     "name": "Colors / Dark",
+     "w": 700,
+     "h": 1676
+    },
+    {
+     "id": "209:179",
+     "name": "Colors / Light",
+     "w": 700,
+     "h": 1676
+    },
+    {
+     "id": "209:324",
+     "name": "Type scale",
+     "w": 640,
+     "h": 418
+    },
+    {
+     "id": "209:350",
+     "name": "Spacing and radius",
+     "w": 640,
+     "h": 222
+    },
+    {
+     "id": "209:384",
+     "name": "Shelf / Icons · 16 and 20 px",
+     "w": 700,
+     "h": 178
+    },
+    {
+     "id": "209:518",
+     "name": "Shelf / Button",
+     "w": 700,
+     "h": 184
+    },
+    {
+     "id": "209:569",
+     "name": "Shelf / Icon button",
+     "w": 700,
+     "h": 144
+    },
+    {
+     "id": "209:596",
+     "name": "Shelf / Segmented control",
+     "w": 700,
+     "h": 178
+    },
+    {
+     "id": "209:604",
+     "name": "Shelf / Field · Search · Select",
+     "w": 700,
+     "h": 388
+    },
+    {
+     "id": "209:637",
+     "name": "Shelf / Checkbox · Slider · Swatch · Badge",
+     "w": 700,
+     "h": 330
+    },
+    {
+     "id": "209:692",
+     "name": "Shelf / Dock tab · Section header · Panel header",
+     "w": 700,
+     "h": 274
+    },
+    {
+     "id": "209:712",
+     "name": "Shelf / Tree item",
+     "w": 700,
+     "h": 232
+    },
+    {
+     "id": "209:735",
+     "name": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
+     "w": 700,
+     "h": 298
+    },
+    {
+     "id": "209:742",
+     "name": "Shelf / Code editor",
+     "w": 700,
+     "h": 270
+    },
+    {
+     "id": "209:745",
+     "name": "Shelf / Timeline 2.0 — layers",
+     "w": 974,
+     "h": 720
+    },
+    {
+     "id": "209:1162",
+     "name": "Shelf / Timeline 2.0 — frames",
+     "w": 1530,
+     "h": 1121
+    },
+    {
+     "id": "209:1648",
+     "name": "Shelf / Panels & Tools — icons",
+     "w": 948,
+     "h": 319
+    },
+    {
+     "id": "209:1840",
+     "name": "Shelf / Panels & Tools — components",
+     "w": 688,
+     "h": 1961
+    },
+    {
+     "id": "209:2034",
+     "name": "Shelf / Rulers, guides, grid",
+     "w": 1688,
+     "h": 2675
+    },
+    {
+     "id": "209:2436",
+     "name": "Shelf / Quick colours & easing",
+     "w": 1148,
+     "h": 1030
+    },
+    {
+     "id": "209:2641",
+     "name": "Shelf / Inputs, menus, breadcrumb",
+     "w": 748,
+     "h": 750
+    },
+    {
+     "id": "209:2831",
+     "name": "Shelf / Canvas editing chrome",
+     "w": 1048,
+     "h": 1428
+    },
+    {
+     "id": "209:2912",
+     "name": "Shelf / Cursors",
+     "w": 1148,
+     "h": 437
+    },
+    {
+     "id": "209:3110",
+     "name": "Shelf / Technical",
+     "w": 868,
+     "h": 1359
+    },
+    {
+     "id": "209:3188",
+     "name": "Shelf / Brushes & tool flyouts",
+     "w": 1000,
+     "h": 582
+    },
+    {
+     "id": "209:3267",
+     "name": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
+     "w": 1640,
+     "h": 2009
+    }
+   ]
+  },
+  {
+   "name": "v2 · Panels (archive)",
+   "id": "209:94936",
+   "frames": [
+    {
+     "id": "209:94938",
+     "name": "Panels — Dark",
+     "w": 19448,
+     "h": 3542
+    },
+    {
+     "id": "209:97693",
+     "name": "Menus — Dark",
+     "w": 1438,
+     "h": 2046
+    },
+    {
+     "id": "209:97920",
+     "name": "Preferences",
+     "w": 1880,
+     "h": 2979
+    },
+    {
+     "id": "209:98482",
+     "name": "Timeline frame views — Dark",
+     "w": 1250,
+     "h": 1286
+    },
+    {
+     "id": "209:99545",
+     "name": "Menus — Light",
+     "w": 1438,
+     "h": 2046
+    },
+    {
+     "id": "209:99772",
+     "name": "Preferences — Light",
+     "w": 1880,
+     "h": 2979
+    },
+    {
+     "id": "209:100334",
+     "name": "Timeline frame views — Light",
+     "w": 1250,
+     "h": 1286
+    },
+    {
+     "id": "209:101397",
+     "name": "Panels — Light",
+     "w": 19448,
+     "h": 3542
+    },
+    {
+     "id": "209:104152",
+     "name": "Answers — Codex batch (R-022 · R-032…R-038) — Dark",
+     "w": 8850,
+     "h": 1577
+    },
+    {
+     "id": "209:105056",
+     "name": "Answers — Codex batch (R-022 · R-032…R-038) — Light",
+     "w": 8850,
+     "h": 1577
+    },
+    {
+     "id": "209:105960",
+     "name": "Answers — Lottie export (R-043) — Dark",
+     "w": 2556,
+     "h": 1690
+    },
+    {
+     "id": "209:106316",
+     "name": "Segments",
+     "w": 100,
+     "h": 100
+    },
+    {
+     "id": "209:106317",
+     "name": "Answers — Lottie export (R-043) — Light",
+     "w": 2556,
+     "h": 1690
+    },
+    {
+     "id": "209:106673",
+     "name": "Answers — R-044 · Gemini R-039…R-042 · AE timeline EXP-01…06 — Dark",
+     "w": 3906,
+     "h": 993
+    },
+    {
+     "id": "209:106955",
+     "name": "Answers — R-044 · Gemini R-039…R-042 · AE timeline EXP-01…06 — Light",
+     "w": 3906,
+     "h": 993
+    },
+    {
+     "id": "209:107237",
+     "name": "Classic timeline + layer Mode & Solo (preferred) — Dark",
+     "w": 2016,
+     "h": 1216
+    },
+    {
+     "id": "209:107577",
+     "name": "Classic timeline + layer Mode & Solo (preferred) — Light",
+     "w": 2016,
+     "h": 1216
+    },
+    {
+     "id": "209:107917",
+     "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Dark",
+     "w": 1754,
+     "h": 1059
+    },
+    {
+     "id": "209:108075",
+     "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Light",
+     "w": 1754,
+     "h": 1059
+    }
+   ]
+  },
+  {
+   "name": "v2 · Interface — Dark (archive)",
+   "id": "209:6305",
+   "frames": [
+    {
+     "id": "209:6308",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:6552",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:6774",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:7031",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:7298",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "209:7450",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:7694",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:7939",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:8227",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:8504",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:8773",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:9061",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:9407",
+     "name": "Frame 30",
+     "w": 0,
+     "h": 0
+    }
+   ]
+  },
+  {
+   "name": "v2 · Interface — Light (archive)",
+   "id": "209:50722",
+   "frames": [
+    {
+     "id": "209:50725",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:50969",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:51191",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:51448",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:51715",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "209:51867",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:52111",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:52356",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:52644",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:52921",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:53190",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "209:53478",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "name": "Icons",
+   "id": "35:31",
+   "frames": [
+    {
+     "id": "71:1407",
+     "name": "v2 · NF2 icons",
+     "w": 1960,
+     "h": 4996
+    },
+    {
+     "id": "71:4069",
+     "name": "v1 · NF1 icons (as built)",
+     "w": 1960,
+     "h": 1008
+    }
+   ]
+  },
+  {
+   "name": "v2.2 · System & Components",
    "id": "1:2845",
    "frames": [
     {
      "id": "1:8742",
      "name": "Colors / Dark",
      "w": 700,
-     "h": 1766
+     "h": 1676
     },
     {
      "id": "1:8887",
      "name": "Colors / Light",
      "w": 700,
-     "h": 1766
+     "h": 1676
     },
     {
      "id": "1:9032",
      "name": "Type scale",
      "w": 640,
-     "h": 494
+     "h": 459
     },
     {
      "id": "1:9058",
      "name": "Spacing and radius",
      "w": 640,
-     "h": 234
+     "h": 222
     },
     {
      "id": "1:9092",
@@ -202,7 +664,7 @@
      "id": "1:9658",
      "name": "Shelf / Checkbox · Slider · Swatch · Badge",
      "w": 700,
-     "h": 332
+     "h": 330
     },
     {
      "id": "1:9690",
@@ -232,13 +694,13 @@
      "id": "8:94",
      "name": "Shelf / Timeline 2.0 — layers",
      "w": 974,
-     "h": 728
+     "h": 916
     },
     {
      "id": "9:175",
      "name": "Shelf / Timeline 2.0 — frames",
      "w": 1530,
-     "h": 1129
+     "h": 1121
     },
     {
      "id": "17:177",
@@ -250,31 +712,31 @@
      "id": "19:171",
      "name": "Shelf / Panels & Tools — components",
      "w": 688,
-     "h": 1985
+     "h": 1961
     },
     {
      "id": "30:429",
      "name": "Shelf / Rulers, guides, grid",
      "w": 1688,
-     "h": 2695
+     "h": 2675
     },
     {
      "id": "31:502",
      "name": "Shelf / Quick colours & easing",
      "w": 1148,
-     "h": 1050
+     "h": 1030
     },
     {
      "id": "39:654",
      "name": "Shelf / Inputs, menus, breadcrumb",
      "w": 748,
-     "h": 760
+     "h": 750
     },
     {
      "id": "40:685",
      "name": "Shelf / Canvas editing chrome",
      "w": 1048,
-     "h": 1436
+     "h": 1428
     },
     {
      "id": "51:708",
@@ -286,103 +748,85 @@
      "id": "53:714",
      "name": "Shelf / Technical",
      "w": 868,
-     "h": 1370
+     "h": 1347
     },
     {
      "id": "96:793",
      "name": "Shelf / Brushes & tool flyouts",
      "w": 1000,
-     "h": 590
+     "h": 582
     },
     {
      "id": "116:797",
      "name": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
      "w": 1640,
-     "h": 2009
+     "h": 1995
     }
    ]
   },
   {
-   "name": "Icons",
-   "id": "35:31",
-   "frames": [
-    {
-     "id": "71:1407",
-     "name": "v2 · NF2 icons",
-     "w": 1960,
-     "h": 5948
-    },
-    {
-     "id": "71:4069",
-     "name": "v1 · NF1 icons (as built)",
-     "w": 1960,
-     "h": 1168
-    }
-   ]
-  },
-  {
-   "name": "v2 · Panels",
+   "name": "v2.2 · Panels",
    "id": "22:31",
    "frames": [
     {
      "id": "22:431",
      "name": "Panels — Dark",
      "w": 19448,
-     "h": 3636
+     "h": 3518
     },
     {
      "id": "44:5714",
      "name": "Menus — Dark",
      "w": 1438,
-     "h": 2054
+     "h": 2046
     },
     {
      "id": "45:6580",
      "name": "Preferences",
      "w": 1880,
-     "h": 3034
+     "h": 2967
     },
     {
      "id": "55:6837",
      "name": "Timeline frame views — Dark",
      "w": 1250,
-     "h": 1348
+     "h": 1286
     },
     {
      "id": "60:10332",
      "name": "Menus — Light",
      "w": 1438,
-     "h": 2054
+     "h": 2046
     },
     {
      "id": "60:10559",
      "name": "Preferences — Light",
      "w": 1880,
-     "h": 3034
+     "h": 2979
     },
     {
      "id": "60:11121",
      "name": "Timeline frame views — Light",
      "w": 1250,
-     "h": 1348
+     "h": 1286
     },
     {
      "id": "69:15209",
      "name": "Panels — Light",
      "w": 19448,
-     "h": 3636
+     "h": 3542
     },
     {
      "id": "124:18100",
      "name": "Answers — Codex batch (R-022 · R-032…R-038) — Dark",
      "w": 8850,
-     "h": 1601
+     "h": 1577
     },
     {
      "id": "132:19052",
      "name": "Answers — Codex batch (R-022 · R-032…R-038) — Light",
      "w": 8850,
-     "h": 1601
+     "h": 1577
     },
     {
      "id": "134:19883",
@@ -437,11 +881,23 @@
      "name": "Preferences ▸ Shortcuts — macOS-style recorder (draft) — Light",
      "w": 1754,
      "h": 1059
+    },
+    {
+     "id": "211:28634",
+     "name": "v2.2 · Timeline density, type & selection (T-101) — Dark",
+     "w": 2199,
+     "h": 965
+    },
+    {
+     "id": "212:29343",
+     "name": "v2.2 · Timeline density, type & selection (T-101) — Light",
+     "w": 2199,
+     "h": 965
     }
    ]
   },
   {
-   "name": "v2 · Interface — Dark",
+   "name": "v2.2 · Interface — Dark",
    "id": "1:2846",
    "frames": [
     {
@@ -472,7 +928,7 @@
      "id": "12:11901",
      "name": "NF2 / Timeline — states legend",
      "w": 1320,
-     "h": 804
+     "h": 782
     },
     {
      "id": "33:26705",
@@ -525,7 +981,7 @@
    ]
   },
   {
-   "name": "v2 · Interface — Light",
+   "name": "v2.2 · Interface — Light",
    "id": "59:50907",
    "frames": [
     {
@@ -556,7 +1012,7 @@
      "id": "59:51899",
      "name": "NF2 / Timeline — states legend",
      "w": 1320,
-     "h": 804
+     "h": 782
     },
     {
      "id": "59:52051",
@@ -1991,8 +2447,8 @@
    "name": "NF2/Heading",
    "family": "Inter",
    "style": "Semi Bold",
-   "size": 20,
-   "lineHeight": "28px",
+   "size": 14,
+   "lineHeight": "20px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2001,8 +2457,8 @@
    "name": "NF2/Title",
    "family": "Inter",
    "style": "Semi Bold",
-   "size": 16,
-   "lineHeight": "24px",
+   "size": 12,
+   "lineHeight": "16px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2011,8 +2467,8 @@
    "name": "NF2/Body",
    "family": "Inter",
    "style": "Regular",
-   "size": 13,
-   "lineHeight": "20px",
+   "size": 11,
+   "lineHeight": "14px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2021,8 +2477,8 @@
    "name": "NF2/Body Strong",
    "family": "Inter",
    "style": "Medium",
-   "size": 13,
-   "lineHeight": "20px",
+   "size": 11,
+   "lineHeight": "14px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2031,8 +2487,8 @@
    "name": "NF2/Small",
    "family": "Inter",
    "style": "Regular",
-   "size": 12,
-   "lineHeight": "16px",
+   "size": 10,
+   "lineHeight": "13px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2041,8 +2497,8 @@
    "name": "NF2/Small Strong",
    "family": "Inter",
    "style": "Medium",
-   "size": 12,
-   "lineHeight": "16px",
+   "size": 10,
+   "lineHeight": "13px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2051,24 +2507,14 @@
    "name": "NF2/Overline",
    "family": "Inter",
    "style": "Semi Bold",
-   "size": 11,
-   "lineHeight": "16px",
+   "size": 10,
+   "lineHeight": "12px",
    "letterSpacing": "6%",
    "textCase": "UPPER",
    "description": ""
   },
   {
    "name": "NF2/Mono",
-   "family": "Roboto Mono",
-   "style": "Regular",
-   "size": 12,
-   "lineHeight": "20px",
-   "letterSpacing": "0%",
-   "textCase": "ORIGINAL",
-   "description": ""
-  },
-  {
-   "name": "NF2/Mono Small",
    "family": "Roboto Mono",
    "style": "Regular",
    "size": 11,
@@ -2078,11 +2524,21 @@
    "description": ""
   },
   {
+   "name": "NF2/Mono Small",
+   "family": "Roboto Mono",
+   "style": "Regular",
+   "size": 10,
+   "lineHeight": "12px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": ""
+  },
+  {
    "name": "NF2/Dialog Title",
    "family": "Inter",
    "style": "Semi Bold",
-   "size": 18,
-   "lineHeight": "26px",
+   "size": 14,
+   "lineHeight": "20px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
@@ -2091,11 +2547,21 @@
    "name": "NF2/Dialog Body",
    "family": "Inter",
    "style": "Regular",
-   "size": 14,
-   "lineHeight": "22px",
+   "size": 12,
+   "lineHeight": "16px",
    "letterSpacing": "0%",
    "textCase": "ORIGINAL",
    "description": ""
+  },
+  {
+   "name": "NF2/Caption",
+   "family": "Inter",
+   "style": "Regular",
+   "size": 10,
+   "lineHeight": "12px",
+   "letterSpacing": "0%",
+   "textCase": "ORIGINAL",
+   "description": "Compact 16 pt layer rows and Mode cells (T-101, type scale B)."
   }
  ],
  "components": {
@@ -3156,7 +3622,1563 @@
     "properties": []
    }
   ],
-  "v2 · System & Components": [
+  "v2 · System & Components (archive)": [
+   {
+    "name": "NF2/Button",
+    "id": "209:520",
+    "kind": "set",
+    "variants": 12,
+    "w": 60,
+    "h": 32,
+    "shelf": "Shelf / Button",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Button"
+     },
+     {
+      "name": "Icon",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Primary",
+      "options": [
+       "Primary",
+       "Secondary",
+       "Ghost",
+       "Danger"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Icon Button",
+    "id": "209:571",
+    "kind": "set",
+    "variants": 12,
+    "w": 32,
+    "h": 32,
+    "shelf": "Shelf / Icon button",
+    "description": "",
+    "properties": [
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Ghost",
+      "options": [
+       "Ghost",
+       "Selected",
+       "Primary"
+      ]
+     },
+     {
+      "name": "Size",
+      "type": "VARIANT",
+      "default": "SM",
+      "options": [
+       "SM",
+       "MD"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Segment",
+    "id": "209:598",
+    "kind": "set",
+    "variants": 2,
+    "w": 69,
+    "h": 28,
+    "shelf": "Shelf / Segmented control",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Segment"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Field",
+    "id": "209:606",
+    "kind": "set",
+    "variants": 4,
+    "w": 160,
+    "h": 32,
+    "shelf": "Shelf / Field · Search · Select",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 72 px; text truncates with “…”.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "960"
+     },
+     {
+      "name": "Prefix",
+      "type": "TEXT",
+      "default": "W"
+     },
+     {
+      "name": "Show prefix",
+      "type": "BOOLEAN",
+      "default": true
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Focus",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Search",
+    "id": "209:619",
+    "kind": "set",
+    "variants": 2,
+    "w": 240,
+    "h": 32,
+    "shelf": "Shelf / Field · Search · Select",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 120 px; text truncates with “…”.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Search"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Empty",
+      "options": [
+       "Empty",
+       "Filled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Select",
+    "id": "209:627",
+    "kind": "set",
+    "variants": 3,
+    "w": 200,
+    "h": 32,
+    "shelf": "Shelf / Field · Search · Select",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 96 px; text truncates with “…”.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Option"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Checkbox",
+    "id": "209:639",
+    "kind": "set",
+    "variants": 2,
+    "w": 79,
+    "h": 18,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Checkbox"
+     },
+     {
+      "name": "Checked",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Registration Cell",
+    "id": "209:648",
+    "kind": "set",
+    "variants": 2,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Badge",
+    "id": "209:653",
+    "kind": "set",
+    "variants": 3,
+    "w": 59,
+    "h": 22,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Badge"
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Neutral",
+      "options": [
+       "Neutral",
+       "Accent",
+       "Warning"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Slider",
+    "id": "209:663",
+    "kind": "set",
+    "variants": 7,
+    "w": 140,
+    "h": 20,
+    "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
+    "description": "Slider, 140 px. Value variants 0 / 10 / 25 / 50 / 75 / 90 / 100 %. Pair with a numeric field and min / max captions; drag the thumb, click the track to jump, arrows step.",
+    "properties": [
+     {
+      "name": "Value",
+      "type": "VARIANT",
+      "default": "50",
+      "options": [
+       "50",
+       "0",
+       "10",
+       "25",
+       "75",
+       "90",
+       "100"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Dock Tab",
+    "id": "209:694",
+    "kind": "set",
+    "variants": 3,
+    "w": 72,
+    "h": 40,
+    "shelf": "Shelf / Dock tab · Section header · Panel header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Tab"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Section Header",
+    "id": "209:704",
+    "kind": "set",
+    "variants": 2,
+    "w": 288,
+    "h": 32,
+    "shelf": "Shelf / Dock tab · Section header · Panel header",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Section"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Expanded",
+      "options": [
+       "Expanded",
+       "Collapsed"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Tree Item",
+    "id": "209:714",
+    "kind": "set",
+    "variants": 5,
+    "w": 288,
+    "h": 32,
+    "shelf": "Shelf / Tree item",
+    "description": "Label truncates with “…” on one line; place rows with Fill width.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Item"
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Folder Open",
+      "options": [
+       "Folder Open",
+       "Folder Closed",
+       "Symbol"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Toggle",
+    "id": "209:747",
+    "kind": "set",
+    "variants": 6,
+    "w": 20,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — layers",
+    "description": "Layer column toggle: Visibility (dot / red X), Lock (dot / lock), Outline (solid swatch / outline-only swatch, recolour Swatch per layer).",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Visibility",
+      "options": [
+       "Visibility",
+       "Lock",
+       "Outline"
+      ]
+     },
+     {
+      "name": "Value",
+      "type": "VARIANT",
+      "default": "Visible",
+      "options": [
+       "Visible",
+       "Hidden",
+       "Unlocked",
+       "Locked",
+       "Solid",
+       "Outline"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Layer",
+    "id": "209:760",
+    "kind": "set",
+    "variants": 40,
+    "w": 280,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — layers",
+    "description": "Layer row of the timeline layer column. Size=Default: 28 pt row, 16 pt icons, 20 × 28 toggles. Size=Compact: height-economical row for Frame View ▸ Short (18 pt) and Compact (14 pt): 12 pt disclosure/type/editing icons, 20 pt-wide toggle columns (glyphs 12 pt, swatch 9 pt) so the header icons still line up, label NF2/Small 12 vertically centred; the frame grid uses the same row height and the NF2 glyph line (row bottom − 9).",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Layer"
+     },
+     {
+      "name": "Indent 1",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Indent 2",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Editing",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Layer",
+      "options": [
+       "Layer",
+       "Masked",
+       "Folder Open",
+       "Folder Closed",
+       "Guide",
+       "Motion Guide",
+       "Mask",
+       "Sound",
+       "Video",
+       "Armature"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     },
+     {
+      "name": "Size",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Compact"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Grid",
+    "id": "209:1164",
+    "kind": "set",
+    "variants": 2,
+    "w": 1440,
+    "h": 28,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Empty-frame grid of one row: short frame ticks at the bottom (Flash style), every 5th frame shaded, row line at the bottom. Folder rows show a flat strip.",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Layer",
+      "options": [
+       "Layer",
+       "Folder"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Span",
+    "id": "209:1314",
+    "kind": "set",
+    "variants": 8,
+    "w": 120,
+    "h": 27,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Frame span. Resize horizontally to frame count × 12 px. Static = frames holding content (grey), Classic / Shape tween = purple / green with arrow, Motion tween = blue (property keyframes as markers), Broken tween = dashed, Selected = frame selection.",
+    "properties": [
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Static",
+      "options": [
+       "Static",
+       "Classic Tween",
+       "Shape Tween",
+       "Motion Tween",
+       "Broken Tween",
+       "Selected",
+       "Sound",
+       "Video"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Marker",
+    "id": "209:1605",
+    "kind": "set",
+    "variants": 10,
+    "w": 12,
+    "h": 27,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "One-frame marker placed at x = (frame − 1) × 12. Keyframe ●, Blank keyframe ○, Span end ▯, Property keyframe ◆ (motion tween), Action keyframe (a over ●). Use Tone = On Selection over selected frames.",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Keyframe",
+      "options": [
+       "Keyframe",
+       "Blank Keyframe",
+       "Span End",
+       "Property Keyframe",
+       "Action Keyframe"
+      ]
+     },
+     {
+      "name": "Tone",
+      "type": "VARIANT",
+      "default": "On Selection",
+      "options": [
+       "Default",
+       "On Selection"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/TL Frame Label",
+    "id": "209:1630",
+    "kind": "set",
+    "variants": 3,
+    "w": 49,
+    "h": 27,
+    "shelf": "Shelf / Timeline 2.0 — frames",
+    "description": "Frame label (red flag), comment (green //) or anchor on a keyframe; sits on top of the span that starts at that keyframe.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "intro"
+     },
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Label",
+      "options": [
+       "Label",
+       "Comment",
+       "Anchor"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Tool Button",
+    "id": "209:1842",
+    "kind": "set",
+    "variants": 3,
+    "w": 32,
+    "h": 32,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Tool in the Tools panel: 32×32, 20 px monochrome icon. Flyout marks a tool group (long-press opens the group).",
+    "properties": [
+     {
+      "name": "Flyout",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Selected"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Color Well",
+    "id": "209:1856",
+    "kind": "set",
+    "variants": 4,
+    "w": 74,
+    "h": 32,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Stroke / fill colour target. Active = the target the colour mixer edits.",
+    "properties": [
+     {
+      "name": "Target",
+      "type": "VARIANT",
+      "default": "Stroke",
+      "options": [
+       "Stroke",
+       "Fill"
+      ]
+     },
+     {
+      "name": "Active",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Panel Tab",
+    "id": "209:1873",
+    "kind": "set",
+    "variants": 2,
+    "w": 47,
+    "h": 36,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Panel"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Icon Group",
+    "id": "209:1879",
+    "kind": "set",
+    "variants": 3,
+    "w": 68,
+    "h": 34,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Grouped icon buttons (align, distribute, transform, text align…). Swap nested icons; switch a nested item to Type=Selected for toggles.",
+    "properties": [
+     {
+      "name": "Count",
+      "type": "VARIANT",
+      "default": "2",
+      "options": [
+       "2",
+       "3",
+       "4"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Radio",
+    "id": "209:1892",
+    "kind": "set",
+    "variants": 2,
+    "w": 55,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Option"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Gradient Stop",
+    "id": "209:1900",
+    "kind": "set",
+    "variants": 2,
+    "w": 12,
+    "h": 16,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Menu Item",
+    "id": "209:1911",
+    "kind": "set",
+    "variants": 4,
+    "w": 200,
+    "h": 28,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Menu item"
+     },
+     {
+      "name": "Shortcut",
+      "type": "TEXT",
+      "default": " "
+     },
+     {
+      "name": "Submenu",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Checked",
+       "Disabled"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Script Tab",
+    "id": "209:1937",
+    "kind": "set",
+    "variants": 2,
+    "w": 90,
+    "h": 30,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Script"
+     },
+     {
+      "name": "Pinned",
+      "type": "BOOLEAN",
+      "default": true
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Active",
+      "options": [
+       "Active",
+       "Inactive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Table Row",
+    "id": "209:1946",
+    "kind": "set",
+    "variants": 3,
+    "w": 288,
+    "h": 28,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Property",
+      "type": "TEXT",
+      "default": "Property"
+     },
+     {
+      "name": "Value",
+      "type": "TEXT",
+      "default": "Value"
+     },
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Header",
+      "options": [
+       "Header",
+       "Row",
+       "Selected"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Divider",
+    "id": "209:1956",
+    "kind": "set",
+    "variants": 2,
+    "w": 1,
+    "h": 20,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "",
+    "properties": [
+     {
+      "name": "Direction",
+      "type": "VARIANT",
+      "default": "Vertical",
+      "options": [
+       "Vertical",
+       "Horizontal"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Tools Panel",
+    "id": "209:1959",
+    "kind": "set",
+    "variants": 2,
+    "w": 56,
+    "h": 588,
+    "shelf": "Shelf / Panels & Tools — components",
+    "description": "Tools panel. 1 Column (docked rail): related tools grouped behind flyouts — Selection/Subselection, Free/Gradient transform, Rectangle/Oval, Pencil/Brush, Paint bucket/Ink bottle. 2 Columns (floating, Flash layout): every tool visible, plus View, Colors (fill/stroke, default, none, swap) and Options (snap, tool options). Icons are monochrome 20 px.",
+    "properties": [
+     {
+      "name": "Layout",
+      "type": "VARIANT",
+      "default": "1 Column",
+      "options": [
+       "1 Column",
+       "2 Columns"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Stage Ruler",
+    "id": "209:2036",
+    "kind": "set",
+    "variants": 2,
+    "w": 1600,
+    "h": 20,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "Stage ruler in stage units at 75 % zoom. The “0” mark sits 375 px from the start (horizontal) / 225 px from the top (vertical): place the instance so 0 meets the stage origin. Drag out of a ruler to create a guide.",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Horizontal",
+      "options": [
+       "Horizontal",
+       "Vertical"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Guide",
+    "id": "209:2419",
+    "kind": "set",
+    "variants": 6,
+    "w": 400,
+    "h": 9,
+    "shelf": "Shelf / Rulers, guides, grid",
+    "description": "Ruler guide. Resize along its axis to span the canvas. Selected shows the drag handle; Locked guides are dashed and cannot be moved.",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Horizontal",
+      "options": [
+       "Horizontal",
+       "Vertical"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Selected",
+       "Locked"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Swatch Cell",
+    "id": "209:2438",
+    "kind": "set",
+    "variants": 2,
+    "w": 18,
+    "h": 18,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "",
+    "properties": [
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Ease Preset",
+    "id": "209:2445",
+    "kind": "set",
+    "variants": 16,
+    "w": 72,
+    "h": 64,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "",
+    "properties": [
+     {
+      "name": "Preset",
+      "type": "VARIANT",
+      "default": "Linear",
+      "options": [
+       "Linear",
+       "Ease In",
+       "Ease Out",
+       "Ease In-Out",
+       "Back",
+       "Bounce",
+       "Elastic",
+       "Custom"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Ease Graph",
+    "id": "209:2510",
+    "kind": "set",
+    "variants": 3,
+    "w": 336,
+    "h": 224,
+    "shelf": "Shelf / Quick colours & easing",
+    "description": "Ease curve graph. Overshoot / Undershoot variants extend the Y axis to −30…130 % and tint the out-of-range bands; handles outside 0–100 % turn amber (back / anticipation easing).",
+    "properties": [
+     {
+      "name": "Range",
+      "type": "VARIANT",
+      "default": "0–100%",
+      "options": [
+       "0–100%",
+       "Overshoot (above 100%)",
+       "Undershoot (below 0%)"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Stepper Field",
+    "id": "209:2643",
+    "kind": "set",
+    "variants": 2,
+    "w": 120,
+    "h": 32,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Numeric field with ▲▼ steppers; drag the prefix to scrub, ↑/↓ steps, ⇧ = ×10. Layout: place with Fill width inside rows (never fixed widths in panels); min width 88 px; text truncates with “…”.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "2.0"
+     },
+     {
+      "name": "Prefix",
+      "type": "TEXT",
+      "default": "Size"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Focus"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Switch",
+    "id": "209:2657",
+    "kind": "set",
+    "variants": 2,
+    "w": 74,
+    "h": 18,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Switch"
+     },
+     {
+      "name": "On",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Line Style Select",
+    "id": "209:2666",
+    "kind": "set",
+    "variants": 6,
+    "w": 200,
+    "h": 32,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Layout: place with Fill width inside rows (never fixed widths in panels); min width 128 px; text truncates with “…”.",
+    "properties": [
+     {
+      "name": "Style",
+      "type": "VARIANT",
+      "default": "Solid",
+      "options": [
+       "Solid",
+       "Dashed",
+       "Dotted",
+       "Ragged",
+       "Stipple",
+       "Hatched"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Menu Bar Item",
+    "id": "209:2700",
+    "kind": "set",
+    "variants": 2,
+    "w": 50,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Menu"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Open"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Breadcrumb Item",
+    "id": "209:2705",
+    "kind": "set",
+    "variants": 8,
+    "w": 57,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Editing path: Scene ▸ symbol ▸ nested symbol. Click an item to go back up; the ▾ menu lists siblings (scenes / symbols) with search.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Item"
+     },
+     {
+      "name": "Menu",
+      "type": "BOOLEAN",
+      "default": false
+     },
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Scene",
+      "options": [
+       "Scene",
+       "Movie clip",
+       "Graphic",
+       "Button"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Link",
+      "options": [
+       "Link",
+       "Current"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Registration Picker",
+    "id": "209:2740",
+    "kind": "set",
+    "variants": 9,
+    "w": 28,
+    "h": 28,
+    "shelf": "Shelf / Inputs, menus, breadcrumb",
+    "description": "Compact 3×3 registration / transformation point picker (28 px). Click a dot; arrow keys move it.",
+    "properties": [
+     {
+      "name": "Point",
+      "type": "VARIANT",
+      "default": "Top left",
+      "options": [
+       "Top left",
+       "Top",
+       "Top right",
+       "Left",
+       "Center",
+       "Right",
+       "Bottom left",
+       "Bottom",
+       "Bottom right"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Selection Box",
+    "id": "209:2833",
+    "kind": "set",
+    "variants": 5,
+    "w": 160,
+    "h": 100,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Object selection on stage: Group (thin), Symbol instance (registration + transformation point), Static text (round handle = auto width), Dynamic/input text (square handle = fixed size), Primitive (extra control points for angles / inner radius). Resize to the object bounds.",
+    "properties": [
+     {
+      "name": "Kind",
+      "type": "VARIANT",
+      "default": "Group",
+      "options": [
+       "Group",
+       "Symbol",
+       "Text static",
+       "Text dynamic",
+       "Primitive"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Transform Box",
+    "id": "209:2852",
+    "kind": "set",
+    "variants": 2,
+    "w": 160,
+    "h": 100,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "Free transform: Scale mode (8 square handles; ⇧ keeps proportions, ⌥ from centre), Rotate and skew (round corner handles rotate, edge bars skew). White circle = transformation point.",
+    "properties": [
+     {
+      "name": "Mode",
+      "type": "VARIANT",
+      "default": "Scale",
+      "options": [
+       "Scale",
+       "Rotate & skew"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Anchor Point",
+    "id": "209:2875",
+    "kind": "set",
+    "variants": 3,
+    "w": 12,
+    "h": 12,
+    "shelf": "Shelf / Canvas editing chrome",
+    "description": "",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Unselected",
+      "options": [
+       "Unselected",
+       "Selected",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Scrollbar",
+    "id": "209:3112",
+    "kind": "set",
+    "variants": 4,
+    "w": 12,
+    "h": 160,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Vertical",
+      "options": [
+       "Vertical",
+       "Horizontal"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Splitter",
+    "id": "209:3123",
+    "kind": "set",
+    "variants": 6,
+    "w": 8,
+    "h": 120,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Orientation",
+      "type": "VARIANT",
+      "default": "Vertical",
+      "options": [
+       "Vertical",
+       "Horizontal"
+      ]
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Drag"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Toast",
+    "id": "209:3144",
+    "kind": "set",
+    "variants": 4,
+    "w": 380,
+    "h": 46,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Type",
+      "type": "VARIANT",
+      "default": "Info",
+      "options": [
+       "Info",
+       "Success",
+       "Warning",
+       "Error"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Progress",
+    "id": "209:3174",
+    "kind": "set",
+    "variants": 2,
+    "w": 280,
+    "h": 25,
+    "shelf": "Shelf / Technical",
+    "description": "",
+    "properties": [
+     {
+      "name": "Mode",
+      "type": "VARIANT",
+      "default": "Determinate",
+      "options": [
+       "Determinate",
+       "Indeterminate"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Tool Flyout Item",
+    "id": "209:3190",
+    "kind": "set",
+    "variants": 2,
+    "w": 260,
+    "h": 28,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Row of a tool flyout (long-press or click the corner of a grouped tool). ■ marks the tool currently shown on the rail. Icon = 20 px tool icon, shortcut on the right; hover = bg/hover.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Selection tool"
+     },
+     {
+      "name": "Shortcut",
+      "type": "TEXT",
+      "default": "V"
+     },
+     {
+      "name": "Icon",
+      "type": "INSTANCE_SWAP",
+      "default": "17:183"
+     },
+     {
+      "name": "Active",
+      "type": "VARIANT",
+      "default": "True",
+      "options": [
+       "True",
+       "False"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Brush Preset",
+    "id": "209:3210",
+    "kind": "set",
+    "variants": 2,
+    "w": 272,
+    "h": 36,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Brush library row: stroke preview (swap NF2 Brush/*), name, default size. Click to select, double-click to edit the brush.",
+    "properties": [
+     {
+      "name": "Label",
+      "type": "TEXT",
+      "default": "Round"
+     },
+     {
+      "name": "Size",
+      "type": "TEXT",
+      "default": "12"
+     },
+     {
+      "name": "Stroke",
+      "type": "INSTANCE_SWAP",
+      "default": "96:809"
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Brush Shape",
+    "id": "209:3219",
+    "kind": "set",
+    "variants": 16,
+    "w": 24,
+    "h": 24,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Brush tip shape (Flash brush shapes): round, ovals, square, rectangles, slanted. Used in Properties — Brush tool.",
+    "properties": [
+     {
+      "name": "Shape",
+      "type": "VARIANT",
+      "default": "Round",
+      "options": [
+       "Round",
+       "Oval H",
+       "Oval V",
+       "Square",
+       "Rect H",
+       "Rect V",
+       "Slash",
+       "Backslash"
+      ]
+     },
+     {
+      "name": "Selected",
+      "type": "VARIANT",
+      "default": "False",
+      "options": [
+       "False",
+       "True"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Brush Cursor",
+    "id": "209:3252",
+    "kind": "set",
+    "variants": 3,
+    "w": 96,
+    "h": 96,
+    "shelf": "Shelf / Brushes & tool flyouts",
+    "description": "Brush / eraser footprint on the canvas at the current size and zoom: black + white double ring readable on any colour. Resize = ⌥⌘-drag (dashed ring + size chip). Eraser uses a square footprint for square shapes.",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Idle",
+      "options": [
+       "Idle",
+       "Resize",
+       "Eraser"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Shape Hint",
+    "id": "209:3269",
+    "kind": "set",
+    "variants": 3,
+    "w": 16,
+    "h": 16,
+    "shelf": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
+    "description": "Shape hint marker (shape tween, Modify ▸ Shape ▸ Add shape hint ⇧⌘H). 16 px disc, letter a–z (Inter Semi Bold 10), 1 px outline. Unplaced = red (not matched / not moved yet), Start = yellow (start keyframe, matched), End = green (end keyframe, matched). Colours are pinned to the Dark token mode in both themes (stage markers sit on artwork). Drag to place; hit radius 8 px; drag off the stage removes. Shown only on the shape-tween keyframes of the current layer while View ▸ Show shape hints (⌥⌘H) is on.",
+    "properties": [
+     {
+      "name": "Letter",
+      "type": "TEXT",
+      "default": "a"
+     },
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Unplaced",
+      "options": [
+       "Unplaced",
+       "Start",
+       "End"
+      ]
+     }
+    ]
+   },
+   {
+    "name": "NF2/Motion Path Handle",
+    "id": "209:3276",
+    "kind": "set",
+    "variants": 3,
+    "w": 56,
+    "h": 16,
+    "shelf": "Shelf / Timeline & canvas answers (R-006…R-010) · selection contrast",
+    "description": "Bézier handle of a motion path ◆ key (R-008). Tangent line 1 pt color/guide from the ◆ to the handle; handle = 7 pt disc color/guide with 1 pt bg/canvas outline. Hover adds a 13 pt color/guide ring, Drag fills color/guide-selected. Hit radius 7 pt. Shown only for the selected ◆ key (both in/out handles) and its neighbours' facing handles. Drag = smooth (mirrored), ⌥-drag = break tangent (corner), ⌥-click the ◆ = toggle corner/smooth. Cursor arrow-reshape-curve on hover.",
+    "properties": [
+     {
+      "name": "State",
+      "type": "VARIANT",
+      "default": "Default",
+      "options": [
+       "Default",
+       "Hover",
+       "Drag"
+      ]
+     }
+    ]
+   }
+  ],
+  "v2.2 · System & Components": [
    {
     "name": "NF2 Icon/16/select",
     "id": "1:9097",
@@ -4603,7 +6625,7 @@
     "id": "1:9565",
     "kind": "set",
     "variants": 12,
-    "w": 66,
+    "w": 60,
     "h": 32,
     "shelf": "Shelf / Button",
     "description": "",
@@ -4686,7 +6708,7 @@
     "id": "1:9611",
     "kind": "set",
     "variants": 2,
-    "w": 78,
+    "w": 69,
     "h": 28,
     "shelf": "Shelf / Segmented control",
     "description": "",
@@ -4712,7 +6734,7 @@
     "id": "1:9612",
     "kind": "component",
     "variants": 1,
-    "w": 162,
+    "w": 144,
     "h": 34,
     "shelf": "Shelf / Segmented control",
     "description": "",
@@ -4814,8 +6836,8 @@
     "id": "1:9668",
     "kind": "set",
     "variants": 2,
-    "w": 88,
-    "h": 20,
+    "w": 79,
+    "h": 18,
     "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
     "description": "",
     "properties": [
@@ -4872,7 +6894,7 @@
     "id": "1:9689",
     "kind": "set",
     "variants": 3,
-    "w": 65,
+    "w": 59,
     "h": 22,
     "shelf": "Shelf / Checkbox · Slider · Swatch · Badge",
     "description": "",
@@ -4925,7 +6947,7 @@
     "id": "1:9707",
     "kind": "set",
     "variants": 3,
-    "w": 76,
+    "w": 72,
     "h": 40,
     "shelf": "Shelf / Dock tab · Section header · Panel header",
     "description": "",
@@ -5025,7 +7047,7 @@
     "id": "1:9780",
     "kind": "component",
     "variants": 1,
-    "w": 28,
+    "w": 27,
     "h": 20,
     "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
     "description": "",
@@ -5036,7 +7058,7 @@
     "id": "1:9782",
     "kind": "component",
     "variants": 1,
-    "w": 99,
+    "w": 90,
     "h": 30,
     "shelf": "Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo",
     "description": "",
@@ -5125,11 +7147,11 @@
     "name": "NF2/TL Layer",
     "id": "8:340",
     "kind": "set",
-    "variants": 40,
+    "variants": 60,
     "w": 280,
     "h": 28,
     "shelf": "Shelf / Timeline 2.0 — layers",
-    "description": "Layer row of the timeline layer column. Size=Default: 28 pt row, 16 pt icons, 20 × 28 toggles. Size=Compact: height-economical row for Frame View ▸ Short (18 pt) and Compact (14 pt): 12 pt disclosure/type/editing icons, 20 pt-wide toggle columns (glyphs 12 pt, swatch 9 pt) so the header icons still line up, label NF2/Small 12 vertically centred; the frame grid uses the same row height and the NF2 glyph line (row bottom − 9).",
+    "description": "Layer row. Size: Default 28 pt (NF2/Body, 16 pt icons), Short 22 pt (NF2/Small, 12 pt icons), Compact 16 pt (NF2/Caption, 12 pt icons). Toggle columns stay 20 pt. T-101 / R-052.",
     "properties": [
      {
       "name": "Label",
@@ -5183,7 +7205,8 @@
       "default": "Default",
       "options": [
        "Default",
-       "Compact"
+       "Compact",
+       "Short"
       ]
      }
     ]
@@ -7503,7 +9526,7 @@
     "id": "19:224",
     "kind": "set",
     "variants": 2,
-    "w": 52,
+    "w": 47,
     "h": 36,
     "shelf": "Shelf / Panels & Tools — components",
     "description": "",
@@ -7573,7 +9596,7 @@
     "id": "19:315",
     "kind": "set",
     "variants": 2,
-    "w": 61,
+    "w": 55,
     "h": 16,
     "shelf": "Shelf / Panels & Tools — components",
     "description": "",
@@ -7713,7 +9736,7 @@
     "id": "19:396",
     "kind": "set",
     "variants": 2,
-    "w": 96,
+    "w": 90,
     "h": 30,
     "shelf": "Shelf / Panels & Tools — components",
     "description": "",
@@ -7893,7 +9916,7 @@
     "kind": "component",
     "variants": 1,
     "w": 320,
-    "h": 542,
+    "h": 530,
     "shelf": "Shelf / Rulers, guides, grid",
     "description": "View settings popover for rulers, guides and grid. Opens from the settings button in the canvas view bar (next to the rulers / guides / grid / snap toggles) and from View ▸ Rulers, Guides and Grid…",
     "properties": []
@@ -7925,7 +9948,7 @@
     "kind": "component",
     "variants": 1,
     "w": 300,
-    "h": 430,
+    "h": 418,
     "shelf": "Shelf / Quick colours & easing",
     "description": "Quick colour access. Opens from the fill/stroke chip in Tools, from any colour well and colour field. Hex + alpha, no colour, eyedropper, open full mixer; recent colours, document swatches (+ add), palette (switchable), gradient presets.",
     "properties": []
@@ -8041,8 +10064,8 @@
     "id": "39:687",
     "kind": "set",
     "variants": 2,
-    "w": 80,
-    "h": 20,
+    "w": 74,
+    "h": 18,
     "shelf": "Shelf / Inputs, menus, breadcrumb",
     "description": "",
     "properties": [
@@ -8109,7 +10132,7 @@
     "id": "39:790",
     "kind": "set",
     "variants": 2,
-    "w": 55,
+    "w": 50,
     "h": 28,
     "shelf": "Shelf / Inputs, menus, breadcrumb",
     "description": "",
@@ -8135,7 +10158,7 @@
     "id": "39:877",
     "kind": "set",
     "variants": 8,
-    "w": 61,
+    "w": 57,
     "h": 28,
     "shelf": "Shelf / Inputs, menus, breadcrumb",
     "description": "Editing path: Scene ▸ symbol ▸ nested symbol. Click an item to go back up; the ▾ menu lists siblings (scenes / symbols) with search.",
@@ -8319,7 +10342,7 @@
     "w": 240,
     "h": 240,
     "shelf": "Shelf / Canvas editing chrome",
-    "description": "Raw (ungrouped) shape selected: two-tone hatch over the selected fill / stroke, clipped to the shape. 45° lines every 8 px (≈5.7 px apart): 1 px white @ 90 % + 1 px black @ 75 % offset 1.5 px. Theme-independent (artwork is not themed), so it reads on any colour: min contrast of the better line ≥ 4.5:1 on every fill. v2.3 contrast fix, replaces the single text/tertiary hatch.",
+    "description": "Two-tone 45° hatch: 1 pt white 90 % + 1 pt black 75 %, 1.5 pt apart, repeating every 4 pt horizontally (≈2.83 pt perpendicular). Theme-independent. R-058 / T-101 (was 8 pt).",
     "properties": []
    },
    {
@@ -8861,7 +10884,7 @@
     "id": "53:764",
     "kind": "component",
     "variants": 1,
-    "w": 73,
+    "w": 69,
     "h": 30,
     "shelf": "Shelf / Technical",
     "description": "",
@@ -8924,7 +10947,7 @@
     "kind": "set",
     "variants": 2,
     "w": 280,
-    "h": 28,
+    "h": 25,
     "shelf": "Shelf / Technical",
     "description": "",
     "properties": [
@@ -8956,7 +10979,7 @@
     "kind": "component",
     "variants": 1,
     "w": 280,
-    "h": 204,
+    "h": 192,
     "shelf": "Shelf / Technical",
     "description": "",
     "properties": []

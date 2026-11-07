@@ -1,4 +1,4 @@
-F Shelf / Timeline 2.0 — frames 1530×1129 [V gap 16]
+F Shelf / Timeline 2.0 — frames 1530×1121 [V gap 16]
   T "Timeline 2.0 — frame area: grid, spans, markers, labels, ruler, onion skin, playhead (12 px per frame)"
   F NF2/TL Grid 1480×102 [H gap 12]
     F Kind=Layer 1440×28

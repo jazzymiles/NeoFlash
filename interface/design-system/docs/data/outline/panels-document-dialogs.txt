@@ -1,4 +1,4 @@
-F Document — dialogs 640×1424 [V gap 32]
+F Document — dialogs 640×1422 [V gap 32]
   F Dialog / Document settings 520×418 [V gap 0]
     I NF2/Dialog Header 518×60 "Document settings"
     F Body 518×356 [V gap 12]
@@ -9,11 +9,11 @@ F Document — dialogs 640×1424 [V gap 32]
         I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
       F Row 470×32 [H gap 8]
         T ""
-        I NF2/Button {Icon=false, Label=Match contents, Type=Ghost, State=Default} 122×32 "Match contents"
-        I NF2/Button {Icon=false, Label=Match printer, Type=Ghost, State=Default} 108×32 "Match printer"
+        I NF2/Button {Icon=false, Label=Match contents, Type=Ghost, State=Default} 107×32 "Match contents"
+        I NF2/Button {Icon=false, Label=Match printer, Type=Ghost, State=Default} 95×32 "Match printer"
       F Row 470×28 [H gap 8]
         T "Scale"
-        I NF2/Checkbox {Label=Scale content with stage, Checked=True} 179×20 "Scale content with stage"
+        I NF2/Checkbox {Label=Scale content with stage, Checked=True} 155×18 "Scale content with stage"
         I NF2/Registration Picker {Point=Top left} 28×28
       F Row 470×32 [H gap 8]
         T "Units"
@@ -29,36 +29,36 @@ F Document — dialogs 640×1424 [V gap 32]
         T "Script"
         I NF2/Select {Label=ActionScript 3.0 · strict, State=Default} 220×32 "ActionScript 3.0 · strict"
       F Row 470×32 [H gap 8]
-        I NF2/Button {Icon=false, Label=Make default, Type=Ghost, State=Default} 105×32 "Make default"
-        F Spacer 229×2
-        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
-        I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"
+        I NF2/Button {Icon=false, Label=Make default, Type=Ghost, State=Default} 93×32 "Make default"
+        F Spacer 250×2
+        I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+        I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"
   F Dialog / Find and replace 640×510 [V gap 0]
     I NF2/Dialog Header 638×60 "Find and replace"
     F Body 638×448 [V gap 12]
       F Row 590×34 [H gap 8]
         F Segments 433×34 [H gap 2]
-          I NF2/Segment {Label=Text, Selected=True} 51×28 "Text"
-          I NF2/Segment {Label=Font, Selected=False} 50×28 "Font"
-          I NF2/Segment {Label=Colour, Selected=False} 63×28 "Colour"
-          I NF2/Segment {Label=Symbol, Selected=False} 67×28 "Symbol"
-          I NF2/Segment {Label=Sound, Selected=False} 61×28 "Sound"
-          I NF2/Segment {Label=Video, Selected=False} 58×28 "Video"
-          I NF2/Segment {Label=Bitmap, Selected=False} 65×28 "Bitmap"
+          I NF2/Segment {Label=Text, Selected=True} 47×28 "Text"
+          I NF2/Segment {Label=Font, Selected=False} 46×28 "Font"
+          I NF2/Segment {Label=Colour, Selected=False} 56×28 "Colour"
+          I NF2/Segment {Label=Symbol, Selected=False} 60×28 "Symbol"
+          I NF2/Segment {Label=Sound, Selected=False} 55×28 "Sound"
+          I NF2/Segment {Label=Video, Selected=False} 52×28 "Video"
+          I NF2/Segment {Label=Bitmap, Selected=False} 58×28 "Bitmap"
       F Row 590×32 [H gap 8]
         I NF2/Select {Label=In: Current document, State=Default} 220×32 "In: Current document"
         I NF2/Select {Label=Scene: All scenes, State=Default} 200×32 "Scene: All scenes"
       I NF2/Field {Show prefix=true, Prefix=Find, Label=orbit_mc, State=Focus} 590×32 "Find" "orbit_mc"
       I NF2/Field {Show prefix=true, Prefix=Replace, Label=orbitClip, State=Default} 590×32 "Replace" "orbitClip"
       F Row 590×20 [H gap 8]
-        I NF2/Checkbox {Label=Whole word, Checked=True} 99×20 "Whole word"
-        I NF2/Checkbox {Label=Match case, Checked=False} 98×20 "Match case"
-        I NF2/Checkbox {Label=Regular expression, Checked=False} 143×20 "Regular expression"
-        I NF2/Checkbox {Label=Live edit, Checked=False} 79×20 "Live edit"
+        I NF2/Checkbox {Label=Whole word, Checked=True} 88×18 "Whole word"
+        I NF2/Checkbox {Label=Match case, Checked=False} 87×18 "Match case"
+        I NF2/Checkbox {Label=Regular expression, Checked=False} 125×18 "Regular expression"
+        I NF2/Checkbox {Label=Live edit, Checked=False} 71×18 "Live edit"
       F Row 590×20 [H gap 8]
-        I NF2/Checkbox {Label=Text field contents, Checked=True} 141×20 "Text field contents"
-        I NF2/Checkbox {Label=Frames / layers / scenes, Checked=True} 176×20 "Frames / layers / scenes"
-        I NF2/Checkbox {Label=ActionScript, Checked=True} 102×20 "ActionScript"
+        I NF2/Checkbox {Label=Text field contents, Checked=True} 123×18 "Text field contents"
+        I NF2/Checkbox {Label=Frames / layers / scenes, Checked=True} 153×18 "Frames / layers / scenes"
+        I NF2/Checkbox {Label=ActionScript, Checked=True} 90×18 "ActionScript"
       F Results 590×142 [V gap 0]
         I NF2/Table Row {Value=Found, Property=Location, Kind=Header} 588×28 "Location" "Found"
         I NF2/Table Row {Value=new Animator(orbitXML, orbit_mc), Property=Scene 1 › orbit › Frame 1 · line 17, Kind=Selected} 588×28 "Scene 1 › orbit › Frame 1 · line 17" "new Animator(orbitXML, orbit_mc)"
@@ -67,13 +67,13 @@ F Document — dialogs 640×1424 [V gap 32]
         I NF2/Table Row {Value=orbit_mc, Property=Library › orbit · instance name, Kind=Row} 588×28 "Library › orbit · instance name" "orbit_mc"
       F Row 590×32 [H gap 8]
         T "4 results in 3 places"
-        F Spacer 208×2
-        I NF2/Button {Icon=false, Label=Find all, Type=Ghost, State=Default} 69×32 "Find all"
-        I NF2/Button {Icon=false, Label=Replace, Type=Secondary, State=Default} 76×32 "Replace"
-        I NF2/Button {Icon=false, Label=Replace all, Type=Primary, State=Default} 91×32 "Replace all"
-  F Panel / Movie Explorer 340×432 [V gap 0]
+        F Spacer 252×2
+        I NF2/Button {Icon=false, Label=Find all, Type=Ghost, State=Default} 62×32 "Find all"
+        I NF2/Button {Icon=false, Label=Replace, Type=Secondary, State=Default} 68×32 "Replace"
+        I NF2/Button {Icon=false, Label=Replace all, Type=Primary, State=Default} 81×32 "Replace all"
+  F Panel / Movie Explorer 340×430 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 338×36 "Movie Explorer" "Panel" "Panel"
-    F Body 338×394 [V gap 4]
+    F Body 338×392 [V gap 4]
       F Row 322×34 [H gap 8]
         I NF2/Icon Group {Count=4} 132×34
         I NF2/Icon Group {Count=2} 68×34

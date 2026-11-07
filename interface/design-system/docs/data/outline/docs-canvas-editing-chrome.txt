@@ -1,4 +1,4 @@
-F Shelf / Canvas editing chrome 1048×1436 [V gap 20]
+F Shelf / Canvas editing chrome 1048×1428 [V gap 20]
   T "Canvas editing chrome — selection, transform, paths, gradients, snapping"
   F NF2/Selection Box 1000×150 [H gap 32]
     F Kind=Group 160×100

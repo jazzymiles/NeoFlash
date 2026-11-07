@@ -15,8 +15,8 @@ F Panel / Actions (floating) 960×660 [V gap 0]
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-    F Frame 98×4
-    I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 125×32 "Script assist"
+    F Frame 110×4
+    I NF2/Button {Icon=true, Label=Script assist, Type=Ghost, State=Default} 113×32 "Script assist"
     I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
   F Main 958×546 [H gap 0]
     F Sidebar 248×546 [V gap 0]
@@ -31,7 +31,7 @@ F Panel / Actions (floating) 960×660 [V gap 0]
           I NF2/Tree Item {Label=Animator, Type=Symbol, Selected=False} 215×28 "Animator"
         F Indent 231×28 [H gap 0]
           I NF2/Tree Item {Label=Motion, Type=Symbol, Selected=False} 215×28 "Motion"
-      F Script navigator 231×167 [V gap 0]
+      F Script navigator 231×163 [V gap 0]
         T "Script navigator"
         I NF2/Tree Item {Label=Current selection, Type=Folder Open, Selected=False} 231×28 "Current selection"
         F Indent 231×28 [H gap 0]
@@ -117,17 +117,17 @@ F Panel / Actions (floating) 960×660 [V gap 0]
           I NF2/Menu Item {Submenu=false, Shortcut=void, Label=rewind(), State=Default} 220×28 "rewind()" "void"
           I NF2/Menu Item {Submenu=false, Shortcut=void, Label=stop(), State=Default} 220×28 "stop()" "void"
           I NF2/Menu Item {Submenu=false, Shortcut=int, Label=time, State=Default} 220×28 "time" "int"
-        F Error peek 381×30 [H gap 8]
+        F Error peek 327×30 [H gap 8]
           I NF2 Icon/16/error 16×16
           T "1120: Access of undefined property orbit_mc."
           T "Quick fix ⌘."
       F Overview ruler 12×546
   F Script bar 958×32 [H gap 0]
-    I NF2/Script Tab {Pinned=true, Label=orbit : Frame 1, State=Active} 143×30 "orbit : Frame 1"
-    I NF2/Script Tab {Pinned=false, Label=labels : Frame 1, State=Inactive} 128×30 "labels : Frame 1"
-    F Frame 418×4
+    I NF2/Script Tab {Pinned=true, Label=orbit : Frame 1, State=Active} 130×30 "orbit : Frame 1"
+    I NF2/Script Tab {Pinned=false, Label=labels : Frame 1, State=Inactive} 114×30 "labels : Frame 1"
+    F Frame 463×4
     T "Line 19, Col 10  ·  20 lines  ·  "
-    F Problems 52×14 [H gap 4]
+    F Problems 52×13 [H gap 4]
       I NF2 Icon/16/error 13×13
       T "1"
       I NF2 Icon/16/warning 13×13

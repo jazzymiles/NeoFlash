@@ -1,14 +1,14 @@
-F Menus — Dark 1438×2054 [V gap 24]
+F Menus — Dark 1438×2046 [V gap 24]
   T "Main menu — dropdowns with shortcuts (⌘ macOS / Ctrl on Windows)"
   F Menu bar 475×40 [H gap 2]
-    I NF2/Menu Bar Item {Label=File, State=Default} 42×28 "File"
-    I NF2/Menu Bar Item {Label=Edit, State=Open} 45×28 "Edit"
-    I NF2/Menu Bar Item {Label=View, State=Default} 51×28 "View"
-    I NF2/Menu Bar Item {Label=Insert, State=Default} 57×28 "Insert"
-    I NF2/Menu Bar Item {Label=Modify, State=Default} 64×28 "Modify"
-    I NF2/Menu Bar Item {Label=Control, State=Default} 66×28 "Control"
-    I NF2/Menu Bar Item {Label=Window, State=Default} 71×28 "Window"
-    I NF2/Menu Bar Item {Label=Help, State=Default} 49×28 "Help"
+    I NF2/Menu Bar Item {Label=File, State=Default} 39×28 "File"
+    I NF2/Menu Bar Item {Label=Edit, State=Open} 41×28 "Edit"
+    I NF2/Menu Bar Item {Label=View, State=Default} 46×28 "View"
+    I NF2/Menu Bar Item {Label=Insert, State=Default} 51×28 "Insert"
+    I NF2/Menu Bar Item {Label=Modify, State=Default} 57×28 "Modify"
+    I NF2/Menu Bar Item {Label=Control, State=Default} 59×28 "Control"
+    I NF2/Menu Bar Item {Label=Window, State=Default} 63×28 "Window"
+    I NF2/Menu Bar Item {Label=Help, State=Default} 45×28 "Help"
   F Row 1358×579 [H gap 24]
     F Edit + Timeline submenu 524×579
       F Menu / Edit 262×531 [V gap 0]

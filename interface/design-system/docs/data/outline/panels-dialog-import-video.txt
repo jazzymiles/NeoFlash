@@ -1,39 +1,39 @@
-F Dialog / Import video 720×476 [V gap 0]
+F Dialog / Import video 720×459 [V gap 0]
   I NF2/Dialog Header 718×60 "Import video"
-  F Main 718×350 [H gap 24]
-    F Preview 300×268 [V gap 8]
+  F Main 718×333 [H gap 24]
+    F Preview 300×265 [V gap 8]
       F Preview 300×169
       I NF2/TL Span {Type=Video} 300×27
       F Row 300×32 [H gap 8]
         I NF2/Field {Show prefix=true, Prefix=In, Label=00:00.00, State=Default} 146×32 "In" "00:00.00"
         I NF2/Field {Show prefix=true, Prefix=Out, Label=00:24.00, State=Default} 146×32 "Out" "00:24.00"
       T "Drag the in / out handles on the strip to trim."
-    F Options 346×334 [V gap 12]
+    F Options 346×317 [V gap 12]
       F Row 346×32 [H gap 8]
-        I NF2/Field {Show prefix=true, Prefix=File, Label=~/Movies/intro.mp4, State=Default} 255×32 "File" "~/Movies/intro.mp4"
-        I NF2/Button {Icon=false, Label=Browse…, Type=Secondary, State=Default} 83×32 "Browse…"
+        I NF2/Field {Show prefix=true, Prefix=File, Label=~/Movies/intro.mp4, State=Default} 263×32 "File" "~/Movies/intro.mp4"
+        I NF2/Button {Icon=false, Label=Browse…, Type=Secondary, State=Default} 75×32 "Browse…"
       T "Deployment"
-      F Option 283×34 [V gap 2]
-        I NF2/Radio {Label=Embed in timeline, Selected=True} 124×16 "Embed in timeline"
+      F Option 236×31 [V gap 2]
+        I NF2/Radio {Label=Embed in timeline, Selected=True} 107×16 "Embed in timeline"
         T "Frames sync with the timeline; best for short clips"
-      F Option 284×34 [V gap 2]
-        I NF2/Radio {Label=Load external video, Selected=False} 135×16 "Load external video"
+      F Option 237×31 [V gap 2]
+        I NF2/Radio {Label=Load external video, Selected=False} 117×16 "Load external video"
         T "Streams with a player component; keeps .nfl small"
-      F Option 206×34 [V gap 2]
-        I NF2/Radio {Label=Progressive download, Selected=False} 149×16 "Progressive download"
+      F Option 171×31 [V gap 2]
+        I NF2/Radio {Label=Progressive download, Selected=False} 128×16 "Progressive download"
         T "Plays while downloading from a URL"
       T "Embedding"
       F Row 346×32 [H gap 8]
         I NF2/Select {Label=Symbol: Movie clip, State=Default} 166×32 "Symbol: Movie clip"
         I NF2/Select {Label=Codec: H.264, State=Default} 172×32 "Codec: H.264"
       F Row 346×20 [H gap 8]
-        I NF2/Checkbox {Label=Place on stage, Checked=True} 117×20 "Place on stage"
-        I NF2/Checkbox {Label=Expand timeline if needed, Checked=True} 185×20 "Expand timeline if needed"
+        I NF2/Checkbox {Label=Place on stage, Checked=True} 103×18 "Place on stage"
+        I NF2/Checkbox {Label=Expand timeline if needed, Checked=True} 161×18 "Expand timeline if needed"
       F Row 346×20 [H gap 8]
-        I NF2/Checkbox {Label=Include audio, Checked=True} 109×20 "Include audio"
-        I NF2/Checkbox {Label=Match document frame rate, Checked=True} 198×20 "Match document frame rate"
+        I NF2/Checkbox {Label=Include audio, Checked=True} 96×18 "Include audio"
+        I NF2/Checkbox {Label=Match document frame rate, Checked=True} 172×18 "Match document frame rate"
   F Footer 718×64 [H gap 8]
     T "1280×720 · 30 fps → 24 fps · 24.0 s · ~6.1 MB"
-    F Spacer 253×2
-    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
-    I NF2/Button {Icon=false, Label=Import, Type=Primary, State=Default} 66×32 "Import"
+    F Spacer 309×2
+    I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+    I NF2/Button {Icon=false, Label=Import, Type=Primary, State=Default} 59×32 "Import"

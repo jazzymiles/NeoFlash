@@ -1,15 +1,15 @@
-F Shelf / Quick colours & easing 1148×1050 [V gap 16]
+F Shelf / Quick colours & easing 1148×1030 [V gap 16]
   T "Quick colours (swatches popover) and easing"
   F NF2/Swatch Cell 300×52 [H gap 12]
     F Selected=False 18×18
     F Selected=True 18×18
-  F NF2/Swatches Popover 300×430 [V gap 10]
+  F NF2/Swatches Popover 300×418 [V gap 10]
     F Current 274×32 [H gap 4]
       I NF2/Color Field {Alpha=100 %, Hex=00FFCC} 130×32 "00FFCC" "100 %"
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-    F Recent 274×16 [H gap 6]
+    F Recent 274×12 [H gap 6]
       T "Recent"
     F Recent row 260×18 [H gap 4]
       I NF2/Swatch Cell {Selected=True} 18×18
@@ -24,7 +24,7 @@ F Shelf / Quick colours & easing 1148×1050 [V gap 16]
       I NF2/Swatch Cell {Selected=False} 18×18
       I NF2/Swatch Cell {Selected=False} 18×18
       I NF2/Swatch Cell {Selected=False} 18×18
-    F Document 274×16 [H gap 6]
+    F Document 274×12 [H gap 6]
       T "Document"
     F Document row 154×18 [H gap 4]
       I NF2/Swatch Cell {Selected=False} 18×18
@@ -142,7 +142,7 @@ F Shelf / Quick colours & easing 1148×1050 [V gap 16]
         I NF2/Swatch Cell {Selected=False} 18×18
         I NF2/Swatch Cell {Selected=False} 18×18
         I NF2/Swatch Cell {Selected=False} 18×18
-    F Gradients 274×16 [H gap 6]
+    F Gradients 274×12 [H gap 6]
       T "Gradients"
     F Gradients row 260×18 [H gap 4]
       I NF2/Swatch Cell {Selected=False} 40×18

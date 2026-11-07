@@ -1,4 +1,4 @@
-F Panels — more 324×1711 [V gap 32]
+F Panels — more 324×1699 [V gap 32]
   F Panel / Library 300×555 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Library" "Panel" "Panel"
     F Body 298×517 [V gap 8]
@@ -9,7 +9,7 @@ F Panels — more 324×1711 [V gap 32]
       I NF2/Search {Label=Search library, State=Empty} 274×32 "Search library"
       F Row 274×32 [H gap 8]
         T "7 items"
-        F Spacer 184×2
+        F Spacer 191×2
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       F Items 274×196 [V gap 0]
         I NF2/Tree Item {Label=Library root, Type=Folder Open, Selected=False} 274×28 "Library root"
@@ -51,7 +51,7 @@ F Panels — more 324×1711 [V gap 32]
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         F Spacer 114×2
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-  F Panel / Swatches 324×490 [V gap 0]
+  F Panel / Swatches 324×478 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 322×36 "Color" "Swatches" "Panel"
-    F Body 322×452 [V gap 8]
-      I NF2/Swatches Popover 298×428 "00FFCC" "100 %" "Recent" "Document" "Palette" "Gradients"
+    F Body 322×440 [V gap 8]
+      I NF2/Swatches Popover 298×416 "00FFCC" "100 %" "Recent" "Document" "Palette" "Gradients"

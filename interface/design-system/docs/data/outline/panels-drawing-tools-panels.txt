@@ -1,11 +1,11 @@
-F Drawing tools — panels 560×1334 [V gap 32]
+F Drawing tools — panels 560×1315 [V gap 32]
   F Panel / Properties — Rectangle primitive 320×562 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Filters" "Panel"
     F Body 318×524 [V gap 10]
       F Row 294×48 [H gap 8]
         F Type icon 48×48 [H gap 0]
           I NF2 Icon/20/tool-rect-primitive 20×20
-        F Title 188×38 [V gap 2]
+        F Title 157×29 [V gap 2]
           T "Rectangle primitive"
           T "Drawing object · editable corners"
       I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
@@ -31,20 +31,20 @@ F Drawing tools — panels 560×1334 [V gap 32]
         I NF2/Stepper Field {Prefix=↙, Label=12, State=Default} 128×32 "↙" "12"
         I NF2/Stepper Field {Prefix=↘, Label=12, State=Default} 128×32 "↘" "12"
       I NF2/Slider {Value=50} 294×20
-      I NF2/Button {Icon=false, Label=Reset, Type=Ghost, State=Default} 60×32 "Reset"
-  F Dialog / PolyStar tool settings 400×288 [V gap 0]
+      I NF2/Button {Icon=false, Label=Reset, Type=Ghost, State=Default} 54×32 "Reset"
+  F Dialog / PolyStar tool settings 400×269 [V gap 0]
     I NF2/Dialog Header 398×60 "PolyStar tool settings"
-    F Body 398×174 [H gap 20]
+    F Body 398×155 [H gap 20]
       F Frame 110×110
         F Frame 90×90
-      F Options 220×158 [V gap 10]
+      F Options 220×139 [V gap 10]
         I NF2/Select {Label=Style: Star, State=Default} 220×32 "Style: Star"
         I NF2/Stepper Field {Prefix=Sides, Label=5, State=Default} 220×32 "Sides" "5"
         I NF2/Stepper Field {Prefix=Point size, Label=0.50, State=Default} 220×32 "Point size" "0.50"
         T "Point size 0–1: smaller = sharper points"
     F Footer 398×52 [H gap 8]
-      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
-      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"
   F Sample / Armature on stage + pose layer 560×420
     F Frame 520×230
       F Frame 520×230

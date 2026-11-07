@@ -58,10 +58,10 @@ F Tools — flyout groups 780×1982
   E Connector dot 5×5
   V Connector / Deco 103×582
   E Connector dot 5×5
-  F Dialog / Customize tools panel 780×682 [V gap 0]
+  F Dialog / Customize tools panel 780×662 [V gap 0]
     I NF2/Dialog Header 778×60 "Customize tools panel"
-    F Body 778×556 [H gap 16]
-      F Rail 42×508 [V gap 8]
+    F Body 778×536 [H gap 16]
+      F Rail 42×504 [V gap 8]
         T "RAIL"
         F Slots 42×484 [V gap 2]
           I NF2/Tool Button {Flyout=true, State=Default} 32×32
@@ -78,7 +78,7 @@ F Tools — flyout groups 780×1982
           I NF2/Tool Button {Flyout=true, State=Default} 32×32
           I NF2/Tool Button {Flyout=true, State=Default} 32×32
           I NF2/Tool Button {Flyout=true, State=Default} 32×32
-      F Available 268×532 [V gap 8]
+      F Available 268×512 [V gap 8]
         T "AVAILABLE TOOLS · 30"
         I NF2/Search {Label=Find tool, State=Empty} 268×32 "Find tool"
         F List 268×452 [V gap 0]
@@ -113,10 +113,10 @@ F Tools — flyout groups 780×1982
           I NF2/Tool Flyout Item {Icon=17:214, Shortcut=T, Label=Text tool, Active=False} 258×28 "Text tool" "T"
           I NF2/Tool Flyout Item {Icon=17:259, Shortcut=Z, Label=Zoom tool, Active=False} 258×28 "Zoom tool" "Z"
           I NF2/Scrollbar {Orientation=Vertical, State=Default} 12×444
-      F Actions 104×532 [V gap 8]
+      F Actions 104×512 [V gap 8]
         I NF2/Button {Icon=false, Label=Add ›, Type=Secondary, State=Default} 104×32 "Add ›"
         I NF2/Button {Icon=false, Label=‹ Remove, Type=Secondary, State=Default} 104×32 "‹ Remove"
-      F Current 268×532 [V gap 8]
+      F Current 268×512 [V gap 8]
         T "SLOT 2 · CURRENT SELECTION"
         F List 268×452 [V gap 0]
           I NF2/Tool Flyout Item {Icon=17:194, Shortcut=Q, Label=Free transform tool, Active=True} 258×28 "Free transform tool" "Q"
@@ -125,7 +125,7 @@ F Tools — flyout groups 780×1982
           I NF2/Tool Flyout Item {Icon=95:798, Shortcut=G, Label=3D translation tool, Active=False} 258×28 "3D translation tool" "G"
         T "Tools in one slot form a flyout group. Drag to reorder; the first tool is the default shown on the rail."
     F Footer 778×64 [H gap 8]
-      I NF2/Button {Icon=false, Label=Restore default, Type=Ghost, State=Default} 119×32 "Restore default"
-      F Spacer 475×1 [H gap 0]
-      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
-      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"
+      I NF2/Button {Icon=false, Label=Restore default, Type=Ghost, State=Default} 105×32 "Restore default"
+      F Spacer 498×1 [H gap 0]
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"

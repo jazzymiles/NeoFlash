@@ -1,10 +1,10 @@
-F Commands — panel & dialog 420×1555 [V gap 40]
-  F Panel / Commands 300×1151 [V gap 0]
+F Commands — panel & dialog 420×1527 [V gap 40]
+  F Panel / Commands 300×1148 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Commands" "Panel" "Panel"
     F Toolbar 298×50 [H gap 8]
       I NF2/Search {Label=Find command, State=Empty} 234×32 "Find command"
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-    F Count 93×20 [H gap 0]
+    F Count 80×17 [H gap 0]
       T "31 commands"
     F Tree 298×998 [V gap 0]
       F Row 286×32 [H gap 0]
@@ -76,19 +76,19 @@ F Commands — panel & dialog 420×1555 [V gap 40]
       F Spacer 112×1 [H gap 0]
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
       I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-  F Dialog / Commands set 420×364 [V gap 0]
+  F Dialog / Commands set 420×339 [V gap 0]
     I NF2/Dialog Header 418×60 "Commands"
-    F Body 418×238 [V gap 16]
-      F Set 370×178 [H gap 16]
+    F Body 418×213 [V gap 16]
+      F Set 370×153 [H gap 16]
         T "Set"
-        F Options 290×178 [V gap 12]
-          I NF2/Radio {Label=User commands, Selected=False} 116×16 "User commands"
-          I NF2/Radio {Label=Commands folder, Selected=True} 124×16 "Commands folder"
-          I NF2/Radio {Label=API examples, Selected=False} 100×16 "API examples"
+        F Options 290×153 [V gap 12]
+          I NF2/Radio {Label=User commands, Selected=False} 100×16 "User commands"
+          I NF2/Radio {Label=Commands folder, Selected=True} 107×16 "Commands folder"
+          I NF2/Radio {Label=API examples, Selected=False} 87×16 "API examples"
           T "Commands are script files (.nfsl) run on the document. User commands live in your profile; the commands folder is shared by the team."
       F Action 370×32 [H gap 16]
         T "Action"
         I NF2/Select {Label=Load (replace list), State=Default} 290×32 "Load (replace list)"
     F Footer 418×64 [H gap 8]
-      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 69×32 "Cancel"
-      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 43×32 "OK"
+      I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
+      I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"

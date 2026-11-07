@@ -1,4 +1,4 @@
-F Shelf / Technical 868×1370 [V gap 16]
+F Shelf / Technical 868×1347 [V gap 16]
   T "Technical — scrollbars, splitters, docking, drag & drop, feedback, focus, empty states"
   F NF2/Scrollbar 600×194 [H gap 16]
     F Orientation=Vertical, State=Default 12×160
@@ -25,7 +25,7 @@ F Shelf / Technical 868×1370 [V gap 16]
       I NF2 Icon/16/chevright 16×16
     F chevdown 32×32 [H gap 0]
       I NF2 Icon/16/chevdown 16×16
-  F NF2/Drag Ghost 73×30 [H gap 6]
+  F NF2/Drag Ghost 69×30 [H gap 6]
     I NF2 Icon/16/grip-h 16×16
     T "Align"
   F NF2/Drop Indicator 240×8
@@ -55,20 +55,20 @@ F Shelf / Technical 868×1370 [V gap 16]
       F Frame 28×28 [H gap 0]
         I NF2 Icon/16/x 16×16
   F NF2/Spinner 20×20
-  F NF2/Progress 640×62 [H gap 16]
-    F Mode=Determinate 280×28 [V gap 6]
-      F Frame 280×16 [H gap 8]
+  F NF2/Progress 640×59 [H gap 16]
+    F Mode=Determinate 280×25 [V gap 6]
+      F Frame 280×13 [H gap 8]
         T "Exporting frames 72 / 120"
         T "60 %"
       F Track 280×6
-    F Mode=Indeterminate 280×28 [V gap 6]
-      F Frame 280×16 [H gap 8]
+    F Mode=Indeterminate 280×25 [V gap 6]
+      F Frame 280×13 [H gap 8]
         T "Encoding video…"
       F Track 280×6
   F NF2/Focus Ring 120×36
-  F NF2/Empty State 280×204 [V gap 8]
+  F NF2/Empty State 280×192 [V gap 8]
     F Frame 48×48 [H gap 0]
       I NF2 Icon/16/symbol 16×16
     T "Library is empty"
     T "Convert artwork to a symbol (F8) or import files to see them here."
-    I NF2/Button {Icon=false, Label=Import to library…, Type=Secondary, State=Default} 136×32 "Import to library…"
+    I NF2/Button {Icon=false, Label=Import to library…, Type=Secondary, State=Default} 119×32 "Import to library…"
