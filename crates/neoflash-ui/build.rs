@@ -227,10 +227,13 @@ fn icons_rs(root: &Path) -> String {
 
 fn cursors_rs(root: &Path, dump: &Value) -> String {
     let mut hotspots = std::collections::HashMap::new();
-    for c in dump["components"]["v2 · System & Components"]
-        .as_array()
-        .unwrap()
-    {
+    // The live component page is `v2.2 · System & Components` since the NF2 v2.2 export (T-123);
+    // older dumps only have the v2 name.
+    let page = ["v2.2 · System & Components", "v2 · System & Components"]
+        .into_iter()
+        .find_map(|name| dump["components"][name].as_array())
+        .expect("figma-dump.json lists the NF2 component page");
+    for c in page {
         let name = c["name"].as_str().unwrap_or_default();
         if let Some(n) = name.strip_prefix("NF2 Cursor/") {
             let d = c["description"].as_str().unwrap_or_default();

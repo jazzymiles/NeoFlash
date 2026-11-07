@@ -8,7 +8,7 @@
   "crates/neoflash-ui/assets/fonts/NF2Symbols.ttf": "0686b7808257067fd9a623dd3d5ada63ca5f482806b7f8655de0140d7833e2df",
   "crates/neoflash-ui/assets/fonts/RobotoMono-LICENSE.txt": "50ab8dd54680d3473f649c9db86fece88434d097c7834475c1c72d2f8c429215",
   "crates/neoflash-ui/assets/fonts/RobotoMono-Regular.ttf": "af0bff7599c3df3831755c16e39b3c496df74b8c8d8a1161b14dc8461be17cb4",
-  "crates/neoflash-ui/build.rs": "54593b8da8909120c4e643289712af0ee8a43c6035a18cb07e6cd4e4d75bbc4d",
+  "crates/neoflash-ui/build.rs": "ba121d0aacc52584fc519a013a55147ac5ff78ea099e627f6328c3c9aa9e323f",
   "crates/neoflash-ui/examples/gallery.rs": "a363a40f60f18aed2823a52cbbe94c7b9eead1b22fe465188e76a483b4c4bf44",
   "crates/neoflash-ui/src/components/breadcrumb.rs": "5f3ca2adc56b322859eaf714805cb056233d59c90011728ccdc9dc3d9a0b356e",
   "crates/neoflash-ui/src/components/brushes.rs": "f8e02d0b1ee5d6733e2f076c0a3d4cd6d2dff8a88e1b4df308464592adaeb223",
