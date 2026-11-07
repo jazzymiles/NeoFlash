@@ -172,11 +172,11 @@
     const active=()=>{if(disposed)throw new Error('This text service has been disposed.');};
     function info(ref){active();return JSON.parse(player.object_text_info(ref));}
     function fit(ref){if(typeof player.as2_text_fit!=='function')return false;const field=info(ref);return field.as2_viewport?.auto_size&&field.as2_viewport.auto_size!=='none'?player.as2_text_fit(ref,JSON.stringify(layout(field))):false;}
-    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');fit(ref);as2Layout?.(ref);onUpdate(ref);}
+    function update(ref,patch){active();if(!player.object_text_update(ref,JSON.stringify(patch)))throw new Error('TextField update requires a live text object.');if(!fit(ref))as2Layout?.(ref);onUpdate(ref);}
     function layout(field){
-      active();const key=JSON.stringify(field),existing=cache.get(key);
+      active();const key=JSON.stringify(field.revision!==undefined?{...field,revision:0}:field),existing=cache.get(key);
       if(existing){cache.delete(key);cache.set(key,existing);return existing.value;}
-      const value=JSON.parse(player.text_layout_json(key,(strings,format)=>{
+      const value=JSON.parse(player.text_layout_json(JSON.stringify(field),(strings,format)=>{
         const style=JSON.parse(format);return JSON.stringify(JSON.parse(strings).map(text=>measureText(text,style)));
       }));
       // Keys and the returned line strings both own text. Bound retained memory,

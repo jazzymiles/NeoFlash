@@ -70,11 +70,16 @@ impl Default for TimelineVideoSpan {
     }
 }
 
-fn serialize_static_code<S: Serializer>(code: &&'static str, serializer: S) -> Result<S::Ok, S::Error> {
+fn serialize_static_code<S: Serializer>(
+    code: &&'static str,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(code)
 }
 
-fn deserialize_static_code<'de, D: Deserializer<'de>>(deserializer: D) -> Result<&'static str, D::Error> {
+fn deserialize_static_code<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<&'static str, D::Error> {
     let s = String::deserialize(deserializer)?;
     Ok(match s.as_str() {
         "video-cors-remote" => "video-cors-remote",
@@ -351,7 +356,10 @@ mod tests {
         // Valid H.264 MP4 header (`ftypisom...avc1`)
         let mp4_avc1 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41";
         let diags_ok = inspect_video_resource("clip.mp4", "video/mp4", mp4_avc1, None);
-        assert!(diags_ok.is_empty(), "expected no errors for H.264 MP4, got {diags_ok:?}");
+        assert!(
+            diags_ok.is_empty(),
+            "expected no errors for H.264 MP4, got {diags_ok:?}"
+        );
 
         // Valid WebM EBML header
         let webm_bytes = b"\x1A\x45\xDF\xA3\x93\x42\x82\x88webm";

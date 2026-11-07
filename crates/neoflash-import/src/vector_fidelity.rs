@@ -170,7 +170,10 @@ fn parse_svg_transform(raw: &str) -> [f64; 6] {
             .filter(|s| !s.is_empty())
             .filter_map(|s| s.parse::<f64>().ok())
             .collect();
-        let step = match fn_name.rsplit(|c: char| c.is_ascii_whitespace()).next().unwrap_or(fn_name)
+        let step = match fn_name
+            .rsplit(|c: char| c.is_ascii_whitespace())
+            .next()
+            .unwrap_or(fn_name)
         {
             "translate" => {
                 let tx = nums.first().copied().unwrap_or(0.0);
@@ -245,9 +248,7 @@ fn parse_svg_color(raw: &str, opacity: f64) -> Option<Color> {
             _ => return None,
         }
     }
-    if let Some(rgb_inner) = s
-        .strip_prefix("rgb(")
-        .or_else(|| s.strip_prefix("rgba("))
+    if let Some(rgb_inner) = s.strip_prefix("rgb(").or_else(|| s.strip_prefix("rgba("))
         && let Some(end) = rgb_inner.strip_suffix(')')
     {
         let parts: Vec<&str> = end
@@ -262,7 +263,8 @@ fn parse_svg_color(raw: &str, opacity: f64) -> Option<Color> {
                 .get(3)
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
-            let comb_a = (alpha_mul.clamp(0.0, 1.0) * opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let comb_a =
+                (alpha_mul.clamp(0.0, 1.0) * opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
             return Some([r, g, b, comb_a]);
         }
     }
@@ -557,7 +559,8 @@ pub fn parse_svg_path_data(d: &str) -> Vec<PathCommand> {
                     next_f64(&tokens, &mut idx),
                     next_f64(&tokens, &mut idx),
                     next_f64(&tokens, &mut idx),
-                ) else {
+                )
+                else {
                     break;
                 };
                 let (nx, ny) = if cur_cmd == 'a' {
@@ -745,7 +748,10 @@ fn text_to_outline_commands(text: &str, x: f64, y: f64, font_size: f64) -> Vec<P
     }
     if cmds.is_empty() {
         cmds.push(PathCommand::MoveTo { x, y: top_y });
-        cmds.push(PathCommand::LineTo { x: x + cw, y: top_y });
+        cmds.push(PathCommand::LineTo {
+            x: x + cw,
+            y: top_y,
+        });
         cmds.push(PathCommand::LineTo { x: x + cw, y });
         cmds.push(PathCommand::Close);
     }
@@ -936,8 +942,7 @@ fn assemble_vector_buckets(
                 root.timeline.layers = vec![layer];
             }
         }
-        VectorLayerMapping::PreserveGroupsAsLayers
-        | VectorLayerMapping::ConvertGroupsToSymbols => {
+        VectorLayerMapping::PreserveGroupsAsLayers | VectorLayerMapping::ConvertGroupsToSymbols => {
             let mut layers = Vec::new();
             // SVG/PDF order is back-to-front (painter's order); NeoFlash layers are top-to-bottom.
             for b in buckets.into_iter().rev() {
@@ -1133,7 +1138,19 @@ pub fn import_svg_into_project(
         report: &mut ImportReport,
     ) {
         let tag = node.tag_name().name();
-        if matches!(tag, "defs" | "title" | "desc" | "metadata" | "style" | "clipPath" | "mask" | "filter" | "linearGradient" | "radialGradient") {
+        if matches!(
+            tag,
+            "defs"
+                | "title"
+                | "desc"
+                | "metadata"
+                | "style"
+                | "clipPath"
+                | "mask"
+                | "filter"
+                | "linearGradient"
+                | "radialGradient"
+        ) {
             return;
         }
         let node_id = node
@@ -1249,8 +1266,8 @@ pub fn import_svg_into_project(
                 .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
                 .unwrap_or(20.0)
                 .max(1.0);
-            let font_family = node_style_or_attr(node, "font-family")
-                .unwrap_or_else(|| "sans-serif".to_owned());
+            let font_family =
+                node_style_or_attr(node, "font-family").unwrap_or_else(|| "sans-serif".to_owned());
             let opacity = node_style_or_attr(node, "opacity")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
@@ -1283,7 +1300,9 @@ pub fn import_svg_into_project(
                     report.warning(
                         "svg-text-converted-to-paths",
                         loc,
-                        format!("Converted SVG <text> '{trimmed_text}' into editable vector paths."),
+                        format!(
+                            "Converted SVG <text> '{trimmed_text}' into editable vector paths."
+                        ),
                     );
                     let raw_cmds = text_to_outline_commands(trimmed_text, x, y, font_size);
                     let (final_cmds, elem_transform) = match options.transform_handling {
@@ -1337,7 +1356,12 @@ pub fn import_svg_into_project(
                 Some(f) if fill_grad.is_none() => {
                     parse_svg_color(f, fill_opacity).unwrap_or([0, 0, 0, 255])
                 }
-                None => [0, 0, 0, (fill_opacity.clamp(0.0, 1.0) * 255.0).round() as u8],
+                None => [
+                    0,
+                    0,
+                    0,
+                    (fill_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+                ],
                 _ => [0, 0, 0, 255],
             };
 
@@ -1425,7 +1449,16 @@ pub fn import_svg_into_project(
         let tag = child.tag_name().name();
         if matches!(
             tag,
-            "defs" | "title" | "desc" | "metadata" | "style" | "clipPath" | "mask" | "filter" | "linearGradient" | "radialGradient"
+            "defs"
+                | "title"
+                | "desc"
+                | "metadata"
+                | "style"
+                | "clipPath"
+                | "mask"
+                | "filter"
+                | "linearGradient"
+                | "radialGradient"
         ) {
             continue;
         }
@@ -1707,9 +1740,7 @@ pub fn import_pdf_ai_into_project(
         let mut cur_pt = (0.0, 0.0);
         let mut pending_clip = false;
 
-        let pop_f64 = |stack: &mut Vec<String>| -> Option<f64> {
-            stack.pop()?.parse::<f64>().ok()
-        };
+        let pop_f64 = |stack: &mut Vec<String>| -> Option<f64> { stack.pop()?.parse::<f64>().ok() };
 
         for tok in tokens {
             let is_num = tok.parse::<f64>().is_ok();
@@ -1908,7 +1939,9 @@ pub fn import_pdf_ai_into_project(
                                     severity: Severity::Info,
                                     code: "pdf-clipping-path-mapped".to_owned(),
                                     location: loc.clone(),
-                                    message: "Mapped PDF clipping path (W) to a Timeline Mask layer.".to_owned(),
+                                    message:
+                                        "Mapped PDF clipping path (W) to a Timeline Mask layer."
+                                            .to_owned(),
                                 });
                             }
                             VectorMaskHandling::FlattenClip => {
@@ -1922,7 +1955,8 @@ pub fn import_pdf_ai_into_project(
                         pending_clip = false;
                     }
                     if tok != "n" && !current_path.is_empty() {
-                        let do_fill = matches!(tok.as_str(), "f" | "F" | "f*" | "B" | "B*" | "b" | "b*");
+                        let do_fill =
+                            matches!(tok.as_str(), "f" | "F" | "f*" | "B" | "B*" | "b" | "b*");
                         let do_stroke = matches!(tok.as_str(), "S" | "s" | "B" | "B*" | "b" | "b*");
                         let fill_rule = if tok.ends_with('*') {
                             FillRule::EvenOdd
@@ -2037,7 +2071,9 @@ pub fn import_pdf_ai_into_project(
                                 report.warning(
                                     "pdf-text-converted-to-paths",
                                     loc.clone(),
-                                    format!("Converted PDF text '{text_str}' to vector outline paths."),
+                                    format!(
+                                        "Converted PDF text '{text_str}' to vector outline paths."
+                                    ),
                                 );
                                 let cmds = text_to_outline_commands(
                                     &text_str,
@@ -2071,7 +2107,8 @@ pub fn import_pdf_ai_into_project(
                         .find(|s| s.starts_with('/'))
                         .map(|s| s.trim_start_matches('/').to_owned())
                         .unwrap_or_else(|| format!("Layer {}", buckets.len() + 1));
-                    if !current_bucket.elements.is_empty() || !current_bucket.mask_elements.is_empty()
+                    if !current_bucket.elements.is_empty()
+                        || !current_bucket.mask_elements.is_empty()
                     {
                         buckets.push(current_bucket);
                     }
@@ -2084,7 +2121,8 @@ pub fn import_pdf_ai_into_project(
                     operand_stack.clear();
                 }
                 "EMC" => {
-                    if !current_bucket.elements.is_empty() || !current_bucket.mask_elements.is_empty()
+                    if !current_bucket.elements.is_empty()
+                        || !current_bucket.mask_elements.is_empty()
                     {
                         buckets.push(current_bucket);
                         current_bucket = VectorGroupBucket {

@@ -626,7 +626,10 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     if !(1..=IkBone::MAX_BONES).contains(&arm.bones.len()) {
                         add(
                             format!("{kp}.ik_armatures[{iki}].bones"),
-                            format!("IK armature bone count must be in 1..={}", IkBone::MAX_BONES),
+                            format!(
+                                "IK armature bone count must be in 1..={}",
+                                IkBone::MAX_BONES
+                            ),
                         );
                     }
                     if !arm
@@ -660,7 +663,8 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 if !delta.is_finite() || delta.abs() > 1e5 {
                                     add(
                                         format!("{kp}.appearances[{ai}].modifiers[{mi}]"),
-                                        "offset contour delta must be finite and within +-1e5".into(),
+                                        "offset contour delta must be finite and within +-1e5"
+                                            .into(),
                                     );
                                 }
                             }
@@ -703,6 +707,50 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 }
                             }
                         }
+                    }
+                }
+                for (pei, pe) in key.property_expressions.iter().enumerate() {
+                    if pe.expression.trim().is_empty()
+                        || !pe.amplitude.is_finite()
+                        || !pe.frequency.is_finite()
+                        || !pe.decay.is_finite()
+                        || !pe.phase.is_finite()
+                    {
+                        add(
+                            format!("{kp}.property_expressions[{pei}]"),
+                            "property expression requires a non-empty formula and finite parameters"
+                                .into(),
+                        );
+                    }
+                }
+                if let Some(pg) = &key.perspective_grid
+                    && (!pg.horizon_y.is_finite()
+                        || !pg.left_vanishing_x.is_finite()
+                        || !pg.right_vanishing_x.is_finite()
+                        || !pg.grid_cell_size.is_finite()
+                        || pg.grid_cell_size <= 0.0
+                        || !pg.grid_extent.is_finite()
+                        || pg.grid_extent <= 0.0)
+                {
+                    add(
+                        format!("{kp}.perspective_grid"),
+                        "perspective grid coordinates must be finite with positive cell size and extent".into(),
+                    );
+                }
+                if let Some(wa) = &key.work_area
+                    && wa.out_frame < wa.in_frame
+                {
+                    add(
+                        format!("{kp}.work_area"),
+                        "preview work area out_frame must be >= in_frame".into(),
+                    );
+                }
+                for (mki, marker) in key.markers.iter().enumerate() {
+                    if marker.id.trim().is_empty() || marker.name.trim().is_empty() {
+                        add(
+                            format!("{kp}.markers[{mki}]"),
+                            "timeline marker requires non-empty id and name".into(),
+                        );
                     }
                 }
                 if key.frame >= symbol.timeline.frame_count {

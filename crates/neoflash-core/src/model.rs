@@ -431,6 +431,12 @@ impl Project {
                             || !k.ik_armatures.is_empty()
                             || !k.appearances.is_empty()
                             || k.video.is_some()
+                            || !k.extended_accessibility.is_empty()
+                            || !k.vector_effects.is_empty()
+                            || !k.property_expressions.is_empty()
+                            || k.perspective_grid.is_some()
+                            || k.work_area.is_some()
+                            || !k.markers.is_empty()
                             || k.elements.iter().any(|e| {
                                 matches!(
                                     e.transform.primitive,
@@ -922,6 +928,24 @@ pub struct Keyframe {
     /// Authored timeline video span and cue points on this keyframe (T-118, format 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<crate::TimelineVideoSpan>,
+    /// Extended WAI-ARIA role, live region, focus group, and reading-order metadata per element (T-117, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extended_accessibility: Vec<crate::ExtendedAccessibility>,
+    /// Non-destructive envelope warps, procedural path effects, blends, freeform gradients, and gradient meshes (T-120, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vector_effects: Vec<crate::ElementVectorEffects>,
+    /// Deterministic property expressions modulating transform properties on this keyframe (T-121, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub property_expressions: Vec<crate::PropertyExpression>,
+    /// Optional 1/2/3-point perspective grid configuration stored on the timeline's primary keyframe (T-120, format 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perspective_grid: Option<crate::PerspectiveGridSpec>,
+    /// Optional preview work area bounds stored on the timeline's primary keyframe (T-121, format 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_area: Option<crate::PreviewWorkArea>,
+    /// Rich timeline span markers stored on the timeline's primary keyframe (T-121, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::TimelineMarker>,
 }
 
 impl Default for Keyframe {
@@ -953,6 +977,12 @@ impl Default for Keyframe {
             ik_armatures: Vec::new(),
             appearances: Vec::new(),
             video: None,
+            extended_accessibility: Vec::new(),
+            vector_effects: Vec::new(),
+            property_expressions: Vec::new(),
+            perspective_grid: None,
+            work_area: None,
+            markers: Vec::new(),
         }
     }
 }
@@ -1005,9 +1035,7 @@ impl Keyframe {
     }
 
     pub fn asset_warp(&self, element_id: &str) -> Option<&AssetWarpRig> {
-        self.asset_warps
-            .iter()
-            .find(|w| w.element_id == element_id)
+        self.asset_warps.iter().find(|w| w.element_id == element_id)
     }
 
     pub fn asset_warp_mut(&mut self, element_id: &str) -> Option<&mut AssetWarpRig> {
@@ -1097,8 +1125,10 @@ impl Keyframe {
         {
             slot.parent_id = parent_id;
         } else {
-            self.element_parents
-                .push(ElementParentLink { child_id, parent_id });
+            self.element_parents.push(ElementParentLink {
+                child_id,
+                parent_id,
+            });
         }
         Ok(())
     }
@@ -1159,9 +1189,7 @@ impl Keyframe {
     }
 
     pub fn appearance(&self, element_id: &str) -> Option<&ElementAppearance> {
-        self.appearances
-            .iter()
-            .find(|a| a.element_id == element_id)
+        self.appearances.iter().find(|a| a.element_id == element_id)
     }
 
     pub fn set_appearance(&mut self, appearance: ElementAppearance) {
@@ -2325,14 +2353,68 @@ impl Project {
 
     pub const GLOBAL_SWATCHES_RESOURCE_PATH: &'static str = "palette/global_swatches.json";
     pub const VECTOR_STYLES_RESOURCE_PATH: &'static str = "palette/vector_styles.json";
+    pub const DOCUMENT_ACCESSIBILITY_RESOURCE_PATH: &'static str = "accessibility/document.json";
+
+    /// Document-level accessibility settings (auto-label, title, description, reading order, `T-117`).
+    pub fn document_accessibility(&self) -> crate::DocumentAccessibility {
+        let Some(unit) = self.resources.iter().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH)
+        }) else {
+            return crate::DocumentAccessibility::default();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return crate::DocumentAccessibility::default();
+        };
+        serde_json::from_slice::<crate::DocumentAccessibility>(&bytes).unwrap_or_default()
+    }
+
+    /// Persist document-level accessibility settings in the project (`T-117`).
+    pub fn set_document_accessibility(&mut self, doc_acc: &crate::DocumentAccessibility) {
+        if doc_acc.is_default() {
+            self.resources.retain(|r| {
+                !r.path
+                    .eq_ignore_ascii_case(Self::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH)
+            });
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(doc_acc) else {
+            return;
+        };
+        let existing_id = self
+            .resources
+            .iter()
+            .find(|r| {
+                r.path
+                    .eq_ignore_ascii_case(Self::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH)
+            })
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let Ok(unit) = crate::ResourceUnit::from_bytes(
+            existing_id,
+            Self::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        ) else {
+            return;
+        };
+        if let Some(slot) = self.resources.iter_mut().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH)
+        }) {
+            *slot = unit;
+        } else {
+            self.resources.push(unit);
+        }
+        self.format_version = self.format_version.max(3);
+    }
 
     /// Document-level named global colour swatches linked to elements (T-114).
     pub fn global_swatches(&self) -> Vec<GlobalSwatch> {
-        let Some(unit) = self
-            .resources
-            .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH))
-        else {
+        let Some(unit) = self.resources.iter().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH)
+        }) else {
             return Vec::new();
         };
         let Ok(bytes) = unit.decoded_bytes() else {
@@ -2344,8 +2426,10 @@ impl Project {
     /// Persist named global colour swatches in the project (T-114).
     pub fn set_global_swatches(&mut self, swatches: &[GlobalSwatch]) {
         if swatches.is_empty() {
-            self.resources
-                .retain(|r| !r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH));
+            self.resources.retain(|r| {
+                !r.path
+                    .eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH)
+            });
             return;
         }
         let Ok(bytes) = serde_json::to_vec(swatches) else {
@@ -2354,7 +2438,10 @@ impl Project {
         let existing_id = self
             .resources
             .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH))
+            .find(|r| {
+                r.path
+                    .eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH)
+            })
             .map(|r| r.id.clone())
             .unwrap_or_else(|| new_id("resource"));
         let Ok(unit) = crate::ResourceUnit::from_bytes(
@@ -2365,11 +2452,10 @@ impl Project {
         ) else {
             return;
         };
-        if let Some(slot) = self
-            .resources
-            .iter_mut()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH))
-        {
+        if let Some(slot) = self.resources.iter_mut().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH)
+        }) {
             *slot = unit;
         } else {
             self.resources.push(unit);
@@ -2450,11 +2536,10 @@ impl Project {
 
     /// Document-level reusable vector styles (T-114).
     pub fn vector_styles(&self) -> Vec<VectorStyle> {
-        let Some(unit) = self
-            .resources
-            .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH))
-        else {
+        let Some(unit) = self.resources.iter().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH)
+        }) else {
             return Vec::new();
         };
         let Ok(bytes) = unit.decoded_bytes() else {
@@ -2466,8 +2551,10 @@ impl Project {
     /// Persist reusable vector styles in the project (T-114).
     pub fn set_vector_styles(&mut self, styles: &[VectorStyle]) {
         if styles.is_empty() {
-            self.resources
-                .retain(|r| !r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH));
+            self.resources.retain(|r| {
+                !r.path
+                    .eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH)
+            });
             return;
         }
         let Ok(bytes) = serde_json::to_vec(styles) else {
@@ -2476,7 +2563,10 @@ impl Project {
         let existing_id = self
             .resources
             .iter()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH))
+            .find(|r| {
+                r.path
+                    .eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH)
+            })
             .map(|r| r.id.clone())
             .unwrap_or_else(|| new_id("resource"));
         let Ok(unit) = crate::ResourceUnit::from_bytes(
@@ -2487,11 +2577,10 @@ impl Project {
         ) else {
             return;
         };
-        if let Some(slot) = self
-            .resources
-            .iter_mut()
-            .find(|r| r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH))
-        {
+        if let Some(slot) = self.resources.iter_mut().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH)
+        }) {
             *slot = unit;
         } else {
             self.resources.push(unit);

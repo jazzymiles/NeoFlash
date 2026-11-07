@@ -2569,9 +2569,7 @@ fn t113_camera_depth_parallax_parenting_controllers_and_ik_bake() {
     let before = editor.project.clone();
 
     // World-transform-preserving reparenting + cycle check.
-    assert!(
-        editor.reparent_element_preserving_world("child-arm", Some("ctrl-root"))
-    );
+    assert!(editor.reparent_element_preserving_world("child-arm", Some("ctrl-root")));
     assert!(
         !editor.reparent_element_preserving_world("ctrl-root", Some("child-arm")),
         "cycle must be rejected"
@@ -2584,12 +2582,7 @@ fn t113_camera_depth_parallax_parenting_controllers_and_ik_bake() {
     // Controller flag hides element from published runtime scene while keeping parenting active.
     assert!(editor.set_element_controller_flag("ctrl-root", true));
     let scene = neoflash_core::evaluate_scene(&editor.project, "root", 0, false, false);
-    assert!(
-        !scene
-            .draws
-            .iter()
-            .any(|d| d.item.element_id == "ctrl-root")
-    );
+    assert!(!scene.draws.iter().any(|d| d.item.element_id == "ctrl-root"));
 
     // 2D camera pose + layer Z-depth parallax.
     assert!(editor.set_layer_z_depth(500.0));
@@ -2634,7 +2627,11 @@ fn t113_camera_depth_parallax_parenting_controllers_and_ik_bake() {
     }));
     editor.project.validate().unwrap();
     assert!(editor.set_layer_attach_to_camera(true));
-    assert!(editor.symbol().timeline.layers[0].properties.attach_to_camera);
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .attach_to_camera
+    );
     assert_eq!(editor.bake_layer_ik_span(0, 2), 3);
     assert!(
         editor.symbol().timeline.layers[0].keyframes[0]
@@ -2724,7 +2721,10 @@ fn t114_appearance_stack_modifiers_swatches_styles_and_text_bindings() {
     assert_eq!(editor.apply_vector_style("style-badge"), 0);
 
     // Linked global swatch update propagates across both element and appearance entries.
-    assert_eq!(editor.update_global_swatch("swatch-brand", [20, 180, 90, 255]), 2);
+    assert_eq!(
+        editor.update_global_swatch("swatch-brand", [20, 180, 90, 255]),
+        2
+    );
 
     // Sampled layer expands the 2 appearance paint entries into 2 concrete elements.
     let sampled = sample_layer(&editor.symbol().timeline.layers[0], 0);
@@ -2733,7 +2733,12 @@ fn t114_appearance_stack_modifiers_swatches_styles_and_text_bindings() {
     // Explicit Expand/Bake replaces the source element with the concrete expanded elements.
     let expanded_ids = editor.expand_element_appearance_command("star-shape");
     assert_eq!(expanded_ids.len(), 2);
-    assert_eq!(editor.symbol().timeline.layers[0].keyframes[0].elements.len(), 2);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        2
+    );
     editor.project.validate().unwrap();
 
     editor.undo();
@@ -2790,7 +2795,12 @@ fn t115_t116_sequence_vector_import_and_publish_profiles_network_sim() {
     )
     .expect("import svg");
     imported.validate().unwrap();
-    assert!(report.diagnostics.iter().all(|d| !d.code.starts_with("error")));
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| !d.code.starts_with("error"))
+    );
 
     // T-116: Publish profiles + custom HTML wrapper + network startup simulation reusing size_report.
     let mut profile = neoflash_export::PublishProfile::new(
@@ -2807,4 +2817,330 @@ fn t115_t116_sequence_vector_import_and_publish_profiles_network_sim() {
         .expect("simulate network startup");
     assert!(sim.initial_html_js_wasm_ms >= 0.0);
     assert!(!sim.frames.is_empty());
+}
+
+#[test]
+fn t117_extended_accessibility_tree_auto_labeling_and_diagnostics() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    let button_el = Element {
+        id: "cta-btn".into(),
+        name: String::new(),
+        transform: Transform {
+            x: 120.0,
+            y: 80.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 140.0,
+            height: 44.0,
+            fill: [40, 120, 220, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        accessibility: None,
+        ..Element::default()
+    };
+    let text_el = Element {
+        id: "cta-label".into(),
+        name: "label".into(),
+        transform: Transform {
+            x: 135.0,
+            y: 92.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Text {
+            text: "Start Adventure".into(),
+            font_family: "sans-serif".into(),
+            font_size: 16.0,
+            color: [255, 255, 255, 255],
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![button_el, text_el],
+        ..Keyframe::default()
+    }];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    editor.set_document_accessibility_settings(DocumentAccessibility {
+        auto_label: true,
+        accessible: true,
+        title: "Adventure Menu".into(),
+        description: "Interactive title screen".into(),
+        language: "en".into(),
+        reading_order_top_down: true,
+        focus_ring_visible: true,
+    });
+    assert!(
+        editor.set_element_extended_accessibility(ExtendedAccessibility {
+            element_id: "cta-btn".into(),
+            role: ContentAccessibleRole::Button,
+            shortcut: "Enter".into(),
+            live: AccessibilityLivePoliteness::Polite,
+            reading_order: Some(1),
+            focus_group: Some("main-nav".into()),
+            ..ExtendedAccessibility::default()
+        })
+    );
+    editor.project.validate().unwrap();
+
+    let tree = editor.resolve_current_accessibility_tree();
+    let btn_node = tree.iter().find(|n| n.element_id == "cta-btn").unwrap();
+    assert_eq!(btn_node.name, "Start Adventure");
+    assert_eq!(btn_node.shortcut, "Enter");
+    assert_eq!(btn_node.live, AccessibilityLivePoliteness::Polite);
+    assert!(editor.validate_current_accessibility_tree().is_empty());
+
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t120_vector_effects_envelope_warp_mesh_perspective_and_expand() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    let shape = Element {
+        id: "warp-rect".into(),
+        name: "Badge".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Rectangle {
+            width: 100.0,
+            height: 50.0,
+            fill: [220, 60, 40, 255],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.0,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![shape],
+        ..Keyframe::default()
+    }];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    editor.set_timeline_perspective_grid(Some(PerspectiveGridSpec {
+        enabled: true,
+        active_plane: PerspectivePlane::RightGrid,
+        ..PerspectiveGridSpec::default()
+    }));
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .perspective_grid()
+            .unwrap()
+            .active_plane,
+        PerspectivePlane::RightGrid
+    );
+
+    let veff = ElementVectorEffects {
+        element_id: "warp-rect".into(),
+        envelope_warp: Some(EnvelopeWarp {
+            preset: EnvelopeWarpPreset::Arc,
+            bend: 0.4,
+            ..EnvelopeWarp::default()
+        }),
+        procedural_effects: vec![ProceduralVectorEffect::ZigZag {
+            size: 3.0,
+            ridges_per_segment: 2,
+            smooth: true,
+        }],
+        vector_blend: None,
+        freeform_gradient: None,
+        gradient_mesh: Some(GradientMesh::new_grid(
+            [0.0, 0.0, 100.0, 50.0],
+            2,
+            2,
+            [80, 160, 240, 255],
+        )),
+    };
+    assert!(editor.set_element_vector_effects(veff));
+    editor.project.validate().unwrap();
+
+    let sampled = sample_layer(&editor.symbol().timeline.layers[0], 0);
+    assert!(matches!(sampled[0].kind, ElementKind::Path { .. }));
+
+    assert!(editor.expand_element_vector_effects_command("warp-rect"));
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .vector_effects("warp-rect")
+            .is_none()
+    );
+    assert!(matches!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind,
+        ElementKind::Path { .. }
+    ));
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t121_motion_expressions_sketch_wiggler_work_area_and_markers() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    let actor = Element {
+        id: "actor-1".into(),
+        name: "Actor".into(),
+        transform: Transform {
+            x: 50.0,
+            y: 50.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Ellipse {
+            width: 32.0,
+            height: 32.0,
+            fill: [50, 200, 100, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![actor],
+        ..Keyframe::default()
+    }];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    assert!(editor.set_keyframe_property_expression(PropertyExpression {
+        property: TweenProperty::X,
+        expression: "value + 25".into(),
+        enabled: true,
+        ..PropertyExpression::default()
+    }));
+    let sampled_f0 = sample_layer(&editor.symbol().timeline.layers[0], 0);
+    assert!((sampled_f0[0].transform.x - 75.0).abs() < 1e-6);
+
+    let sketch = vec![
+        MotionSketchSample {
+            time_sec: 0.0,
+            position: [50.0, 50.0],
+        },
+        MotionSketchSample {
+            time_sec: 0.05,
+            position: [80.0, 70.0],
+        },
+        MotionSketchSample {
+            time_sec: 0.10,
+            position: [120.0, 90.0],
+        },
+    ];
+    assert!(editor.apply_motion_sketch_to_element("actor-1", &sketch, 0.5, 0.5) >= 2);
+    assert_eq!(
+        editor.apply_wiggler_to_element("actor-1", 0, 2, &WigglerConfig::default()),
+        3
+    );
+
+    editor.set_timeline_work_area(Some(PreviewWorkArea {
+        enabled: true,
+        in_frame: 0,
+        out_frame: 2,
+        skip_nth_frame: 0,
+    }));
+    editor.set_timeline_markers(vec![TimelineMarker {
+        id: "mk-1".into(),
+        frame: 1,
+        duration_frames: 2,
+        name: "Beat".into(),
+        comment: "Accent hit".into(),
+        color_tag: Some("amber".into()),
+        cue_point_parameters: std::collections::BTreeMap::new(),
+    }]);
+    let snap = editor.capture_stage_snapshot_ab("A");
+    assert_eq!(snap.label, "A");
+    assert!(!snap.elements.is_empty());
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t122_palette_interchange_fxg_and_screens_migration_commands() {
+    let project = Project::blank();
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    let act_bytes = neoflash_import::export_act_palette(&[GlobalSwatch {
+        id: "act-1".into(),
+        name: "Coral".into(),
+        color: [250, 90, 70, 255],
+    }]);
+    assert_eq!(
+        editor
+            .import_act_palette_into_swatches(&act_bytes, "act")
+            .unwrap(),
+        1
+    );
+
+    let clr_bytes = neoflash_import::export_clr_palette(&[GlobalSwatch {
+        id: "sw-1".into(),
+        name: "Neon Mint".into(),
+        color: [32, 240, 160, 255],
+    }]);
+    assert_eq!(
+        editor
+            .import_clr_palette_into_swatches(&clr_bytes, "clr")
+            .unwrap(),
+        1
+    );
+
+    let mut ase_bytes = Vec::new();
+    ase_bytes.extend_from_slice(b"ASEF\x00\x01\x00\x00\x00\x00\x00\x01");
+    let mut blk = Vec::new();
+    blk.extend_from_slice(&2u16.to_be_bytes());
+    blk.extend_from_slice(&(b'A' as u16).to_be_bytes());
+    blk.extend_from_slice(&0u16.to_be_bytes());
+    blk.extend_from_slice(b"GRAY");
+    blk.extend_from_slice(&0.5f32.to_be_bytes());
+    blk.extend_from_slice(&0u16.to_be_bytes());
+    ase_bytes.extend_from_slice(&0x0001u16.to_be_bytes());
+    ase_bytes.extend_from_slice(&(blk.len() as u32).to_be_bytes());
+    ase_bytes.extend_from_slice(&blk);
+    assert_eq!(
+        editor.import_ase_palette_into_swatches(&ase_bytes).unwrap(),
+        1
+    );
+    assert_eq!(editor.project.global_swatches().len(), 3);
+
+    let fxg = r##"<Graphic version="2.0" xmlns="http://ns.adobe.com/fxg/2008">
+        <Group id="FxgGroup">
+            <Rect x="10" y="10" width="80" height="40">
+                <fill><SolidColor color="#FF4422"/></fill>
+            </Rect>
+        </Group>
+    </Graphic>"##;
+    editor.import_fxg_xml_command(fxg, "card.fxg").unwrap();
+    editor.project.validate().unwrap();
+
+    let screens = r#"<screens><Slide name="SlideA"/><Form name="FormB"/></screens>"#;
+    editor
+        .import_flash_screens_xml_command(screens, "deck.xml")
+        .unwrap();
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
 }

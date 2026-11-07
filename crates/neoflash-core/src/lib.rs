@@ -2,6 +2,7 @@
 mod mask_composition;
 mod mask_coverage;
 pub use mask_coverage::MaskCoverage;
+pub mod accessibility;
 mod amf;
 pub mod as2_binding;
 pub mod as2_boxing;
@@ -52,6 +53,7 @@ mod history;
 mod library_folders;
 pub mod merge_drawing;
 pub mod model;
+pub mod motion_tools;
 mod pixels;
 mod resource_image;
 mod resources;
@@ -65,8 +67,14 @@ mod timeline_edit;
 mod timeline_sound;
 pub mod timeline_video;
 mod validation;
+pub mod vector_effects;
 mod xml;
 
+pub use accessibility::{
+    AccessibilityDiagnostic, AccessibilityLivePoliteness, AccessibilityTreeNode,
+    ContentAccessibleRole, DocumentAccessibility, ExtendedAccessibility,
+    resolve_frame_accessibility_tree, validate_accessibility_tree,
+};
 pub use authored_layers::{
     AuthoredDraw, AuthoredMaskGroup, AuthoredScene, evaluate_scene, evaluate_scene_with_buttons,
     layer_effective_blend_mode, layer_effective_outline_color, layer_effectively_locked,
@@ -111,6 +119,12 @@ pub use merge_drawing::{
     split_polyline_with_segments, sub_arc_bezier_command, trim_polyline_inside_fill,
 };
 pub use model::*;
+pub use motion_tools::{
+    MotionSketchSample, PreviewWorkArea, PropertyExpression, StageSnapshotAB, TimelineMarker,
+    WigglerConfig, WigglerDimension, WigglerNoiseKind, apply_keyframe_property_expressions,
+    apply_wiggler_to_keyframes, capture_motion_sketch_to_keyframes, deterministic_smooth_noise,
+    evaluate_property_expression, smooth_motion_keyframes,
+};
 pub use pixels::{
     As2BitmapCommand, BitmapError, BitmapRect, MAX_BITMAP_BYTES, MAX_BITMAP_DIMENSION,
     PixelDescriptor, PixelRef, PixelSnapping, PixelWrite,
@@ -163,6 +177,13 @@ pub use timeline_video::{
     VideoSyncMode, collect_crossed_cue_points, compute_frame_video_time_ms, inspect_video_resource,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
+pub use vector_effects::{
+    ElementVectorEffects, EnvelopeWarp, EnvelopeWarpPreset, FreeformGradient, FreeformGradientLine,
+    FreeformGradientPoint, GradientMesh, GradientMeshPatchVertex, PerspectiveGridSpec,
+    PerspectivePlane, ProceduralVectorEffect, VectorBlendSpacing, VectorBlendSpec,
+    apply_envelope_warp_to_path, apply_envelope_warp_to_point, apply_procedural_effect_to_path,
+    expand_vector_effects, generate_vector_blend_steps, sample_freeform_gradient,
+};
 pub use xml::{
     MAX_XML_ATTRIBUTES, MAX_XML_BYTES, MAX_XML_DEPTH, MAX_XML_ITEMS, MAX_XML_NAME_BYTES,
     MAX_XML_STRING_BYTES, XmlAttribute, XmlDeclaration, XmlErrorKind, XmlName, XmlNode,

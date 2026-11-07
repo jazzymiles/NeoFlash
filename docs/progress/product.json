@@ -837,12 +837,18 @@
           "id": "appearance-modifiers-styles",
           "title": "Appearance stack (multiple fills/strokes), non-destructive vector modifiers, pattern brushes, path/area text bindings and linked global swatches/styles",
           "status": "working"
+        },
+        {
+          "id": "vector-effects-mesh-perspective",
+          "title": "Freeform gradients, envelope warps, multi-step vector blends, gradient meshes, perspective grid snapping and procedural vector effects with Expand/Bake",
+          "status": "working"
         }
       ],
       "evidence": [
         "docs/BACKLOG.md",
         "docs/ROADMAP.md",
         "crates/neoflash-core/src/merge_drawing.rs",
+        "crates/neoflash-core/src/vector_effects.rs",
         "crates/neoflash-editor/src/authoring_tools.rs",
         "crates/neoflash-editor/src/authoring_modify.rs",
         "crates/neoflash-editor/src/vector.rs",
@@ -1298,9 +1304,15 @@
           "id": "motion-add-property",
           "title": "Add another property track in the Motion editor",
           "status": "working"
+        },
+        {
+          "id": "motion-tools-expressions-wiggler",
+          "title": "Property expressions, Motion Sketch capture/smoothing, keyframe Wiggler, preview work-area ranges, timeline duration markers and Stage A/B snapshots",
+          "status": "working"
         }
       ],
       "evidence": [
+        "crates/neoflash-core/src/motion_tools.rs",
         "crates/neoflash-editor/src/timeline_panels_tests.rs",
         "crates/neoflash-core/src/evaluate.rs",
         "crates/neoflash-core/tests/core.rs",
@@ -2578,9 +2590,18 @@
           "id": "skew",
           "title": "Skew",
           "status": "working"
+        },
+        {
+          "id": "psd-sequence-svg-fxg-palettes",
+          "title": "Import layered PSD/PSB, numbered image sequences, SVG/PDF/AI/FXG 2.0 vectors, .act/.clr/.ase swatch palettes, Flash screens XML and legacy interchange diagnostics",
+          "status": "working"
         }
       ],
       "evidence": [
+        "crates/neoflash-import/src/psd.rs",
+        "crates/neoflash-import/src/sequence.rs",
+        "crates/neoflash-import/src/vector_fidelity.rs",
+        "crates/neoflash-import/src/legacy_interchange.rs",
         "crates/neoflash-import/src/source.rs",
         "crates/neoflash-import/src/xfl.rs",
         "crates/neoflash-import/src/xfl/media.rs",
@@ -3482,6 +3503,11 @@
           "status": "working"
         },
         {
+          "id": "extended-aria-reading-order",
+          "title": "Document and per-object WAI-ARIA roles, reading order, tab groups, live regions, proximity auto-labeling and accessibility tree diagnostics",
+          "status": "working"
+        },
+        {
           "id": "browser-keyboard-focus",
           "title": "Browser keyboard and focus support",
           "status": "working"
@@ -3498,6 +3524,7 @@
         }
       ],
       "evidence": [
+        "crates/neoflash-core/src/accessibility.rs",
         "crates/neoflash-editor/src/panels/accessibility.rs",
         "docs/WEB.md",
         "docs/VERIFICATION.md",

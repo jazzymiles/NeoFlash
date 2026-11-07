@@ -809,17 +809,18 @@
           const menu=as2StageHost?.menuRef(receiver,name);if(menu)return menu;
           const geometry=geometryHost.as2Ref?.(receiver,name);if(geometry)return geometry;
           const ref=references.get(receiver);if(!ref)return null;const input=display.as2Ref?.(receiver,name);if(input)return input;
-          if(as2DepthManagerHost?.methodNames.includes(name)&&display.descriptor(receiver).owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>as2DepthManagerHost.methods(receiver)[name],set:()=>{throw new TypeError('DepthManager MovieClip methods are read-only.');}};
-          if(name==='attachAudio'&&as2CaptureHost&&display.descriptor(receiver).owner==='movie_clip')return {get:()=>value=>as2CaptureHost.attachAudio(receiver,value),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.attachAudio is read-only.');}};
-          if(name==='attachVideo'&&videoHost&&display.descriptor(receiver).owner==='video')return {get:()=>value=>videoHost.legacyAttachVideo(receiver,value),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('Video.attachVideo is read-only.');}};
-          if(name==='loadVariables'&&as2NetworkHost&&display.descriptor(receiver).owner==='movie_clip')return {get:()=>((url,method)=>as2NetworkHost.load(receiver,url,receiver,method)),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.loadVariables is read-only.');}};if(display.descriptor(receiver).owner!=='text')return null;
+          const owner=display.ownerOf?display.ownerOf(receiver):display.descriptor(receiver).owner;
+          if(as2DepthManagerHost?.methodNames.includes(name)&&owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>as2DepthManagerHost.methods(receiver)[name],set:()=>{throw new TypeError('DepthManager MovieClip methods are read-only.');}};
+          if(name==='attachAudio'&&as2CaptureHost&&owner==='movie_clip')return {get:()=>value=>as2CaptureHost.attachAudio(receiver,value),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.attachAudio is read-only.');}};
+          if(name==='attachVideo'&&videoHost&&owner==='video')return {get:()=>value=>videoHost.legacyAttachVideo(receiver,value),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('Video.attachVideo is read-only.');}};
+          if(name==='loadVariables'&&as2NetworkHost&&owner==='movie_clip')return {get:()=>((url,method)=>as2NetworkHost.load(receiver,url,receiver,method)),has:()=>true,delete:()=>false,set:()=>{throw new TypeError('MovieClip.loadVariables is read-only.');}};if(owner!=='text')return null;
           if(name==='variable')return as2ObjectHost?.variableRef(receiver)||null;
           const property=as2TextHost.as2Ref(ref.key,name);
           if(name==='text'&&property)return {...property,get:()=>{as2ObjectHost?.syncTextVariables();return property.get();},set:value=>{const result=property.set(value);as2ObjectHost?.textChanged(receiver);return result;}};
           return property;
         }});
       }
-      if(global.NeoFlashAS2Object){as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{textVariable:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text',isMovieClip:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='movie_clip',alive:value=>display.alive(value),parentOf:value=>value._parent,readText:value=>textHost.get(references.get(value).key,'text'),writeText:(value,next)=>textHost.update(references.get(value).key,{text:next}),isHTML:value=>as2TextHost.as2Ref(references.get(value).key,'html').get()},nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),caseKey:(receiver,name)=>legacyGlobals.caseKey(receiver,name),globals:frame=>({_root:as2RootFor(frame),_level0:proxyFor([]),_global:legacyGlobals._global}),globalProp:name=>display.as2GlobalPropRef(name),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
+      if(global.NeoFlashAS2Object){const ownerOf=value=>display.ownerOf?display.ownerOf(value):display.descriptor(value).owner;as2ObjectHost=global.NeoFlashAS2Object.create(wasm,{textVariable:{isText:value=>references.has(value)&&display.alive(value)&&ownerOf(value)==='text',isMovieClip:value=>references.has(value)&&display.alive(value)&&ownerOf(value)==='movie_clip',alive:value=>display.alive(value),parentOf:value=>value._parent,readText:value=>textHost.get(references.get(value).key,'text'),writeText:(value,next)=>textHost.update(references.get(value).key,{text:next}),isHTML:value=>as2TextHost.as2Ref(references.get(value).key,'html').get()},nativeRef:(receiver,name)=>legacyGlobals.nativeRef?.(receiver,name),caseKey:(receiver,name)=>legacyGlobals.caseKey(receiver,name),globals:frame=>({_root:as2RootFor(frame),_level0:proxyFor([]),_global:legacyGlobals._global}),globalProp:name=>display.as2GlobalPropRef(name),isNative:value=>references.has(value),isProject:value=>program?.enumerationKeys?.(value)!==null&&program?.enumerationKeys?.(value)!==undefined});legacyGlobals=Object.freeze({...legacyGlobals,objects:as2ObjectHost});}
       if(global.NeoFlashAS2Binding)as2BindingHost=global.NeoFlashAS2Binding.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
       if(global.NeoFlashAS2Data)as2DataHost=global.NeoFlashAS2Data.create(wasm,{EventDispatcher:as2PlatformHost.EventDispatcher});
       if(global.NeoFlashAS2Services&&netHost&&xmlHost)as2ServicesHost=global.NeoFlashAS2Services.create({wasm,net:netHost,LegacyXML:xmlHost.LegacyXML,EventDispatcher:as2PlatformHost.EventDispatcher,ComponentMixins:as2BindingHost?.builtins["mx.data.binding.ComponentMixins"],onError:netFailure,afterEvent:afterTimerEvent});
@@ -1245,10 +1246,11 @@
       function assertAlive() {
         if (!live()) throw new Error(`Display object ${key} was removed or replaced.`);
       }
+      function proxyOwner(){return display?(display.ownerOf?display.ownerOf(proxy):display.descriptor(proxy).owner):null;}
       function ownsTimelineMetadata(name){
         if(!Object.hasOwn(timelineMetadataProperties,name))return false;
         assertAlive();
-        return !objectRef||display?.descriptor(proxy).owner==='movie_clip';
+        return !objectRef||proxyOwner()==='movie_clip';
       }
       function currentSceneAndFrame(meta=null){
         if(sceneCount()>1){
@@ -1297,13 +1299,13 @@
         if(Object.hasOwn(target,name))return Reflect.get(target,name,proxy);
         if(Object.hasOwn(custom,name))return custom[name];
         if(Reflect.has(target,name))return Reflect.get(target,name,proxy);
-        if(objectRef){const child=display.children(proxy).find(node=>node.name===name);return child?display.nodeProxy(child):undefined;}
+        if(objectRef){const child=display.childByName?display.childByName(proxy,name):display.children(proxy).find(node=>node.name===name);return child?display.nodeProxy(child):undefined;}
         const child=JSON.parse(player.child_path(key,name));return child?proxyFor(child):undefined;
       }
       function dynamicHas(name){
         if(Reflect.has(target,name)||Object.hasOwn(custom,name))return true;
         if(typeof name!=='string')return false;
-        if(objectRef)return display.children(proxy).some(node=>node.name===name);
+        if(objectRef)return display.hasChild?display.hasChild(proxy,name):display.children(proxy).some(node=>node.name===name);
         return JSON.parse(player.child_path(key,name))!==null;
       }
       function dynamicSet(name,value){
@@ -1384,10 +1386,11 @@
       }
       const proxy = new Proxy(target, {
         has(_target,name){
+          if(typeof name==='string'&&(Object.hasOwn(custom,name)||Object.hasOwn(target,name))&&live())return true;
           return nativeHas(name)||dynamicHas(name);
         },
         deleteProperty(_target,name){
-          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(display.descriptor(proxy).owner))return as2StageHost.menuRef(proxy,'menu').delete();
+          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(proxyOwner()))return as2StageHost.menuRef(proxy,'menu').delete();
           return !nativeHas(name)&&dynamicDelete(name);
         },
         get(_target, name) {
@@ -1395,7 +1398,7 @@
           if (name === 'toString') return () => `[NeoFlash ${key}]`;
           if (name === 'toJSON') return () => objectRef?({object_ref:objectRef}):({path});
           if (typeof name !== 'string') return undefined;
-          if (name === 'menu' && as2StageHost && display && ['movie_clip','button','text'].includes(display.descriptor(proxy).owner)) return as2StageHost.menuRef(proxy,'menu').get();
+          if (name === 'menu' && as2StageHost && display && ['movie_clip','button','text'].includes(proxyOwner())) return as2StageHost.menuRef(proxy,'menu').get();
           if (name === '_root' || name === 'root') {assertAlive();return name==='root'&&objectRef&&!display.descriptor(proxy).on_stage?null:name==='_root'?as2RootFor(proxy):proxyFor([]);}
           if (name === '_parent' || name === 'parent') {assertAlive();const parent=display?display.parentSpace(proxy):path.length?proxyFor(path.slice(0,-1)):stageHost?.stage||null;return name==='_parent'&&parent===stageHost?.stage?null:parent;}
           if (name === 'currentFrame' && sceneCount() > 1) {assertAlive();return JSON.parse(call('clip_metadata')).scene_frame;} // AS3 frames are scene-relative.
@@ -1418,7 +1421,7 @@
         },
         set(_target, name, value) {
           if (typeof name !== 'string') return false;
-          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(display.descriptor(proxy).owner)){as2StageHost.menuRef(proxy,'menu').set(value);return true;}
+          if(name==='menu'&&as2StageHost&&display&&['movie_clip','button','text'].includes(proxyOwner())){as2StageHost.menuRef(proxy,'menu').set(value);return true;}
           if(airHost?.hasDisplayProperty?.(proxy,name)){assertAlive();if(airHost.setDisplayProperty(proxy,name,value))return true;}
           if(display&&display.set(proxy,name,value)){if(name==='text')as2ObjectHost?.textChanged(proxy);return true;}
           if (name === 'visible' || name === '_visible') {
@@ -1445,7 +1448,7 @@
         },
       });
       const ownerNativeKeys=()=>{
-        const owner=objectRef&&display&&live()?display.descriptor(proxy).owner:null;
+        const owner=objectRef&&display&&live()?proxyOwner():null;
         const common=['_width','_height','_name','_target','_framesloaded','_url','_droptarget','_highquality','_focusrect','_soundbuftime','_quality','_xmouse','_ymouse'];
         if(owner==='movie_clip')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','tabChildren','trackAsMenu','focusEnabled','hitArea','menu','_lockroot','loadVariables','onLoad','onData','onUnload','onKeyDown','onKeyUp','onMouseDown','onMouseUp','onMouseMove','onSetFocus','onKillFocus'];
         if(owner==='button')return [...common,'enabled','useHandCursor','tabEnabled','tabIndex','trackAsMenu','menu','onKeyDown','onKeyUp','onSetFocus','onKillFocus'];
@@ -1459,7 +1462,7 @@
         const baseDispatch=methods.dispatchEvent;
         methods.dispatchEvent=event=>{
           const ok=baseDispatch(event);
-          if(objectRef&&display&&live()&&display.descriptor(proxy).owner==='text_line')fte3dHost.forwardTextLineEvent(proxy,event);
+          if(objectRef&&display&&live()&&proxyOwner()==='text_line')fte3dHost.forwardTextLineEvent(proxy,event);
           return ok;
         };
       }

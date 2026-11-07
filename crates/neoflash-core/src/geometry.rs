@@ -1681,14 +1681,8 @@ pub fn apply_vector_modifier(
                 let mirrored: Vec<PathCommand> = out
                     .iter()
                     .map(|cmd| match *cmd {
-                        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
-                            x: 2.0 * ax - x,
-                            y,
-                        },
-                        PathCommand::LineTo { x, y } => PathCommand::LineTo {
-                            x: 2.0 * ax - x,
-                            y,
-                        },
+                        PathCommand::MoveTo { x, y } => PathCommand::MoveTo { x: 2.0 * ax - x, y },
+                        PathCommand::LineTo { x, y } => PathCommand::LineTo { x: 2.0 * ax - x, y },
                         PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
                             cx: 2.0 * ax - cx,
                             cy,
@@ -1719,14 +1713,8 @@ pub fn apply_vector_modifier(
                 let mirrored: Vec<PathCommand> = out
                     .iter()
                     .map(|cmd| match *cmd {
-                        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
-                            x,
-                            y: 2.0 * ay - y,
-                        },
-                        PathCommand::LineTo { x, y } => PathCommand::LineTo {
-                            x,
-                            y: 2.0 * ay - y,
-                        },
+                        PathCommand::MoveTo { x, y } => PathCommand::MoveTo { x, y: 2.0 * ay - y },
+                        PathCommand::LineTo { x, y } => PathCommand::LineTo { x, y: 2.0 * ay - y },
                         PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
                             cx,
                             cy: 2.0 * ay - cy,
@@ -1958,10 +1946,7 @@ pub fn expand_pattern_brush_stroke(
                     let ang = guide.tangent_at(s).to_radians();
                     let (sin, cos) = ang.sin_cos();
                     let map_pt = |x: f64, y: f64| -> [f64; 2] {
-                        [
-                            base[0] + cos * x - sin * y,
-                            base[1] + sin * x + cos * y,
-                        ]
+                        [base[0] + cos * x - sin * y, base[1] + sin * x + cos * y]
                     };
                     for cmd in tile_commands {
                         out.push(match *cmd {
@@ -2078,9 +2063,9 @@ pub fn evaluate_element_appearance(
             ) => {
                 let cols = (*columns).clamp(1, 8) as usize;
                 let total_w = bounds[2].max(20.0);
-                let col_w =
-                    ((total_w - (*gutter) * ((cols.saturating_sub(1)) as f64)) / (cols as f64))
-                        .max(10.0);
+                let col_w = ((total_w - (*gutter) * ((cols.saturating_sub(1)) as f64))
+                    / (cols as f64))
+                    .max(10.0);
                 let max_chars_per_line = ((col_w / (font_size * 0.55)).floor() as usize).max(1);
                 let line_h = (font_size * 1.25).max(4.0);
                 let max_lines_per_col = ((bounds[3].max(line_h) / line_h).floor() as usize).max(1);

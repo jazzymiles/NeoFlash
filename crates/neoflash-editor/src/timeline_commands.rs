@@ -1555,4 +1555,384 @@ impl Editor {
         });
         true
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_document_accessibility_settings(
+        &mut self,
+        settings: neoflash_core::DocumentAccessibility,
+    ) {
+        self.finish_edits();
+        self.transact_named("Set document accessibility", |editor| {
+            editor.project.set_document_accessibility(&settings);
+        });
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_element_extended_accessibility(
+        &mut self,
+        ext: neoflash_core::ExtendedAccessibility,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set extended accessibility", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.set_extended_accessibility(ext);
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn resolve_current_accessibility_tree(
+        &self,
+    ) -> Vec<neoflash_core::AccessibilityTreeNode> {
+        neoflash_core::resolve_frame_accessibility_tree(
+            &self.project,
+            &self.symbol().timeline,
+            self.frame,
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn validate_current_accessibility_tree(
+        &self,
+    ) -> Vec<neoflash_core::AccessibilityDiagnostic> {
+        neoflash_core::validate_accessibility_tree(
+            &self.project,
+            &self.symbol().timeline,
+            self.frame,
+        )
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_element_vector_effects(
+        &mut self,
+        effects: neoflash_core::ElementVectorEffects,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set vector effects", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.set_vector_effects(effects);
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn expand_element_vector_effects_command(&mut self, element_id: &str) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if key.vector_effects(element_id).is_none() {
+            return false;
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        let mut expanded = false;
+        self.transact_named("Expand vector effects", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                expanded = k.expand_element_vector_effects(&eid);
+            }
+        });
+        expanded
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_timeline_perspective_grid(
+        &mut self,
+        grid: Option<neoflash_core::PerspectiveGridSpec>,
+    ) {
+        self.finish_edits();
+        self.transact_named("Set perspective grid", |editor| {
+            editor.symbol_mut().timeline.set_perspective_grid(grid);
+        });
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_keyframe_property_expression(
+        &mut self,
+        expr: neoflash_core::PropertyExpression,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set property expression", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                if let Some(slot) = k
+                    .property_expressions
+                    .iter_mut()
+                    .find(|p| p.property == expr.property)
+                {
+                    *slot = expr;
+                } else {
+                    k.property_expressions.push(expr);
+                }
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn apply_motion_sketch_to_element(
+        &mut self,
+        element_id: &str,
+        samples: &[neoflash_core::MotionSketchSample],
+        smoothing_tolerance: f64,
+        smooth_strength: f64,
+    ) -> usize {
+        self.finish_edits();
+        if !self.layer_editable() || samples.is_empty() {
+            return 0;
+        }
+        let fps = self.project.fps as f64;
+        let start_frame = self.frame;
+        let raw_pts = neoflash_core::capture_motion_sketch_to_keyframes(
+            samples,
+            fps,
+            start_frame,
+            smoothing_tolerance,
+        );
+        let pts = neoflash_core::smooth_motion_keyframes(&raw_pts, smooth_strength);
+        if pts.is_empty() {
+            return 0;
+        }
+        let layer_idx = self.layer;
+        let eid = element_id.to_owned();
+        let mut count = 0usize;
+        self.transact_named("Motion sketch capture", |editor| {
+            let max_frame = pts.iter().map(|(f, _)| *f).max().unwrap_or(start_frame);
+            let sym = editor.symbol_mut();
+            sym.timeline.frame_count = sym.timeline.frame_count.max(max_frame + 1);
+            let layer = &mut sym.timeline.layers[layer_idx];
+            for &(f, pos) in &pts {
+                let mut elements = neoflash_core::sample_layer(layer, f);
+                if let Some(el) = elements.iter_mut().find(|e| e.id == eid) {
+                    el.transform.x = pos[0];
+                    el.transform.y = pos[1];
+                }
+                if let Some(existing) = layer.keyframes.iter_mut().find(|k| k.frame == f) {
+                    existing.elements = elements;
+                } else {
+                    layer.keyframes.push(neoflash_core::Keyframe {
+                        frame: f,
+                        elements,
+                        ..Default::default()
+                    });
+                }
+                count += 1;
+            }
+            layer.normalize_motion_keys();
+        });
+        count
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn apply_wiggler_to_element(
+        &mut self,
+        element_id: &str,
+        start_frame: u32,
+        end_frame: u32,
+        config: &neoflash_core::WigglerConfig,
+    ) -> usize {
+        self.finish_edits();
+        if !self.layer_editable() || end_frame < start_frame {
+            return 0;
+        }
+        let layer_idx = self.layer;
+        let fps = self.project.fps as f64;
+        let eid = element_id.to_owned();
+        let cfg = config.clone();
+        let mut modified = 0usize;
+        self.transact_named("Apply Wiggler", |editor| {
+            let sym = editor.symbol_mut();
+            sym.timeline.frame_count = sym.timeline.frame_count.max(end_frame + 1);
+            let layer = &mut sym.timeline.layers[layer_idx];
+            modified = neoflash_core::apply_wiggler_to_keyframes(
+                layer,
+                &eid,
+                start_frame,
+                end_frame,
+                fps,
+                &cfg,
+            );
+        });
+        modified
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_timeline_work_area(
+        &mut self,
+        work_area: Option<neoflash_core::PreviewWorkArea>,
+    ) {
+        self.finish_edits();
+        self.transact_named("Set preview work area", |editor| {
+            editor.symbol_mut().timeline.set_work_area(work_area);
+        });
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_timeline_markers(&mut self, markers: Vec<neoflash_core::TimelineMarker>) {
+        self.finish_edits();
+        self.transact_named("Set timeline markers", |editor| {
+            editor.symbol_mut().timeline.set_markers(markers);
+        });
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn capture_stage_snapshot_ab(&self, label: &str) -> neoflash_core::StageSnapshotAB {
+        let mut elements = Vec::new();
+        let tl = &self.symbol().timeline;
+        for layer in &tl.layers {
+            if layer.visible {
+                elements.extend(neoflash_core::sample_layer_in(tl, layer, self.frame));
+            }
+        }
+        neoflash_core::StageSnapshotAB {
+            label: label.to_owned(),
+            frame: self.frame,
+            elements,
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn import_act_palette_into_swatches(
+        &mut self,
+        bytes: &[u8],
+        prefix: &str,
+    ) -> Result<usize, neoflash_import::ImportError> {
+        let imported = neoflash_import::import_act_palette(bytes, prefix)?;
+        let count = imported.len();
+        self.finish_edits();
+        self.transact_named("Import ACT palette", |editor| {
+            let mut swatches = editor.project.global_swatches();
+            swatches.extend(imported);
+            editor.project.set_global_swatches(&swatches);
+        });
+        Ok(count)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn import_clr_palette_into_swatches(
+        &mut self,
+        bytes: &[u8],
+        prefix: &str,
+    ) -> Result<usize, neoflash_import::ImportError> {
+        let imported = neoflash_import::import_clr_palette(bytes, prefix)?;
+        let count = imported.len();
+        self.finish_edits();
+        self.transact_named("Import CLR palette", |editor| {
+            let mut swatches = editor.project.global_swatches();
+            swatches.extend(imported);
+            editor.project.set_global_swatches(&swatches);
+        });
+        Ok(count)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn import_ase_palette_into_swatches(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<usize, neoflash_import::ImportError> {
+        let imported = neoflash_import::import_ase_palette(bytes)?;
+        let count = imported.len();
+        self.finish_edits();
+        self.transact_named("Import ASE palette", |editor| {
+            let mut swatches = editor.project.global_swatches();
+            swatches.extend(imported);
+            editor.project.set_global_swatches(&swatches);
+        });
+        Ok(count)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn import_fxg_xml_command(
+        &mut self,
+        xml_text: &str,
+        source_name: &str,
+    ) -> Result<neoflash_import::ImportReport, neoflash_import::ImportError> {
+        self.finish_edits();
+        let mut trial = self.project.clone();
+        let report = neoflash_import::import_fxg_into_project(&mut trial, xml_text, source_name)?;
+        self.transact_named("Import FXG 2.0", |editor| {
+            editor.project = trial;
+        });
+        Ok(report)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn import_flash_screens_xml_command(
+        &mut self,
+        xml_text: &str,
+        source_name: &str,
+    ) -> Result<neoflash_import::ImportReport, neoflash_import::ImportError> {
+        self.finish_edits();
+        let mut trial = self.project.clone();
+        let report = neoflash_import::import_flash_screens_xml_into_project(
+            &mut trial,
+            xml_text,
+            source_name,
+        )?;
+        self.transact_named("Import Flash Screens XML", |editor| {
+            editor.project = trial;
+        });
+        Ok(report)
+    }
 }

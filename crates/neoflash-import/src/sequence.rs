@@ -95,7 +95,10 @@ fn is_supported_image_ext(ext: &str) -> bool {
 
 /// Parse a filename into `(prefix, number, digit_padding, extension)` if it ends with a numeric
 /// index before a supported image extension (e.g. `walk_0001.png` -> `("walk_", 1, 4, "png")`).
-pub fn parse_numbered_image_filename(name: &str, input_index: usize) -> Option<NumberedSequenceItem> {
+pub fn parse_numbered_image_filename(
+    name: &str,
+    input_index: usize,
+) -> Option<NumberedSequenceItem> {
     let trimmed = name.trim();
     let file_name = trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed);
     let (stem, ext) = file_name.rsplit_once('.')?;
@@ -229,9 +232,7 @@ fn decode_or_normalize_image_bytes(bytes: &[u8]) -> Result<(Vec<u8>, String, u32
 }
 
 fn unique_resource_path(project: &Project, desired: &str) -> String {
-    let clean = desired
-        .trim_start_matches(['/', '\\'])
-        .replace('\\', "/");
+    let clean = desired.trim_start_matches(['/', '\\']).replace('\\', "/");
     let base = if clean.is_empty() {
         "sequence/frame.png".to_owned()
     } else if !clean.contains('/') {
@@ -297,7 +298,11 @@ pub fn import_image_sequence_bytes(
     };
 
     let step = options.frame_step.max(1);
-    let seq_base_name = if detection.prefix.trim_end_matches(['_', '-', '.', ' ']).is_empty() {
+    let seq_base_name = if detection
+        .prefix
+        .trim_end_matches(['_', '-', '.', ' '])
+        .is_empty()
+    {
         "Image Sequence".to_owned()
     } else {
         detection
@@ -374,10 +379,12 @@ pub fn import_image_sequence_bytes(
                     .unwrap_or(&item.original_name)
                     .rsplit_once('.')
                     .map_or(item.original_name.as_str(), |(s, _)| s);
-                let rel_path = unique_resource_path(project, &format!("sequence/{stem}.{desired_ext}"));
+                let rel_path =
+                    unique_resource_path(project, &format!("sequence/{stem}.{desired_ext}"));
                 let res_id = new_id("resource");
-                let unit = ResourceUnit::from_bytes(res_id.clone(), rel_path, media_type, &norm_bytes)
-                    .map_err(|e| ImportError::Container(e.to_string()))?;
+                let unit =
+                    ResourceUnit::from_bytes(res_id.clone(), rel_path, media_type, &norm_bytes)
+                        .map_err(|e| ImportError::Container(e.to_string()))?;
                 project.resources.push(unit);
 
                 let (tx, ty) = if options.center_on_stage {
@@ -417,7 +424,10 @@ pub fn import_image_sequence_bytes(
                 let pw = (project.width as f64 * 0.25).max(32.0);
                 let ph = (project.height as f64 * 0.25).max(32.0);
                 let (tx, ty) = if options.center_on_stage {
-                    ((project.width as f64 - pw) * 0.5, (project.height as f64 - ph) * 0.5)
+                    (
+                        (project.width as f64 - pw) * 0.5,
+                        (project.height as f64 - ph) * 0.5,
+                    )
                 } else {
                     (0.0, 0.0)
                 };

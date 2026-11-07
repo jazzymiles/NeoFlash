@@ -1,5 +1,6 @@
 //! Strict, read-only legacy inspection and deliberately bounded XFL conversion.
 mod legacy;
+pub mod legacy_interchange;
 pub mod psd;
 pub mod sequence;
 mod source;
@@ -19,6 +20,7 @@ pub use legacy::{
     BinaryStreamInspection, BinaryStreamRole, BinaryTimelineDocument, RecordCounts,
     read_binary_contents, read_binary_geometry, read_binary_timeline,
 };
+pub use legacy_interchange::*;
 pub use psd::*;
 pub use sequence::*;
 pub use swc::{

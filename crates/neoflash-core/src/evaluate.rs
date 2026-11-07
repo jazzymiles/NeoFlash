@@ -537,15 +537,21 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
     {
         let mut elements = sample_motion(layer, frame);
         let start_key = motion_span(layer, frame).map(|(s, _, _)| s).unwrap_or(key);
-        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), start_key, None, 0.0);
+        return apply_keyframe_rigs_and_appearances(
+            elements.as_mut_slice(),
+            start_key,
+            None,
+            0.0,
+            frame,
+        );
     }
     let Some(ease) = key.tween else {
         let mut elements = key.elements.clone();
-        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0);
+        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0, frame);
     };
     let Some(next) = next_key(layer, key.frame) else {
         let mut elements = key.elements.clone();
-        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0);
+        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0, frame);
     };
     let t = easing(
         (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
@@ -569,14 +575,10 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
                 .map_or_else(|| e.clone(), |n| interpolate_classic(e, n, t, key))
         })
         .collect();
-    apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, Some(next), t)
+    apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, Some(next), t, frame)
 }
 
-fn interpolate_asset_warp_rig(
-    a: &AssetWarpRig,
-    b: Option<&AssetWarpRig>,
-    t: f64,
-) -> AssetWarpRig {
+fn interpolate_asset_warp_rig(a: &AssetWarpRig, b: Option<&AssetWarpRig>, t: f64) -> AssetWarpRig {
     let Some(b) = b else {
         return a.clone();
     };
@@ -616,7 +618,21 @@ fn apply_keyframe_rigs_and_appearances(
     key: &Keyframe,
     next: Option<&Keyframe>,
     t: f64,
+    frame: u32,
 ) -> Vec<Element> {
+    // 0. Apply deterministic property expressions (`property_expressions`, T-121).
+    if !key.property_expressions.is_empty() {
+        for (idx, el) in elements.iter_mut().enumerate() {
+            crate::motion_tools::apply_keyframe_property_expressions(
+                &mut el.transform,
+                &key.property_expressions,
+                frame,
+                24.0,
+                idx as u32,
+            );
+        }
+    }
+
     // 1. Solve IK armatures (interpolating target_pos when tweened).
     for armature in &key.ik_armatures {
         let mut arm = armature.clone();
@@ -680,16 +696,42 @@ fn apply_keyframe_rigs_and_appearances(
         }
     }
 
+    // 3b. Apply non-destructive vector effects (`vector_effects`, T-120).
+    let mut working_elements: Vec<Element> = if key.vector_effects.is_empty() {
+        elements.to_vec()
+    } else {
+        let snapshot: Vec<Element> = elements.to_vec();
+        let mut vec_out = Vec::with_capacity(elements.len());
+        for el in elements.iter() {
+            if let Some(veff) = key.vector_effects(&el.id) {
+                let expanded = crate::vector_effects::expand_vector_effects(el, veff);
+                vec_out.push(expanded.clone());
+                if let Some(blend_spec) = &veff.vector_blend
+                    && let Some(target_el) = snapshot
+                        .iter()
+                        .find(|cand| cand.id == blend_spec.target_element_id)
+                {
+                    vec_out.extend(crate::vector_effects::generate_vector_blend_steps(
+                        &expanded, target_el, blend_spec,
+                    ));
+                }
+            } else {
+                vec_out.push(el.clone());
+            }
+        }
+        vec_out
+    };
+
     // 4. Expand non-destructive appearance stacks and vector modifiers (`appearances`).
     if key.appearances.is_empty() {
-        return elements.to_vec();
+        return working_elements;
     }
-    let mut out = Vec::with_capacity(elements.len());
-    for el in elements.iter() {
+    let mut out = Vec::with_capacity(working_elements.len());
+    for el in working_elements.drain(..) {
         if let Some(app) = key.appearance(&el.id) {
-            out.extend(crate::geometry::evaluate_element_appearance(el, app));
+            out.extend(crate::geometry::evaluate_element_appearance(&el, app));
         } else {
-            out.push(el.clone());
+            out.push(el);
         }
     }
     out
@@ -742,11 +784,7 @@ pub fn sample_timeline_camera(timeline: &Timeline, frame: u32) -> Option<CameraP
 }
 
 /// Compute the 2D camera view + depth-parallax matrix `[a, b, c, d, tx, ty]` for a layer at `z_depth` (T-113).
-pub fn camera_layer_matrix(
-    camera: &CameraPose,
-    z_depth: f64,
-    stage_center: [f64; 2],
-) -> [f64; 6] {
+pub fn camera_layer_matrix(camera: &CameraPose, z_depth: f64, stage_center: [f64; 2]) -> [f64; 6] {
     let focal = camera.focal_length.max(10.0);
     let parallax = (focal / (focal + z_depth)).clamp(0.05, 20.0);
     let eff_zoom = lerp(1.0, camera.zoom.clamp(0.01, 100.0), parallax);

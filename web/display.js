@@ -121,16 +121,176 @@
       if (!staticTextLifetimes.has(id)) staticTextLifetimes.set(id, !node.name);
       return staticTextLifetimes.get(id);
     }
-    function nodes() { return graph?JSON.parse(player.runtime_snapshot_json()).objects:JSON.parse(player.display_nodes_json()); }
+    let snapshotCache=null,nodesCache=null,childMapCache=null;
+    const ownerCache=new Map();
+    const readOnlyPlayerMethods=new Set([
+      'runtime_snapshot_json','display_nodes_json','scene_json','accessibility_json',
+      'object_ref','object_alive','lifetime_id','current_frame','total_frames',
+      'is_playing','script_overflowed','is_dispatch_current','timeline_sound_resources_json',
+      'property','object_property','visible','object_visible',
+      'clip_frame','object_frame','clip_frame_count','object_frame_count',
+      'clip_metadata','object_metadata','resolve_frame','object_resolve_frame',
+      'resolve_frame_as2','object_resolve_frame_as2','scene_count','object_scene_count',
+      'resolve_goto','object_resolve_goto','scene_step','object_scene_step',
+      'child_path','stage_children_json','object_input_info','object_text_info',
+      'object_video_info','object_bitmap','object_smoothing','object_pixel_snapping',
+      'object_mask','object_scroll_rect','object_filters','object_matrix',
+      'object_color_transform','as2_get_depth','as2_next_depth','as2_child_at_depth',
+      'as2_target_path','as2_resolve_target','as2_resolve_target_case','as2_root',
+      'as2_is_frame_loaded','bitmap_info','bitmap_pixels','bitmap_pixels_transformed',
+      'bitmap_get_pixels','bitmap_get_pixel','bitmap_histogram_json','bitmap_encode_png',
+      'bitmap_encode_jpeg','bitmap_generate_filter_rect','bitmap_draw_snapshot',
+      'filter_padding','filter_rgba','amf_encode','amf_decode','sol_encode','sol_decode',
+      'text_layout_json','text_query_json','portable_measure_text_json',
+      'parse_html_text_json','serialize_html_text_json','text_to_outlines_json',
+      'loader_content',
+    ]);
+    const visualOnlyPlayerMethods=new Set([
+      'set_property','object_set_property','set_visible','object_set_visible',
+      'set_text','object_set_text','set_text_color','object_set_text_color',
+      'object_text_update','object_text_fit_portable','as2_text_fit',
+      'object_set_matrix','object_set_color_transform','object_set_filters',
+      'object_set_scroll_rect','object_set_mask','object_set_bitmap',
+      'object_set_smoothing','object_set_pixel_snapping','object_video_update',
+      'graphics_apply','graphics_copy_from','set_morph_shape_ops','set_text_line_draws',
+      'sound_commands_json','stop_all_sounds','set_playing',
+      'bitmap_create','bitmap_set_pixels','bitmap_color_transform','bitmap_apply_filter',
+      'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_set_pixel','bitmap_fill_rect',
+      'bitmap_copy_pixels','bitmap_clone','bitmap_scroll','bitmap_dispose','pixel_decode','pixel_release',
+    ]);
+    if(!player.__nfInvalidators){
+      player.__nfInvalidators=[];
+      player.__nfRawSnapshot=null;
+      const methodNames=new Set();
+      for(let cur=player;cur&&cur!==Object.prototype;cur=Object.getPrototypeOf(cur)){
+        for(const k of Object.getOwnPropertyNames(cur)){
+          if(k==='constructor'||k==='free'||k.startsWith('__'))continue;
+          const desc=Object.getOwnPropertyDescriptor(cur,k);
+          if(desc&&typeof desc.value==='function')methodNames.add(k);
+        }
+      }
+      for(const methodName of methodNames){
+        if(methodName==='runtime_snapshot_json'){
+          const orig=player.runtime_snapshot_json;
+          Object.defineProperty(player,'runtime_snapshot_json',{
+            configurable:true,writable:true,
+            value:function(...args){
+              if(player.__nfRawSnapshot!==null)return player.__nfRawSnapshot;
+              const raw=orig.apply(this,args);
+              player.__nfRawSnapshot=raw;
+              return raw;
+            },
+          });
+          continue;
+        }
+        if(readOnlyPlayerMethods.has(methodName))continue;
+        const orig=player[methodName];
+        const visualOnly=visualOnlyPlayerMethods.has(methodName);
+        Object.defineProperty(player,methodName,{
+          configurable:true,writable:true,
+          value:function(...args){
+            let isReadOnlyCmd=false;
+            if((methodName==='as2_settings_command'||methodName==='as2_render_command'||methodName==='as2_input_command')&&typeof args[args.length-1]==='string'&&args[args.length-1].includes('"op":"get"')){
+              isReadOnlyCmd=true;
+            }
+            if(!isReadOnlyCmd){
+              player.__nfRawSnapshot=null;
+              for(const inv of player.__nfInvalidators)inv(visualOnly,methodName==='reset');
+            }
+            return orig.apply(this,args);
+          },
+        });
+      }
+    }
+    player.__nfInvalidators.push((visualOnly,isReset)=>{
+      snapshotCache=null;
+      nodesCache=null;
+      if(!visualOnly)childMapCache=null;
+      if(isReset)ownerCache.clear();
+    });
+    function indexNodes(list){
+      if(!list.__byKey){
+        const byKey=new Map();
+        for(const node of list){
+          const k=nodeKey(node);
+          byKey.set(k,node);
+          const lifetime=graph?node.object_ref?.generation:node.lifetime_id;
+          if(lifetime){
+            const ck=`${k}\0${lifetime}`;
+            if(!ownerCache.has(ck))ownerCache.set(ck,{owner:node.owner,staticText:isStaticTextNode(node)});
+          }
+        }
+        Object.defineProperty(list,'__byKey',{value:byKey,enumerable:false});
+      }
+      return list;
+    }
+    function snapshot(){
+      if(!graph)return null;
+      if(!snapshotCache){
+        snapshotCache=JSON.parse(player.runtime_snapshot_json());
+        nodesCache=indexNodes(snapshotCache.objects);
+      }
+      return snapshotCache;
+    }
+    function nodes() {
+      if(nodesCache)return nodesCache;
+      if(graph)return snapshot().objects;
+      nodesCache=indexNodes(JSON.parse(player.display_nodes_json()));
+      return nodesCache;
+    }
     function descriptor(target, list=nodes()) {
       const ref=referenceOf(target);
       if (!ref || !alive(target)) throw new ReferenceError('Display object was removed, replaced, or belongs to another player.');
-      const result=list.find(node=>nodeKey(node)===ref.key);
+      const result=list.__byKey?list.__byKey.get(ref.key):list.find(node=>nodeKey(node)===ref.key);
       if (!result) throw new ReferenceError('Display object is no longer active.');
+      const ck=`${ref.key}\0${ref.lifetime}`;
+      if(!ownerCache.has(ck))ownerCache.set(ck,{owner:result.owner,staticText:isStaticTextNode(result)});
       return result;
     }
+    function ownerInfo(target, list=null) {
+      const ref=referenceOf(target);
+      if (!ref || !alive(target)) throw new ReferenceError('Display object was removed, replaced, or belongs to another player.');
+      const ck=`${ref.key}\0${ref.lifetime}`;
+      let info=ownerCache.get(ck);
+      if(!info){
+        const node=descriptor(target,list||nodes());
+        info={owner:node.owner,staticText:isStaticTextNode(node)};
+        ownerCache.set(ck,info);
+      }
+      return info;
+    }
+    function ownerOf(target, list=null) {
+      return ownerInfo(target,list).owner;
+    }
+    function ensureChildMap() {
+      if(childMapCache)return childMapCache;
+      const list=nodes();
+      childMapCache=new Map();
+      for(const node of list){
+        const k=nodeKey(node),byName=new Map();
+        const childList=graph
+          ?(node.children||[]).map(ref=>list.__byKey?list.__byKey.get(refKey(ref)):list.find(n=>nodeKey(n)===refKey(ref))).filter(Boolean)
+          :list.filter(n=>n.path.length===node.path.length+1&&within(n.path,node.path));
+        for(const ch of childList){
+          if(ch.name&&!byName.has(ch.name))byName.set(ch.name,{name:ch.name,object_ref:ch.object_ref,path:ch.path});
+        }
+        childMapCache.set(k,{byName});
+      }
+      return childMapCache;
+    }
+    function childByName(target, name) {
+      const ref=referenceOf(target);
+      if(!ref||!alive(target))return undefined;
+      return ensureChildMap().get(ref.key)?.byName.get(name);
+    }
+    function hasChild(target, name) {
+      const ref=referenceOf(target);
+      if(!ref||!alive(target))return false;
+      const entry=ensureChildMap().get(ref.key);
+      return Boolean(entry?.byName.has(name));
+    }
     function parentNode(node,list) {
-      return graph?(node.parent_ref?list.find(n=>nodeKey(n)===refKey(node.parent_ref)):null):list.find(n=>samePath(n.path,node.path.slice(0,-1))&&node.path.length>0);
+      return graph?(node.parent_ref?(list.__byKey?list.__byKey.get(refKey(node.parent_ref)):list.find(n=>nodeKey(n)===refKey(node.parent_ref))):null):list.find(n=>samePath(n.path,node.path.slice(0,-1))&&node.path.length>0);
     }
     function descendant(node,parent,list) {
       if(!graph)return within(node.path,parent.path);
@@ -279,7 +439,7 @@
     Object.defineProperties(Transform,{__nfIs:{value:value=>transformTargets.has(value)},__nfInitialize:{value:()=>{throw new TypeError('Native Transform subclassing is not supported.');}}});
     function transform(target){descriptor(target);if(!transformCache.has(target))transformCache.set(target,new Transform(target));return transformCache.get(target);}
     function parentSpace(target) {const list=nodes(),node=descriptor(target,list),parent=parentNode(node,list);return parent?nodeProxy(parent):node.on_stage===false?null:getStage();}
-    function children(target) {const list=nodes(),parent=descriptor(target,list);return graph?parent.children.map(ref=>list.find(node=>nodeKey(node)===refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
+    function children(target) {const list=nodes(),byKey=list.__byKey||indexNodes(list),parent=descriptor(target,list);return graph?parent.children.map(ref=>byKey.get(refKey(ref))).filter(Boolean):list.filter(node=>node.path.length===parent.path.length+1&&within(node.path,parent.path));}
     const containerOwners=['movie_clip','sprite','graphic','loader','text_line'];
     const spriteOwners=['movie_clip','sprite','graphic'];
     const interactiveOwners=['movie_clip','sprite','graphic','button','text','loader','text_line'];
@@ -800,16 +960,16 @@
     function as2CanFocus(target){if(target===null)return true;const ok=as2Input(target,{op:'focusable',has_button_handler:buttonLike(target)});if(ok)as2TabActive=true;return ok;}
     function as2Ref(target,name){
       const ordinary=referenceOf(target)?.as2TimelineRef?.(name);if(ordinary)return ordinary;
-      if(name==='_accProps'&&['movie_clip','button','text'].includes(descriptor(target).owner))return {has:()=>accProps.has(target),delete:()=>accProps.delete(target),get:()=>accProps.get(target),set:value=>{if(value===undefined)accProps.delete(target);else accProps.set(target,value);return value;}};
-      if((name==='width'||name==='height')&&descriptor(target).owner==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
-      if(name==='getSWFVersion'&&descriptor(target).owner==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>()=>{descriptor(target);return 8;},set:()=>{throw new TypeError('MovieClip.getSWFVersion is read-only.');}};
-      if(['_quality','_highquality','_soundbuftime'].includes(name)&&['movie_clip','button','text'].includes(descriptor(target).owner))return as2GlobalPropRef(name,()=>descriptor(target));
-      if(['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'].includes(name)&&descriptor(target).owner==='movie_clip'){
+      if(name==='_accProps'&&['movie_clip','button','text'].includes(ownerOf(target)))return {has:()=>accProps.has(target),delete:()=>accProps.delete(target),get:()=>accProps.get(target),set:value=>{if(value===undefined)accProps.delete(target);else accProps.set(target,value);return value;}};
+      if((name==='width'||name==='height')&&ownerOf(target)==='video')return {has:()=>true,delete:()=>false,get:()=>getVideo().get(target,name==='width'?'videoWidth':'videoHeight'),set:()=>{throw new TypeError('AS2 Video.width/height report decoded dimensions; use _width/_height to resize.');}};
+      if(name==='getSWFVersion'&&ownerOf(target)==='movie_clip')return {has:()=>true,delete:()=>false,get:()=>()=>{descriptor(target);return 8;},set:()=>{throw new TypeError('MovieClip.getSWFVersion is read-only.');}};
+      if(['_quality','_highquality','_soundbuftime'].includes(name)&&['movie_clip','button','text'].includes(ownerOf(target)))return as2GlobalPropRef(name,()=>descriptor(target));
+      if(['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'].includes(name)&&ownerOf(target)==='movie_clip'){
         const method=()=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name];};
         return {has:()=>true,delete:()=>false,get:method,set:()=>{throw new TypeError('MovieClip image methods are read-only.');}};
       }
       if(['blendMode','cacheAsBitmap','opaqueBackground','scale9Grid'].includes(name)){
-        const owner=descriptor(target).owner;if(!['movie_clip','button'].includes(owner)||(name==='opaqueBackground'&&owner!=='movie_clip'))return null;
+        const owner=ownerOf(target);if(!['movie_clip','button'].includes(owner)||(name==='opaqueBackground'&&owner!=='movie_clip'))return null;
         const call=request=>JSON.parse(player.as2_render_command(referenceOf(target).key,JSON.stringify(request)));
         if(name==='scale9Grid'){
           return {
@@ -826,7 +986,7 @@
         return {has:()=>true,delete:()=>false,get:()=>call({op:'get'})[name],set:value=>{const next=call({op:'prepare',name,value});if(next.isolated)beforeRaster(target);call({op:'set',name,value});return value;}};
       }
       if(!Object.hasOwn(as2InputNames,name)&&!callbackNames.has(name))return null;
-      const owner=descriptor(target).owner;if(!['movie_clip','button','text'].includes(owner))return null;
+      const owner=ownerOf(target);if(!['movie_clip','button','text'].includes(owner))return null;
       if((name==='forceSmoothing'||name==='_lockroot')&&owner!=='movie_clip')return null;
       if(callbackNames.has(name)){
         if(owner==='text')return null;
@@ -1047,6 +1207,7 @@
     }
     function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.owner!=='button'||node.input.button_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
     function methods(target) {
+      const {owner,staticText}=ownerInfo(target);
       const result={
         getDepth:()=>{descriptor(target);return player.as2_get_depth(referenceOf(target).key);},
         hitTestPoint:(x,y,shape=false)=>hitTestPoint(target,x,y,shape),hitTestObject:other=>hitTestObject(target,other),
@@ -1058,12 +1219,12 @@
         local3DToGlobal: point3d=>{descriptor(target);const host=getFte3D();if(!host)throw new Error('3D display runtime is missing.');return host.local3DToGlobal(target,point3d);},
         globalToLocal3D: pt=>{descriptor(target);const host=getFte3D();if(!host)throw new Error('3D display runtime is missing.');return host.globalToLocal3D(target,pt);},
       };
-      if(interactiveOwners.includes(descriptor(target).owner)&&!isStaticTextNode(descriptor(target))){
+      if(interactiveOwners.includes(owner)&&!staticText){
         result.requestSoftKeyboard=()=>{descriptor(target);return getFte3D()?Boolean(getFte3D().requestSoftKeyboard(target)):true;};
       }
-      if(containerOwners.includes(descriptor(target).owner))Object.assign(result,{
+      if(containerOwners.includes(owner))Object.assign(result,{
         getChildAt: index=>{requireContainer(target);const list=children(target);if(!Number.isInteger(index)||index<0||index>=list.length)throw new RangeError('Child index is outside this container.');return nodeProxy(list[index]);},
-        getChildByName: name=>{requireContainer(target);const child=children(target).find(node=>node.name===name);return child?nodeProxy(child):null;},
+        getChildByName: name=>{requireContainer(target);const child=childByName(target,name);return child?nodeProxy(child):null;},
         getChildIndex: child=>{requireContainer(target);const node=descriptor(child),index=children(target).findIndex(candidate=>nodeKey(candidate)===nodeKey(node));if(index<0)throw new RangeError('Object is not a direct child of this container.');return index;},
         contains: child=>{requireContainer(target);const parent=descriptor(target),node=descriptor(child);return descendant(node,parent,nodes());},
         getObjectsUnderPoint: pt=>{
@@ -1071,11 +1232,11 @@
           if(!Point.__nfIs(pt))throw new TypeError('DisplayObjectContainer.getObjectsUnderPoint requires a flash.geom.Point.');
           const px=Number(pt.x),py=Number(pt.y);
           if(!Number.isFinite(px)||!Number.isFinite(py))return [];
-          const snapshot=graph?JSON.parse(player.runtime_snapshot_json()):{objects:nodes(),draws:[],clips:[]};
-          const list=snapshot.objects,source=descriptor(target,list),matches=[];
+          const snap=snapshot();
+          const list=snap.objects,source=descriptor(target,list),matches=[];
           for(const node of list){
             if(!descendant(node,source,list)||node.effective_visible===false)continue;
-            if(node.clip_ids?.length&&clipsContain&&!clipsContain(snapshot,node.clip_ids,px,py))continue;
+            if(node.clip_ids?.length&&clipsContain&&!clipsContain(snap,node.clip_ids,px,py))continue;
             if(leafHit(node,px,py))matches.push(nodeProxy(node));
           }
           return matches;
@@ -1097,7 +1258,7 @@
           const position=convert(target,value,name==='localToGlobal');value.x=position.x;value.y=position.y;
         });
       }
-      if(dragOwners.has(descriptor(target).owner)){
+      if(dragOwners.has(owner)){
         result.startDrag=(lockCenter=false,bounds=null)=>startDrag(target,lockCenter,bounds);
         result.stopDrag=()=>stopDrag(target);
         result.startTouchDrag=(touchPointID,lockCenter=false,bounds=null)=>{
@@ -1111,17 +1272,17 @@
         };
         if(as2)as2.register(result.startDrag,target,'startDrag',(lockCenter=false,...limits)=>{if(limits.length!==0&&limits.length!==4)throw new TypeError('AS2 startDrag requires lockCenter and optional left,top,right,bottom.');let bounds=null;if(limits.length){const[left,top,right,bottom]=limits;if(!limits.every(Number.isFinite)||right<left||bottom<top)throw new RangeError('AS2 drag bounds require ordered finite coordinates.');bounds=new Rectangle(left,top,right-left,bottom-top);}startDrag(target,lockCenter,bounds);});
       }
-      if(graph&&containerOwners.includes(descriptor(target).owner))Object.assign(result,containerMethods(target));
-      if(graph&&descriptor(target).owner==='movie_clip')Object.assign(result,legacyDrawing(target));
-      if(descriptor(target).owner==='movie_clip'){
+      if(graph&&containerOwners.includes(owner))Object.assign(result,containerMethods(target));
+      if(graph&&owner==='movie_clip')Object.assign(result,legacyDrawing(target));
+      if(owner==='movie_clip'){
         result.getURL=(url,window,method)=>{descriptor(target);const net=getNet();if(!net)throw new Error('Browser navigation requires the publication network service.');return net.getURL(target,url,window,method);};
         for(const name of ['loadMovie','unloadMovie','getBytesLoaded','getBytesTotal'])result[name]=(...args)=>{const loader=getLoader();if(!loader)throw new Error('MovieClip image methods require the publication Loader service.');return loader.as2MovieMethods(target)[name](...args);};
       }
-      if(graph&&descriptor(target).owner==='loader')Object.assign(result,getLoader().methods(target));
-      if(graph&&descriptor(target).owner==='text_line'&&getFte3D())Object.assign(result,getFte3D().textLineMethods(target));
-      if(graph&&descriptor(target).owner==='morph_shape'&&getFte3D())Object.assign(result,getFte3D().morphShapeMethods(target));
-      if(graph&&descriptor(target).owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
-      if(descriptor(target).owner==='text'&&!isStaticTextNode(descriptor(target))&&getText()){
+      if(graph&&owner==='loader')Object.assign(result,getLoader().methods(target));
+      if(graph&&owner==='text_line'&&getFte3D())Object.assign(result,getFte3D().textLineMethods(target));
+      if(graph&&owner==='morph_shape'&&getFte3D())Object.assign(result,getFte3D().morphShapeMethods(target));
+      if(graph&&owner==='video'&&getVideo())Object.assign(result,getVideo().methods(target));
+      if(owner==='text'&&!staticText&&getText()){
         Object.assign(result,getText().methods(referenceOf(target).key));
         result.replaceSel=result.replaceSelectedText;
         result.removeTextField=()=>{
@@ -1132,7 +1293,7 @@
           else throw new TypeError('removeTextField requires an attached runtime-created TextField; authored fields cannot be removed.');
         };
       }
-      else if(descriptor(target).owner==='text'&&!isStaticTextNode(descriptor(target)))Object.assign(result,{
+      else if(owner==='text'&&!staticText)Object.assign(result,{
         appendText:value=>{if(typeof value!=='string')throw new TypeError('appendText currently requires a string.');writeText(target,textValue(textKind(target).text)+value);},
         replaceText:(begin,end,value)=>{
           const text=textValue(textKind(target).text);
@@ -1145,41 +1306,62 @@
       });
       return result;
     }
+    const knownDisplayNames=new Set([
+      '_target','_framesloaded','_url','_focusrect',
+      ...Object.keys(inputNames),
+      'accessibilityProperties','contextMenu','accessibilityImplementation',
+      'needsSoftKeyboard','softKeyboardInputAreaOfInterest',
+      'mouseX','mouseY','_xmouse','_ymouse',
+      'enabled','trackAsMenu','soundTransform','textSnapshot',
+      'upState','overState','downState','hitTestState',
+      'dropTarget','_droptarget',
+      'z','scaleZ','rotationX','rotationY','rotationZ','blendShader',
+      'filters','blendMode','cacheAsBitmap','opaqueBackground','scale9Grid',
+      'loaderInfo','content','contentLoaderInfo','uncaughtErrorEvents',
+      'transform','mask','scrollRect',
+      'bitmapData','smoothing','pixelSnapping',
+      ...textProperties,...unsupportedText,
+      'name','_name','numChildren','width','_width','height','_height','stage','graphics',
+    ]);
     function get(target,name) {
+      const {owner,staticText}=ownerInfo(target);
+      if(!knownDisplayNames.has(name)&&!['text','video','text_line','morph_shape'].includes(owner))return UNHANDLED;
       if(name==='_target'){descriptor(target);return player.as2_target_path(referenceOf(target).key,true);}
       if(name==='_framesloaded')return descriptor(target).total_frames;
       if(name==='_url'){descriptor(target);const loadedUrl=getLoader()?.urlForDisplay?.(target);if(loadedUrl)return loadedUrl;if(!global.location)throw new TypeError('AS2 _url requires a browser publication URL.');return global.location.href;}
-      if(name==='_focusrect'&&['movie_clip','button'].includes(descriptor(target).owner)){const value=as2Input(target).focus_rect;return value===null?undefined:value;}
+      if(name==='_focusrect'&&['movie_clip','button'].includes(owner)){const value=as2Input(target).focus_rect;return value===null?undefined:value;}
 
-      if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return UNHANDLED;const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
+      if(Object.hasOwn(inputNames,name)){if(staticText||!ownsInputProperty(owner,name))return UNHANDLED;descriptor(target);const input=nativeInput(target);return name==='hitArea'?(input.hit_area?proxyForRef(input.hit_area):null):input[inputNames[name]];}
       if(name==='accessibilityProperties'){descriptor(target);return accProps.get(target)??null;}
-      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;return (name==='contextMenu'?contextMenus:accessImpls).get(target)??null;}
-      if(name==='needsSoftKeyboard'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;return getFte3D()?getFte3D().displayGet(target,name):Boolean(softKeyboardNeeds.get(target));}
-      if(name==='softKeyboardInputAreaOfInterest'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;if(getFte3D())return getFte3D().displayGet(target,name);const r=softKeyboardRects.get(target);return r?new Rectangle(r.x,r.y,r.width,r.height):null;}
+      if(name==='contextMenu'||name==='accessibilityImplementation'){if(staticText||!interactiveOwners.includes(owner))return UNHANDLED;descriptor(target);return (name==='contextMenu'?contextMenus:accessImpls).get(target)??null;}
+      if(name==='needsSoftKeyboard'){if(staticText||!interactiveOwners.includes(owner))return UNHANDLED;descriptor(target);return getFte3D()?getFte3D().displayGet(target,name):Boolean(softKeyboardNeeds.get(target));}
+      if(name==='softKeyboardInputAreaOfInterest'){if(staticText||!interactiveOwners.includes(owner))return UNHANDLED;descriptor(target);if(getFte3D())return getFte3D().displayGet(target,name);const r=softKeyboardRects.get(target);return r?new Rectangle(r.x,r.y,r.width,r.height):null;}
       if(['mouseX','mouseY','_xmouse','_ymouse'].includes(name)){const p=mousePoint(target);return name==='mouseX'||name==='_xmouse'?p.x:p.y;}
-      if(name==='enabled'&&descriptor(target).owner==='movie_clip')return nativeInput(target).movieclip_enabled!==false;
-      if(name==='trackAsMenu'&&descriptor(target).owner==='movie_clip')return Boolean(nativeInput(target).track_as_menu);
-      if(name==='soundTransform'&&spriteOwners.includes(descriptor(target).owner)){
+      if(name==='enabled'&&owner==='movie_clip')return nativeInput(target).movieclip_enabled!==false;
+      if(name==='trackAsMenu'&&owner==='movie_clip')return Boolean(nativeInput(target).track_as_menu);
+      if(name==='soundTransform'&&spriteOwners.includes(owner)){
+        descriptor(target);
         const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('Sprite.soundTransform requires the audio host.');
         const rec=spriteSoundTransforms.get(target)||{volume:1,pan:0};
         return new ST(rec.volume,rec.pan);
       }
-      if(name==='textSnapshot'&&containerOwners.includes(descriptor(target).owner)){
+      if(name==='textSnapshot'&&containerOwners.includes(owner)){
+        descriptor(target);
         const text=getText();if(!text?.snapshotFor)throw new Error('DisplayObjectContainer.textSnapshot requires the shared text service.');
         return text.snapshotFor(referenceOf(target).key);
       }
-      if(descriptor(target).owner==='button'){
+      if(owner==='button'){
         if(name==='enabled')return nativeInput(target).button_enabled!==false;
         if(name==='trackAsMenu')return Boolean(nativeInput(target).track_as_menu);
-        if(['upState','overState','downState','hitTestState'].includes(name))return buttonRecord(target)[name];
-        if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('SimpleButton.soundTransform requires the audio host.');const rec=buttonRecord(target);return new ST(rec.volume,rec.pan);}
+        if(['upState','overState','downState','hitTestState'].includes(name)){descriptor(target);return buttonRecord(target)[name];}
+        if(name==='soundTransform'){descriptor(target);const ST=getAudio()?.SoundTransform;if(!ST)throw new Error('SimpleButton.soundTransform requires the audio host.');const rec=buttonRecord(target);return new ST(rec.volume,rec.pan);}
       }
       if(name==='dropTarget'||name==='_droptarget'){descriptor(target);const dropped=drops.get(target);return name==='_droptarget'?legacyPath(dropped):dropped&&alive(dropped)?dropped:null;}
-      if(descriptor(target).owner==='text_line'&&getFte3D()){
+      if(owner==='text_line'&&getFte3D()){
         const tlVal=getFte3D().textLineGet(target,name);
         if(tlVal!==undefined)return tlVal;
       }
-      if(descriptor(target).owner==='morph_shape'&&getFte3D()){
+      if(owner==='morph_shape'&&getFte3D()){
         const msVal=getFte3D().morphShapeGet(target,name);
         if(msVal!==undefined)return msVal;
       }
@@ -1187,10 +1369,10 @@
         descriptor(target);return getFte3D()?.displayGet(target,name);
       }
       if(['needsSoftKeyboard','softKeyboardInputAreaOfInterest'].includes(name)){
-        const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return UNHANDLED;
+        if(staticText||!interactiveOwners.includes(owner))return UNHANDLED;descriptor(target);
         return getFte3D()?.displayGet(target,name);
       }
-      if(descriptor(target).owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
+      if(owner==='video'&&getVideo()){const host=getVideo(),value=host.get(target,name);if(value!==host.UNHANDLED)return value;}
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
         return host.fromSpecs(JSON.parse(player.object_filters(referenceOf(target).key)));
@@ -1208,7 +1390,7 @@
         return grid?new Rectangle(grid[0],grid[1],grid[2],grid[3]):null;
       }
       if(name==='loaderInfo'){descriptor(target);return getLoader()?.infoForDisplay(target)||null;}
-      if(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&descriptor(target).owner==='loader')return getLoader().get(target,name);
+      if(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&owner==='loader')return getLoader().get(target,name);
       if(name==='transform')return transform(target);
       if(name==='mask'){
         descriptor(target);const value=JSON.parse(player.object_mask(referenceOf(target).key));
@@ -1218,19 +1400,20 @@
         descriptor(target);const value=JSON.parse(player.object_scroll_rect(referenceOf(target).key));
         return value===null?null:new Rectangle(value.x,value.y,value.width,value.height);
       }
-      if(descriptor(target).owner==='text'&&isStaticTextNode(descriptor(target))){
+      if(owner==='text'&&staticText){
         if(name==='text')return textValue(descriptor(target).kind.text);
-      }else if(getText()&&descriptor(target).owner==='text'){
+      }else if(getText()&&owner==='text'){
         const text=getText(),value=text.get(referenceOf(target).key,name);if(value!==text.UNHANDLED)return value;
       }
-      if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&descriptor(target).owner==='bitmap'){
+      if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&owner==='bitmap'){
+        descriptor(target);
         const key=referenceOf(target).key;
         if(name==='bitmapData'){const ref=JSON.parse(player.object_bitmap(key));return ref?getBitmap().fromRef(ref):null;}
         return name==='smoothing'?player.object_smoothing(key):player.object_pixel_snapping(key);
       }
       if(textProperties.has(name)||unsupportedText.has(name)) {
-        const node=descriptor(target);
-        if(node.owner==='text'&&!isStaticTextNode(node)) {
+        if(owner==='text'&&!staticText) {
+          const node=descriptor(target);
           if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. This TextField API is outside the current uniform text profile.`);
           const kind=node.kind,text=textValue(kind.text),lines=text.split('\r');
           if(name==='text')return text;
@@ -1244,44 +1427,47 @@
         }
       }
       if(name==='name'||name==='_name')return descriptor(target).name;
-      if(name==='numChildren'){if(!containerOwners.includes(descriptor(target).owner))return UNHANDLED;return children(target).length;}
+      if(name==='numChildren'){if(!containerOwners.includes(owner))return UNHANDLED;return children(target).length;}
       if(name==='width'||name==='_width')return bounds(target,parentSpace(target),true).width;
       if(name==='height'||name==='_height')return bounds(target,parentSpace(target),true).height;
       if(name==='stage') {return descriptor(target).on_stage===false?null:getStage();}
-      if(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(descriptor(target).owner))return graphics(target);
+      if(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(owner))return graphics(target);
       return UNHANDLED;
     }
     function set(target,name,value) {
-      if(name==='_focusrect'&&['movie_clip','button'].includes(descriptor(target).owner)){as2Input(target,{op:'set',name:'_focusrect',value:value===undefined?null:value});as2TabActive=true;return true;}
-      if(name==='enabled'&&descriptor(target).owner==='movie_clip'){inputWrite(target,name,value);return true;}
-      if(name==='trackAsMenu'&&descriptor(target).owner==='movie_clip'){inputWrite(target,'track_as_menu',value);return true;}
-      if(name==='soundTransform'&&spriteOwners.includes(descriptor(target).owner)){
+      const {owner,staticText}=ownerInfo(target);
+      if(!knownDisplayNames.has(name)&&!['text','video','text_line','morph_shape'].includes(owner))return false;
+      if(name==='_focusrect'&&['movie_clip','button'].includes(owner)){as2Input(target,{op:'set',name:'_focusrect',value:value===undefined?null:value});as2TabActive=true;return true;}
+      if(name==='enabled'&&owner==='movie_clip'){inputWrite(target,name,value);return true;}
+      if(name==='trackAsMenu'&&owner==='movie_clip'){inputWrite(target,'track_as_menu',value);return true;}
+      if(name==='soundTransform'&&spriteOwners.includes(owner)){
+        descriptor(target);
         const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('Sprite.soundTransform requires a SoundTransform.');
         spriteSoundTransforms.set(target,{volume:value.volume,pan:value.pan});return true;
       }
-      if(name==='textSnapshot'&&containerOwners.includes(descriptor(target).owner))throw new TypeError('DisplayObjectContainer.textSnapshot is read-only.');
-      if(descriptor(target).owner==='button'){
+      if(name==='textSnapshot'&&containerOwners.includes(owner))throw new TypeError('DisplayObjectContainer.textSnapshot is read-only.');
+      if(owner==='button'){
         if(name==='enabled'){inputWrite(target,'button_enabled',value);return true;}
         if(name==='trackAsMenu'){inputWrite(target,'track_as_menu',value);return true;}
-        if(['upState','overState','downState','hitTestState'].includes(name)){validateButtonState(value);buttonRecord(target)[name]=value;return true;}
-        if(name==='soundTransform'){const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;return true;}
+        if(['upState','overState','downState','hitTestState'].includes(name)){descriptor(target);validateButtonState(value);buttonRecord(target)[name]=value;return true;}
+        if(name==='soundTransform'){descriptor(target);const ST=getAudio()?.SoundTransform;if(!ST||!ST.__nfIs(value))throw new TypeError('SimpleButton.soundTransform requires a SoundTransform.');const rec=buttonRecord(target);rec.volume=value.volume;rec.pan=value.pan;return true;}
       }
       if(name==='accessibilityProperties'){descriptor(target);if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError('DisplayObject.accessibilityProperties requires an AccessibilityProperties or null.');if(value===null||value===undefined)accProps.delete(target);else accProps.set(target,value);return true;}
-      if(name==='contextMenu'||name==='accessibilityImplementation'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
-      if(name==='needsSoftKeyboard'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(typeof value!=='boolean')throw new TypeError('InteractiveObject.needsSoftKeyboard requires a Boolean.');if(getFte3D())return Boolean(getFte3D().displaySet(target,name,value));softKeyboardNeeds.set(target,value);return true;}
-      if(name==='softKeyboardInputAreaOfInterest'){const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;if(value!==null&&!Rectangle.__nfIs(value))throw new TypeError('InteractiveObject.softKeyboardInputAreaOfInterest requires a Rectangle or null.');if(getFte3D())return Boolean(getFte3D().displaySet(target,name,value));softKeyboardRects.set(target,value===null?null:{x:value.x,y:value.y,width:value.width,height:value.height});return true;}
-      if(Object.hasOwn(inputNames,name)){const node=descriptor(target);if(isStaticTextNode(node)||!ownsInputProperty(node.owner,name))return false;inputWrite(target,name,value);return true;}
+      if(name==='contextMenu'||name==='accessibilityImplementation'){if(staticText||!interactiveOwners.includes(owner))return false;descriptor(target);if(value!==null&&value!==undefined&&typeof value!=='object')throw new TypeError(`${name} requires an Object or null.`);(name==='contextMenu'?contextMenus:accessImpls).set(target,value??null);return true;}
+      if(name==='needsSoftKeyboard'){if(staticText||!interactiveOwners.includes(owner))return false;descriptor(target);if(typeof value!=='boolean')throw new TypeError('InteractiveObject.needsSoftKeyboard requires a Boolean.');if(getFte3D())return Boolean(getFte3D().displaySet(target,name,value));softKeyboardNeeds.set(target,value);return true;}
+      if(name==='softKeyboardInputAreaOfInterest'){if(staticText||!interactiveOwners.includes(owner))return false;descriptor(target);if(value!==null&&!Rectangle.__nfIs(value))throw new TypeError('InteractiveObject.softKeyboardInputAreaOfInterest requires a Rectangle or null.');if(getFte3D())return Boolean(getFte3D().displaySet(target,name,value));softKeyboardRects.set(target,value===null?null:{x:value.x,y:value.y,width:value.width,height:value.height});return true;}
+      if(Object.hasOwn(inputNames,name)){if(staticText||!ownsInputProperty(owner,name))return false;inputWrite(target,name,value);return true;}
       if(['mouseX','mouseY','_xmouse','_ymouse','dropTarget','_droptarget','_target','_framesloaded','_url'].includes(name))throw new TypeError(`${name} is read-only.`);
-      if(descriptor(target).owner==='text_line'&&getFte3D()?.textLineSet(target,name,value))return true;
-      if(descriptor(target).owner==='morph_shape'&&getFte3D()?.morphShapeSet(target,name,value))return true;
+      if(owner==='text_line'&&getFte3D()?.textLineSet(target,name,value))return true;
+      if(owner==='morph_shape'&&getFte3D()?.morphShapeSet(target,name,value))return true;
       if(['z','scaleZ','rotationX','rotationY','rotationZ','blendShader'].includes(name)){
         descriptor(target);return Boolean(getFte3D()?.displaySet(target,name,value));
       }
       if(['needsSoftKeyboard','softKeyboardInputAreaOfInterest'].includes(name)){
-        const node=descriptor(target);if(isStaticTextNode(node)||!interactiveOwners.includes(node.owner))return false;
+        if(staticText||!interactiveOwners.includes(owner))return false;descriptor(target);
         return Boolean(getFte3D()?.displaySet(target,name,value));
       }
-      if(descriptor(target).owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
+      if(owner==='video'&&getVideo()&&getVideo().set(target,name,value))return true;
       if(name==='filters'){
         descriptor(target);const host=getFilters();if(!host)throw new Error('Display filters require the shared filter runtime. Re-export this project.');
         const specs=host.toSpecs(value);beforeFilters(target,specs);
@@ -1320,7 +1506,7 @@
         catch(error){const err=new RangeError(String(error));err.name='ArgumentError';throw err;}
         return true;
       }
-      if(name==='loaderInfo'||(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&descriptor(target).owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
+      if(name==='loaderInfo'||(['content','contentLoaderInfo','uncaughtErrorEvents'].includes(name)&&owner==='loader'))throw new TypeError(`Display ${name} is read-only.`);
       if(name==='transform')throw new TypeError('Replacing DisplayObject.transform is not supported; set transform.matrix or transform.colorTransform.');
       if(name==='mask'){
         descriptor(target);if(value!==null)descriptor(value);
@@ -1339,13 +1525,14 @@
         // mutating either the assigned Rectangle or a prior read has no effect.
         player.object_set_scroll_rect(referenceOf(target).key,JSON.stringify(rect));return true;
       }
-      if(descriptor(target).owner==='text'&&isStaticTextNode(descriptor(target))){
+      if(owner==='text'&&staticText){
         if(name==='text')throw new TypeError('StaticText.text is read-only.');
-      }else if(getText()&&descriptor(target).owner==='text'){
+      }else if(getText()&&owner==='text'){
         if(['width','height','_width','_height'].includes(name)&&nonAxisAligned(descriptor(target)))throw new RangeError('Setting dimensions of a rotated TextField or skewed TextField is not supported yet. Set its logical box before applying the matrix.');
         if(getText().set(referenceOf(target).key,name,value))return true;
       }
-      if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&descriptor(target).owner==='bitmap'){
+      if(['bitmapData','smoothing','pixelSnapping'].includes(name)&&owner==='bitmap'){
+        descriptor(target);
         const key=referenceOf(target).key;let accepted;
         if(name==='bitmapData')accepted=player.object_set_bitmap(key,JSON.stringify(value===null?null:getBitmap().refOf(value)));
         else if(name==='smoothing'){if(typeof value!=='boolean')throw new TypeError('Bitmap.smoothing requires a Boolean.');accepted=player.object_set_smoothing(key,value);}
@@ -1353,8 +1540,8 @@
         if(!accepted)throw new Error(`Cannot set Bitmap.${name} on this display object.`);return true;
       }
       if(textProperties.has(name)||unsupportedText.has(name)) {
-        const node=descriptor(target);
-        if(node.owner==='text'&&!isStaticTextNode(node)) {
+        if(owner==='text'&&!staticText) {
+          descriptor(target);
           if(unsupportedText.has(name))throw new TypeError(`TextField.${name} is not implemented in the plain-text profile. This TextField API is outside the current uniform text profile.`);
           if(name==='text'){writeText(target,value);return true;}
           if(name==='textColor'){
@@ -1376,7 +1563,7 @@
         if(local===0){if(value===0||name[0]==='_')return true;throw new RangeError('Cannot resize empty geometry to a nonzero dimension.');}
         if(!invoke(target,'set_property',axis==='width'?'scale_x':'scale_y',value/local))throw new RangeError('Runtime rejected the requested display dimension.');return true;
       }
-      if(name==='numChildren'||name==='stage'||(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(descriptor(target).owner)))throw new TypeError(`${name} is read-only.`);
+      if(name==='numChildren'||name==='stage'||(name==='graphics'&&graph&&['movie_clip','sprite','shape'].includes(owner)))throw new TypeError(`${name} is read-only.`);
       return false;
     }
     function ensureLegacyRecord(target) {
@@ -1387,7 +1574,7 @@
     }
     function authoredReceiver(target) {
       if(!target||!alive(target))return target;
-      if(descriptor(target).owner==='button'){
+      if(ownerOf(target)==='button'){
         const parent=parentSpace(target);
         if(parent&&parent!==getStage()&&alive(parent))return parent;
       }
@@ -1662,10 +1849,11 @@
       NativeDisplay.__nfIs=value=>{
         if(value&&value===getStage())return ['DisplayObject','InteractiveObject','DisplayObjectContainer'].includes(name);
         try{
-          const node=descriptor(value);
-          if(name==='StaticText')return isStaticTextNode(node);
-          if((name==='InteractiveObject'||name==='TextField')&&isStaticTextNode(node))return false;
-          return owners===null||owners.includes(node.owner);
+          if(!alive(value))return false;
+          const {owner,staticText}=ownerInfo(value);
+          if(name==='StaticText')return staticText;
+          if((name==='InteractiveObject'||name==='TextField')&&staticText)return false;
+          return owners===null||owners.includes(owner);
         }catch(_){return false;}
       };
       NativeDisplay.__nfInitialize=(receiver,args)=>{if(name==='Bitmap'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('Bitmap base initialization requires a Bitmap display object.');initializeBitmap(receiver,args);return;}if(name==='SimpleButton'){if(!NativeDisplay.__nfIs(receiver))throw new TypeError('SimpleButton base initialization requires a SimpleButton display object.');initializeSimpleButton(receiver,args);return;}if(args.length||!NativeDisplay.__nfIs(receiver))throw new TypeError(`${name} base initialization requires an existing compatible display instance and no arguments.`);if(name==='MovieClip')refreshLegacyCallbacks(receiver);};
@@ -1677,7 +1865,7 @@
       if(!text?.isFontCompatible)throw new Error('TextField.isFontCompatible requires the shared text service.');
       return text.isFontCompatible(fontName,fontStyle);
     };
-    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
+    return {methods,get,set,builtins,stageContainer,setGraphicsVectorFactories,as2Ref,readAccProps:target=>accProps.get(target),as2GlobalPropRef,toggleHighQuality,showRedrawRegions,as2CanFocus,as2Tab,as2FocusBounds,lifecycle:(type,target)=>{if(type==='removed_from_stage')callLegacy(target,'onUnload');},targetPath,resolveTarget,descriptor,ownerOf,ownerInfo,childByName,hasChild,snapshot,nodes,alive,convert,bounds,parentSpace,children,nodeProxy,addLegacyEvent,flushClipLoads,notifyData,setLegacyCallback,refreshLegacyCallbacks,enterFrame,press,pointer,cancelPointer,updateDrag,hasDrag:()=>Boolean(dragging),pick,pickDetails,inputRoute,resolveInput,handCursor,prune,clear:()=>{snapshotCache=null;nodesCache=null;childMapCache=null;ownerCache.clear();legacy.clear();pendingClipLoads.length=0;staticTextLifetimes.clear();accProps=new WeakMap();spriteSoundTransforms=new WeakMap();touchDragId=null;contextMenus=new WeakMap();accessImpls=new WeakMap();buttonRecords=new WeakMap();softKeyboardNeeds=new WeakMap();softKeyboardRects=new WeakMap();transformMatrix3D=new WeakMap();transformPerspective=new WeakMap();as2TabActive=false;cancelPointer();},UNHANDLED};
   }
   const api={create,...graphicsEnums,normalizedRotation,UNHANDLED};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashDisplay=api;

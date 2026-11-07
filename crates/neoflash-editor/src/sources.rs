@@ -2090,10 +2090,7 @@ mod integration_tests {
         assert_eq!(editor.paused_debugger_scopes().len(), 1);
 
         // Expression evaluation: identifiers, dotted paths, array indexing, arithmetic, comparisons, booleans
-        assert_eq!(
-            editor.evaluate_debugger_expression("score").unwrap(),
-            "40"
-        );
+        assert_eq!(editor.evaluate_debugger_expression("score").unwrap(), "40");
         assert_eq!(
             editor.evaluate_debugger_expression("mc.x").unwrap(),
             "120.5"
@@ -2231,11 +2228,15 @@ function onEnterFrame() {
         assert_eq!(editor.visible_source_lines(src).len(), 6);
 
         // Bounded Script Assist across AS2, AS3, JS, TS
-        let stop_as3 =
-            format_script_assist_snippet(&ScriptAssistTemplate::StopTimeline, ScriptLanguage::ActionScript3);
+        let stop_as3 = format_script_assist_snippet(
+            &ScriptAssistTemplate::StopTimeline,
+            ScriptLanguage::ActionScript3,
+        );
         assert_eq!(stop_as3, "stop();\n");
-        let stop_js =
-            format_script_assist_snippet(&ScriptAssistTemplate::StopTimeline, ScriptLanguage::JavaScript);
+        let stop_js = format_script_assist_snippet(
+            &ScriptAssistTemplate::StopTimeline,
+            ScriptLanguage::JavaScript,
+        );
         assert_eq!(stop_js, "this.stop();\n");
 
         let rel_as2 = format_script_assist_snippet(
@@ -2285,7 +2286,10 @@ function onEnterFrame() {
 
         // Inserting via Editor method updates the frame script and supports Undo
         editor.script_target = ScriptTarget::Frame;
-        assert!(editor.insert_script_assist_snippet(ScriptAssistTemplate::GotoAndPlayFrame { frame: 5 }));
+        assert!(
+            editor
+                .insert_script_assist_snippet(ScriptAssistTemplate::GotoAndPlayFrame { frame: 5 })
+        );
         assert_eq!(
             editor.symbol().timeline.scripts[0].script.source,
             "this.gotoAndPlay(5);\n"
@@ -2392,11 +2396,21 @@ pub struct FoldRegion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScriptAssistTemplate {
     StopTimeline,
-    GotoAndPlayFrame { frame: u32 },
-    GotoAndStopFrame { frame: u32 },
-    OnReleaseHandler { body: String },
-    EnterFrameLoop { body: String },
-    TraceExpression { expression: String },
+    GotoAndPlayFrame {
+        frame: u32,
+    },
+    GotoAndStopFrame {
+        frame: u32,
+    },
+    OnReleaseHandler {
+        body: String,
+    },
+    EnterFrameLoop {
+        body: String,
+    },
+    TraceExpression {
+        expression: String,
+    },
     VariableDeclaration {
         name: String,
         var_type: String,
@@ -2694,7 +2708,11 @@ impl EvalValue {
             let unquoted = trimmed
                 .strip_prefix('"')
                 .and_then(|s| s.strip_suffix('"'))
-                .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .or_else(|| {
+                    trimmed
+                        .strip_prefix('\'')
+                        .and_then(|s| s.strip_suffix('\''))
+                })
                 .unwrap_or(trimmed);
             Self::Str(unquoted.to_owned())
         }
@@ -2770,12 +2788,7 @@ fn find_variable_in_slice<'a>(
     let found = vars
         .iter()
         .find(|v| v.name == *first || v.name == bracketed)
-        .or_else(|| {
-            first
-                .parse::<usize>()
-                .ok()
-                .and_then(|idx| vars.get(idx))
-        })?;
+        .or_else(|| first.parse::<usize>().ok().and_then(|idx| vars.get(idx)))?;
     if rest.is_empty() {
         Some(found)
     } else {
@@ -2792,12 +2805,7 @@ fn find_variable_in_slice_mut<'a>(
     let pos = vars
         .iter()
         .position(|v| v.name == *first || v.name == bracketed)
-        .or_else(|| {
-            first
-                .parse::<usize>()
-                .ok()
-                .filter(|&idx| idx < vars.len())
-        })?;
+        .or_else(|| first.parse::<usize>().ok().filter(|&idx| idx < vars.len()))?;
     let found = &mut vars[pos];
     if rest.is_empty() {
         Some(found)
@@ -2854,8 +2862,7 @@ impl<'a> ExprEvaluator<'a> {
                                 continue;
                             }
                             if op == "="
-                                && (i > 0
-                                    && matches!(bytes[i - 1], b'=' | b'!' | b'<' | b'>')
+                                && (i > 0 && matches!(bytes[i - 1], b'=' | b'!' | b'<' | b'>')
                                     || (i + 1 < bytes.len() && bytes[i + 1] == b'='))
                             {
                                 continue;
@@ -2932,9 +2939,7 @@ impl<'a> ExprEvaluator<'a> {
         if let Some((l, op, r)) = Self::split_top_level(s, &["+", "-"]) {
             let lv = self.eval_additive(l)?;
             let rv = self.eval_multiplicative(r)?;
-            if op == "+"
-                && (matches!(lv, EvalValue::Str(_)) || matches!(rv, EvalValue::Str(_)))
-            {
+            if op == "+" && (matches!(lv, EvalValue::Str(_)) || matches!(rv, EvalValue::Str(_))) {
                 return Ok(EvalValue::Str(format!(
                     "{}{}",
                     lv.format_display(),
@@ -3150,13 +3155,13 @@ impl Editor {
                 .iter()
                 .any(|bp| bp.source == key && bp.line == line)
             {
-                self.debugger.breakpoints.push(
-                    crate::debugger_protocol::AuthoredBreakpoint {
+                self.debugger
+                    .breakpoints
+                    .push(crate::debugger_protocol::AuthoredBreakpoint {
                         source: key,
                         line,
                         column: None,
-                    },
-                );
+                    });
             }
         } else {
             self.debugger
@@ -3187,10 +3192,11 @@ impl Editor {
         let key = Self::normalize_breakpoint_key(path);
         spec.line = spec.line.max(1);
         let line = spec.line;
-        let baseline = spec
-            .watch_property
-            .as_deref()
-            .and_then(|prop| self.evaluate_debugger_expression(prop).ok().map(|v| (prop.to_owned(), v)));
+        let baseline = spec.watch_property.as_deref().and_then(|prop| {
+            self.evaluate_debugger_expression(prop)
+                .ok()
+                .map(|v| (prop.to_owned(), v))
+        });
         self.with_authoring_state_mut(|state| {
             if let Some((prop, val)) = baseline {
                 state
@@ -3211,13 +3217,13 @@ impl Editor {
             .iter()
             .any(|bp| bp.source == key && bp.line == line)
         {
-            self.debugger.breakpoints.push(
-                crate::debugger_protocol::AuthoredBreakpoint {
+            self.debugger
+                .breakpoints
+                .push(crate::debugger_protocol::AuthoredBreakpoint {
                     source: key,
                     line,
                     column: None,
-                },
-            );
+                });
         }
     }
 
@@ -3234,9 +3240,7 @@ impl Editor {
 
     pub fn breakpoints_for(&self, path: &str) -> Vec<BreakpointSpec> {
         let key = Self::normalize_breakpoint_key(path);
-        self.with_authoring_state(|state| {
-            state.breakpoints.get(&key).cloned().unwrap_or_default()
-        })
+        self.with_authoring_state(|state| state.breakpoints.get(&key).cloned().unwrap_or_default())
     }
 
     /// Evaluate whether execution should pause at `(path, line)`, checking any breakpoint condition
@@ -3263,7 +3267,10 @@ impl Editor {
             };
             let changed = self.with_authoring_state_mut(|state| {
                 let watch_key = (key.clone(), line, prop.to_owned());
-                match state.last_watched_values.insert(watch_key, current_val.clone()) {
+                match state
+                    .last_watched_values
+                    .insert(watch_key, current_val.clone())
+                {
                     Some(prev) => prev != current_val,
                     None => false,
                 }
@@ -3344,8 +3351,10 @@ impl Editor {
                 .paused_scopes
                 .get_mut(scope_idx)
                 .ok_or_else(|| format!("Scope index {scope_idx} is out of bounds"))?;
-            let var = find_variable_in_slice_mut(&mut scope.variables, &segments)
-                .ok_or_else(|| format!("Variable '{var_path}' not found in scope '{}'", scope.name))?;
+            let var =
+                find_variable_in_slice_mut(&mut scope.variables, &segments).ok_or_else(|| {
+                    format!("Variable '{var_path}' not found in scope '{}'", scope.name)
+                })?;
             let trimmed = new_value.trim();
             var.value = trimmed.to_owned();
             if var.children.is_empty() {
@@ -3562,12 +3571,7 @@ impl Editor {
                 let Some(selected_id) = self.selected_source.clone() else {
                     return false;
                 };
-                let Some(unit) = self
-                    .project
-                    .sources
-                    .iter()
-                    .find(|s| s.id == selected_id)
-                else {
+                let Some(unit) = self.project.sources.iter().find(|s| s.id == selected_id) else {
                     return false;
                 };
                 let snippet = format_script_assist_snippet(&template, unit.language);

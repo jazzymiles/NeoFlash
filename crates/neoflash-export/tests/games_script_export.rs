@@ -116,8 +116,8 @@ fn all_six_games_validate_check_compile_export_and_execute() {
             "{rel_path} missing neoflash_web.js"
         );
 
-        let bundle_js = fs::read_to_string(out_dir.join("bundle.js"))
-            .expect("read exported bundle.js");
+        let bundle_js =
+            fs::read_to_string(out_dir.join("bundle.js")).expect("read exported bundle.js");
         assert!(
             bundle_js.starts_with("globalThis.NeoFlashBundle = "),
             "{rel_path} bundle.js does not assign globalThis.NeoFlashBundle"
@@ -161,11 +161,11 @@ function loadExportedGame(bundlePath) {{
 
   const env = createRuntimeHost(root, player, compiled, {{ bundle, project: bundle.project }});
   env.host.resetProject();
-  return env.host.proxyFor([]);
+  return {{ clip: env.host.proxyFor([]), env, player }};
 }}
 
 for (const [slug, bundlePath] of bundles) {{
-  const clip = loadExportedGame(bundlePath);
+  const {{ clip, env }} = loadExportedGame(bundlePath);
 
   if (slug.startsWith('snake-')) {{
     assert.equal(clip.score, 0, `${{slug}} initial score`);
@@ -228,6 +228,15 @@ for (const [slug, bundlePath] of bundles) {{
     clip.stepGame();
     assert.equal(clip.lives, 2, `${{slug}} life lost on bottom exit`);
     assert.equal(clip.livesText.text, 'LIVES: 2', `${{slug}} livesText updated`);
+
+    // Benchmark 120 full broadcast frames (5 seconds at 24fps) to guard against HTML5 runtime snapshot regressions.
+    clip.resetGame();
+    const t0 = performance.now();
+    for (let f = 0; f < 120; f++) {{
+      env.host.broadcastFrame();
+    }}
+    const elapsedMs = performance.now() - t0;
+    assert.ok(elapsedMs < 600, `${{slug}} 120 frames took ${{elapsedMs.toFixed(1)}} ms (must be < 600 ms)`);
   }} else if (slug.startsWith('tetris-')) {{
     assert.equal(clip.score, 0, `${{slug}} initial score`);
     assert.equal(clip.lines, 0, `${{slug}} initial lines`);

@@ -140,7 +140,9 @@ impl PsdLayerRecord {
 
 fn read_u8(data: &[u8], pos: &mut usize) -> Result<u8, ImportError> {
     if *pos + 1 > data.len() {
-        return Err(ImportError::Container("Unexpected EOF in PSD stream".into()));
+        return Err(ImportError::Container(
+            "Unexpected EOF in PSD stream".into(),
+        ));
     }
     let v = data[*pos];
     *pos += 1;
@@ -149,7 +151,9 @@ fn read_u8(data: &[u8], pos: &mut usize) -> Result<u8, ImportError> {
 
 fn read_u16_be(data: &[u8], pos: &mut usize) -> Result<u16, ImportError> {
     if *pos + 2 > data.len() {
-        return Err(ImportError::Container("Unexpected EOF reading u16 in PSD".into()));
+        return Err(ImportError::Container(
+            "Unexpected EOF reading u16 in PSD".into(),
+        ));
     }
     let v = u16::from_be_bytes([data[*pos], data[*pos + 1]]);
     *pos += 2;
@@ -158,7 +162,9 @@ fn read_u16_be(data: &[u8], pos: &mut usize) -> Result<u16, ImportError> {
 
 fn read_i16_be(data: &[u8], pos: &mut usize) -> Result<i16, ImportError> {
     if *pos + 2 > data.len() {
-        return Err(ImportError::Container("Unexpected EOF reading i16 in PSD".into()));
+        return Err(ImportError::Container(
+            "Unexpected EOF reading i16 in PSD".into(),
+        ));
     }
     let v = i16::from_be_bytes([data[*pos], data[*pos + 1]]);
     *pos += 2;
@@ -167,7 +173,9 @@ fn read_i16_be(data: &[u8], pos: &mut usize) -> Result<i16, ImportError> {
 
 fn read_u32_be(data: &[u8], pos: &mut usize) -> Result<u32, ImportError> {
     if *pos + 4 > data.len() {
-        return Err(ImportError::Container("Unexpected EOF reading u32 in PSD".into()));
+        return Err(ImportError::Container(
+            "Unexpected EOF reading u32 in PSD".into(),
+        ));
     }
     let v = u32::from_be_bytes([data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3]]);
     *pos += 4;
@@ -176,7 +184,9 @@ fn read_u32_be(data: &[u8], pos: &mut usize) -> Result<u32, ImportError> {
 
 fn read_i32_be(data: &[u8], pos: &mut usize) -> Result<i32, ImportError> {
     if *pos + 4 > data.len() {
-        return Err(ImportError::Container("Unexpected EOF reading i32 in PSD".into()));
+        return Err(ImportError::Container(
+            "Unexpected EOF reading i32 in PSD".into(),
+        ));
     }
     let v = i32::from_be_bytes([data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3]]);
     *pos += 4;
@@ -185,7 +195,9 @@ fn read_i32_be(data: &[u8], pos: &mut usize) -> Result<i32, ImportError> {
 
 fn read_u64_be(data: &[u8], pos: &mut usize) -> Result<u64, ImportError> {
     if *pos + 8 > data.len() {
-        return Err(ImportError::Container("Unexpected EOF reading u64 in PSB".into()));
+        return Err(ImportError::Container(
+            "Unexpected EOF reading u64 in PSB".into(),
+        ));
     }
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&data[*pos..*pos + 8]);
@@ -843,10 +855,7 @@ fn outline_paths_for_text(text: &str, font_size: f64, color: Color) -> ElementKi
     }
     if commands.is_empty() {
         commands.push(PathCommand::MoveTo { x: 0.0, y: 0.0 });
-        commands.push(PathCommand::LineTo {
-            x: char_w,
-            y: 0.0,
-        });
+        commands.push(PathCommand::LineTo { x: char_w, y: 0.0 });
         commands.push(PathCommand::LineTo {
             x: char_w,
             y: char_h,
@@ -900,9 +909,8 @@ pub fn import_psd_into_project(
 
     // Handle FlattenComposite or 0-layer PSDs
     if options.layer_mapping == PsdLayerMapping::FlattenComposite || psd_layers.is_empty() {
-        let rgba = composite_rgba.unwrap_or_else(|| {
-            vec![255u8; (header.width as usize) * (header.height as usize) * 4]
-        });
+        let rgba = composite_rgba
+            .unwrap_or_else(|| vec![255u8; (header.width as usize) * (header.height as usize) * 4]);
         let png = encode_rgba_png(header.width, header.height, &rgba)?;
         let res_id = new_id("resource");
         let res_path = format!("psd/{}_composite.png", res_id);

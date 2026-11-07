@@ -273,8 +273,7 @@ pub fn validate_custom_html_wrapper(template: &str) -> Result<Vec<String>, Expor
             "Custom HTML wrapper template cannot be empty.".into(),
         ));
     }
-    let has_runtime_hook =
-        template.contains("$RUNTIME_SCRIPT") || template.contains("runtime.js");
+    let has_runtime_hook = template.contains("$RUNTIME_SCRIPT") || template.contains("runtime.js");
     if !has_runtime_hook {
         return Err(ExportError::Options(
             "Custom HTML wrapper must include the $RUNTIME_SCRIPT token or reference runtime.js."
@@ -773,8 +772,12 @@ mod tests {
 
         // Storing and loading profiles inside a Project
         let mut project = Project::blank();
-        store_profiles_in_project(&mut project, &[original.clone(), copy.clone()], Some(&copy.id))
-            .expect("store profiles");
+        store_profiles_in_project(
+            &mut project,
+            &[original.clone(), copy.clone()],
+            Some(&copy.id),
+        )
+        .expect("store profiles");
         let (loaded, active) = load_profiles_from_project(&project).expect("load profiles");
         assert_eq!(loaded.len(), 2);
         assert_eq!(active.as_deref(), Some(copy.id.as_str()));
@@ -794,7 +797,11 @@ mod tests {
         let err = render_custom_html_wrapper(
             bad_template,
             &project,
-            &["neoflash_web.js".into(), "bundle.js".into(), "runtime.js".into()],
+            &[
+                "neoflash_web.js".into(),
+                "bundle.js".into(),
+                "runtime.js".into(),
+            ],
             "{}",
             "",
         )
@@ -805,7 +812,11 @@ mod tests {
         let rendered = render_custom_html_wrapper(
             good_template,
             &project,
-            &["neoflash_web.js".into(), "bundle.js".into(), "runtime.js".into()],
+            &[
+                "neoflash_web.js".into(),
+                "bundle.js".into(),
+                "runtime.js".into(),
+            ],
             "{\"ok\":true}",
             "",
         )
@@ -828,15 +839,14 @@ mod tests {
         let rgba = image::RgbaImage::from_fn(64, 64, |x, y| {
             image::Rgba([(x * 4) as u8, (y * 4) as u8, ((x + y) * 2) as u8, 255])
         });
-        rgba.write_to(&mut std::io::Cursor::new(&mut img_buf), image::ImageFormat::Png)
-            .unwrap();
-        let res = ResourceUnit::from_bytes(
-            "res-heavy",
-            "images/heavy_bg.png",
-            "image/png",
-            &img_buf,
+        rgba.write_to(
+            &mut std::io::Cursor::new(&mut img_buf),
+            image::ImageFormat::Png,
         )
         .unwrap();
+        let res =
+            ResourceUnit::from_bytes("res-heavy", "images/heavy_bg.png", "image/png", &img_buf)
+                .unwrap();
         project.resources.push(res);
 
         let root_id = project.root.clone();

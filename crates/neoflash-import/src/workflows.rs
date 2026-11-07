@@ -85,7 +85,12 @@ mod tests {
                 .expect("separate layers import");
         proj_layers.validate().expect("project validates");
         assert_eq!(
-            proj_layers.symbol(&proj_layers.root).unwrap().timeline.layers.len(),
+            proj_layers
+                .symbol(&proj_layers.root)
+                .unwrap()
+                .timeline
+                .layers
+                .len(),
             3
         );
 
@@ -101,7 +106,9 @@ mod tests {
         let (proj_sym, rep_sym) =
             import_image_sequence_bytes_as_project("SymProj", &bad_entries, &opts_sym)
                 .expect("graphic symbol import");
-        proj_sym.validate().expect("project with placeholder validates");
+        proj_sym
+            .validate()
+            .expect("project with placeholder validates");
         assert!(
             rep_sym
                 .diagnostics
@@ -114,8 +121,8 @@ mod tests {
             .find(|s| s.kind == SymbolKind::Graphic)
             .expect("Graphic symbol created");
         assert_eq!(graphic_sym.timeline.layers[0].keyframes.len(), 2);
-        let root_elem = &proj_sym.symbol(&proj_sym.root).unwrap().timeline.layers[0].keyframes[0]
-            .elements[0];
+        let root_elem =
+            &proj_sym.symbol(&proj_sym.root).unwrap().timeline.layers[0].keyframes[0].elements[0];
         assert!(matches!(
             root_elem.kind,
             ElementKind::Instance {
@@ -349,13 +356,7 @@ mod tests {
         let root = proj.symbol(&proj.root).unwrap();
         // 3 visible layers (HiddenDraft skipped)
         assert_eq!(root.timeline.layers.len(), 3);
-        assert!(
-            !root
-                .timeline
-                .layers
-                .iter()
-                .any(|l| l.name == "HiddenDraft")
-        );
+        assert!(!root.timeline.layers.iter().any(|l| l.name == "HiddenDraft"));
 
         // Verify TySh text layer became EditableText
         let text_layer = root
@@ -412,7 +413,10 @@ mod tests {
         let (proj_mc, rep_mc) =
             import_psd_bytes(&psd_bytes, "Character.psd", &opts_mc).expect("PSD MC import");
         proj_mc.validate().expect("PSD MC project validates");
-        assert_eq!(proj_mc.symbol(&proj_mc.root).unwrap().timeline.layers.len(), 4);
+        assert_eq!(
+            proj_mc.symbol(&proj_mc.root).unwrap().timeline.layers.len(),
+            4
+        );
         assert!(
             rep_mc
                 .diagnostics
@@ -441,7 +445,12 @@ mod tests {
             import_psd_bytes(&psd_bytes, "Character.psd", &opts_flat).expect("PSD Flatten import");
         proj_flat.validate().expect("PSD Flatten project validates");
         assert_eq!(
-            proj_flat.symbol(&proj_flat.root).unwrap().timeline.layers.len(),
+            proj_flat
+                .symbol(&proj_flat.root)
+                .unwrap()
+                .timeline
+                .layers
+                .len(),
             1
         );
     }
