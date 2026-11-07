@@ -183,8 +183,8 @@ pub(crate) fn set_open(ctx: &egui::Context, panel: PlannedPanel, open: bool) {
         let area = ctx.content_rect();
         let step = (state.open.len() % 8) as f32 * space::S6;
         let pos = egui::pos2(
-            area.left() + metrics::TOOLS_RAIL + space::S6 + step,
-            area.top() + metrics::TOP_BAR + space::S6 + step,
+            area.left() + neoflash_ui::metrics::tools_rail() + space::S6 + step,
+            area.top() + neoflash_ui::metrics::top_bar() + space::S6 + step,
         );
         state.open.push((panel, pos));
     }
@@ -342,7 +342,7 @@ fn preview_window(
                         let top = ui.cursor().min;
                         let rect = egui::Rect::from_min_size(
                             top,
-                            egui::vec2(width, metrics::DIALOG_HEADER),
+                            egui::vec2(width, neoflash_ui::metrics::dialog_header()),
                         );
                         // Register the drag zone before the header so the header's ✕ lies above it
                         // and receives the click (the later widget wins the hit test).

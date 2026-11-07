@@ -195,15 +195,17 @@ impl Editor {
         ui.spacing_mut().item_spacing.y = 0.0;
         let width = ui.available_width();
         let top = ui.cursor().min.y;
-        let (header, _) =
-            ui.allocate_exact_size(egui::vec2(width, metrics::ROW), egui::Sense::hover());
+        let (header, _) = ui.allocate_exact_size(
+            egui::vec2(width, neoflash_ui::metrics::row()),
+            egui::Sense::hover(),
+        );
         // Children via `new_child` so the row allocations above stay the only layout advance.
         ui.new_child(
             egui::UiBuilder::new()
                 .id_salt("motion-editor-header")
                 .max_rect(egui::Rect::from_min_size(
                     header.min,
-                    egui::vec2(LEFT, metrics::ROW),
+                    egui::vec2(LEFT, neoflash_ui::metrics::row()),
                 )),
         )
         .add(c::TableRow {
@@ -215,8 +217,8 @@ impl Editor {
         let scale = egui::Rect::from_min_max(egui::pos2(lanes_x, header.top()), header.max);
         ui.painter().rect_filled(scale, 0.0, nf.bg_raised);
         c::paint_frame_scale(ui.painter(), ui.ctx(), scale, frames, 5);
-        let collapsed_h =
-            (metrics::CONTROL + space::S2) * (1. + ((state.graph_size - 55.).max(0.) / 45.) as f32);
+        let collapsed_h = (neoflash_ui::metrics::control() + space::S2)
+            * (1. + ((state.graph_size - 55.).max(0.) / 45.) as f32);
         let expanded_h = (120. * state.expanded / 70.).clamp(f64::from(collapsed_h), 240.) as f32;
         let last = frames.saturating_sub(1).max(1) as f32;
         let skew_keys = self.motion_key_frames(&span, TweenProperty::Skew);
@@ -266,7 +268,7 @@ impl Editor {
             match row {
                 MotionRow::Section(label) => {
                     let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(width, metrics::SECTION_HEADER),
+                        egui::vec2(width, neoflash_ui::metrics::section_header()),
                         egui::Sense::hover(),
                     );
                     ui.new_child(
@@ -570,7 +572,7 @@ impl Editor {
                     }
                     let left = egui::Rect::from_min_size(
                         rect.min,
-                        egui::vec2(LEFT, metrics::CONTROL + space::S2),
+                        egui::vec2(LEFT, neoflash_ui::metrics::control() + space::S2),
                     );
                     ui.new_child(
                         egui::UiBuilder::new()

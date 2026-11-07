@@ -7,8 +7,8 @@ use crate::theme::DesignUi as _;
 use eframe::egui::{self, Rect, Vec2};
 use neoflash_ui::components::{self as nf, surface::ZoomAction};
 use neoflash_ui::icons::i16;
+use neoflash_ui::palette;
 use neoflash_ui::tokens::space;
-use neoflash_ui::{metrics, palette};
 
 impl Editor {
     /// Right side of the top bar: workspace select, Test Movie (secondary), Publish (primary).
@@ -95,7 +95,7 @@ impl Editor {
             ),
         ];
         egui::TopBottomPanel::bottom("status-bar")
-            .exact_height(metrics::STATUS_BAR)
+            .exact_height(neoflash_ui::metrics::status_bar())
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(p.bg_app))
             .show(ctx, |ui| {

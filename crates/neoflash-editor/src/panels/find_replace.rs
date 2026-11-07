@@ -13,7 +13,6 @@ use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Ui};
 use neoflash_core::{Color, ElementKind, Id, ObjectEvent, Project};
 use neoflash_ui::components as c;
-use neoflash_ui::metrics;
 use neoflash_ui::tokens::space;
 use std::collections::HashSet;
 
@@ -2081,7 +2080,7 @@ impl Editor {
                 .show(ui);
                 ui.painter().hline(
                     top.x..=top.x + DIALOG_WIDTH,
-                    top.y + metrics::DIALOG_HEADER - 0.5,
+                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     egui::Stroke::new(1.0_f32, p.border_subtle),
                 );
                 egui::Frame::new()

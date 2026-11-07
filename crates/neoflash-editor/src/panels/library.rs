@@ -395,14 +395,14 @@ impl Editor {
             let name_height = text_height(&symbol.name, TextStyle::BodyStrong);
             let metadata_height = text_height(&metadata, TextStyle::Small);
             // Reserve search, the item-count row, three list rows and the footer.
-            let reserved = metrics::CONTROL * 2.
-                + metrics::ROW * 3.
+            let reserved = neoflash_ui::metrics::control() * 2.
+                + neoflash_ui::metrics::row() * 3.
                 + crate::theme::footer_h()
                 + 1.
                 + 7. * spacing;
             let image_budget = height
                 - reserved
-                - metrics::SECTION_HEADER
+                - neoflash_ui::metrics::section_header()
                 - name_height
                 - metadata_height
                 - 4. * spacing;
@@ -586,7 +586,7 @@ impl Editor {
             .max_width(ui.available_width())
             .auto_shrink([false, false])
             .max_height(tree_height)
-            .min_scrolled_height(tree_height.min(metrics::ROW))
+            .min_scrolled_height(tree_height.min(neoflash_ui::metrics::row()))
             .themed()
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.;
@@ -808,7 +808,7 @@ impl Editor {
         };
         let width = ui.available_width();
         ui.allocate_ui_with_layout(
-            Vec2::new(width, metrics::CONTROL),
+            Vec2::new(width, neoflash_ui::metrics::control()),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.spacing_mut().item_spacing.x = space::S1;

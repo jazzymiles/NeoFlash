@@ -11,7 +11,6 @@ use eframe::egui;
 use neoflash_core::{FrameSound, Id, SoundEffect};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
-use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -323,7 +322,7 @@ impl Editor {
                 .show(ui);
                 ui.painter().hline(
                     header_top.x..=header_top.x + WIDTH,
-                    header_top.y + metrics::DIALOG_HEADER - 0.5,
+                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     egui::Stroke::new(1.0_f32, nf.border_subtle),
                 );
 

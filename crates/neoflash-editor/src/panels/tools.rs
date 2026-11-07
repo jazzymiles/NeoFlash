@@ -18,7 +18,6 @@ use crate::{ui_icons::Icon, workspace::PanelId};
 use eframe::egui::{self, Key, Rect, Vec2};
 use neoflash_ui::components::{self as nf, menu::menu_style};
 use neoflash_ui::icons::i20;
-use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 
@@ -149,7 +148,8 @@ impl Editor {
         );
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
-            let two_columns = ui.available_width() >= 2. * metrics::TOOL_BUTTON + TOOL_GAP;
+            let two_columns =
+                ui.available_width() >= 2. * neoflash_ui::metrics::tool_button() + TOOL_GAP;
             if two_columns {
                 egui::ScrollArea::vertical()
                     .id_salt("tool_controls")
@@ -203,7 +203,7 @@ impl Editor {
         let shown = if total <= available {
             entries.len()
         } else {
-            let budget = available - RailEntry::BUTTON;
+            let budget = available - (neoflash_ui::metrics::tool_button() + TOOL_GAP);
             let mut used = 0.;
             let mut count = 0;
             for entry in &entries {
@@ -718,7 +718,7 @@ impl Editor {
 
 /// Width from which a two-column Tools panel shows tool options inline instead of in a popover.
 fn inline_options_width() -> f32 {
-    metrics::INSPECTOR / 2.
+    neoflash_ui::metrics::inspector() / 2.
 }
 
 /// One entry of the 1 Column rail.
@@ -731,12 +731,11 @@ enum RailEntry<'a> {
 }
 
 impl RailEntry<'_> {
-    const BUTTON: f32 = metrics::TOOL_BUTTON + TOOL_GAP;
     fn height(self) -> f32 {
         match self {
             // `NF2/Divider` (horizontal): 1 pt line + S2 margin.
             Self::Divider => 1. + space::S2 + TOOL_GAP,
-            _ => Self::BUTTON,
+            _ => neoflash_ui::metrics::tool_button() + TOOL_GAP,
         }
     }
 }
@@ -854,7 +853,10 @@ impl Editor {
 /// Two tool buttons side by side, centred in the panel.
 fn tool_row(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(
-        Vec2::new(2. * metrics::TOOL_BUTTON + TOOL_GAP, metrics::TOOL_BUTTON),
+        Vec2::new(
+            2. * neoflash_ui::metrics::tool_button() + TOOL_GAP,
+            neoflash_ui::metrics::tool_button(),
+        ),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
             ui.spacing_mut().item_spacing.x = TOOL_GAP;

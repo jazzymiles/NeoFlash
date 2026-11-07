@@ -20,7 +20,6 @@ use eframe::egui::{self, Color32, Ui};
 use neoflash_export::AudioExportPolicy;
 use neoflash_ui::components as c;
 use neoflash_ui::icons::{self, i16};
-use neoflash_ui::metrics;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 
@@ -291,7 +290,7 @@ impl Editor {
                 .show(ui);
                 ui.painter().hline(
                     top.x..=top.x + WIDTH,
-                    top.y + metrics::DIALOG_HEADER - 0.5,
+                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     egui::Stroke::new(1.0_f32, p.border_subtle),
                 );
                 egui::Frame::new()
@@ -299,13 +298,13 @@ impl Editor {
                     .show(ui, |ui| {
                         ui.set_width(WIDTH - 2.0 * space::S5);
                         ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
-                        let footer_height = metrics::CONTROL + 2.0 * space::S2;
+                        let footer_height = neoflash_ui::metrics::control() + 2.0 * space::S2;
                         let body_height = (ctx.content_rect().height()
                             - 2.0 * space::S5
-                            - metrics::DIALOG_HEADER
+                            - neoflash_ui::metrics::dialog_header()
                             - 2.0 * space::S5
                             - footer_height)
-                            .max(metrics::CONTROL);
+                            .max(neoflash_ui::metrics::control());
                         egui::ScrollArea::vertical()
                             .id_salt("preferences-body")
                             .max_height(body_height)
@@ -1347,7 +1346,7 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
     }
 
     ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), metrics::CONTROL),
+        egui::vec2(ui.available_width(), neoflash_ui::metrics::control()),
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
             if conflict_count > 0 {

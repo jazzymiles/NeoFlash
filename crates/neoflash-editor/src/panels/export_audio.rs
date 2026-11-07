@@ -18,7 +18,6 @@ use neoflash_export::{
 };
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
-use neoflash_ui::metrics;
 use neoflash_ui::tokens::space;
 use std::path::Path;
 
@@ -202,7 +201,7 @@ impl Editor {
                 .show(ui);
                 ui.painter().hline(
                     header_top.x..=header_top.x + 640.0,
-                    header_top.y + metrics::DIALOG_HEADER - 0.5,
+                    header_top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     egui::Stroke::new(1.0_f32, p.border_subtle),
                 );
 

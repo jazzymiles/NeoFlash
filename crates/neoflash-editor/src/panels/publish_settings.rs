@@ -14,7 +14,6 @@ use neoflash_export::{
 use neoflash_ui::{
     components as c,
     icons::{self, i16},
-    metrics,
     tokens::{TextStyle, space},
     typography::rich,
 };
@@ -186,7 +185,7 @@ impl Editor {
                 let top = ui.cursor().min;
                 close |= c::DialogHeader { title: "Publish settings" }.show(ui);
                 ui.painter().hline(top.x..=top.x + 898.0,
-                    top.y + metrics::DIALOG_HEADER - 0.5,
+                    top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     egui::Stroke::new(1.0_f32, p.border_subtle));
                 egui::Frame::new().inner_margin(egui::Margin::same(space::S5 as i8)).show(ui, |ui| {
                     ui.set_width(850.0);
