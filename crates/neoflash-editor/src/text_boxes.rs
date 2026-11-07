@@ -397,6 +397,112 @@ impl crate::app::Editor {
         });
         Ok(cmd_count)
     }
+
+    /// Sets the selected authored text field's `auto_size` mode (`"none"`, `"left"`, `"center"`, `"right"`)
+    /// and resizes/anchors its bounding box to fit its natural text layout in a single Undo step.
+    pub fn set_selected_text_auto_size(&mut self, mode: &str) -> Result<(f64, f64), String> {
+        self.finish_edits();
+        let normalized = mode.trim().to_ascii_lowercase();
+        if !matches!(normalized.as_str(), "none" | "left" | "center" | "right") {
+            return Err(format!("Unsupported text auto-size mode: {mode}"));
+        }
+        let sel = self
+            .selection
+            .single()
+            .cloned()
+            .ok_or_else(|| "Select a text element first.".to_string())?;
+        let mut candidate = self.project.clone();
+        let sym_id = self.symbol_id().to_owned();
+        let frame = self.frame;
+        let sym = candidate
+            .symbol_mut(&sym_id)
+            .ok_or_else(|| "Active symbol not found.".to_string())?;
+        let mut new_size = None;
+        let measure_segments =
+            |segments: &[String], seg_format: &TextFormat| -> Result<Vec<f64>, neoflash_core::TextError> {
+                Ok(segments
+                    .iter()
+                    .map(|s| s.chars().count() as f64 * seg_format.size * 0.56)
+                    .collect())
+            };
+        for layer in &mut sym.timeline.layers {
+            if layer.id != sel.layer {
+                continue;
+            }
+            let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
+                continue;
+            };
+            if let Some(el) = layer.keyframes[key_idx]
+                .elements
+                .iter_mut()
+                .find(|e| e.id == sel.element)
+            {
+                let mut state = TextFieldState::from_kind(&el.kind)
+                    .ok_or_else(|| "Selected element is not a text object.".to_string())?;
+                let old_width = state
+                    .box_size
+                    .map(|b| b.width)
+                    .unwrap_or_else(|| {
+                        layout_text(&state, measure_segments)
+                            .map(|l| l.surface.width)
+                            .unwrap_or(100.0)
+                            .max(4.0)
+                    });
+                state.as2_viewport.auto_size = normalized.clone();
+                if normalized != "none" {
+                    let layout = layout_text(&state, measure_segments)
+                        .map_err(|e| e.to_string())?;
+                    let natural_w = layout
+                        .lines
+                        .iter()
+                        .map(|l| l.width)
+                        .fold(0.0_f64, f64::max);
+                    let natural_h = layout
+                        .lines
+                        .last()
+                        .map(|l| l.y + l.height)
+                        .unwrap_or(state.format.size);
+                    let target_w = if state.word_wrap && state.multiline {
+                        old_width.max(4.0)
+                    } else {
+                        (natural_w + 4.0).max(8.0)
+                    };
+                    let target_h = (natural_h + 4.0).max(state.format.size + 4.0);
+                    match normalized.as_str() {
+                        "center" => {
+                            el.transform.x += (old_width - target_w) * 0.5;
+                        }
+                        "right" => {
+                            el.transform.x += old_width - target_w;
+                        }
+                        _ => {}
+                    }
+                    state.box_size = Some(neoflash_core::TextBoxSize {
+                        width: target_w,
+                        height: target_h,
+                    });
+                    new_size = Some((target_w, target_h));
+                } else {
+                    new_size = Some(
+                        state
+                            .box_size
+                            .map(|b| (b.width, b.height))
+                            .unwrap_or((old_width.max(8.0), (state.format.size + 4.0).max(8.0))),
+                    );
+                }
+                state.write_to_kind(&mut el.kind);
+                break;
+            }
+        }
+        let size =
+            new_size.ok_or_else(|| "Selected text element was not found on the current frame.".to_string())?;
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Text auto-size", |s| {
+            s.project = candidate;
+        });
+        Ok(size)
+    }
 }
 
 fn family(p: &egui::Painter, format: &TextFormat) -> FontFamily {

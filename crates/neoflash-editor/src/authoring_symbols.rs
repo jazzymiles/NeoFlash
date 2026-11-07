@@ -895,6 +895,98 @@ impl Editor {
         self.message(format!("Duplicated symbol to “{name}”."));
         Some(new_sym_id)
     }
+
+    pub fn drag_drop_symbol_to_folder(&mut self, symbol_id: &str, target_folder: &str) -> bool {
+        let Some(sym) = self.project.symbols.iter().find(|s| s.id == symbol_id) else {
+            return false;
+        };
+        let normalized = target_folder.trim().trim_matches('/').to_owned();
+        if !neoflash_core::valid_library_folder(&normalized) || sym.folder == normalized {
+            return false;
+        }
+        let symbol_id = symbol_id.to_string();
+        let target_folder = normalized.clone();
+        self.transact_named("Move symbol", move |s| {
+            let _ = s.project.move_library_symbol(&symbol_id, &target_folder);
+        });
+        let dest = if normalized.is_empty() {
+            "Library root"
+        } else {
+            normalized.as_str()
+        };
+        self.message(format!("Moved symbol to {dest}."));
+        true
+    }
+
+    pub fn drag_drop_folder_to_folder(&mut self, source_folder: &str, target_folder: &str) -> bool {
+        let from = source_folder.trim().trim_matches('/').to_owned();
+        let to_parent = target_folder.trim().trim_matches('/').to_owned();
+        if from.is_empty()
+            || !neoflash_core::valid_library_folder(&from)
+            || !neoflash_core::valid_library_folder(&to_parent)
+        {
+            return false;
+        }
+        let leaf = from.rsplit('/').next().unwrap_or(&from);
+        let destination = if to_parent.is_empty() {
+            leaf.to_string()
+        } else {
+            format!("{to_parent}/{leaf}")
+        };
+        if destination == from || destination.starts_with(&format!("{from}/")) {
+            return false;
+        }
+        let from_clone = from.clone();
+        let dest_clone = destination.clone();
+        self.transact_named("Move folder", move |s| {
+            let _ = s.project.relocate_library_folder(&from_clone, &dest_clone);
+        });
+        self.message(format!("Moved folder “{from}” to “{destination}”."));
+        true
+    }
+
+    #[allow(dead_code)]
+    pub fn swap_selected_instance_to_symbol(&mut self, target_symbol_id: &str) -> bool {
+        if !self.can_swap_instance_symbol(target_symbol_id) {
+            return false;
+        }
+        self.swap_instance_symbol(target_symbol_id);
+        true
+    }
+
+    pub fn set_symbol_shared_library(
+        &mut self,
+        symbol_id: &str,
+        shared: Option<neoflash_core::SharedLibraryLinkage>,
+    ) -> bool {
+        if !self.project.symbols.iter().any(|s| s.id == symbol_id) {
+            return false;
+        }
+        if self.project.shared_library(symbol_id) == shared {
+            return false;
+        }
+        let symbol_id = symbol_id.to_string();
+        self.transact_named("Shared library linkage", move |s| {
+            let _ = s.project.set_shared_library(&symbol_id, shared);
+        });
+        true
+    }
+
+    pub fn sync_shared_library(&mut self, donor: &neoflash_core::Project) -> usize {
+        let mut candidate = self.project.clone();
+        let count = candidate.resolve_shared_library_symbols(donor);
+        if count == 0 {
+            return 0;
+        }
+        self.transact_named("Sync shared library", move |s| {
+            s.project = candidate;
+        });
+        self.message(format!(
+            "Synchronized {count} shared library symbol{}.",
+            if count == 1 { "" } else { "s" }
+        ));
+        count
+    }
 }
 
 fn adapt_swapped_playback(

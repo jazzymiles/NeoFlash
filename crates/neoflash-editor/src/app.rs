@@ -847,10 +847,32 @@ impl Editor {
                         | ElementKind::PaintedPath { .. }
                 );
             if merge_mode {
+                let brush_mode = s.authoring_tools.brush_paint_mode;
+                let inside_seed = s.authoring_tools.brush_inside_seed.take();
+                let selected_ids: Vec<Id> = s
+                    .selection
+                    .targets
+                    .iter()
+                    .map(|t| t.element.clone())
+                    .collect();
+                let use_brush_mode =
+                    s.tool == Tool::Brush && brush_mode != BrushPaintMode::PaintNormal;
                 let created_ids = crate::stage_selection::edit_ungrouped_merge_shapes(
                     &mut s.symbol_mut().timeline.layers[layer],
                     frame,
-                    |elements| apply_merge_shape_to_keyframe(elements, element),
+                    |elements| {
+                        if use_brush_mode {
+                            apply_brush_stroke_with_mode(
+                                elements,
+                                element,
+                                brush_mode,
+                                &selected_ids,
+                                inside_seed,
+                            )
+                        } else {
+                            apply_merge_shape_to_keyframe(elements, element)
+                        }
+                    },
                 )
                 .expect("drawing creates its destination keyframe before merging");
                 let layer_id = s.symbol().timeline.layers[layer].id.clone();

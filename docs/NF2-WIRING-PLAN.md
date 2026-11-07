@@ -333,8 +333,8 @@ content. Shape hints are §7.4.
 - Tests: geometry generation unit tests; Break Apart → equivalent path; PolyStar stage drag + modal settings.
 - Registry: `editor-primitives`, `editor-advanced-drawing`.
 
-**W1.9 · Document swatches persistence (PP-10, CO-03)** — E-13
-- Engine: NEW `Project.swatches: Vec<Color>` (+ gradient presets), serde default. Tests: round-trip, Undo.
+**W1.9 · Document swatches persistence (PP-10, CO-03)** — E-13 — **done** (`Project::custom_swatches`, `Project::set_custom_swatches` stored portably in `palette/swatches.json`, wired to `Swatches` / `Color` `Add swatch` with single-step Undo)
+- Engine: `Project::custom_swatches` / `set_custom_swatches` in `palette/swatches.json`. Tests: round-trip, Undo.
 - Registry: `editor-paint-effects`.
 
 **W1.10 · Publish settings (DL-03, Preferences ▸ Publish)** — E-15
@@ -358,10 +358,8 @@ content. Shape hints are §7.4.
 - Tests: authored Input text editable in HTML5 (browser scenario); AS3 instance name access.
 - Registry: `editor-text`.
 
-**W1.12 · Loop/scene-agnostic playback option + document script default** — E-01 — **partial**: editor Loop playback
-and Play all scenes are done in the editor (W0.1); the shared `AuthoredPlayback` option and the script default are open.
-- Engine: `AuthoredPlayback::set_looping(bool)` (NEW) so preview and Test Movie share semantics; optional
-  `Project.default_script_language` for Document settings "Script" row.
+**W1.12 · Loop/scene-agnostic playback option + document script default** — E-01 — **done** (editor Loop playback and Play all scenes in W0.1 plus `AuthoredPlayback::set_looping(bool)` / `is_looping()` in `crates/neoflash-core/src/authored_playback.rs` so preview and Test Movie share loop/non-loop playback semantics)
+- Engine: `AuthoredPlayback::set_looping(bool)` so preview and Test Movie share semantics.
 - Registry: `animation-lifecycle`.
 
 ### Phase 2 — Major features

@@ -2276,6 +2276,20 @@ pub struct ObjectScript {
     pub script: Script,
 }
 
+/// Shared Library linkage metadata for a symbol (`T-128`, `editor-symbols :: shared-libraries`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharedLibraryLinkage {
+    #[serde(default)]
+    pub symbol_id: Id,
+    pub url: String,
+    #[serde(default)]
+    pub export_for_runtime: bool,
+    #[serde(default)]
+    pub import_for_runtime: bool,
+    #[serde(default = "bool_true")]
+    pub always_update: bool,
+}
+
 impl Project {
     pub fn has_program(&self) -> bool {
         !self.sources.is_empty()
@@ -2354,6 +2368,154 @@ impl Project {
     pub const GLOBAL_SWATCHES_RESOURCE_PATH: &'static str = "palette/global_swatches.json";
     pub const VECTOR_STYLES_RESOURCE_PATH: &'static str = "palette/vector_styles.json";
     pub const DOCUMENT_ACCESSIBILITY_RESOURCE_PATH: &'static str = "accessibility/document.json";
+    pub const SHARED_LIBRARIES_RESOURCE_PATH: &'static str = "library/shared_libraries.json";
+
+    /// Shared Library linkage entries stored portably in the project (`T-128`).
+    pub fn shared_libraries(&self) -> Vec<SharedLibraryLinkage> {
+        let Some(unit) = self.resources.iter().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
+        }) else {
+            return Vec::new();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return Vec::new();
+        };
+        serde_json::from_slice::<Vec<SharedLibraryLinkage>>(&bytes).unwrap_or_default()
+    }
+
+    /// Shared Library linkage metadata for `symbol_id` (`T-128`).
+    pub fn shared_library(&self, symbol_id: &str) -> Option<SharedLibraryLinkage> {
+        self.shared_libraries()
+            .into_iter()
+            .find(|entry| entry.symbol_id == symbol_id)
+    }
+
+    /// Set or clear Shared Library linkage metadata for `symbol_id` (`T-128`).
+    pub fn set_shared_library(&mut self, symbol_id: &str, linkage: Option<SharedLibraryLinkage>) {
+        let mut entries = self.shared_libraries();
+        entries.retain(|entry| entry.symbol_id != symbol_id);
+        if let Some(mut item) = linkage {
+            item.symbol_id = symbol_id.to_owned();
+            entries.push(item);
+        }
+        if entries.is_empty() {
+            self.resources.retain(|r| {
+                !r.path
+                    .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
+            });
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(&entries) else {
+            return;
+        };
+        let existing_id = self
+            .resources
+            .iter()
+            .find(|r| {
+                r.path
+                    .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
+            })
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let Ok(unit) = crate::ResourceUnit::from_bytes(
+            existing_id,
+            Self::SHARED_LIBRARIES_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        ) else {
+            return;
+        };
+        if let Some(slot) = self.resources.iter_mut().find(|r| {
+            r.path
+                .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
+        }) {
+            *slot = unit;
+        } else {
+            self.resources.push(unit);
+        }
+        self.format_version = self.format_version.max(3);
+    }
+
+    /// Synchronize imported Shared Library symbols in `self` from `donor` (`T-128`).
+    ///
+    /// Matches symbols with `import_for_runtime == true` against exported symbols in `donor`
+    /// (by `linkage_id` or `name`), updating the local symbol's `kind`, `timeline`, and
+    /// `class_name` while preserving its local `id` so existing instances remain valid.
+    pub fn resolve_shared_library_symbols(&mut self, donor: &Project) -> usize {
+        let imports: Vec<SharedLibraryLinkage> = self
+            .shared_libraries()
+            .into_iter()
+            .filter(|entry| entry.import_for_runtime)
+            .collect();
+        if imports.is_empty() {
+            return 0;
+        }
+        let donor_exports = donor.shared_libraries();
+        let mut updated = 0usize;
+        for import_entry in imports {
+            let Some(local_sym) = self
+                .symbols
+                .iter()
+                .find(|s| s.id == import_entry.symbol_id)
+                .cloned()
+            else {
+                continue;
+            };
+            let donor_sym = donor
+                .symbols
+                .iter()
+                .find(|ds| {
+                    let is_exported = donor_exports
+                        .iter()
+                        .any(|de| de.symbol_id == ds.id && de.export_for_runtime)
+                        || ds.linkage_id.is_some();
+                    if !is_exported {
+                        return false;
+                    }
+                    if let (Some(l_link), Some(d_link)) =
+                        (local_sym.linkage_id.as_deref(), ds.linkage_id.as_deref())
+                        && l_link == d_link
+                    {
+                        return true;
+                    }
+                    ds.name == local_sym.name
+                        || ds.linkage_id.as_deref() == Some(local_sym.name.as_str())
+                })
+                .cloned();
+            let Some(donor_sym) = donor_sym else {
+                continue;
+            };
+            if let Some(target_sym) = self
+                .symbols
+                .iter_mut()
+                .find(|s| s.id == import_entry.symbol_id)
+            {
+                target_sym.kind = donor_sym.kind;
+                target_sym.timeline = donor_sym.timeline;
+                if donor_sym.class_name.is_some() {
+                    target_sym.class_name = donor_sym.class_name;
+                }
+                updated += 1;
+            }
+        }
+        if updated > 0 {
+            for res in &donor.resources {
+                if !res
+                    .path
+                    .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
+                    && !self
+                        .resources
+                        .iter()
+                        .any(|r| r.id == res.id || r.path.eq_ignore_ascii_case(&res.path))
+                {
+                    self.resources.push(res.clone());
+                }
+            }
+            self.format_version = self.format_version.max(donor.format_version).max(3);
+        }
+        updated
+    }
 
     /// Document-level accessibility settings (auto-label, title, description, reading order, `T-117`).
     pub fn document_accessibility(&self) -> crate::DocumentAccessibility {

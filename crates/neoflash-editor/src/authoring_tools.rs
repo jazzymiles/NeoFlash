@@ -55,13 +55,18 @@ pub(crate) struct AuthoringToolsState {
     pub brush_shape: neoflash_ui::components::BrushShapeKind,
     pub brush_smoothing: f64,
     pub brush_pressure: bool,
+    pub brush_tilt: bool,
     pub brush_lock_fill: bool,
+    pub brush_paint_mode: BrushPaintMode,
+    pub brush_inside_seed: Option<[f64; 2]>,
+    pub custom_brush_presets: Vec<(String, neoflash_ui::components::BrushShapeKind, f32)>,
     brush_resize: Option<(Pos2, f32)>,
     pub brush_search: String,
     pub eraser_size: f32,
     pub eraser_mode: EraserMode,
     pub gap_close: GapCloseMode,
     pub lasso_contact: bool,
+    pub lasso_partial_fills: bool,
     pub zoom_out: bool,
     pub polystar_star: bool,
     pub polystar_sides: u32,
@@ -79,13 +84,18 @@ impl Default for AuthoringToolsState {
             brush_shape: Default::default(),
             brush_smoothing: 50.,
             brush_pressure: true,
+            brush_tilt: false,
             brush_lock_fill: false,
+            brush_paint_mode: BrushPaintMode::PaintNormal,
+            brush_inside_seed: None,
+            custom_brush_presets: Vec::new(),
             brush_resize: None,
             brush_search: String::new(),
             eraser_size: 16.,
             eraser_mode: EraserMode::Objects,
             gap_close: GapCloseMode::None,
             lasso_contact: true,
+            lasso_partial_fills: false,
             zoom_out: false,
             polystar_star: false,
             polystar_sides: 5,
@@ -145,6 +155,9 @@ struct GradientGesture {
     matrix: [f64; 6],
     element_matrix: [f64; 6],
     handle: bool,
+    focal_handle: bool,
+    radial: bool,
+    focal_point_ratio: f64,
 }
 impl Gesture {
     fn local(&self, point: Pos2) -> Pos2 {
@@ -998,8 +1011,17 @@ impl Editor {
                                 matrix,
                                 Pos2::new(fill.matrix[4] as f32, fill.matrix[5] as f32),
                             );
+                            let focal = affine(
+                                matrix,
+                                affine(
+                                    fill.matrix,
+                                    Pos2::new((fill.focal_point_ratio * 819.2) as f32, 0.),
+                                ),
+                            );
                             if (origin + edge.to_vec2() * self.zoom).distance(pos) >= 12.
                                 && (origin + center.to_vec2() * self.zoom).distance(pos) >= 12.
+                                && (fill.kind != GradientKind::Radial
+                                    || (origin + focal.to_vec2() * self.zoom).distance(pos) >= 12.)
                             {
                                 return None;
                             }
@@ -1021,8 +1043,27 @@ impl Editor {
                             continue;
                         };
                         let matrix = gradient.matrix;
+                        let radial = gradient.kind == GradientKind::Radial;
+                        let focal_point_ratio = gradient.focal_point_ratio;
                         let edge = affine(hit.matrix, affine(matrix, Pos2::new(819.2, 0.)));
+                        let center = affine(
+                            hit.matrix,
+                            Pos2::new(matrix[4] as f32, matrix[5] as f32),
+                        );
+                        let focal = affine(
+                            hit.matrix,
+                            affine(matrix, Pos2::new((focal_point_ratio * 819.2) as f32, 0.)),
+                        );
                         let handle = (origin + edge.to_vec2() * self.zoom).distance(pos) < 12.;
+                        let focal_screen = origin + focal.to_vec2() * self.zoom;
+                        let center_screen = origin + center.to_vec2() * self.zoom;
+                        let focal_handle = radial
+                            && !handle
+                            && focal_screen.distance(pos) < 12.
+                            && (modifiers.alt
+                                || (focal_point_ratio.abs() > 0.03
+                                    && focal_screen.distance(pos)
+                                        < center_screen.distance(pos)));
                         self.set_selection(vec![hit.target.clone()]);
                         Some(GradientGesture {
                             target: hit.target,
@@ -1030,6 +1071,9 @@ impl Editor {
                             matrix,
                             element_matrix: hit.matrix,
                             handle,
+                            focal_handle,
+                            radial,
+                            focal_point_ratio,
                         })
                     } else {
                         None
@@ -1245,6 +1289,12 @@ impl Editor {
                     self.message("Stroke is too complex; draw shorter brush strokes.");
                     return;
                 }
+                if g.tool == Tool::Brush {
+                    self.authoring_tools.brush_inside_seed = g
+                        .points
+                        .first()
+                        .map(|pt| [f64::from(pt.x), f64::from(pt.y)]);
+                }
                 self.add_element_transformed(
                     ElementKind::Path {
                         commands,
@@ -1305,6 +1355,16 @@ impl Editor {
             Tool::Lasso => {
                 if g.points.len() < 3 {
                     return;
+                }
+                if (self.authoring_tools.lasso_partial_fills || g.alt) && self.layer_editable() {
+                    let pts: Vec<[f64; 2]> = g
+                        .points
+                        .iter()
+                        .map(|pt| [f64::from(pt.x), f64::from(pt.y)])
+                        .collect();
+                    if !self.lasso_select_partial_fill(&pts).is_empty() {
+                        return;
+                    }
                 }
                 let eligible: HashMap<_, _> = self
                     .editable_targets()
@@ -1368,18 +1428,30 @@ impl Editor {
                 self.zoom = next;
             }
             Tool::Gradient => {
-                if let Some(gradient) = &g.gradient
-                    && let Some(matrix) = gradient_matrix(&g, gradient)
-                {
-                    let mut kind = gradient.kind.clone();
-                    if let ElementKind::PaintedPath {
-                        fill_gradient: Some(fill),
-                        ..
-                    } = &mut kind
-                    {
-                        fill.matrix = matrix;
+                if let Some(gradient) = &g.gradient {
+                    if gradient.focal_handle {
+                        if let Some(focal_ratio) = gradient_focal_ratio(&g, gradient) {
+                            let mut kind = gradient.kind.clone();
+                            if let ElementKind::PaintedPath {
+                                fill_gradient: Some(fill),
+                                ..
+                            } = &mut kind
+                            {
+                                fill.focal_point_ratio = focal_ratio;
+                            }
+                            self.change_tool_elements(vec![(gradient.target.clone(), Some(kind))]);
+                        }
+                    } else if let Some(matrix) = gradient_matrix(&g, gradient) {
+                        let mut kind = gradient.kind.clone();
+                        if let ElementKind::PaintedPath {
+                            fill_gradient: Some(fill),
+                            ..
+                        } = &mut kind
+                        {
+                            fill.matrix = matrix;
+                        }
+                        self.change_tool_elements(vec![(gradient.target.clone(), Some(kind))]);
                     }
-                    self.change_tool_elements(vec![(gradient.target.clone(), Some(kind))]);
                 }
             }
             Tool::PolyStar => {
@@ -1525,16 +1597,27 @@ impl Editor {
                     }
                 }
                 Tool::Gradient => {
-                    if let Some(gradient) = &g.gradient
-                        && let Some(matrix) = gradient_matrix(g, gradient)
-                    {
-                        paint_gradient_handles(
-                            p,
-                            g.origin,
-                            g.zoom,
-                            gradient.element_matrix,
-                            matrix,
-                        );
+                    if let Some(gradient) = &g.gradient {
+                        let matrix = if gradient.focal_handle {
+                            Some(gradient.matrix)
+                        } else {
+                            gradient_matrix(g, gradient)
+                        };
+                        let focal_ratio = if gradient.focal_handle {
+                            gradient_focal_ratio(g, gradient).unwrap_or(gradient.focal_point_ratio)
+                        } else {
+                            gradient.focal_point_ratio
+                        };
+                        if let Some(matrix) = matrix {
+                            paint_gradient_handles(
+                                p,
+                                g.origin,
+                                g.zoom,
+                                gradient.element_matrix,
+                                matrix,
+                                gradient.radial.then_some(focal_ratio),
+                            );
+                        }
                     }
                 }
                 Tool::PolyStar if g.points.len() >= 2 => {
@@ -1596,6 +1679,7 @@ impl Editor {
                 self.zoom,
                 transform_matrix(element.transform),
                 fill.matrix,
+                (fill.kind == GradientKind::Radial).then_some(fill.focal_point_ratio),
             );
         }
     }
@@ -2098,6 +2182,12 @@ fn lasso_rect(points: &[Pos2], rect: Rect, contact: bool) -> bool {
                 })
         })
 }
+fn gradient_focal_ratio(g: &Gesture, gradient: &GradientGesture) -> Option<f64> {
+    let elem_local = inverse(gradient.element_matrix, g.local(g.latest))?;
+    let grad_local = inverse(gradient.matrix, elem_local)?;
+    Some((f64::from(grad_local.x) / 819.2).clamp(-0.98, 0.98))
+}
+
 fn gradient_matrix(g: &Gesture, gradient: &GradientGesture) -> Option<[f64; 6]> {
     let start = inverse(gradient.element_matrix, g.local(g.start))?;
     let current = inverse(gradient.element_matrix, g.local(g.latest))?;
@@ -2135,6 +2225,7 @@ fn paint_gradient_handles(
     zoom: f32,
     element: [f64; 6],
     gradient: [f64; 6],
+    radial_focal_ratio: Option<f64>,
 ) {
     let screen = |local| origin + affine(element, affine(gradient, local)).to_vec2() * zoom;
     let center = screen(Pos2::ZERO);
@@ -2148,6 +2239,19 @@ fn paint_gradient_handles(
         palette.handle_fill,
         Stroke::new(1.5_f32, palette.overlay),
     );
+    if let Some(focal_ratio) = radial_focal_ratio {
+        let focal = screen(Pos2::new((focal_ratio * 819.2) as f32, 0.));
+        let tri = vec![
+            focal + Vec2::new(0., -5.),
+            focal + Vec2::new(5., 4.),
+            focal + Vec2::new(-5., 4.),
+        ];
+        p.add(Shape::convex_polygon(
+            tri,
+            palette.handle_fill,
+            Stroke::new(1.5_f32, palette.overlay),
+        ));
+    }
     p.rect(
         Rect::from_center_size(edge, Vec2::splat(9.)),
         0,
@@ -2158,6 +2262,96 @@ fn paint_gradient_handles(
 }
 
 impl Editor {
+    /// Slice Merge-mode fills on the active editable layer along `points` (`T-128`,
+    /// `editor-advanced-drawing :: lasso-partial-fills`), selecting the enclosed fill piece(s)
+    /// in one `"Lasso split fill"` Undo step.
+    pub fn lasso_select_partial_fill(&mut self, points: &[[f64; 2]]) -> Vec<Id> {
+        self.finish_edits();
+        if points.len() < 3 || !self.layer_editable() {
+            return Vec::new();
+        }
+        let mut lasso_cmds = Vec::with_capacity(points.len() + 1);
+        lasso_cmds.push(PathCommand::MoveTo {
+            x: points[0][0],
+            y: points[0][1],
+        });
+        for &[x, y] in &points[1..] {
+            lasso_cmds.push(PathCommand::LineTo { x, y });
+        }
+        lasso_cmds.push(PathCommand::Close);
+
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let mut candidate = self.project.clone();
+        let sym_id = self.symbol_id().to_owned();
+        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+            return Vec::new();
+        };
+        let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
+            return Vec::new();
+        };
+        let layer_id = layer.id.clone();
+        let Some(selected_ids) =
+            crate::stage_selection::edit_ungrouped_merge_shapes(layer, frame, |elements| {
+                lasso_split_merge_fills(elements, &lasso_cmds)
+            })
+        else {
+            return Vec::new();
+        };
+        if selected_ids.is_empty() {
+            return Vec::new();
+        }
+        candidate.upgrade_format_for_features();
+        if candidate.validate().is_err() {
+            return Vec::new();
+        }
+        if candidate != self.project {
+            self.transact_named("Lasso split fill", |s| {
+                s.project = candidate;
+            });
+        }
+        let targets = selected_ids
+            .iter()
+            .cloned()
+            .map(|element| SelectionTarget {
+                layer: layer_id.clone(),
+                element,
+            })
+            .collect();
+        self.set_selection(targets);
+        selected_ids
+    }
+
+    /// Update the radial gradient `focal_point_ratio` (`-0.98..=0.98`) on the selected gradient
+    /// fill in one `"Gradient focal point"` Undo step (`T-128`, `editor-paint-effects :: focal-handles`).
+    pub fn set_selected_gradient_focal_point(&mut self, focal_ratio: f64) -> bool {
+        self.finish_edits();
+        let Some(target) = self
+            .selection
+            .single()
+            .filter(|t| self.target_editable(t))
+            .cloned()
+        else {
+            return false;
+        };
+        let Some(element) = self.selected_sampled() else {
+            return false;
+        };
+        let mut kind = element.kind;
+        let ElementKind::PaintedPath {
+            fill_gradient: Some(fill),
+            ..
+        } = &mut kind
+        else {
+            return false;
+        };
+        if fill.kind != GradientKind::Radial {
+            return false;
+        }
+        fill.focal_point_ratio = focal_ratio.clamp(-0.98, 0.98);
+        self.change_tool_elements(vec![(target, Some(kind))]);
+        true
+    }
     /// Options of the active tool (NF2 fields), shared by the Tools popover and Properties › Tool.
     pub(crate) fn authoring_tool_options(&mut self, ui: &mut egui::Ui) {
         use neoflash_ui::components as nf;
@@ -2226,6 +2420,15 @@ impl Editor {
                 nf::tooltip(
                     response,
                     "Select whole placements whose bounds touch the freehand loop; turn off to require enclosure. Hold Shift to add.",
+                    None,
+                );
+                let partial_resp = ui.add(nf::Checkbox::new(
+                    &mut self.authoring_tools.lasso_partial_fills,
+                    "Slice merge fills",
+                ));
+                nf::tooltip(
+                    partial_resp,
+                    "Slice Merge-mode fills along the freehand lasso contour (or hold Option while dragging) to select only the enclosed fill region.",
                     None,
                 );
             }

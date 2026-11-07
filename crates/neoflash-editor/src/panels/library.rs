@@ -32,6 +32,7 @@ pub(crate) struct LibraryPanel {
 pub(crate) enum LibraryDrag {
     Symbol(String),
     Resource(String),
+    Folder(String),
 }
 
 /// Keep a source-row press even when native input batches the entire drag in
@@ -606,6 +607,13 @@ impl Editor {
                     self.resource_library(ui);
                     return;
                 }
+                let released = ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+                let release_pos = ui.input(|i| i.pointer.interact_pos());
+                let drag_moved = release_pos
+                    .zip(self.library_panel.drag_press)
+                    .is_some_and(|(pos, (_, _, start))| pos.distance(start) >= 4.0);
+                let mut drop_folder_target: Option<String> = None;
+
                 let root = tree_row(
                     ui,
                     "Library root",
@@ -615,6 +623,12 @@ impl Editor {
                     0,
                     "",
                 );
+                if released
+                    && drag_moved
+                    && release_pos.is_some_and(|pos| root.row.rect.contains(pos))
+                {
+                    drop_folder_target = Some(String::new());
+                }
                 if root.row.clicked() {
                     action = Some(Action::SelectFolder(String::new()));
                 }
@@ -641,6 +655,16 @@ impl Editor {
                                 depth + 1,
                                 "",
                             );
+                            let drag_folder = path.clone();
+                            capture_row_drag(&mut self.library_panel, ui, &response.row, move || {
+                                LibraryDrag::Folder(drag_folder)
+                            });
+                            if released
+                                && drag_moved
+                                && release_pos.is_some_and(|pos| response.row.rect.contains(pos))
+                            {
+                                drop_folder_target = Some(path.clone());
+                            }
                             if response.toggle || response.row.double_clicked() {
                                 action = Some(Action::Toggle(path.clone()));
                             } else if response.row.clicked() {
@@ -721,6 +745,19 @@ impl Editor {
                                     action = Some(Action::DeleteSymbol(symbol.id.clone()));
                                 }
                             });
+                        }
+                    }
+                }
+                if let Some(target_folder) = drop_folder_target {
+                    match self.library_panel.drag.take() {
+                        Some(LibraryDrag::Symbol(sym_id)) => {
+                            let _ = self.drag_drop_symbol_to_folder(&sym_id, &target_folder);
+                        }
+                        Some(LibraryDrag::Folder(src_folder)) => {
+                            let _ = self.drag_drop_folder_to_folder(&src_folder, &target_folder);
+                        }
+                        other => {
+                            self.library_panel.drag = other;
                         }
                     }
                 }

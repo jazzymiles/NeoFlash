@@ -5843,3 +5843,267 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     editor.undo();
     assert_eq!(editor.project, before_dup);
 }
+
+#[test]
+fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+
+    // 1. Brush PaintBehind mode inserts merge-drawing stroke behind existing shapes.
+    editor.transact_named("Clear layer", |ed| {
+        let l_idx = ed.layer;
+        let f_idx = ed.frame;
+        if let Some(k) = ed.symbol_mut().timeline.layers[l_idx].key_at_mut(f_idx) {
+            k.elements.clear();
+        }
+    });
+    editor.workspace.drawing.object_drawing = false;
+    editor.authoring_tools.brush_paint_mode = neoflash_core::BrushPaintMode::PaintNormal;
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 100.0,
+            fill: [200, 40, 40, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        0.0,
+        0.0,
+    );
+    let first_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements[0]
+        .id
+        .clone();
+    editor.tool = crate::app::Tool::Brush;
+    editor.authoring_tools.brush_paint_mode = neoflash_core::BrushPaintMode::PaintBehind;
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 20.0, y: 20.0 },
+                PathCommand::LineTo { x: 140.0, y: 20.0 },
+                PathCommand::LineTo { x: 140.0, y: 140.0 },
+                PathCommand::LineTo { x: 20.0, y: 140.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [40, 40, 200, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        0.0,
+        0.0,
+    );
+    {
+        let k = editor.symbol().timeline.layers[editor.layer]
+            .key_at(editor.frame)
+            .expect("key");
+        assert!(k.elements.len() >= 2);
+        // The original red rect should remain on top of the behind-painted blue shape.
+        assert_eq!(k.elements.last().unwrap().id, first_id);
+    }
+
+    // 2. Lasso partial-fill selection slices a merge-mode fill into inside/outside pieces + Undo.
+    editor.undo(); // Undo PaintBehind
+    let before_lasso = editor.project.clone();
+    let inside_ids = editor.lasso_select_partial_fill(&[
+        [40.0, 40.0],
+        [120.0, 40.0],
+        [120.0, 120.0],
+        [40.0, 120.0],
+    ]);
+    assert!(!inside_ids.is_empty(), "lasso should slice and select inside fill piece");
+    assert_eq!(editor.history.undo_label(), Some("Lasso split fill"));
+    editor
+        .project
+        .validate()
+        .expect("project valid after lasso partial fill");
+    editor.undo();
+    assert_eq!(editor.project, before_lasso);
+
+    // 3. Radial gradient focal point handle updates focal_point_ratio in a single Undo step.
+    editor.select_single_id(first_id.clone());
+    editor.transact_named("Set radial gradient", |ed| {
+        let l_idx = ed.layer;
+        let f_idx = ed.frame;
+        if let Some(k) = ed.symbol_mut().timeline.layers[l_idx].key_at_mut(f_idx)
+            && let Some(el) = k.elements.iter_mut().find(|e| e.id == first_id)
+        {
+            el.kind = ElementKind::PaintedPath {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 100.0, y: 0.0 },
+                    PathCommand::LineTo { x: 100.0, y: 100.0 },
+                    PathCommand::LineTo { x: 0.0, y: 100.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [255, 255, 255, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+                fill_gradient: Some(neoflash_core::GradientPaint {
+                    kind: neoflash_core::GradientKind::Radial,
+                    matrix: [0.06, 0.0, 0.0, 0.06, 50.0, 50.0],
+                    stops: vec![
+                        neoflash_core::GradientStop {
+                            ratio: 0,
+                            color: [255, 255, 255, 255],
+                        },
+                        neoflash_core::GradientStop {
+                            ratio: 255,
+                            color: [0, 0, 0, 255],
+                        },
+                    ],
+                    focal_point_ratio: 0.0,
+                }),
+                stroke_gradient: None,
+            };
+        }
+    });
+    let before_focal = editor.project.clone();
+    assert!(editor.set_selected_gradient_focal_point(0.65));
+    {
+        let k = editor.symbol().timeline.layers[editor.layer]
+            .key_at(editor.frame)
+            .unwrap();
+        let el = k.elements.iter().find(|e| e.id == first_id).unwrap();
+        match &el.kind {
+            ElementKind::PaintedPath {
+                fill_gradient: Some(fill),
+                ..
+            } => assert!((fill.focal_point_ratio - 0.65).abs() < 1e-6),
+            other => panic!("expected radial gradient PaintedPath, got {other:?}"),
+        }
+    }
+    editor.undo();
+    assert_eq!(editor.project, before_focal);
+
+    // 4. Library drag-drop folder organization & Shared Library linkage + synchronization.
+    let sym_id = new_id("sym_drag");
+    let mut sym = editor.symbol().clone();
+    sym.id = sym_id.clone();
+    sym.name = "Badge".to_owned();
+    sym.kind = SymbolKind::Graphic;
+    sym.class_name = None;
+    sym.linkage_id = Some("shared.Badge".to_owned());
+    crate::panels::scene::refresh_timeline_ids(&mut sym.timeline);
+    editor.transact_named("Add symbol", |ed| {
+        ed.project.symbols.push(sym);
+        ed.project.library_folders.push("UI".to_owned());
+        ed.project.library_folders.push("Archive".to_owned());
+    });
+    assert!(editor.drag_drop_symbol_to_folder(&sym_id, "UI"));
+    assert_eq!(editor.history.undo_label(), Some("Move symbol"));
+    assert_eq!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .find(|s| s.id == sym_id)
+            .unwrap()
+            .folder,
+        "UI"
+    );
+    assert!(editor.drag_drop_folder_to_folder("UI", "Archive"));
+    assert_eq!(editor.history.undo_label(), Some("Move folder"));
+    assert_eq!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .find(|s| s.id == sym_id)
+            .unwrap()
+            .folder,
+        "Archive/UI"
+    );
+
+    let linkage = neoflash_core::SharedLibraryLinkage {
+        symbol_id: sym_id.clone(),
+        url: "shared_ui.nflash".to_owned(),
+        export_for_runtime: false,
+        import_for_runtime: true,
+        always_update: true,
+    };
+    assert!(editor.set_symbol_shared_library(&sym_id, Some(linkage.clone())));
+    assert_eq!(
+        editor.project.shared_library(&sym_id),
+        Some(linkage.clone())
+    );
+    let mut donor = Project::blank();
+    let mut donor_sym = donor.symbols[0].clone();
+    donor_sym.id = new_id("donor_sym");
+    donor_sym.name = "DonorBadge".to_owned();
+    donor_sym.kind = SymbolKind::Button;
+    donor_sym.linkage_id = Some("shared.Badge".to_owned());
+    donor.symbols.push(donor_sym.clone());
+    donor.set_shared_library(
+        &donor_sym.id,
+        Some(neoflash_core::SharedLibraryLinkage {
+            symbol_id: donor_sym.id.clone(),
+            url: "shared_ui.nflash".to_owned(),
+            export_for_runtime: true,
+            import_for_runtime: false,
+            always_update: true,
+        }),
+    );
+    assert_eq!(editor.sync_shared_library(&donor), 1);
+    assert_eq!(editor.history.undo_label(), Some("Sync shared library"));
+    assert_eq!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .find(|s| s.id == sym_id)
+            .unwrap()
+            .kind,
+        SymbolKind::Button
+    );
+
+    // 5. Authored TextBox auto-size resizes and anchors in a single Undo step.
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Auto-sized headline".to_owned(),
+            width: 240.0,
+            height: 60.0,
+            word_wrap: false,
+            multiline: false,
+            format: neoflash_core::TextFormat::default(),
+        },
+        0.0,
+        0.0,
+    );
+    let text_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(text_id);
+    let before_auto = editor.project.clone();
+    let (new_w, new_h) = editor
+        .set_selected_text_auto_size("center")
+        .expect("auto-size center succeeds");
+    assert!(new_w > 8.0 && new_w < 240.0);
+    assert!(new_h > 8.0);
+    assert_eq!(editor.history.undo_label(), Some("Text auto-size"));
+    editor.undo();
+    assert_eq!(editor.project, before_auto);
+
+    // 6. Document swatches persistence & AuthoredPlayback::set_looping(false).
+    editor.project.set_custom_swatches(&[[12, 34, 56, 255]]);
+    assert!(
+        editor
+            .project
+            .custom_swatches()
+            .contains(&[12, 34, 56, 255])
+    );
+
+    let root_id = editor.project.root.clone();
+    let mut playback = neoflash_core::AuthoredPlayback::new(&editor.project, &root_id, 0);
+    assert!(playback.is_looping());
+    playback.set_looping(false);
+    assert!(!playback.is_looping());
+}

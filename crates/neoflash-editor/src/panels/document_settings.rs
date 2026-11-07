@@ -261,6 +261,7 @@ impl Editor {
         let mut close_cancel = false;
         let mut close_ok = false;
         let mut match_contents = false;
+        let mut match_printer = false;
         let mut make_default = false;
 
         let modal = egui::Modal::new(egui::Id::new("document-settings"))
@@ -338,8 +339,9 @@ impl Editor {
                             if ui.add(c::Button::ghost("Match contents")).clicked() {
                                 match_contents = true;
                             }
-                            ui.add_enabled(false, c::Button::ghost("Match printer"))
-                                .on_disabled_hover_text(NOT_AVAILABLE);
+                            if ui.add(c::Button::ghost("Match printer")).clicked() {
+                                match_printer = true;
+                            }
                         });
 
                         ui.horizontal(|ui| {
@@ -435,6 +437,13 @@ impl Editor {
             } else {
                 self.message("Stage has no content to match.");
             }
+        }
+
+        if match_printer {
+            draft.width = 612.0;
+            draft.height = 792.0;
+            draft.aspect = draft.width / draft.height;
+            draft.match_shift = None;
         }
 
         if make_default {

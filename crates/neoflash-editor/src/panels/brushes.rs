@@ -113,22 +113,69 @@ impl Editor {
                     self.authoring_tools.brush_size = size;
                 }
             }
+            for (preset_label, preset_shape, preset_size) in
+                self.authoring_tools.custom_brush_presets.clone()
+            {
+                if !preset_label
+                    .to_lowercase()
+                    .contains(&self.authoring_tools.brush_search.to_lowercase())
+                {
+                    continue;
+                }
+                let sample = match preset_shape {
+                    nf::BrushShapeKind::RectH | nf::BrushShapeKind::RectV => nf::BrushStroke::Flat,
+                    nf::BrushShapeKind::Slash | nf::BrushShapeKind::Backslash => {
+                        nf::BrushStroke::Chisel
+                    }
+                    _ => nf::BrushStroke::Round,
+                };
+                if ui
+                    .add(
+                        nf::BrushPreset::new(&preset_label, &format!("{preset_size:.0}"))
+                            .stroke(sample)
+                            .selected(
+                                self.authoring_tools.brush_shape == preset_shape
+                                    && (self.authoring_tools.brush_size - preset_size).abs() < 0.5,
+                            )
+                            .width(ui.available_width()),
+                    )
+                    .clicked()
+                {
+                    self.authoring_tools.brush_shape = preset_shape;
+                    self.authoring_tools.brush_size = preset_size;
+                }
+            }
         });
         let mut size = self.authoring_tools.brush_size as f64;
         slider(ui, "Size", &mut size, 1. ..=200., "px");
         self.authoring_tools.brush_size = size as f32;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.;
-            ui.add_enabled(false, nf::IconButton::new(i16::PLUS, "New brush"))
-                .on_hover_text("Custom brush presets are not available yet");
+            if ui
+                .add(nf::IconButton::new(i16::PLUS, "New brush"))
+                .clicked()
+            {
+                let idx = self.authoring_tools.custom_brush_presets.len() + 1;
+                self.authoring_tools.custom_brush_presets.push((
+                    format!("Brush {idx}"),
+                    self.authoring_tools.brush_shape,
+                    self.authoring_tools.brush_size,
+                ));
+            }
             ui.add_enabled(
                 false,
                 nf::IconButton::new(i16::FOLDERPLUS, "New brush group"),
             )
             .on_hover_text("Custom brush groups are not available yet");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled(false, nf::IconButton::new(i16::TRASH, "Delete brush"))
-                    .on_hover_text("Built-in brushes cannot be deleted");
+                let can_delete = !self.authoring_tools.custom_brush_presets.is_empty();
+                if ui
+                    .add_enabled(can_delete, nf::IconButton::new(i16::TRASH, "Delete brush"))
+                    .on_disabled_hover_text("Built-in brushes cannot be deleted")
+                    .clicked()
+                {
+                    self.authoring_tools.custom_brush_presets.pop();
+                }
             });
         });
     }
@@ -139,13 +186,41 @@ impl Editor {
             subtitle: "Paints fills · B",
         });
         nf::SectionHeader::new("Brush mode").show(ui, |ui| {
-            nf::Select::new("brush-mode", "Paint normal").width(ui.available_width()).show(ui, |ui| {
-                ui.add(nf::MenuItem::new("Paint normal").checked(true));
-                for label in ["Paint fills", "Paint behind", "Paint selection", "Paint inside"] {
-                    ui.add_enabled(false, nf::MenuItem::new(label)).on_hover_text("Not available yet");
-                }
-            });
-            note(ui, "Normal · Fills · Behind · Selection · Inside — where paint lands relative to existing shapes.");
+            let current_label = match self.authoring_tools.brush_paint_mode {
+                neoflash_core::BrushPaintMode::PaintNormal => "Paint normal",
+                neoflash_core::BrushPaintMode::PaintFills => "Paint fills",
+                neoflash_core::BrushPaintMode::PaintBehind => "Paint behind",
+                neoflash_core::BrushPaintMode::PaintSelection => "Paint selection",
+                neoflash_core::BrushPaintMode::PaintInside => "Paint inside",
+            };
+            nf::Select::new("brush-mode", current_label)
+                .width(ui.available_width())
+                .show(ui, |ui| {
+                    for (mode, label) in [
+                        (neoflash_core::BrushPaintMode::PaintNormal, "Paint normal"),
+                        (neoflash_core::BrushPaintMode::PaintFills, "Paint fills"),
+                        (neoflash_core::BrushPaintMode::PaintBehind, "Paint behind"),
+                        (
+                            neoflash_core::BrushPaintMode::PaintSelection,
+                            "Paint selection",
+                        ),
+                        (neoflash_core::BrushPaintMode::PaintInside, "Paint inside"),
+                    ] {
+                        if ui
+                            .add(
+                                nf::MenuItem::new(label)
+                                    .checked(self.authoring_tools.brush_paint_mode == mode),
+                            )
+                            .clicked()
+                        {
+                            self.authoring_tools.brush_paint_mode = mode;
+                        }
+                    }
+                });
+            note(
+                ui,
+                "Normal · Fills · Behind · Selection · Inside — where paint lands relative to existing shapes.",
+            );
         });
         nf::SectionHeader::new("Shape and size").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -195,8 +270,10 @@ impl Editor {
                     i16::TILT,
                     neoflash_ui::palette(ui.ctx()).text_secondary,
                 );
-                ui.add_enabled(false, nf::Switch::new(&mut false, "Tilt controls angle"))
-                    .on_hover_text("Tablet tilt input is not available yet");
+                ui.add(nf::Switch::new(
+                    &mut self.authoring_tools.brush_tilt,
+                    "Tilt controls angle",
+                ));
             });
         });
         nf::SectionHeader::new("Fill").show(ui, |ui| {

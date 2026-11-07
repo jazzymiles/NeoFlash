@@ -173,7 +173,7 @@ impl Editor {
                     );
                     ctx.set_cursor_icon(egui::CursorIcon::Copy);
                 }
-                None => {}
+                Some(crate::library::LibraryDrag::Folder(_)) | None => {}
             }
         }
         if down {
@@ -206,6 +206,7 @@ impl Editor {
         let result = match payload {
             crate::library::LibraryDrag::Symbol(id) => self.place_library_symbol(ctx, &id, point),
             crate::library::LibraryDrag::Resource(id) => self.place_graphic_resource(&id, point),
+            crate::library::LibraryDrag::Folder(_) => Ok(()),
         };
         if let Err(error) = result {
             self.message(format!("Cannot place on Stage: {error}"));

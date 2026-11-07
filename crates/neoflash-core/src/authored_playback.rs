@@ -9,6 +9,7 @@ pub struct AuthoredPlayback {
     symbol: Id,
     player: Player,
     button_root: bool,
+    looping: bool,
 }
 
 impl AuthoredPlayback {
@@ -27,15 +28,34 @@ impl AuthoredPlayback {
             button_root: project
                 .symbol(symbol)
                 .is_some_and(|symbol| symbol.kind == SymbolKind::Button),
+            looping: true,
         };
         preview.discard_scripts();
         preview
+    }
+
+    pub fn set_looping(&mut self, looping: bool) {
+        self.looping = looping;
+    }
+
+    pub fn is_looping(&self) -> bool {
+        self.looping
     }
 
     pub fn tick(&mut self, project: &Project) {
         // Button Up/Over/Down/Hit are selected authoring states, not a timeline
         // animation that should advance automatically through Hit.
         if !self.button_root {
+            if !self.looping {
+                let total_frames = project
+                    .symbol(&self.symbol)
+                    .map_or(1, |s| s.timeline.frame_count.max(1));
+                if self.frame() + 1 >= total_frames {
+                    self.player.set_playing(false);
+                    self.discard_scripts();
+                    return;
+                }
+            }
             self.player.tick(project);
         }
         self.discard_scripts();

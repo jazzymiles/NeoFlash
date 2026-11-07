@@ -4738,6 +4738,101 @@ pub fn apply_brush_stroke_with_mode(
     }
 }
 
+/// Slice Merge-mode fills in `elements` along the closed `lasso_polygon` contour (`T-128`).
+///
+/// Any Merge fill that intersects `lasso_polygon` is partitioned into its inside piece(s)
+/// (`BooleanOp::Intersection`) and outside piece(s) (`BooleanOp::Difference`). Returns the
+/// element IDs of all inside pieces (including any Merge fills that already lay completely
+/// inside `lasso_polygon`) so the editor can select the exact lasso-enclosed fill region.
+pub fn lasso_split_merge_fills(
+    elements: &mut Vec<Element>,
+    lasso_polygon: &[PathCommand],
+) -> Vec<Id> {
+    let lasso_rings = flatten_closed_rings(lasso_polygon);
+    if lasso_rings.is_empty() {
+        return Vec::new();
+    }
+    let Some(lasso_bbox) = rings_bounds(&lasso_rings) else {
+        return Vec::new();
+    };
+    let mut selected_ids = Vec::new();
+    let mut next_elements = Vec::with_capacity(elements.len() + 2);
+    for existing in elements.drain(..) {
+        if !is_merge_fill(&existing) {
+            next_elements.push(existing);
+            continue;
+        }
+        let Some(ex_bbox) = element_fast_world_bounds(&existing) else {
+            next_elements.push(existing);
+            continue;
+        };
+        if !bounds_overlap(ex_bbox, lasso_bbox, SNAP_EPS * 2.0) {
+            next_elements.push(existing);
+            continue;
+        }
+        let Some((ex_cmds, ex_rule)) = element_world_commands(&existing) else {
+            next_elements.push(existing);
+            continue;
+        };
+        let Some(fp) = extract_fill_paint(&existing.kind) else {
+            next_elements.push(existing);
+            continue;
+        };
+        let inside_pieces = boolean_paths(
+            &ex_cmds,
+            ex_rule,
+            lasso_polygon,
+            FillRule::EvenOdd,
+            BooleanOp::Intersection,
+        );
+        if inside_pieces.is_empty() {
+            next_elements.push(existing);
+            continue;
+        }
+        let outside_pieces = boolean_paths(
+            &ex_cmds,
+            ex_rule,
+            lasso_polygon,
+            FillRule::EvenOdd,
+            BooleanOp::Difference,
+        );
+        if outside_pieces.is_empty() {
+            selected_ids.push(existing.id.clone());
+            next_elements.push(existing);
+            continue;
+        }
+        for (idx, cmds) in outside_pieces.into_iter().enumerate() {
+            let piece_id = if idx == 0 {
+                existing.id.clone()
+            } else {
+                new_id("element")
+            };
+            next_elements.push(build_fill_element(
+                &existing,
+                piece_id,
+                cmds,
+                FillRule::NonZero,
+                &fp,
+                true,
+            ));
+        }
+        for cmds in inside_pieces {
+            let inside_id = new_id("element");
+            selected_ids.push(inside_id.clone());
+            next_elements.push(build_fill_element(
+                &existing,
+                inside_id,
+                cmds,
+                FillRule::NonZero,
+                &fp,
+                true,
+            ));
+        }
+    }
+    *elements = next_elements;
+    selected_ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
