@@ -804,6 +804,16 @@ impl Editor {
             self.open_view_settings();
             ui.close();
         }
+        let toolbar = self.workspace.stage_toolbar;
+        menu_popup(ui, "Stage toolbar", "Collapsed", "", |ui| {
+            for mode in crate::workspace::StageToolbarMode::ALL {
+                let mut selected = toolbar == mode;
+                if menu_toggle(ui, &mut selected, mode.label(), "").clicked() {
+                    self.workspace.stage_toolbar = mode;
+                    ui.close();
+                }
+            }
+        });
         let mut show_hints = self.timeline_shape_hints.show;
         if menu_toggle(ui, &mut show_hints, "Show shape hints", "⌥⌘H").changed() {
             self.toggle_shape_hints();

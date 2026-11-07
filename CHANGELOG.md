@@ -2,6 +2,12 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Stage toolbar states (`T-101`): the zoom / view toolbar no longer has to cover the drawing. **Collapsed** shows a
+  small zoom pill in the Stage corner that expands while the pointer is over it; **Edit bar** docks the toolbar and
+  the breadcrumb in a classic Flash bar above the Stage; **Floating** keeps the previous bar. Choose it in
+  **View ▸ Stage toolbar** or by right-clicking the toolbar; Comfortable and Compact start collapsed, Classic Flash
+  uses the edit bar. Floating toolbars step aside while you draw or drag on the Stage.
+
 - Density profiles (`T-101`): **Preferences ▸ General ▸ Density** and **Window ▸ Density** switch the editor between
   Comfortable, Compact and Classic Flash. The profiles change only sizes — top bar, panel headers, fields, buttons,
   tool buttons, Timeline controls, frame ruler, default layer rows (28/22/16) and layer column — so laptops and

@@ -5454,3 +5454,77 @@ fn density_profiles_resize_chrome_and_follow_preferences_preview() {
     assert_eq!(editor.project, before);
     assert!(!editor.history.can_undo());
 }
+
+/// T-101 / R-053: the Stage toolbar is a collapsed pill, a floating bar or a Flash-style edit bar;
+/// the density profile chooses the state, the edit bar shrinks the canvas instead of covering it.
+#[test]
+fn stage_toolbar_states_follow_density_and_never_cover_artwork_in_edit_bar() {
+    use crate::workspace::{DensityPref, StageToolbarMode};
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let before = editor.project.clone();
+    let size = Vec2::new(1440., 900.);
+    let mut time = 0.;
+    let mut run = |editor: &mut Editor| {
+        let mut out = None;
+        for _ in 0..3 {
+            time += 0.05;
+            editor.apply_density(&ctx);
+            out = Some(frame(editor, &ctx, size, time, vec![]));
+        }
+        out.unwrap()
+    };
+    // Default (Comfortable): the collapsed pill; its expand button and zoom percentage are present,
+    // the full toolbar is not.
+    assert_eq!(editor.workspace.stage_toolbar, StageToolbarMode::Collapsed);
+    let out = run(&mut editor);
+    assert!(named_bounds(&out, "Show stage toolbar").is_some());
+    assert!(named_bounds(&out, "Zoom in").is_none());
+    let collapsed_canvas = editor.stage_view.canvas;
+
+    // Floating: the full toolbar over the canvas.
+    editor.workspace.stage_toolbar = StageToolbarMode::Expanded;
+    let out = run(&mut editor);
+    let zoom_in = named_bounds(&out, "Zoom in").expect("floating toolbar");
+    assert!(collapsed_canvas.contains_rect(zoom_in));
+
+    // Classic Flash selects the edit bar: the toolbar sits above the canvas, which gets shorter.
+    editor.set_density(&ctx, DensityPref::ClassicFlash);
+    assert_eq!(editor.workspace.stage_toolbar, StageToolbarMode::EditBar);
+    let out = run(&mut editor);
+    let canvas = editor.stage_view.canvas;
+    let zoom_in = named_bounds(&out, "Zoom in").expect("edit bar toolbar");
+    assert!(
+        zoom_in.bottom() <= canvas.top() + 0.5,
+        "{zoom_in:?} above {canvas:?}"
+    );
+    assert!(named_bounds(&out, "Show stage toolbar").is_none());
+    // Its zoom buttons still work.
+    let zoom = editor.zoom;
+    let p = zoom_in.center();
+    frame(
+        &mut editor,
+        &ctx,
+        size,
+        9.0,
+        vec![
+            Event::PointerMoved(p),
+            crate::tests::primary_button(p, true),
+        ],
+    );
+    frame(
+        &mut editor,
+        &ctx,
+        size,
+        9.05,
+        vec![crate::tests::primary_button(p, false)],
+    );
+    assert!(editor.zoom > zoom);
+
+    // Compact returns to the collapsed pill.
+    editor.set_density(&ctx, DensityPref::Compact);
+    assert_eq!(editor.workspace.stage_toolbar, StageToolbarMode::Collapsed);
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}

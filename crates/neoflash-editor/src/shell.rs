@@ -112,17 +112,109 @@ impl Editor {
             });
     }
 
-    /// Floating chrome over the canvas: breadcrumb + drafting actions (top-left), stage size badge
-    /// (top-right) and the zoom control (bottom centre).
+    /// Breadcrumb Scene ▸ symbol ▸ nested symbol, onion badge and path drafting actions (floating
+    /// over the Stage, or inside the edit bar when the Stage toolbar is docked; R-053).
+    pub(crate) fn stage_breadcrumb_row(&mut self, ui: &mut egui::Ui) {
+        ui.spacing_mut().item_spacing.x = 0.;
+        let path = self.editing.clone();
+        let visible_indices: Vec<usize> = if path.len() > 4 {
+            vec![0, path.len() - 2, path.len() - 1]
+        } else {
+            (0..path.len()).collect()
+        };
+        for (slot, &index) in visible_indices.iter().enumerate() {
+            if slot > 0 {
+                nf::breadcrumb_separator(ui);
+            }
+            if path.len() > 4 && slot == 1 {
+                let overflow = nf::breadcrumb_overflow(ui);
+                nf::popup_below(&overflow, 200.0, |ui| {
+                    for (hidden, hidden_id) in path.iter().enumerate().take(path.len() - 2).skip(1)
+                    {
+                        let hidden_name = self
+                            .project
+                            .symbol(hidden_id)
+                            .map(|s| s.name.clone())
+                            .unwrap_or_default();
+                        if ui.add(nf::MenuItem::new(&hidden_name)).clicked() {
+                            self.leave_to_level(hidden);
+                            ui.close();
+                        }
+                    }
+                });
+                nf::breadcrumb_separator(ui);
+            }
+            let id = &path[index];
+            let symbol = self.project.symbol(id);
+            let name = symbol.map(|s| s.name.clone()).unwrap_or_default();
+            let kind = match symbol.map(|s| s.kind) {
+                _ if index == 0 => nf::BreadcrumbType::Scene,
+                Some(neoflash_core::SymbolKind::Graphic) => nf::BreadcrumbType::Graphic,
+                Some(neoflash_core::SymbolKind::Button) => nf::BreadcrumbType::Button,
+                _ => nf::BreadcrumbType::MovieClip,
+            };
+            let current = index + 1 == path.len();
+            // §5.5: the current item's ▾ opens the Symbols & scenes popover.
+            let item = ui.add(nf::BreadcrumbItem {
+                label: &name,
+                kind,
+                current,
+                menu: current,
+            });
+            if item.clicked() {
+                if current {
+                    self.toggle_symbols_popover(ui.ctx(), Some(item.rect));
+                } else {
+                    self.close_symbols_popover(ui.ctx());
+                    self.leave_to_level(index);
+                }
+            }
+        }
+        if self.onion {
+            ui.add_space(space::S2);
+            ui.add(nf::Badge::new("Onion skin", nf::BadgeType::Accent)).on_hover_text(
+                        "Tinted outlines or shapes show neighbouring frames. They are not content of the current frame; turn off Onion Skin to see this frame alone.",
+                    );
+        }
+        if self.vector.draft.is_some() {
+            ui.add_space(space::S2);
+            ui.spacing_mut().item_spacing.x = space::S1;
+            if ui
+                .add(nf::Button::primary("Finish").shortcut("Enter"))
+                .clicked()
+            {
+                self.finish_path(false);
+            }
+            if ui.add(nf::Button::new("Close path")).clicked() {
+                self.finish_path(true);
+            }
+            if ui
+                .add(nf::Button::ghost("Cancel").shortcut("Esc"))
+                .clicked()
+            {
+                self.vector.draft = None;
+            }
+        }
+    }
+
+    /// Stage chrome (R-053): breadcrumb + drafting actions, stage size badge and the Stage toolbar
+    /// (zoom, fit, rulers / guides / grid / snap, view settings) in its Floating, Collapsed or Edit bar
+    /// state. In the Edit bar state everything sits in the bar above the canvas (see [`Self::stage_edit_bar`]).
     pub(crate) fn stage_chrome(&mut self, ui: &mut egui::Ui, canvas: Rect) {
+        use crate::workspace::StageToolbarMode as Mode;
         let ctx = ui.ctx().clone();
+        let mode = self.workspace.stage_toolbar;
+        if mode == Mode::EditBar {
+            self.symbols_popover(&ctx, canvas);
+            self.view_settings_popover(&ctx, canvas);
+            return;
+        }
         // Floating chrome starts below / right of the rulers when they are shown.
         let ruler = if self.stage_view.prefs.rulers {
             neoflash_ui::components::canvas::RULER
         } else {
             0.
         };
-        // Breadcrumb: Scene ▸ symbol ▸ nested symbol. Clicking an item returns to that level.
         egui::Area::new(egui::Id::new("stage-breadcrumb"))
             .order(egui::Order::Middle)
             .fixed_pos(canvas.min + Vec2::splat(space::S3 + ruler))
@@ -133,78 +225,7 @@ impl Editor {
                     .corner_radius(neoflash_ui::tokens::radius::LG)
                     .inner_margin(egui::Margin::same(3))
                     .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 0.;
-                            let path = self.editing.clone();
-                            let visible_indices: Vec<usize> = if path.len() > 4 {
-                                vec![0, path.len() - 2, path.len() - 1]
-                            } else {
-                                (0..path.len()).collect()
-                            };
-                            for (slot, &index) in visible_indices.iter().enumerate() {
-                                if slot > 0 {
-                                    nf::breadcrumb_separator(ui);
-                                }
-                                if path.len() > 4 && slot == 1 {
-                                    let overflow = nf::breadcrumb_overflow(ui);
-                                    nf::popup_below(&overflow, 200.0, |ui| {
-                                        for (hidden, hidden_id) in
-                                            path.iter().enumerate().take(path.len() - 2).skip(1)
-                                        {
-                                            let hidden_name = self
-                                                .project
-                                                .symbol(hidden_id)
-                                                .map(|s| s.name.clone())
-                                                .unwrap_or_default();
-                                            if ui.add(nf::MenuItem::new(&hidden_name)).clicked() {
-                                                self.leave_to_level(hidden);
-                                                ui.close();
-                                            }
-                                        }
-                                    });
-                                    nf::breadcrumb_separator(ui);
-                                }
-                                let id = &path[index];
-                                let symbol = self.project.symbol(id);
-                                let name = symbol.map(|s| s.name.clone()).unwrap_or_default();
-                                let kind = match symbol.map(|s| s.kind) {
-                                    _ if index == 0 => nf::BreadcrumbType::Scene,
-                                    Some(neoflash_core::SymbolKind::Graphic) => nf::BreadcrumbType::Graphic,
-                                    Some(neoflash_core::SymbolKind::Button) => nf::BreadcrumbType::Button,
-                                    _ => nf::BreadcrumbType::MovieClip,
-                                };
-                                let current = index + 1 == path.len();
-                                // §5.5: the current item's ▾ opens the Symbols & scenes popover.
-                                let item = ui.add(nf::BreadcrumbItem { label: &name, kind, current, menu: current });
-                                if item.clicked() {
-                                    if current {
-                                        self.toggle_symbols_popover(ui.ctx(), Some(item.rect));
-                                    } else {
-                                        self.close_symbols_popover(ui.ctx());
-                                        self.leave_to_level(index);
-                                    }
-                                }
-                            }
-                            if self.onion {
-                                ui.add_space(space::S2);
-                                ui.add(nf::Badge::new("Onion skin", nf::BadgeType::Accent)).on_hover_text(
-                                    "Tinted outlines or shapes show neighbouring frames. They are not content of the current frame; turn off Onion Skin to see this frame alone.",
-                                );
-                            }
-                            if self.vector.draft.is_some() {
-                                ui.add_space(space::S2);
-                                ui.spacing_mut().item_spacing.x = space::S1;
-                                if ui.add(nf::Button::primary("Finish").shortcut("Enter")).clicked() {
-                                    self.finish_path(false);
-                                }
-                                if ui.add(nf::Button::new("Close path")).clicked() {
-                                    self.finish_path(true);
-                                }
-                                if ui.add(nf::Button::ghost("Cancel").shortcut("Esc")).clicked() {
-                                    self.vector.draft = None;
-                                }
-                            }
-                        });
+                        ui.horizontal(|ui| self.stage_breadcrumb_row(ui));
                     });
             });
         self.symbols_popover(&ctx, canvas);
@@ -218,15 +239,117 @@ impl Editor {
                 let label = format!("{} × {}", self.project.width, self.project.height);
                 ui.add(nf::Badge::new(&label, nf::BadgeType::Neutral));
             });
-        // Zoom control with the rulers / guides / grid / snap-to-guides toggles (same state as the
-        // View menu) and ⚙, which opens the View settings popover anchored to it.
         if canvas.width() < 420. || canvas.height() < 160. {
             self.stage_view.settings_button = None;
             self.view_settings_popover(&ctx, canvas);
             return;
         }
+        // While a drawing / transform / marquee drag that started on the canvas is in progress the
+        // floating toolbar steps aside, so it never covers the artwork being edited.
+        let toolbar_rect_id = egui::Id::new("stage-toolbar-rect");
+        let last_rect: Option<Rect> = ctx.data(|d| d.get_temp(toolbar_rect_id));
+        let gesture = ctx.input(|i| {
+            i.pointer.primary_down()
+                && i.pointer.is_decidedly_dragging()
+                && i.pointer
+                    .press_origin()
+                    .is_some_and(|p| canvas.contains(p) && last_rect.is_none_or(|r| !r.contains(p)))
+        });
+        if gesture {
+            self.stage_view.settings_button = None;
+            self.view_settings_popover(&ctx, canvas);
+            return;
+        }
+        let control = self.zoom_control();
+        let id = egui::Id::new("stage-zoom-control");
+        let corner = canvas.right_bottom() - Vec2::splat(space::S4);
+        let (action, settings, area) = match mode {
+            Mode::Collapsed => {
+                // Context expansion: the pill expands in place while the pointer is over it (or a
+                // popover it opened is shown) and collapses 1 s after the pointer leaves.
+                let linger_id = egui::Id::new("stage-toolbar-linger");
+                let now = ctx.input(|i| i.time);
+                let until: f64 = ctx.data(|d| d.get_temp(linger_id)).unwrap_or(0.);
+                if now < until || self.stage_view.settings_open {
+                    let ((action, settings), area) =
+                        control.show_floating(&ctx, id, corner, egui::Align2::RIGHT_BOTTOM);
+                    if area.contains_pointer() || self.stage_view.settings_open {
+                        ctx.data_mut(|d| d.insert_temp(linger_id, now + 1.0));
+                    }
+                    ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                    (action, settings, area)
+                } else {
+                    let (action, expand, area) = control.show_collapsed(&ctx, id, corner);
+                    if expand || area.contains_pointer() {
+                        ctx.data_mut(|d| d.insert_temp(linger_id, now + 1.0));
+                        ctx.request_repaint();
+                    }
+                    (action, None, area)
+                }
+            }
+            _ => {
+                let ((action, settings), area) = control.show_floating(
+                    &ctx,
+                    id,
+                    canvas.center_bottom() - Vec2::new(0., space::S4),
+                    egui::Align2::CENTER_BOTTOM,
+                );
+                (action, settings, area)
+            }
+        };
+        ctx.data_mut(|d| d.insert_temp(toolbar_rect_id, area.rect));
+        self.stage_toolbar_menu(&area);
+        self.stage_view.settings_button = settings.map(|r| r.rect);
+        self.apply_zoom_action(action);
+        self.view_settings_popover(&ctx, canvas);
+    }
+
+    /// Stage edit bar (R-053, Edit bar state): the classic Flash bar above the canvas with the
+    /// breadcrumb on the left and the stage size, zoom and view toggles on the right.
+    pub(crate) fn stage_edit_bar(&mut self, ui: &mut egui::Ui, bar: Rect) {
+        let p = palette(ui.ctx());
+        ui.painter().rect_filled(bar, 0.0, p.bg_panel);
+        ui.painter().hline(
+            bar.x_range(),
+            bar.bottom() - 0.5,
+            egui::Stroke::new(1.0_f32, p.border_subtle),
+        );
+        let background = ui.interact(bar, egui::Id::new("stage-edit-bar"), egui::Sense::click());
+        self.stage_toolbar_menu(&background);
+        let control = self.zoom_control();
+        let mut outcome = (ZoomAction::None, None);
+        // The right group keeps its left-to-right order: it is placed by its measured width.
+        let width_id = egui::Id::new("stage-edit-bar-tools-width");
+        let tools_width: f32 = ui.ctx().data(|d| d.get_temp(width_id)).unwrap_or(560.);
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(bar.shrink2(Vec2::new(space::S2, 0.)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            |ui| {
+                self.stage_breadcrumb_row(ui);
+                let gap = ui.available_width() - tools_width;
+                if gap > 0. {
+                    ui.add_space(gap);
+                }
+                let start = ui.cursor().left();
+                let label = format!("{} × {}", self.project.width, self.project.height);
+                ui.add(nf::Badge::new(&label, nf::BadgeType::Neutral));
+                ui.add_space(space::S2);
+                outcome = control.contents(ui);
+                let measured = ui.min_rect().right() - start;
+                if (measured - tools_width).abs() > 0.5 {
+                    ui.ctx().data_mut(|d| d.insert_temp(width_id, measured));
+                    ui.ctx().request_repaint();
+                }
+            },
+        );
+        self.stage_view.settings_button = outcome.1.map(|r| r.rect);
+        self.apply_zoom_action(outcome.0);
+    }
+
+    fn zoom_control(&self) -> nf::ZoomControl {
         let v = &self.stage_view.prefs;
-        let (action, settings) = nf::ZoomControl {
+        nf::ZoomControl {
             zoom: self.zoom,
             hand: self.tool == Tool::Hand,
             rulers: Some(v.rulers),
@@ -234,12 +357,9 @@ impl Editor {
             grid: Some(v.grid_show),
             snap: Some(v.guides_snap),
         }
-        .show(
-            &ctx,
-            egui::Id::new("stage-zoom-control"),
-            canvas.center_bottom() - Vec2::new(0., space::S4),
-        );
-        self.stage_view.settings_button = settings.map(|r| r.rect);
+    }
+
+    fn apply_zoom_action(&mut self, action: ZoomAction) {
         match action {
             ZoomAction::Hand => self.tool = Tool::Hand,
             ZoomAction::ZoomIn => self.zoom_in(),
@@ -255,7 +375,23 @@ impl Editor {
             }
             ZoomAction::None => {}
         }
-        self.view_settings_popover(&ctx, canvas);
+    }
+
+    /// Right-click menu of the Stage toolbar (and the edit bar): switch its state (R-053).
+    fn stage_toolbar_menu(&mut self, response: &egui::Response) {
+        nf::context_menu(response, |ui| {
+            nf::menu_section(ui, "Stage toolbar");
+            for mode in crate::workspace::StageToolbarMode::ALL {
+                let current = self.workspace.stage_toolbar == mode;
+                if ui
+                    .add(nf::MenuItem::new(mode.label()).checked(current))
+                    .clicked()
+                {
+                    self.workspace.stage_toolbar = mode;
+                    ui.close();
+                }
+            }
+        });
     }
 
     pub(crate) fn zoom_in(&mut self) {

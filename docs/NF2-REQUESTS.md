@@ -800,7 +800,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   grouped hidden controls, square Primary SM Play, presets, Narrow glyph, Fit selection/content; tests pass.
 
 ### R-053 · Collapsed, edge-docked and contextual Stage toolbar states
-- **Status:** open
+- **Status:** answered (owner decision 2026-11-07; implemented)
 - **Requested by / for:** project owner · T-101 / V-D03
 - **Where:** the floating Stage/canvas toolbar and its interaction with artwork, pasteboard and docks.
 - **Need:** Approved collapsed, edge-docked and context-expanded states, including transition, persistence, keyboard
@@ -809,6 +809,11 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   drawing in the inspected native authoring screenshots.
 - **Checked:** T-099 §9; `target/ui-shots/t090-post-move-dark.png`; current editor main exports and canvas chrome.
 - **Proposal (optional):** A one-button collapsed state at a canvas edge, expanding in place only for the active tool.
+- **Answer (T-101, 2026-11-07, owner-approved):** Floating, Collapsed (corner pill that expands in place on hover)
+  and Edit bar (Flash-style strip above the Stage; the canvas shrinks). Floating states hide during canvas drags.
+  View ▸ Stage toolbar and the toolbar's context menu switch states; the density profile picks the default
+  (Comfortable/Compact → Collapsed, Classic Flash → Edit bar). Dragging the floating toolbar to other corners was
+  not requested and is not implemented.
 
 ### R-054 · Inspector / Library priority layouts and fast focus expansion
 - **Status:** open

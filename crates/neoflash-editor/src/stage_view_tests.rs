@@ -440,6 +440,8 @@ fn view_menu_and_zoom_control_share_the_toggles() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::blank());
+    // The toggles live in the expanded floating toolbar (the default is the collapsed pill, R-053).
+    editor.workspace.stage_toolbar = crate::workspace::StageToolbarMode::Expanded;
     let project_before = editor.project.clone();
     let saved_rgba = [31, 97, 193, 128];
     editor.stage_view.prefs.grid_color = Some(saved_rgba);

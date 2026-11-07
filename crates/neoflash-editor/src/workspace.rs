@@ -1472,6 +1472,42 @@ impl DocumentDefaults {
     }
 }
 
+/// Stage toolbar state (View ▸ Stage toolbar; T-101 / R-053): zoom, fit and view toggles.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StageToolbarMode {
+    /// Floating at the bottom centre of the Stage.
+    Expanded,
+    /// A small pill at the bottom-right corner that expands in place on hover (default of the
+    /// Comfortable and Compact profiles).
+    #[default]
+    Collapsed,
+    /// Classic Flash edit bar along the top of the Stage: never covers artwork (default of the
+    /// Classic Flash profile).
+    EditBar,
+}
+
+impl StageToolbarMode {
+    /// Owner decision 2026-11-07: the profile chooses the toolbar state like it chooses row height.
+    pub fn for_density(density: DensityPref) -> Self {
+        match density {
+            DensityPref::ClassicFlash => Self::EditBar,
+            DensityPref::Comfortable | DensityPref::Compact => Self::Collapsed,
+        }
+    }
+}
+
+impl StageToolbarMode {
+    pub const ALL: [Self; 3] = [Self::Expanded, Self::Collapsed, Self::EditBar];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Expanded => "Floating",
+            Self::Collapsed => "Collapsed",
+            Self::EditBar => "Edit bar",
+        }
+    }
+}
+
 /// Editor density profile (Preferences ▸ General ▸ Density, Window ▸ Density; T-101 / R-051).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1503,6 +1539,8 @@ pub struct WorkspacePrefs {
     pub theme: ThemeMode,
     /// Density profile: sizes of the editor chrome; behaviour is identical in every profile.
     pub density: DensityPref,
+    /// Stage toolbar state (R-053).
+    pub stage_toolbar: StageToolbarMode,
     pub panels: PanelVisibility,
     pub active_bottom: BottomTab,
     pub sizes: PanelSizes,
@@ -2394,6 +2432,7 @@ impl Default for WorkspacePrefs {
             floating: Vec::new(),
             template: WorkspaceTemplate::Classic,
             density: DensityPref::default(),
+            stage_toolbar: StageToolbarMode::default(),
             timeline: TimelineView::default(),
             view_defaults: None,
             recent_colors: Vec::new(),
@@ -3095,10 +3134,11 @@ impl WorkspacePrefs {
         self.general.recent_files.clear();
     }
 
-    /// Switch the density profile. Its layer-row preset (Normal / Short / Compact) and default
-    /// layer-column width become current; the user can still change both afterwards.
+    /// Switch the density profile. Its layer-row preset (Normal / Short / Compact), default
+    /// layer-column width and Stage toolbar state become current; the user can change them afterwards.
     pub fn set_density(&mut self, density: DensityPref) {
         self.density = density;
+        self.stage_toolbar = StageToolbarMode::for_density(density);
         let d = density.ui();
         self.timeline.short_rows = d == neoflash_ui::metrics::Density::Compact;
         self.timeline.compact_rows = d == neoflash_ui::metrics::Density::ClassicFlash;
@@ -3117,6 +3157,7 @@ impl WorkspacePrefs {
         *self = Self {
             theme: self.theme,
             density: self.density,
+            stage_toolbar: self.stage_toolbar,
             ui_scale: self.ui_scale,
             undo_levels: self.undo_levels,
             shift_select: self.shift_select,

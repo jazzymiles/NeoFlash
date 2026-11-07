@@ -520,6 +520,20 @@ impl Editor {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(palette.pasteboard))
             .show(ctx, |ui| {
+                // Stage toolbar docked as an edit bar (R-053): a strip above the canvas, so the
+                // toolbar and breadcrumb never cover artwork.
+                ui.spacing_mut().item_spacing.y = 0.;
+                let edit_bar = (self.workspace.stage_toolbar
+                    == crate::workspace::StageToolbarMode::EditBar)
+                    .then(|| {
+                        let height =
+                            neoflash_ui::metrics::control() + neoflash_ui::tokens::space::S2;
+                        ui.allocate_exact_size(
+                            Vec2::new(ui.available_width(), height),
+                            Sense::hover(),
+                        )
+                        .0
+                    });
                 let avail = ui.available_size();
                 let (rect, response) =
                     ui.allocate_exact_size(avail.max(Vec2::splat(1.)), Sense::click_and_drag());
@@ -911,6 +925,9 @@ impl Editor {
                 self.paint_snap_ring(&p);
                 self.stage_context_menu(&response, &scene, &p, origin);
                 self.stage_rulers(ctx, rect, origin);
+                if let Some(bar) = edit_bar {
+                    self.stage_edit_bar(ui, bar);
+                }
                 self.stage_chrome(ui, rect);
                 self.show_stage_cursor(ctx, rect, ui.layer_id());
             });

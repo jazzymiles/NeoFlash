@@ -227,6 +227,23 @@ impl Editor {
                     .set_density(crate::workspace::DensityPref::ClassicFlash),
                 _ => {}
             }
+            // `NEOFLASH_SCREENSHOT_STAGEBAR=collapsed|editbar` captures a Stage toolbar state.
+            match std::env::var("NEOFLASH_SCREENSHOT_STAGEBAR").as_deref() {
+                Ok("collapsed") => {
+                    s.workspace.stage_toolbar = crate::workspace::StageToolbarMode::Collapsed
+                }
+                // The collapsed pill expanded in place, as while the pointer is over it.
+                Ok("hover") => {
+                    s.workspace.stage_toolbar = crate::workspace::StageToolbarMode::Collapsed;
+                    cc.egui_ctx.data_mut(|d| {
+                        d.insert_temp(egui::Id::new("stage-toolbar-linger"), f64::MAX)
+                    });
+                }
+                Ok("editbar") => {
+                    s.workspace.stage_toolbar = crate::workspace::StageToolbarMode::EditBar
+                }
+                _ => {}
+            }
             match std::env::var("NEOFLASH_SCREENSHOT_ROWS").as_deref() {
                 Ok("short") => s.workspace.timeline.short_rows = true,
                 Ok("compact") => s.workspace.timeline.compact_rows = true,

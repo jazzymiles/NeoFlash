@@ -158,12 +158,124 @@ impl ZoomControl {
         id: egui::Id,
         center_bottom: egui::Pos2,
     ) -> (ZoomAction, Option<Response>) {
+        self.show_floating(ctx, id, center_bottom, egui::Align2::CENTER_BOTTOM)
+            .0
+    }
+
+    /// Floating toolbar pinned by `pivot` at `pos` (R-053: centre-bottom when expanded, right-bottom when
+    /// it expands from the collapsed pill). Also returns the area response (hover, context menu).
+    pub fn show_floating(
+        self,
+        ctx: &egui::Context,
+        id: egui::Id,
+        pos: egui::Pos2,
+        pivot: egui::Align2,
+    ) -> ((ZoomAction, Option<Response>), Response) {
+        let inner = egui::Area::new(id)
+            .order(egui::Order::Foreground)
+            .pivot(pivot)
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                Surface::Floating
+                    .frame(ctx)
+                    .corner_radius(cr(radius::LG))
+                    .inner_margin(egui::Margin::same(4))
+                    .show(ui, |ui| self.contents(ui))
+                    .inner
+            });
+        (inner.inner, inner.response)
+    }
+
+    /// The controls in a row: hand · zoom out · % · zoom in · fit · rulers / guides / grid / snap · view
+    /// settings. Used by the floating toolbar and by the Stage edit bar (R-053, edge-docked state).
+    pub fn contents(self, ui: &mut Ui) -> (ZoomAction, Option<Response>) {
         let mut action = ZoomAction::None;
         let mut settings = None;
-        egui::Area::new(id)
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let b = |ui: &mut Ui, icon: Icon, name: &str, key: Option<&str>, on: bool| {
+                let mut btn = super::IconButton::new(icon, name).selected(on);
+                if let Some(k) = key {
+                    btn = btn.shortcut(k);
+                }
+                ui.add(btn).clicked()
+            };
+            if b(ui, i16::HAND, "Hand", Some("H"), self.hand) {
+                action = ZoomAction::Hand;
+            }
+            super::display::divider(ui, true);
+            if b(ui, i16::MINUS, "Zoom out", Some("⌘−"), false) {
+                action = ZoomAction::ZoomOut;
+            }
+            let pct = format!("{:.0}%", self.zoom * 100.0);
+            if ui
+                .add(super::Button::ghost(&pct).width(52.0))
+                .on_hover_text("Reset to 100 % (⌘1)")
+                .clicked()
+            {
+                action = ZoomAction::ZoomReset;
+            }
+            if b(ui, i16::PLUS, "Zoom in", Some("⌘="), false) {
+                action = ZoomAction::ZoomIn;
+            }
+            super::display::divider(ui, true);
+            if b(ui, i16::FIT, "Fit stage in window", Some("⌘0"), false) {
+                action = ZoomAction::Fit;
+            }
+            let toggles = [
+                (
+                    self.rulers,
+                    i16::RULER,
+                    "Rulers",
+                    "⌥⇧⌘R",
+                    ZoomAction::Rulers,
+                ),
+                (self.guides, i16::GUIDES, "Guides", "⌘;", ZoomAction::Guides),
+                (self.grid, i16::GRID, "Grid", "⌘'", ZoomAction::Grid),
+                (
+                    self.snap,
+                    i16::SNAP_GUIDES,
+                    "Snap to guides",
+                    "⇧⌘;",
+                    ZoomAction::Snap,
+                ),
+            ];
+            if toggles.iter().any(|t| t.0.is_some()) {
+                super::display::divider(ui, true);
+            }
+            for (state, icon, name, key, a) in toggles {
+                if let Some(on) = state
+                    && b(ui, icon, name, Some(key), on)
+                {
+                    action = a;
+                }
+            }
+            let r = ui.add(super::IconButton::new(
+                i16::VIEW_SETTINGS,
+                "Rulers, guides and grid…",
+            ));
+            if r.clicked() {
+                action = ZoomAction::ViewSettings;
+            }
+            settings = Some(r);
+        });
+        (action, settings)
+    }
+
+    /// Collapsed state (R-053): a pill with the zoom percentage and an expand chevron, pinned at `pos`
+    /// by its right-bottom corner. Clicking the percentage resets to 100 %; the chevron expands.
+    pub fn show_collapsed(
+        self,
+        ctx: &egui::Context,
+        id: egui::Id,
+        pos: egui::Pos2,
+    ) -> (ZoomAction, bool, Response) {
+        let mut action = ZoomAction::None;
+        let mut expand = false;
+        let inner = egui::Area::new(id)
             .order(egui::Order::Foreground)
-            .pivot(egui::Align2::CENTER_BOTTOM)
-            .fixed_pos(center_bottom)
+            .pivot(egui::Align2::RIGHT_BOTTOM)
+            .fixed_pos(pos)
             .show(ctx, |ui| {
                 Surface::Floating
                     .frame(ctx)
@@ -172,23 +284,11 @@ impl ZoomControl {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
-                            let b = |ui: &mut Ui,
-                                     icon: Icon,
-                                     name: &str,
-                                     key: Option<&str>,
-                                     on: bool| {
-                                let mut btn = super::IconButton::new(icon, name).selected(on);
-                                if let Some(k) = key {
-                                    btn = btn.shortcut(k);
-                                }
-                                ui.add(btn).clicked()
-                            };
-                            if b(ui, i16::HAND, "Hand", Some("H"), self.hand) {
-                                action = ZoomAction::Hand;
-                            }
-                            super::display::divider(ui, true);
-                            if b(ui, i16::MINUS, "Zoom out", Some("⌘−"), false) {
-                                action = ZoomAction::ZoomOut;
+                            if ui
+                                .add(super::IconButton::new(i16::CHEVLEFT, "Show stage toolbar"))
+                                .clicked()
+                            {
+                                expand = true;
                             }
                             let pct = format!("{:.0}%", self.zoom * 100.0);
                             if ui
@@ -198,53 +298,10 @@ impl ZoomControl {
                             {
                                 action = ZoomAction::ZoomReset;
                             }
-                            if b(ui, i16::PLUS, "Zoom in", Some("⌘="), false) {
-                                action = ZoomAction::ZoomIn;
-                            }
-                            super::display::divider(ui, true);
-                            if b(ui, i16::FIT, "Fit stage in window", Some("⌘0"), false) {
-                                action = ZoomAction::Fit;
-                            }
-                            let toggles = [
-                                (
-                                    self.rulers,
-                                    i16::RULER,
-                                    "Rulers",
-                                    "⌥⇧⌘R",
-                                    ZoomAction::Rulers,
-                                ),
-                                (self.guides, i16::GUIDES, "Guides", "⌘;", ZoomAction::Guides),
-                                (self.grid, i16::GRID, "Grid", "⌘'", ZoomAction::Grid),
-                                (
-                                    self.snap,
-                                    i16::SNAP_GUIDES,
-                                    "Snap to guides",
-                                    "⇧⌘;",
-                                    ZoomAction::Snap,
-                                ),
-                            ];
-                            if toggles.iter().any(|t| t.0.is_some()) {
-                                super::display::divider(ui, true);
-                            }
-                            for (state, icon, name, key, a) in toggles {
-                                if let Some(on) = state
-                                    && b(ui, icon, name, Some(key), on)
-                                {
-                                    action = a;
-                                }
-                            }
-                            let r = ui.add(super::IconButton::new(
-                                i16::VIEW_SETTINGS,
-                                "Rulers, guides and grid…",
-                            ));
-                            if r.clicked() {
-                                action = ZoomAction::ViewSettings;
-                            }
-                            settings = Some(r);
                         });
                     });
             });
-        (action, settings)
+        (action, expand, inner.response)
     }
 }
 
