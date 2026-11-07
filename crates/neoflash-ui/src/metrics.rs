@@ -61,9 +61,12 @@ pub const STAGE_RULER: f32 = 20.0;
 // §5.1 Timeline geometry.
 /// Frame width in the Normal view mode. Frame `n` starts at `(n − 1) × FRAME`.
 pub const FRAME: f32 = 12.0;
-/// Layer row height (Short mode: [`LAYER_ROW_SHORT`]).
+/// Layer row height presets (owner decision 2026-11-07, R-052): Normal 28 pt with `NF2/Body`, Short 22 pt with
+/// `NF2/Small` and Compact 16 pt with `NF2/Caption`; Short and Compact use 12 pt layer icons. Toggle columns keep
+/// their 20 pt width in every preset.
 pub const LAYER_ROW: f32 = 28.0;
-pub const LAYER_ROW_SHORT: f32 = 18.0;
+pub const LAYER_ROW_SHORT: f32 = 22.0;
+pub const LAYER_ROW_COMPACT: f32 = 16.0;
 /// Layer row height in Frame view ▸ Preview / Preview in context (outline `Mode / Preview`: three
 /// rows in a 132 px frame area).
 pub const LAYER_ROW_PREVIEW: f32 = 44.0;
@@ -80,6 +83,9 @@ pub const LAYER_TOGGLE: f32 = 20.0;
 pub const LAYER_MODE: f32 = 64.0;
 /// Layer column with the Mode cell and the Solo toggle (R-040, R-045): 280 + 64 + 20 + 8.
 pub const LAYER_COLUMN_MODE_SOLO: f32 = 372.0;
+/// Below this layer-column width the `Mode` cell collapses to a 20 pt `mixer` glyph that appears only for
+/// non-Normal blend modes (Narrow layer column, R-052, owner-approved 2026-11-07).
+pub const LAYER_MODE_NARROW_BELOW: f32 = LAYER_COLUMN;
 /// Indentation of nested layers (`Indent 1`, `Indent 2`).
 pub const LAYER_INDENT: f32 = 16.0;
 

@@ -640,8 +640,9 @@ pub fn paint_marquee(painter: &Painter, ctx: &egui::Context, rect: Rect) {
     painter.extend(egui::Shape::dashed_line(&pts, s, 4.0, 3.0));
 }
 
-/// `NF2/Shape Selection` (v2.3): two-tone hatch over a selected raw fill / stroke, painted inside `rect`
-/// (clip the painter to the shape). 45° lines every 8 pt (≈ 5.7 pt apart): 1 pt white at 90 % with a 1 pt
+/// `NF2/Shape Selection` (v2.3, pitch 4 pt since R-058): two-tone hatch over a selected raw fill / stroke,
+/// painted inside `rect` (clip the painter to the shape). 45° lines every 4 pt measured horizontally
+/// (≈ 2.83 pt perpendicular to the stripes): 1 pt white at 90 % with a 1 pt
 /// black line at 75 % 1.5 pt beside it. Theme-independent, because artwork is not themed: on any fill one of
 /// the two lines keeps at least 3.8:1 (WCAG non-text minimum 3:1; the v2.2 single hatch had 1.5:1 on blue in
 /// Dark and 1.1:1 in Light), so selected and unselected parts of a raw shape always differ.
@@ -664,8 +665,9 @@ pub fn paint_shape_selection(painter: &Painter, _ctx: &egui::Context, rect: Rect
     }
 }
 
-/// Horizontal period of the `NF2/Shape Selection` hatch and the offset of its dark line.
-pub const SHAPE_SELECTION_PERIOD: f32 = 8.0;
+/// Horizontal period of the `NF2/Shape Selection` hatch and the offset of its dark line (both measured
+/// along x; perpendicular to the stripes they are ÷ √2). Owner-approved 4 pt pitch (R-058, 2026-11-07).
+pub const SHAPE_SELECTION_PERIOD: f32 = 4.0;
 pub const SHAPE_SELECTION_OFFSET: f32 = 1.5;
 
 /// `NF2/Gradient Transform`: dashed bounds circle, centre (move), focal triangle, width square,

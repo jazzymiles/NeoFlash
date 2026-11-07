@@ -84,9 +84,10 @@ fn inline_message_wraps_and_peek_hugs() {
         });
         assert_eq!(one.size(), egui::vec2(360.0, 16.0));
         assert!(two.height() >= 32.0, "warning should wrap: {two:?}");
-        // Figma `Error peek`: 30 pt high, ~370 pt wide for this text.
+        // Figma `Error peek`: 30 pt high; it hugs the text (~370 pt with the v2.2 13 pt scale,
+        // ~310 pt with the owner-approved type scale B, NF2/Small 10).
         assert_eq!(peek.height(), 30.0);
-        assert!((320.0..420.0).contains(&peek.width()), "{peek:?}");
+        assert!((280.0..420.0).contains(&peek.width()), "{peek:?}");
     }
 }
 

@@ -135,8 +135,8 @@ impl Editor {
             .layer_column_width
             .clamp(140., maximum_layer_width);
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
-            // Keep a usable frame canvas even in the smallest native Timeline
-            // window. Overflowing bar controls scroll; the onion group stays pinned.
+            // Keep a usable frame canvas even in the smallest native Timeline window. Bar controls
+            // that do not fit hide by priority into the More menu (R-052).
             ui.spacing_mut().scroll.floating = false;
             ui.spacing_mut().item_spacing = Vec2::ZERO;
             let controls = self.timeline_controls_bar(
@@ -148,7 +148,8 @@ impl Editor {
             if zoom_changed {
                 self.timeline_key_drag = None;
             }
-            let recenter = zoom_changed || controls.recenter;
+            let scroll_to = controls.scroll_to;
+            let recenter = (zoom_changed || controls.recenter) && scroll_to.is_none();
             let view = self.workspace.timeline;
             let button_states = self.symbol().kind == SymbolKind::Button;
             let cell_width = if button_states { 64. } else { self.timeline_cell };
@@ -535,6 +536,13 @@ impl Editor {
                                 });
                                 }
                             });
+                        if let Some(first) = scroll_to {
+                            let mut state = frames.state;
+                            let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);
+                            state.offset.x = (first as f32 * cell_width).clamp(0., maximum);
+                            state.store(ui.ctx(), frames.id);
+                            ui.ctx().request_repaint();
+                        }
                         if recenter {
                             let mut state = frames.state;
                             let maximum = (frames.content_size.x - frames.inner_rect.width()).max(0.);

@@ -2,6 +2,19 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- NF2 density and readability, first batch (`T-101`, `T-078`):
+  - The Timeline controls bar no longer clips Duration, frame, tween, Ease or Sound controls at ordinary window
+    widths. Controls hide in an owner-approved priority order (zoom slider first, then Duration, Center playhead,
+    Scene, FPS…) and appear under **Hidden controls** at the top of the right-end **⋯** menu, grouped into submenus in
+    very narrow detached Timelines. Add layer, the transport and ⋯ always stay visible; the transport aligns with
+    frame 1 only when everything fits. Frame view adds **Fit selection** and **Fit content**.
+  - Play is a square accent button the size of its transport neighbours (all accent icon buttons are square).
+  - Layer row heights are Normal 28, Short 22 and Compact 16 pt (previously 28/18/14) with matching label sizes.
+    Below a 280 pt layer column the Mode column collapses to a blend-mode icon that appears only for non-Normal modes.
+  - The selected raw-shape hatch is denser: its two-tone stripes repeat every 4 pt instead of 8 pt.
+  - Smaller professional type scale across the editor: panel titles 12 pt, body text 11 pt, small labels 10 pt,
+    dialogs 14/12 pt (previously 16, 13, 12 and 18/14).
+
 - Test maintenance: cartoon regressions preserve authored examples and clean up temporary outputs; full movie and
   HTML5 artifact generation is explicit. Project workflows reuse built test tools within each run, and full checks
   avoid retaining incremental compiler caches unless requested. Ordinary semantic/Lottie and video-preparation checks

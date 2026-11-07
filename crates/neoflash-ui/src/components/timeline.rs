@@ -241,8 +241,8 @@ impl LayerRow<'_> {
         );
         let mut x = rect.left() + space::S2 + self.indent as f32 * LAYER_INDENT;
         let cy = rect.center().y;
-        // `Size=Compact` (Figma 166:1038…): Short 18 pt / Compact 14 pt rows use 12 pt icons, 4 pt gaps
-        // and NF2/Small labels; toggle columns keep their 20 pt width so the header icons line up.
+        // `Size=Compact` (Figma 166:1038…): Short 22 pt / Compact 16 pt rows use 12 pt icons, 4 pt gaps
+        // and NF2/Small / NF2/Caption labels; toggle columns keep their 20 pt width so the header icons line up.
         let compact = layer_row_is_compact(rect.height());
         let icon = layer_row_icon(rect.height());
         let mut disclosure = false;
@@ -288,8 +288,11 @@ impl LayerRow<'_> {
         let toggle_count = if columns.solo.is_some() { 4.0 } else { 3.0 };
         let toggles_left = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
         let toggles_w = toggle_count * LAYER_TOGGLE + space::S2 + 8.0;
+        let narrow_mode = rect.width() < crate::metrics::LAYER_MODE_NARROW_BELOW;
         let mode_w = if columns.mode == ModeCell::Hidden {
             0.0
+        } else if narrow_mode {
+            LAYER_TOGGLE + space::S1
         } else {
             // Cell + 4 pt to the toggles + 4 pt to the label: 92 pt with the Solo column (Figma 143:22609).
             LAYER_MODE + space::S2
@@ -305,7 +308,10 @@ impl LayerRow<'_> {
             egui::pos2(x, rect.top()),
             egui::pos2(label_right, rect.bottom()),
         );
-        let label_style = if compact {
+        // Normal 28 → NF2/Body, Short 22 → NF2/Small, Compact 16 → NF2/Caption (R-052).
+        let label_style = if rect.height() < crate::metrics::LAYER_ROW_SHORT - 0.5 {
+            TextStyle::Caption
+        } else if compact {
             TextStyle::Small
         } else {
             TextStyle::Body
@@ -332,9 +338,14 @@ impl LayerRow<'_> {
         let mut mode_rect = None;
         if columns.mode != ModeCell::Hidden {
             let mode_h = 20.0_f32.min(rect.height());
+            let cell_w = if narrow_mode {
+                LAYER_TOGGLE
+            } else {
+                LAYER_MODE
+            };
             let r = Rect::from_min_size(
-                egui::pos2(toggles_left - space::S1 - LAYER_MODE, cy - mode_h / 2.0),
-                egui::vec2(LAYER_MODE, mode_h),
+                egui::pos2(toggles_left - space::S1 - cell_w, cy - mode_h / 2.0),
+                egui::vec2(cell_w, mode_h),
             );
             mode_rect = Some(r);
             if let ModeCell::Mode(name) = columns.mode {
@@ -342,17 +353,42 @@ impl LayerRow<'_> {
                 if resp.hovered() {
                     ui.painter().rect_filled(r, cr(radius::SM), p.bg_hover);
                 }
-                let color = if name == "Normal" {
-                    p.text_tertiary
+                if narrow_mode {
+                    // Narrow column: the blend mode is a shape cue, shown only when it is not Normal.
+                    let side = layer_row_icon(rect.height());
+                    if name != "Normal" || resp.hovered() {
+                        let color = if name == "Normal" {
+                            p.text_tertiary
+                        } else {
+                            p.accent_default
+                        };
+                        icons::paint_sized(
+                            ui.painter(),
+                            ui.ctx(),
+                            Rect::from_center_size(r.center(), egui::vec2(side, side)),
+                            i16::MIXER,
+                            side,
+                            color,
+                        );
+                    }
                 } else {
-                    p.text_primary
-                };
-                let g = galley(ui, name, TextStyle::Small, color);
-                ui.painter().with_clip_rect(r).galley(
-                    egui::pos2(r.left() + space::S1, cy - g.size().y / 2.0),
-                    g,
-                    color,
-                );
+                    let color = if name == "Normal" {
+                        p.text_tertiary
+                    } else {
+                        p.text_primary
+                    };
+                    let style = if rect.height() < crate::metrics::LAYER_ROW_SHORT - 0.5 {
+                        TextStyle::Caption
+                    } else {
+                        TextStyle::Small
+                    };
+                    let g = galley(ui, name, style, color);
+                    ui.painter().with_clip_rect(r).galley(
+                        egui::pos2(r.left() + space::S1, cy - g.size().y / 2.0),
+                        g,
+                        color,
+                    );
+                }
                 a11y(
                     &resp,
                     egui::WidgetType::Button,
@@ -583,7 +619,7 @@ pub fn layers_header_with(
     let mut out = LayersHeaderResponse::default();
     let toggle_count = if columns.solo { 4.0 } else { 3.0 };
     let mut x = rect.right() - space::S2 - toggle_count * LAYER_TOGGLE;
-    if columns.mode {
+    if columns.mode && width >= crate::metrics::LAYER_MODE_NARROW_BELOW {
         let left = x - LAYER_MODE;
         text_at(
             ui,

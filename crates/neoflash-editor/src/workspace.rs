@@ -2293,9 +2293,9 @@ pub struct TimelineView {
     /// Off = spans are not colour-coded, only arrows (§5.4 "Tinted frames").
     pub tinted: bool,
     pub show_seconds: bool,
-    /// 18 pt layer rows (Frame view ▸ Short).
+    /// 22 pt layer rows (Frame view ▸ Short).
     pub short_rows: bool,
-    /// 14 pt compact layer rows (Frame view ▸ Compact).
+    /// 16 pt compact layer rows (Frame view ▸ Compact).
     #[serde(default)]
     pub compact_rows: bool,
     /// Ruler scrubbing lands on the current layer's keyframes (⇧ suspends it).
@@ -2339,8 +2339,8 @@ impl Default for TimelineView {
 }
 
 impl TimelineView {
-    /// Ultra-compact layer row height (`Frame view ▸ Compact`, 14 pt).
-    pub const LAYER_ROW_COMPACT: f32 = 14.0;
+    /// Compact layer row height (`Frame view ▸ Compact`, 16 pt; R-052).
+    pub const LAYER_ROW_COMPACT: f32 = neoflash_ui::metrics::LAYER_ROW_COMPACT;
 
     /// `NF2/TL Layer` row height for the current frame view.
     pub fn row_height(&self) -> f32 {

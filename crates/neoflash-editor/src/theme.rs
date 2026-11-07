@@ -6,13 +6,13 @@ use std::sync::LazyLock;
 // Editor layout constants are NF2 metrics (crates/neoflash-ui/src/metrics.rs); keep names stable
 // for existing call sites. Never introduce a size here that is not in the design system.
 use neoflash_ui::metrics as nf;
-/// `NF2/Body` size (13).
-pub(crate) const PANEL_FONT: f32 = 13.;
+/// `NF2/Body` size (11 since the owner-approved type scale B, 2026-11-07).
+pub(crate) const PANEL_FONT: f32 = neoflash_ui::TextStyle::Body.spec().size;
 /// Fields, buttons, icon buttons (`NF2/Field`, `NF2/Button`).
 pub(crate) const CONTROL_HEIGHT: f32 = nf::CONTROL;
 pub(crate) const LABEL_WIDTH: f32 = 76.;
-/// `NF2/Small` size (12).
-pub(crate) const SECONDARY_FONT: f32 = 12.;
+/// `NF2/Small` size (10 since type scale B).
+pub(crate) const SECONDARY_FONT: f32 = neoflash_ui::TextStyle::Small.spec().size;
 /// Tree rows, menu items, layer rows (`NF2/Tree Item`, `NF2/TL Layer`).
 pub(crate) const ROW_HEIGHT: f32 = nf::ROW;
 /// One inspector field row.

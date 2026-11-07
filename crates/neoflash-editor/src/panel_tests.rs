@@ -1078,6 +1078,110 @@ fn detached_timeline_frame(
     })
 }
 
+/// Narrow detached Timeline: More ▸ Hidden controls ▸ Onion skin options… opens the onion popover
+/// anchored to the More button (R-052). Returns the frame after the popover opened.
+fn open_onion_options_via_more(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    size: Vec2,
+    start: f64,
+    output: &egui::FullOutput,
+) -> egui::FullOutput {
+    let more = named_bounds(output, "Hidden controls and frame view options")
+        .expect("narrow bar lists hidden controls in More")
+        .center();
+    detached_timeline_frame(
+        editor,
+        ctx,
+        size,
+        start,
+        vec![Event::PointerMoved(more), primary_button(more, true)],
+    );
+    let mut out = detached_timeline_frame(
+        editor,
+        ctx,
+        size,
+        start + 0.05,
+        vec![primary_button(more, false)],
+    );
+    // The menu may be shifted over its own button in a short window: park the pointer outside it.
+    let park = Pos2::new(4., size.y - 4.);
+    for pass in 1..4 {
+        out = detached_timeline_frame(
+            editor,
+            ctx,
+            size,
+            start + 0.05 + pass as f64 / 60.,
+            vec![Event::PointerMoved(park)],
+        );
+    }
+    if named_bounds(&out, "Onion skin options…").is_none() {
+        // Many hidden controls: they are grouped; open the Onion skin submenu.
+        // The bar's 32 pt "Onion skin" toggle shares the label; the submenu row is the wide one.
+        let group = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("accesskit")
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some("Onion skin"))
+            .filter_map(|(_, node)| node.bounds())
+            .map(|r| {
+                Rect::from_min_max(
+                    Pos2::new(r.x0 as f32, r.y0 as f32),
+                    Pos2::new(r.x1 as f32, r.y1 as f32),
+                )
+            })
+            .find(|r| r.width() > 60.)
+            .expect("More groups hidden onion controls")
+            .center();
+        for pass in 0..10 {
+            out = detached_timeline_frame(
+                editor,
+                ctx,
+                size,
+                start + 0.1 + pass as f64 * 0.05,
+                vec![Event::PointerMoved(group)],
+            );
+        }
+    }
+    let item = named_bounds(&out, "Onion skin options…")
+        .unwrap_or_else(|| {
+            let labels: Vec<String> = out
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .map(|u| {
+                    u.nodes
+                        .iter()
+                        .filter_map(|(_, n)| n.label().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            panic!("More lists the hidden onion options: {labels:?}")
+        })
+        .center();
+    detached_timeline_frame(
+        editor,
+        ctx,
+        size,
+        start + 0.2,
+        vec![Event::PointerMoved(item), primary_button(item, true)],
+    );
+    out = detached_timeline_frame(
+        editor,
+        ctx,
+        size,
+        start + 0.25,
+        vec![primary_button(item, false)],
+    );
+    for pass in 1..4 {
+        out = detached_timeline_frame(editor, ctx, size, start + 0.25 + pass as f64 / 60., vec![]);
+    }
+    out
+}
+
 fn fully_visible_text(output: &egui::FullOutput, label: &str, viewport: Rect) -> bool {
     output.shapes.iter().any(|shape| {
         if let egui::Shape::Text(text) = &shape.shape
@@ -1109,7 +1213,7 @@ fn detached_timeline_at_750_exposes_compact_onion_options_inside_viewport() {
             "Rewind",
             "Play preview",
             "Onion skin",
-            "Onion skin options",
+            "Hidden controls and frame view options",
         ] {
             let bounds = named_bounds(&output, label)
                 .unwrap_or_else(|| panic!("missing AX control {label}"));
@@ -1118,27 +1222,7 @@ fn detached_timeline_at_750_exposes_compact_onion_options_inside_viewport() {
                 "{mode:?} {label}: {bounds:?}"
             );
         }
-        let options = named_bounds(&output, "Onion skin options")
-            .unwrap()
-            .center();
-        detached_timeline_frame(
-            &mut editor,
-            &ctx,
-            size,
-            0.2,
-            vec![Event::PointerMoved(options), primary_button(options, true)],
-        );
-        output = detached_timeline_frame(
-            &mut editor,
-            &ctx,
-            size,
-            0.3,
-            vec![primary_button(options, false)],
-        );
-        for pass in 1..4 {
-            output =
-                detached_timeline_frame(&mut editor, &ctx, size, 0.3 + pass as f64 / 60., vec![]);
-        }
+        output = open_onion_options_via_more(&mut editor, &ctx, size, 0.2, &output);
         for label in ["Outlines", "Anchor", "Onion opacity"] {
             let bounds = named_bounds(&output, label)
                 .unwrap_or_else(|| panic!("missing popup control {label}"));
@@ -1168,26 +1252,7 @@ fn detached_timeline_minimum_width_opens_working_opacity_control() {
         !fully_visible_text(&initial, "Opacity", viewport),
         "onion details live in the options popover"
     );
-    let options = named_bounds(&initial, "Onion skin options")
-        .expect("the pinned onion group exposes its options popover")
-        .center();
-    detached_timeline_frame(
-        &mut editor,
-        &ctx,
-        size,
-        0.2,
-        vec![Event::PointerMoved(options), primary_button(options, true)],
-    );
-    let mut output = detached_timeline_frame(
-        &mut editor,
-        &ctx,
-        size,
-        0.3,
-        vec![primary_button(options, false)],
-    );
-    for pass in 1..4 {
-        output = detached_timeline_frame(&mut editor, &ctx, size, 0.3 + pass as f64 / 60., vec![]);
-    }
+    let output = open_onion_options_via_more(&mut editor, &ctx, size, 0.2, &initial);
     let bounds = named_bounds(&output, "Onion opacity")
         .expect("Opacity is available through the onion options popover");
     assert!(viewport.contains_rect(bounds), "{bounds:?}");

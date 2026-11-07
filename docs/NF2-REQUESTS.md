@@ -769,6 +769,9 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   R-050 (narrow component-specific work, not an editor-wide density system).
 - **Proposal (optional):** Keep 14–16 pt optical glyphs inside 24–28 pt hit/focus rectangles; allow smaller expert
   spacing only where keyboard access and non-overlapping targets remain explicit.
+- **Partial answer (T-101, 2026-11-07, owner):** Type scale B for every profile (Title 12, Body 11, Small 10, new
+  Caption 10, Mono 11/10; see DESIGN-SYSTEM.md). Timeline control sizes per profile: Comfortable 32 / Compact 28 /
+  Classic Flash 24 pt; layer-height presets 28 / 22 / 16. Profile switching and editor-wide metrics remain open.
 
 ### R-052 · Responsive Timeline controls, transport-sized Play and compact layer header
 - **Status:** open
@@ -783,6 +786,14 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `timeline-controls-clipped.png`.
 - **Proposal (optional):** Keep transport and playhead navigation always visible; move low-frequency actions into a
   labelled overflow rather than clipping them.
+- **Partial answer (T-101, 2026-11-07, owner):** Hide controls by priority (lowest first, rightmost on ties, then give
+  back smaller items that fit) instead of clipping or hidden scrolling; never hide Add/Delete layer, transport, the
+  frame number and the right-end More menu, whose "Hidden controls" section lists hidden items in bar order. Fit
+  selection / Fit content join Frame view. Narrow 200 pt layer column hides Mode and shows a 20 pt `mixer` glyph for
+  non-Normal blend modes. Transport-over-frame-1 alignment is kept only when the whole bar fits. Owner round 2:
+  control sizes 32/28/24 per density profile (wired with R-051), layer-height presets 28/22/16 with `NF2/Caption`,
+  no Auto height, square Play. Implemented (uncommitted, pending owner acceptance): priority fit + More menu with
+  grouped hidden controls, square Primary SM Play, presets, Narrow glyph, Fit selection/content; tests pass.
 
 ### R-053 · Collapsed, edge-docked and contextual Stage toolbar states
 - **Status:** open
@@ -845,7 +856,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   color is currently the main signal.
 
 ### R-058 · Denser two-tone raw-shape selection hatch
-- **Status:** open
+- **Status:** answered (owner decision 2026-11-07; implemented in `neoflash-ui`)
 - **Requested by / for:** project owner · T-101 / V-D08 (explicit follow-up to T-099)
 - **Where:** `NF2/Shape Selection` in `crates/neoflash-ui/src/components/canvas.rs`; raw/Merge fill and stroke
   selection overlay used by the Stage.
@@ -860,3 +871,8 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** Change the 8 pt repeat pitch, not the 1.5 pt white/black pair offset, unless unscaled design
   samples show that both values need coordinated optical adjustment. Extend the existing selection-hatch acceptance
   family after the design lands; do not reopen completed T-030.
+- **Answer (T-101, 2026-11-07):** Owner chose a 4 pt repeat measured horizontally (≈ 2.83 pt perpendicular to the
+  stripes) after reviewing 8/6/5/4 pt samples at 1×/2× over light, dark, mid-tone, saturated, gradient and thin-stroke
+  artwork in both themes. Colours, 1 pt line weights and the 1.5 pt pair offset are unchanged.
+  `SHAPE_SELECTION_PERIOD` is 4.0; the editor's bounded hatch phase follows it. Contrast, clipping/hole/stroke and
+  cache tests pass; the design lock is re-pinned. Native 1×/2× Stage acceptance over real artwork remains pending.

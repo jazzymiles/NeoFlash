@@ -20,12 +20,21 @@ struct TimingDraft {
 }
 
 impl Editor {
-    /// Timeline controls bar: `NF2/Field` FPS and Duration (frame count stays fixed), or the
-    /// Up · Over · Down · Hit segmented states of a button symbol. One undo step per commit.
-    pub(crate) fn timeline_timing_ui(&mut self, ui: &mut egui::Ui) {
+    /// Timeline controls bar: `NF2/Field` FPS and/or Duration (frame count stays fixed), or — in the
+    /// FPS slot — the Up · Over · Down · Hit segmented states of a button symbol. The bar can hide each
+    /// field separately (R-052); both share one draft. One undo step per commit.
+    pub(crate) fn timeline_timing_fields(
+        &mut self,
+        ui: &mut egui::Ui,
+        show_fps: bool,
+        show_duration: bool,
+    ) {
         use neoflash_ui::components as nf;
         use neoflash_ui::{TextStyle, typography};
         if self.symbol().kind == SymbolKind::Button {
+            if !show_fps {
+                return;
+            }
             let count = self.symbol().timeline.frame_count as usize;
             if count < 4 && ui.add(nf::Button::new("Enable four states")).clicked() {
                 self.transact(|s| s.symbol_mut().timeline.frame_count = 4);
@@ -60,9 +69,7 @@ impl Editor {
             return;
         }
         let frames = self.symbol().timeline.frame_count.max(1);
-        let id = ui
-            .id()
-            .with(("timeline-timing", &self.clipboard.session, self.symbol_id()));
+        let id = egui::Id::new(("timeline-timing", &self.clipboard.session, self.symbol_id()));
         let mut draft = ui
             .data_mut(|data| data.get_temp::<TimingDraft>(id))
             .filter(|draft| draft.baseline == self.project.fps && draft.frames == frames)
@@ -74,35 +81,39 @@ impl Editor {
                 pending: false,
             });
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-        let fps = ui
-            .add(
-                nf::Field::new(&mut draft.fps, "Frame rate")
-                    .prefix("FPS")
-                    .range(1.0..=1000.0)
-                    .step(0.25)
-                    .width(92.),
-            )
-            .on_hover_text("Frame rate. Frame count stays fixed; duration changes.");
-        if fps.changed() {
-            draft.seconds = frames as f64 / draft.fps.round().max(1.);
-            draft.pending = true;
+        if show_fps {
+            let fps = ui
+                .add(
+                    nf::Field::new(&mut draft.fps, "Frame rate")
+                        .prefix("FPS")
+                        .range(1.0..=1000.0)
+                        .step(0.25)
+                        .width(92.),
+                )
+                .on_hover_text("Frame rate. Frame count stays fixed; duration changes.");
+            if fps.changed() {
+                draft.seconds = frames as f64 / draft.fps.round().max(1.);
+                draft.pending = true;
+            }
         }
-        let duration = ui
-            .add(
-                nf::Field::new(&mut draft.seconds, "Duration")
-                    .prefix("Duration")
-                    .unit("s")
-                    .range(frames as f64 / 1000. ..=frames as f64)
-                    .step(0.02)
-                    .decimals(2)
-                    .width(140.),
-            )
-            .on_hover_text(
-                "Total duration. Keeps all frames and sets the nearest whole-number FPS.",
-            );
-        if duration.changed() {
-            draft.fps = (frames as f64 / draft.seconds).round().clamp(1., 1000.);
-            draft.pending = true;
+        if show_duration {
+            let duration = ui
+                .add(
+                    nf::Field::new(&mut draft.seconds, "Duration")
+                        .prefix("Duration")
+                        .unit("s")
+                        .range(frames as f64 / 1000. ..=frames as f64)
+                        .step(0.02)
+                        .decimals(2)
+                        .width(140.),
+                )
+                .on_hover_text(
+                    "Total duration. Keeps all frames and sets the nearest whole-number FPS.",
+                );
+            if duration.changed() {
+                draft.fps = (frames as f64 / draft.seconds).round().clamp(1., 1000.);
+                draft.pending = true;
+            }
         }
         if escape {
             ui.data_mut(|data| data.remove::<TimingDraft>(id));

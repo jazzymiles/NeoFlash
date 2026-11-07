@@ -351,8 +351,9 @@ fn playhead_chip_shares_the_ruler_digit_line() {
 
 #[test]
 fn compact_layer_rows_fit_their_content() {
-    // `NF2/TL Layer` Size=Compact (Short 18 pt, Compact 14 pt): NF2/Small label, 12 pt icons.
-    for h in [14.0_f32, 18.0, 28.0] {
+    // `NF2/TL Layer` presets (R-052): Normal 28 pt NF2/Body, Short 22 pt NF2/Small and Compact 16 pt
+    // NF2/Caption labels; Short and Compact use 12 pt icons.
+    for h in [16.0_f32, 22.0, 28.0] {
         let ctx = egui::Context::default();
         ctx.set_fonts(typography::font_definitions());
         theme::install(&ctx, Theme::Dark);
@@ -390,7 +391,14 @@ fn compact_layer_rows_fit_their_content() {
             })
             .expect("label");
         let size = label.galley.job.sections[0].format.font_id.size;
-        let expect = if h < 28.0 { 12.0 } else { 13.0 };
+        let expect = typography::font(if h < 22.0 {
+            neoflash_ui::TextStyle::Caption
+        } else if h < 28.0 {
+            neoflash_ui::TextStyle::Small
+        } else {
+            neoflash_ui::TextStyle::Body
+        })
+        .size;
         assert!(close(size, expect), "h{h}: label {size}");
         assert!(close(
             tl::layer_row_icon(h),

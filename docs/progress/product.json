@@ -88,7 +88,12 @@
         },
         {
           "id": "timeline-frame-view",
-          "title": "Timeline short rows, snap playhead and placement on any dock edge",
+          "title": "Timeline row heights (Normal 28, Short 22, Compact 16), Fit selection and Fit content, snap playhead and placement on any dock edge",
+          "status": "working"
+        },
+        {
+          "id": "timeline-responsive-controls",
+          "title": "Timeline controls hide by priority into the More menu instead of being clipped at narrow widths",
           "status": "working"
         },
         {

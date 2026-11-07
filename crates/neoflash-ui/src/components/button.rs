@@ -134,7 +134,8 @@ pub enum IconButtonType {
     Ghost,
     /// Toggle that is on (loop, onion skin, rulers…): `accent/subtle` fill, accent icon.
     Selected,
-    /// Round accent button (main Play).
+    /// Accent button (main Play): `accent/default` fill, radius md like every other icon button. Square, not
+    /// round, since owner decision 2026-11-07 (R-052): emphasis comes from colour, not shape or diameter.
     Primary,
 }
 
@@ -205,8 +206,7 @@ impl Widget for IconButton<'_> {
         });
         let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
         let s = State::of(ui, &response);
-        let round = matches!(self.kind, IconButtonType::Primary);
-        let r = if round { side / 2.0 } else { radius::MD };
+        let r = radius::MD;
         let (bg, fg) = match (self.kind, s.enabled, s.hovered) {
             (_, false, _) => (Color32::TRANSPARENT, p.text_disabled),
             (IconButtonType::Ghost, true, false) => (Color32::TRANSPARENT, p.text_secondary),
