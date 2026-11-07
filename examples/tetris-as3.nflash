@@ -1,0 +1,237 @@
+{
+  "format_version": 1,
+  "name": "Tetris AS3",
+  "width": 640,
+  "height": 480,
+  "fps": 24,
+  "background": [15, 23, 42, 255],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "block_sym",
+      "name": "TetrominoBlock",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "block_layer",
+            "name": "BlockShape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "block_rect",
+                    "name": "",
+                    "transform": { "x": -8.0, "y": -8.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 16.0,
+                      "height": 16.0,
+                      "stroke": [14, 116, 144, 255],
+                      "stroke_width": 1.5,
+                      "fill": [56, 189, 248, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "board_sym",
+      "name": "WellCanvas",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "well_canvas_layer",
+            "name": "Canvas",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "import flash.display.Sprite;\nimport flash.events.Event;\nimport flash.events.KeyboardEvent;\nimport flash.ui.Keyboard;\n\nstop();\n\nvar cols:int = 10;\nvar rows:int = 20;\nvar cellSize:int = 18;\nvar wellX:Number = 180;\nvar wellY:Number = 60;\nvar previewX:Number = 430;\nvar previewY:Number = 120;\n\nvar board:Array = [];\nvar curPiece:int = 0;\nvar curRot:int = 0;\nvar curX:int = 3;\nvar curY:int = 0;\nvar nextPiece:int = 2;\n\nvar score:int = 0;\nvar lines:int = 0;\nvar level:int = 1;\nvar gameOver:Boolean = false;\nvar paused:Boolean = false;\nvar dropCounter:int = 0;\nvar dropInterval:int = 10;\nvar rngSeed:int = 4242;\nvar boardCanvas:Sprite = new Sprite();\nboardCanvas.x = wellX;\nboardCanvas.y = wellY;\naddChild(boardCanvas);\n\nvar baseX:Array = [\n  0, 1, 2, 3,\n  1, 2, 1, 2,\n  1, 0, 1, 2,\n  1, 2, 0, 1,\n  0, 1, 1, 2,\n  0, 0, 1, 2,\n  2, 0, 1, 2\n];\n\nvar baseY:Array = [\n  1, 1, 1, 1,\n  0, 0, 1, 1,\n  0, 1, 1, 1,\n  0, 0, 1, 1,\n  0, 0, 1, 1,\n  0, 1, 1, 1,\n  0, 1, 1, 1\n];\n\nvar pieceColors:Array = [\n  0x38BDF8,\n  0xFACC15,\n  0xC084FC,\n  0x4ADE80,\n  0xF87171,\n  0x60A5FA,\n  0xFB923C\n];\n\nfunction nextRandomPiece():int {\n  rngSeed = (rngSeed * 1103515245 + 12345) & 2147483647;\n  return rngSeed % 7;\n}\n\nfunction cellOffsetX(pieceIdx:int, rot:int, cellIdx:int):int {\n  var bx:int = int(baseX[pieceIdx * 4 + cellIdx]);\n  var by:int = int(baseY[pieceIdx * 4 + cellIdx]);\n  if (pieceIdx == 1) {\n    return bx;\n  }\n  var r:int = rot % 4;\n  if (r == 0) {\n    return bx;\n  } else if (r == 1) {\n    return 2 - by;\n  } else if (r == 2) {\n    return 2 - bx;\n  }\n  return by;\n}\n\nfunction cellOffsetY(pieceIdx:int, rot:int, cellIdx:int):int {\n  var bx:int = int(baseX[pieceIdx * 4 + cellIdx]);\n  var by:int = int(baseY[pieceIdx * 4 + cellIdx]);\n  if (pieceIdx == 1) {\n    return by;\n  }\n  var r:int = rot % 4;\n  if (r == 0) {\n    return by;\n  } else if (r == 1) {\n    return bx;\n  } else if (r == 2) {\n    return 2 - by;\n  }\n  return 2 - bx;\n}\n\nfunction canPlace(pieceIdx:int, rot:int, px:int, py:int):Boolean {\n  var i:int = 0;\n  while (i < 4) {\n    var cx:int = px + cellOffsetX(pieceIdx, rot, i);\n    var cy:int = py + cellOffsetY(pieceIdx, rot, i);\n    if (cx < 0 || cx >= cols || cy >= rows) {\n      return false;\n    }\n    if (cy >= 0 && int(board[cy * cols + cx]) != 0) {\n      return false;\n    }\n    i = i + 1;\n  }\n  return true;\n}\n\nfunction updateHud():void {\n  if (this.scoreText != null) {\n    this.scoreText.text = \"SCORE: \" + score;\n  }\n  if (this.linesText != null) {\n    this.linesText.text = \"LINES: \" + lines;\n  }\n  if (this.levelText != null) {\n    this.levelText.text = \"LEVEL: \" + level;\n  }\n  if (this.statusText != null) {\n    if (gameOver) {\n      this.statusText.text = \"GAME OVER\";\n    } else if (paused) {\n      this.statusText.text = \"PAUSED\";\n    } else {\n      this.statusText.text = \"PLAYING\";\n    }\n  }\n}\n\nfunction renderBoard():void {\n  var i:int = 0;\n  while (i < 4) {\n    var actClip:Object = this[\"act\" + i];\n    if (actClip != null) {\n      var cx:int = curX + cellOffsetX(curPiece, curRot, i);\n      var cy:int = curY + cellOffsetY(curPiece, curRot, i);\n      actClip.visible = !gameOver && (cy >= 0);\n      actClip.x = wellX + cx * cellSize + cellSize / 2;\n      actClip.y = wellY + cy * cellSize + cellSize / 2;\n    }\n    var nextClip:Object = this[\"next\" + i];\n    if (nextClip != null) {\n      var nx:int = cellOffsetX(nextPiece, 0, i);\n      var ny:int = cellOffsetY(nextPiece, 0, i);\n      nextClip.x = previewX + nx * cellSize + cellSize / 2;\n      nextClip.y = previewY + ny * cellSize + cellSize / 2;\n    }\n    i = i + 1;\n  }\n  if (boardCanvas != null) {\n    boardCanvas.graphics.clear();\n    var r:int = 0;\n    while (r < rows) {\n      var c:int = 0;\n      while (c < cols) {\n        var cellVal:int = int(board[r * cols + c]);\n        if (cellVal > 0) {\n          var colorHex:uint = uint(pieceColors[(cellVal - 1) % 7]);\n          var x0:Number = c * cellSize + 1;\n          var y0:Number = r * cellSize + 1;\n          var sz:Number = cellSize - 2;\n          boardCanvas.graphics.beginFill(colorHex, 1.0);\n          boardCanvas.graphics.drawRect(x0, y0, sz, sz);\n          boardCanvas.graphics.endFill();\n        }\n        c = c + 1;\n      }\n      r = r + 1;\n    }\n  }\n}\n\nfunction clearLines():int {\n  var cleared:int = 0;\n  var r:int = rows - 1;\n  while (r >= 0) {\n    var full:Boolean = true;\n    var c:int = 0;\n    while (c < cols) {\n      if (int(board[r * cols + c]) == 0) {\n        full = false;\n        break;\n      }\n      c = c + 1;\n    }\n    if (full) {\n      cleared = cleared + 1;\n      var pullRow:int = r;\n      while (pullRow > 0) {\n        var cc:int = 0;\n        while (cc < cols) {\n          board[pullRow * cols + cc] = board[(pullRow - 1) * cols + cc];\n          cc = cc + 1;\n        }\n        pullRow = pullRow - 1;\n      }\n      var topCol:int = 0;\n      while (topCol < cols) {\n        board[topCol] = 0;\n        topCol = topCol + 1;\n      }\n    } else {\n      r = r - 1;\n    }\n  }\n  if (cleared > 0) {\n    lines = lines + cleared;\n    var basePts:int = 100;\n    if (cleared == 2) {\n      basePts = 300;\n    } else if (cleared == 3) {\n      basePts = 500;\n    } else if (cleared >= 4) {\n      basePts = 800;\n    }\n    score = score + basePts * level;\n    level = 1 + int(Math.floor(lines / 10));\n  }\n  return cleared;\n}\n\nfunction spawnPiece(pieceIdx:int):Boolean {\n  curPiece = pieceIdx;\n  curRot = 0;\n  curX = 3;\n  curY = 0;\n  nextPiece = nextRandomPiece();\n  if (!canPlace(curPiece, curRot, curX, curY)) {\n    gameOver = true;\n    updateHud();\n    renderBoard();\n    return false;\n  }\n  renderBoard();\n  updateHud();\n  return true;\n}\n\nfunction lockPiece():void {\n  var i:int = 0;\n  while (i < 4) {\n    var cx:int = curX + cellOffsetX(curPiece, curRot, i);\n    var cy:int = curY + cellOffsetY(curPiece, curRot, i);\n    if (cy >= 0 && cy < rows && cx >= 0 && cx < cols) {\n      board[cy * cols + cx] = curPiece + 1;\n    }\n    i = i + 1;\n  }\n  clearLines();\n  spawnPiece(nextPiece);\n}\n\nfunction moveHorizontal(dx:int):Boolean {\n  if (gameOver || paused) {\n    return false;\n  }\n  if (canPlace(curPiece, curRot, curX + dx, curY)) {\n    curX = curX + dx;\n    renderBoard();\n    return true;\n  }\n  return false;\n}\n\nfunction rotatePiece():Boolean {\n  if (gameOver || paused) {\n    return false;\n  }\n  var nextRot:int = (curRot + 1) % 4;\n  if (canPlace(curPiece, nextRot, curX, curY)) {\n    curRot = nextRot;\n    renderBoard();\n    return true;\n  }\n  if (canPlace(curPiece, nextRot, curX - 1, curY)) {\n    curX = curX - 1;\n    curRot = nextRot;\n    renderBoard();\n    return true;\n  }\n  if (canPlace(curPiece, nextRot, curX + 1, curY)) {\n    curX = curX + 1;\n    curRot = nextRot;\n    renderBoard();\n    return true;\n  }\n  return false;\n}\n\nfunction softDrop():Boolean {\n  if (gameOver || paused) {\n    return false;\n  }\n  if (canPlace(curPiece, curRot, curX, curY + 1)) {\n    curY = curY + 1;\n    renderBoard();\n    return true;\n  }\n  lockPiece();\n  return false;\n}\n\nfunction hardDrop():int {\n  if (gameOver || paused) {\n    return 0;\n  }\n  var dropped:int = 0;\n  while (canPlace(curPiece, curRot, curX, curY + 1)) {\n    curY = curY + 1;\n    dropped = dropped + 1;\n  }\n  score = score + dropped * 2;\n  lockPiece();\n  return dropped;\n}\n\nfunction stepGravity():void {\n  if (gameOver || paused) {\n    return;\n  }\n  softDrop();\n}\n\nfunction resetGame():void {\n  board = [];\n  var i:int = 0;\n  while (i < cols * rows) {\n    board[i] = 0;\n    i = i + 1;\n  }\n  score = 0;\n  lines = 0;\n  level = 1;\n  gameOver = false;\n  paused = false;\n  dropCounter = 0;\n  rngSeed = 4242;\n  nextPiece = nextRandomPiece();\n  spawnPiece(0);\n}\n\nfunction onKeyDown(event:KeyboardEvent):void {\n  var code:uint = event.keyCode;\n  if (code == Keyboard.LEFT || code == 65) {\n    moveHorizontal(-1);\n  } else if (code == Keyboard.RIGHT || code == 68) {\n    moveHorizontal(1);\n  } else if (code == Keyboard.UP || code == 87) {\n    rotatePiece();\n  } else if (code == Keyboard.DOWN || code == 83) {\n    softDrop();\n  } else if (code == Keyboard.SPACE) {\n    hardDrop();\n  } else if (code == 82) {\n    resetGame();\n  } else if (code == 80) {\n    paused = !paused;\n    updateHud();\n  }\n}\n\nfunction onTick(event:Event):void {\n  if (gameOver || paused) {\n    return;\n  }\n  dropCounter = dropCounter + 1;\n  if (dropCounter >= dropInterval) {\n    dropCounter = 0;\n    stepGravity();\n  }\n}\n\nif (stage != null) {\n  stage.focus = this;\n  stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);\n}\naddEventListener(Event.ENTER_FRAME, onTick);\n\nresetGame();\n"
+            }
+          }
+        ],
+        "layers": [
+          {
+            "id": "bg_layer",
+            "name": "WellAndPanels",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "well_bg",
+                    "name": "",
+                    "transform": { "x": 180.0, "y": 60.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 180.0,
+                      "height": 360.0,
+                      "stroke": [56, 189, 248, 255],
+                      "stroke_width": 3.0,
+                      "fill": [9, 14, 26, 255]
+                    }
+                  },
+                  {
+                    "id": "side_panel",
+                    "name": "",
+                    "transform": { "x": 390.0, "y": 60.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 170.0,
+                      "height": 360.0,
+                      "stroke": [51, 65, 85, 255],
+                      "stroke_width": 1.5,
+                      "fill": [30, 41, 59, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "actors_layer",
+            "name": "Blocks",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "board_clip_inst",
+                    "name": "boardClip",
+                    "transform": { "x": 180.0, "y": 60.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "board_sym", "playback": "independent" }
+                  },
+                  { "id": "act0_inst", "name": "act0", "transform": { "x": 243.0, "y": 87.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "act1_inst", "name": "act1", "transform": { "x": 261.0, "y": 87.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "act2_inst", "name": "act2", "transform": { "x": 279.0, "y": 87.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "act3_inst", "name": "act3", "transform": { "x": 297.0, "y": 87.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "next0_inst", "name": "next0", "transform": { "x": 457.0, "y": 129.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "next1_inst", "name": "next1", "transform": { "x": 439.0, "y": 147.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "next2_inst", "name": "next2", "transform": { "x": 457.0, "y": 147.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } },
+                  { "id": "next3_inst", "name": "next3", "transform": { "x": 475.0, "y": 147.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "block_sym", "playback": "independent" } }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "hud_layer",
+            "name": "HUD",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "title_txt",
+                    "name": "titleText",
+                    "transform": { "x": 408.0, "y": 82.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "TETRIS (AS3)",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [56, 189, 248, 255]
+                    }
+                  },
+                  {
+                    "id": "score_txt",
+                    "name": "scoreText",
+                    "transform": { "x": 408.0, "y": 210.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "SCORE: 0",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [248, 250, 252, 255]
+                    }
+                  },
+                  {
+                    "id": "lines_txt",
+                    "name": "linesText",
+                    "transform": { "x": 408.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "LINES: 0",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [250, 204, 21, 255]
+                    }
+                  },
+                  {
+                    "id": "level_txt",
+                    "name": "levelText",
+                    "transform": { "x": 408.0, "y": 290.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "LEVEL: 1",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [192, 132, 252, 255]
+                    }
+                  },
+                  {
+                    "id": "status_txt",
+                    "name": "statusText",
+                    "transform": { "x": 408.0, "y": 340.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "PLAYING",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [74, 222, 128, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

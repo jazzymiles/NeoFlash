@@ -1,8 +1,12 @@
 //! Strict, read-only legacy inspection and deliberately bounded XFL conversion.
 mod legacy;
+pub mod psd;
+pub mod sequence;
 mod source;
 pub mod swc;
 mod swf;
+pub mod vector_fidelity;
+pub mod workflows;
 mod xfl;
 mod xfl_export;
 
@@ -15,6 +19,8 @@ pub use legacy::{
     BinaryStreamInspection, BinaryStreamRole, BinaryTimelineDocument, RecordCounts,
     read_binary_contents, read_binary_geometry, read_binary_timeline,
 };
+pub use psd::*;
+pub use sequence::*;
 pub use swc::{
     SwcAssetFile, SwcCatalog, SwcComponent, SwcConflictPolicy, SwcDependency, SwcDependencyKind,
     SwcFeatures, SwcInspection, SwcLibrary, SwcLibraryEntry, SwcLinkReport, SwcScriptDef,
@@ -26,6 +32,7 @@ pub use swf::{
     SwfAudioEvent, SwfBytecodePlayer, SwfCompression, SwfDisplayEntry, SwfFrameState,
     SwfInspection, SwfPlaybackResult, SwfTagCounts, SwfVmKind, play_swf_bytes, play_swf_path,
 };
+pub use vector_fidelity::*;
 pub use xfl_export::{export_fla, export_fla_bytes};
 
 use neoflash_core::Project;
@@ -52,13 +59,16 @@ pub enum Severity {
     Error,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Diagnostic {
     pub severity: Severity,
     pub code: String,
     pub location: String,
     pub message: String,
 }
+
+/// Alias for [`Diagnostic`] emitted by import workflows.
+pub type ImportDiagnostic = Diagnostic;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Statistics {

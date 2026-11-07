@@ -440,6 +440,67 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
     })
 }
 
+/// Compile and validate all project source units, timeline frame scripts, and element handlers,
+/// rejecting any syntax/type errors or unsupported feature diagnostics.
+pub fn check_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnostic>> {
+    let program = compile_project(project)?;
+    let mut all_errors: Vec<Diagnostic> = Vec::new();
+
+    for symbol in &project.symbols {
+        for frame in &symbol.timeline.scripts {
+            if frame.script.source.trim().is_empty() {
+                continue;
+            }
+            let location = format!("{} / frame {}", symbol.name, frame.frame + 1);
+            if let Err(errs) = compile_with_program(&frame.script, &program) {
+                all_errors.extend(errs.into_iter().map(|e| e.with_path(&location)));
+            }
+        }
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    for handler in &element.scripts {
+                        if handler.script.source.trim().is_empty() {
+                            continue;
+                        }
+                        let location = format!(
+                            "{} / {} / frame {} / {} / {:?}",
+                            symbol.name,
+                            layer.name,
+                            key.frame + 1,
+                            element.name,
+                            handler.event
+                        );
+                        if let Err(errs) = compile_with_program(&handler.script, &program) {
+                            all_errors.extend(errs.into_iter().map(|e| e.with_path(&location)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for warning in warnings::check_project_warnings(project) {
+        if warning.code == "unsupported-feature" || warning.severity == DiagnosticSeverity::Error {
+            let mut diag = Diagnostic::new(
+                warning.language,
+                warning.line,
+                warning.column,
+                warning.message,
+            );
+            diag.code = Some(warning.code);
+            diag.path = warning.path;
+            all_errors.push(diag);
+        }
+    }
+
+    if all_errors.is_empty() {
+        Ok(program)
+    } else {
+        Err(all_errors)
+    }
+}
+
 /// Compile a frame or object handler against a compiled `ProjectProgram`.
 pub fn compile_with_program(
     script: &Script,

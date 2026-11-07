@@ -295,6 +295,30 @@ impl Editor {
                             }
                             continue;
                         }
+                        if *label == "Collapse between braces" {
+                            let button = ui.add_enabled_semantic(
+                                editable,
+                                nf::IconButton::new(*icon, label),
+                            );
+                            if button.clicked() {
+                                self.collapse_between_braces_in_current_editor(
+                                    ui.ctx(),
+                                    &script.source,
+                                );
+                            }
+                            continue;
+                        }
+                        if *label == "Expand all" {
+                            let has_folds = !self.folded_lines().is_empty();
+                            let button = ui.add_enabled_semantic(
+                                editable && has_folds,
+                                nf::IconButton::new(*icon, label),
+                            );
+                            if button.clicked() {
+                                self.expand_all_folds();
+                            }
+                            continue;
+                        }
                         let button = ui.add_enabled(false, nf::IconButton::new(*icon, label));
                         nf::not_available(button, label);
                         continue;
@@ -324,11 +348,32 @@ impl Editor {
             if rest > 0. {
                 ui.add_space(rest);
             }
-            let assist = ui.add_enabled(
-                false,
+            let assist = ui.add_enabled_semantic(
+                editable,
                 nf::Button::ghost("Script assist").icon(i16::WAND),
             );
-            nf::not_available(assist, "Script assist");
+            if editable {
+                nf::popup_below(&assist, 240., |ui| {
+                    for (item_label, template) in
+                        crate::sources::ScriptAssistTemplate::default_menu_items()
+                    {
+                        if ui.add(nf::MenuItem::new(item_label)).clicked() {
+                            if source {
+                                self.insert_script_assist_snippet(template);
+                            } else {
+                                let snippet = crate::sources::format_script_assist_snippet(
+                                    &template,
+                                    script.language,
+                                );
+                                crate::sources::append_script_assist_to_source(
+                                    &mut script.source,
+                                    &snippet,
+                                );
+                            }
+                        }
+                    }
+                });
+            }
             let help = ui.add(nf::IconButton::new(i16::HELP, "About Actions"));
             nf::popup_below(&help, 280., |ui| {
                 let p = neoflash_ui::palette(ui.ctx());

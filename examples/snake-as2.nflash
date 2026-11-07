@@ -1,0 +1,381 @@
+{
+  "format_version": 1,
+  "name": "Snake AS2",
+  "width": 640,
+  "height": 480,
+  "fps": 24,
+  "background": [18, 22, 31, 255],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "seg_sym",
+      "name": "SnakeSegment",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "seg_layer",
+            "name": "SegmentShape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "seg_rect",
+                    "name": "",
+                    "transform": { "x": -9.0, "y": -9.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 18.0,
+                      "height": 18.0,
+                      "stroke": [24, 94, 52, 255],
+                      "stroke_width": 1.5,
+                      "fill": [74, 222, 128, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "food_sym",
+      "name": "FoodItem",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "food_layer",
+            "name": "FoodShape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "food_rect",
+                    "name": "",
+                    "transform": { "x": -8.0, "y": -8.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 16.0,
+                      "height": 16.0,
+                      "stroke": [185, 28, 28, 255],
+                      "stroke_width": 1.5,
+                      "fill": [248, 113, 113, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "board_sym",
+      "name": "BoardOverlay",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "board_overlay_layer",
+            "name": "Overlay",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\n\nvar gridCols:Number = 20;\nvar gridRows:Number = 15;\nvar cellSize:Number = 20;\nvar boardX:Number = 120;\nvar boardY:Number = 100;\nvar maxVisibleSegments:Number = 20;\n\nvar snakeX:Array = [];\nvar snakeY:Array = [];\nvar dirX:Number = 1;\nvar dirY:Number = 0;\nvar nextDirX:Number = 1;\nvar nextDirY:Number = 0;\nvar foodX:Number = 14;\nvar foodY:Number = 7;\nvar score:Number = 0;\nvar highScore:Number = 0;\nvar gameOver:Boolean = false;\nvar paused:Boolean = false;\nvar tickCount:Number = 0;\nvar moveInterval:Number = 4;\nvar rngSeed:Number = 1337;\nvar boardCanvas:MovieClip = this.createEmptyMovieClip(\"boardCanvas\", 100);\nboardCanvas._x = boardX;\nboardCanvas._y = boardY;\n\nfunction nextRandom(maxVal:Number):Number {\n  rngSeed = (rngSeed * 1103515245 + 12345) & 2147483647;\n  return rngSeed % maxVal;\n}\n\nfunction isOccupied(gx:Number, gy:Number):Boolean {\n  var i:Number = 0;\n  while (i < snakeX.length) {\n    if (snakeX[i] == gx && snakeY[i] == gy) {\n      return true;\n    }\n    i = i + 1;\n  }\n  return false;\n}\n\nfunction placeFood():Void {\n  var attempts:Number = 0;\n  var candidateX:Number = nextRandom(gridCols);\n  var candidateY:Number = nextRandom(gridRows);\n  while (isOccupied(candidateX, candidateY) && attempts < 300) {\n    candidateX = (candidateX + 1) % gridCols;\n    if (candidateX == 0) {\n      candidateY = (candidateY + 1) % gridRows;\n    }\n    attempts = attempts + 1;\n  }\n  foodX = candidateX;\n  foodY = candidateY;\n  if (this.food != undefined) {\n    this.food._x = boardX + foodX * cellSize + cellSize / 2;\n    this.food._y = boardY + foodY * cellSize + cellSize / 2;\n  }\n}\n\nfunction updateHud():Void {\n  if (this.scoreText != undefined) {\n    this.scoreText.text = \"SCORE: \" + score;\n  }\n  if (this.highScoreText != undefined) {\n    this.highScoreText.text = \"HIGH: \" + highScore;\n  }\n  if (this.statusText != undefined) {\n    if (gameOver) {\n      this.statusText.text = \"GAME OVER - PRESS R\";\n    } else if (paused) {\n      this.statusText.text = \"PAUSED\";\n    } else {\n      this.statusText.text = \"PLAYING\";\n    }\n  }\n}\n\nfunction renderSnake():Void {\n  var i:Number = 0;\n  while (i < maxVisibleSegments) {\n    var segClip = this[\"seg\" + i];\n    if (segClip != undefined) {\n      if (i < snakeX.length) {\n        segClip._visible = true;\n        segClip._x = boardX + snakeX[i] * cellSize + cellSize / 2;\n        segClip._y = boardY + snakeY[i] * cellSize + cellSize / 2;\n      } else {\n        segClip._visible = false;\n      }\n    }\n    i = i + 1;\n  }\n  if (boardCanvas != undefined) {\n    boardCanvas.clear();\n    var j:Number = maxVisibleSegments;\n    while (j < snakeX.length) {\n      var px:Number = snakeX[j] * cellSize + 2;\n      var py:Number = snakeY[j] * cellSize + 2;\n      boardCanvas.beginFill(0x4ADE80, 100);\n      boardCanvas.moveTo(px, py);\n      boardCanvas.lineTo(px + cellSize - 4, py);\n      boardCanvas.lineTo(px + cellSize - 4, py + cellSize - 4);\n      boardCanvas.lineTo(px, py + cellSize - 4);\n      boardCanvas.lineTo(px, py);\n      boardCanvas.endFill();\n      j = j + 1;\n    }\n  }\n}\n\nfunction setDirection(dx:Number, dy:Number):Void {\n  if (dx == 0 && dy == 0) {\n    return;\n  }\n  if (dx == -dirX && dy == -dirY) {\n    return;\n  }\n  nextDirX = dx;\n  nextDirY = dy;\n}\n\nfunction resetGame():Void {\n  snakeX = [10, 9, 8];\n  snakeY = [7, 7, 7];\n  dirX = 1;\n  dirY = 0;\n  nextDirX = 1;\n  nextDirY = 0;\n  score = 0;\n  gameOver = false;\n  paused = false;\n  tickCount = 0;\n  placeFood();\n  renderSnake();\n  updateHud();\n}\n\nfunction stepSnake():Boolean {\n  if (gameOver || paused) {\n    return false;\n  }\n  dirX = nextDirX;\n  dirY = nextDirY;\n  var newHeadX:Number = snakeX[0] + dirX;\n  var newHeadY:Number = snakeY[0] + dirY;\n  if (newHeadX < 0 || newHeadX >= gridCols || newHeadY < 0 || newHeadY >= gridRows) {\n    gameOver = true;\n    updateHud();\n    return false;\n  }\n  var eatFood:Boolean = (newHeadX == foodX && newHeadY == foodY);\n  var checkLimit:Number = eatFood ? snakeX.length : (snakeX.length - 1);\n  var k:Number = 0;\n  while (k < checkLimit) {\n    if (snakeX[k] == newHeadX && snakeY[k] == newHeadY) {\n      gameOver = true;\n      updateHud();\n      return false;\n    }\n    k = k + 1;\n  }\n  snakeX.unshift(newHeadX);\n  snakeY.unshift(newHeadY);\n  if (eatFood) {\n    score = score + 10;\n    if (score > highScore) {\n      highScore = score;\n    }\n    placeFood();\n  } else {\n    snakeX.pop();\n    snakeY.pop();\n  }\n  renderSnake();\n  updateHud();\n  return true;\n}\n\nthis.onKeyDown = function():Void {\n  var code:Number = Key.getCode();\n  if (code == Key.LEFT || code == 65) {\n    setDirection(-1, 0);\n  } else if (code == Key.RIGHT || code == 68) {\n    setDirection(1, 0);\n  } else if (code == Key.UP || code == 87) {\n    setDirection(0, -1);\n  } else if (code == Key.DOWN || code == 83) {\n    setDirection(0, 1);\n  } else if (code == 82) {\n    resetGame();\n  } else if (code == 80) {\n    paused = !paused;\n    updateHud();\n  }\n};\nKey.addListener(this);\n\nthis.onEnterFrame = function():Void {\n  if (gameOver || paused) {\n    return;\n  }\n  tickCount = tickCount + 1;\n  if (tickCount >= moveInterval) {\n    tickCount = 0;\n    stepSnake();\n  }\n};\n\nresetGame();\n"
+            }
+          }
+        ],
+        "layers": [
+          {
+            "id": "bg_layer",
+            "name": "Board",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "board_bg",
+                    "name": "",
+                    "transform": { "x": 120.0, "y": 100.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 400.0,
+                      "height": 300.0,
+                      "stroke": [56, 189, 248, 255],
+                      "stroke_width": 3.0,
+                      "fill": [15, 23, 42, 255]
+                    }
+                  },
+                  {
+                    "id": "hud_bar",
+                    "name": "",
+                    "transform": { "x": 120.0, "y": 24.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 400.0,
+                      "height": 60.0,
+                      "stroke": [51, 65, 85, 255],
+                      "stroke_width": 1.5,
+                      "fill": [30, 41, 59, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "actors_layer",
+            "name": "Actors",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "board_clip_inst",
+                    "name": "boardClip",
+                    "transform": { "x": 120.0, "y": 100.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "board_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "food_inst",
+                    "name": "food",
+                    "transform": { "x": 410.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "food_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg0_inst",
+                    "name": "seg0",
+                    "transform": { "x": 330.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg1_inst",
+                    "name": "seg1",
+                    "transform": { "x": 310.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg2_inst",
+                    "name": "seg2",
+                    "transform": { "x": 290.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg3_inst",
+                    "name": "seg3",
+                    "transform": { "x": 270.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg4_inst",
+                    "name": "seg4",
+                    "transform": { "x": 250.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg5_inst",
+                    "name": "seg5",
+                    "transform": { "x": 230.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg6_inst",
+                    "name": "seg6",
+                    "transform": { "x": 210.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg7_inst",
+                    "name": "seg7",
+                    "transform": { "x": 190.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg8_inst",
+                    "name": "seg8",
+                    "transform": { "x": 170.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg9_inst",
+                    "name": "seg9",
+                    "transform": { "x": 150.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg10_inst",
+                    "name": "seg10",
+                    "transform": { "x": 130.0, "y": 250.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg11_inst",
+                    "name": "seg11",
+                    "transform": { "x": 130.0, "y": 270.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg12_inst",
+                    "name": "seg12",
+                    "transform": { "x": 130.0, "y": 290.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg13_inst",
+                    "name": "seg13",
+                    "transform": { "x": 130.0, "y": 310.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg14_inst",
+                    "name": "seg14",
+                    "transform": { "x": 130.0, "y": 330.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg15_inst",
+                    "name": "seg15",
+                    "transform": { "x": 130.0, "y": 350.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg16_inst",
+                    "name": "seg16",
+                    "transform": { "x": 130.0, "y": 370.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg17_inst",
+                    "name": "seg17",
+                    "transform": { "x": 130.0, "y": 390.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg18_inst",
+                    "name": "seg18",
+                    "transform": { "x": 150.0, "y": 390.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "seg19_inst",
+                    "name": "seg19",
+                    "transform": { "x": 170.0, "y": 390.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "seg_sym", "playback": "independent" }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "hud_layer",
+            "name": "HUD",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "title_txt",
+                    "name": "titleText",
+                    "transform": { "x": 134.0, "y": 32.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "SNAKE (AS2)",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [56, 189, 248, 255]
+                    }
+                  },
+                  {
+                    "id": "score_txt",
+                    "name": "scoreText",
+                    "transform": { "x": 134.0, "y": 56.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "SCORE: 0",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [248, 250, 252, 255]
+                    }
+                  },
+                  {
+                    "id": "high_txt",
+                    "name": "highScoreText",
+                    "transform": { "x": 270.0, "y": 56.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "HIGH: 0",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [250, 204, 21, 255]
+                    }
+                  },
+                  {
+                    "id": "status_txt",
+                    "name": "statusText",
+                    "transform": { "x": 390.0, "y": 56.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "PLAYING",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [74, 222, 128, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -2425,3 +2425,386 @@ fn t108_t109_t111_classic_tween_rotate_roving_and_graphic_frame_picker() {
     editor.undo();
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn t112_asset_warp_pins_tween_reset_and_bake() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    project.symbols[0].timeline.frame_count = 11;
+    let rect = Element {
+        id: "warp-rect".into(),
+        name: "warp_rect".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Rectangle {
+            width: 100.0,
+            height: 40.0,
+            fill: [40, 120, 220, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![rect.clone()],
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Classic,
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 10,
+            elements: vec![rect],
+            ..Keyframe::default()
+        },
+    ];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    let rig_start = AssetWarpRig {
+        element_id: "warp-rect".into(),
+        pins: vec![
+            WarpPin {
+                id: "pin-base".into(),
+                kind: WarpPinKind::Fixed,
+                rest_pos: [0.0, 20.0],
+                pos: [0.0, 20.0],
+                rotation: 0.0,
+                stiffness: 1.0,
+            },
+            WarpPin {
+                id: "pin-tip".into(),
+                kind: WarpPinKind::Open,
+                rest_pos: [100.0, 20.0],
+                pos: [100.0, 60.0],
+                rotation: 15.0,
+                stiffness: 0.8,
+            },
+        ],
+        envelop_subdivisions: 4,
+    };
+    assert!(editor.set_element_asset_warp(rig_start));
+    editor.project.validate().unwrap();
+
+    // Sampled element at frame 0 is deformed into a Path with displaced tip.
+    let sampled0 = sample_layer(&editor.symbol().timeline.layers[0], 0);
+    assert!(matches!(sampled0[0].kind, ElementKind::Path { .. }));
+
+    // Reset returns pins to rest_pos; Undo restores the displaced warp rig.
+    assert!(editor.reset_element_asset_warp("warp-rect"));
+    let reset_sampled = sample_layer(&editor.symbol().timeline.layers[0], 0);
+    assert!(matches!(
+        reset_sampled[0].kind,
+        ElementKind::Rectangle { .. }
+    ));
+    editor.undo();
+
+    // Bake permanently expands the deformed contour into the element and removes the warp rig.
+    assert!(editor.bake_element_asset_warp("warp-rect"));
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .asset_warp("warp-rect")
+            .is_none()
+    );
+    assert!(matches!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind,
+        ElementKind::Path { .. }
+    ));
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t113_camera_depth_parallax_parenting_controllers_and_ik_bake() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    project.symbols[0].timeline.frame_count = 11;
+    let parent_el = Element {
+        id: "ctrl-root".into(),
+        name: "ctrl_root".into(),
+        transform: Transform {
+            x: 100.0,
+            y: 50.0,
+            rotation: 90.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 20.0,
+            height: 20.0,
+            fill: [255, 0, 0, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    };
+    let child_el = Element {
+        id: "child-arm".into(),
+        name: "child_arm".into(),
+        transform: Transform {
+            x: 150.0,
+            y: 50.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 40.0,
+            height: 10.0,
+            fill: [0, 200, 100, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![parent_el, child_el],
+        ..Keyframe::default()
+    }];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    // World-transform-preserving reparenting + cycle check.
+    assert!(
+        editor.reparent_element_preserving_world("child-arm", Some("ctrl-root"))
+    );
+    assert!(
+        !editor.reparent_element_preserving_world("ctrl-root", Some("child-arm")),
+        "cycle must be rejected"
+    );
+    let sampled = sample_layer(&editor.symbol().timeline.layers[0], 0);
+    let sampled_child = sampled.iter().find(|e| e.id == "child-arm").unwrap();
+    assert!((sampled_child.transform.x - 150.0).abs() < 1e-4);
+    assert!((sampled_child.transform.y - 50.0).abs() < 1e-4);
+
+    // Controller flag hides element from published runtime scene while keeping parenting active.
+    assert!(editor.set_element_controller_flag("ctrl-root", true));
+    let scene = neoflash_core::evaluate_scene(&editor.project, "root", 0, false, false);
+    assert!(
+        !scene
+            .draws
+            .iter()
+            .any(|d| d.item.element_id == "ctrl-root")
+    );
+
+    // 2D camera pose + layer Z-depth parallax.
+    assert!(editor.set_layer_z_depth(500.0));
+    assert!(editor.set_keyframe_camera_pose(Some(CameraPose {
+        x: 60.0,
+        y: 0.0,
+        zoom: 2.0,
+        rotation: 0.0,
+        focal_length: 500.0,
+        color_transform: ColorTransform::default(),
+    })));
+    let cam = sample_timeline_camera(&editor.symbol().timeline, 0).unwrap();
+    assert!((cam.x - 60.0).abs() < 1e-6);
+
+    // Bounded IK armature + bake to normal keyframes.
+    assert!(editor.set_keyframe_ik_armature(IkArmature {
+        id: "arm-1".into(),
+        name: "Arm".into(),
+        bones: vec![
+            IkBone {
+                id: "b1".into(),
+                element_id: "ctrl-root".into(),
+                parent_bone_id: None,
+                length: 50.0,
+                min_angle: Some(-90.0),
+                max_angle: Some(90.0),
+                stiffness: 0.2,
+            },
+            IkBone {
+                id: "b2".into(),
+                element_id: "child-arm".into(),
+                parent_bone_id: Some("b1".into()),
+                length: 40.0,
+                min_angle: Some(-120.0),
+                max_angle: Some(120.0),
+                stiffness: 0.1,
+            },
+        ],
+        effector_bone_id: "b2".into(),
+        target_pos: [140.0, 90.0],
+        pole_pos: None,
+    }));
+    editor.project.validate().unwrap();
+    assert!(editor.set_layer_attach_to_camera(true));
+    assert!(editor.symbol().timeline.layers[0].properties.attach_to_camera);
+    assert_eq!(editor.bake_layer_ik_span(0, 2), 3);
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .ik_armatures
+            .is_empty()
+    );
+    editor.project.validate().unwrap();
+
+    for _ in 0..6 {
+        editor.undo();
+    }
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t114_appearance_stack_modifiers_swatches_styles_and_text_bindings() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    let shape = Element {
+        id: "star-shape".into(),
+        name: "star".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Rectangle {
+            width: 60.0,
+            height: 60.0,
+            fill: [200, 50, 50, 255],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.0,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![shape],
+        ..Keyframe::default()
+    }];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    let app = ElementAppearance {
+        element_id: "star-shape".into(),
+        fill_swatch_id: Some("swatch-brand".into()),
+        stroke_swatch_id: None,
+        style_id: Some("style-badge".into()),
+        entries: vec![
+            AppearancePaintEntry::Fill {
+                color: [200, 50, 50, 255],
+                gradient: None,
+                swatch_id: Some("swatch-brand".into()),
+                offset: [0.0, 0.0],
+                opacity: 1.0,
+            },
+            AppearancePaintEntry::Stroke {
+                color: [10, 10, 10, 255],
+                gradient: None,
+                width: 3.0,
+                swatch_id: None,
+                offset_distance: 4.0,
+                pattern_brush: Some(PatternBrushKind::DashPattern {
+                    dash: 8.0,
+                    gap: 4.0,
+                }),
+                opacity: 0.9,
+            },
+        ],
+        modifiers: vec![
+            VectorModifier::LiveCorners { radius: 6.0 },
+            VectorModifier::OffsetContour { delta: 2.0 },
+            VectorModifier::Mirror {
+                axis_x: Some(80.0),
+                axis_y: None,
+            },
+            VectorModifier::Repeater {
+                copies: 2,
+                offset_x: 30.0,
+                offset_y: 0.0,
+                scale_step: 1.0,
+                rotation_step: 15.0,
+            },
+        ],
+        text_binding: None,
+    };
+    assert!(editor.set_element_appearance(app));
+    editor.project.validate().unwrap();
+    assert_eq!(editor.apply_vector_style("style-badge"), 0);
+
+    // Linked global swatch update propagates across both element and appearance entries.
+    assert_eq!(editor.update_global_swatch("swatch-brand", [20, 180, 90, 255]), 2);
+
+    // Sampled layer expands the 2 appearance paint entries into 2 concrete elements.
+    let sampled = sample_layer(&editor.symbol().timeline.layers[0], 0);
+    assert_eq!(sampled.len(), 2);
+
+    // Explicit Expand/Bake replaces the source element with the concrete expanded elements.
+    let expanded_ids = editor.expand_element_appearance_command("star-shape");
+    assert_eq!(expanded_ids.len(), 2);
+    assert_eq!(editor.symbol().timeline.layers[0].keyframes[0].elements.len(), 2);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t118_timeline_video_sync_cue_points_and_codec_diagnostics() {
+    let mut project = Project::blank();
+    project.format_version = 9;
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    let span = TimelineVideoSpan {
+        resource: "vid-1".into(),
+        sync: VideoSyncMode::Stream,
+        start_offset_ms: 100,
+        loop_video: true,
+        muted: false,
+        cue_points: vec![VideoCuePoint {
+            name: "intro_end".into(),
+            time_ms: 500,
+            kind: VideoCuePointKind::Navigation,
+            parameters: vec![("target".into(), "main".into())],
+        }],
+    };
+    assert!(editor.set_keyframe_video_span(Some(span.clone())));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].video,
+        Some(span.clone())
+    );
+    let t_ms = neoflash_core::compute_frame_video_time_ms(0, 12, 24.0, 100, Some(2000), true);
+    assert_eq!(t_ms, 600);
+    let crossed = neoflash_core::collect_crossed_cue_points(&span.cue_points, 100, 600);
+    assert_eq!(crossed.len(), 1);
+    assert_eq!(crossed[0].name, "intro_end");
+
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t115_t116_sequence_vector_import_and_publish_profiles_network_sim() {
+    // T-115: High-fidelity SVG vector import with group-to-layer mapping.
+    let svg = r##"<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg">
+        <g id="Background"><rect x="0" y="0" width="200" height="100" fill="#224466"/></g>
+        <g id="Foreground"><circle cx="100" cy="50" r="25" fill="#ffcc00"/></g>
+    </svg>"##;
+    let (imported, report) = neoflash_import::import_svg_with_options(
+        svg,
+        "banner.svg",
+        &neoflash_import::VectorImportOptions::default(),
+    )
+    .expect("import svg");
+    imported.validate().unwrap();
+    assert!(report.diagnostics.iter().all(|d| !d.code.starts_with("error")));
+
+    // T-116: Publish profiles + custom HTML wrapper + network startup simulation reusing size_report.
+    let mut profile = neoflash_export::PublishProfile::new(
+        "Fast 3G Web",
+        neoflash_export::ExportOptions::default(),
+    );
+    profile.network_profile.preset = neoflash_export::NetworkPreset::Fast3G;
+    let dup = neoflash_export::duplicate_profile(&profile, Some("Fast 3G Copy"));
+    let json = neoflash_export::export_profile_json(&dup).expect("export profile json");
+    let roundtrip = neoflash_export::import_profile_json(&json).expect("import profile json");
+    assert_eq!(roundtrip.name, "Fast 3G Copy");
+
+    let sim = neoflash_export::simulate_network_startup(&imported, &roundtrip)
+        .expect("simulate network startup");
+    assert!(sim.initial_html_js_wasm_ms >= 0.0);
+    assert!(!sim.frames.is_empty());
+}

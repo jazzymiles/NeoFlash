@@ -1187,3 +1187,1097 @@ pub fn nearest_path_segment(
     }
     best
 }
+
+/// Invert a 2D affine matrix `[a, b, c, d, tx, ty]`. Returns `None` if singular.
+pub fn invert_affine_matrix(m: [f64; 6]) -> Option<[f64; 6]> {
+    let [a, b, c, d, tx, ty] = m;
+    let det = a * d - b * c;
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    let ia = d * inv_det;
+    let ib = -b * inv_det;
+    let ic = -c * inv_det;
+    let id = a * inv_det;
+    let itx = -(ia * tx + ic * ty);
+    let ity = -(ib * tx + id * ty);
+    Some([ia, ib, ic, id, itx, ity])
+}
+
+/// Deform a local 2D point `p` using the pins of an `AssetWarpRig` (T-112).
+/// `Fixed` pins anchor geometry near their `rest_pos` with zero displacement/rotation;
+/// `Open` pins apply inverse-distance-weighted rigid translation and rotation around `rest_pos`.
+pub fn deform_point_with_pins(p: [f64; 2], pins: &[crate::WarpPin]) -> [f64; 2] {
+    if pins.is_empty() {
+        return p;
+    }
+    let mut weight_sum = 0.0;
+    let mut accum_x = 0.0;
+    let mut accum_y = 0.0;
+    for pin in pins {
+        let target = match pin.kind {
+            crate::WarpPinKind::Fixed => pin.rest_pos,
+            crate::WarpPinKind::Open => pin.pos,
+        };
+        let rot_rad = match pin.kind {
+            crate::WarpPinKind::Fixed => 0.0,
+            crate::WarpPinKind::Open => pin.rotation.to_radians(),
+        };
+        let dx = p[0] - pin.rest_pos[0];
+        let dy = p[1] - pin.rest_pos[1];
+        let dist2 = dx * dx + dy * dy;
+        if dist2 < 1e-10 {
+            return target;
+        }
+        let power = 1.0 + pin.stiffness.clamp(0.0, 1.0);
+        let w = 1.0 / (dist2.powf(power) + 1e-6);
+        let (s, c) = rot_rad.sin_cos();
+        let rx = c * dx - s * dy;
+        let ry = s * dx + c * dy;
+        accum_x += w * (target[0] + rx);
+        accum_y += w * (target[1] + ry);
+        weight_sum += w;
+    }
+    if weight_sum <= 1e-12 {
+        p
+    } else {
+        [accum_x / weight_sum, accum_y / weight_sum]
+    }
+}
+
+fn subdivide_commands_uniform(commands: &[PathCommand], subdivisions: u8) -> Vec<PathCommand> {
+    let subs = subdivisions.clamp(1, 16) as usize;
+    if subs <= 1 {
+        return commands.to_vec();
+    }
+    let mut out = Vec::with_capacity(commands.len() * subs);
+    let mut subpath_start = [0.0, 0.0];
+    let mut cursor = [0.0, 0.0];
+    for cmd in commands {
+        match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                subpath_start = [x, y];
+                cursor = [x, y];
+                out.push(PathCommand::MoveTo { x, y });
+            }
+            PathCommand::LineTo { x, y } => {
+                for i in 1..=subs {
+                    let t = (i as f64) / (subs as f64);
+                    let pt = lerp_pt(cursor, [x, y], t);
+                    out.push(PathCommand::LineTo { x: pt[0], y: pt[1] });
+                }
+                cursor = [x, y];
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                out.push(PathCommand::QuadraticTo { cx, cy, x, y });
+                cursor = [x, y];
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                out.push(PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                });
+                cursor = [x, y];
+            }
+            PathCommand::Close => {
+                if (cursor[0] - subpath_start[0]).hypot(cursor[1] - subpath_start[1]) > 1e-6 {
+                    for i in 1..subs {
+                        let t = (i as f64) / (subs as f64);
+                        let pt = lerp_pt(cursor, subpath_start, t);
+                        out.push(PathCommand::LineTo { x: pt[0], y: pt[1] });
+                    }
+                }
+                out.push(PathCommand::Close);
+                cursor = subpath_start;
+            }
+        }
+    }
+    out
+}
+
+/// Apply an `AssetWarpRig` to an `Element`, deforming vector contours (or fitting a raster/instance transform) (T-112).
+pub fn apply_asset_warp_to_element(
+    element: &crate::Element,
+    rig: &crate::AssetWarpRig,
+) -> crate::Element {
+    if rig.pins.is_empty() {
+        return element.clone();
+    }
+    let is_identity = rig.pins.iter().all(|pin| {
+        pin.kind == crate::WarpPinKind::Fixed
+            || ((pin.pos[0] - pin.rest_pos[0]).hypot(pin.pos[1] - pin.rest_pos[1]) <= 1e-9
+                && pin.rotation.abs() <= 1e-9)
+    });
+    if is_identity {
+        return element.clone();
+    }
+    let mut out = element.clone();
+    if let Some((base_commands, fill_rule)) = element.to_path_commands() {
+        let subdivided = subdivide_commands_uniform(&base_commands, rig.envelop_subdivisions);
+        let deformed: Vec<PathCommand> = subdivided
+            .into_iter()
+            .map(|cmd| match cmd {
+                PathCommand::MoveTo { x, y } => {
+                    let [nx, ny] = deform_point_with_pins([x, y], &rig.pins);
+                    PathCommand::MoveTo { x: nx, y: ny }
+                }
+                PathCommand::LineTo { x, y } => {
+                    let [nx, ny] = deform_point_with_pins([x, y], &rig.pins);
+                    PathCommand::LineTo { x: nx, y: ny }
+                }
+                PathCommand::QuadraticTo { cx, cy, x, y } => {
+                    let [ncx, ncy] = deform_point_with_pins([cx, cy], &rig.pins);
+                    let [nx, ny] = deform_point_with_pins([x, y], &rig.pins);
+                    PathCommand::QuadraticTo {
+                        cx: ncx,
+                        cy: ncy,
+                        x: nx,
+                        y: ny,
+                    }
+                }
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                } => {
+                    let [ncx1, ncy1] = deform_point_with_pins([cx1, cy1], &rig.pins);
+                    let [ncx2, ncy2] = deform_point_with_pins([cx2, cy2], &rig.pins);
+                    let [nx, ny] = deform_point_with_pins([x, y], &rig.pins);
+                    PathCommand::CubicTo {
+                        cx1: ncx1,
+                        cy1: ncy1,
+                        cx2: ncx2,
+                        cy2: ncy2,
+                        x: nx,
+                        y: ny,
+                    }
+                }
+                PathCommand::Close => PathCommand::Close,
+            })
+            .collect();
+        out.transform.primitive = None;
+        match &element.kind {
+            crate::ElementKind::Rectangle {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | crate::ElementKind::Ellipse {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | crate::ElementKind::Path {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => {
+                out.kind = crate::ElementKind::Path {
+                    commands: deformed,
+                    fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                };
+            }
+            crate::ElementKind::PaintedPath {
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                stroke_width,
+                ..
+            } => {
+                out.kind = crate::ElementKind::PaintedPath {
+                    commands: deformed,
+                    fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    fill_gradient: fill_gradient.clone(),
+                    stroke_gradient: stroke_gradient.clone(),
+                    stroke_width: *stroke_width,
+                };
+            }
+            _ => {}
+        }
+        return out;
+    }
+    // For Bitmap or Instance elements, apply average pin translation and rotation to the element transform.
+    let n = rig.pins.len() as f64;
+    let mut dx = 0.0;
+    let mut dy = 0.0;
+    let mut drot = 0.0;
+    for pin in &rig.pins {
+        if pin.kind == crate::WarpPinKind::Open {
+            dx += pin.pos[0] - pin.rest_pos[0];
+            dy += pin.pos[1] - pin.rest_pos[1];
+            drot += pin.rotation;
+        }
+    }
+    out.transform.x += dx / n;
+    out.transform.y += dy / n;
+    out.transform.rotation += drot / n;
+    out
+}
+
+/// Solve a bounded Inverse Kinematics (`IkArmature`) chain deterministically via Cyclic Coordinate Descent (CCD) (T-113).
+pub fn solve_ik_armature(elements: &mut [crate::Element], armature: &crate::IkArmature) {
+    if armature.bones.is_empty() {
+        return;
+    }
+    // Build chain from root bone down to effector_bone_id.
+    let mut chain_indices = Vec::new();
+    let mut current_id = Some(armature.effector_bone_id.as_str());
+    let mut guard = 0usize;
+    while let Some(bid) = current_id {
+        if guard >= crate::IkBone::MAX_BONES {
+            break;
+        }
+        let Some(idx) = armature.bones.iter().position(|b| b.id == bid) else {
+            break;
+        };
+        if chain_indices.contains(&idx) {
+            break;
+        }
+        chain_indices.push(idx);
+        current_id = armature.bones[idx].parent_bone_id.as_deref();
+        guard += 1;
+    }
+    chain_indices.reverse();
+    if chain_indices.is_empty() {
+        return;
+    }
+
+    // Extract current world positions and world angles of each bone in the chain.
+    let n = chain_indices.len();
+    let mut joint_pos = vec![[0.0, 0.0]; n + 1];
+    let mut world_angles = vec![0.0_f64; n];
+    let mut lengths = vec![0.0_f64; n];
+
+    let root_el_id = &armature.bones[chain_indices[0]].element_id;
+    let root_origin = elements
+        .iter()
+        .find(|e| &e.id == root_el_id)
+        .map(|e| [e.transform.x, e.transform.y])
+        .unwrap_or([0.0, 0.0]);
+    joint_pos[0] = root_origin;
+
+    for (k, &b_idx) in chain_indices.iter().enumerate() {
+        let bone = &armature.bones[b_idx];
+        let rot = elements
+            .iter()
+            .find(|e| e.id == bone.element_id)
+            .map(|e| e.transform.rotation)
+            .unwrap_or(0.0);
+        world_angles[k] = rot;
+        lengths[k] = bone.length.max(1.0);
+        let rad = rot.to_radians();
+        joint_pos[k + 1] = [
+            joint_pos[k][0] + lengths[k] * rad.cos(),
+            joint_pos[k][1] + lengths[k] * rad.sin(),
+        ];
+    }
+
+    // CCD iterations (up to 24 passes).
+    let target = armature.target_pos;
+    for _iter in 0..24 {
+        let eff = joint_pos[n];
+        if (eff[0] - target[0]).hypot(eff[1] - target[1]) <= 1e-3 {
+            break;
+        }
+        for k in (0..n).rev() {
+            let bone = &armature.bones[chain_indices[k]];
+            let pivot = joint_pos[k];
+            let eff = joint_pos[n];
+            let to_eff = [eff[0] - pivot[0], eff[1] - pivot[1]];
+            let to_target = [target[0] - pivot[0], target[1] - pivot[1]];
+            if to_eff[0].hypot(to_eff[1]) <= 1e-6 || to_target[0].hypot(to_target[1]) <= 1e-6 {
+                continue;
+            }
+            let ang_eff = to_eff[1].atan2(to_eff[0]).to_degrees();
+            let ang_target = to_target[1].atan2(to_target[0]).to_degrees();
+            let mut delta = (ang_target - ang_eff + 540.0).rem_euclid(360.0) - 180.0;
+            let weight = (1.0 - bone.stiffness.clamp(0.0, 0.95)).max(0.05);
+            delta *= weight;
+
+            let parent_angle = if k > 0 { world_angles[k - 1] } else { 0.0 };
+            let mut rel_angle = world_angles[k] + delta - parent_angle;
+            if let Some(min_a) = bone.min_angle {
+                rel_angle = rel_angle.max(min_a);
+            }
+            if let Some(max_a) = bone.max_angle {
+                rel_angle = rel_angle.min(max_a);
+            }
+            let applied = (parent_angle + rel_angle) - world_angles[k];
+            for j in k..n {
+                world_angles[j] += applied;
+                let rad = world_angles[j].to_radians();
+                joint_pos[j + 1] = [
+                    joint_pos[j][0] + lengths[j] * rad.cos(),
+                    joint_pos[j][1] + lengths[j] * rad.sin(),
+                ];
+            }
+        }
+    }
+
+    // Write solved positions and rotations back to bone elements.
+    for (k, &b_idx) in chain_indices.iter().enumerate() {
+        let bone = &armature.bones[b_idx];
+        if let Some(el) = elements.iter_mut().find(|e| e.id == bone.element_id) {
+            el.transform.x = joint_pos[k][0];
+            el.transform.y = joint_pos[k][1];
+            el.transform.rotation = world_angles[k];
+        }
+    }
+}
+
+/// Apply one non-destructive `VectorModifier` to a path contour (T-114).
+pub fn apply_vector_modifier(
+    commands: &[PathCommand],
+    modifier: &crate::VectorModifier,
+) -> Vec<PathCommand> {
+    match modifier {
+        crate::VectorModifier::OffsetContour { delta } => {
+            if delta.abs() <= 1e-6 || !delta.is_finite() {
+                return commands.to_vec();
+            }
+            let Ok(contours) = flatten_path(commands, FlattenOptions::default()) else {
+                return commands.to_vec();
+            };
+            let mut out = Vec::new();
+            for contour in contours {
+                let n = contour.points.len();
+                if n < 2 {
+                    continue;
+                }
+                let mut cx = 0.0;
+                let mut cy = 0.0;
+                for p in &contour.points {
+                    cx += p[0];
+                    cy += p[1];
+                }
+                cx /= n as f64;
+                cy /= n as f64;
+                for (i, p) in contour.points.iter().enumerate() {
+                    let dx = p[0] - cx;
+                    let dy = p[1] - cy;
+                    let len = dx.hypot(dy).max(1e-6);
+                    let nx = p[0] + (dx / len) * delta;
+                    let ny = p[1] + (dy / len) * delta;
+                    if i == 0 {
+                        out.push(PathCommand::MoveTo { x: nx, y: ny });
+                    } else {
+                        out.push(PathCommand::LineTo { x: nx, y: ny });
+                    }
+                }
+                if contour.closed {
+                    out.push(PathCommand::Close);
+                }
+            }
+            out
+        }
+        crate::VectorModifier::LiveCorners { radius } => {
+            let r = radius.clamp(0.0, 1e6);
+            if r <= 1e-6 {
+                return commands.to_vec();
+            }
+            let Ok(contours) = flatten_path(commands, FlattenOptions::default()) else {
+                return commands.to_vec();
+            };
+            let mut out = Vec::new();
+            for contour in contours {
+                let mut pts = contour.points;
+                if pts.len() >= 2 && pts.first() == pts.last() {
+                    pts.pop();
+                }
+                let n = pts.len();
+                if n < 3 {
+                    continue;
+                }
+                for i in 0..n {
+                    if !contour.closed && (i == 0 || i + 1 == n) {
+                        if i == 0 {
+                            out.push(PathCommand::MoveTo {
+                                x: pts[i][0],
+                                y: pts[i][1],
+                            });
+                        } else {
+                            out.push(PathCommand::LineTo {
+                                x: pts[i][0],
+                                y: pts[i][1],
+                            });
+                        }
+                        continue;
+                    }
+                    let prev = pts[(i + n - 1) % n];
+                    let curr = pts[i];
+                    let next = pts[(i + 1) % n];
+                    let v1 = [prev[0] - curr[0], prev[1] - curr[1]];
+                    let v2 = [next[0] - curr[0], next[1] - curr[1]];
+                    let l1 = v1[0].hypot(v1[1]);
+                    let l2 = v2[0].hypot(v2[1]);
+                    let d = r.min(l1 * 0.45).min(l2 * 0.45);
+                    if d <= 1e-4 {
+                        if i == 0 {
+                            out.push(PathCommand::MoveTo {
+                                x: curr[0],
+                                y: curr[1],
+                            });
+                        } else {
+                            out.push(PathCommand::LineTo {
+                                x: curr[0],
+                                y: curr[1],
+                            });
+                        }
+                    } else {
+                        let p_enter = [curr[0] + (v1[0] / l1) * d, curr[1] + (v1[1] / l1) * d];
+                        let p_exit = [curr[0] + (v2[0] / l2) * d, curr[1] + (v2[1] / l2) * d];
+                        if i == 0 {
+                            out.push(PathCommand::MoveTo {
+                                x: p_enter[0],
+                                y: p_enter[1],
+                            });
+                        } else {
+                            out.push(PathCommand::LineTo {
+                                x: p_enter[0],
+                                y: p_enter[1],
+                            });
+                        }
+                        out.push(PathCommand::QuadraticTo {
+                            cx: curr[0],
+                            cy: curr[1],
+                            x: p_exit[0],
+                            y: p_exit[1],
+                        });
+                    }
+                }
+                if contour.closed {
+                    out.push(PathCommand::Close);
+                }
+            }
+            out
+        }
+        crate::VectorModifier::Mirror { axis_x, axis_y } => {
+            let mut out = commands.to_vec();
+            if let Some(ax) = *axis_x {
+                let mirrored: Vec<PathCommand> = out
+                    .iter()
+                    .map(|cmd| match *cmd {
+                        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+                            x: 2.0 * ax - x,
+                            y,
+                        },
+                        PathCommand::LineTo { x, y } => PathCommand::LineTo {
+                            x: 2.0 * ax - x,
+                            y,
+                        },
+                        PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
+                            cx: 2.0 * ax - cx,
+                            cy,
+                            x: 2.0 * ax - x,
+                            y,
+                        },
+                        PathCommand::CubicTo {
+                            cx1,
+                            cy1,
+                            cx2,
+                            cy2,
+                            x,
+                            y,
+                        } => PathCommand::CubicTo {
+                            cx1: 2.0 * ax - cx1,
+                            cy1,
+                            cx2: 2.0 * ax - cx2,
+                            cy2,
+                            x: 2.0 * ax - x,
+                            y,
+                        },
+                        PathCommand::Close => PathCommand::Close,
+                    })
+                    .collect();
+                out.extend(mirrored);
+            }
+            if let Some(ay) = *axis_y {
+                let mirrored: Vec<PathCommand> = out
+                    .iter()
+                    .map(|cmd| match *cmd {
+                        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+                            x,
+                            y: 2.0 * ay - y,
+                        },
+                        PathCommand::LineTo { x, y } => PathCommand::LineTo {
+                            x,
+                            y: 2.0 * ay - y,
+                        },
+                        PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
+                            cx,
+                            cy: 2.0 * ay - cy,
+                            x,
+                            y: 2.0 * ay - y,
+                        },
+                        PathCommand::CubicTo {
+                            cx1,
+                            cy1,
+                            cx2,
+                            cy2,
+                            x,
+                            y,
+                        } => PathCommand::CubicTo {
+                            cx1,
+                            cy1: 2.0 * ay - cy1,
+                            cx2,
+                            cy2: 2.0 * ay - cy2,
+                            x,
+                            y: 2.0 * ay - y,
+                        },
+                        PathCommand::Close => PathCommand::Close,
+                    })
+                    .collect();
+                out.extend(mirrored);
+            }
+            out
+        }
+        crate::VectorModifier::Repeater {
+            copies,
+            offset_x,
+            offset_y,
+            scale_step,
+            rotation_step,
+        } => {
+            let count = (*copies).clamp(1, 64);
+            let mut out = Vec::with_capacity(commands.len() * (count as usize));
+            for i in 0..count {
+                let fi = i as f64;
+                let scale = scale_step.clamp(0.05, 10.0).powf(fi);
+                let (s, c) = (rotation_step * fi).to_radians().sin_cos();
+                let tx = offset_x * fi;
+                let ty = offset_y * fi;
+                let map_pt = |x: f64, y: f64| -> [f64; 2] {
+                    let sx = x * scale;
+                    let sy = y * scale;
+                    [c * sx - s * sy + tx, s * sx + c * sy + ty]
+                };
+                for cmd in commands {
+                    out.push(match *cmd {
+                        PathCommand::MoveTo { x, y } => {
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::MoveTo { x: nx, y: ny }
+                        }
+                        PathCommand::LineTo { x, y } => {
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::LineTo { x: nx, y: ny }
+                        }
+                        PathCommand::QuadraticTo { cx, cy, x, y } => {
+                            let [ncx, ncy] = map_pt(cx, cy);
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::QuadraticTo {
+                                cx: ncx,
+                                cy: ncy,
+                                x: nx,
+                                y: ny,
+                            }
+                        }
+                        PathCommand::CubicTo {
+                            cx1,
+                            cy1,
+                            cx2,
+                            cy2,
+                            x,
+                            y,
+                        } => {
+                            let [ncx1, ncy1] = map_pt(cx1, cy1);
+                            let [ncx2, ncy2] = map_pt(cx2, cy2);
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::CubicTo {
+                                cx1: ncx1,
+                                cy1: ncy1,
+                                cx2: ncx2,
+                                cy2: ncy2,
+                                x: nx,
+                                y: ny,
+                            }
+                        }
+                        PathCommand::Close => PathCommand::Close,
+                    });
+                }
+            }
+            out
+        }
+    }
+}
+
+/// Expand a `PatternBrushKind` stroke along `commands` into concrete path geometry (T-114).
+pub fn expand_pattern_brush_stroke(
+    commands: &[PathCommand],
+    width: f64,
+    brush: &crate::PatternBrushKind,
+) -> Vec<PathCommand> {
+    let Ok(contours) = flatten_path(commands, FlattenOptions::default()) else {
+        return commands.to_vec();
+    };
+    let mut out = Vec::new();
+    let hw = (width * 0.5).max(0.5);
+    for contour in contours {
+        if contour.points.len() < 2 {
+            continue;
+        }
+        let path = crate::evaluate::motion_path_polyline(&{
+            let mut cmds = Vec::with_capacity(contour.points.len());
+            for (i, &[x, y]) in contour.points.iter().enumerate() {
+                if i == 0 {
+                    cmds.push(PathCommand::MoveTo { x, y });
+                } else {
+                    cmds.push(PathCommand::LineTo { x, y });
+                }
+            }
+            cmds
+        });
+        let Some(guide) = path else {
+            continue;
+        };
+        let total = guide.length();
+        if total <= 1e-6 {
+            continue;
+        }
+        match brush {
+            crate::PatternBrushKind::DashPattern { dash, gap } => {
+                let d = dash.max(1.0);
+                let g = gap.max(0.5);
+                let mut s = 0.0;
+                while s < total {
+                    let s_end = (s + d).min(total);
+                    let p0 = guide.point_at(s);
+                    let p1 = guide.point_at(s_end);
+                    let ang = guide.tangent_at(s).to_radians();
+                    let (sin, cos) = ang.sin_cos();
+                    let nx = -sin * hw;
+                    let ny = cos * hw;
+                    out.push(PathCommand::MoveTo {
+                        x: p0[0] + nx,
+                        y: p0[1] + ny,
+                    });
+                    out.push(PathCommand::LineTo {
+                        x: p1[0] + nx,
+                        y: p1[1] + ny,
+                    });
+                    out.push(PathCommand::LineTo {
+                        x: p1[0] - nx,
+                        y: p1[1] - ny,
+                    });
+                    out.push(PathCommand::LineTo {
+                        x: p0[0] - nx,
+                        y: p0[1] - ny,
+                    });
+                    out.push(PathCommand::Close);
+                    s += d + g;
+                }
+            }
+            crate::PatternBrushKind::ArtStretch {
+                stamp_commands,
+                nominal_length,
+            } => {
+                let nom = nominal_length.max(1.0);
+                let map_pt = |x: f64, y: f64| -> [f64; 2] {
+                    let s = (x / nom).clamp(0.0, 1.0) * total;
+                    let base = guide.point_at(s);
+                    let ang = guide.tangent_at(s).to_radians();
+                    let (sin, cos) = ang.sin_cos();
+                    [base[0] - sin * y, base[1] + cos * y]
+                };
+                for cmd in stamp_commands {
+                    out.push(match *cmd {
+                        PathCommand::MoveTo { x, y } => {
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::MoveTo { x: nx, y: ny }
+                        }
+                        PathCommand::LineTo { x, y } => {
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::LineTo { x: nx, y: ny }
+                        }
+                        PathCommand::QuadraticTo { cx, cy, x, y } => {
+                            let [ncx, ncy] = map_pt(cx, cy);
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::QuadraticTo {
+                                cx: ncx,
+                                cy: ncy,
+                                x: nx,
+                                y: ny,
+                            }
+                        }
+                        PathCommand::CubicTo {
+                            cx1,
+                            cy1,
+                            cx2,
+                            cy2,
+                            x,
+                            y,
+                        } => {
+                            let [ncx1, ncy1] = map_pt(cx1, cy1);
+                            let [ncx2, ncy2] = map_pt(cx2, cy2);
+                            let [nx, ny] = map_pt(x, y);
+                            PathCommand::CubicTo {
+                                cx1: ncx1,
+                                cy1: ncy1,
+                                cx2: ncx2,
+                                cy2: ncy2,
+                                x: nx,
+                                y: ny,
+                            }
+                        }
+                        PathCommand::Close => PathCommand::Close,
+                    });
+                }
+            }
+            crate::PatternBrushKind::PatternRepeat {
+                tile_commands,
+                spacing,
+            } => {
+                let step = spacing.max(2.0);
+                let mut s = 0.0;
+                let mut count = 0usize;
+                while s < total && count < 256 {
+                    let base = guide.point_at(s);
+                    let ang = guide.tangent_at(s).to_radians();
+                    let (sin, cos) = ang.sin_cos();
+                    let map_pt = |x: f64, y: f64| -> [f64; 2] {
+                        [
+                            base[0] + cos * x - sin * y,
+                            base[1] + sin * x + cos * y,
+                        ]
+                    };
+                    for cmd in tile_commands {
+                        out.push(match *cmd {
+                            PathCommand::MoveTo { x, y } => {
+                                let [nx, ny] = map_pt(x, y);
+                                PathCommand::MoveTo { x: nx, y: ny }
+                            }
+                            PathCommand::LineTo { x, y } => {
+                                let [nx, ny] = map_pt(x, y);
+                                PathCommand::LineTo { x: nx, y: ny }
+                            }
+                            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                                let [ncx, ncy] = map_pt(cx, cy);
+                                let [nx, ny] = map_pt(x, y);
+                                PathCommand::QuadraticTo {
+                                    cx: ncx,
+                                    cy: ncy,
+                                    x: nx,
+                                    y: ny,
+                                }
+                            }
+                            PathCommand::CubicTo {
+                                cx1,
+                                cy1,
+                                cx2,
+                                cy2,
+                                x,
+                                y,
+                            } => {
+                                let [ncx1, ncy1] = map_pt(cx1, cy1);
+                                let [ncx2, ncy2] = map_pt(cx2, cy2);
+                                let [nx, ny] = map_pt(x, y);
+                                PathCommand::CubicTo {
+                                    cx1: ncx1,
+                                    cy1: ncy1,
+                                    cx2: ncx2,
+                                    cy2: ncy2,
+                                    x: nx,
+                                    y: ny,
+                                }
+                            }
+                            PathCommand::Close => PathCommand::Close,
+                        });
+                    }
+                    s += step;
+                    count += 1;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Evaluate an `ElementAppearance` (modifiers, multiple fills/strokes, pattern brushes, or text bindings) into concrete `Element`s (T-114).
+pub fn evaluate_element_appearance(
+    element: &crate::Element,
+    appearance: &crate::ElementAppearance,
+) -> Vec<crate::Element> {
+    // Handle Text on Path or Area Text bindings first if present on a Text/TextBox element.
+    if let Some(binding) = &appearance.text_binding {
+        match (&element.kind, binding) {
+            (
+                crate::ElementKind::Text {
+                    text,
+                    font_family,
+                    font_size,
+                    color,
+                },
+                crate::TextPathBinding::PathText {
+                    path_commands,
+                    start_offset,
+                },
+            ) => {
+                if let Some(guide) = crate::evaluate::motion_path_polyline(path_commands) {
+                    let advance = (font_size * 0.6).max(2.0);
+                    let mut out = Vec::new();
+                    for (idx, ch) in text.chars().enumerate() {
+                        if ch.is_whitespace() {
+                            continue;
+                        }
+                        let s = (start_offset + (idx as f64) * advance).min(guide.length());
+                        let [px, py] = guide.point_at(s);
+                        let rot = guide.tangent_at(s);
+                        let mut glyph_el = element.clone();
+                        glyph_el.id = format!("{}-glyph-{idx}", element.id);
+                        glyph_el.transform.x = element.transform.x + px;
+                        glyph_el.transform.y = element.transform.y + py;
+                        glyph_el.transform.rotation = element.transform.rotation + rot;
+                        glyph_el.kind = crate::ElementKind::Text {
+                            text: ch.to_string(),
+                            font_family: font_family.clone(),
+                            font_size: *font_size,
+                            color: *color,
+                        };
+                        out.push(glyph_el);
+                    }
+                    if !out.is_empty() {
+                        return out;
+                    }
+                }
+            }
+            (
+                crate::ElementKind::Text {
+                    text,
+                    font_family,
+                    font_size,
+                    color,
+                },
+                crate::TextPathBinding::AreaText {
+                    bounds,
+                    columns,
+                    gutter,
+                },
+            ) => {
+                let cols = (*columns).clamp(1, 8) as usize;
+                let total_w = bounds[2].max(20.0);
+                let col_w =
+                    ((total_w - (*gutter) * ((cols.saturating_sub(1)) as f64)) / (cols as f64))
+                        .max(10.0);
+                let max_chars_per_line = ((col_w / (font_size * 0.55)).floor() as usize).max(1);
+                let line_h = (font_size * 1.25).max(4.0);
+                let max_lines_per_col = ((bounds[3].max(line_h) / line_h).floor() as usize).max(1);
+                let mut lines: Vec<String> = Vec::new();
+                let mut current = String::new();
+                for word in text.split_whitespace() {
+                    if current.is_empty() {
+                        current.push_str(word);
+                    } else if current.chars().count() + 1 + word.chars().count()
+                        <= max_chars_per_line
+                    {
+                        current.push(' ');
+                        current.push_str(word);
+                    } else {
+                        lines.push(std::mem::take(&mut current));
+                        current.push_str(word);
+                    }
+                }
+                if !current.is_empty() {
+                    lines.push(current);
+                }
+                let mut out = Vec::new();
+                for (line_idx, line) in lines.into_iter().enumerate() {
+                    let col = (line_idx / max_lines_per_col).min(cols - 1);
+                    let row = line_idx % max_lines_per_col;
+                    let mut line_el = element.clone();
+                    line_el.id = format!("{}-line-{line_idx}", element.id);
+                    line_el.transform.x =
+                        element.transform.x + bounds[0] + (col as f64) * (col_w + *gutter);
+                    line_el.transform.y = element.transform.y + bounds[1] + (row as f64) * line_h;
+                    line_el.kind = crate::ElementKind::Text {
+                        text: line,
+                        font_family: font_family.clone(),
+                        font_size: *font_size,
+                        color: *color,
+                    };
+                    out.push(line_el);
+                }
+                if !out.is_empty() {
+                    return out;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Some((mut commands, fill_rule)) = element.to_path_commands() else {
+        return vec![element.clone()];
+    };
+    for modifier in &appearance.modifiers {
+        commands = apply_vector_modifier(&commands, modifier);
+    }
+
+    if appearance.entries.is_empty() {
+        let mut modified = element.clone();
+        modified.transform.primitive = None;
+        match &element.kind {
+            crate::ElementKind::Rectangle {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | crate::ElementKind::Ellipse {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | crate::ElementKind::Path {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => {
+                modified.kind = crate::ElementKind::Path {
+                    commands,
+                    fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                };
+            }
+            crate::ElementKind::PaintedPath {
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                stroke_width,
+                ..
+            } => {
+                modified.kind = crate::ElementKind::PaintedPath {
+                    commands,
+                    fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    fill_gradient: fill_gradient.clone(),
+                    stroke_gradient: stroke_gradient.clone(),
+                    stroke_width: *stroke_width,
+                };
+            }
+            _ => {}
+        }
+        return vec![modified];
+    }
+
+    let mut out = Vec::with_capacity(appearance.entries.len());
+    for (idx, entry) in appearance.entries.iter().enumerate() {
+        let mut item = element.clone();
+        item.id = if idx == 0 {
+            element.id.clone()
+        } else {
+            format!("{}-app-{idx}", element.id)
+        };
+        item.transform.primitive = None;
+        match entry {
+            crate::AppearancePaintEntry::Fill {
+                color,
+                gradient,
+                offset,
+                opacity,
+                ..
+            } => {
+                item.transform.x += offset[0];
+                item.transform.y += offset[1];
+                item.transform.alpha = (item.transform.alpha * opacity).clamp(0.0, 1.0);
+                if gradient.is_some() {
+                    item.kind = crate::ElementKind::PaintedPath {
+                        commands: commands.clone(),
+                        fill_rule,
+                        fill: *color,
+                        stroke: [0, 0, 0, 0],
+                        fill_gradient: gradient.clone(),
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                    };
+                } else {
+                    item.kind = crate::ElementKind::Path {
+                        commands: commands.clone(),
+                        fill_rule,
+                        fill: *color,
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    };
+                }
+            }
+            crate::AppearancePaintEntry::Stroke {
+                color,
+                gradient,
+                width,
+                offset_distance,
+                pattern_brush,
+                opacity,
+                ..
+            } => {
+                item.transform.alpha = (item.transform.alpha * opacity).clamp(0.0, 1.0);
+                let stroke_cmds = if offset_distance.abs() > 1e-6 {
+                    apply_vector_modifier(
+                        &commands,
+                        &crate::VectorModifier::OffsetContour {
+                            delta: *offset_distance,
+                        },
+                    )
+                } else {
+                    commands.clone()
+                };
+                if let Some(brush) = pattern_brush {
+                    let expanded = expand_pattern_brush_stroke(&stroke_cmds, *width, brush);
+                    item.kind = crate::ElementKind::Path {
+                        commands: expanded,
+                        fill_rule: crate::FillRule::NonZero,
+                        fill: *color,
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    };
+                } else if gradient.is_some() {
+                    item.kind = crate::ElementKind::PaintedPath {
+                        commands: stroke_cmds,
+                        fill_rule,
+                        fill: [0, 0, 0, 0],
+                        stroke: *color,
+                        fill_gradient: None,
+                        stroke_gradient: gradient.clone(),
+                        stroke_width: *width,
+                    };
+                } else {
+                    item.kind = crate::ElementKind::Path {
+                        commands: stroke_cmds,
+                        fill_rule,
+                        fill: [0, 0, 0, 0],
+                        stroke: *color,
+                        stroke_width: *width,
+                    };
+                }
+            }
+        }
+        out.push(item);
+    }
+    out
+}

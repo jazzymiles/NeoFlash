@@ -1164,4 +1164,395 @@ impl Editor {
         });
         true
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_element_asset_warp(&mut self, rig: neoflash_core::AssetWarpRig) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set Asset Warp", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.set_asset_warp(rig);
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn reset_element_asset_warp(&mut self, element_id: &str) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if key.asset_warp(element_id).is_none() {
+            return false;
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        self.transact_named("Reset Asset Warp", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.reset_asset_warp(&eid);
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn bake_element_asset_warp(&mut self, element_id: &str) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if key.asset_warp(element_id).is_none() {
+            return false;
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        self.transact_named("Bake Asset Warp", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.bake_asset_warp(&eid);
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_layer_z_depth(&mut self, z_depth: f64) -> bool {
+        self.finish_edits();
+        let layer_idx = self.layer;
+        if layer_idx >= self.symbol().timeline.layers.len() {
+            return false;
+        }
+        let clamped = z_depth.clamp(-10_000.0, 10_000.0);
+        self.transact_named("Set layer Z depth", |editor| {
+            editor.symbol_mut().timeline.layers[layer_idx]
+                .properties
+                .z_depth = clamped;
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_layer_attach_to_camera(&mut self, attach: bool) -> bool {
+        self.finish_edits();
+        let layer_idx = self.layer;
+        if layer_idx >= self.symbol().timeline.layers.len() {
+            return false;
+        }
+        self.transact_named("Set attach layer to camera", |editor| {
+            editor.symbol_mut().timeline.layers[layer_idx]
+                .properties
+                .attach_to_camera = attach;
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_keyframe_camera_pose(
+        &mut self,
+        pose: Option<neoflash_core::CameraPose>,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set camera pose", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.camera = pose;
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn reparent_element_preserving_world(
+        &mut self,
+        child_id: &str,
+        new_parent_id: Option<&str>,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let mut test_key = key.clone();
+        if test_key
+            .reparent_preserving_world_transform(child_id, new_parent_id)
+            .is_err()
+        {
+            return false;
+        }
+        let key_frame = key.frame;
+        let cid = child_id.to_owned();
+        let pid = new_parent_id.map(str::to_owned);
+        self.transact_named("Reparent element", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                let _ = k.reparent_preserving_world_transform(&cid, pid.as_deref());
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_element_controller_flag(&mut self, element_id: &str, is_ctrl: bool) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if !key.elements.iter().any(|e| e.id == element_id) {
+            return false;
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        self.transact_named("Set controller element", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.controller_elements.retain(|id| id != &eid);
+                if is_ctrl {
+                    k.controller_elements.push(eid);
+                }
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_keyframe_ik_armature(&mut self, armature: neoflash_core::IkArmature) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set IK armature", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                if let Some(slot) = k.ik_armatures.iter_mut().find(|a| a.id == armature.id) {
+                    *slot = armature;
+                } else {
+                    k.ik_armatures.push(armature);
+                }
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn bake_layer_ik_span(&mut self, start_frame: u32, end_frame: u32) -> usize {
+        self.finish_edits();
+        if !self.layer_editable() || end_frame < start_frame {
+            return 0;
+        }
+        let layer_idx = self.layer;
+        let mut baked = 0usize;
+        self.transact_named("Bake IK span to keyframes", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            baked = layer.bake_ik_span_to_keyframes(start_frame, end_frame);
+        });
+        baked
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_element_appearance(
+        &mut self,
+        appearance: neoflash_core::ElementAppearance,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set element appearance", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.set_appearance(appearance);
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn expand_element_appearance_command(&mut self, element_id: &str) -> Vec<Id> {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return Vec::new();
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return Vec::new();
+        };
+        if key.appearance(element_id).is_none() {
+            return Vec::new();
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        let mut expanded_ids = Vec::new();
+        self.transact_named("Expand appearance", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                expanded_ids = k.expand_element_appearance(&eid);
+            }
+        });
+        if let Some(first) = expanded_ids.first() {
+            self.select_single_id(first.clone());
+        }
+        expanded_ids
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn update_global_swatch(
+        &mut self,
+        swatch_id: &str,
+        new_color: neoflash_core::Color,
+    ) -> usize {
+        self.finish_edits();
+        let sid = swatch_id.to_owned();
+        let mut updated = 0usize;
+        self.transact_named("Update global swatch", |editor| {
+            updated = editor.project.update_global_swatch_color(&sid, new_color);
+        });
+        updated
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn apply_vector_style(&mut self, style_id: &str) -> usize {
+        self.finish_edits();
+        let sid = style_id.to_owned();
+        let mut updated = 0usize;
+        self.transact_named("Apply vector style", |editor| {
+            updated = editor.project.apply_vector_style_to_project(&sid);
+        });
+        updated
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_keyframe_video_span(
+        &mut self,
+        video: Option<neoflash_core::TimelineVideoSpan>,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set timeline video span", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.video = video;
+            }
+        });
+        true
+    }
 }

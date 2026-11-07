@@ -63,6 +63,7 @@ mod shape_tween;
 mod text;
 mod timeline_edit;
 mod timeline_sound;
+pub mod timeline_video;
 mod validation;
 mod xml;
 
@@ -79,9 +80,10 @@ pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
 };
 pub use evaluate::{
-    DrawItem, GuidePath, affine_multiply, easing, effective_property_ease, evaluate,
-    guide_polyline, motion_path_polyline, motion_path_segment, motion_path_waypoints, motion_span,
-    placement_start, property_value, sample_layer, sample_layer_in, transform_matrix,
+    DrawItem, GuidePath, affine_multiply, camera_layer_matrix, easing, effective_property_ease,
+    evaluate, guide_polyline, motion_path_polyline, motion_path_segment, motion_path_waypoints,
+    motion_span, placement_start, property_value, sample_layer, sample_layer_in,
+    sample_timeline_camera, transform_matrix,
 };
 pub use filters::{
     FilterError, FilterPadding, FilterSpec, IDENTITY_COLOR_MATRIX, MAX_FILTER_PIXELS,
@@ -89,10 +91,11 @@ pub use filters::{
 };
 pub use geometry::{
     FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds,
-    PathFingerprint, expand_variable_width_stroke, flatten_path, hit_test_path,
-    nearest_path_segment, oval_path_commands, path_bounds, path_commands_fingerprint,
-    paths_have_same_topology, polystar_path_commands, rectangle_path_commands, subdivide_path_at,
-    validate_path_commands,
+    PathFingerprint, apply_asset_warp_to_element, apply_vector_modifier, deform_point_with_pins,
+    evaluate_element_appearance, expand_pattern_brush_stroke, expand_variable_width_stroke,
+    flatten_path, hit_test_path, invert_affine_matrix, nearest_path_segment, oval_path_commands,
+    path_bounds, path_commands_fingerprint, paths_have_same_topology, polystar_path_commands,
+    rectangle_path_commands, solve_ik_armature, subdivide_path_at, validate_path_commands,
 };
 pub use history::{
     AuthoringCommandStep, History, MAX_COMMAND_STEPS, SavedCommand, apply_command_steps_to_elements,
@@ -154,6 +157,10 @@ pub use timeline_sound::{
     MAX_WAVEFORM_BUCKETS, ScrubSoundSlice, SoundCommand, WaveformPeaks, compute_lip_sync_keyframes,
     envelope_gains, sample_waveform_peaks, scrub_sound_slices, sound_span_end,
     timeline_sound_resources, wav_waveform_peaks,
+};
+pub use timeline_video::{
+    TimelineVideoSpan, VideoCodecDiagnostic, VideoCommand, VideoCuePoint, VideoCuePointKind,
+    VideoSyncMode, collect_crossed_cue_points, compute_frame_video_time_ms, inspect_video_resource,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use xml::{

@@ -494,6 +494,12 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     "scale9_grid [x, y, width, height] must be finite within +-1e6 with positive width and height".into(),
                 );
             }
+            if !layer.properties.z_depth.is_finite() || layer.properties.z_depth.abs() > 10_000.0 {
+                add(
+                    format!("{lp}.properties.z_depth"),
+                    "layer z_depth must be finite and within -10000..=10000".into(),
+                );
+            }
             let mut keys = HashSet::new();
             for (ki, key) in layer.keyframes.iter().enumerate() {
                 let kp = format!("{lp}.keyframes[{ki}]");
@@ -522,6 +528,181 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             format!("{kp}.bitmap_fills[{bfi}].resource_id"),
                             format!("missing or non-image resource '{}'", bf.resource_id),
                         );
+                    }
+                }
+                for (wi, warp) in key.asset_warps.iter().enumerate() {
+                    if !(1..=WarpPin::MAX_PINS).contains(&warp.pins.len()) {
+                        add(
+                            format!("{kp}.asset_warps[{wi}].pins"),
+                            format!("asset warp pin count must be in 1..={}", WarpPin::MAX_PINS),
+                        );
+                    }
+                    if !(1..=16).contains(&warp.envelop_subdivisions) {
+                        add(
+                            format!("{kp}.asset_warps[{wi}].envelop_subdivisions"),
+                            "envelop_subdivisions must be in 1..=16".into(),
+                        );
+                    }
+                    let mut pin_ids = HashSet::new();
+                    for (pi, pin) in warp.pins.iter().enumerate() {
+                        if pin.id.is_empty() || !pin_ids.insert(pin.id.as_str()) {
+                            add(
+                                format!("{kp}.asset_warps[{wi}].pins[{pi}].id"),
+                                "warp pin IDs must be nonempty and unique within a rig".into(),
+                            );
+                        }
+                        if ![
+                            pin.rest_pos[0],
+                            pin.rest_pos[1],
+                            pin.pos[0],
+                            pin.pos[1],
+                            pin.rotation,
+                        ]
+                        .iter()
+                        .all(|v| v.is_finite() && v.abs() <= 1e6)
+                            || !pin.stiffness.is_finite()
+                            || !(0.0..=1.0).contains(&pin.stiffness)
+                        {
+                            add(
+                                format!("{kp}.asset_warps[{wi}].pins[{pi}]"),
+                                "warp pin coordinates/rotation must be finite within +-1e6 and stiffness in 0..=1".into(),
+                            );
+                        }
+                    }
+                }
+                if let Some(cam) = &key.camera {
+                    if ![cam.x, cam.y, cam.rotation]
+                        .iter()
+                        .all(|v| v.is_finite() && v.abs() <= 1e6)
+                        || !cam.zoom.is_finite()
+                        || !(0.01..=100.0).contains(&cam.zoom)
+                        || !cam.focal_length.is_finite()
+                        || !(10.0..=1e6).contains(&cam.focal_length)
+                        || cam.color_transform.validate().is_err()
+                    {
+                        add(
+                            format!("{kp}.camera"),
+                            "camera pose requires finite x/y/rotation within +-1e6, zoom in 0.01..=100, and focal_length in 10..=1e6".into(),
+                        );
+                    }
+                }
+                for (pli, link) in key.element_parents.iter().enumerate() {
+                    if link.child_id == link.parent_id {
+                        add(
+                            format!("{kp}.element_parents[{pli}]"),
+                            "an element cannot be parented to itself".into(),
+                        );
+                    }
+                    if !key.elements.iter().any(|e| e.id == link.child_id)
+                        || !key.elements.iter().any(|e| e.id == link.parent_id)
+                    {
+                        add(
+                            format!("{kp}.element_parents[{pli}]"),
+                            "both child_id and parent_id must reference elements on the same keyframe".into(),
+                        );
+                    }
+                    let mut cursor = Some(link.parent_id.as_str());
+                    let mut steps = 0usize;
+                    while let Some(cur) = cursor {
+                        if cur == link.child_id {
+                            add(
+                                format!("{kp}.element_parents[{pli}]"),
+                                "cyclic element parenting hierarchy".into(),
+                            );
+                            break;
+                        }
+                        steps += 1;
+                        if steps > key.element_parents.len() + 1 {
+                            add(
+                                format!("{kp}.element_parents[{pli}]"),
+                                "cyclic element parenting hierarchy".into(),
+                            );
+                            break;
+                        }
+                        cursor = key.parent_of(cur);
+                    }
+                }
+                for (iki, arm) in key.ik_armatures.iter().enumerate() {
+                    if !(1..=IkBone::MAX_BONES).contains(&arm.bones.len()) {
+                        add(
+                            format!("{kp}.ik_armatures[{iki}].bones"),
+                            format!("IK armature bone count must be in 1..={}", IkBone::MAX_BONES),
+                        );
+                    }
+                    if !arm
+                        .target_pos
+                        .iter()
+                        .all(|v| v.is_finite() && v.abs() <= 1e6)
+                    {
+                        add(
+                            format!("{kp}.ik_armatures[{iki}].target_pos"),
+                            "IK target_pos must be finite and within +-1e6".into(),
+                        );
+                    }
+                    for (bi, bone) in arm.bones.iter().enumerate() {
+                        if !bone.length.is_finite()
+                            || bone.length <= 0.0
+                            || bone.length > 1e6
+                            || !bone.stiffness.is_finite()
+                            || !(0.0..=1.0).contains(&bone.stiffness)
+                        {
+                            add(
+                                format!("{kp}.ik_armatures[{iki}].bones[{bi}]"),
+                                "IK bone length must be in (0, 1e6] and stiffness in 0..=1".into(),
+                            );
+                        }
+                    }
+                }
+                for (ai, app) in key.appearances.iter().enumerate() {
+                    for (mi, modifier) in app.modifiers.iter().enumerate() {
+                        match modifier {
+                            VectorModifier::OffsetContour { delta } => {
+                                if !delta.is_finite() || delta.abs() > 1e5 {
+                                    add(
+                                        format!("{kp}.appearances[{ai}].modifiers[{mi}]"),
+                                        "offset contour delta must be finite and within +-1e5".into(),
+                                    );
+                                }
+                            }
+                            VectorModifier::LiveCorners { radius } => {
+                                if !radius.is_finite() || !(0.0..=1e5).contains(radius) {
+                                    add(
+                                        format!("{kp}.appearances[{ai}].modifiers[{mi}]"),
+                                        "live corners radius must be finite and in 0..=1e5".into(),
+                                    );
+                                }
+                            }
+                            VectorModifier::Mirror { axis_x, axis_y } => {
+                                if axis_x.is_some_and(|v| !v.is_finite() || v.abs() > 1e6)
+                                    || axis_y.is_some_and(|v| !v.is_finite() || v.abs() > 1e6)
+                                {
+                                    add(
+                                        format!("{kp}.appearances[{ai}].modifiers[{mi}]"),
+                                        "mirror axis coordinate must be finite and within +-1e6"
+                                            .into(),
+                                    );
+                                }
+                            }
+                            VectorModifier::Repeater {
+                                copies,
+                                offset_x,
+                                offset_y,
+                                scale_step,
+                                rotation_step,
+                            } => {
+                                if !(1..=64).contains(copies)
+                                    || ![*offset_x, *offset_y, *scale_step, *rotation_step]
+                                        .iter()
+                                        .all(|v| v.is_finite() && v.abs() <= 1e6)
+                                    || *scale_step <= 0.0
+                                {
+                                    add(
+                                        format!("{kp}.appearances[{ai}].modifiers[{mi}]"),
+                                        "repeater copies must be in 1..=64 with finite offsets/steps and positive scale_step".into(),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
                 if key.frame >= symbol.timeline.frame_count {

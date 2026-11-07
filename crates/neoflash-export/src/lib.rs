@@ -4,6 +4,7 @@ pub mod atlas;
 pub mod audio;
 pub mod fonts;
 pub mod lottie;
+pub mod profiles;
 pub mod publish;
 pub mod svg;
 pub mod video;
@@ -11,6 +12,7 @@ pub use atlas::*;
 pub use audio::*;
 pub use fonts::*;
 pub use lottie::*;
+pub use profiles::*;
 pub use publish::{
     PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };
@@ -105,7 +107,7 @@ pub enum ExportError {
 }
 
 #[derive(Serialize)]
-struct CompiledScript {
+pub(crate) struct CompiledScript {
     language: ScriptLanguage,
     source: String,
     code: String,
@@ -116,7 +118,7 @@ struct CompiledScript {
     source_locations: Vec<neoflash_script::RuntimeSourceLocation>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ResourceLoadItem {
     pub path: String,
     pub category: String,
@@ -125,7 +127,7 @@ pub struct ResourceLoadItem {
     pub b64_bytes: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct LoadSummary {
     pub project_name: String,
     pub width: u32,
@@ -292,7 +294,7 @@ const BINDINGS_FILE: &str = "neoflash_web.js";
 const NOTICES_FILE: &str = "THIRD_PARTY_NOTICES.txt";
 const RUNTIME_ID_FILE: &str = "runtime-id.js";
 
-fn static_runtime_js_bytes() -> usize {
+pub(crate) fn static_runtime_js_bytes() -> usize {
     HOST.len()
         + HOST_MODULES
             .iter()
@@ -413,10 +415,10 @@ pub fn format_size_report(project: &Project) -> Result<String, ExportError> {
 /// Runtime weight a size report quotes: the WebAssembly binary, how it ships and the runtime
 /// JavaScript of the package.
 #[derive(Clone, Copy)]
-struct RuntimeFigures {
-    wasm_bytes: usize,
-    wasm_inline: bool,
-    runtime_js_bytes: usize,
+pub(crate) struct RuntimeFigures {
+    pub(crate) wasm_bytes: usize,
+    pub(crate) wasm_inline: bool,
+    pub(crate) runtime_js_bytes: usize,
 }
 
 fn build_size_report_and_summary(
@@ -440,7 +442,7 @@ fn build_size_report_and_summary(
     size_report_from(project, &program, &compiled_scripts, runtime)
 }
 
-fn size_report_from(
+pub(crate) fn size_report_from(
     project: &Project,
     program: &neoflash_script::ProjectProgram,
     compiled_scripts: &[CompiledScript],
@@ -885,7 +887,7 @@ fn size_report_from(
     Ok((out, summary))
 }
 
-fn compile_scripts(
+pub(crate) fn compile_scripts(
     project: &Project,
     program: &neoflash_script::ProjectProgram,
 ) -> Result<Vec<CompiledScript>, ExportError> {
@@ -1178,27 +1180,28 @@ pub fn export_shared_runtime(
 }
 
 /// The compiled project and runtime files every size level starts from.
-struct Prepared {
-    program: neoflash_script::ProjectProgram,
-    scripts: Vec<CompiledScript>,
-    published: Project,
-    scenes: Vec<SceneRange>,
-    fonts: FontBundle,
-    warnings: Vec<String>,
-    bindings: String,
-    wasm: Vec<u8>,
-    runtime_id: String,
+pub(crate) struct Prepared {
+    pub(crate) program: neoflash_script::ProjectProgram,
+    pub(crate) scripts: Vec<CompiledScript>,
+    pub(crate) published: Project,
+    pub(crate) scenes: Vec<SceneRange>,
+    pub(crate) fonts: FontBundle,
+    pub(crate) warnings: Vec<String>,
+    pub(crate) bindings: String,
+    pub(crate) wasm: Vec<u8>,
+    pub(crate) runtime_id: String,
 }
 
 /// An assembled package: files in write order (index.html last) and what went into them.
-struct Package {
-    files: Vec<(String, Vec<u8>)>,
-    level: SizeLevel,
-    omitted: Vec<&'static str>,
-    wasm_bytes: usize,
-    runtime_js_bytes: usize,
+pub(crate) struct Package {
+    pub(crate) files: Vec<(String, Vec<u8>)>,
+    pub(crate) script_srcs: Vec<String>,
+    pub(crate) level: SizeLevel,
+    pub(crate) omitted: Vec<&'static str>,
+    pub(crate) wasm_bytes: usize,
+    pub(crate) runtime_js_bytes: usize,
     /// Scripts, content, resources and fonts inside `bundle.js`, each compressed on its own.
-    embedded: Vec<SizePart>,
+    pub(crate) embedded: Vec<SizePart>,
 }
 
 fn read_runtime(runtime_dir: &Path) -> Result<(String, Vec<u8>), ExportError> {
@@ -1227,7 +1230,7 @@ fn shared_runtime_id(bindings: &str, wasm: &[u8]) -> String {
     publish::runtime_id(&parts)
 }
 
-fn prepare(
+pub(crate) fn prepare(
     project: &Project,
     runtime_dir: &Path,
     font_policy: FontExportPolicy,
@@ -1268,7 +1271,7 @@ fn prepare(
     })
 }
 
-fn assemble(
+pub(crate) fn assemble(
     project: &Project,
     prepared: &Prepared,
     level: &SizeLevel,
@@ -1452,6 +1455,7 @@ fn assemble(
     ];
     Ok(Package {
         files,
+        script_srcs: scripts,
         level: level.clone(),
         omitted: omitted.keys().copied().collect(),
         wasm_bytes: if shared_url.is_some() {
@@ -1629,7 +1633,7 @@ fn package_marker(
 
 /// Writes generated files (index.html last) into a NeoFlash-owned folder and removes files an
 /// earlier export there generated that this one no longer has.
-fn write_package(
+pub(crate) fn write_package(
     output_dir: &Path,
     files: &[(String, Vec<u8>)],
     name: &str,
@@ -1679,7 +1683,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     fs::rename(temp, path)
 }
 
-fn html_escape(value: &str) -> String {
+pub(crate) fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")

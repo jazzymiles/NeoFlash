@@ -1,0 +1,425 @@
+{
+  "format_version": 1,
+  "name": "Arkanoid AS3",
+  "width": 640,
+  "height": 480,
+  "fps": 24,
+  "background": [15, 23, 42, 255],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "paddle_sym",
+      "name": "Paddle",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "paddle_layer",
+            "name": "PaddleShape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "paddle_rect",
+                    "name": "",
+                    "transform": { "x": -42.0, "y": -7.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 84.0,
+                      "height": 14.0,
+                      "stroke": [226, 232, 240, 255],
+                      "stroke_width": 1.5,
+                      "fill": [56, 189, 248, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ball_sym",
+      "name": "Ball",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "ball_layer",
+            "name": "BallShape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "ball_diamond",
+                    "name": "",
+                    "transform": { "x": -7.0, "y": -7.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 14.0,
+                      "height": 14.0,
+                      "stroke": [250, 204, 21, 255],
+                      "stroke_width": 1.5,
+                      "fill": [254, 249, 195, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "brick_r0_sym",
+      "name": "BrickRed",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "b0_layer",
+            "name": "Shape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "b0_rect",
+                    "name": "",
+                    "transform": { "x": 0.0, "y": 0.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "stroke": [153, 27, 27, 255],
+                      "stroke_width": 1.5,
+                      "fill": [248, 113, 113, 255],
+                      "width": 76.0,
+                      "height": 20.0
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "brick_r1_sym",
+      "name": "BrickAmber",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "b1_layer",
+            "name": "Shape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "b1_rect",
+                    "name": "",
+                    "transform": { "x": 0.0, "y": 0.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "stroke": [180, 83, 9, 255],
+                      "stroke_width": 1.5,
+                      "fill": [251, 191, 36, 255],
+                      "width": 76.0,
+                      "height": 20.0
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "brick_r2_sym",
+      "name": "BrickGreen",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "b2_layer",
+            "name": "Shape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "b2_rect",
+                    "name": "",
+                    "transform": { "x": 0.0, "y": 0.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "stroke": [22, 101, 52, 255],
+                      "stroke_width": 1.5,
+                      "fill": [74, 222, 128, 255],
+                      "width": 76.0,
+                      "height": 20.0
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "brick_r3_sym",
+      "name": "BrickCyan",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "b3_layer",
+            "name": "Shape",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "b3_rect",
+                    "name": "",
+                    "transform": { "x": 0.0, "y": 0.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "stroke": [14, 116, 144, 255],
+                      "stroke_width": 1.5,
+                      "fill": [34, 211, 238, 255],
+                      "width": 76.0,
+                      "height": 20.0
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "import flash.events.Event;\nimport flash.events.KeyboardEvent;\nimport flash.ui.Keyboard;\n\nstop();\n\nvar playLeft:Number = 60;\nvar playTop:Number = 80;\nvar playRight:Number = 580;\nvar playBottom:Number = 440;\n\nvar paddleX:Number = 320;\nvar paddleY:Number = 416;\nvar paddleW:Number = 84;\nvar paddleH:Number = 14;\nvar paddleSpeed:Number = 12;\n\nvar ballX:Number = 320;\nvar ballY:Number = 398;\nvar ballVX:Number = 4;\nvar ballVY:Number = -6;\nvar ballRadius:Number = 7;\n\nvar brickCols:int = 6;\nvar brickRows:int = 4;\nvar brickW:Number = 76;\nvar brickH:Number = 20;\nvar brickStartX:Number = 110;\nvar brickStartY:Number = 120;\nvar brickStepX:Number = 84;\nvar brickStepY:Number = 28;\n\nvar bricksAlive:Array = [];\nvar bricksRemaining:int = 24;\nvar score:int = 0;\nvar lives:int = 3;\nvar level:int = 1;\nvar gameOver:Boolean = false;\nvar levelCleared:Boolean = false;\n\nfunction brickCenterX(index:int):Number {\n  var col:int = index % brickCols;\n  return brickStartX + col * brickStepX;\n}\n\nfunction brickCenterY(index:int):Number {\n  var row:int = int(Math.floor(index / brickCols));\n  return brickStartY + row * brickStepY;\n}\n\nfunction updateHud():void {\n  if (this.scoreText != null) {\n    this.scoreText.text = \"SCORE: \" + score;\n  }\n  if (this.livesText != null) {\n    this.livesText.text = \"LIVES: \" + lives;\n  }\n  if (this.levelText != null) {\n    this.levelText.text = \"LEVEL: \" + level;\n  }\n  if (this.statusText != null) {\n    if (gameOver) {\n      this.statusText.text = \"GAME OVER\";\n    } else if (levelCleared) {\n      this.statusText.text = \"LEVEL CLEARED!\";\n    } else {\n      this.statusText.text = \"IN PLAY\";\n    }\n  }\n}\n\nfunction syncPositions():void {\n  if (this.paddle != null) {\n    this.paddle.x = paddleX;\n    this.paddle.y = paddleY;\n  }\n  if (this.ball != null) {\n    this.ball.x = ballX;\n    this.ball.y = ballY;\n  }\n}\n\nfunction resetBallAndPaddle():void {\n  paddleX = 320;\n  paddleY = 416;\n  ballX = 320;\n  ballY = 398;\n  ballVX = 4;\n  ballVY = -6;\n  syncPositions();\n}\n\nfunction resetGame():void {\n  score = 0;\n  lives = 3;\n  level = 1;\n  gameOver = false;\n  levelCleared = false;\n  bricksRemaining = brickCols * brickRows;\n  bricksAlive = [];\n  var i:int = 0;\n  while (i < brickCols * brickRows) {\n    bricksAlive[i] = true;\n    var bClip:Object = this[\"brick\" + i];\n    if (bClip != null) {\n      bClip.visible = true;\n      bClip.x = brickCenterX(i);\n      bClip.y = brickCenterY(i);\n    }\n    i = i + 1;\n  }\n  resetBallAndPaddle();\n  updateHud();\n}\n\nfunction movePaddle(dx:Number):void {\n  if (gameOver || levelCleared) {\n    return;\n  }\n  var minX:Number = playLeft + paddleW / 2;\n  var maxX:Number = playRight - paddleW / 2;\n  paddleX = paddleX + dx;\n  if (paddleX < minX) {\n    paddleX = minX;\n  }\n  if (paddleX > maxX) {\n    paddleX = maxX;\n  }\n  syncPositions();\n}\n\nfunction stepGame():Boolean {\n  if (gameOver || levelCleared) {\n    return false;\n  }\n  ballX = ballX + ballVX;\n  ballY = ballY + ballVY;\n\n  if (ballX - ballRadius <= playLeft) {\n    ballX = playLeft + ballRadius;\n    ballVX = Math.abs(ballVX);\n  } else if (ballX + ballRadius >= playRight) {\n    ballX = playRight - ballRadius;\n    ballVX = -Math.abs(ballVX);\n  }\n\n  if (ballY - ballRadius <= playTop) {\n    ballY = playTop + ballRadius;\n    ballVY = Math.abs(ballVY);\n  }\n\n  if (ballVY > 0 && ballY + ballRadius >= paddleY - paddleH / 2 && ballY - ballRadius <= paddleY + paddleH / 2) {\n    if (ballX + ballRadius >= paddleX - paddleW / 2 && ballX - ballRadius <= paddleX + paddleW / 2) {\n      ballY = paddleY - paddleH / 2 - ballRadius;\n      ballVY = -Math.abs(ballVY);\n      var hitOffset:Number = (ballX - paddleX) / (paddleW / 2);\n      ballVX = hitOffset * 6;\n      if (Math.abs(ballVX) < 2) {\n        ballVX = (ballVX < 0) ? -2 : 2;\n      }\n    }\n  }\n\n  var i:int = 0;\n  while (i < brickCols * brickRows) {\n    if (bricksAlive[i]) {\n      var bx:Number = brickCenterX(i);\n      var by:Number = brickCenterY(i);\n      if (Math.abs(ballX - bx) <= (brickW / 2 + ballRadius) && Math.abs(ballY - by) <= (brickH / 2 + ballRadius)) {\n        bricksAlive[i] = false;\n        bricksRemaining = bricksRemaining - 1;\n        var bClip:Object = this[\"brick\" + i];\n        if (bClip != null) {\n          bClip.visible = false;\n        }\n        var row:int = int(Math.floor(i / brickCols));\n        score = score + (brickRows - row) * 10;\n        ballVY = -ballVY;\n        if (bricksRemaining <= 0) {\n          levelCleared = true;\n        }\n        break;\n      }\n    }\n    i = i + 1;\n  }\n\n  if (ballY - ballRadius > playBottom) {\n    lives = lives - 1;\n    if (lives <= 0) {\n      lives = 0;\n      gameOver = true;\n    } else {\n      resetBallAndPaddle();\n    }\n  }\n\n  syncPositions();\n  updateHud();\n  return true;\n}\n\nfunction onKeyDown(event:KeyboardEvent):void {\n  var code:uint = event.keyCode;\n  if (code == Keyboard.LEFT || code == 65) {\n    movePaddle(-paddleSpeed);\n  } else if (code == Keyboard.RIGHT || code == 68) {\n    movePaddle(paddleSpeed);\n  } else if (code == 82) {\n    resetGame();\n  }\n}\n\nfunction onTick(event:Event):void {\n  stepGame();\n}\n\nif (stage != null) {\n  stage.focus = this;\n  stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);\n}\naddEventListener(Event.ENTER_FRAME, onTick);\n\nresetGame();\n"
+            }
+          }
+        ],
+        "layers": [
+          {
+            "id": "bg_layer",
+            "name": "Playfield",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "playfield_bg",
+                    "name": "",
+                    "transform": { "x": 60.0, "y": 80.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 520.0,
+                      "height": 360.0,
+                      "stroke": [56, 189, 248, 255],
+                      "stroke_width": 3.0,
+                      "fill": [9, 14, 26, 255]
+                    }
+                  },
+                  {
+                    "id": "hud_bar",
+                    "name": "",
+                    "transform": { "x": 60.0, "y": 18.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 520.0,
+                      "height": 50.0,
+                      "stroke": [51, 65, 85, 255],
+                      "stroke_width": 1.5,
+                      "fill": [30, 41, 59, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "actors_layer",
+            "name": "BricksAndActors",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "paddle_inst",
+                    "name": "paddle",
+                    "transform": { "x": 320.0, "y": 416.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "paddle_sym", "playback": "independent" }
+                  },
+                  {
+                    "id": "ball_inst",
+                    "name": "ball",
+                    "transform": { "x": 320.0, "y": 398.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": { "type": "instance", "symbol_id": "ball_sym", "playback": "independent" }
+                  },
+                  { "id": "b0", "name": "brick0", "transform": { "x": 110.0, "y": 120.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r0_sym", "playback": "independent" } },
+                  { "id": "b1", "name": "brick1", "transform": { "x": 194.0, "y": 120.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r0_sym", "playback": "independent" } },
+                  { "id": "b2", "name": "brick2", "transform": { "x": 278.0, "y": 120.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r0_sym", "playback": "independent" } },
+                  { "id": "b3", "name": "brick3", "transform": { "x": 362.0, "y": 120.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r0_sym", "playback": "independent" } },
+                  { "id": "b4", "name": "brick4", "transform": { "x": 446.0, "y": 120.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r0_sym", "playback": "independent" } },
+                  { "id": "b5", "name": "brick5", "transform": { "x": 530.0, "y": 120.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r0_sym", "playback": "independent" } },
+                  { "id": "b6", "name": "brick6", "transform": { "x": 110.0, "y": 148.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r1_sym", "playback": "independent" } },
+                  { "id": "b7", "name": "brick7", "transform": { "x": 194.0, "y": 148.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r1_sym", "playback": "independent" } },
+                  { "id": "b8", "name": "brick8", "transform": { "x": 278.0, "y": 148.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r1_sym", "playback": "independent" } },
+                  { "id": "b9", "name": "brick9", "transform": { "x": 362.0, "y": 148.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r1_sym", "playback": "independent" } },
+                  { "id": "b10", "name": "brick10", "transform": { "x": 446.0, "y": 148.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r1_sym", "playback": "independent" } },
+                  { "id": "b11", "name": "brick11", "transform": { "x": 530.0, "y": 148.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r1_sym", "playback": "independent" } },
+                  { "id": "b12", "name": "brick12", "transform": { "x": 110.0, "y": 176.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r2_sym", "playback": "independent" } },
+                  { "id": "b13", "name": "brick13", "transform": { "x": 194.0, "y": 176.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r2_sym", "playback": "independent" } },
+                  { "id": "b14", "name": "brick14", "transform": { "x": 278.0, "y": 176.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r2_sym", "playback": "independent" } },
+                  { "id": "b15", "name": "brick15", "transform": { "x": 362.0, "y": 176.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r2_sym", "playback": "independent" } },
+                  { "id": "b16", "name": "brick16", "transform": { "x": 446.0, "y": 176.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r2_sym", "playback": "independent" } },
+                  { "id": "b17", "name": "brick17", "transform": { "x": 530.0, "y": 176.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r2_sym", "playback": "independent" } },
+                  { "id": "b18", "name": "brick18", "transform": { "x": 110.0, "y": 204.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r3_sym", "playback": "independent" } },
+                  { "id": "b19", "name": "brick19", "transform": { "x": 194.0, "y": 204.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r3_sym", "playback": "independent" } },
+                  { "id": "b20", "name": "brick20", "transform": { "x": 278.0, "y": 204.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r3_sym", "playback": "independent" } },
+                  { "id": "b21", "name": "brick21", "transform": { "x": 362.0, "y": 204.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r3_sym", "playback": "independent" } },
+                  { "id": "b22", "name": "brick22", "transform": { "x": 446.0, "y": 204.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r3_sym", "playback": "independent" } },
+                  { "id": "b23", "name": "brick23", "transform": { "x": 530.0, "y": 204.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 }, "kind": { "type": "instance", "symbol_id": "brick_r3_sym", "playback": "independent" } }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "hud_layer",
+            "name": "HUD",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "tween": null,
+                "label": "",
+                "elements": [
+                  {
+                    "id": "title_txt",
+                    "name": "titleText",
+                    "transform": { "x": 74.0, "y": 36.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "ARKANOID (AS3)",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [56, 189, 248, 255]
+                    }
+                  },
+                  {
+                    "id": "score_txt",
+                    "name": "scoreText",
+                    "transform": { "x": 220.0, "y": 36.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "SCORE: 0",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [248, 250, 252, 255]
+                    }
+                  },
+                  {
+                    "id": "lives_txt",
+                    "name": "livesText",
+                    "transform": { "x": 340.0, "y": 36.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "LIVES: 3",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [248, 113, 113, 255]
+                    }
+                  },
+                  {
+                    "id": "level_txt",
+                    "name": "levelText",
+                    "transform": { "x": 425.0, "y": 36.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "LEVEL: 1",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [250, 204, 21, 255]
+                    }
+                  },
+                  {
+                    "id": "status_txt",
+                    "name": "statusText",
+                    "transform": { "x": 505.0, "y": 36.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "alpha": 1.0 },
+                    "kind": {
+                      "type": "text",
+                      "text": "IN PLAY",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [74, 222, 128, 255]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

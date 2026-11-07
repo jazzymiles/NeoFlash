@@ -285,6 +285,14 @@ pub struct LayerProperties {
     /// Optional 9-slice scaling grid `[x, y, width, height]` in symbol coordinates (format 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale9_grid: Option<[f64; 4]>,
+    /// Layer Z-depth offset from the stage plane (`0.0`); positive is farther from the camera,
+    /// negative is closer, producing parallax when a timeline camera moves or zooms (format 9).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub z_depth: f64,
+    /// When true, locks this layer (such as a HUD overlay) to the camera viewport so camera pan,
+    /// zoom and rotation do not displace it (format 9).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub attach_to_camera: bool,
 }
 
 impl Symbol {
@@ -397,7 +405,8 @@ impl Project {
 
     /// Explicit painted-alpha/luminance/inverted timeline masks, per-resource audio/bitmap export
     /// settings, classic tween rotation/scale controls, roving keyframes, 9-slice guides,
-    /// variable-width stroke profiles, bitmap fills, and instance property overrides (format 9).
+    /// variable-width stroke profiles, bitmap fills, instance property overrides, asset warp rigs,
+    /// camera/depth/parenting/IK rigs, and appearance/modifier stacks (format 9).
     pub fn uses_format_9(&self) -> bool {
         self.symbols
             .iter()
@@ -406,6 +415,8 @@ impl Project {
                 !layer.properties.mask_mode.is_geometry()
                     || layer.properties.mask_invert
                     || layer.properties.scale9_grid.is_some()
+                    || layer.properties.z_depth != 0.0
+                    || layer.properties.attach_to_camera
                     || layer.keyframes.iter().any(|k| {
                         k.classic_rotate_turns > 0
                             || !k.classic_rotate_dir.is_default()
@@ -413,6 +424,13 @@ impl Project {
                             || k.roving
                             || !k.instance_overrides.is_empty()
                             || !k.bitmap_fills.is_empty()
+                            || !k.asset_warps.is_empty()
+                            || k.camera.is_some()
+                            || !k.element_parents.is_empty()
+                            || !k.controller_elements.is_empty()
+                            || !k.ik_armatures.is_empty()
+                            || !k.appearances.is_empty()
+                            || k.video.is_some()
                             || k.elements.iter().any(|e| {
                                 matches!(
                                     e.transform.primitive,
@@ -560,6 +578,270 @@ pub struct AuthoredBitmapFill {
     pub smoothing: bool,
 }
 
+const fn one_f64() -> f64 {
+    1.0
+}
+fn is_one_f64(v: &f64) -> bool {
+    (*v - 1.0).abs() <= 1e-9
+}
+const fn default_warp_subdivisions() -> u8 {
+    4
+}
+fn is_default_warp_subdivisions(v: &u8) -> bool {
+    *v == 4
+}
+const fn default_focal_length() -> f64 {
+    1000.0
+}
+fn is_default_focal_length(v: &f64) -> bool {
+    (*v - 1000.0).abs() <= 1e-6
+}
+
+/// Pin constraint mode in an `AssetWarpRig` (T-112, format 9).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WarpPinKind {
+    /// Movable and rotatable deformer pin.
+    #[default]
+    Open,
+    /// Locked anchor pin that holds surrounding geometry near its rest position.
+    Fixed,
+}
+
+/// Editable deformation pin in element-local coordinates (T-112, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WarpPin {
+    pub id: Id,
+    #[serde(default)]
+    pub kind: WarpPinKind,
+    pub rest_pos: [f64; 2],
+    pub pos: [f64; 2],
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotation: f64,
+    #[serde(default = "one_f64", skip_serializing_if = "is_one_f64")]
+    pub stiffness: f64,
+}
+
+impl WarpPin {
+    pub const MAX_PINS: usize = 64;
+}
+
+/// Serializable Asset Warp rig attached to a vector or bitmap element on a Keyframe (T-112, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AssetWarpRig {
+    pub element_id: Id,
+    pub pins: Vec<WarpPin>,
+    #[serde(
+        default = "default_warp_subdivisions",
+        skip_serializing_if = "is_default_warp_subdivisions"
+    )]
+    pub envelop_subdivisions: u8,
+}
+
+/// 2D camera pose authored on a keyframe (T-113, format 9).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CameraPose {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub x: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub y: f64,
+    #[serde(default = "one_f64", skip_serializing_if = "is_one_f64")]
+    pub zoom: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotation: f64,
+    #[serde(
+        default = "default_focal_length",
+        skip_serializing_if = "is_default_focal_length"
+    )]
+    pub focal_length: f64,
+    #[serde(default, skip_serializing_if = "crate::ColorTransform::is_identity")]
+    pub color_transform: crate::ColorTransform,
+}
+
+impl Default for CameraPose {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            zoom: 1.0,
+            rotation: 0.0,
+            focal_length: 1000.0,
+            color_transform: crate::ColorTransform::default(),
+        }
+    }
+}
+
+/// Parent-child hierarchy link between two elements on the same keyframe (T-113, format 9).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ElementParentLink {
+    pub child_id: Id,
+    pub parent_id: Id,
+}
+
+/// One bone in a bounded Inverse Kinematics (IK) armature (T-113, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IkBone {
+    pub id: Id,
+    pub element_id: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_bone_id: Option<Id>,
+    pub length: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_angle: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_angle: Option<f64>,
+    #[serde(default = "one_f64", skip_serializing_if = "is_one_f64")]
+    pub stiffness: f64,
+}
+
+impl IkBone {
+    pub const MAX_BONES: usize = 64;
+}
+
+/// Bounded IK armature rig on a keyframe solved deterministically via CCD (T-113, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IkArmature {
+    pub id: Id,
+    pub name: String,
+    pub bones: Vec<IkBone>,
+    pub effector_bone_id: Id,
+    pub target_pos: [f64; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_pos: Option<[f64; 2]>,
+}
+
+/// Named global colour swatch linked across document elements (T-114).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GlobalSwatch {
+    pub id: Id,
+    pub name: String,
+    pub color: Color,
+}
+
+/// Named reusable vector appearance style (T-114).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VectorStyle {
+    pub id: Id,
+    pub name: String,
+    pub fill: Color,
+    pub stroke: Color,
+    pub stroke_width: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifiers: Vec<VectorModifier>,
+}
+
+/// Pattern or art brush applied along a stroke contour (T-114, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum PatternBrushKind {
+    DashPattern {
+        dash: f64,
+        gap: f64,
+    },
+    ArtStretch {
+        stamp_commands: Vec<PathCommand>,
+        nominal_length: f64,
+    },
+    PatternRepeat {
+        tile_commands: Vec<PathCommand>,
+        spacing: f64,
+    },
+}
+
+/// Ordered fill or stroke entry in an element's appearance stack (T-114, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AppearancePaintEntry {
+    Fill {
+        color: Color,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gradient: Option<crate::GradientPaint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        swatch_id: Option<Id>,
+        #[serde(default)]
+        offset: [f64; 2],
+        #[serde(default = "one_f64", skip_serializing_if = "is_one_f64")]
+        opacity: f64,
+    },
+    Stroke {
+        color: Color,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gradient: Option<crate::GradientPaint>,
+        width: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        swatch_id: Option<Id>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        offset_distance: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pattern_brush: Option<PatternBrushKind>,
+        #[serde(default = "one_f64", skip_serializing_if = "is_one_f64")]
+        opacity: f64,
+    },
+}
+
+/// Non-destructive vector modifier in an element's appearance stack (T-114, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum VectorModifier {
+    OffsetContour {
+        delta: f64,
+    },
+    LiveCorners {
+        radius: f64,
+    },
+    Mirror {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis_x: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis_y: Option<f64>,
+    },
+    Repeater {
+        copies: u32,
+        offset_x: f64,
+        offset_y: f64,
+        #[serde(default = "one_f64", skip_serializing_if = "is_one_f64")]
+        scale_step: f64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        rotation_step: f64,
+    },
+}
+
+/// Text on Path or multi-column Area Text flow binding (T-114, format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum TextPathBinding {
+    PathText {
+        path_commands: Vec<PathCommand>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        start_offset: f64,
+    },
+    AreaText {
+        bounds: [f64; 4],
+        #[serde(default = "FrameSound::one")]
+        columns: u32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        gutter: f64,
+    },
+}
+
+/// Editable appearance stack, linked style, vector modifiers, and text-path binding for an element (T-114, format 9).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ElementAppearance {
+    pub element_id: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_swatch_id: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke_swatch_id: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style_id: Option<Id>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entries: Vec<AppearancePaintEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifiers: Vec<VectorModifier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_binding: Option<TextPathBinding>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Keyframe {
     /// Internal frame index is zero-based. The editor and goto API display one-based frames.
@@ -619,6 +901,27 @@ pub struct Keyframe {
     /// Authored bitmap fills for shapes on this keyframe (format 9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bitmap_fills: Vec<AuthoredBitmapFill>,
+    /// Serializable Asset Warp rigs for elements on this keyframe (T-112, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asset_warps: Vec<AssetWarpRig>,
+    /// 2D camera pose at this keyframe (T-113, format 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<CameraPose>,
+    /// Parent-child hierarchy links between elements on this keyframe (T-113, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub element_parents: Vec<ElementParentLink>,
+    /// Element IDs marked as authoring Null/Controller objects on this keyframe (T-113, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub controller_elements: Vec<Id>,
+    /// Bounded Inverse Kinematics (IK) armatures on this keyframe (T-113, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ik_armatures: Vec<IkArmature>,
+    /// Editable appearance/modifier stacks and linked styles for elements on this keyframe (T-114, format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub appearances: Vec<ElementAppearance>,
+    /// Authored timeline video span and cue points on this keyframe (T-118, format 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<crate::TimelineVideoSpan>,
 }
 
 impl Default for Keyframe {
@@ -643,6 +946,13 @@ impl Default for Keyframe {
             roving: false,
             instance_overrides: Vec::new(),
             bitmap_fills: Vec::new(),
+            asset_warps: Vec::new(),
+            camera: None,
+            element_parents: Vec::new(),
+            controller_elements: Vec::new(),
+            ik_armatures: Vec::new(),
+            appearances: Vec::new(),
+            video: None,
         }
     }
 }
@@ -692,6 +1002,197 @@ impl Keyframe {
         } else {
             self.instance_overrides.push(ov);
         }
+    }
+
+    pub fn asset_warp(&self, element_id: &str) -> Option<&AssetWarpRig> {
+        self.asset_warps
+            .iter()
+            .find(|w| w.element_id == element_id)
+    }
+
+    pub fn asset_warp_mut(&mut self, element_id: &str) -> Option<&mut AssetWarpRig> {
+        self.asset_warps
+            .iter_mut()
+            .find(|w| w.element_id == element_id)
+    }
+
+    pub fn set_asset_warp(&mut self, rig: AssetWarpRig) {
+        if let Some(slot) = self
+            .asset_warps
+            .iter_mut()
+            .find(|w| w.element_id == rig.element_id)
+        {
+            *slot = rig;
+        } else {
+            self.asset_warps.push(rig);
+        }
+    }
+
+    /// Reset all movable pins in the element's Asset Warp rig back to their rest positions and zero rotation (T-112).
+    pub fn reset_asset_warp(&mut self, element_id: &str) -> bool {
+        let Some(rig) = self.asset_warp_mut(element_id) else {
+            return false;
+        };
+        for pin in &mut rig.pins {
+            pin.pos = pin.rest_pos;
+            pin.rotation = 0.0;
+        }
+        true
+    }
+
+    /// Deterministically bake/expand the element's Asset Warp rig into its geometry and remove the rig (T-112).
+    pub fn bake_asset_warp(&mut self, element_id: &str) -> bool {
+        let Some(rig) = self.asset_warp(element_id).cloned() else {
+            return false;
+        };
+        let Some(el) = self.elements.iter_mut().find(|e| e.id == element_id) else {
+            return false;
+        };
+        *el = crate::geometry::apply_asset_warp_to_element(el, &rig);
+        self.asset_warps.retain(|w| w.element_id != element_id);
+        true
+    }
+
+    pub fn parent_of(&self, child_id: &str) -> Option<&str> {
+        self.element_parents
+            .iter()
+            .find(|p| p.child_id == child_id)
+            .map(|p| p.parent_id.as_str())
+    }
+
+    /// Set or clear an element's parent on this keyframe, rejecting self-parenting and cycles (T-113).
+    pub fn set_element_parent(
+        &mut self,
+        child_id: Id,
+        parent_id: Option<Id>,
+    ) -> Result<(), &'static str> {
+        let Some(parent_id) = parent_id else {
+            self.element_parents.retain(|p| p.child_id != child_id);
+            return Ok(());
+        };
+        if child_id == parent_id {
+            return Err("an element cannot be parented to itself");
+        }
+        if !self.elements.iter().any(|e| e.id == child_id)
+            || !self.elements.iter().any(|e| e.id == parent_id)
+        {
+            return Err("both child and parent elements must exist on the keyframe");
+        }
+        let mut cursor = Some(parent_id.as_str());
+        let mut steps = 0usize;
+        while let Some(cur) = cursor {
+            if cur == child_id {
+                return Err("parenting cycle detected");
+            }
+            steps += 1;
+            if steps > self.elements.len() + 1 {
+                return Err("parenting cycle detected");
+            }
+            cursor = self.parent_of(cur);
+        }
+        if let Some(slot) = self
+            .element_parents
+            .iter_mut()
+            .find(|p| p.child_id == child_id)
+        {
+            slot.parent_id = parent_id;
+        } else {
+            self.element_parents
+                .push(ElementParentLink { child_id, parent_id });
+        }
+        Ok(())
+    }
+
+    /// Effective 2D affine matrix `[a, b, c, d, tx, ty]` of `element_id` in layer coordinates after walking its parent chain (T-113).
+    pub fn element_world_matrix(&self, element_id: &str) -> Option<[f64; 6]> {
+        let el = self.elements.iter().find(|e| e.id == element_id)?;
+        let mut m = crate::evaluate::transform_matrix(el.transform);
+        let mut cursor = self.parent_of(element_id);
+        let mut depth = 0usize;
+        while let Some(pid) = cursor {
+            if depth >= 64 {
+                break;
+            }
+            let Some(parent) = self.elements.iter().find(|e| e.id == pid) else {
+                break;
+            };
+            m = crate::evaluate::affine_multiply(
+                crate::evaluate::transform_matrix(parent.transform),
+                m,
+            );
+            cursor = self.parent_of(pid);
+            depth += 1;
+        }
+        Some(m)
+    }
+
+    /// Reparent `child_id` to `new_parent_id` while adjusting `child.transform` so its world matrix on stage is preserved (T-113).
+    pub fn reparent_preserving_world_transform(
+        &mut self,
+        child_id: &str,
+        new_parent_id: Option<&str>,
+    ) -> Result<(), &'static str> {
+        let world = self
+            .element_world_matrix(child_id)
+            .ok_or("child element does not exist on keyframe")?;
+        let new_parent_world = match new_parent_id {
+            Some(pid) => self
+                .element_world_matrix(pid)
+                .ok_or("parent element does not exist on keyframe")?,
+            None => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        };
+        self.set_element_parent(child_id.to_owned(), new_parent_id.map(str::to_owned))?;
+        let inv_parent = crate::geometry::invert_affine_matrix(new_parent_world)
+            .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let local_matrix = crate::evaluate::affine_multiply(inv_parent, world);
+        if let Some(new_t) = Transform::from_matrix(local_matrix)
+            && let Some(child) = self.elements.iter_mut().find(|e| e.id == child_id)
+        {
+            child.transform.x = new_t.x;
+            child.transform.y = new_t.y;
+            child.transform.scale_x = new_t.scale_x;
+            child.transform.scale_y = new_t.scale_y;
+            child.transform.rotation = new_t.rotation;
+            child.transform.skew = new_t.skew;
+        }
+        Ok(())
+    }
+
+    pub fn appearance(&self, element_id: &str) -> Option<&ElementAppearance> {
+        self.appearances
+            .iter()
+            .find(|a| a.element_id == element_id)
+    }
+
+    pub fn set_appearance(&mut self, appearance: ElementAppearance) {
+        if let Some(slot) = self
+            .appearances
+            .iter_mut()
+            .find(|a| a.element_id == appearance.element_id)
+        {
+            *slot = appearance;
+        } else {
+            self.appearances.push(appearance);
+        }
+    }
+
+    /// Deterministically expand/bake the appearance stack and modifiers of `element_id` into concrete elements on this keyframe (T-114).
+    pub fn expand_element_appearance(&mut self, element_id: &str) -> Vec<Id> {
+        let Some(app) = self.appearance(element_id).cloned() else {
+            return Vec::new();
+        };
+        let Some(idx) = self.elements.iter().position(|e| e.id == element_id) else {
+            return Vec::new();
+        };
+        let base = self.elements[idx].clone();
+        let expanded = crate::geometry::evaluate_element_appearance(&base, &app);
+        self.appearances.retain(|a| a.element_id != element_id);
+        if expanded.is_empty() {
+            return Vec::new();
+        }
+        let ids: Vec<Id> = expanded.iter().map(|e| e.id.clone()).collect();
+        self.elements.splice(idx..=idx, expanded);
+        ids
     }
 }
 
@@ -1821,6 +2322,238 @@ impl Project {
         }
         self.format_version = self.format_version.max(3);
     }
+
+    pub const GLOBAL_SWATCHES_RESOURCE_PATH: &'static str = "palette/global_swatches.json";
+    pub const VECTOR_STYLES_RESOURCE_PATH: &'static str = "palette/vector_styles.json";
+
+    /// Document-level named global colour swatches linked to elements (T-114).
+    pub fn global_swatches(&self) -> Vec<GlobalSwatch> {
+        let Some(unit) = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH))
+        else {
+            return Vec::new();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return Vec::new();
+        };
+        serde_json::from_slice::<Vec<GlobalSwatch>>(&bytes).unwrap_or_default()
+    }
+
+    /// Persist named global colour swatches in the project (T-114).
+    pub fn set_global_swatches(&mut self, swatches: &[GlobalSwatch]) {
+        if swatches.is_empty() {
+            self.resources
+                .retain(|r| !r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH));
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(swatches) else {
+            return;
+        };
+        let existing_id = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH))
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let Ok(unit) = crate::ResourceUnit::from_bytes(
+            existing_id,
+            Self::GLOBAL_SWATCHES_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        ) else {
+            return;
+        };
+        if let Some(slot) = self
+            .resources
+            .iter_mut()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH))
+        {
+            *slot = unit;
+        } else {
+            self.resources.push(unit);
+        }
+        self.format_version = self.format_version.max(3);
+    }
+
+    /// Update a global swatch's colour and propagate the change to all elements and appearance stacks linked to `swatch_id` (T-114).
+    pub fn update_global_swatch_color(&mut self, swatch_id: &str, new_color: Color) -> usize {
+        let mut swatches = self.global_swatches();
+        if let Some(sw) = swatches.iter_mut().find(|s| s.id == swatch_id) {
+            sw.color = new_color;
+        } else {
+            swatches.push(GlobalSwatch {
+                id: swatch_id.to_owned(),
+                name: swatch_id.to_owned(),
+                color: new_color,
+            });
+        }
+        self.set_global_swatches(&swatches);
+        let mut updated = 0usize;
+        for symbol in &mut self.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    for app in &mut key.appearances {
+                        let fill_linked = app.fill_swatch_id.as_deref() == Some(swatch_id);
+                        let stroke_linked = app.stroke_swatch_id.as_deref() == Some(swatch_id);
+                        if fill_linked || stroke_linked {
+                            if let Some(el) =
+                                key.elements.iter_mut().find(|e| e.id == app.element_id)
+                            {
+                                match &mut el.kind {
+                                    ElementKind::Rectangle { fill, stroke, .. }
+                                    | ElementKind::Ellipse { fill, stroke, .. }
+                                    | ElementKind::Path { fill, stroke, .. }
+                                    | ElementKind::PaintedPath { fill, stroke, .. } => {
+                                        if fill_linked {
+                                            *fill = new_color;
+                                            updated += 1;
+                                        }
+                                        if stroke_linked {
+                                            *stroke = new_color;
+                                            updated += 1;
+                                        }
+                                    }
+                                    ElementKind::Text { color, .. } if fill_linked => {
+                                        *color = new_color;
+                                        updated += 1;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        for entry in &mut app.entries {
+                            match entry {
+                                AppearancePaintEntry::Fill {
+                                    color,
+                                    swatch_id: sid,
+                                    ..
+                                }
+                                | AppearancePaintEntry::Stroke {
+                                    color,
+                                    swatch_id: sid,
+                                    ..
+                                } if sid.as_deref() == Some(swatch_id) => {
+                                    *color = new_color;
+                                    updated += 1;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        updated
+    }
+
+    /// Document-level reusable vector styles (T-114).
+    pub fn vector_styles(&self) -> Vec<VectorStyle> {
+        let Some(unit) = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH))
+        else {
+            return Vec::new();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return Vec::new();
+        };
+        serde_json::from_slice::<Vec<VectorStyle>>(&bytes).unwrap_or_default()
+    }
+
+    /// Persist reusable vector styles in the project (T-114).
+    pub fn set_vector_styles(&mut self, styles: &[VectorStyle]) {
+        if styles.is_empty() {
+            self.resources
+                .retain(|r| !r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH));
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(styles) else {
+            return;
+        };
+        let existing_id = self
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH))
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let Ok(unit) = crate::ResourceUnit::from_bytes(
+            existing_id,
+            Self::VECTOR_STYLES_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        ) else {
+            return;
+        };
+        if let Some(slot) = self
+            .resources
+            .iter_mut()
+            .find(|r| r.path.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH))
+        {
+            *slot = unit;
+        } else {
+            self.resources.push(unit);
+        }
+        self.format_version = self.format_version.max(3);
+    }
+
+    /// Propagate a named `VectorStyle` to all elements linked to `style_id` across the project (T-114).
+    pub fn apply_vector_style_to_project(&mut self, style_id: &str) -> usize {
+        let Some(style) = self.vector_styles().into_iter().find(|s| s.id == style_id) else {
+            return 0;
+        };
+        let mut count = 0usize;
+        for symbol in &mut self.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    for app in &mut key.appearances {
+                        if app.style_id.as_deref() == Some(style_id) {
+                            app.modifiers = style.modifiers.clone();
+                            if let Some(el) =
+                                key.elements.iter_mut().find(|e| e.id == app.element_id)
+                            {
+                                match &mut el.kind {
+                                    ElementKind::Rectangle {
+                                        fill,
+                                        stroke,
+                                        stroke_width,
+                                        ..
+                                    }
+                                    | ElementKind::Ellipse {
+                                        fill,
+                                        stroke,
+                                        stroke_width,
+                                        ..
+                                    }
+                                    | ElementKind::Path {
+                                        fill,
+                                        stroke,
+                                        stroke_width,
+                                        ..
+                                    }
+                                    | ElementKind::PaintedPath {
+                                        fill,
+                                        stroke,
+                                        stroke_width,
+                                        ..
+                                    } => {
+                                        *fill = style.fill;
+                                        *stroke = style.stroke;
+                                        *stroke_width = style.stroke_width;
+                                        count += 1;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        count
+    }
 }
 
 impl Layer {
@@ -1887,5 +2620,35 @@ impl Layer {
             .iter_mut()
             .filter(|k| k.frame <= frame)
             .max_by_key(|k| k.frame)
+    }
+
+    /// Bake all IK armatures across `start_frame..=end_frame` into ordinary keyframes with solved bone transforms (T-113).
+    pub fn bake_ik_span_to_keyframes(&mut self, start_frame: u32, end_frame: u32) -> usize {
+        if end_frame < start_frame {
+            return 0;
+        }
+        let mut sampled_frames = Vec::new();
+        for f in start_frame..=end_frame {
+            let elements = crate::evaluate::sample_layer(self, f);
+            sampled_frames.push((f, elements));
+        }
+        let mut baked = 0usize;
+        for (f, elements) in sampled_frames {
+            if let Some(existing) = self.keyframes.iter_mut().find(|k| k.frame == f) {
+                existing.elements = elements;
+                existing.tween = None;
+                existing.keyed_properties = None;
+                existing.ik_armatures.clear();
+            } else {
+                self.keyframes.push(Keyframe {
+                    frame: f,
+                    elements,
+                    ..Default::default()
+                });
+            }
+            baked += 1;
+        }
+        self.normalize_motion_keys();
+        baked
     }
 }

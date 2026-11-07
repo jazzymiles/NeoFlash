@@ -535,13 +535,17 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
     if key.keyed_properties.is_some()
         || (key.tween.is_some() && key.tween_kind == TweenKind::Motion)
     {
-        return sample_motion(layer, frame);
+        let mut elements = sample_motion(layer, frame);
+        let start_key = motion_span(layer, frame).map(|(s, _, _)| s).unwrap_or(key);
+        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), start_key, None, 0.0);
     }
     let Some(ease) = key.tween else {
-        return key.elements.clone();
+        let mut elements = key.elements.clone();
+        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0);
     };
     let Some(next) = next_key(layer, key.frame) else {
-        return key.elements.clone();
+        let mut elements = key.elements.clone();
+        return apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, None, 0.0);
     };
     let t = easing(
         (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
@@ -555,7 +559,8 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
             t,
         );
     }
-    key.elements
+    let mut elements: Vec<Element> = key
+        .elements
         .iter()
         .map(|e| {
             next.elements
@@ -563,7 +568,202 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
                 .find(|n| n.id == e.id)
                 .map_or_else(|| e.clone(), |n| interpolate_classic(e, n, t, key))
         })
-        .collect()
+        .collect();
+    apply_keyframe_rigs_and_appearances(elements.as_mut_slice(), key, Some(next), t)
+}
+
+fn interpolate_asset_warp_rig(
+    a: &AssetWarpRig,
+    b: Option<&AssetWarpRig>,
+    t: f64,
+) -> AssetWarpRig {
+    let Some(b) = b else {
+        return a.clone();
+    };
+    let pins = a
+        .pins
+        .iter()
+        .enumerate()
+        .map(|(idx, pa)| {
+            let pb = b
+                .pins
+                .iter()
+                .find(|p| p.id == pa.id)
+                .or_else(|| b.pins.get(idx));
+            if let Some(pb) = pb {
+                WarpPin {
+                    id: pa.id.clone(),
+                    kind: pa.kind,
+                    rest_pos: pa.rest_pos,
+                    pos: [lerp(pa.pos[0], pb.pos[0], t), lerp(pa.pos[1], pb.pos[1], t)],
+                    rotation: lerp(pa.rotation, pb.rotation, t),
+                    stiffness: lerp(pa.stiffness, pb.stiffness, t),
+                }
+            } else {
+                pa.clone()
+            }
+        })
+        .collect();
+    AssetWarpRig {
+        element_id: a.element_id.clone(),
+        pins,
+        envelop_subdivisions: a.envelop_subdivisions,
+    }
+}
+
+fn apply_keyframe_rigs_and_appearances(
+    elements: &mut [Element],
+    key: &Keyframe,
+    next: Option<&Keyframe>,
+    t: f64,
+) -> Vec<Element> {
+    // 1. Solve IK armatures (interpolating target_pos when tweened).
+    for armature in &key.ik_armatures {
+        let mut arm = armature.clone();
+        if let Some(next_key) = next
+            && let Some(next_arm) = next_key.ik_armatures.iter().find(|a| a.id == armature.id)
+        {
+            arm.target_pos = [
+                lerp(armature.target_pos[0], next_arm.target_pos[0], t),
+                lerp(armature.target_pos[1], next_arm.target_pos[1], t),
+            ];
+        }
+        crate::geometry::solve_ik_armature(elements, &arm);
+    }
+
+    // 2. Apply element parenting hierarchy (`element_parents`) so children inherit parent transforms.
+    if !key.element_parents.is_empty() {
+        let base_snapshot: Vec<Element> = elements.to_vec();
+        let parent_of = |cid: &str| -> Option<&str> {
+            key.element_parents
+                .iter()
+                .find(|p| p.child_id == cid)
+                .map(|p| p.parent_id.as_str())
+        };
+        for el in elements.iter_mut() {
+            if parent_of(&el.id).is_none() {
+                continue;
+            }
+            let mut m = transform_matrix(el.transform);
+            let mut cursor = parent_of(&el.id);
+            let mut depth = 0usize;
+            while let Some(pid) = cursor {
+                if depth >= 64 {
+                    break;
+                }
+                let Some(parent) = base_snapshot.iter().find(|e| e.id == pid) else {
+                    break;
+                };
+                m = affine_multiply(transform_matrix(parent.transform), m);
+                cursor = parent_of(pid);
+                depth += 1;
+            }
+            if let Some(world_t) = Transform::from_matrix(m) {
+                el.transform.x = world_t.x;
+                el.transform.y = world_t.y;
+                el.transform.scale_x = world_t.scale_x;
+                el.transform.scale_y = world_t.scale_y;
+                el.transform.rotation = world_t.rotation;
+                el.transform.skew = world_t.skew;
+            }
+        }
+    }
+
+    // 3. Apply Asset Warp rigs (interpolating pin positions and rotations when tweened).
+    if !key.asset_warps.is_empty() {
+        for el in elements.iter_mut() {
+            if let Some(rig_a) = key.asset_warp(&el.id) {
+                let rig_b = next.and_then(|nk| nk.asset_warp(&el.id));
+                let rig = interpolate_asset_warp_rig(rig_a, rig_b, t);
+                *el = crate::geometry::apply_asset_warp_to_element(el, &rig);
+            }
+        }
+    }
+
+    // 4. Expand non-destructive appearance stacks and vector modifiers (`appearances`).
+    if key.appearances.is_empty() {
+        return elements.to_vec();
+    }
+    let mut out = Vec::with_capacity(elements.len());
+    for el in elements.iter() {
+        if let Some(app) = key.appearance(&el.id) {
+            out.extend(crate::geometry::evaluate_element_appearance(el, app));
+        } else {
+            out.push(el.clone());
+        }
+    }
+    out
+}
+
+/// Sample the active 2D `CameraPose` of a timeline at `frame`, interpolating across tweened keyframes (T-113).
+pub fn sample_timeline_camera(timeline: &Timeline, frame: u32) -> Option<CameraPose> {
+    for layer in &timeline.layers {
+        let Some(key) = layer.key_at(frame) else {
+            continue;
+        };
+        let Some(cam_a) = key.camera else {
+            continue;
+        };
+        if let Some(ease) = key.tween
+            && let Some(next) = next_key(layer, key.frame)
+            && let Some(cam_b) = next.camera
+        {
+            let t = easing(
+                (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
+                ease,
+            );
+            return Some(CameraPose {
+                x: lerp(cam_a.x, cam_b.x, t),
+                y: lerp(cam_a.y, cam_b.y, t),
+                zoom: lerp(cam_a.zoom, cam_b.zoom, t).clamp(0.01, 100.0),
+                rotation: lerp(cam_a.rotation, cam_b.rotation, t),
+                focal_length: lerp(cam_a.focal_length, cam_b.focal_length, t).max(10.0),
+                color_transform: crate::ColorTransform {
+                    multipliers: std::array::from_fn(|i| {
+                        lerp(
+                            cam_a.color_transform.multipliers[i],
+                            cam_b.color_transform.multipliers[i],
+                            t,
+                        )
+                    }),
+                    offsets: std::array::from_fn(|i| {
+                        lerp(
+                            cam_a.color_transform.offsets[i],
+                            cam_b.color_transform.offsets[i],
+                            t,
+                        )
+                    }),
+                },
+            });
+        }
+        return Some(cam_a);
+    }
+    None
+}
+
+/// Compute the 2D camera view + depth-parallax matrix `[a, b, c, d, tx, ty]` for a layer at `z_depth` (T-113).
+pub fn camera_layer_matrix(
+    camera: &CameraPose,
+    z_depth: f64,
+    stage_center: [f64; 2],
+) -> [f64; 6] {
+    let focal = camera.focal_length.max(10.0);
+    let parallax = (focal / (focal + z_depth)).clamp(0.05, 20.0);
+    let eff_zoom = lerp(1.0, camera.zoom.clamp(0.01, 100.0), parallax);
+    let eff_rot = (-camera.rotation * parallax).to_radians();
+    let (s, c) = eff_rot.sin_cos();
+    let pan_x = -camera.x * parallax;
+    let pan_y = -camera.y * parallax;
+    // Transform around stage_center: T(center) * R * S * T(-center + pan)
+    let a = c * eff_zoom;
+    let b = s * eff_zoom;
+    let c_mat = -s * eff_zoom;
+    let d = c * eff_zoom;
+    let dx = pan_x - stage_center[0];
+    let dy = pan_y - stage_center[1];
+    let tx = stage_center[0] + a * dx + c_mat * dy;
+    let ty = stage_center[1] + b * dx + d * dy;
+    [a, b, c_mat, d, tx, ty]
 }
 
 fn interpolate_classic(a: &Element, b: &Element, t: f64, key: &Keyframe) -> Element {
@@ -1647,6 +1847,11 @@ impl Walker<'_> {
                 self.include_guides,
             ));
         // Layer zero is the backmost layer; list order is painter order everywhere.
+        let active_camera = sample_timeline_camera(&symbol.timeline, frame);
+        let stage_center = [
+            self.project.width as f64 * 0.5,
+            self.project.height as f64 * 0.5,
+        ];
         for layer in &symbol.timeline.layers {
             if !layer_effectively_visible(&symbol.timeline, layer)
                 || layer.properties.role == LayerRole::Folder
@@ -1656,11 +1861,28 @@ impl Walker<'_> {
             }
             let layer_blend = layer_effective_blend_mode(&symbol.timeline, layer);
             let synced_layer = layer_effectively_synced(&symbol.timeline, layer);
-            let active_key_overrides = layer
-                .key_at(frame)
+            let active_key = layer.key_at(frame);
+            let active_key_overrides = active_key
                 .map(|k| k.instance_overrides.as_slice())
                 .unwrap_or(&[]);
+            let active_controllers = active_key
+                .map(|k| k.controller_elements.as_slice())
+                .unwrap_or(&[]);
+            let (layer_world_base, layer_camera_ct) = if let Some(cam) = &active_camera
+                && !layer.properties.attach_to_camera
+            {
+                let cam_m = camera_layer_matrix(cam, layer.properties.z_depth, stage_center);
+                (
+                    affine_multiply(inherited.matrix, cam_m),
+                    cam.color_transform.then(inherited.color_transform),
+                )
+            } else {
+                (inherited.matrix, inherited.color_transform)
+            };
             for mut e in sample_layer_in(&symbol.timeline, layer, frame) {
+                if !self.include_guides && active_controllers.iter().any(|cid| cid == &e.id) {
+                    continue;
+                }
                 if self.result.nodes.len() >= MAX_NODES {
                     return;
                 }
@@ -1734,13 +1956,13 @@ impl Walker<'_> {
                         e.name = name;
                     }
                 }
-                let world = affine_multiply(inherited.matrix, transform_matrix(e.transform));
+                let world = affine_multiply(layer_world_base, transform_matrix(e.transform));
                 let opacity = inherited.alpha * e.transform.alpha.clamp(0., 1.);
                 let color_transform = e
                     .transform
                     .color_transform
                     .with_alpha(e.transform.alpha)
-                    .then(inherited.color_transform);
+                    .then(layer_camera_ct);
                 let effective_visible = inherited.visible && visible;
                 let blend_mode = if e.blend_mode.is_normal() {
                     layer_blend
@@ -1841,7 +2063,7 @@ impl Walker<'_> {
                         unscaled.scale_y = e.transform.scale_y.signum();
                         let bounds = symbol_natural_bounds(child, child_frame, grid);
                         (
-                            affine_multiply(inherited.matrix, transform_matrix(unscaled)),
+                            affine_multiply(layer_world_base, transform_matrix(unscaled)),
                             Some(Scale9Mapping {
                                 grid,
                                 bounds,

@@ -827,6 +827,16 @@
           "id": "trace-bitmap",
           "title": "Trace bitmaps into editable vectors with live preview and Undo",
           "status": "working"
+        },
+        {
+          "id": "asset-warp",
+          "title": "Asset warp with open/fixed pins, tweened deformation, Reset and Bake",
+          "status": "working"
+        },
+        {
+          "id": "appearance-modifiers-styles",
+          "title": "Appearance stack (multiple fills/strokes), non-destructive vector modifiers, pattern brushes, path/area text bindings and linked global swatches/styles",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1053,6 +1063,11 @@
         {
           "id": "layer-solo",
           "title": "Solo layers on the timeline without changing saved visibility",
+          "status": "working"
+        },
+        {
+          "id": "camera-parenting-ik",
+          "title": "Stage camera with 2.5D layer depth and parallax, world-transform-preserving parenting, authoring-only controllers and bounded IK armatures with bake to keyframes",
           "status": "working"
         }
       ],
@@ -1594,9 +1609,9 @@
       "id": "animation-media-sync",
       "category": "animation",
       "title": "Audio and video synchronization",
-      "status": "partial",
-      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects, custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) and `FrameSound` `in_point`/`out_point` playback trim windows (format 7) in editor playback and HTML5 (`NeoFlashAudio`), decoded `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks` and cached `TimelineAudio::waveform_peaks` for MP3/WAV), modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, per-resource publish compression `ResourceUnit.audio_export` in format 9 with MP3/Default/WAV/Original, bit rate, quality, stereo-to-mono conversion and live Result size preview, Test/Stop audition and Update/Import byte replacement in one Undo), modal Export audio dialog (`File ▸ Export ▸ Export audio…` `⌥⇧⌘A`, `Library ▸ Export audio…`, CLI `--audio`) exporting timeline mixes, single layers or Library resources to WAV (8/16/24-bit PCM, 32-bit float), MP3 (CBR 64–320 kbps), OGG Vorbis or AAC (M4A/ADTS) with resampling (8–48 kHz), Stereo/Mono, Normalize to −1 dB, Fade out and Trim silence, coordinated stream stops and seeks; timeline video. Timeline, Sound properties and Export audio spans paint decoded mono/stereo peaks from a background worker, reused by resource and zoom; scrolling, trim and repeat use cached data.",
-      "limitations": "Timeline video and Edit envelope waveform backdrops and draggable trim handles (NF2 request R-016) are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
+      "status": "implemented",
+      "scope": "Timeline sound with Event/Start/Stop/Stream sync, repeat/loop, preset effects, custom stereo volume envelopes (`SoundEffect::Custom` + `FrameSound.envelope` in format 7, edited in the modal Edit envelope dialog with L/R curves, seconds/frames ruler, zoom and audition) and `FrameSound` `in_point`/`out_point` playback trim windows (format 7) in editor playback and HTML5 (`NeoFlashAudio`), decoded `WaveformPeaks` (`sample_waveform_peaks`, `wav_waveform_peaks` and cached `TimelineAudio::waveform_peaks` for MP3/WAV), modal Sound properties dialog (rename, decoded kHz/channels/duration/size stats, per-resource publish compression `ResourceUnit.audio_export` in format 9 with MP3/Default/WAV/Original, bit rate, quality, stereo-to-mono conversion and live Result size preview, Test/Stop audition and Update/Import byte replacement in one Undo), modal Export audio dialog (`File ▸ Export ▸ Export audio…` `⌥⇧⌘A`, `Library ▸ Export audio…`, CLI `--audio`) exporting timeline mixes, single layers or Library resources to WAV (8/16/24-bit PCM, 32-bit float), MP3 (CBR 64–320 kbps), OGG Vorbis or AAC (M4A/ADTS) with resampling (8–48 kHz), Stereo/Mono, Normalize to −1 dB, Fade out and Trim silence, coordinated stream stops and seeks; and authored timeline video (`TimelineVideoSpan` in format 9, `VideoSyncMode::{Stream, Event, Start, Stop, TimelineLocked}`, `VideoCuePoint`, `VideoCodecDiagnostic`, `VideoCommand`, frame-to-time synchronization, cue-point crossing and MP4/WebM/HEVC/CORS container diagnostics). Timeline, Sound properties and Export audio spans paint decoded mono/stereo peaks from a background worker, reused by resource and zoom; scrolling, trim and repeat use cached data.",
+      "limitations": "Edit envelope waveform backdrops and draggable trim handles (NF2 request R-016) are not implemented. Streams are not re-synchronised when a host drops frames, and editor scrubbing is silent unless audible scrubbing is explicitly triggered. HTML5 timeline sound needs Enable audio and plays MP3/WAV.",
       "items": [
         {
           "id": "timeline-audio",
@@ -1630,8 +1645,8 @@
         },
         {
           "id": "timeline-video",
-          "title": "Timeline video tracks",
-          "status": "planned"
+          "title": "Timeline video tracks with sync modes, cue points and codec diagnostics",
+          "status": "working"
         },
         {
           "id": "sync-modes",
@@ -1648,6 +1663,7 @@
         "docs/ROADMAP.md",
         "docs/BACKLOG.md",
         "crates/neoflash-core/tests/timeline_sound.rs",
+        "crates/neoflash-core/src/timeline_video.rs",
         "crates/neoflash-editor/src/timeline_sound_tests.rs",
         "crates/neoflash-editor/src/panels/edit_envelope.rs",
         "crates/neoflash-editor/src/panels/sound_properties.rs",
@@ -1729,10 +1745,28 @@
           "id": "svg-atlas-export",
           "title": "Export frames as SVG (--svg) and animations as sprite sheets or texture atlases (--atlas / --sprite-sheet) in JSON Array, Starling XML or CreateJS/EaselJS format",
           "status": "working"
+        },
+        {
+          "id": "publish-profiles-network-sim",
+          "title": "Document publish profiles (duplicate/import/export), custom HTML wrapper templates and network/startup simulation",
+          "status": "working"
+        },
+        {
+          "id": "playable-as2-as3-games",
+          "title": "Playable AS2 and AS3 Snake, Arkanoid and Tetris .nflash example games verified through script compilation, HTML5 export and WASM execution",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/src/profiles.rs",
+        "crates/neoflash-export/tests/games_script_export.rs",
+        "examples/snake-as2.nflash",
+        "examples/snake-as3.nflash",
+        "examples/arkanoid-as2.nflash",
+        "examples/arkanoid-as3.nflash",
+        "examples/tetris-as2.nflash",
+        "examples/tetris-as3.nflash",
         "crates/neoflash-export/src/audio.rs",
         "crates/neoflash-export/src/lottie.rs",
         "crates/neoflash-export/src/video.rs",
@@ -2191,6 +2225,11 @@
           "id": "debugger",
           "title": "Test Movie debugger, source maps and variable inspection",
           "status": "partial"
+        },
+        {
+          "id": "debugger-watches-code-folding-assist",
+          "title": "Conditional/data breakpoints, Watch expression evaluation, deep/editable variable inspection, code folding and bounded Script Assist across AS1/AS2/AS3/JS/TS",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -2383,10 +2422,19 @@
           "id": "native-video-decoding",
           "title": "Native video decoding and synchronization",
           "status": "planned"
+        },
+        {
+          "id": "psd-sequence-vector-import",
+          "title": "Layered PSD/PSB import, numbered image-sequence import and high-fidelity SVG/PDF/AI vector import with layer/text/mask/transform options and location-aware fidelity reports",
+          "status": "working"
         }
       ],
       "evidence": [
         "docs/ROADMAP.md",
+        "crates/neoflash-import/src/psd.rs",
+        "crates/neoflash-import/src/sequence.rs",
+        "crates/neoflash-import/src/vector_fidelity.rs",
+        "crates/neoflash-import/src/workflows.rs",
         "docs/BACKLOG.md",
         "docs/WEB.md",
         "crates/neoflash-core/src/resources.rs",
@@ -3068,7 +3116,7 @@
         },
         {
           "id": "format9-authoring",
-          "title": "Bitmap export settings, classic tween rotation/scale, roving motion keys, 9-slice grids, stroke width profiles, instance property overrides and authored bitmap fills (format 9)",
+          "title": "Bitmap export settings, classic tween rotation/scale, roving motion keys, 9-slice grids, stroke width profiles, instance property overrides, authored bitmap fills, Asset Warp pins, Camera/depth/parenting/IK armatures, appearance/modifier stacks and timeline video spans (format 9)",
           "status": "working"
         }
       ],
