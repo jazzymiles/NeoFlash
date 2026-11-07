@@ -1,7 +1,7 @@
 // One command-bus publication combines optional/rest signatures, argument
 // activations and receivers across AS3 classes and an AS2 timeline.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -42,7 +42,7 @@ legacyCore.sequence=(void(legacyCore.effect=7),Object(legacyCore)===legacyCore);
 `;
     const input=resolve(directory,'fixture.nflash'),publication=resolve(directory,'publication');
     writeFileSync(input,JSON.stringify(project));
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--',input,'--output',publication],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--',input,'--output',publication],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(publication,'bundle.js'),'utf8'),sandbox);

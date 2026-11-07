@@ -1,7 +1,7 @@
 // A single published composition spans clipping, linked identity and both dialects.
 // Pointer geometry and clipped semantic silhouettes are checked in the browser.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -11,7 +11,7 @@ export async function verifyClippedScene(root,cargo) {
   const directory=mkdtempSync(resolve(root,'target/clipped-scene-'));
   let player,host;
   try {
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/clipped-scene.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/clipped-scene.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
@@ -87,7 +87,7 @@ export async function verifySoftMaskSources(root,cargo,runtime=null) {
       }],symbols:[{id:'scene',name:'Main',kind:'movie_clip',timeline:{frame_count:3,layers:[layer('content',[target('targetGradient'),target('targetBitmap'),bitmap]),animated],scripts:[{frame:0,script:{language,source}}]}},{id:'target-art',name:'Target artwork',kind:'movie_clip',timeline:{frame_count:1,layers:[layer('target-art-layer',[targetShape])],scripts:[]}}]};
       const file=resolve(directory,`${language}.nflash`),output=resolve(directory,language);writeFileSync(file,JSON.stringify(project));
       const args=['run','--quiet','--locked','-p','neoflash-export','--',file,'--output',output];if(runtime)args.push('--runtime',runtime);
-      const exported=spawnSync(cargo,args,{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+      const exported=runCargo(cargo,args,{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
       const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
       vm.runInContext(readFileSync(resolve(output,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);
       vm.runInContext(readFileSync(resolve(output,'neoflash_web.js'),'utf8'),sandbox);sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');

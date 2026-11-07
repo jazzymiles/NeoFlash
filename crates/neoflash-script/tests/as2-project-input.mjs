@@ -2,7 +2,7 @@
 // host and installed Stage input listeners. Imported by project-execute.mjs.
 // This is executable integration evidence, not original-player or browser QA.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -88,7 +88,7 @@ export async function verifyAs2ProjectInput(root, cargo) {
   const directory = mkdtempSync(resolve(root, 'target/as2-project-input-'));
   let player, host;
   try {
-    const exported = spawnSync(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
+    const exported = runCargo(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
       'examples/as2-project-input.nflash', '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
     const sandbox = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
@@ -1563,7 +1563,7 @@ async function verifyAs2FoundationSurface(root, cargo, directory) {
   const projectFile = resolve(directory, 'foundation.nflash');
   const outDir = resolve(directory, 'foundation-out');
   writeFileSync(projectFile, JSON.stringify(project));
-  const exported = spawnSync(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
+  const exported = runCargo(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
     projectFile, '--output', outDir], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
   assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
 

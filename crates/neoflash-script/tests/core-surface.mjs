@@ -3,7 +3,7 @@
 // Presence probes back "partial" catalogue reviews; exact constant values back
 // "working". Behaviour beyond each probe is covered by the family workflows.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -44,7 +44,7 @@ export async function verifyCoreSurface(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/core-surface-'));let player,host;
   try{
     const file=resolve(directory,'core-surface.nflash');writeFileSync(file,JSON.stringify(project));
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--',file,'--output',resolve(directory,'out')],{cwd:root,encoding:'utf8',maxBuffer:64*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--',file,'--output',resolve(directory,'out')],{cwd:root,encoding:'utf8',maxBuffer:64*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const out=resolve(directory,'out'),sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(out,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);

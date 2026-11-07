@@ -1,7 +1,7 @@
 // One ordinary publication: image resources/bytes, owned content, legacy
 // replacement and transport lifecycle. Browser pixels are accepted separately.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
@@ -21,7 +21,7 @@ export async function verifyLoaderGallery(root,cargo){
   try{
     await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});
     const endpoint=`http://127.0.0.1:${server.address().port}`;
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/loader-gallery.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/loader-gallery.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);

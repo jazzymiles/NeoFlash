@@ -1,6 +1,7 @@
 // One coherent project build, then actual emitted classes and event facade execution.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { selectWorkflows } from './workflow-selection.mjs';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { homedir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
@@ -39,6 +40,35 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');
 const localCargo=resolve(homedir(),'.cargo/bin/cargo');
 const cargo=process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo');
 const events=createRequire(import.meta.url)(resolve(root,'web/events.js'));
+const workflows=[
+  ['legacy-import',verifyLegacyImport],
+  ['as2-project-input',verifyAs2ProjectInput],
+  ['geometry-timer',verifyGeometryTimer],
+  ['binary-data',verifyBinaryData],
+  ['interfaces-accessors',verifyInterfacesAccessors],
+  ['resource-loading',verifyResourceLoading],
+  ['bitmap-pixels',verifyBitmapPixels],
+  ['text-layout',verifyTextLayout],
+  ['sound-playback',verifySoundPlayback],
+  ['data-processing',verifyDataProcessing],
+  ['display-transforms',verifyDisplayTransforms],
+  ['typed-collections',verifyTypedCollections],
+  ['xml-catalog',verifyXMLCatalog],
+  ['gradient-graphics',verifyGradientGraphics],
+  ['clipped-scene',verifyClippedScene],
+  ['loader-gallery',verifyLoaderGallery],
+  ['saved-game',verifySavedGame],
+  ['text-form',verifyTextForm],
+  ['filter-gallery',verifyFilterGallery],
+  ['function-workflow',verifyFunctionWorkflow],
+  ['image-pipeline',verifyImagePipeline],
+  ['class-packages',verifyClassPackages],
+  ['video-playback',verifyVideoPlayback],
+  ['drag-drop',verifyDragDrop],
+  ['web-integration',verifyWebIntegration],
+  ['core-surface',verifyCoreSurface],
+];
+const selected=selectWorkflows(workflows,process.env.NEOFLASH_WORKFLOWS);
 const source=(id,path,source)=>({id,path,language:'action_script3',source});
 const project={format_version:2,name:'Original program fixture',width:320,height:180,fps:24,background:[255,255,255,255],root:'scene',
   symbols:[{id:'scene',name:'Scene',kind:'movie_clip',timeline:{frame_count:1,layers:[],scripts:[]}}],
@@ -74,7 +104,7 @@ scripts[0].source='import user.SharedObject; import user.MovieClipLoader; import
 scripts[0].source='import flash.utils.Dictionary; import model.Bag; import model.DataBase; '+scripts[0].source+' var modelVector:Vector.<DataBase>=new Vector.<DataBase>(); modelVector.push(record); var numbers:Vector.<int>=Vector.<int>([7,8]); var bag:Bag=new Bag(); bagResult=bag.accept(modelVector,numbers); var associations:Dictionary=new Dictionary(); associations[record]=7;associations[a]=9; dictionarySum=0; var objectKeys:Array=[];for(var identity:Object in associations){objectKeys.push(identity);dictionarySum+=associations[identity];} dictionaryHad=record in associations;dictionaryRemoved=delete associations[record];dictionaryNow=record in associations;dictionaryJSON=JSON.stringify(associations); fixedDelete=delete record.value;fixedHas="value" in record;var dynamicKeys:Array=[];for(var property:String in record)dynamicKeys.push(property);';
 scripts.push({language:'action_script2',source:'import legacy.SharedObject; import legacy.MovieClipLoader; import legacy.XML; import legacy.XMLNode; import legacy.JSON; import legacy.RegExp; import legacy.Date; import legacy.Vector; import legacy.Dictionary; legacyElapsed=getTimer(); var customLoader:MovieClipLoader=new MovieClipLoader("legacy-loader"); legacyLoaderResult=customLoader.label; legacyStoreResult=SharedObject.getLocal("legacy-store").label; var userJSON=new JSON(); var userRegex=new RegExp(); var userDate=new Date(); var userVector=new Vector(); var userDictionary=new Dictionary(); userCollections=userVector.size()+userDictionary.count(); var oldXML=new XML();var oldNode=new XMLNode(); oldXMLResult=oldXML.marker()+oldNode.marker(); userText=userJSON.parse("value"); userMatch=userRegex.test("user"); userTime=userDate.getTime(); function localNative(JSON:Object,RegExp:Object):String{return JSON.parse("local")+RegExp.test("local");} userShadow=localNative({parse:function(value:String):String{return value;}},{test:function(value:String):Boolean{return true;}});'});
 scripts[0].source='import user.ObjectUser; '+scripts[0].source+' coreProject=record.languageValues();var objectUser:ObjectUser=new ObjectUser;qualifiedObject=objectUser.run();';
-const result=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
+const result=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-script','--example','compile_project'],{cwd:root,input:JSON.stringify({project,scripts}),encoding:'utf8'});
 assert.equal(result.status,0,result.error?.message || result.stderr);
 const compiled=JSON.parse(result.stdout);assert.ok(compiled.Ok,JSON.stringify(compiled));
 const bridge=createRequire(import.meta.url)(resolve(root,'web/runtime.js')).createAs2Methods();
@@ -146,7 +176,7 @@ assert.ok(failure);assert.throws(()=>program.attach('model.Counter',failed,[1]),
 const directory=mkdtempSync(resolve(root,'target/project-program-'));
 let player;
 try {
-  const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/project-program.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+  const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/project-program.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
   assert.equal(exported.status,0,exported.error?.message || exported.stderr);
   const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
   vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
@@ -176,44 +206,6 @@ try {
   assert.equal(host.lastTrace(),'component click left 1 1','Restart has fresh shared state and one callback');
 } finally {
   player?.free();rmSync(directory,{recursive:true,force:true});
-}
-const workflows=[
-  ['legacy-import',verifyLegacyImport],
-  ['as2-project-input',verifyAs2ProjectInput],
-  ['geometry-timer',verifyGeometryTimer],
-  ['binary-data',verifyBinaryData],
-  ['interfaces-accessors',verifyInterfacesAccessors],
-  ['resource-loading',verifyResourceLoading],
-  ['bitmap-pixels',verifyBitmapPixels],
-  ['text-layout',verifyTextLayout],
-  ['sound-playback',verifySoundPlayback],
-  ['data-processing',verifyDataProcessing],
-  ['display-transforms',verifyDisplayTransforms],
-  ['typed-collections',verifyTypedCollections],
-  ['xml-catalog',verifyXMLCatalog],
-  ['gradient-graphics',verifyGradientGraphics],
-  ['clipped-scene',verifyClippedScene],
-  ['loader-gallery',verifyLoaderGallery],
-  ['saved-game',verifySavedGame],
-  ['text-form',verifyTextForm],
-  ['filter-gallery',verifyFilterGallery],
-  ['function-workflow',verifyFunctionWorkflow],
-  ['image-pipeline',verifyImagePipeline],
-  ['class-packages',verifyClassPackages],
-  ['video-playback',verifyVideoPlayback],
-  ['drag-drop',verifyDragDrop],
-  ['web-integration',verifyWebIntegration],
-  ['core-surface',verifyCoreSurface],
-];
-let selected=workflows;
-if(process.env.NEOFLASH_WORKFLOWS!==undefined){
-  const requested=process.env.NEOFLASH_WORKFLOWS.split(',').map(id=>id.trim());
-  const known=new Set(workflows.map(([id])=>id));
-  if(requested.some(id=>!known.has(id))||new Set(requested).size!==requested.length){
-    throw new Error(`NEOFLASH_WORKFLOWS requires unique comma-separated workflow IDs. Available: ${[...known].join(',')}`);
-  }
-  const included=new Set(requested);
-  selected=workflows.filter(([id])=>included.has(id));
 }
 const failures=[];
 for(const [id,verify] of selected){

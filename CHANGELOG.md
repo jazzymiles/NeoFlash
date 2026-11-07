@@ -2,6 +2,11 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Test maintenance: cartoon regressions preserve authored examples and clean up temporary outputs; full movie and
+  HTML5 artifact generation is explicit. Project workflows reuse built test tools within each run, and full checks
+  avoid retaining incremental compiler caches unless requested. Ordinary semantic/Lottie and video-preparation checks
+  remain; full cartoon video and HTML5 export checks are explicitly opt-in.
+
 - Merge Drawing hole preservation and Onion Skin range editing/retention (`T-088`, `T-080`):
   - **Merge Drawing hole preservation & flood-fill prevention (`T-088`):** decomposed figure-8 / kissing half-edge cycles at shared pinch vertices into separate simple rings by tracking active source vertices (`vert_walk` / `vert_pos`) in `trace_half_edge_cycles_with_chains`, added multi-point and bounding-box hole-containment fallbacks in `assemble_shells_and_holes` so negative-area interior holes in dense Brush hatching are never dropped when a vertex kisses the outer shell, and guarded `BooleanOp::Difference` against empty-result drops when the existing fill extends outside the incoming shape's bounds.
   - **Onion Skin range retention & ruler handle dragging (`T-080`):** retained `onion_before` and `onion_after` across document open/reopen and new tabs within the session via `WorkspacePrefs.onion_range`, expanded onion range handle hit rects on the timeline ruler (`±3 pt` horizontally across the full ruler height), and recorded handle press origins across frames so both multi-frame drags and same-tick move+release gestures update `onion_before` / `onion_after` without seeking the playhead.

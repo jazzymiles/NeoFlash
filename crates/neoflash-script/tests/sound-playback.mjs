@@ -2,7 +2,7 @@
 // injected AudioContext observes silent scheduling/lifecycle, not MP3 decoding;
 // actual browser decoder and silent output evidence is recorded separately.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -42,7 +42,7 @@ export async function verifySoundPlayback(root,cargo) {
     contexts.push(context);return context;
   }
   try {
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/sound-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/sound-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
@@ -176,7 +176,7 @@ async function verifyTimelineSound(root,cargo) {
     createChannelSplitter:()=>node('splitter'),createChannelMerger:()=>node('merger'),
     createBufferSource(){const source={...node('source'),start(when,offset){this.started=[when,offset];},stop(when){this.stopped=when??now;}};sources.push(source);return source;}};
   try {
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/timeline-sound.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/timeline-sound.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);

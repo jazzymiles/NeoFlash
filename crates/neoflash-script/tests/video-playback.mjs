@@ -2,7 +2,7 @@
 // observe transport and asynchronous playback ownership, not MP4 decoding.
 // Root's browser acceptance supplies the native decoder/rendering evidence.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -58,13 +58,13 @@ function mediaBoundary(){
 export async function verifyVideoPlayback(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/video-playback-'));const media=mediaBoundary();let player,host,server;let requests=0;
   try{
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/video-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/video-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);
     const resource=bundle.project.resources.find(resource=>resource.path==='media/motion.mp4'),original=Buffer.from(resource.data_base64,'base64');
     assert.equal(resource.media_type,'video/mp4');assert.equal(original.subarray(4,8).toString(),'ftyp');
     server=createServer((request,response)=>{requests++;assert.equal(request.url,'/video-fixture.mp4');response.writeHead(200,{'Content-Type':'video/mp4','Content-Length':original.length});response.end(original);});
-    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const baseURL=`http://127.0.0.1:${server.address().port}/index.html`;
+    await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});const baseURL=`http://127.0.0.1:${server.address().port}/index.html`;
     vm.runInContext(readFileSync(resolve(directory,'neoflash_web.js'),'utf8'),sandbox);sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);player=new wasm.WebPlayer(JSON.stringify(bundle.project));
     ({host}=createRuntimeHost(root,player,Array.from(bundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle,net:{baseURL},video:{...media,isUserGesture:()=>true},context:{measureText:line=>({width:line.length*8})}}));
     host.dispatchScripts();let scene=host.proxyFor([]);await until(()=>scene.ready&&scene.legacyReady,'both local connections create their stream after success');

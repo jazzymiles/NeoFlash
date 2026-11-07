@@ -2,7 +2,7 @@
 // synchronous calls in both directions, and actual HTTP requests. The small DOM
 // boundary observes authored controls; the browser gate proves real navigation.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -27,9 +27,9 @@ async function until(predicate,label){const deadline=Date.now()+5000;while(!pred
 export async function verifyWebIntegration(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/web-integration-'));let player,host,server;const requests=[],navigations=[],pending=[],errors=[];const dom=authoredDOM();
   try{
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/web-integration.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/web-integration.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     server=createServer((request,response)=>{let body='';request.setEncoding('utf8');request.on('data',part=>body+=part);request.on('end',()=>{requests.push({method:request.method,url:request.url,body});response.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});response.end('<!doctype html><title>Receipt</title><p>Accepted</p>');});});
-    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const baseURL=`http://127.0.0.1:${server.address().port}/index.html`;
+    await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});const baseURL=`http://127.0.0.1:${server.address().port}/index.html`;
     function navigate(prepared){navigations.push(prepared);const body=prepared.method==='POST'?new URLSearchParams(prepared.fields).toString():undefined;const task=fetch(prepared.url,{method:prepared.method,body,headers:body===undefined?undefined:{'Content-Type':'application/x-www-form-urlencoded'}}).then(response=>response.text());pending.push(task);}
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);
     vm.runInContext(readFileSync(resolve(directory,'neoflash_web.js'),'utf8'),sandbox);sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);player=new wasm.WebPlayer(JSON.stringify(bundle.project));

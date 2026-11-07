@@ -3126,6 +3126,33 @@ mod tests {
         RectangleOptions, Script, ScriptLanguage, SymbolKind,
     };
 
+    struct TestOutputDir(PathBuf);
+
+    impl TestOutputDir {
+        fn new(label: &str) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            loop {
+                let path = std::env::temp_dir().join(format!(
+                    "neoflash-lottie-{label}-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create test output {}: {error}", path.display()),
+                }
+            }
+        }
+    }
+
+    impl Drop for TestOutputDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn demo_and_tween_features_export_valid_bodymovin_lottie_json() {
         let mut project = Project::blank();
@@ -3354,7 +3381,8 @@ mod tests {
         assert!(err.to_string().contains("cancelled"), "{err}");
         assert_eq!(seen_steps, vec![0, 1]);
 
-        let dir = std::env::temp_dir().join(format!("neoflash-dotlottie-{}", std::process::id()));
+        let output = TestOutputDir::new("dotlottie");
+        let dir = &output.0;
         let dot_path = dir.join("banner.lottie");
         let dot_report = export_project_lottie_with_progress(
             &project,
@@ -3378,7 +3406,6 @@ mod tests {
         assert!(dot_report.html_preview_path.as_ref().unwrap().exists());
         let zip_bytes = fs::read(&dot_path).unwrap();
         assert_eq!(&zip_bytes[0..4], b"PK\x03\x04");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -3551,9 +3578,8 @@ mod tests {
             });
         project.validate().unwrap();
 
-        let dir = std::env::temp_dir().join(format!("neoflash-lottie-qa-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let output = TestOutputDir::new("images");
+        let dir = &output.0;
 
         // T-057: HTML preview escapes `</script>` and title HTML entities
         let title_out = dir.join("title.json");
@@ -3657,8 +3683,6 @@ mod tests {
                 .unwrap()
                 .starts_with(b"\x89PNG\r\n\x1a\n")
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -4540,13 +4564,6 @@ mod tests {
             })
         );
 
-        // Save the cartoon example to `examples/midnight-express.nflash` when running in the repo checkout.
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let example_path = repo_root.join("examples/midnight-express.nflash");
-        if example_path.parent().is_some_and(|d| d.exists()) {
-            fs::write(&example_path, p.to_json().unwrap()).unwrap();
-        }
-
         // Verify Scene 1 and Scene 2 flattened evaluation matches authored scene-local evaluation on every frame (T-055).
         let (flat, ranges) = flatten_scenes_with_ranges(&p);
         flat.validate().unwrap();
@@ -4574,9 +4591,17 @@ mod tests {
         let initial_sounds = playback.drain_sound_commands();
         assert_eq!(initial_sounds.len(), 1);
 
-        // Export to Lottie JSON, dotLottie, and HTML Preview in `target/cartoon-qa/`.
-        let qa_dir = repo_root.join("target/cartoon-qa");
-        let _ = fs::create_dir_all(&qa_dir);
+        // Normal regressions own temporary outputs and never rewrite authored examples.
+        // Set NEOFLASH_EXPORT_CARTOON_HTML5=1 for real-runtime publication artifacts.
+        let output = TestOutputDir::new("midnight-express");
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let export_html5 = std::env::var_os("NEOFLASH_EXPORT_CARTOON_HTML5").is_some();
+        let qa_dir = if export_html5 {
+            repo_root.join("dist/generated-examples/midnight-express")
+        } else {
+            output.0.clone()
+        };
+        fs::create_dir_all(&qa_dir).unwrap();
         let lottie_json_path = qa_dir.join("midnight-express.lottie.json");
         let json_report = export_project_lottie(
             &p,
@@ -4616,7 +4641,11 @@ mod tests {
         assert!(dotlottie_path.exists());
         assert!(dot_report.html_preview_path.unwrap().exists());
         let web_runtime = repo_root.join("target/web-runtime");
-        if web_runtime.join("neoflash_web_bg.wasm").exists() {
+        if export_html5 {
+            assert!(
+                web_runtime.join("neoflash_web_bg.wasm").is_file(),
+                "NEOFLASH_EXPORT_CARTOON_HTML5 requires scripts/build-web.sh first"
+            );
             let html5_dir = qa_dir.join("html5");
             crate::export_project_with_options(
                 &p,
@@ -4762,7 +4791,7 @@ mod tests {
                 },
                 PathCommand::QuadraticTo {
                     cx: cx - 42.0 * s,
-                    cy: cy,
+                    cy,
                     x: cx - 96.0 * s,
                     y: cy + 8.0 * s,
                 },
@@ -4796,7 +4825,7 @@ mod tests {
                     y: cy - ry * 0.6,
                 },
                 PathCommand::QuadraticTo {
-                    cx: cx,
+                    cx,
                     cy: cy - ry * 1.25,
                     x: cx + rx * 0.4,
                     y: cy - ry * 0.6,
@@ -4924,7 +4953,7 @@ mod tests {
                     y: cy - hh * 0.1,
                 },
                 PathCommand::QuadraticTo {
-                    cx: cx,
+                    cx,
                     cy: cy - inner_h * 1.15,
                     x: cx - inner_w,
                     y: cy - hh * 0.1,
@@ -6761,13 +6790,6 @@ mod tests {
         p.upgrade_format_for_features();
         p.validate().unwrap();
 
-        // Save Episode 3 to `examples/midnight-express-3.nflash`.
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let example_path = repo_root.join("examples/midnight-express-3.nflash");
-        if example_path.parent().is_some_and(|d| d.exists()) {
-            fs::write(&example_path, p.to_json().unwrap()).unwrap();
-        }
-
         // Verify all 3 scenes flatten cleanly to 144 frames and evaluate every morphed frame!
         let (flat, ranges) = flatten_scenes_with_ranges(&p);
         flat.validate().unwrap();
@@ -6790,9 +6812,20 @@ mod tests {
         let initial_sounds = playback.drain_sound_commands();
         assert_eq!(initial_sounds.len(), 1);
 
-        // Export Lottie JSON + HTML preview and MP4 + GIF into `dist/generated-examples/`.
-        let out_dir = repo_root.join("dist/generated-examples");
-        let _ = fs::create_dir_all(&out_dir);
+        // Keep Lottie coverage in the ordinary suite. Full media generation is explicit:
+        // NEOFLASH_EXPORT_EPISODE3_MEDIA=1 writes MP4/GIF, and
+        // NEOFLASH_EXPORT_CARTOON_HTML5=1 uses the built HTML5 runtime.
+        // Neither mode rewrites examples/; requested artifacts go to dist/generated-examples/.
+        let output = TestOutputDir::new("midnight-express-3");
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let export_media = std::env::var_os("NEOFLASH_EXPORT_EPISODE3_MEDIA").is_some();
+        let export_html5 = std::env::var_os("NEOFLASH_EXPORT_CARTOON_HTML5").is_some();
+        let out_dir = if export_media || export_html5 {
+            repo_root.join("dist/generated-examples")
+        } else {
+            output.0.clone()
+        };
+        fs::create_dir_all(&out_dir).unwrap();
 
         let lottie_json_path = out_dir.join("midnight-express-3.lottie.json");
         let lottie_report = export_project_lottie(
@@ -6811,9 +6844,14 @@ mod tests {
         assert!(lottie_json_path.exists());
         assert!(lottie_report.html_preview_path.unwrap().exists());
 
+        // Keep multi-scene video preparation in the normal suite without encoding frames.
+        let video_estimate = crate::video::estimate_video(&p, &VideoOptions::default()).unwrap();
+        assert_eq!(video_estimate.frame_count, 144);
+        assert_eq!(video_estimate.duration_secs, 6.0);
+
         let mp4_path = out_dir.join("midnight-express-3.mp4");
         let gif_path = out_dir.join("midnight-express-3.gif");
-        if std::env::var_os("NEOFLASH_EXPORT_EPISODE3_MEDIA").is_some() || !mp4_path.exists() {
+        if export_media {
             let mp4_report = export_project_video(
                 &p,
                 &mp4_path,
@@ -6828,7 +6866,7 @@ mod tests {
             assert_eq!(mp4_report.frame_count, 144);
             assert!(mp4_path.exists());
         }
-        if std::env::var_os("NEOFLASH_EXPORT_EPISODE3_MEDIA").is_some() {
+        if export_media {
             let gif_report = export_project_video(
                 &p,
                 &gif_path,
@@ -6845,7 +6883,11 @@ mod tests {
         }
 
         let web_runtime = repo_root.join("target/web-runtime");
-        if web_runtime.join("neoflash_web_bg.wasm").exists() {
+        if export_html5 {
+            assert!(
+                web_runtime.join("neoflash_web_bg.wasm").is_file(),
+                "NEOFLASH_EXPORT_CARTOON_HTML5 requires scripts/build-web.sh first"
+            );
             let html5_dir = out_dir.join("midnight-express-3-html5");
             crate::export_project_with_options(
                 &p,

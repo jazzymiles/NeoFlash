@@ -1,7 +1,7 @@
 // Execute emitted code in a real JavaScript engine; no golden-string assertions.
 // Run from the repository with: node crates/neoflash-script/tests/execute.mjs
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -586,7 +586,7 @@ const fixtures = [
     },
   },
 ];
-const result = spawnSync(cargo, ['run', '--quiet', '-p', 'neoflash-script', '--example', 'compile_batch'], {
+const result = runCargo(cargo, ['run', '--quiet', '-p', 'neoflash-script', '--example', 'compile_batch'], {
   cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   input: JSON.stringify(fixtures.map(({ language, source }) => ({ language, source }))),
 });

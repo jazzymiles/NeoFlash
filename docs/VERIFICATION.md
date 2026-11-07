@@ -24,7 +24,7 @@ cargo test --locked --workspace                      # core, editor, script, imp
 cargo test --locked -p egui-winit --lib neoflash_paste_tests
 python3 scripts/check-fla-corpus.py                  # public FLA corpus imports and refusals
 ./scripts/build-web.sh                               # WASM runtime
-node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs
+node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs scripts/tests/*.test.cjs
 node crates/neoflash-script/tests/execute.mjs        # emitted-script fixtures
 node crates/neoflash-script/tests/project-execute.mjs  # every project workflow family, incl. sound-playback
 python3 -B -m unittest discover -s scripts/tests -p 'test_browser_batch.py'
@@ -32,6 +32,22 @@ cargo run --locked -p neoflash-export -- --demo --output dist/demo
 ```
 
 Deliveries that change ActionScript or product status also run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. After a concrete project-family failure, `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` selects affected families (for example `NEOFLASH_WORKFLOWS=sound-playback`); that selection is not a complete delivery check. Browser and native UI behavior still require direct observation. The Metal dependency's `block 0.1.6` future-compatibility notice was not a current compilation error.
+
+The full check defaults `CARGO_INCREMENTAL=0` so delivery runs do not retain large incremental compiler caches;
+set `CARGO_INCREMENTAL=1` explicitly when repeated local edits justify them. Direct Cargo commands keep their
+normal settings and debugging information is unchanged. Workflow tests build each compatible native exporter or
+compiler tool once per Node process, then execute it for every fixture; no cross-run executable cache is trusted.
+That shortcut accepts only empty Cargo configs or the repository's exact macOS deployment-target setting.
+Other configs in the working directory, its ancestors or `CARGO_HOME`, and custom target/runner settings,
+use ordinary `cargo run` so Cargo retains control of their execution environment.
+Unknown or repeated `NEOFLASH_WORKFLOWS` IDs fail before the shared preparation work.
+
+Ordinary cartoon regressions check scene evaluation, morphs, sound commands, masks and Lottie/preview output in
+automatically removed temporary directories. They never rewrite authored `examples/*.nflash` or encode a full
+movie just because a previous export was deleted. For deliberate artifact generation, set
+`NEOFLASH_EXPORT_EPISODE3_MEDIA=1` when running the `midnight_express_episode_3_starlight_morph_cartoon` export test
+to produce MP4/GIF (MP4 requires FFmpeg). Set `NEOFLASH_EXPORT_CARTOON_HTML5=1` after `scripts/build-web.sh` to export
+the cartoon tests with the real browser runtime. Requested artifacts go under `dist/generated-examples/`.
 
 ### Stage grid and main-menu controls
 

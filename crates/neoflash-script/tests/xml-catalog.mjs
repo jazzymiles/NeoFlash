@@ -1,7 +1,7 @@
 // One exported XML workflow spans Rust parsing, both language facades, loaders,
 // typed handlers, E4X selectors/literals, target edits and Restart; no per-member matrix.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -16,7 +16,7 @@ export async function verifyXMLCatalog(root,cargo) {
     assert.fail('AS3 URLLoader and AS2 XML.load did not both complete');
   }
   try {
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/xml-catalog.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/xml-catalog.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);

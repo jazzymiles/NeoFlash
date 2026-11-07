@@ -1,6 +1,6 @@
 // Legacy source through an ordinary export, actual WASM graph and host callbacks.
 import assert from 'node:assert/strict';
-import {spawnSync} from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import {readFileSync,writeFileSync,mkdtempSync,rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import vm from 'node:vm';
@@ -37,7 +37,7 @@ export async function verifyLegacyImport(root,cargo){
       symbol('button','button',4,[key(0,[]),key(1,[]),key(2,[]),key(3,[element('hit',rect())])])
     ]};
     const path=resolve(directory,'legacy.nflash');writeFileSync(path,JSON.stringify(project));
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--',path,'--output',resolve(directory,'html')],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--',path,'--output',resolve(directory,'html')],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'html/bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);
@@ -250,7 +250,7 @@ this.enumCount = enumSeen.length;
       symbols:[mainSym,gadgetSym,actorSym,twoFrameSym,leafSym,strictSym,buttonSym]
     };
     const path=resolve(directory,'as1-full.nflash');writeFileSync(path,JSON.stringify(project));
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--',path,'--output',resolve(directory,'html')],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--',path,'--output',resolve(directory,'html')],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'html/bundle.js'),'utf8'),sandbox);

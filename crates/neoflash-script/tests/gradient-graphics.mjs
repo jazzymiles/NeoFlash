@@ -1,7 +1,7 @@
 // One ordinary publication covers the Graphics family and retained display identity.
 // Real Canvas pixels are accepted separately in the browser, not simulated here.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { runCargo } from '../../../scripts/test-cargo.cjs';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -11,7 +11,7 @@ export async function verifyGradientGraphics(root,cargo) {
   const directory=mkdtempSync(resolve(root,'target/gradient-graphics-'));
   let player,host;
   try {
-    const exported=spawnSync(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/dynamic-display.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/dynamic-display.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
