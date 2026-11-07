@@ -1946,3 +1946,482 @@ fn multi_row_layer_selection_and_drag_reparent_into_folders_commit_in_one_undo_s
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn t100_library_lifecycle_movie_explorer_and_smart_rename() {
+    use crate::panels::find_replace::{
+        CaseTransform, CollisionPolicy, RenameNamespace, RenameScope, SmartRenameOptions,
+    };
+
+    let mut project = Project::blank();
+    project.symbols.push(Symbol {
+        id: "unused-sym".into(),
+        name: "UnusedHero".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "ul".into(),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    project.symbols.push(Symbol {
+        id: "used-sym".into(),
+        name: "UsedBadge".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "bl".into(),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "inst-1".into(),
+            name: "hero_btn_old".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Instance {
+                symbol_id: "used-sym".into(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    let (unused_syms, _) = editor.select_unused_library_items();
+    assert_eq!(unused_syms, vec!["unused-sym".to_owned()]);
+    let (removed_syms, _) = editor.delete_unused_library_items();
+    assert_eq!(removed_syms, 1);
+    assert!(editor.project.symbol("unused-sym").is_none());
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // Movie Explorer actions: select instances on current frame & copy all text.
+    assert_eq!(
+        editor.select_symbol_instances_on_current_frame("used-sym"),
+        1
+    );
+    assert!(!editor.copy_all_movie_explorer_text().is_empty());
+
+    // Bulk Library folder move & symbol kind change.
+    assert_eq!(
+        editor.bulk_move_library_symbols(&["used-sym".into()], "Actors"),
+        Ok(1)
+    );
+    assert_eq!(
+        editor.bulk_set_symbol_kind(&["used-sym".into()], SymbolKind::Graphic),
+        Ok(1)
+    );
+    editor.undo();
+    undo_restores(&mut editor, &before);
+
+    // Smart Rename 2.0 with regex capture groups and case transform.
+    let opts = SmartRenameOptions {
+        scope: RenameScope::ActiveSymbol,
+        namespace: RenameNamespace::InstanceName,
+        find: "^([a-z]+)_([a-z]+)_old$".into(),
+        replace_template: "$1_$2_{n:02}".into(),
+        regex: true,
+        match_case: true,
+        case_transform: CaseTransform::CamelCase,
+        collision_policy: CollisionPolicy::AutoNumber,
+        start_number: 1,
+        step_number: 1,
+    };
+    let preview = editor.preview_smart_rename(&opts);
+    assert_eq!(preview.renamed_count, 1);
+    assert_eq!(preview.preview[0].after, "heroBtn01");
+
+    let report = editor.apply_smart_rename(&opts);
+    assert_eq!(report.renamed_count, 1);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].name,
+        "heroBtn01"
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t103_history_command_steps_and_saved_command_replay() {
+    use neoflash_core::AuthoringCommandStep;
+
+    let mut project = Project::blank();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "box-1".into(),
+            name: "Box".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 30.0,
+                fill: [200, 100, 50, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            ..Element::default()
+        });
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.select_single_id("box-1".into());
+
+    let applied = editor
+        .execute_command_steps(
+            "Move and tint",
+            &[
+                AuthoringCommandStep::Translate { dx: 15.0, dy: -5.0 },
+                AuthoringCommandStep::SetAlpha { alpha: 0.5 },
+            ],
+        )
+        .expect("execute steps");
+    assert_eq!(applied, 2);
+    let el = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    assert!((el.transform.x - 15.0).abs() < 1e-6);
+    assert!((el.transform.y - -5.0).abs() < 1e-6);
+    assert!((el.transform.alpha - 0.5).abs() < 1e-6);
+
+    let json = editor.copy_history_steps_json(&[0]).expect("step json");
+    let saved = neoflash_core::SavedCommand::from_json(&json).expect("round-trip saved command");
+    editor.run_saved_command(&saved).expect("run saved command");
+    editor.repeat_last_command().expect("repeat last command");
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t104_t105_curve_split_planar_bucket_brush_modes_and_variable_width() {
+    use neoflash_core::{
+        BrushPaintMode, StrokeProfilePreset, StrokeWidthProfile, apply_brush_stroke_with_mode,
+        expand_variable_width_stroke, paint_bucket_planar_face, split_bezier_path_with_segments,
+    };
+
+    let curve = vec![
+        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+        PathCommand::CubicTo {
+            cx1: 30.0,
+            cy1: 60.0,
+            cx2: 70.0,
+            cy2: 60.0,
+            x: 100.0,
+            y: 0.0,
+        },
+    ];
+    let pieces = split_bezier_path_with_segments(&curve, &[([50.0, -20.0], [50.0, 80.0])]);
+    assert_eq!(pieces.len(), 2);
+    assert!(
+        pieces[0]
+            .iter()
+            .any(|c| matches!(c, PathCommand::CubicTo { .. }))
+    );
+
+    let tapered = expand_variable_width_stroke(
+        &curve,
+        6.0,
+        &StrokeWidthProfile::from_preset(StrokeProfilePreset::TaperBoth),
+    );
+    assert!(tapered.len() >= 4);
+
+    // Planar Paint Bucket enclosed by 4 separate stroke lines.
+    let mk_line = |id: &str, x0: f64, y0: f64, x1: f64, y1: f64| Element {
+        id: id.into(),
+        name: String::new(),
+        transform: Transform::default(),
+        merge: true,
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: x0, y: y0 },
+                PathCommand::LineTo { x: x1, y: y1 },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0, 0, 0, 0],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        },
+        ..Element::default()
+    };
+    let lines = vec![
+        mk_line("s1", 0.0, 0.0, 50.0, 0.0),
+        mk_line("s2", 50.0, 0.0, 50.0, 50.0),
+        mk_line("s3", 50.0, 50.0, 0.0, 50.0),
+        mk_line("s4", 0.0, 50.0, 0.0, 0.0),
+    ];
+    let face = paint_bucket_planar_face(&lines, [25.0, 25.0], 2.0).expect("planar bucket face");
+    assert!(face.len() >= 4);
+
+    // Brush PaintBehind inserts behind existing elements.
+    let mut els = vec![lines[0].clone()];
+    let brush_el = Element {
+        id: "b1".into(),
+        name: String::new(),
+        transform: Transform::default(),
+        merge: true,
+        kind: ElementKind::Rectangle {
+            width: 20.0,
+            height: 20.0,
+            fill: [255, 0, 0, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    };
+    assert!(
+        !apply_brush_stroke_with_mode(&mut els, brush_el, BrushPaintMode::PaintBehind, &[], None)
+            .is_empty()
+    );
+    assert_eq!(els[0].id, "b1");
+}
+
+#[test]
+fn t106_t107_rich_text_html_outlines_bitmap_properties_and_scale9() {
+    use neoflash_core::{AuthoredTextFieldOptions, BitmapCompression, TextFormatPatch};
+
+    let mut project = Project::blank();
+    project.format_version = 3;
+    let png_bytes: [u8; 68] = [
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D',
+        b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0B, b'I', b'D', b'A', b'T', 0x78, 0x9C, 0x63, 0x60,
+        0x00, 0x02, 0x00, 0x00, 0x05, 0x00, 0x01, 0xE2, 0x26, 0x05, 0x9B, 0x00, 0x00, 0x00, 0x00,
+        b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
+    ];
+    project.resources.push(
+        ResourceUnit::from_bytes("bmp-1", "hero.png", "image/png", &png_bytes).expect("png unit"),
+    );
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "tb-1".into(),
+            name: String::new(),
+            transform: Transform::default(),
+            kind: ElementKind::TextBox {
+                text: "Hello World".into(),
+                width: 160.0,
+                height: 40.0,
+                format: TextFormat::default(),
+                multiline: true,
+                word_wrap: true,
+            },
+            ..Element::default()
+        });
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+    editor.select_single_id("tb-1".into());
+
+    editor
+        .set_selected_text_html("<b>Hello</b> <i>World</i>")
+        .expect("set html");
+    let html_out = editor.selected_text_to_html().expect("html out");
+    assert!(html_out.contains("<b>Hello</b>"));
+
+    editor
+        .apply_selected_text_format_range(
+            0,
+            5,
+            TextFormatPatch {
+                underline: Some(true),
+                ..TextFormatPatch::default()
+            },
+        )
+        .expect("format range");
+
+    editor
+        .set_selected_text_field_options(AuthoredTextFieldOptions {
+            max_chars: 32,
+            border: true,
+            ..AuthoredTextFieldOptions::default()
+        })
+        .expect("field options");
+
+    let cmds = editor
+        .convert_selected_text_to_outlines()
+        .expect("convert to outlines");
+    assert!(cmds > 0);
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+
+    // Bitmap properties dialog, replace bytes, bitmap fill & 9-slice grid.
+    editor.open_bitmap_properties(&ctx, Some("bmp-1".into()));
+    assert!(crate::bitmaps::has_bitmap_properties_dialog(&ctx));
+    crate::bitmaps::update_bitmap_properties_draft(&ctx, |draft| {
+        draft.export.compression = BitmapCompression::PhotoJpeg;
+        draft.export.use_imported_jpeg_data = false;
+        draft.export.jpeg_quality = 75;
+        draft.export_modified = true;
+    });
+    editor
+        .confirm_bitmap_properties(&ctx)
+        .expect("confirm bitmap properties");
+    assert_eq!(
+        editor.project.resources[0]
+            .bitmap_export
+            .unwrap()
+            .jpeg_quality,
+        75
+    );
+    editor
+        .replace_bitmap_resource_bytes("bmp-1", "hero2.png", "image/png", &png_bytes, None)
+        .expect("replace bitmap bytes");
+    editor.select_single_id("tb-1".into());
+    editor
+        .set_selected_bitmap_fill("bmp-1".into(), [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], true, true)
+        .expect("set bitmap fill");
+    let root_id = editor.project.root.clone();
+    editor
+        .set_symbol_scale9_grid(&root_id, Some([10.0, 10.0, 80.0, 80.0]))
+        .expect("set scale9 grid");
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t108_t109_t111_classic_tween_rotate_roving_and_graphic_frame_picker() {
+    use neoflash_core::InstancePropertyOverride;
+
+    let mut project = Project::blank();
+    project.symbols.push(Symbol {
+        id: "mouth-sym".into(),
+        name: "Mouth".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![Layer {
+                id: "ml".into(),
+                name: "Visemes".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        label: "Neutral".into(),
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 1,
+                        label: "Ah".into(),
+                        ..Keyframe::default()
+                    },
+                ],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    project.symbols[0].timeline.frame_count = 11;
+    let inst = Element {
+        id: "mouth-inst".into(),
+        name: String::new(),
+        transform: Transform::default(),
+        kind: ElementKind::Instance {
+            symbol_id: "mouth-sym".into(),
+            playback: InstancePlayback::Loop,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![inst.clone()],
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Classic,
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 10,
+            elements: vec![Element {
+                transform: Transform {
+                    x: 90.0,
+                    ..Transform::default()
+                },
+                ..inst
+            }],
+            ..Keyframe::default()
+        },
+    ];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    assert!(editor.set_classic_tween_rotate(2, ClassicRotateDirection::Cw));
+    assert!(editor.set_classic_tween_scale(false));
+    assert!(editor.set_classic_tween_sync_symbols(true));
+    let sampled = sample_layer(&editor.symbol().timeline.layers[0], 5);
+    assert!((sampled[0].transform.rotation - 360.0).abs() < 1e-4);
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+
+    // Graphic Frame Picker, Instance Overrides, Span Rename, Audio Scrubbing & Lip Sync.
+    editor.select_single_id("mouth-inst".into());
+    let entries = editor.graphic_frame_picker_entries();
+    assert_eq!(entries.len(), 4);
+    assert_eq!(entries[1].1, "Ah");
+    assert!(editor.pick_graphic_frame(1));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].elements[0].kind,
+        ElementKind::Instance {
+            symbol_id: "mouth-sym".into(),
+            playback: InstancePlayback::SingleFrame(1),
+        }
+    );
+    assert!(
+        editor.set_instance_property_override(InstancePropertyOverride {
+            instance_id: "mouth-inst".into(),
+            target_name: "label_txt".into(),
+            text: Some("Hi".into()),
+            color: None,
+            visible: Some(true),
+            frame: None,
+        })
+    );
+    assert_eq!(editor.rename_instance_in_span("mouth_mc", true), 2);
+    assert!(editor.scrub_timeline_audio_at_frame(0).is_empty());
+    let _ = editor.toggle_roving_keyframe();
+    let _ = editor.auto_lip_sync_selected_graphic(&[0, 1, 1, 1, 1, 1]);
+    editor.project.validate().unwrap();
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}

@@ -974,4 +974,194 @@ impl Editor {
         });
         true
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_classic_tween_rotate(
+        &mut self,
+        turns: u32,
+        dir: neoflash_core::ClassicRotateDirection,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let turns = turns.min(Keyframe::MAX_ROTATE_TURNS);
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if key.tween.is_none() || key.tween_kind != TweenKind::Classic {
+            return false;
+        }
+        if key.classic_rotate_turns == turns && key.classic_rotate_dir == dir {
+            return false;
+        }
+        let key_frame = key.frame;
+        self.transact_named("Set classic tween rotation", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.classic_rotate_turns = turns;
+                k.classic_rotate_dir = dir;
+            }
+            layer.normalize_motion_keys();
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_classic_tween_scale(&mut self, tween_scale: bool) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if key.tween.is_none()
+            || key.tween_kind != TweenKind::Classic
+            || key.tween_scale == tween_scale
+        {
+            return false;
+        }
+        let key_frame = key.frame;
+        self.transact_named("Set classic tween scale", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.tween_scale = tween_scale;
+            }
+            layer.normalize_motion_keys();
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_classic_tween_sync_symbols(&mut self, sync: bool) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if key.tween.is_none() || key.tween_kind != TweenKind::Classic || key.sync_symbols == sync {
+            return false;
+        }
+        let key_frame = key.frame;
+        self.transact_named("Sync classic tween symbols", |editor| {
+            let sym_id = editor.symbol_id().to_owned();
+            let project_snapshot = editor.project.clone();
+            if let Some(symbol) = editor.project.symbol_mut(&sym_id) {
+                let frame_count = symbol.timeline.frame_count;
+                let layer = &mut symbol.timeline.layers[layer_idx];
+                if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                    k.sync_symbols = sync;
+                }
+                layer.normalize_motion_keys();
+                if sync {
+                    let end_frame = layer
+                        .keyframes
+                        .iter()
+                        .filter(|k| k.frame > key_frame)
+                        .map(|k| k.frame)
+                        .min()
+                        .unwrap_or_else(|| frame_count.saturating_sub(1));
+                    neoflash_core::sync_layer_symbols(
+                        &project_snapshot,
+                        layer,
+                        key_frame,
+                        end_frame,
+                    );
+                }
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn toggle_roving_keyframe(&mut self) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.keyframes.iter().find(|k| k.frame == frame))
+        else {
+            return false;
+        };
+        let is_pos_key = key
+            .keyed_properties
+            .as_ref()
+            .is_some_and(|kp| kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y));
+        if !is_pos_key {
+            return false;
+        }
+        let next_roving = !key.roving;
+        self.transact_named("Toggle roving keyframe", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
+                k.roving = next_roving;
+            }
+            layer.normalize_motion_keys();
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_instance_property_override(
+        &mut self,
+        ov: neoflash_core::InstancePropertyOverride,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let key_frame = key.frame;
+        self.transact_named("Set instance property override", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                k.set_instance_override(ov);
+            }
+        });
+        true
+    }
 }

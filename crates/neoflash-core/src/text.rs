@@ -73,6 +73,12 @@ struct TextFormatWire {
     align_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     display: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "fieldOptions"
+    )]
+    field_options: Option<AuthoredTextFieldOptions>,
 }
 impl Default for TextFormatWire {
     fn default() -> Self {
@@ -103,6 +109,7 @@ impl From<TextFormatWire> for TextFormat {
         };
         fmt.set_align_mode(wire.align_mode);
         fmt.set_display(wire.display);
+        fmt.set_field_options(wire.field_options);
         fmt
     }
 }
@@ -111,6 +118,7 @@ impl From<TextFormat> for TextFormatWire {
         let target = fmt.target_str().to_owned();
         let align_mode = fmt.align_mode().map(str::to_owned);
         let display = fmt.display().map(str::to_owned);
+        let field_options = fmt.field_options().filter(|o| !o.is_default());
         Self {
             font: fmt.font,
             size: fmt.size,
@@ -132,6 +140,7 @@ impl From<TextFormat> for TextFormatWire {
             target,
             align_mode,
             display,
+            field_options,
         }
     }
 }
@@ -167,42 +176,68 @@ impl TextFormat {
     }
     pub fn align_mode(&self) -> Option<&str> {
         let (_, meta) = self.target.split_once("\0\x1f")?;
-        let (align_part, _) = meta.split_once('\x1f')?;
+        let align_part = meta.split('\x1f').next()?;
         (!align_part.is_empty()).then_some(align_part)
     }
     pub fn display(&self) -> Option<&str> {
         let (_, meta) = self.target.split_once("\0\x1f")?;
-        let (_, display_part) = meta.split_once('\x1f')?;
+        let display_part = meta.split('\x1f').nth(1)?;
         (!display_part.is_empty()).then_some(display_part)
+    }
+    pub fn field_options(&self) -> Option<AuthoredTextFieldOptions> {
+        let (_, meta) = self.target.split_once("\0\x1f")?;
+        let opts_part = meta.split('\x1f').nth(2)?;
+        if opts_part.is_empty() {
+            return None;
+        }
+        serde_json::from_str::<AuthoredTextFieldOptions>(opts_part)
+            .ok()
+            .filter(|o| !o.is_default())
     }
     fn write_target_meta(
         &mut self,
         base: String,
         align_mode: Option<String>,
         display: Option<String>,
+        field_options: Option<AuthoredTextFieldOptions>,
     ) {
         let a = align_mode.as_deref().unwrap_or("");
         let d = display.as_deref().unwrap_or("");
-        if a.is_empty() && d.is_empty() {
+        let o = field_options
+            .filter(|opts| !opts.is_default())
+            .and_then(|opts| serde_json::to_string(&opts).ok())
+            .unwrap_or_default();
+        if a.is_empty() && d.is_empty() && o.is_empty() {
             self.target = base;
-        } else {
+        } else if o.is_empty() {
             self.target = format!("{base}\0\x1f{a}\x1f{d}");
+        } else {
+            self.target = format!("{base}\0\x1f{a}\x1f{d}\x1f{o}");
         }
     }
     pub fn set_target_str(&mut self, base: String) {
         let a = self.align_mode().map(str::to_owned);
         let d = self.display().map(str::to_owned);
-        self.write_target_meta(base, a, d);
+        let o = self.field_options();
+        self.write_target_meta(base, a, d, o);
     }
     pub fn set_align_mode(&mut self, mode: Option<String>) {
         let base = self.target_str().to_owned();
         let d = self.display().map(str::to_owned);
-        self.write_target_meta(base, mode, d);
+        let o = self.field_options();
+        self.write_target_meta(base, mode, d, o);
     }
     pub fn set_display(&mut self, display: Option<String>) {
         let base = self.target_str().to_owned();
         let a = self.align_mode().map(str::to_owned);
-        self.write_target_meta(base, a, display);
+        let o = self.field_options();
+        self.write_target_meta(base, a, display, o);
+    }
+    pub fn set_field_options(&mut self, options: Option<AuthoredTextFieldOptions>) {
+        let base = self.target_str().to_owned();
+        let a = self.align_mode().map(str::to_owned);
+        let d = self.display().map(str::to_owned);
+        self.write_target_meta(base, a, d, options);
     }
     pub fn effective_align_mode(&self) -> &str {
         if let Some(mode) = self.align_mode() {
@@ -588,6 +623,137 @@ impl Default for TextFieldState {
         }
     }
 }
+
+fn default_true_bool() -> bool {
+    true
+}
+
+fn is_true_bool(v: &bool) -> bool {
+    *v
+}
+
+fn is_zero_u32_text(v: &u32) -> bool {
+    *v == 0
+}
+
+fn default_none_auto_size() -> String {
+    "none".into()
+}
+
+fn is_none_auto_size(s: &str) -> bool {
+    s == "none" || s.is_empty()
+}
+
+/// Serializable authored rich-text and TextField behavior options attached to a `TextBox` or `Text` element.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AuthoredTextFieldOptions {
+    #[serde(default)]
+    pub field_type: TextFieldType,
+    #[serde(default = "default_true_bool", skip_serializing_if = "is_true_bool")]
+    pub selectable: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub display_as_password: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u32_text")]
+    pub max_chars: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restrict: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<String>,
+    #[serde(
+        default = "default_none_auto_size",
+        skip_serializing_if = "is_none_auto_size"
+    )]
+    pub auto_size: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub border: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u32_text")]
+    pub border_color: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
+    #[serde(default = "default_bg_white", skip_serializing_if = "is_bg_white")]
+    pub background_color: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub html: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub embed_fonts: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub format_runs: Vec<TextFormatRun>,
+}
+
+fn default_bg_white() -> u32 {
+    0xffffff
+}
+
+fn is_bg_white(v: &u32) -> bool {
+    *v == 0xffffff
+}
+
+impl Default for AuthoredTextFieldOptions {
+    fn default() -> Self {
+        Self {
+            field_type: TextFieldType::Dynamic,
+            selectable: true,
+            display_as_password: false,
+            max_chars: 0,
+            restrict: None,
+            variable: None,
+            auto_size: "none".into(),
+            border: false,
+            border_color: 0,
+            background: false,
+            background_color: 0xffffff,
+            html: false,
+            embed_fonts: false,
+            format_runs: Vec::new(),
+        }
+    }
+}
+
+impl AuthoredTextFieldOptions {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn apply_to_state(&self, state: &mut TextFieldState) {
+        state.field_type = self.field_type;
+        state.selectable = self.selectable;
+        state.display_as_password = self.display_as_password;
+        state.max_chars = self.max_chars;
+        state.restrict = self.restrict.clone();
+        state.as2_viewport.auto_size = if self.auto_size.is_empty() {
+            "none".into()
+        } else {
+            self.auto_size.clone()
+        };
+        state.as2_viewport.border = self.border;
+        state.as2_viewport.border_color = self.border_color & 0xffffff;
+        state.as2_viewport.background = self.background;
+        state.as2_viewport.background_color = self.background_color & 0xffffff;
+        state.embed_fonts = self.embed_fonts;
+        state.format_runs = self.format_runs.clone();
+        state.normalize_runs();
+    }
+
+    pub fn from_state(state: &TextFieldState, variable: Option<String>, html: bool) -> Self {
+        Self {
+            field_type: state.field_type,
+            selectable: state.selectable,
+            display_as_password: state.display_as_password,
+            max_chars: state.max_chars,
+            restrict: state.restrict.clone(),
+            variable: variable.filter(|s| !s.trim().is_empty()),
+            auto_size: state.as2_viewport.auto_size.clone(),
+            border: state.as2_viewport.border,
+            border_color: state.as2_viewport.border_color & 0xffffff,
+            background: state.as2_viewport.background,
+            background_color: state.as2_viewport.background_color & 0xffffff,
+            html,
+            embed_fonts: state.embed_fonts,
+            format_runs: state.format_runs.clone(),
+        }
+    }
+}
+
 pub fn normalize_text(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
 }
@@ -627,21 +793,57 @@ impl TextFieldState {
                 format,
                 word_wrap,
                 multiline,
-            } => Some(Self {
-                text: normalize_text(text),
-                box_size: Some(TextBoxSize {
-                    width: *width,
-                    height: *height,
-                }),
-                format: format.clone(),
-                default_format: format.clone(),
-                multiline: *multiline,
-                word_wrap: *word_wrap,
-                alpha: 255,
-                revision: "1".into(),
-                ..Self::default()
-            }),
+            } => {
+                let mut clean_format = format.clone();
+                let opts = clean_format.field_options();
+                clean_format.set_field_options(None);
+                let mut state = Self {
+                    text: normalize_text(text),
+                    box_size: Some(TextBoxSize {
+                        width: *width,
+                        height: *height,
+                    }),
+                    format: clean_format.clone(),
+                    default_format: clean_format,
+                    multiline: *multiline,
+                    word_wrap: *word_wrap,
+                    alpha: 255,
+                    revision: "1".into(),
+                    ..Self::default()
+                };
+                if let Some(opts) = opts {
+                    opts.apply_to_state(&mut state);
+                }
+                Some(state)
+            }
             _ => None,
+        }
+    }
+
+    pub fn write_to_kind(&self, kind: &mut ElementKind) {
+        if let ElementKind::TextBox {
+            text,
+            width,
+            height,
+            format,
+            word_wrap,
+            multiline,
+        } = kind
+        {
+            let prev_opts = format.field_options();
+            let prev_var = prev_opts.as_ref().and_then(|o| o.variable.clone());
+            let prev_html = prev_opts.as_ref().is_some_and(|o| o.html);
+            *text = self.text.clone();
+            if let Some(size) = self.box_size {
+                *width = size.width;
+                *height = size.height;
+            }
+            *word_wrap = self.word_wrap;
+            *multiline = self.multiline;
+            let mut next_fmt = self.format.clone();
+            let opts = AuthoredTextFieldOptions::from_state(self, prev_var, prev_html);
+            next_fmt.set_field_options((!opts.is_default()).then_some(opts));
+            *format = next_fmt;
         }
     }
     pub(crate) fn storage_bytes(&self) -> usize {

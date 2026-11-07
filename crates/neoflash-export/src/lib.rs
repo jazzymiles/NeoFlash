@@ -1,16 +1,20 @@
 //! Self-contained HTML5 publication. Authored evaluation remains in the Rust WASM runtime.
 
+pub mod atlas;
 pub mod audio;
 pub mod fonts;
 pub mod lottie;
 pub mod publish;
+pub mod svg;
 pub mod video;
+pub use atlas::*;
 pub use audio::*;
 pub use fonts::*;
 pub use lottie::*;
 pub use publish::{
     PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };
+pub use svg::*;
 pub use video::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};

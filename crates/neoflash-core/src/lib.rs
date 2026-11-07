@@ -89,19 +89,23 @@ pub use filters::{
 };
 pub use geometry::{
     FlattenOptions, FlattenedContour, GeometryError, MAX_PATH_COMMANDS, PathBounds,
-    PathFingerprint, flatten_path, hit_test_path, nearest_path_segment, oval_path_commands,
-    path_bounds, path_commands_fingerprint, paths_have_same_topology, polystar_path_commands,
-    rectangle_path_commands, subdivide_path_at, validate_path_commands,
+    PathFingerprint, expand_variable_width_stroke, flatten_path, hit_test_path,
+    nearest_path_segment, oval_path_commands, path_bounds, path_commands_fingerprint,
+    paths_have_same_topology, polystar_path_commands, rectangle_path_commands, subdivide_path_at,
+    validate_path_commands,
 };
-pub use history::History;
+pub use history::{
+    AuthoringCommandStep, History, MAX_COMMAND_STEPS, SavedCommand, apply_command_steps_to_elements,
+};
 pub use library_folders::valid_library_folder;
 pub use merge_drawing::{
-    BooleanOp, apply_merge_shape_to_keyframe, boolean_paths, boolean_rings,
-    combine_elements_boolean, decompose_element_to_merge_parts, element_world_commands,
-    flatten_closed_rings, flatten_stroke_polylines, is_merge_fill, is_merge_stroke,
-    merge_connected_stroke_ids, merge_fill_adjacent_stroke_ids, point_in_rings,
-    remerge_moved_elements_in_keyframe, slice_fill_rings_with_polylines, slice_fill_with_stroke,
-    split_polyline_with_segments, trim_polyline_inside_fill,
+    BooleanOp, BrushPaintMode, apply_brush_stroke_with_mode, apply_merge_shape_to_keyframe,
+    boolean_paths, boolean_rings, combine_elements_boolean, decompose_element_to_merge_parts,
+    element_world_commands, flatten_closed_rings, flatten_stroke_polylines, is_merge_fill,
+    is_merge_stroke, merge_connected_stroke_ids, merge_fill_adjacent_stroke_ids,
+    paint_bucket_planar_face, point_in_rings, remerge_moved_elements_in_keyframe,
+    slice_fill_rings_with_polylines, slice_fill_with_stroke, split_bezier_path_with_segments,
+    split_polyline_with_segments, sub_arc_bezier_command, trim_polyline_inside_fill,
 };
 pub use model::*;
 pub use pixels::{
@@ -110,9 +114,9 @@ pub use pixels::{
 };
 pub use resource_image::DecodedImage;
 pub use resources::{
-    MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
-    ResourceError, ResourceUnit, SoundCompression, SoundExportQuality, SoundExportSettings,
-    VALID_AUDIO_BIT_RATES_KBPS,
+    BitmapCompression, BitmapExportSettings, MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES,
+    MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceError, ResourceUnit, SoundCompression,
+    SoundExportQuality, SoundExportSettings, VALID_AUDIO_BIT_RATES_KBPS, VALID_JPEG_QUALITY_RANGE,
 };
 pub use runtime::{
     AccessibleNode, DisplayNode, FrameLabel, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,
@@ -137,18 +141,19 @@ pub use shape_tween::{
     MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements, shape_tween_elements_with_hints,
 };
 pub use text::{
-    MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError, TextFieldState, TextFieldType,
-    TextFormat, TextFormatPatch, TextFormatRangePatch, TextFormatRun, TextInputEdit, TextLayout,
-    TextLine, TextPatch, TextQuery, TextReplacement, TextRestrictPatch, TextSelection,
-    layout_char_boxes, layout_text, query_text,
+    AuthoredTextFieldOptions, MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError,
+    TextFieldState, TextFieldType, TextFormat, TextFormatPatch, TextFormatRangePatch,
+    TextFormatRun, TextInputEdit, TextLayout, TextLine, TextPatch, TextQuery, TextReplacement,
+    TextRestrictPatch, TextSelection, layout_char_boxes, layout_text, query_text,
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
     sync_layer_symbols,
 };
 pub use timeline_sound::{
-    MAX_WAVEFORM_BUCKETS, SoundCommand, WaveformPeaks, envelope_gains, sample_waveform_peaks,
-    sound_span_end, timeline_sound_resources, wav_waveform_peaks,
+    MAX_WAVEFORM_BUCKETS, ScrubSoundSlice, SoundCommand, WaveformPeaks, compute_lip_sync_keyframes,
+    envelope_gains, sample_waveform_peaks, scrub_sound_slices, sound_span_end,
+    timeline_sound_resources, wav_waveform_peaks,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use xml::{

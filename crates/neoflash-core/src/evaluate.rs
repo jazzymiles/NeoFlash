@@ -561,9 +561,68 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
             next.elements
                 .iter()
                 .find(|n| n.id == e.id)
-                .map_or_else(|| e.clone(), |n| interpolate(e, n, t))
+                .map_or_else(|| e.clone(), |n| interpolate_classic(e, n, t, key))
         })
         .collect()
+}
+
+fn interpolate_classic(a: &Element, b: &Element, t: f64, key: &Keyframe) -> Element {
+    let mut e = interpolate(a, b, t);
+    if !key.tween_scale {
+        e.transform.scale_x = a.transform.scale_x;
+        e.transform.scale_y = a.transform.scale_y;
+        match (&a.kind, &mut e.kind) {
+            (
+                ElementKind::Video {
+                    width: aw,
+                    height: ah,
+                },
+                ElementKind::Video { width, height },
+            )
+            | (
+                ElementKind::Rectangle {
+                    width: aw,
+                    height: ah,
+                    ..
+                },
+                ElementKind::Rectangle { width, height, .. },
+            )
+            | (
+                ElementKind::Ellipse {
+                    width: aw,
+                    height: ah,
+                    ..
+                },
+                ElementKind::Ellipse { width, height, .. },
+            ) => {
+                *width = *aw;
+                *height = *ah;
+            }
+            _ => {}
+        }
+    }
+    let turns = (key.classic_rotate_turns.min(Keyframe::MAX_ROTATE_TURNS) as f64) * 360.0;
+    e.transform.rotation = match key.classic_rotate_dir {
+        ClassicRotateDirection::Auto => {
+            if turns == 0.0 {
+                lerp(a.transform.rotation, b.transform.rotation, t)
+            } else {
+                let delta = b.transform.rotation - a.transform.rotation;
+                let sign = if delta < 0.0 { -1.0 } else { 1.0 };
+                a.transform.rotation + (delta + sign * turns) * t
+            }
+        }
+        ClassicRotateDirection::None => a.transform.rotation,
+        ClassicRotateDirection::Cw => {
+            let cw_delta = (b.transform.rotation - a.transform.rotation).rem_euclid(360.0) + turns;
+            a.transform.rotation + cw_delta * t
+        }
+        ClassicRotateDirection::Ccw => {
+            let ccw_delta = (a.transform.rotation - b.transform.rotation).rem_euclid(360.0) + turns;
+            a.transform.rotation - ccw_delta * t
+        }
+    };
+    e
 }
 
 fn next_key(layer: &Layer, frame: u32) -> Option<&Keyframe> {
@@ -713,6 +772,19 @@ fn interpolate_motion_property(
     property: TweenProperty,
     time: f64,
 ) {
+    let use_roving = matches!(property, TweenProperty::X | TweenProperty::Y)
+        && properties.iter().any(|k| k.roving);
+    let roving_map = if use_roving {
+        Some(roving_frame_times(start, properties, element))
+    } else {
+        None
+    };
+    let effective_time = |frame: u32| -> f64 {
+        roving_map
+            .as_ref()
+            .and_then(|m| m.iter().find(|(f, _)| *f == frame).map(|(_, t)| *t))
+            .unwrap_or(frame as f64)
+    };
     let mut previous = (start.frame as f64, element.transform);
     let mut next = None;
     for key in properties {
@@ -726,21 +798,90 @@ fn interpolate_motion_property(
         let Some(keyed) = key.elements.iter().find(|e| e.id == element.id) else {
             continue;
         };
-        if key.frame as f64 <= time {
-            previous = (key.frame as f64, keyed.transform);
+        let kf = effective_time(key.frame);
+        if kf <= time {
+            previous = (kf, keyed.transform);
         } else {
-            next = Some((key.frame as f64, keyed.transform));
+            next = Some((kf, keyed.transform));
             break;
         }
     }
     let (to, t) = match next {
         Some((frame, to)) => (
             to,
-            ((time - previous.0) / (frame - previous.0)).clamp(0., 1.),
+            ((time - previous.0) / (frame - previous.0).max(1e-9)).clamp(0., 1.),
         ),
         None => (previous.1, 0.),
     };
     set_property(transform, property, &previous.1, &to, t);
+}
+
+fn roving_frame_times(
+    start: &Keyframe,
+    properties: &[&Keyframe],
+    element: &Element,
+) -> Vec<(u32, f64)> {
+    let mut raw: Vec<(u32, [f64; 2], bool)> = vec![(
+        start.frame,
+        [element.transform.x, element.transform.y],
+        false,
+    )];
+    let mut cur_x = element.transform.x;
+    let mut cur_y = element.transform.y;
+    for key in properties {
+        let Some(kp) = &key.keyed_properties else {
+            continue;
+        };
+        if !(kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)) {
+            continue;
+        }
+        if let Some(el) = key.elements.iter().find(|e| e.id == element.id) {
+            if kp.contains(&TweenProperty::X) {
+                cur_x = el.transform.x;
+            }
+            if kp.contains(&TweenProperty::Y) {
+                cur_y = el.transform.y;
+            }
+            raw.push((key.frame, [cur_x, cur_y], key.roving));
+        }
+    }
+    let n = raw.len();
+    if n < 3 {
+        return raw.into_iter().map(|(f, _, _)| (f, f as f64)).collect();
+    }
+    if let Some(last) = raw.last_mut() {
+        last.2 = false;
+    }
+    let mut cum = Vec::with_capacity(n);
+    cum.push(0.0);
+    for pair in raw.windows(2) {
+        let d = (pair[1].1[0] - pair[0].1[0]).hypot(pair[1].1[1] - pair[0].1[1]);
+        cum.push(cum.last().copied().unwrap_or(0.0) + d);
+    }
+    let mut out: Vec<(u32, f64)> = raw.iter().map(|&(f, _, _)| (f, f as f64)).collect();
+    let mut i = 0;
+    while i < n {
+        if raw[i].2 {
+            let left = i.saturating_sub(1);
+            let mut right = i + 1;
+            while right + 1 < n && raw[right].2 {
+                right += 1;
+            }
+            let span_len = cum[right] - cum[left];
+            let t0 = raw[left].0 as f64;
+            let t1 = raw[right].0 as f64;
+            for k in i..right {
+                if span_len > 1e-9 {
+                    let frac = (cum[k] - cum[left]) / span_len;
+                    out[k].1 = lerp(t0, t1, frac);
+                }
+            }
+            i = right;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Pose of one motion-tweened element at normalized `progress` (`0..=1`) over `length`:
@@ -1176,7 +1317,10 @@ pub fn placement_start(layer: &Layer, frame: u32, id: &str) -> u32 {
             continue;
         }
         if seen_current
-            && motion_span(layer, key.frame).is_some_and(|(s, _, _)| s.sync_symbols)
+            && (motion_span(layer, key.frame).is_some_and(|(s, _, _)| s.sync_symbols)
+                || (key.tween.is_some()
+                    && key.tween_kind == TweenKind::Classic
+                    && key.sync_symbols))
             && let Some(sym) = target_symbol
             && let Some(matched) = key.elements.iter().find(
                 |e| matches!(&e.kind, ElementKind::Instance { symbol_id, .. } if symbol_id == sym),
@@ -1258,10 +1402,203 @@ pub(crate) fn snapshot_mode(
             alpha: transform.alpha,
             visible,
             color_transform: transform.color_transform.with_alpha(transform.alpha),
+            scale9: None,
         },
+        &[],
         0,
     );
     result
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Scale9Mapping {
+    grid: [f64; 4],
+    bounds: [f64; 4],
+    sx: f64,
+    sy: f64,
+}
+
+impl Scale9Mapping {
+    fn map_axis(v: f64, b0: f64, bw: f64, g0: f64, gw: f64, s: f64) -> f64 {
+        if bw <= 1e-6 || gw <= 1e-6 {
+            return v * s;
+        }
+        let left_margin = (g0 - b0).max(0.0);
+        let right_margin = ((b0 + bw) - (g0 + gw)).max(0.0);
+        let total_scaled = bw * s;
+        let new_gw = (total_scaled - left_margin - right_margin).max(0.0);
+        let new_b0 = b0 * s;
+        if v <= g0 {
+            new_b0 + (v - b0)
+        } else if v >= g0 + gw {
+            new_b0 + left_margin + new_gw + (v - (g0 + gw))
+        } else {
+            new_b0 + left_margin + (v - g0) * (new_gw / gw)
+        }
+    }
+
+    fn map_point(&self, x: f64, y: f64) -> [f64; 2] {
+        [
+            Self::map_axis(
+                x,
+                self.bounds[0],
+                self.bounds[2],
+                self.grid[0],
+                self.grid[2],
+                self.sx,
+            ),
+            Self::map_axis(
+                y,
+                self.bounds[1],
+                self.bounds[3],
+                self.grid[1],
+                self.grid[3],
+                self.sy,
+            ),
+        ]
+    }
+
+    fn apply_to_element(&self, e: &mut Element) {
+        let tx = e.transform.x;
+        let ty = e.transform.y;
+        let Some((commands, fill_rule)) = e.to_path_commands() else {
+            let [nx, ny] = self.map_point(tx, ty);
+            e.transform.x = nx;
+            e.transform.y = ny;
+            return;
+        };
+        let mapped: Vec<PathCommand> = commands
+            .into_iter()
+            .map(|cmd| match cmd {
+                PathCommand::MoveTo { x, y } => {
+                    let [nx, ny] = self.map_point(tx + x, ty + y);
+                    PathCommand::MoveTo { x: nx, y: ny }
+                }
+                PathCommand::LineTo { x, y } => {
+                    let [nx, ny] = self.map_point(tx + x, ty + y);
+                    PathCommand::LineTo { x: nx, y: ny }
+                }
+                PathCommand::QuadraticTo { cx, cy, x, y } => {
+                    let [ncx, ncy] = self.map_point(tx + cx, ty + cy);
+                    let [nx, ny] = self.map_point(tx + x, ty + y);
+                    PathCommand::QuadraticTo {
+                        cx: ncx,
+                        cy: ncy,
+                        x: nx,
+                        y: ny,
+                    }
+                }
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                } => {
+                    let [ncx1, ncy1] = self.map_point(tx + cx1, ty + cy1);
+                    let [ncx2, ncy2] = self.map_point(tx + cx2, ty + cy2);
+                    let [nx, ny] = self.map_point(tx + x, ty + y);
+                    PathCommand::CubicTo {
+                        cx1: ncx1,
+                        cy1: ncy1,
+                        cx2: ncx2,
+                        cy2: ncy2,
+                        x: nx,
+                        y: ny,
+                    }
+                }
+                PathCommand::Close => PathCommand::Close,
+            })
+            .collect();
+        e.transform.x = 0.0;
+        e.transform.y = 0.0;
+        e.transform.primitive = None;
+        match &e.kind {
+            ElementKind::Rectangle {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | ElementKind::Ellipse {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            }
+            | ElementKind::Path {
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => {
+                e.kind = ElementKind::Path {
+                    commands: mapped,
+                    fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    stroke_width: *stroke_width,
+                };
+            }
+            ElementKind::PaintedPath {
+                fill,
+                stroke,
+                fill_gradient,
+                stroke_gradient,
+                stroke_width,
+                ..
+            } => {
+                e.kind = ElementKind::PaintedPath {
+                    commands: mapped,
+                    fill_rule,
+                    fill: *fill,
+                    stroke: *stroke,
+                    fill_gradient: fill_gradient.clone(),
+                    stroke_gradient: stroke_gradient.clone(),
+                    stroke_width: *stroke_width,
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+fn symbol_natural_bounds(symbol: &Symbol, frame: u32, fallback: [f64; 4]) -> [f64; 4] {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for layer in &symbol.timeline.layers {
+        for e in sample_layer_in(&symbol.timeline, layer, frame) {
+            let tx = e.transform.x;
+            let ty = e.transform.y;
+            match &e.kind {
+                ElementKind::Rectangle { width, height, .. }
+                | ElementKind::Ellipse { width, height, .. }
+                | ElementKind::Video { width, height } => {
+                    min_x = min_x.min(tx);
+                    min_y = min_y.min(ty);
+                    max_x = max_x.max(tx + *width);
+                    max_y = max_y.max(ty + *height);
+                }
+                ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
+                    if let Ok(Some(b)) = crate::geometry::path_bounds(commands) {
+                        min_x = min_x.min(tx + b.x_min);
+                        min_y = min_y.min(ty + b.y_min);
+                        max_x = max_x.max(tx + b.x_max);
+                        max_y = max_y.max(ty + b.y_max);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if min_x.is_finite() && max_x > min_x && max_y > min_y {
+        [min_x, min_y, max_x - min_x, max_y - min_y]
+    } else {
+        fallback
+    }
 }
 
 struct Walker<'a> {
@@ -1278,6 +1615,7 @@ struct InheritedDisplay {
     alpha: f64,
     visible: bool,
     color_transform: crate::ColorTransform,
+    scale9: Option<Scale9Mapping>,
 }
 
 impl Walker<'_> {
@@ -1287,6 +1625,7 @@ impl Walker<'_> {
         frame: u32,
         parent: &[Id],
         inherited: InheritedDisplay,
+        overrides: &[InstancePropertyOverride],
         depth: usize,
     ) {
         if depth >= MAX_DEPTH || self.result.nodes.len() >= MAX_NODES {
@@ -1317,9 +1656,51 @@ impl Walker<'_> {
             }
             let layer_blend = layer_effective_blend_mode(&symbol.timeline, layer);
             let synced_layer = layer_effectively_synced(&symbol.timeline, layer);
+            let active_key_overrides = layer
+                .key_at(frame)
+                .map(|k| k.instance_overrides.as_slice())
+                .unwrap_or(&[]);
             for mut e in sample_layer_in(&symbol.timeline, layer, frame) {
                 if self.result.nodes.len() >= MAX_NODES {
                     return;
+                }
+                let mut override_frame: Option<u32> = None;
+                for ov in overrides {
+                    if (!e.name.is_empty() && ov.target_name == e.name) || ov.target_name == e.id {
+                        if let Some(vis) = ov.visible {
+                            e.visible = vis;
+                        }
+                        if let Some(f) = ov.frame {
+                            override_frame = Some(f);
+                        }
+                        if let Some(txt) = &ov.text {
+                            match &mut e.kind {
+                                ElementKind::Text { text, .. }
+                                | ElementKind::TextBox { text, .. } => {
+                                    *text = txt.clone();
+                                }
+                                _ => {}
+                            }
+                        }
+                        if let Some(col) = ov.color {
+                            match &mut e.kind {
+                                ElementKind::Text { color, .. } => *color = col,
+                                ElementKind::TextBox { format, .. } => {
+                                    format.color = ((col[0] as u32) << 16)
+                                        | ((col[1] as u32) << 8)
+                                        | (col[2] as u32);
+                                }
+                                ElementKind::Rectangle { fill, .. }
+                                | ElementKind::Ellipse { fill, .. }
+                                | ElementKind::Path { fill, .. }
+                                | ElementKind::PaintedPath { fill, .. } => *fill = col,
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                if let Some(s9) = &inherited.scale9 {
+                    s9.apply_to_element(&mut e);
                 }
                 let mut path = parent.to_vec();
                 path.push(e.id.clone());
@@ -1408,7 +1789,9 @@ impl Walker<'_> {
                     } else {
                         frame.saturating_sub(placement_start(layer, frame, &e.id))
                     };
-                    let child_frame = if child.kind == SymbolKind::Button {
+                    let child_frame = if let Some(ov_f) = override_frame {
+                        ov_f.min(count - 1)
+                    } else if child.kind == SymbolKind::Button {
                         button_frame.min(2).min(count - 1)
                     } else if synced_layer {
                         match playback {
@@ -1440,17 +1823,48 @@ impl Walker<'_> {
                         && !synced_layer
                         && matches!(playback, InstancePlayback::Independent);
                     self.result.nodes.push(node);
+                    let child_overrides: Vec<InstancePropertyOverride> = active_key_overrides
+                        .iter()
+                        .filter(|ov| {
+                            ov.instance_id == e.id
+                                || (!e.name.is_empty() && ov.instance_id == e.name)
+                        })
+                        .cloned()
+                        .collect();
+                    let active_s9 = e.scale9_grid().or_else(|| child.scale9_grid());
+                    let (child_world, child_s9) = if let Some(grid) = active_s9
+                        && ((e.transform.scale_x.abs() - 1.0).abs() > 1e-6
+                            || (e.transform.scale_y.abs() - 1.0).abs() > 1e-6)
+                    {
+                        let mut unscaled = e.transform;
+                        unscaled.scale_x = e.transform.scale_x.signum();
+                        unscaled.scale_y = e.transform.scale_y.signum();
+                        let bounds = symbol_natural_bounds(child, child_frame, grid);
+                        (
+                            affine_multiply(inherited.matrix, transform_matrix(unscaled)),
+                            Some(Scale9Mapping {
+                                grid,
+                                bounds,
+                                sx: e.transform.scale_x.abs(),
+                                sy: e.transform.scale_y.abs(),
+                            }),
+                        )
+                    } else {
+                        (world, inherited.scale9)
+                    };
                     // Invisible clips still exist and advance their timelines.
                     self.walk(
                         child,
                         child_frame,
                         &path,
                         InheritedDisplay {
-                            matrix: world,
+                            matrix: child_world,
                             alpha: opacity,
                             visible: effective_visible,
                             color_transform,
+                            scale9: child_s9,
                         },
+                        &child_overrides,
                         depth + 1,
                     );
                 } else {

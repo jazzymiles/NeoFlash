@@ -1,7 +1,10 @@
 //! Native font measurements and paint for the shared Rust text layout.
 use crate::theme::ScrollTheme as _;
 use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Shape, Vec2};
-use neoflash_core::{ElementKind, TextFieldState, TextFormat, TextLayout, layout_text};
+use neoflash_core::{
+    AuthoredTextFieldOptions, ElementKind, FillRule, TextFieldState, TextFormat, TextFormatPatch,
+    TextFormatRangePatch, TextLayout, TextPatch, layout_text,
+};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -169,6 +172,231 @@ impl crate::app::Editor {
         }
         changes.control
     }
+
+    /// Apply a `TextPatch` (including per-range `format_range`, `format_runs`, `field_type`,
+    /// `selectable`, `display_as_password`, `max_chars`, `restrict`, `as2_viewport`, etc.)
+    /// to the currently selected `TextBox` in a single `"Text format"` Undo transaction.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn apply_selected_text_patch(&mut self, patch: &TextPatch) -> Result<(), String> {
+        self.finish_edits();
+        let Some(el_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return Err("Select a single TextBox element first.".into());
+        };
+        let mut candidate = self.project.clone();
+        let sym_id = self.symbol_id().to_owned();
+        let frame = self.frame;
+        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+            return Err("Active symbol not found.".into());
+        };
+        let mut updated = false;
+        for layer in &mut sym.timeline.layers {
+            let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
+                continue;
+            };
+            if let Some(el) = layer.keyframes[key_idx]
+                .elements
+                .iter_mut()
+                .find(|e| e.id == el_id)
+            {
+                let Some(mut state) = TextFieldState::from_kind(&el.kind) else {
+                    return Err("Selected element is not a text field.".into());
+                };
+                state.apply(patch).map_err(|e| e.to_string())?;
+                state.write_to_kind(&mut el.kind);
+                updated = true;
+                break;
+            }
+        }
+        if !updated {
+            return Err("Selected TextBox was not found on the current frame.".into());
+        }
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Text format", |s| {
+            s.project = candidate;
+        });
+        Ok(())
+    }
+
+    /// Apply a rich-text `TextFormatPatch` over UTF-16 range `[begin, end)` on the selected `TextBox`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn apply_selected_text_format_range(
+        &mut self,
+        begin: u32,
+        end: u32,
+        format: TextFormatPatch,
+    ) -> Result<(), String> {
+        self.apply_selected_text_patch(&TextPatch {
+            format_range: Some(TextFormatRangePatch { begin, end, format }),
+            ..TextPatch::default()
+        })
+    }
+
+    /// Parse HTML markup (`<b>`, `<i>`, `<u>`, `<font>`, `<a href>`, `<p align>`, `<br>`, CSS classes/inline styles)
+    /// into the selected `TextBox` in one `"HTML text"` Undo transaction.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn set_selected_text_html(&mut self, html_source: &str) -> Result<(), String> {
+        self.finish_edits();
+        let Some(el_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return Err("Select a single TextBox element first.".into());
+        };
+        let mut candidate = self.project.clone();
+        let sym_id = self.symbol_id().to_owned();
+        let frame = self.frame;
+        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+            return Err("Active symbol not found.".into());
+        };
+        let mut updated = false;
+        for layer in &mut sym.timeline.layers {
+            let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
+                continue;
+            };
+            if let Some(el) = layer.keyframes[key_idx]
+                .elements
+                .iter_mut()
+                .find(|e| e.id == el_id)
+            {
+                let Some(mut state) = TextFieldState::from_kind(&el.kind) else {
+                    return Err("Selected element is not a text field.".into());
+                };
+                state
+                    .set_html_text(html_source, None, state.condense_white)
+                    .map_err(|e| e.to_string())?;
+                state.write_to_kind(&mut el.kind);
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    let mut opts = format.field_options().unwrap_or_default();
+                    opts.html = true;
+                    format.set_field_options(Some(opts));
+                }
+                updated = true;
+                break;
+            }
+        }
+        if !updated {
+            return Err("Selected TextBox was not found on the current frame.".into());
+        }
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("HTML text", |s| {
+            s.project = candidate;
+        });
+        Ok(())
+    }
+
+    /// Serialize the selected `TextBox` (including its rich-text `format_runs` and links) to HTML markup.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn selected_text_to_html(&self) -> Option<String> {
+        let el = self.selected_element()?;
+        let state = TextFieldState::from_kind(&el.kind)?;
+        Some(state.to_html_text())
+    }
+
+    /// Update the authored `AuthoredTextFieldOptions` on the selected `TextBox` in one Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn set_selected_text_field_options(
+        &mut self,
+        options: AuthoredTextFieldOptions,
+    ) -> Result<(), String> {
+        self.finish_edits();
+        let Some(el_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return Err("Select a single TextBox element first.".into());
+        };
+        let mut candidate = self.project.clone();
+        let sym_id = self.symbol_id().to_owned();
+        let frame = self.frame;
+        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+            return Err("Active symbol not found.".into());
+        };
+        let mut updated = false;
+        for layer in &mut sym.timeline.layers {
+            let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
+                continue;
+            };
+            if let Some(el) = layer.keyframes[key_idx]
+                .elements
+                .iter_mut()
+                .find(|e| e.id == el_id)
+                && let ElementKind::TextBox { format, .. } = &mut el.kind
+            {
+                format.set_field_options((!options.is_default()).then_some(options));
+                updated = true;
+                break;
+            }
+        }
+        if !updated {
+            return Err("Selected TextBox was not found on the current frame.".into());
+        }
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Text options", |s| {
+            s.project = candidate;
+        });
+        Ok(())
+    }
+
+    /// Convert the selected `Text` or `TextBox` element into editable vector `Path` outlines in one Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn convert_selected_text_to_outlines(&mut self) -> Result<usize, String> {
+        self.finish_edits();
+        let Some(el_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return Err("Select a text element first.".into());
+        };
+        let mut candidate = self.project.clone();
+        let sym_id = self.symbol_id().to_owned();
+        let frame = self.frame;
+        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+            return Err("Active symbol not found.".into());
+        };
+        let mut cmd_count = 0usize;
+        for layer in &mut sym.timeline.layers {
+            let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
+                continue;
+            };
+            if let Some(el) = layer.keyframes[key_idx]
+                .elements
+                .iter_mut()
+                .find(|e| e.id == el_id)
+            {
+                let Some(state) = TextFieldState::from_kind(&el.kind) else {
+                    return Err("Selected element is not text.".into());
+                };
+                let cmds = TextFieldState::static_text_to_outline_commands(
+                    &state.text,
+                    &state.format.font,
+                    state.format.size,
+                    None,
+                );
+                if cmds.is_empty() {
+                    return Err("Text has no visible glyph outlines.".into());
+                }
+                cmd_count = cmds.len();
+                let rgb = state.format.color;
+                let fill = [
+                    ((rgb >> 16) & 0xff) as u8,
+                    ((rgb >> 8) & 0xff) as u8,
+                    (rgb & 0xff) as u8,
+                    state.alpha,
+                ];
+                el.kind = ElementKind::Path {
+                    commands: cmds,
+                    fill_rule: FillRule::NonZero,
+                    fill,
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                };
+                break;
+            }
+        }
+        if cmd_count == 0 {
+            return Err("Selected text element was not found on the current frame.".into());
+        }
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Convert text to outlines", |s| {
+            s.project = candidate;
+        });
+        Ok(cmd_count)
+    }
 }
 
 fn family(p: &egui::Painter, format: &TextFormat) -> FontFamily {
@@ -184,7 +412,7 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
     let ElementKind::TextBox { format, .. } = kind else {
         return Err("Expected text box".into());
     };
-    let family = family(p, format);
+    let top_family = family(p, format);
     let ppp = p.ctx().pixels_per_point().to_bits();
     let cache = p.ctx().data_mut(|data| {
         data.get_temp_mut_or_default::<Arc<Mutex<LayoutCache>>>(egui::Id::new(
@@ -197,7 +425,7 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
         if let Some(index) = cache
             .entries
             .iter()
-            .position(|entry| entry.kind == *kind && entry.family == family && entry.ppp == ppp)
+            .position(|entry| entry.kind == *kind && entry.family == top_family && entry.ppp == ppp)
         {
             let entry = cache.entries.remove(index).expect("cached layout index");
             let result = entry.layout.clone();
@@ -207,13 +435,14 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
     }
     let field = TextFieldState::from_kind(kind).ok_or("Expected text box")?;
     let result = Arc::new(
-        layout_text(&field, |segments, format| {
+        layout_text(&field, |segments, seg_format| {
+            let seg_family = family(p, seg_format);
             Ok(segments
                 .iter()
                 .map(|text| {
                     p.layout_no_wrap(
                         text.clone(),
-                        FontId::new(format.size as f32, family.clone()),
+                        FontId::new(seg_format.size as f32, seg_family.clone()),
                         Color32::WHITE,
                     )
                     .size()
@@ -240,7 +469,7 @@ pub(crate) fn layout(p: &egui::Painter, kind: &ElementKind) -> Result<Arc<TextLa
         cache.bytes += bytes;
         cache.entries.push_back(CachedLayout {
             kind: kind.clone(),
-            family,
+            family: top_family,
             ppp,
             layout: result.clone(),
             bytes,
@@ -265,36 +494,135 @@ pub(crate) fn paint(
         return Err("Expected text box".into());
     };
     let result = layout(p, kind)?;
-    let family = family(p, format);
+    let default_family = family(p, format);
     let clip = Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32));
-    for line in &result.lines {
-        if line.y >= clip.max.y as f64 || line.y + line.height <= 0. {
-            continue;
-        }
-        let galley = p.layout_no_wrap(
-            line.text.clone(),
-            FontId::new(format.size as f32, family.clone()),
-            color,
-        );
-        let shape = Shape::Text(egui::epaint::TextShape::new(
-            Pos2::new(line.x as f32, line.y as f32),
-            galley,
-            color,
+    let alpha = color.a();
+    let rgb_to_color32 = |rgb: u32| {
+        Color32::from_rgba_unmultiplied(
+            ((rgb >> 16) & 0xff) as u8,
+            ((rgb >> 8) & 0xff) as u8,
+            (rgb & 0xff) as u8,
+            alpha,
+        )
+    };
+    if let Some(bg) = result.surface.background {
+        let bg_col = rgb_to_color32(bg);
+        let corners = [
+            screen(Pos2::new(0.0, 0.0)),
+            screen(Pos2::new(*width as f32, 0.0)),
+            screen(Pos2::new(*width as f32, *height as f32)),
+            screen(Pos2::new(0.0, *height as f32)),
+        ];
+        p.add(Shape::convex_polygon(
+            corners.to_vec(),
+            bg_col,
+            egui::Stroke::NONE,
         ));
-        for primitive in p.ctx().tessellate(
-            vec![egui::epaint::ClippedShape {
-                clip_rect: Rect::EVERYTHING,
-                shape,
-            }],
-            p.ctx().pixels_per_point(),
-        ) {
-            if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
-                let mut mesh = clip_mesh(mesh, clip);
-                for vertex in &mut mesh.vertices {
-                    vertex.pos = screen(vertex.pos);
-                }
-                p.add(Shape::mesh(mesh));
+    }
+    if let Some(bd) = result.surface.border {
+        let bd_col = rgb_to_color32(bd);
+        let corners = [
+            screen(Pos2::new(0.0, 0.0)),
+            screen(Pos2::new(*width as f32, 0.0)),
+            screen(Pos2::new(*width as f32, *height as f32)),
+            screen(Pos2::new(0.0, *height as f32)),
+            screen(Pos2::new(0.0, 0.0)),
+        ];
+        p.add(Shape::line(
+            corners.to_vec(),
+            egui::Stroke::new(1.0_f32, bd_col),
+        ));
+    }
+    if !result.runs.is_empty() {
+        for run in &result.runs {
+            let run_fmt = run.format.as_ref().unwrap_or(format);
+            let run_h = run_fmt.size * 1.2;
+            if run.y >= clip.max.y as f64 || run.y + run_h <= 0. {
+                continue;
             }
+            let run_family = family(p, run_fmt);
+            let run_color = if run.format.is_some() {
+                rgb_to_color32(run_fmt.color)
+            } else {
+                color
+            };
+            let galley = p.layout_no_wrap(
+                run.text.clone(),
+                FontId::new(run_fmt.size as f32, run_family),
+                run_color,
+            );
+            let shape = Shape::Text(egui::epaint::TextShape::new(
+                Pos2::new(run.x as f32, run.y as f32),
+                galley,
+                run_color,
+            ));
+            for primitive in p.ctx().tessellate(
+                vec![egui::epaint::ClippedShape {
+                    clip_rect: Rect::EVERYTHING,
+                    shape,
+                }],
+                p.ctx().pixels_per_point(),
+            ) {
+                if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                    let mut mesh = clip_mesh(mesh, clip);
+                    for vertex in &mut mesh.vertices {
+                        vertex.pos = screen(vertex.pos);
+                    }
+                    p.add(Shape::mesh(mesh));
+                }
+            }
+        }
+    } else {
+        for line in &result.lines {
+            if line.y >= clip.max.y as f64 || line.y + line.height <= 0. {
+                continue;
+            }
+            let galley = p.layout_no_wrap(
+                line.text.clone(),
+                FontId::new(format.size as f32, default_family.clone()),
+                color,
+            );
+            let shape = Shape::Text(egui::epaint::TextShape::new(
+                Pos2::new(line.x as f32, line.y as f32),
+                galley,
+                color,
+            ));
+            for primitive in p.ctx().tessellate(
+                vec![egui::epaint::ClippedShape {
+                    clip_rect: Rect::EVERYTHING,
+                    shape,
+                }],
+                p.ctx().pixels_per_point(),
+            ) {
+                if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                    let mut mesh = clip_mesh(mesh, clip);
+                    for vertex in &mut mesh.vertices {
+                        vertex.pos = screen(vertex.pos);
+                    }
+                    p.add(Shape::mesh(mesh));
+                }
+            }
+        }
+    }
+    for dec in &result.decorations {
+        let dec_rect = Rect::from_min_size(
+            Pos2::new(dec.x as f32, dec.y as f32),
+            Vec2::new(dec.width as f32, dec.height.max(1.0) as f32),
+        )
+        .intersect(clip);
+        if dec_rect.is_positive() {
+            let dec_col = dec.color.map_or(color, rgb_to_color32);
+            let corners = [
+                screen(dec_rect.left_top()),
+                screen(dec_rect.right_top()),
+                screen(dec_rect.right_bottom()),
+                screen(dec_rect.left_bottom()),
+            ];
+            p.add(Shape::convex_polygon(
+                corners.to_vec(),
+                dec_col,
+                egui::Stroke::NONE,
+            ));
         }
     }
     Ok(())

@@ -62,6 +62,7 @@ impl SoundExportQuality {
 }
 
 pub const VALID_AUDIO_BIT_RATES_KBPS: [u32; 7] = [64, 96, 128, 160, 192, 256, 320];
+pub const VALID_JPEG_QUALITY_RANGE: std::ops::RangeInclusive<u8> = 0..=100;
 
 const fn default_audio_bit_rate_kbps() -> u32 {
     128
@@ -109,6 +110,75 @@ impl SoundExportSettings {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BitmapCompression {
+    #[default]
+    PhotoJpeg,
+    LosslessPng,
+}
+
+impl BitmapCompression {
+    pub const ALL: [Self; 2] = [Self::PhotoJpeg, Self::LosslessPng];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PhotoJpeg => "Photo (JPEG)",
+            Self::LosslessPng => "Lossless (PNG/GIF)",
+        }
+    }
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+const fn default_jpeg_quality() -> u8 {
+    80
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BitmapExportSettings {
+    #[serde(default)]
+    pub compression: BitmapCompression,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub use_imported_jpeg_data: bool,
+    #[serde(default = "default_jpeg_quality")]
+    pub jpeg_quality: u8,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_smoothing: bool,
+}
+
+impl Default for BitmapExportSettings {
+    fn default() -> Self {
+        Self {
+            compression: BitmapCompression::PhotoJpeg,
+            use_imported_jpeg_data: true,
+            jpeg_quality: 80,
+            allow_smoothing: false,
+        }
+    }
+}
+
+impl BitmapExportSettings {
+    pub const fn lossless_default() -> Self {
+        Self {
+            compression: BitmapCompression::LosslessPng,
+            use_imported_jpeg_data: true,
+            jpeg_quality: 80,
+            allow_smoothing: false,
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceUnit {
     pub id: Id,
@@ -119,6 +189,9 @@ pub struct ResourceUnit {
     /// Optional per-resource publish audio compression settings (document version 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_export: Option<SoundExportSettings>,
+    /// Optional per-resource publish bitmap compression settings (document version 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_export: Option<BitmapExportSettings>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -141,6 +214,7 @@ impl ResourceUnit {
             media_type: media_type.into(),
             data_base64: Arc::from(""),
             audio_export: None,
+            bitmap_export: None,
         };
         result.validate_metadata()?;
         result.data_base64 = STANDARD.encode(bytes).into();
@@ -152,6 +226,13 @@ impl ResourceUnit {
         self.media_type
             .get(..6)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("audio/"))
+    }
+
+    /// Image resources (`image/*`) can be placed as bitmaps or used in bitmap fills.
+    pub fn is_image(&self) -> bool {
+        self.media_type
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("image/"))
     }
 
     /// O(1) decoded length for canonical data in a validated document. This is

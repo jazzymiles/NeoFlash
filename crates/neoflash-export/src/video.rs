@@ -2187,6 +2187,7 @@ mod tests {
                             snap_to_guide: false,
                             sound: None,
                             shape_hints: Vec::new(),
+                            ..Keyframe::default()
                         },
                         Keyframe {
                             frame: 1,
@@ -2214,6 +2215,7 @@ mod tests {
                             snap_to_guide: false,
                             sound: None,
                             shape_hints: Vec::new(),
+                            ..Keyframe::default()
                         },
                     ],
                 }],

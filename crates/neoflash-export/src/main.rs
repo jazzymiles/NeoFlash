@@ -1,7 +1,8 @@
 use neoflash_core::Project;
 use neoflash_export::{
-    AudioExportOptions, AudioExportPolicy, AudioFormat, FontExportPolicy, LottieOptions,
-    PublishOptions, SizeLevel, VideoFormat, VideoOptions,
+    AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
+    FontExportPolicy, LottieOptions, PublishOptions, SizeLevel, SvgOptions, VideoFormat,
+    VideoOptions,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -18,6 +19,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut lottie_output = None;
     let mut video_output = None;
     let mut audio_output = None;
+    let mut svg_output = None;
+    let mut atlas_output = None;
     let mut audio_format = None;
     let mut lottie_symbol = None;
     let mut lottie_pretty = false;
@@ -44,6 +47,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 audio_output = Some(PathBuf::from(
                     args.next()
                         .ok_or("--audio requires an output .wav/.mp3/.ogg/.aac file")?,
+                ))
+            }
+            "--svg" => {
+                svg_output = Some(PathBuf::from(
+                    args.next().ok_or("--svg requires an output .svg file")?,
+                ))
+            }
+            "--atlas" | "--sprite-sheet" => {
+                atlas_output = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--atlas requires an output .json or .xml file")?,
                 ))
             }
             "--audio-format" => {
@@ -100,6 +114,56 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             source.ok_or("Supply a project or --demo")?,
         )?)?
     };
+    if let Some(svg_path) = svg_output {
+        let report = neoflash_export::export_project_svg(
+            &project,
+            &svg_path,
+            &SvgOptions {
+                symbol_id: lottie_symbol.clone(),
+                ..SvgOptions::default()
+            },
+        )?;
+        println!(
+            "SVG export: {} ({} elements, {} defs, {}x{})",
+            svg_path.display(),
+            report.element_count,
+            report.defs_count,
+            report.width,
+            report.height
+        );
+        return Ok(());
+    }
+    if let Some(atlas_path) = atlas_output {
+        let ext = atlas_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("json")
+            .to_ascii_lowercase();
+        let format = if ext == "xml" {
+            AtlasFormat::StarlingXml
+        } else {
+            AtlasFormat::JsonHash
+        };
+        let report = neoflash_export::export_project_atlas(
+            &project,
+            &atlas_path,
+            &AtlasOptions {
+                symbol_id: lottie_symbol.clone(),
+                format,
+                ..AtlasOptions::default()
+            },
+        )?;
+        println!(
+            "Atlas export: {} + {} ({}x{}, {} frames, {} unique)",
+            report.image_path.display(),
+            report.metadata_path.display(),
+            report.sheet_width,
+            report.sheet_height,
+            report.frame_count,
+            report.unique_sprites
+        );
+        return Ok(());
+    }
     if let Some(lottie_path) = lottie_output {
         let report = neoflash_export::export_project_lottie(
             &project,

@@ -4116,6 +4116,628 @@ pub fn combine_elements_boolean(
     Some(out)
 }
 
+/// Extract the exact sub-arc `[t0, t1]` (`0.0 <= t0 < t1 <= 1.0`) of a single `LineTo`,
+/// `QuadraticTo`, or `CubicTo` segment starting at `p0` using De Casteljau subdivision (`T-104`).
+pub fn sub_arc_bezier_command(
+    p0: [f64; 2],
+    cmd: PathCommand,
+    t0: f64,
+    t1: f64,
+) -> ([f64; 2], PathCommand) {
+    let lerp2 = |a: [f64; 2], b: [f64; 2], t: f64| -> [f64; 2] {
+        [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+    };
+    let t0 = t0.clamp(0.0, 1.0);
+    let t1 = t1.clamp(t0, 1.0);
+    let u = if (1.0 - t0).abs() > 1e-12 {
+        ((t1 - t0) / (1.0 - t0)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    match cmd {
+        PathCommand::LineTo { x, y } | PathCommand::MoveTo { x, y } => {
+            let p1 = [x, y];
+            let start = lerp2(p0, p1, t0);
+            let end = lerp2(p0, p1, t1);
+            (
+                start,
+                PathCommand::LineTo {
+                    x: end[0],
+                    y: end[1],
+                },
+            )
+        }
+        PathCommand::QuadraticTo { cx, cy, x, y } => {
+            let c = [cx, cy];
+            let p2 = [x, y];
+            // First split at t0 -> keep right piece [r0, r1, p2]
+            let a0 = lerp2(p0, c, t0);
+            let a1 = lerp2(c, p2, t0);
+            let r0 = lerp2(a0, a1, t0);
+            let r1 = a1;
+            // Second split of [r0, r1, p2] at u -> keep left piece [r0, b0, end]
+            let b0 = lerp2(r0, r1, u);
+            let b1 = lerp2(r1, p2, u);
+            let end = lerp2(b0, b1, u);
+            (
+                r0,
+                PathCommand::QuadraticTo {
+                    cx: b0[0],
+                    cy: b0[1],
+                    x: end[0],
+                    y: end[1],
+                },
+            )
+        }
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            let c1 = [cx1, cy1];
+            let c2 = [cx2, cy2];
+            let p3 = [x, y];
+            // First split at t0 -> keep right piece [r0, r1, r2, p3]
+            let a0 = lerp2(p0, c1, t0);
+            let a1 = lerp2(c1, c2, t0);
+            let a2 = lerp2(c2, p3, t0);
+            let b0 = lerp2(a0, a1, t0);
+            let b1 = lerp2(a1, a2, t0);
+            let r0 = lerp2(b0, b1, t0);
+            let r1 = b1;
+            let r2 = a2;
+            // Second split of [r0, r1, r2, p3] at u -> keep left piece [r0, d0, e0, end]
+            let d0 = lerp2(r0, r1, u);
+            let d1 = lerp2(r1, r2, u);
+            let d2 = lerp2(r2, p3, u);
+            let e0 = lerp2(d0, d1, u);
+            let e1 = lerp2(d1, d2, u);
+            let end = lerp2(e0, e1, u);
+            (
+                r0,
+                PathCommand::CubicTo {
+                    cx1: d0[0],
+                    cy1: d0[1],
+                    cx2: e0[0],
+                    cy2: e0[1],
+                    x: end[0],
+                    y: end[1],
+                },
+            )
+        }
+        PathCommand::Close => (p0, PathCommand::Close),
+    }
+}
+
+fn eval_command_at(p0: [f64; 2], cmd: PathCommand, t: f64) -> [f64; 2] {
+    let (_, sub) = sub_arc_bezier_command(p0, cmd, 0.0, t);
+    match sub {
+        PathCommand::MoveTo { x, y }
+        | PathCommand::LineTo { x, y }
+        | PathCommand::QuadraticTo { x, y, .. }
+        | PathCommand::CubicTo { x, y, .. } => [x, y],
+        PathCommand::Close => p0,
+    }
+}
+
+/// Split a path containing `LineTo`, `QuadraticTo`, and `CubicTo` segments against cutting
+/// segments while preserving exact `QuadraticTo` / `CubicTo` Bézier sub-arcs (`T-104`).
+pub fn split_bezier_path_with_segments(
+    commands: &[PathCommand],
+    cutters: &[([f64; 2], [f64; 2])],
+) -> Vec<Vec<PathCommand>> {
+    if commands.is_empty() {
+        return Vec::new();
+    }
+    const SAMPLES: usize = 32;
+    let mut pieces: Vec<Vec<PathCommand>> = Vec::new();
+    let mut current: Vec<PathCommand> = Vec::new();
+    let mut cursor = [0.0, 0.0];
+    let mut subpath_start = [0.0, 0.0];
+
+    for &cmd in commands {
+        match cmd {
+            PathCommand::MoveTo { x, y } => {
+                if current.len() >= 2 {
+                    pieces.push(std::mem::take(&mut current));
+                } else {
+                    current.clear();
+                }
+                cursor = [x, y];
+                subpath_start = [x, y];
+                current.push(PathCommand::MoveTo { x, y });
+            }
+            PathCommand::LineTo { .. }
+            | PathCommand::QuadraticTo { .. }
+            | PathCommand::CubicTo { .. } => {
+                let p0 = cursor;
+                let end_pt = eval_command_at(p0, cmd, 1.0);
+                let mut splits = vec![0.0_f64, 1.0_f64];
+                let steps = if matches!(cmd, PathCommand::LineTo { .. }) {
+                    1
+                } else {
+                    SAMPLES
+                };
+                for s in 0..steps {
+                    let ta = s as f64 / steps as f64;
+                    let tb = (s + 1) as f64 / steps as f64;
+                    let pa = eval_command_at(p0, cmd, ta);
+                    let pb = eval_command_at(p0, cmd, tb);
+                    for &(ca, cb) in cutters {
+                        for (u, _) in segment_intersections(pa, pb, ca, cb) {
+                            let t_hit = ta + (tb - ta) * u;
+                            if t_hit > 1e-4 && t_hit < 1.0 - 1e-4 {
+                                splits.push(t_hit);
+                            }
+                        }
+                    }
+                }
+                splits.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                splits.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+
+                for pair in splits.windows(2) {
+                    let (t0, t1) = (pair[0], pair[1]);
+                    if t1 - t0 <= 1e-5 {
+                        continue;
+                    }
+                    let (seg_start, sub_cmd) = sub_arc_bezier_command(p0, cmd, t0, t1);
+                    if current.is_empty() {
+                        current.push(PathCommand::MoveTo {
+                            x: seg_start[0],
+                            y: seg_start[1],
+                        });
+                    }
+                    current.push(sub_cmd);
+                    if t1 < 1.0 - 1e-4 && current.len() >= 2 {
+                        pieces.push(std::mem::take(&mut current));
+                    }
+                }
+                cursor = end_pt;
+            }
+            PathCommand::Close => {
+                if (cursor[0] - subpath_start[0]).hypot(cursor[1] - subpath_start[1]) > 1e-6 {
+                    current.push(PathCommand::LineTo {
+                        x: subpath_start[0],
+                        y: subpath_start[1],
+                    });
+                }
+                cursor = subpath_start;
+            }
+        }
+    }
+    if current.len() >= 2 {
+        pieces.push(current);
+    }
+    pieces
+}
+
+/// Multi-edge planar-face Paint Bucket (`T-104`): builds a planar half-edge arrangement from all
+/// visible strokes and fill boundaries in `elements` (bridging endpoint gaps up to `gap_tolerance`)
+/// and extracts the minimal enclosed polygon face containing `seed`.
+pub fn paint_bucket_planar_face(
+    elements: &[Element],
+    seed: [f64; 2],
+    gap_tolerance: f64,
+) -> Option<Vec<PathCommand>> {
+    let mut raw_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    for el in elements {
+        if !el.visible {
+            continue;
+        }
+        let Some((cmds, rule)) = element_world_commands(el) else {
+            continue;
+        };
+        if is_merge_stroke(el) || extract_stroke_paint(&el.kind).is_some() {
+            for poly in flatten_stroke_polylines(&cmds) {
+                for pair in poly.windows(2) {
+                    if dist_sq(pair[0], pair[1]) > 1e-8 {
+                        raw_segs.push((pair[0], pair[1]));
+                    }
+                }
+            }
+        }
+        if is_merge_fill(el) || extract_fill_paint(&el.kind).is_some() {
+            let rings = flatten_closed_rings(&cmds);
+            raw_segs.extend(fill_boundary_segments(&rings, rule));
+        }
+    }
+    if raw_segs.len() < 3 {
+        return None;
+    }
+
+    // Bridge small open endpoint gaps up to `gap_tolerance`.
+    let tol = gap_tolerance.max(0.0);
+    if tol > 1e-6 {
+        let mut endpoints: Vec<[f64; 2]> = Vec::with_capacity(raw_segs.len() * 2);
+        for &(a, b) in &raw_segs {
+            endpoints.push(a);
+            endpoints.push(b);
+        }
+        let mut bridges = Vec::new();
+        for i in 0..endpoints.len() {
+            let p = endpoints[i];
+            let deg = endpoints.iter().filter(|&&q| dist_sq(p, q) <= 1e-4).count();
+            if deg == 1 {
+                let mut best: Option<([f64; 2], f64)> = None;
+                for (j, &q) in endpoints.iter().enumerate() {
+                    if i == j || (i / 2) == (j / 2) {
+                        continue;
+                    }
+                    let d = (p[0] - q[0]).hypot(p[1] - q[1]);
+                    if d > 1e-4 && d <= tol && best.is_none_or(|(_, bd)| d < bd) {
+                        best = Some((q, d));
+                    }
+                }
+                if let Some((q, _)) = best {
+                    bridges.push((p, q));
+                }
+            }
+        }
+        raw_segs.extend(bridges);
+    }
+
+    // Subdivide segments at all pairwise intersections.
+    let n = raw_segs.len();
+    let mut split_params: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; n];
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let (a0, a1) = raw_segs[i];
+            let (b0, b1) = raw_segs[j];
+            for (t, u) in segment_intersections(a0, a1, b0, b1) {
+                if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
+                    split_params[i].push(t);
+                    split_params[j].push(u);
+                }
+            }
+        }
+    }
+
+    // Snap vertices within 0.05 px and build directed half-edges.
+    const SNAP: f64 = 0.05;
+    let mut vertices: Vec<[f64; 2]> = Vec::new();
+    let mut find_or_insert = |pt: [f64; 2]| -> usize {
+        if let Some(idx) = vertices
+            .iter()
+            .position(|&v| (v[0] - pt[0]).hypot(v[1] - pt[1]) <= SNAP)
+        {
+            idx
+        } else {
+            let idx = vertices.len();
+            vertices.push(pt);
+            idx
+        }
+    };
+
+    let mut adj: Vec<Vec<usize>> = Vec::new();
+    for (i, &(a, b)) in raw_segs.iter().enumerate() {
+        let params = &mut split_params[i];
+        params.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        params.dedup_by(|x, y| (*x - *y).abs() < 1e-4);
+        for pair in params.windows(2) {
+            let p0 = [
+                a[0] + (b[0] - a[0]) * pair[0],
+                a[1] + (b[1] - a[1]) * pair[0],
+            ];
+            let p1 = [
+                a[0] + (b[0] - a[0]) * pair[1],
+                a[1] + (b[1] - a[1]) * pair[1],
+            ];
+            let u = find_or_insert(p0);
+            let v = find_or_insert(p1);
+            if u == v {
+                continue;
+            }
+            if adj.len() <= u.max(v) {
+                adj.resize(u.max(v) + 1, Vec::new());
+            }
+            if !adj[u].contains(&v) {
+                adj[u].push(v);
+            }
+            if !adj[v].contains(&u) {
+                adj[v].push(u);
+            }
+        }
+    }
+
+    // Iteratively prune degree-1 dangling filaments.
+    loop {
+        let mut pruned = false;
+        for u in 0..adj.len() {
+            if adj[u].len() == 1 {
+                let v = adj[u].pop().unwrap();
+                adj[v].retain(|&x| x != u);
+                pruned = true;
+            }
+        }
+        if !pruned {
+            break;
+        }
+    }
+
+    // Sort outgoing neighbors at each vertex by angle.
+    for (u, nbrs) in adj.iter_mut().enumerate() {
+        let pu = vertices[u];
+        nbrs.sort_by(|&a, &b| {
+            let ang_a = (vertices[a][1] - pu[1]).atan2(vertices[a][0] - pu[0]);
+            let ang_b = (vertices[b][1] - pu[1]).atan2(vertices[b][0] - pu[0]);
+            ang_a
+                .partial_cmp(&ang_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    // Trace all minimal planar faces and pick the smallest positive-area face containing `seed`.
+    let mut visited_half: std::collections::HashSet<(usize, usize)> =
+        std::collections::HashSet::new();
+    let mut best_face: Option<(f64, Vec<[f64; 2]>)> = None;
+
+    for u in 0..adj.len() {
+        for &v in &adj[u] {
+            if visited_half.contains(&(u, v)) {
+                continue;
+            }
+            let mut cycle = Vec::new();
+            let (mut curr_u, mut curr_v) = (u, v);
+            let mut valid = true;
+            for _ in 0..=vertices.len() * 2 {
+                if !visited_half.insert((curr_u, curr_v)) {
+                    valid = false;
+                    break;
+                }
+                cycle.push(vertices[curr_u]);
+                let nbrs = &adj[curr_v];
+                if nbrs.len() < 2 {
+                    valid = false;
+                    break;
+                }
+                let Some(pos) = nbrs.iter().position(|&w| w == curr_u) else {
+                    valid = false;
+                    break;
+                };
+                // Next clockwise half-edge around `curr_v` encloses the interior face to the left.
+                let next_w = nbrs[(pos + nbrs.len() - 1) % nbrs.len()];
+                curr_u = curr_v;
+                curr_v = next_w;
+                if (curr_u, curr_v) == (u, v) {
+                    break;
+                }
+            }
+            if !valid || cycle.len() < 3 || (curr_u, curr_v) != (u, v) {
+                continue;
+            }
+            let mut signed_area2 = 0.0;
+            for i in 0..cycle.len() {
+                let p = cycle[i];
+                let q = cycle[(i + 1) % cycle.len()];
+                signed_area2 += p[0] * q[1] - q[0] * p[1];
+            }
+            let area = 0.5 * signed_area2.abs();
+            if area <= 1e-2 {
+                continue;
+            }
+            let mut ring = cycle.clone();
+            ring.push(cycle[0]);
+            if point_in_rings(seed, &[ring.clone()], FillRule::EvenOdd) {
+                if best_face.as_ref().is_none_or(|(best_a, _)| area < *best_a) {
+                    best_face = Some((area, ring));
+                }
+            }
+        }
+    }
+
+    let (_, ring) = best_face?;
+    let mut cmds = Vec::with_capacity(ring.len() + 1);
+    cmds.push(PathCommand::MoveTo {
+        x: ring[0][0],
+        y: ring[0][1],
+    });
+    for &[x, y] in &ring[1..ring.len().saturating_sub(1)] {
+        cmds.push(PathCommand::LineTo { x, y });
+    }
+    cmds.push(PathCommand::Close);
+    Some(cmds)
+}
+
+/// Classic Flash Brush paint modes (`T-105`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrushPaintMode {
+    /// Paints over lines and fills on the same layer.
+    #[default]
+    PaintNormal,
+    /// Paints fills and empty areas, leaving existing lines/strokes unaffected.
+    PaintFills,
+    /// Paints in blank areas of the Stage behind existing fills and strokes on the layer.
+    PaintBehind,
+    /// Paints only inside the currently selected fill shapes.
+    PaintSelection,
+    /// Paints only inside the fill region where the brush stroke started (`inside_seed`).
+    PaintInside,
+}
+
+impl BrushPaintMode {
+    pub const ALL: [Self; 5] = [
+        Self::PaintNormal,
+        Self::PaintFills,
+        Self::PaintBehind,
+        Self::PaintSelection,
+        Self::PaintInside,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PaintNormal => "Paint Normal",
+            Self::PaintFills => "Paint Fills",
+            Self::PaintBehind => "Paint Behind",
+            Self::PaintSelection => "Paint Selection",
+            Self::PaintInside => "Paint Inside",
+        }
+    }
+}
+
+/// Apply a Merge-mode brush fill `brush` to `elements` according to `mode` (`T-105`).
+pub fn apply_brush_stroke_with_mode(
+    elements: &mut Vec<Element>,
+    brush: Element,
+    mode: BrushPaintMode,
+    selected_ids: &[Id],
+    inside_seed: Option<[f64; 2]>,
+) -> Vec<Id> {
+    match mode {
+        BrushPaintMode::PaintNormal => apply_merge_shape_to_keyframe(elements, brush),
+        BrushPaintMode::PaintFills => {
+            // Preserve all existing strokes intact and merge the brush only with fills.
+            let mut saved_strokes = Vec::new();
+            let mut fill_only = Vec::new();
+            for el in elements.drain(..) {
+                if is_merge_stroke(&el) {
+                    saved_strokes.push(el);
+                } else {
+                    fill_only.push(el);
+                }
+            }
+            let ids = apply_merge_shape_to_keyframe(&mut fill_only, brush);
+            fill_only.extend(saved_strokes);
+            *elements = fill_only;
+            ids
+        }
+        BrushPaintMode::PaintBehind => {
+            // Subtract all existing fills from the brush contour and place behind existing art.
+            let Some((mut brush_cmds, mut brush_rule)) = element_world_commands(&brush) else {
+                return Vec::new();
+            };
+            for el in elements.iter() {
+                if !is_merge_fill(el) {
+                    continue;
+                }
+                let Some((el_cmds, el_rule)) = element_world_commands(el) else {
+                    continue;
+                };
+                let pieces = boolean_paths(
+                    &brush_cmds,
+                    brush_rule,
+                    &el_cmds,
+                    el_rule,
+                    BooleanOp::Difference,
+                );
+                brush_cmds.clear();
+                for p in pieces {
+                    brush_cmds.extend(p);
+                }
+                brush_rule = FillRule::NonZero;
+                if brush_cmds.is_empty() {
+                    return Vec::new();
+                }
+            }
+            let fp = extract_fill_paint(&brush.kind).unwrap_or(FillPaint::Solid([0; 4]));
+            let piece =
+                build_fill_element(&brush, brush.id.clone(), brush_cmds, brush_rule, &fp, true);
+            let id = piece.id.clone();
+            elements.insert(0, piece);
+            vec![id]
+        }
+        BrushPaintMode::PaintSelection => {
+            if selected_ids.is_empty() {
+                return Vec::new();
+            }
+            let Some((brush_cmds, brush_rule)) = element_world_commands(&brush) else {
+                return Vec::new();
+            };
+            let mut mask_cmds = Vec::new();
+            for el in elements.iter() {
+                if selected_ids.contains(&el.id)
+                    && is_merge_fill(el)
+                    && let Some((c, _)) = element_world_commands(el)
+                {
+                    mask_cmds.extend(c);
+                }
+            }
+            if mask_cmds.is_empty() {
+                return Vec::new();
+            }
+            let clipped = boolean_paths(
+                &brush_cmds,
+                brush_rule,
+                &mask_cmds,
+                FillRule::NonZero,
+                BooleanOp::Intersection,
+            );
+            let mut combined = Vec::new();
+            for p in clipped {
+                combined.extend(p);
+            }
+            if combined.is_empty() {
+                return Vec::new();
+            }
+            let fp = extract_fill_paint(&brush.kind).unwrap_or(FillPaint::Solid([0; 4]));
+            let clipped_brush = build_fill_element(
+                &brush,
+                brush.id.clone(),
+                combined,
+                FillRule::NonZero,
+                &fp,
+                true,
+            );
+            apply_merge_shape_to_keyframe(elements, clipped_brush)
+        }
+        BrushPaintMode::PaintInside => {
+            let Some(seed) = inside_seed else {
+                return apply_merge_shape_to_keyframe(elements, brush);
+            };
+            let Some((brush_cmds, brush_rule)) = element_world_commands(&brush) else {
+                return Vec::new();
+            };
+            // Find the topmost fill containing `seed`.
+            let target_fill = elements.iter().rev().find_map(|el| {
+                if !is_merge_fill(el) {
+                    return None;
+                }
+                let (cmds, rule) = element_world_commands(el)?;
+                let rings = flatten_closed_rings(&cmds);
+                point_in_rings(seed, &rings, rule).then_some((cmds, rule))
+            });
+            if let Some((target_cmds, target_rule)) = target_fill {
+                let clipped = boolean_paths(
+                    &brush_cmds,
+                    brush_rule,
+                    &target_cmds,
+                    target_rule,
+                    BooleanOp::Intersection,
+                );
+                let mut combined = Vec::new();
+                for p in clipped {
+                    combined.extend(p);
+                }
+                if combined.is_empty() {
+                    return Vec::new();
+                }
+                let fp = extract_fill_paint(&brush.kind).unwrap_or(FillPaint::Solid([0; 4]));
+                let clipped_brush = build_fill_element(
+                    &brush,
+                    brush.id.clone(),
+                    combined,
+                    FillRule::NonZero,
+                    &fp,
+                    true,
+                );
+                apply_merge_shape_to_keyframe(elements, clipped_brush)
+            } else {
+                // Started on empty stage: paint only in areas outside existing fills.
+                apply_brush_stroke_with_mode(
+                    elements,
+                    brush,
+                    BrushPaintMode::PaintBehind,
+                    selected_ids,
+                    None,
+                )
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

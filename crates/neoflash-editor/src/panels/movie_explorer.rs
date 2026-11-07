@@ -800,6 +800,56 @@ impl Editor {
         }
     }
 
+    /// Reveal and select `symbol_id` in the Library panel.
+    pub fn find_symbol_in_library(&mut self, symbol_id: &str) -> bool {
+        if self.project.is_scene(symbol_id) {
+            return false;
+        }
+        let Some(folder) = self.project.symbol(symbol_id).map(|s| s.folder.clone()) else {
+            return false;
+        };
+        self.library_selected = Some(symbol_id.to_owned());
+        self.library_panel.selected_folder = folder;
+        true
+    }
+
+    /// Select all instances of `target_symbol_id` on the active timeline's current frame.
+    pub fn select_symbol_instances_on_current_frame(&mut self, target_symbol_id: &str) -> usize {
+        self.finish_edits();
+        let frame = self.frame;
+        let mut ids = Vec::new();
+        for layer in &self.symbol().timeline.layers {
+            if let Some(key) = layer.keyframes.iter().rfind(|k| k.frame <= frame) {
+                for el in &key.elements {
+                    if let ElementKind::Instance { symbol_id, .. } = &el.kind
+                        && symbol_id == target_symbol_id
+                    {
+                        ids.push(el.id.clone());
+                    }
+                }
+            }
+        }
+        let count = ids.len();
+        if count > 0 {
+            let targets = ids
+                .into_iter()
+                .filter_map(|id| self.target_for_id(&id))
+                .collect();
+            self.set_selection(targets);
+            self.normalize_selection();
+        }
+        count
+    }
+
+    /// Format the currently visible Movie Explorer tree rows as plain text (`Copy all text to clipboard`).
+    pub fn copy_all_movie_explorer_text(&self) -> String {
+        let rows = build_movie_explorer_rows(self);
+        rows.into_iter()
+            .map(|r| format!("{}{}", "  ".repeat(r.depth), r.label))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     fn default_explorer_breadcrumb(&self) -> String {
         let sym_name = &self.symbol().name;
         let layer_name = self
@@ -935,6 +985,13 @@ impl Editor {
                 self.movie_explorer.show_symbol_definitions = true;
                 ui.close();
             }
+            if ui
+                .add(c::MenuItem::new("Copy all text to clipboard"))
+                .clicked()
+            {
+                ui.ctx().copy_text(self.copy_all_movie_explorer_text());
+                ui.close();
+            }
         });
 
         let w = ui.available_width();
@@ -944,6 +1001,8 @@ impl Editor {
         let filtering = !self.movie_explorer.query.trim().is_empty();
         let mut toggle_folder: Option<String> = None;
         let mut clicked_nav: Option<(String, String, MovieTarget, bool)> = None;
+        let mut find_in_lib: Option<String> = None;
+        let mut select_all_inst: Option<String> = None;
 
         let tree_h = (ui.available_height() - 24.0).max(80.0);
         egui::ScrollArea::vertical()
@@ -994,6 +1053,31 @@ impl Editor {
                             false,
                         ));
                     }
+                    let sym_for_ctx = match &row.target {
+                        MovieTarget::Element {
+                            instance_symbol: Some(sym),
+                            ..
+                        } => Some(sym.clone()),
+                        MovieTarget::Timeline { symbol } if !self.project.is_scene(symbol) => {
+                            Some(symbol.clone())
+                        }
+                        _ => None,
+                    };
+                    if let Some(sym_id) = sym_for_ctx {
+                        c::context_menu(&resp.row, |ui| {
+                            if ui.add(c::MenuItem::new("Find in Library")).clicked() {
+                                find_in_lib = Some(sym_id.clone());
+                                ui.close();
+                            }
+                            if ui
+                                .add(c::MenuItem::new("Select all instances on frame"))
+                                .clicked()
+                            {
+                                select_all_inst = Some(sym_id.clone());
+                                ui.close();
+                            }
+                        });
+                    }
                 }
             });
 
@@ -1006,6 +1090,12 @@ impl Editor {
             self.movie_explorer.selected_key = Some(key);
             self.movie_explorer.selected_breadcrumb = Some(bc);
             self.navigate_movie_explorer_target(&target, dbl);
+        }
+        if let Some(sym_id) = find_in_lib {
+            self.find_symbol_in_library(&sym_id);
+        }
+        if let Some(sym_id) = select_all_inst {
+            self.select_symbol_instances_on_current_frame(&sym_id);
         }
 
         let breadcrumb = self

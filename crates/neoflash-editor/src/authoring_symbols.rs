@@ -698,6 +698,122 @@ impl Editor {
         });
         true
     }
+
+    /// Return the `(zero_based_frame, display_label)` entries for the selected Graphic symbol
+    /// instance's Frame Picker (`T-109`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn graphic_frame_picker_entries(&self) -> Vec<(u32, String)> {
+        let Some(selected_id) = self.selection.single().map(|t| &t.element) else {
+            return Vec::new();
+        };
+        let Some(sym_id) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .and_then(|l| l.key_at(self.frame))
+            .and_then(|k| k.elements.iter().find(|e| &e.id == selected_id))
+            .and_then(|e| match &e.kind {
+                ElementKind::Instance { symbol_id, .. } => Some(symbol_id.as_str()),
+                _ => None,
+            })
+        else {
+            return Vec::new();
+        };
+        let Some(sym) = self
+            .project
+            .symbol(sym_id)
+            .filter(|s| s.kind == SymbolKind::Graphic)
+        else {
+            return Vec::new();
+        };
+        let count = sym.timeline.frame_count.max(1);
+        (0..count)
+            .map(|f| {
+                let label = sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .find_map(|l| {
+                        l.keyframes
+                            .iter()
+                            .find(|k| k.frame == f && !k.label.is_empty())
+                            .map(|k| k.label.clone())
+                    })
+                    .unwrap_or_else(|| format!("Frame {}", f + 1));
+                (f, label)
+            })
+            .collect()
+    }
+
+    /// Pick a specific pose frame (`0..count`) for the selected Graphic symbol instance at the
+    /// current playhead frame (`T-109`), automatically inserting a keyframe if the playhead is on a
+    /// held frame and setting `InstancePlayback::SingleFrame(zero_based_frame)` in one Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn pick_graphic_frame(&mut self, zero_based_frame: u32) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let Some(selected_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return false;
+        };
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some((sym_id, base_elements)) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| {
+                let el = k.elements.iter().find(|e| e.id == selected_id)?;
+                match &el.kind {
+                    ElementKind::Instance { symbol_id, .. } => {
+                        Some((symbol_id.clone(), k.elements.clone()))
+                    }
+                    _ => None,
+                }
+            })
+        else {
+            return false;
+        };
+        let Some(count) = self
+            .project
+            .symbol(&sym_id)
+            .filter(|s| s.kind == SymbolKind::Graphic)
+            .map(|s| s.timeline.frame_count.max(1))
+        else {
+            return false;
+        };
+        let target_pose = zero_based_frame.min(count - 1);
+        self.transact_named("Pick graphic frame", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(existing) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
+                if let Some(el) = existing.elements.iter_mut().find(|e| e.id == selected_id) {
+                    el.kind = ElementKind::Instance {
+                        symbol_id: sym_id,
+                        playback: InstancePlayback::SingleFrame(target_pose),
+                    };
+                }
+            } else {
+                let mut elems = base_elements;
+                if let Some(el) = elems.iter_mut().find(|e| e.id == selected_id) {
+                    el.kind = ElementKind::Instance {
+                        symbol_id: sym_id,
+                        playback: InstancePlayback::SingleFrame(target_pose),
+                    };
+                }
+                layer.keyframes.push(neoflash_core::Keyframe {
+                    frame,
+                    elements: elems,
+                    ..neoflash_core::Keyframe::default()
+                });
+            }
+            layer.normalize_motion_keys();
+        });
+        true
+    }
 }
 
 fn adapt_swapped_playback(

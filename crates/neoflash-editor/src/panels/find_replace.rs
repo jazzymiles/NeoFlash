@@ -213,7 +213,7 @@ enum RegexAtom {
         negated: bool,
         items: Vec<ClassItem>,
     },
-    Group(Box<RegexNode>),
+    Group(usize, Box<RegexNode>),
 }
 
 #[derive(Clone, Debug)]
@@ -261,6 +261,7 @@ impl ClassItem {
 struct RegexParser<'a> {
     chars: Vec<char>,
     pos: usize,
+    next_group: usize,
     _src: &'a str,
 }
 
@@ -269,6 +270,7 @@ impl<'a> RegexParser<'a> {
         Self {
             chars: src.chars().collect(),
             pos: 0,
+            next_group: 1,
             _src: src,
         }
     }
@@ -319,14 +321,20 @@ impl<'a> RegexParser<'a> {
             '^' => Ok(RegexAtom::AnchorStart),
             '$' => Ok(RegexAtom::AnchorEnd),
             '(' => {
-                if self.peek() == Some('?') && self.chars.get(self.pos + 1) == Some(&':') {
-                    self.pos += 2;
-                }
+                let group_idx =
+                    if self.peek() == Some('?') && self.chars.get(self.pos + 1) == Some(&':') {
+                        self.pos += 2;
+                        0
+                    } else {
+                        let idx = self.next_group;
+                        self.next_group = self.next_group.saturating_add(1);
+                        idx
+                    };
                 let inner = self.parse_alt(true)?;
                 if self.bump() != Some(')') {
                     return Err(());
                 }
-                Ok(RegexAtom::Group(Box::new(inner)))
+                Ok(RegexAtom::Group(group_idx, Box::new(inner)))
             }
             '[' => self.parse_class(),
             '\\' => {
@@ -505,6 +513,16 @@ impl CompiledRegex {
     }
 
     fn find_all(&self, text: &str) -> Vec<(usize, usize)> {
+        self.find_all_with_captures(text)
+            .into_iter()
+            .map(|(s, e, _)| (s, e))
+            .collect()
+    }
+
+    fn find_all_with_captures(
+        &self,
+        text: &str,
+    ) -> Vec<(usize, usize, [Option<(usize, usize)>; 10])> {
         let indexed: Vec<(usize, char)> = text.char_indices().collect();
         let len = indexed.len();
         let byte_at = |ci: usize| if ci < len { indexed[ci].0 } else { text.len() };
@@ -512,11 +530,20 @@ impl CompiledRegex {
         let mut ci = 0;
         while ci <= len {
             let mut budget = 20_000usize;
-            if let Some(end_ci) = self.match_node(&self.root, &indexed, ci, &mut budget) {
+            let mut caps = [None; 10];
+            if let Some(end_ci) = self.match_node(&self.root, &indexed, ci, &mut budget, &mut caps)
+            {
                 let b_start = byte_at(ci);
                 let b_end = byte_at(end_ci);
                 if b_end > b_start {
-                    matches.push((b_start, b_end));
+                    let mut byte_caps = [None; 10];
+                    byte_caps[0] = Some((b_start, b_end));
+                    for idx in 1..10 {
+                        if let Some((cs, ce)) = caps[idx] {
+                            byte_caps[idx] = Some((byte_at(cs), byte_at(ce)));
+                        }
+                    }
+                    matches.push((b_start, b_end, byte_caps));
                     ci = end_ci;
                     continue;
                 }
@@ -532,6 +559,7 @@ impl CompiledRegex {
         chars: &[(usize, char)],
         pos: usize,
         budget: &mut usize,
+        caps: &mut [Option<(usize, usize)>; 10],
     ) -> Option<usize> {
         if *budget == 0 {
             return None;
@@ -540,13 +568,15 @@ impl CompiledRegex {
         match node {
             RegexNode::Alt(branches) => {
                 for b in branches {
-                    if let Some(end) = self.match_node(b, chars, pos, budget) {
+                    let saved = *caps;
+                    if let Some(end) = self.match_node(b, chars, pos, budget, caps) {
                         return Some(end);
                     }
+                    *caps = saved;
                 }
                 None
             }
-            RegexNode::Seq(pieces) => self.match_seq(pieces, chars, pos, budget),
+            RegexNode::Seq(pieces) => self.match_seq(pieces, chars, pos, budget, caps),
         }
     }
 
@@ -556,29 +586,33 @@ impl CompiledRegex {
         chars: &[(usize, char)],
         pos: usize,
         budget: &mut usize,
+        caps: &mut [Option<(usize, usize)>; 10],
     ) -> Option<usize> {
         let Some((first, rest)) = pieces.split_first() else {
             return Some(pos);
         };
-        let mut positions = vec![pos];
+        let mut positions = vec![(pos, *caps)];
         let mut count = 0usize;
         let max = first.max.unwrap_or(chars.len().saturating_sub(pos) + 1);
         while count < max {
-            let cur = *positions.last().unwrap();
-            let Some(next) = self.match_atom(&first.atom, chars, cur, budget) else {
+            let (cur, mut step_caps) = *positions.last().unwrap();
+            let Some(next) = self.match_atom(&first.atom, chars, cur, budget, &mut step_caps)
+            else {
                 break;
             };
             count += 1;
             if next == cur && count > first.min {
                 break;
             }
-            positions.push(next);
+            positions.push((next, step_caps));
         }
         if count < first.min {
             return None;
         }
         for idx in (first.min..=positions.len() - 1).rev() {
-            if let Some(done) = self.match_seq(rest, chars, positions[idx], budget) {
+            let (step_pos, mut branch_caps) = positions[idx];
+            if let Some(done) = self.match_seq(rest, chars, step_pos, budget, &mut branch_caps) {
+                *caps = branch_caps;
                 return Some(done);
             }
             if *budget == 0 {
@@ -594,6 +628,7 @@ impl CompiledRegex {
         chars: &[(usize, char)],
         pos: usize,
         budget: &mut usize,
+        caps: &mut [Option<(usize, usize)>; 10],
     ) -> Option<usize> {
         match atom {
             RegexAtom::Any => {
@@ -623,7 +658,13 @@ impl CompiledRegex {
                 let hit = items.iter().any(|it| it.matches(ch, self.match_case));
                 (hit != *negated).then_some(pos + 1)
             }
-            RegexAtom::Group(inner) => self.match_node(inner, chars, pos, budget),
+            RegexAtom::Group(group_idx, inner) => {
+                let end = self.match_node(inner, chars, pos, budget, caps)?;
+                if *group_idx > 0 && *group_idx < 10 {
+                    caps[*group_idx] = Some((pos, end));
+                }
+                Some(end)
+            }
         }
     }
 }
@@ -2312,4 +2353,887 @@ fn find_replace_body(
             }
         });
     });
+}
+
+// ---------------------------------------------------------------------------
+// Smart Rename 2.0 & Regex Capture / Template Replacement (T-100)
+// ---------------------------------------------------------------------------
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub struct ReplacementTemplateContext<'a> {
+    pub full_match: &'a str,
+    pub captures: &'a [Option<&'a str>; 10],
+    pub sequence_number: usize,
+    pub zero_index: usize,
+    pub symbol_name: &'a str,
+    pub layer_name: &'a str,
+    pub scene_name: &'a str,
+    pub old_name: &'a str,
+}
+
+/// Expands regex capture backreferences (`$0`, `$&`, `$1`..`$9`) and Smart Rename
+/// template tokens (`{n}`, `{n:02}`, `{n:03}`, `{index}`, `{symbol}`, `{layer}`,
+/// `{scene}`, `{old}`) inside a replacement pattern.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn expand_replacement_template(template: &str, ctx: &ReplacementTemplateContext<'_>) -> String {
+    let mut out = String::with_capacity(template.len() + 16);
+    let bytes = template.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'$' && i + 1 < bytes.len() {
+            let next = bytes[i + 1];
+            if next == b'$' {
+                out.push('$');
+                i += 2;
+                continue;
+            }
+            if next == b'&' || next == b'0' {
+                out.push_str(ctx.full_match);
+                i += 2;
+                continue;
+            }
+            if next.is_ascii_digit() {
+                let idx = (next - b'0') as usize;
+                if let Some(Some(cap)) = ctx.captures.get(idx) {
+                    out.push_str(cap);
+                }
+                i += 2;
+                continue;
+            }
+        }
+        if bytes[i] == b'{'
+            && let Some(rel_end) = template[i + 1..].find('}')
+        {
+            let token = &template[i + 1..i + 1 + rel_end];
+            let replaced = match token {
+                "n" => Some(ctx.sequence_number.to_string()),
+                "n:02" => Some(format!("{:02}", ctx.sequence_number)),
+                "n:03" => Some(format!("{:03}", ctx.sequence_number)),
+                "index" => Some(ctx.zero_index.to_string()),
+                "symbol" => Some(ctx.symbol_name.to_owned()),
+                "layer" => Some(ctx.layer_name.to_owned()),
+                "scene" => Some(ctx.scene_name.to_owned()),
+                "old" => Some(ctx.old_name.to_owned()),
+                _ => None,
+            };
+            if let Some(val) = replaced {
+                out.push_str(&val);
+                i += rel_end + 2;
+                continue;
+            }
+        }
+        let ch = template[i..].chars().next().unwrap_or('\0');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RenameScope {
+    CurrentKey,
+    CurrentSpan,
+    LayerKeys,
+    SelectedSymbolInstances,
+    ActiveSymbol,
+    CurrentScene,
+    LibraryFolder(String),
+    Project,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenameNamespace {
+    InstanceName,
+    LibrarySymbolName,
+    LinkageIdentifier,
+    ClassName,
+    LayerName,
+    FrameLabel,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CaseTransform {
+    #[default]
+    Preserve,
+    CamelCase,
+    PascalCase,
+    SnakeCase,
+    ScreamingSnakeCase,
+    KebabCase,
+}
+
+impl CaseTransform {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn apply(self, input: &str) -> String {
+        if self == Self::Preserve {
+            return input.to_owned();
+        }
+        let words = split_identifier_words(input);
+        if words.is_empty() {
+            return input.to_owned();
+        }
+        match self {
+            Self::Preserve => input.to_owned(),
+            Self::CamelCase => {
+                let mut out = String::new();
+                for (i, w) in words.iter().enumerate() {
+                    if i == 0 {
+                        out.push_str(&w.to_ascii_lowercase());
+                    } else {
+                        out.push_str(&capitalize_word(w));
+                    }
+                }
+                out
+            }
+            Self::PascalCase => words.iter().map(|w| capitalize_word(w)).collect(),
+            Self::SnakeCase => words
+                .iter()
+                .map(|w| w.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+                .join("_"),
+            Self::ScreamingSnakeCase => words
+                .iter()
+                .map(|w| w.to_ascii_uppercase())
+                .collect::<Vec<_>>()
+                .join("_"),
+            Self::KebabCase => words
+                .iter()
+                .map(|w| w.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+                .join("-"),
+        }
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn split_identifier_words(s: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    for i in 0..chars.len() {
+        let c = chars[i];
+        if !c.is_alphanumeric() {
+            if !cur.is_empty() {
+                words.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        if c.is_uppercase()
+            && !cur.is_empty()
+            && (chars[i - 1].is_lowercase()
+                || (i + 1 < chars.len()
+                    && chars[i + 1].is_lowercase()
+                    && chars[i - 1].is_uppercase()))
+        {
+            words.push(std::mem::take(&mut cur));
+        }
+        cur.push(c);
+    }
+    if !cur.is_empty() {
+        words.push(cur);
+    }
+    words
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn capitalize_word(w: &str) -> String {
+    let mut chars = w.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    out.extend(first.to_uppercase());
+    out.push_str(&chars.as_str().to_ascii_lowercase());
+    out
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CollisionPolicy {
+    #[default]
+    AutoNumber,
+    Skip,
+    Stop,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub struct SmartRenameOptions {
+    pub scope: RenameScope,
+    pub namespace: RenameNamespace,
+    pub find: String,
+    pub replace_template: String,
+    pub regex: bool,
+    pub match_case: bool,
+    pub case_transform: CaseTransform,
+    pub collision_policy: CollisionPolicy,
+    pub start_number: usize,
+    pub step_number: usize,
+}
+
+impl Default for SmartRenameOptions {
+    fn default() -> Self {
+        Self {
+            scope: RenameScope::ActiveSymbol,
+            namespace: RenameNamespace::InstanceName,
+            find: String::new(),
+            replace_template: String::new(),
+            regex: false,
+            match_case: true,
+            case_transform: CaseTransform::Preserve,
+            collision_policy: CollisionPolicy::AutoNumber,
+            start_number: 1,
+            step_number: 1,
+        }
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SmartRenamePreviewItem {
+    pub location_label: String,
+    pub before: String,
+    pub after: String,
+    pub collision: bool,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SmartRenameReport {
+    pub renamed_count: usize,
+    pub skipped_collisions: usize,
+    pub stopped_on_collision: bool,
+    pub affected_script_references: usize,
+    pub preview: Vec<SmartRenamePreviewItem>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn transform_single_name(
+    old_name: &str,
+    opts: &SmartRenameOptions,
+    seq_num: usize,
+    zero_idx: usize,
+    sym_name: &str,
+    layer_name: &str,
+    scene_name: &str,
+) -> Option<String> {
+    if opts.find.is_empty() {
+        let empty_caps: [Option<&str>; 10] = [None; 10];
+        let ctx = ReplacementTemplateContext {
+            full_match: old_name,
+            captures: &empty_caps,
+            sequence_number: seq_num,
+            zero_index: zero_idx,
+            symbol_name: sym_name,
+            layer_name,
+            scene_name,
+            old_name,
+        };
+        let expanded = expand_replacement_template(&opts.replace_template, &ctx);
+        let transformed = opts.case_transform.apply(expanded.trim());
+        return (!transformed.is_empty() && transformed != old_name).then_some(transformed);
+    }
+
+    if opts.regex {
+        let re = CompiledRegex::compile(&opts.find, opts.match_case)?;
+        let matches = re.find_all_with_captures(old_name);
+        if matches.is_empty() {
+            return None;
+        }
+        let mut next = String::new();
+        let mut last_end = 0usize;
+        for (start, end, caps) in matches {
+            next.push_str(&old_name[last_end..start]);
+            let mut slice_caps: [Option<&str>; 10] = [None; 10];
+            for (g, slot) in caps.iter().enumerate() {
+                if let Some((s, e)) = *slot {
+                    slice_caps[g] = old_name.get(s..e);
+                }
+            }
+            let ctx = ReplacementTemplateContext {
+                full_match: &old_name[start..end],
+                captures: &slice_caps,
+                sequence_number: seq_num,
+                zero_index: zero_idx,
+                symbol_name: sym_name,
+                layer_name,
+                scene_name,
+                old_name,
+            };
+            next.push_str(&expand_replacement_template(&opts.replace_template, &ctx));
+            last_end = end;
+        }
+        next.push_str(&old_name[last_end..]);
+        let transformed = opts.case_transform.apply(next.trim());
+        return (!transformed.is_empty() && transformed != old_name).then_some(transformed);
+    }
+
+    let ranges = find_text_ranges(old_name, &opts.find, false, opts.match_case, false);
+    if ranges.is_empty() {
+        return None;
+    }
+    let mut next = String::new();
+    let mut last_end = 0usize;
+    let empty_caps: [Option<&str>; 10] = [None; 10];
+    for range in ranges {
+        next.push_str(&old_name[last_end..range.0]);
+        let ctx = ReplacementTemplateContext {
+            full_match: &old_name[range.0..range.1],
+            captures: &empty_caps,
+            sequence_number: seq_num,
+            zero_index: zero_idx,
+            symbol_name: sym_name,
+            layer_name,
+            scene_name,
+            old_name,
+        };
+        next.push_str(&expand_replacement_template(&opts.replace_template, &ctx));
+        last_end = range.1;
+    }
+    next.push_str(&old_name[last_end..]);
+    let transformed = opts.case_transform.apply(next.trim());
+    (!transformed.is_empty() && transformed != old_name).then_some(transformed)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn count_script_references(project: &Project, identifier: &str) -> usize {
+    if identifier.trim().is_empty() {
+        return 0;
+    }
+    let mut count = 0usize;
+    for sym in &project.symbols {
+        for fs in &sym.timeline.scripts {
+            count += find_text_ranges(&fs.script.source, identifier, true, true, false).len();
+        }
+        for layer in &sym.timeline.layers {
+            for key in &layer.keyframes {
+                for el in &key.elements {
+                    for os in &el.scripts {
+                        count += find_text_ranges(&os.script.source, identifier, true, true, false)
+                            .len();
+                    }
+                }
+            }
+        }
+    }
+    for src in &project.sources {
+        count += find_text_ranges(&src.source, identifier, true, true, false).len();
+    }
+    count
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl Editor {
+    /// Renames a selected symbol instance across its contiguous tween span (`RenameScope::CurrentSpan`)
+    /// or all keyframes of its layer (`RenameScope::LayerKeys`) so tween continuity is preserved.
+    pub fn rename_instance_in_span(&mut self, new_name: &str, entire_layer: bool) -> usize {
+        let trimmed = new_name.trim().to_owned();
+        let Some(sel_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return 0;
+        };
+        let sym_id = self.symbol_id().to_owned();
+        let cur_frame = self.frame;
+        let cur_layer = self.layer;
+        let mut updated = 0usize;
+        self.finish_edits();
+        self.transact_named("Rename instance in span", |s| {
+            let Some(sym) = s.project.symbol_mut(&sym_id) else {
+                return;
+            };
+            let Some(layer) = sym.timeline.layers.get_mut(cur_layer) else {
+                return;
+            };
+            if entire_layer {
+                for key in &mut layer.keyframes {
+                    if let Some(el) = key.elements.iter_mut().find(|e| e.id == sel_id)
+                        && el.name != trimmed
+                    {
+                        el.name = trimmed.clone();
+                        updated += 1;
+                    }
+                }
+            } else {
+                // Find the contiguous span of keyframes containing `sel_id` around `cur_frame`.
+                let active_idx = layer
+                    .keyframes
+                    .iter()
+                    .rposition(|k| k.frame <= cur_frame)
+                    .unwrap_or(0);
+                let mut start_idx = active_idx;
+                while start_idx > 0
+                    && layer.keyframes[start_idx - 1]
+                        .elements
+                        .iter()
+                        .any(|e| e.id == sel_id)
+                {
+                    start_idx -= 1;
+                }
+                let mut end_idx = active_idx;
+                while end_idx + 1 < layer.keyframes.len()
+                    && layer.keyframes[end_idx + 1]
+                        .elements
+                        .iter()
+                        .any(|e| e.id == sel_id)
+                {
+                    end_idx += 1;
+                }
+                for key in &mut layer.keyframes[start_idx..=end_idx] {
+                    if let Some(el) = key.elements.iter_mut().find(|e| e.id == sel_id)
+                        && el.name != trimmed
+                    {
+                        el.name = trimmed.clone();
+                        updated += 1;
+                    }
+                }
+            }
+        });
+        updated
+    }
+
+    /// Previews Smart Rename 2.0 without modifying the document.
+    pub fn preview_smart_rename(&self, opts: &SmartRenameOptions) -> SmartRenameReport {
+        let mut draft = self.project.clone();
+        self.run_smart_rename_on_project(&mut draft, opts)
+    }
+
+    /// Applies Smart Rename 2.0 in a single `"Smart rename"` Undo transaction.
+    pub fn apply_smart_rename(&mut self, opts: &SmartRenameOptions) -> SmartRenameReport {
+        let mut report = SmartRenameReport::default();
+        self.finish_edits();
+        self.transact_named("Smart rename", |s| {
+            let mut candidate = s.project.clone();
+            let r = s.run_smart_rename_on_project(&mut candidate, opts);
+            if r.renamed_count > 0 && !r.stopped_on_collision && candidate.validate().is_ok() {
+                s.project = candidate;
+                report = r;
+            } else {
+                report = r;
+                if report.stopped_on_collision {
+                    report.renamed_count = 0;
+                }
+            }
+        });
+        report
+    }
+
+    fn run_smart_rename_on_project(
+        &self,
+        project: &mut Project,
+        opts: &SmartRenameOptions,
+    ) -> SmartRenameReport {
+        let mut report = SmartRenameReport::default();
+        let active_sym_id = self.symbol_id().to_owned();
+        let active_layer_idx = self.layer;
+        let active_frame = self.frame;
+        let selected_lib_sym = self.library_selected.clone();
+        let current_scene_id = self.current_scene().to_owned();
+        let scene_name = project
+            .symbol(&current_scene_id)
+            .map_or_else(|| "Scene 1".to_owned(), |s| s.name.clone());
+
+        let mut seq_idx = 0usize;
+        let step = opts.step_number.max(1);
+
+        match opts.namespace {
+            RenameNamespace::LibrarySymbolName
+            | RenameNamespace::LinkageIdentifier
+            | RenameNamespace::ClassName => {
+                let mut used_names: HashSet<String> = project
+                    .symbols
+                    .iter()
+                    .map(|s| match opts.namespace {
+                        RenameNamespace::LibrarySymbolName => s.name.clone(),
+                        RenameNamespace::LinkageIdentifier => {
+                            s.linkage_id.clone().unwrap_or_default()
+                        }
+                        RenameNamespace::ClassName => s.class_name.clone().unwrap_or_default(),
+                        _ => String::new(),
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                let sym_indices: Vec<usize> = project
+                    .symbols
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| {
+                        if project.is_scene(&s.id) {
+                            return false;
+                        }
+                        match &opts.scope {
+                            RenameScope::LibraryFolder(folder) => s.folder == *folder,
+                            RenameScope::ActiveSymbol => s.id == active_sym_id,
+                            _ => true,
+                        }
+                    })
+                    .map(|(idx, _)| idx)
+                    .collect();
+
+                for idx in sym_indices {
+                    let sym_name = project.symbols[idx].name.clone();
+                    let old_val = match opts.namespace {
+                        RenameNamespace::LibrarySymbolName => project.symbols[idx].name.clone(),
+                        RenameNamespace::LinkageIdentifier => {
+                            project.symbols[idx].linkage_id.clone().unwrap_or_default()
+                        }
+                        RenameNamespace::ClassName => {
+                            project.symbols[idx].class_name.clone().unwrap_or_default()
+                        }
+                        _ => continue,
+                    };
+                    let seq_num = opts.start_number + seq_idx * step;
+                    let Some(mut candidate_name) = transform_single_name(
+                        &old_val,
+                        opts,
+                        seq_num,
+                        seq_idx,
+                        &sym_name,
+                        "",
+                        &scene_name,
+                    ) else {
+                        continue;
+                    };
+                    seq_idx += 1;
+
+                    used_names.remove(&old_val);
+                    let collision = used_names.contains(&candidate_name);
+                    if collision {
+                        match opts.collision_policy {
+                            CollisionPolicy::Stop => {
+                                report.stopped_on_collision = true;
+                                report.preview.push(SmartRenamePreviewItem {
+                                    location_label: format!("Library › {sym_name}"),
+                                    before: old_val,
+                                    after: candidate_name,
+                                    collision: true,
+                                });
+                                return report;
+                            }
+                            CollisionPolicy::Skip => {
+                                used_names.insert(old_val.clone());
+                                report.skipped_collisions += 1;
+                                report.preview.push(SmartRenamePreviewItem {
+                                    location_label: format!("Library › {sym_name}"),
+                                    before: old_val,
+                                    after: candidate_name,
+                                    collision: true,
+                                });
+                                continue;
+                            }
+                            CollisionPolicy::AutoNumber => {
+                                let base = candidate_name.clone();
+                                let mut n = 2usize;
+                                while used_names.contains(&candidate_name) {
+                                    candidate_name = format!("{base}_{n}");
+                                    n += 1;
+                                }
+                            }
+                        }
+                    }
+                    used_names.insert(candidate_name.clone());
+                    report.affected_script_references += count_script_references(project, &old_val);
+                    match opts.namespace {
+                        RenameNamespace::LibrarySymbolName => {
+                            project.symbols[idx].name = candidate_name.clone();
+                        }
+                        RenameNamespace::LinkageIdentifier => {
+                            project.symbols[idx].linkage_id =
+                                (!candidate_name.is_empty()).then(|| candidate_name.clone());
+                        }
+                        RenameNamespace::ClassName => {
+                            project.symbols[idx].class_name =
+                                (!candidate_name.is_empty()).then(|| candidate_name.clone());
+                        }
+                        _ => {}
+                    }
+                    report.renamed_count += 1;
+                    report.preview.push(SmartRenamePreviewItem {
+                        location_label: format!("Library › {sym_name}"),
+                        before: old_val,
+                        after: candidate_name,
+                        collision,
+                    });
+                }
+            }
+            RenameNamespace::LayerName => {
+                let sym_ids: Vec<Id> = project
+                    .symbols
+                    .iter()
+                    .filter(|s| match &opts.scope {
+                        RenameScope::Project => true,
+                        RenameScope::CurrentScene => s.id == current_scene_id,
+                        _ => s.id == active_sym_id,
+                    })
+                    .map(|s| s.id.clone())
+                    .collect();
+
+                for sym_id in sym_ids {
+                    let Some(sym) = project.symbol_mut(&sym_id) else {
+                        continue;
+                    };
+                    let sym_name = sym.name.clone();
+                    let mut used_names: HashSet<String> =
+                        sym.timeline.layers.iter().map(|l| l.name.clone()).collect();
+                    for layer in &mut sym.timeline.layers {
+                        let old_val = layer.name.clone();
+                        let seq_num = opts.start_number + seq_idx * step;
+                        let Some(mut candidate_name) = transform_single_name(
+                            &old_val,
+                            opts,
+                            seq_num,
+                            seq_idx,
+                            &sym_name,
+                            &old_val,
+                            &scene_name,
+                        ) else {
+                            continue;
+                        };
+                        seq_idx += 1;
+                        used_names.remove(&old_val);
+                        let collision = used_names.contains(&candidate_name);
+                        if collision {
+                            match opts.collision_policy {
+                                CollisionPolicy::Stop => {
+                                    report.stopped_on_collision = true;
+                                    return report;
+                                }
+                                CollisionPolicy::Skip => {
+                                    used_names.insert(old_val);
+                                    report.skipped_collisions += 1;
+                                    continue;
+                                }
+                                CollisionPolicy::AutoNumber => {
+                                    let base = candidate_name.clone();
+                                    let mut n = 2usize;
+                                    while used_names.contains(&candidate_name) {
+                                        candidate_name = format!("{base}_{n}");
+                                        n += 1;
+                                    }
+                                }
+                            }
+                        }
+                        used_names.insert(candidate_name.clone());
+                        layer.name = candidate_name.clone();
+                        report.renamed_count += 1;
+                        report.preview.push(SmartRenamePreviewItem {
+                            location_label: format!("{sym_name} › {old_val}"),
+                            before: old_val,
+                            after: candidate_name,
+                            collision,
+                        });
+                    }
+                }
+            }
+            RenameNamespace::FrameLabel => {
+                let sym_ids: Vec<Id> = project
+                    .symbols
+                    .iter()
+                    .filter(|s| match &opts.scope {
+                        RenameScope::Project => true,
+                        RenameScope::CurrentScene => s.id == current_scene_id,
+                        _ => s.id == active_sym_id,
+                    })
+                    .map(|s| s.id.clone())
+                    .collect();
+
+                for sym_id in sym_ids {
+                    let Some(sym) = project.symbol_mut(&sym_id) else {
+                        continue;
+                    };
+                    let sym_name = sym.name.clone();
+                    for (l_idx, layer) in sym.timeline.layers.iter_mut().enumerate() {
+                        if matches!(opts.scope, RenameScope::LayerKeys | RenameScope::CurrentKey)
+                            && l_idx != active_layer_idx
+                        {
+                            continue;
+                        }
+                        let layer_name = layer.name.clone();
+                        for key in &mut layer.keyframes {
+                            if matches!(opts.scope, RenameScope::CurrentKey)
+                                && key.frame != active_frame
+                            {
+                                continue;
+                            }
+                            if key.label.is_empty() {
+                                continue;
+                            }
+                            let old_val = key.label.clone();
+                            let seq_num = opts.start_number + seq_idx * step;
+                            let Some(candidate_name) = transform_single_name(
+                                &old_val,
+                                opts,
+                                seq_num,
+                                seq_idx,
+                                &sym_name,
+                                &layer_name,
+                                &scene_name,
+                            ) else {
+                                continue;
+                            };
+                            seq_idx += 1;
+                            key.label = candidate_name.clone();
+                            report.renamed_count += 1;
+                            report.preview.push(SmartRenamePreviewItem {
+                                location_label: format!(
+                                    "{sym_name} › {layer_name} › Frame {}",
+                                    key.frame + 1
+                                ),
+                                before: old_val,
+                                after: candidate_name,
+                                collision: false,
+                            });
+                        }
+                    }
+                }
+            }
+            RenameNamespace::InstanceName => {
+                let sym_ids: Vec<Id> = project
+                    .symbols
+                    .iter()
+                    .filter(|s| match &opts.scope {
+                        RenameScope::Project | RenameScope::SelectedSymbolInstances => true,
+                        RenameScope::CurrentScene => s.id == current_scene_id,
+                        _ => s.id == active_sym_id,
+                    })
+                    .map(|s| s.id.clone())
+                    .collect();
+
+                for sym_id in sym_ids {
+                    let Some(sym_ref) = project.symbol(&sym_id) else {
+                        continue;
+                    };
+                    let sym_name = sym_ref.name.clone();
+                    let layer_count = sym_ref.timeline.layers.len();
+                    for l_idx in 0..layer_count {
+                        if matches!(
+                            opts.scope,
+                            RenameScope::CurrentKey
+                                | RenameScope::CurrentSpan
+                                | RenameScope::LayerKeys
+                        ) && (sym_id != active_sym_id || l_idx != active_layer_idx)
+                        {
+                            continue;
+                        }
+                        let layer_name = project
+                            .symbol(&sym_id)
+                            .and_then(|s| s.timeline.layers.get(l_idx))
+                            .map_or_else(String::new, |l| l.name.clone());
+                        let key_count = project
+                            .symbol(&sym_id)
+                            .and_then(|s| s.timeline.layers.get(l_idx))
+                            .map_or(0, |l| l.keyframes.len());
+                        for k_idx in 0..key_count {
+                            let key_frame = project
+                                .symbol(&sym_id)
+                                .and_then(|s| s.timeline.layers.get(l_idx))
+                                .and_then(|l| l.keyframes.get(k_idx))
+                                .map_or(0, |k| k.frame);
+                            if matches!(opts.scope, RenameScope::CurrentKey)
+                                && key_frame != active_frame
+                            {
+                                continue;
+                            }
+                            let mut used_in_key: HashSet<String> = project
+                                .symbol(&sym_id)
+                                .and_then(|s| s.timeline.layers.get(l_idx))
+                                .and_then(|l| l.keyframes.get(k_idx))
+                                .map(|k| {
+                                    k.elements
+                                        .iter()
+                                        .map(|e| e.name.clone())
+                                        .filter(|n| !n.is_empty())
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            let el_count = project
+                                .symbol(&sym_id)
+                                .and_then(|s| s.timeline.layers.get(l_idx))
+                                .and_then(|l| l.keyframes.get(k_idx))
+                                .map_or(0, |k| k.elements.len());
+                            for e_idx in 0..el_count {
+                                let (old_val, matches_selected_sym) = {
+                                    let el = &project.symbol(&sym_id).unwrap().timeline.layers
+                                        [l_idx]
+                                        .keyframes[k_idx]
+                                        .elements[e_idx];
+                                    let m = match (&opts.scope, &el.kind, &selected_lib_sym) {
+                                        (
+                                            RenameScope::SelectedSymbolInstances,
+                                            ElementKind::Instance { symbol_id, .. },
+                                            Some(sel_sym),
+                                        ) => symbol_id == sel_sym,
+                                        (RenameScope::SelectedSymbolInstances, _, _) => false,
+                                        _ => true,
+                                    };
+                                    (el.name.clone(), m)
+                                };
+                                if !matches_selected_sym {
+                                    continue;
+                                }
+                                let seq_num = opts.start_number + seq_idx * step;
+                                let Some(mut candidate_name) = transform_single_name(
+                                    &old_val,
+                                    opts,
+                                    seq_num,
+                                    seq_idx,
+                                    &sym_name,
+                                    &layer_name,
+                                    &scene_name,
+                                ) else {
+                                    continue;
+                                };
+                                seq_idx += 1;
+                                used_in_key.remove(&old_val);
+                                let collision = used_in_key.contains(&candidate_name);
+                                if collision {
+                                    match opts.collision_policy {
+                                        CollisionPolicy::Stop => {
+                                            report.stopped_on_collision = true;
+                                            return report;
+                                        }
+                                        CollisionPolicy::Skip => {
+                                            used_in_key.insert(old_val);
+                                            report.skipped_collisions += 1;
+                                            continue;
+                                        }
+                                        CollisionPolicy::AutoNumber => {
+                                            let base = candidate_name.clone();
+                                            let mut n = 2usize;
+                                            while used_in_key.contains(&candidate_name) {
+                                                candidate_name = format!("{base}_{n}");
+                                                n += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                                used_in_key.insert(candidate_name.clone());
+                                report.affected_script_references +=
+                                    count_script_references(project, &old_val);
+                                if let Some(sym_mut) = project.symbol_mut(&sym_id) {
+                                    sym_mut.timeline.layers[l_idx].keyframes[k_idx].elements
+                                        [e_idx]
+                                        .name = candidate_name.clone();
+                                }
+                                report.renamed_count += 1;
+                                report.preview.push(SmartRenamePreviewItem {
+                                    location_label: format!(
+                                        "{sym_name} › {layer_name} › Frame {}",
+                                        key_frame + 1
+                                    ),
+                                    before: old_val,
+                                    after: candidate_name,
+                                    collision,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        report
+    }
 }

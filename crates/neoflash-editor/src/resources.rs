@@ -100,6 +100,7 @@ impl Editor {
             self.resource_panel = ResourcePanel::default();
         }
         let mut open_sound_props: Option<String> = None;
+        let mut open_bitmap_props: Option<String> = None;
         let mut open_export_audio: Option<String> = None;
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
@@ -143,11 +144,24 @@ impl Editor {
                             }
                         });
                     });
+                } else if unit.is_image() {
+                    let unit_id = unit.id.clone();
+                    response.context_menu(|ui| {
+                        crate::ui_icons::menu_contents(ui, 200., |ui| {
+                            if ui.add(nf::MenuItem::new("Bitmap properties…")).clicked() {
+                                open_bitmap_props = Some(unit_id.clone());
+                                ui.close();
+                            }
+                        });
+                    });
                 }
             }
         });
         if let Some(id) = open_sound_props {
             self.open_sound_properties(ui.ctx(), Some(id));
+        }
+        if let Some(id) = open_bitmap_props {
+            self.open_bitmap_properties(ui.ctx(), Some(id));
         }
         if let Some(id) = open_export_audio {
             self.open_export_audio(

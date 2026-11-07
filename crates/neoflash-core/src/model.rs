@@ -238,7 +238,7 @@ impl MaskMode {
 }
 
 /// Authoring relationships use document IDs, never row positions or UI paths.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LayerProperties {
     /// Exclusive authored exposure end; absent in legacy documents means the
     /// containing timeline's end. Zero is an empty layer, not a hidden key store.
@@ -282,6 +282,29 @@ pub struct LayerProperties {
     /// each placement span start — matching After Effects layer cropping / trim behavior.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sync_timeline: bool,
+    /// Optional 9-slice scaling grid `[x, y, width, height]` in symbol coordinates (format 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale9_grid: Option<[f64; 4]>,
+}
+
+impl Symbol {
+    /// 9-slice scaling grid `[x, y, width, height]` stored on this symbol's primary layer.
+    pub fn scale9_grid(&self) -> Option<[f64; 4]> {
+        self.timeline
+            .layers
+            .iter()
+            .find_map(|l| l.properties.scale9_grid)
+    }
+
+    /// Set or clear the 9-slice scaling grid `[x, y, width, height]` on this symbol.
+    pub fn set_scale9_grid(&mut self, grid: Option<[f64; 4]>) {
+        for layer in &mut self.timeline.layers {
+            layer.properties.scale9_grid = None;
+        }
+        if let Some(first) = self.timeline.layers.first_mut() {
+            first.properties.scale9_grid = grid;
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -372,16 +395,39 @@ impl Project {
         }
     }
 
-    /// Explicit painted-alpha/luminance/inverted timeline masks and per-resource audio export settings (format 9).
+    /// Explicit painted-alpha/luminance/inverted timeline masks, per-resource audio/bitmap export
+    /// settings, classic tween rotation/scale controls, roving keyframes, 9-slice guides,
+    /// variable-width stroke profiles, bitmap fills, and instance property overrides (format 9).
     pub fn uses_format_9(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
-            .any(|layer| !layer.properties.mask_mode.is_geometry() || layer.properties.mask_invert)
-            || self
-                .resources
-                .iter()
-                .any(|r| r.audio_export.as_ref().is_some_and(|e| !e.is_default()))
+            .any(|layer| {
+                !layer.properties.mask_mode.is_geometry()
+                    || layer.properties.mask_invert
+                    || layer.properties.scale9_grid.is_some()
+                    || layer.keyframes.iter().any(|k| {
+                        k.classic_rotate_turns > 0
+                            || !k.classic_rotate_dir.is_default()
+                            || !k.tween_scale
+                            || k.roving
+                            || !k.instance_overrides.is_empty()
+                            || !k.bitmap_fills.is_empty()
+                            || k.elements.iter().any(|e| {
+                                matches!(
+                                    e.transform.primitive,
+                                    Some(
+                                        PrimitiveOptions::Scale9Grid(_)
+                                            | PrimitiveOptions::StrokeProfile(_)
+                                    )
+                                )
+                            })
+                    })
+            })
+            || self.resources.iter().any(|r| {
+                r.audio_export.as_ref().is_some_and(|e| !e.is_default())
+                    || r.bitmap_export.as_ref().is_some_and(|e| !e.is_default())
+            })
     }
 
     /// Editable spatial motion curves, classic guide endpoint snapping, layer blend modes and
@@ -453,7 +499,68 @@ impl LayerProperties {
     }
 }
 
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClassicRotateDirection {
+    #[default]
+    Auto,
+    None,
+    Cw,
+    Ccw,
+}
+
+impl ClassicRotateDirection {
+    pub const ALL: [Self; 4] = [Self::Auto, Self::None, Self::Cw, Self::Ccw];
+
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Auto)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::None => "None",
+            Self::Cw => "CW",
+            Self::Ccw => "CCW",
+        }
+    }
+}
+
+/// Per-instance override of a child element inside a Symbol instance on a Keyframe (format 9).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct InstancePropertyOverride {
+    /// ID or name of the Symbol instance element on this keyframe.
+    pub instance_id: Id,
+    /// Name of the target child element inside the referenced symbol.
+    pub target_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<u32>,
+}
+
+/// Authored bitmap fill with an affine FillTransform matrix attached to a shape element (format 9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AuthoredBitmapFill {
+    pub element_id: Id,
+    pub resource_id: Id,
+    /// Affine matrix `[a, b, c, d, tx, ty]` mapping bitmap pixel coordinates to local path space.
+    pub matrix: [f64; 6],
+    #[serde(default = "bool_true", skip_serializing_if = "is_true")]
+    pub repeat: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub smoothing: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Keyframe {
     /// Internal frame index is zero-based. The editor and goto API display one-based frames.
     pub frame: u32,
@@ -478,7 +585,7 @@ pub struct Keyframe {
     /// track offsets. MoveTo followed by LineTo/CubicTo; position keys control timing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion_path: Option<Vec<PathCommand>>,
-    /// Keep nested graphic symbol animations synchronized across this motion tween span
+    /// Keep nested graphic symbol animations synchronized across this tween span
     /// (document version 7).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sync_symbols: bool,
@@ -493,6 +600,99 @@ pub struct Keyframe {
     /// Authoring correspondence hints for a shape tween span starting here (document version 7).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shape_hints: Vec<ShapeHint>,
+    /// Additional full rotations added during a classic tween span (format 9).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub classic_rotate_turns: u32,
+    /// Rotation interpolation mode for a classic tween span (format 9).
+    #[serde(default, skip_serializing_if = "ClassicRotateDirection::is_default")]
+    pub classic_rotate_dir: ClassicRotateDirection,
+    /// Whether a classic tween interpolates scale and dimensions (default `true`, format 9).
+    #[serde(default = "bool_true", skip_serializing_if = "is_true")]
+    pub tween_scale: bool,
+    /// Spatial roving keyframe inside a motion tween span: timing is distributed
+    /// proportionally to arc length along the motion path (format 9).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub roving: bool,
+    /// Master/Essential property overrides for symbol instances at this keyframe (format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub instance_overrides: Vec<InstancePropertyOverride>,
+    /// Authored bitmap fills for shapes on this keyframe (format 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bitmap_fills: Vec<AuthoredBitmapFill>,
+}
+
+impl Default for Keyframe {
+    fn default() -> Self {
+        Self {
+            frame: 0,
+            elements: Vec::new(),
+            tween: None,
+            label: String::new(),
+            tween_kind: TweenKind::Classic,
+            keyed_properties: None,
+            orient_to_path: false,
+            property_eases: Vec::new(),
+            motion_path: None,
+            sync_symbols: false,
+            snap_to_guide: false,
+            sound: None,
+            shape_hints: Vec::new(),
+            classic_rotate_turns: 0,
+            classic_rotate_dir: ClassicRotateDirection::Auto,
+            tween_scale: true,
+            roving: false,
+            instance_overrides: Vec::new(),
+            bitmap_fills: Vec::new(),
+        }
+    }
+}
+
+impl Keyframe {
+    pub const MAX_ROTATE_TURNS: u32 = 1000;
+
+    pub fn bitmap_fill(&self, element_id: &str) -> Option<&AuthoredBitmapFill> {
+        self.bitmap_fills
+            .iter()
+            .find(|bf| bf.element_id == element_id)
+    }
+
+    pub fn set_bitmap_fill(&mut self, fill: AuthoredBitmapFill) {
+        if let Some(slot) = self
+            .bitmap_fills
+            .iter_mut()
+            .find(|bf| bf.element_id == fill.element_id)
+        {
+            *slot = fill;
+        } else {
+            self.bitmap_fills.push(fill);
+        }
+    }
+
+    pub fn clear_bitmap_fill(&mut self, element_id: &str) {
+        self.bitmap_fills.retain(|bf| bf.element_id != element_id);
+    }
+
+    pub fn instance_override(
+        &self,
+        instance_id: &str,
+        target_name: &str,
+    ) -> Option<&InstancePropertyOverride> {
+        self.instance_overrides
+            .iter()
+            .find(|ov| ov.instance_id == instance_id && ov.target_name == target_name)
+    }
+
+    pub fn set_instance_override(&mut self, ov: InstancePropertyOverride) {
+        if let Some(slot) = self
+            .instance_overrides
+            .iter_mut()
+            .find(|item| item.instance_id == ov.instance_id && item.target_name == ov.target_name)
+        {
+            *slot = ov;
+        } else {
+            self.instance_overrides.push(ov);
+        }
+    }
 }
 
 /// Authoring correspondence marker for a shape tween span (document version 7).
@@ -936,11 +1136,44 @@ impl Element {
             (!options.is_default()).then_some(PrimitiveOptions::Oval(options));
     }
 
-    /// True when this element is a `Rectangle` or `Ellipse` with active parametric geometry.
+    pub fn scale9_grid(&self) -> Option<[f64; 4]> {
+        match self.transform.primitive {
+            Some(PrimitiveOptions::Scale9Grid(grid)) => Some(grid),
+            _ => None,
+        }
+    }
+
+    pub fn set_scale9_grid(&mut self, grid: Option<[f64; 4]>) {
+        self.transform.primitive = grid.map(PrimitiveOptions::Scale9Grid);
+    }
+
+    pub fn stroke_width_profile(&self) -> StrokeWidthProfile {
+        match self.transform.primitive {
+            Some(PrimitiveOptions::StrokeProfile(profile)) => profile,
+            _ => StrokeWidthProfile::default(),
+        }
+    }
+
+    pub fn set_stroke_width_profile(&mut self, profile: StrokeWidthProfile) {
+        self.transform.primitive =
+            (!profile.is_default()).then_some(PrimitiveOptions::StrokeProfile(profile));
+    }
+
+    /// True when this element is a `Rectangle`, `Ellipse`, or stroked `Path` with active parametric geometry.
     pub fn has_parametric_options(&self) -> bool {
         match &self.kind {
             ElementKind::Rectangle { .. } => self.rectangle_options().has_rounded_corners(),
             ElementKind::Ellipse { .. } => !self.oval_options().is_default(),
+            ElementKind::Path {
+                fill, stroke_width, ..
+            }
+            | ElementKind::PaintedPath {
+                fill, stroke_width, ..
+            } => {
+                *stroke_width > 0.0
+                    && *fill == [0, 0, 0, 0]
+                    && !self.stroke_width_profile().is_default()
+            }
             _ => false,
         }
     }
@@ -1018,6 +1251,55 @@ impl Element {
                     stroke: *stroke,
                     stroke_width: *stroke_width,
                 })
+            }
+            ElementKind::Path {
+                stroke,
+                stroke_width,
+                ..
+            } => {
+                let profile = self.stroke_width_profile();
+                let expanded = crate::geometry::expand_variable_width_stroke(
+                    &commands,
+                    *stroke_width,
+                    &profile,
+                );
+                if expanded.is_empty() {
+                    None
+                } else {
+                    Some(ElementKind::Path {
+                        commands: expanded,
+                        fill_rule: FillRule::NonZero,
+                        fill: *stroke,
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    })
+                }
+            }
+            ElementKind::PaintedPath {
+                stroke,
+                stroke_gradient,
+                stroke_width,
+                ..
+            } => {
+                let profile = self.stroke_width_profile();
+                let expanded = crate::geometry::expand_variable_width_stroke(
+                    &commands,
+                    *stroke_width,
+                    &profile,
+                );
+                if expanded.is_empty() {
+                    None
+                } else {
+                    Some(ElementKind::PaintedPath {
+                        commands: expanded,
+                        fill_rule: FillRule::NonZero,
+                        fill: *stroke,
+                        stroke: [0, 0, 0, 0],
+                        fill_gradient: stroke_gradient.clone(),
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                    })
+                }
             }
             _ => None,
         }
@@ -1110,12 +1392,144 @@ impl OvalOptions {
     }
 }
 
-/// Format-7 parametric shape options attached to a `Rectangle` or `Ellipse` placement.
+/// Preset variable-width stroke profiles (Flash CS5.5+ / Animate width profiles).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StrokeProfilePreset {
+    #[default]
+    Uniform,
+    TaperBoth,
+    TaperStart,
+    TaperEnd,
+    Wave,
+    Bell,
+    Custom,
+}
+
+impl StrokeProfilePreset {
+    pub const ALL: [Self; 7] = [
+        Self::Uniform,
+        Self::TaperBoth,
+        Self::TaperStart,
+        Self::TaperEnd,
+        Self::Wave,
+        Self::Bell,
+        Self::Custom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Uniform => "Uniform",
+            Self::TaperBoth => "Width Profile 1 (Taper Both)",
+            Self::TaperStart => "Width Profile 2 (Taper Start)",
+            Self::TaperEnd => "Width Profile 3 (Taper End)",
+            Self::Wave => "Width Profile 4 (Wave)",
+            Self::Bell => "Width Profile 5 (Bell)",
+            Self::Custom => "Custom",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StrokeWidthStop {
+    pub offset: f64,
+    pub scale: f64,
+}
+
+/// Variable-width stroke profile with up to 8 control stops in `[0.0..=1.0]` along the stroke.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StrokeWidthProfile {
+    #[serde(default)]
+    pub preset: StrokeProfilePreset,
+    #[serde(default)]
+    pub stop_count: u8,
+    #[serde(default)]
+    pub stops: [StrokeWidthStop; 8],
+}
+
+impl Default for StrokeWidthProfile {
+    fn default() -> Self {
+        Self {
+            preset: StrokeProfilePreset::Uniform,
+            stop_count: 0,
+            stops: [StrokeWidthStop::default(); 8],
+        }
+    }
+}
+
+impl StrokeWidthProfile {
+    pub fn from_preset(preset: StrokeProfilePreset) -> Self {
+        Self {
+            preset,
+            stop_count: 0,
+            stops: [StrokeWidthStop::default(); 8],
+        }
+    }
+
+    pub fn from_stops(stops: &[(f64, f64)]) -> Self {
+        let mut arr = [StrokeWidthStop::default(); 8];
+        let count = stops.len().min(8);
+        for (i, &(offset, scale)) in stops.iter().take(count).enumerate() {
+            arr[i] = StrokeWidthStop {
+                offset: offset.clamp(0.0, 1.0),
+                scale: scale.clamp(0.0, 10.0),
+            };
+        }
+        Self {
+            preset: StrokeProfilePreset::Custom,
+            stop_count: count as u8,
+            stops: arr,
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.preset == StrokeProfilePreset::Uniform && self.stop_count == 0
+    }
+
+    /// Evaluate the width multiplier at normalized arc-length parameter `t` in `[0.0..=1.0]`.
+    pub fn sample_scale(&self, t: f64) -> f64 {
+        let t = t.clamp(0.0, 1.0);
+        if self.stop_count > 0 {
+            let count = (self.stop_count as usize).min(8);
+            let slice = &self.stops[..count];
+            if t <= slice[0].offset {
+                return slice[0].scale;
+            }
+            for pair in slice.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                if t <= b.offset {
+                    let span = b.offset - a.offset;
+                    if span <= 1e-9 {
+                        return b.scale;
+                    }
+                    let u = (t - a.offset) / span;
+                    return a.scale + (b.scale - a.scale) * u;
+                }
+            }
+            return slice[count - 1].scale;
+        }
+        match self.preset {
+            StrokeProfilePreset::Uniform | StrokeProfilePreset::Custom => 1.0,
+            StrokeProfilePreset::TaperBoth => (4.0 * t * (1.0 - t)).max(0.08),
+            StrokeProfilePreset::TaperStart => t.max(0.08),
+            StrokeProfilePreset::TaperEnd => (1.0 - t).max(0.08),
+            StrokeProfilePreset::Wave => 0.6 + 0.4 * (t * std::f64::consts::TAU * 2.0).sin().abs(),
+            StrokeProfilePreset::Bell => {
+                let d = (t - 0.5) * 2.0;
+                (1.0 - d * d).max(0.15)
+            }
+        }
+    }
+}
+
+/// Format-7/9 parametric shape and placement options attached to `Transform::primitive`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PrimitiveOptions {
     Rectangle(RectangleOptions),
     Oval(OvalOptions),
+    Scale9Grid([f64; 4]),
+    StrokeProfile(StrokeWidthProfile),
 }
 
 impl PrimitiveOptions {
@@ -1123,6 +1537,8 @@ impl PrimitiveOptions {
         match self {
             Self::Rectangle(r) => r.is_default(),
             Self::Oval(o) => o.is_default(),
+            Self::Scale9Grid(g) => *g == [0.0; 4],
+            Self::StrokeProfile(p) => p.is_default(),
         }
     }
 }
@@ -1422,19 +1838,35 @@ impl Layer {
             }
             if key.keyed_properties.is_none() {
                 in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+                let in_classic = key.tween.is_some() && key.tween_kind == TweenKind::Classic;
+                key.roving = false;
                 if !in_motion {
                     key.property_eases.clear();
                     key.motion_path = None;
-                    key.sync_symbols = false;
-                    if !(key.tween.is_some() && key.tween_kind == TweenKind::Classic) {
+                    if !in_classic {
+                        key.sync_symbols = false;
                         key.snap_to_guide = false;
                     }
+                }
+                if !in_classic {
+                    key.classic_rotate_turns = 0;
+                    key.classic_rotate_dir = ClassicRotateDirection::Auto;
+                    key.tween_scale = true;
                 }
             } else {
                 key.property_eases.clear();
                 key.motion_path = None;
                 key.sync_symbols = false;
                 key.snap_to_guide = false;
+                key.classic_rotate_turns = 0;
+                key.classic_rotate_dir = ClassicRotateDirection::Auto;
+                key.tween_scale = true;
+                let has_pos = key.keyed_properties.as_ref().is_some_and(|props| {
+                    props.contains(&TweenProperty::X) || props.contains(&TweenProperty::Y)
+                });
+                if !has_pos {
+                    key.roving = false;
+                }
             }
         }
     }

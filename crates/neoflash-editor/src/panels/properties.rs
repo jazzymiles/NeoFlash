@@ -331,20 +331,57 @@ impl Editor {
                                 options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
                                 changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
                                 if key.tween.is_some() && key.tween_kind == TweenKind::Classic {
-                                    ui.add_enabled_ui(false, |ui| {
-                                        ui.horizontal(|ui| {
-                                            let half = (ui.available_width() - space::S2) / 2.;
-                                            let mut turns = 0.;
-                                            ui.add(nf::Field::new(&mut turns, "Rotate").prefix("Rotate").unit("×").stepper().width(half)).on_disabled_hover_text("Not available yet");
-                                            nf::Select::new("classic-direction", "Direction: Auto").width(half).show(ui, |_| {});
-                                        });
-                                    }).response.on_disabled_hover_text("Not available yet");
+                                    ui.horizontal(|ui| {
+                                        let half = (ui.available_width() - space::S2) / 2.;
+                                        let mut turns = key.classic_rotate_turns as f64;
+                                        let r_turns = ui.add(
+                                            nf::Field::new(&mut turns, "Rotate")
+                                                .prefix("Rotate")
+                                                .unit("×")
+                                                .range(0.0..=(Keyframe::MAX_ROTATE_TURNS as f64))
+                                                .stepper()
+                                                .width(half),
+                                        );
+                                        if r_turns.changed() {
+                                            key.classic_rotate_turns = (turns.round().max(0.0) as u32)
+                                                .min(Keyframe::MAX_ROTATE_TURNS);
+                                        }
+                                        changes.note(r_turns);
+                                        let dir_label = format!(
+                                            "Direction: {}",
+                                            key.classic_rotate_dir.label()
+                                        );
+                                        let mut dir_changed = false;
+                                        let (mut r_dir, _) =
+                                            nf::Select::new("classic-direction", &dir_label)
+                                                .width(half)
+                                                .show(ui, |ui| {
+                                                    for dir in ClassicRotateDirection::ALL {
+                                                        if ui
+                                                            .add(
+                                                                MenuItem::new(dir.label()).checked(
+                                                                    key.classic_rotate_dir == dir,
+                                                                ),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            if key.classic_rotate_dir != dir {
+                                                                key.classic_rotate_dir = dir;
+                                                                dir_changed = true;
+                                                            }
+                                                            ui.close();
+                                                        }
+                                                    }
+                                                });
+                                        if dir_changed {
+                                            r_dir.mark_changed();
+                                        }
+                                        changes.note(r_dir);
+                                    });
                                     changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path")).on_disabled_hover_text("Needs a motion guide layer"));
                                     changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide")).on_disabled_hover_text("Needs a motion guide layer"));
-                                    let mut sync = false;
-                                    ui.add_enabled(false, nf::Checkbox::new(&mut sync, "Sync graphic symbols")).on_disabled_hover_text("Not available yet");
-                                    let mut scale = true;
-                                    ui.add_enabled(false, nf::Checkbox::new(&mut scale, "Scale")).on_disabled_hover_text("Not available yet");
+                                    changes.note(ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync graphic symbols")));
+                                    changes.note(ui.add(nf::Checkbox::new(&mut key.tween_scale, "Scale")));
                                 }
 
                                 // Y may overshoot (Back) or undershoot; the document allows |y| ≤ 100, x stays in 0–1.
@@ -396,13 +433,30 @@ impl Editor {
                     self.project.name=document.name.clone(); self.project.width=document.width; self.project.height=document.height;
                     self.project.fps=document.fps; self.project.background=document.background;
                     let draft=&document.symbol(&symbol_id).unwrap().timeline;
+                    let project_snapshot = self.project.clone();
                     if let Some(symbol)=self.project.symbol_mut(&symbol_id) {
                         let timeline=&mut symbol.timeline;
                         let min=timeline.layers.iter().flat_map(|l|&l.keyframes).map(|k|k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
                         timeline.frame_count=draft.frame_count.max(min);
                         if let Some(target)=timeline.layers.iter_mut().find(|l|l.id==layer_id) {
                             target.name=draft.layers[layer].name.clone();
-                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) { key.label=changed.label.clone(); key.tween=changed.tween; key.orient_to_path=changed.orient_to_path; key.snap_to_guide=changed.snap_to_guide; }
+                            if target.visible && !target.locked && let Some(changed)=draft.layers[layer].key_at(frame) && let Some(key)=target.keyframes.iter_mut().find(|k|k.frame==changed.frame) {
+                                let sync_turned_on = !key.sync_symbols && changed.sync_symbols;
+                                let key_frame = key.frame;
+                                key.label=changed.label.clone();
+                                key.tween=changed.tween;
+                                key.orient_to_path=changed.orient_to_path;
+                                key.snap_to_guide=changed.snap_to_guide;
+                                key.classic_rotate_turns=changed.classic_rotate_turns;
+                                key.classic_rotate_dir=changed.classic_rotate_dir;
+                                key.sync_symbols=changed.sync_symbols;
+                                key.tween_scale=changed.tween_scale;
+                                target.normalize_motion_keys();
+                                if sync_turned_on {
+                                    let end_frame = target.keyframes.iter().filter(|k| k.frame > key_frame).map(|k| k.frame).min().unwrap_or_else(|| timeline.frame_count.saturating_sub(1));
+                                    neoflash_core::sync_layer_symbols(&project_snapshot, target, key_frame, end_frame);
+                                }
+                            }
                             if matches!(draft.layers[layer].key_at(frame).and_then(|k| k.tween), Some(Easing::Flash { .. })) { self.project.format_version = self.project.format_version.max(5); }
                         }
                     }

@@ -131,7 +131,226 @@ enum Action {
 }
 
 impl Editor {
+    /// Count how many `Instance` elements across all timelines instantiate each Library symbol.
+    pub fn library_symbol_use_counts(&self) -> std::collections::HashMap<String, usize> {
+        let mut counts: std::collections::HashMap<String, usize> = self
+            .project
+            .symbols
+            .iter()
+            .filter(|s| !self.project.is_scene(&s.id))
+            .map(|s| (s.id.clone(), 0usize))
+            .collect();
+        for sym in &self.project.symbols {
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        if let ElementKind::Instance { symbol_id, .. } = &el.kind
+                            && let Some(c) = counts.get_mut(symbol_id)
+                        {
+                            *c += 1;
+                        }
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    /// Count how many stage/symbol placements or frame sounds reference each Library resource.
+    pub fn library_resource_use_counts(&self) -> std::collections::HashMap<String, usize> {
+        let mut counts: std::collections::HashMap<String, usize> = self
+            .project
+            .resources
+            .iter()
+            .map(|r| (r.id.clone(), 0usize))
+            .collect();
+        for sym in &self.project.symbols {
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    if let Some(snd) = &key.sound
+                        && let Some(c) = counts.get_mut(&snd.resource)
+                    {
+                        *c += 1;
+                    }
+                    for bf in &key.bitmap_fills {
+                        if let Some(c) = counts.get_mut(&bf.resource_id) {
+                            *c += 1;
+                        }
+                    }
+                    for el in &key.elements {
+                        if let ElementKind::Bitmap { resource_id, .. } = &el.kind
+                            && let Some(c) = counts.get_mut(resource_id)
+                        {
+                            *c += 1;
+                        }
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    /// Return the IDs of all Library symbols that have 0 stage/symbol instances and no runtime linkage/class.
+    pub fn unused_library_symbol_ids(&self) -> Vec<String> {
+        let counts = self.library_symbol_use_counts();
+        self.project
+            .symbols
+            .iter()
+            .filter(|s| {
+                !self.project.is_scene(&s.id)
+                    && s.linkage_id.is_none()
+                    && s.class_name.is_none()
+                    && counts.get(&s.id).copied().unwrap_or(0) == 0
+            })
+            .map(|s| s.id.clone())
+            .collect()
+    }
+
+    /// Return the IDs of all Library resources that have 0 placements/references across the project.
+    pub fn unused_library_resource_ids(&self) -> Vec<String> {
+        let counts = self.library_resource_use_counts();
+        self.project
+            .resources
+            .iter()
+            .filter(|r| counts.get(&r.id).copied().unwrap_or(0) == 0)
+            .map(|r| r.id.clone())
+            .collect()
+    }
+
+    /// Select the first unused symbol or resource in the Library panel and return `(unused_symbols, unused_resources)`.
+    pub fn select_unused_library_items(&mut self) -> (Vec<String>, Vec<String>) {
+        let unused_syms = self.unused_library_symbol_ids();
+        let unused_res = self.unused_library_resource_ids();
+        if let Some(first_sym) = unused_syms.first() {
+            let folder = self
+                .project
+                .symbol(first_sym)
+                .map_or_else(String::new, |s| s.folder.clone());
+            self.library_selected = Some(first_sym.clone());
+            self.library_panel.selected_folder = folder;
+        } else if let Some(first_res) = unused_res.first() {
+            self.resource_panel.selected = Some(first_res.clone());
+            self.library_selected = None;
+        }
+        (unused_syms, unused_res)
+    }
+
+    /// Delete all unused Library symbols (without linkage/class) and unused resources in one Undo step.
+    pub fn delete_unused_library_items(&mut self) -> (usize, usize) {
+        self.finish_edits();
+        let unused_syms: HashSet<String> = self.unused_library_symbol_ids().into_iter().collect();
+        let unused_res: HashSet<String> = self.unused_library_resource_ids().into_iter().collect();
+        if unused_syms.is_empty() && unused_res.is_empty() {
+            return (0, 0);
+        }
+        let mut candidate = self.project.clone();
+        let sym_before = candidate.symbols.len();
+        candidate.symbols.retain(|s| !unused_syms.contains(&s.id));
+        let removed_syms = sym_before.saturating_sub(candidate.symbols.len());
+
+        let res_before = candidate.resources.len();
+        candidate.resources.retain(|r| !unused_res.contains(&r.id));
+        let removed_res = res_before.saturating_sub(candidate.resources.len());
+
+        if (removed_syms > 0 || removed_res > 0) && candidate.validate().is_ok() {
+            self.transact_named("Delete unused items", |s| {
+                s.project = candidate;
+            });
+            if self
+                .library_selected
+                .as_ref()
+                .is_some_and(|id| unused_syms.contains(id))
+            {
+                self.library_selected = None;
+            }
+            if self
+                .resource_panel
+                .selected
+                .as_ref()
+                .is_some_and(|id| unused_res.contains(id))
+            {
+                self.resource_panel.selected = None;
+            }
+            (removed_syms, removed_res)
+        } else {
+            (0, 0)
+        }
+    }
+
+    /// Move multiple Library symbols to `target_folder` in one `"Move symbols"` Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn bulk_move_library_symbols(
+        &mut self,
+        symbol_ids: &[String],
+        target_folder: &str,
+    ) -> Result<usize, String> {
+        self.finish_edits();
+        if symbol_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut candidate = self.project.clone();
+        let mut moved = 0usize;
+        for id in symbol_ids {
+            if !candidate.is_scene(id) && candidate.symbol(id).is_some() {
+                candidate.move_library_symbol(id, target_folder)?;
+                moved += 1;
+            }
+        }
+        if moved > 0 {
+            candidate.validate().map_err(|e| e.to_string())?;
+            self.transact_named("Move symbols", |s| {
+                s.project = candidate;
+            });
+        }
+        Ok(moved)
+    }
+
+    /// Change the `SymbolKind` of multiple Library symbols in one `"Symbol properties"` Undo step.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn bulk_set_symbol_kind(
+        &mut self,
+        symbol_ids: &[String],
+        kind: SymbolKind,
+    ) -> Result<usize, String> {
+        self.finish_edits();
+        if symbol_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut candidate = self.project.clone();
+        let mut changed = 0usize;
+        for id in symbol_ids {
+            if candidate.is_scene(id) {
+                continue;
+            }
+            let Some(sym) = candidate.symbol_mut(id) else {
+                continue;
+            };
+            if sym.kind == kind {
+                continue;
+            }
+            if sym.class_name.is_some() || (kind == SymbolKind::Graphic && sym.linkage_id.is_some())
+            {
+                continue;
+            }
+            sym.kind = kind;
+            if kind == SymbolKind::Button {
+                sym.timeline.frame_count = sym.timeline.frame_count.max(4);
+            }
+            changed += 1;
+        }
+        if changed > 0 {
+            candidate.validate().map_err(|e| e.to_string())?;
+            self.transact_named("Symbol properties", |s| {
+                s.project = candidate;
+            });
+        }
+        Ok(changed)
+    }
+
     pub(crate) fn library_body(&mut self, ui: &mut egui::Ui) {
+        if crate::bitmaps::has_bitmap_properties_dialog(ui.ctx()) {
+            self.bitmap_properties_dialog(ui.ctx());
+        }
         if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.library_panel.drag = None;
         }
@@ -709,7 +928,7 @@ impl Editor {
         {
             self.convert_to_symbol();
         }
-        // Sound and font library items (§9).
+        // Sound, bitmap and font library items (§9).
         nf::menu_separator(ui);
         let has_audio = self.project.resources.iter().any(|u| u.is_audio());
         if ui
@@ -717,6 +936,30 @@ impl Editor {
             .clicked()
         {
             self.open_sound_properties(ui.ctx(), None);
+            ui.close();
+        }
+        let has_bitmap = self.project.resources.iter().any(|u| u.is_image());
+        if ui
+            .add_enabled(has_bitmap, nf::MenuItem::new("Bitmap properties…"))
+            .clicked()
+        {
+            self.open_bitmap_properties(ui.ctx(), None);
+            ui.close();
+        }
+        let has_unused = !self.unused_library_symbol_ids().is_empty()
+            || !self.unused_library_resource_ids().is_empty();
+        if ui
+            .add_enabled(has_unused, nf::MenuItem::new("Select unused items"))
+            .clicked()
+        {
+            self.select_unused_library_items();
+            ui.close();
+        }
+        if ui
+            .add_enabled(has_unused, nf::MenuItem::new("Delete unused items"))
+            .clicked()
+        {
+            self.delete_unused_library_items();
             ui.close();
         }
         for path in [

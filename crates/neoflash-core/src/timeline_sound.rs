@@ -548,3 +548,165 @@ pub fn wav_waveform_peaks(bytes: &[u8], buckets: usize) -> Result<WaveformPeaks,
     })
     .ok_or_else(|| "WAV contains no decodable samples".into())
 }
+
+/// Bounded single-frame audio slice emitted during interactive timeline playhead scrubbing (`T-108`).
+/// Pure evaluation (`evaluate.rs`) and onion skin never emit scrub slices.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScrubSoundSlice {
+    pub resource: Id,
+    /// Playback start offset in seconds within the audio resource (including `in_point`).
+    pub start_seconds: f64,
+    /// Duration of the scrubbed frame slice in seconds (`1.0 / fps`), clamped to `out_point`.
+    pub duration_seconds: f64,
+    /// Stereo gain `[left, right]` at the scrubbed frame offset.
+    pub gains: [f32; 2],
+}
+
+/// Compute the bounded (`1.0 / fps` s) audio slices for active stream sounds (and keyframe-entry
+/// event sounds) at `frame` when scrubbing the playhead interactively (`T-108`).
+pub fn scrub_sound_slices(symbol: &Symbol, frame: u32, fps: u32) -> Vec<ScrubSoundSlice> {
+    let fps_f = f64::from(fps.max(1));
+    let frame_dur = 1.0 / fps_f;
+    let mut slices = Vec::new();
+    for layer in sound_layers(symbol) {
+        let Some(key) = layer.key_at(frame) else {
+            continue;
+        };
+        let Some(sound) = &key.sound else {
+            continue;
+        };
+        let span_end = sound_span_end(layer, key, symbol.timeline.frame_count);
+        if frame >= span_end {
+            continue;
+        }
+        let is_stream = sound.sync == SoundSync::Stream;
+        let is_entry_event =
+            matches!(sound.sync, SoundSync::Event | SoundSync::Start) && key.frame == frame;
+        if !is_stream && !is_entry_event {
+            continue;
+        }
+        let rel_seconds = f64::from(frame.saturating_sub(key.frame)) / fps_f;
+        let in_sec = sound.in_point.unwrap_or(0.0).max(0.0);
+        let start_sec = in_sec + rel_seconds;
+        if let Some(out_sec) = sound.out_point
+            && start_sec >= out_sec
+        {
+            continue;
+        }
+        let dur = match sound.out_point {
+            Some(out_sec) => (out_sec - start_sec).clamp(0.0, frame_dur),
+            None => frame_dur,
+        };
+        if dur <= 1e-6 {
+            continue;
+        }
+        let span_frames = span_end.saturating_sub(key.frame).max(1);
+        let norm_pos =
+            (f64::from(frame.saturating_sub(key.frame)) / f64::from(span_frames)).clamp(0.0, 1.0);
+        let env = envelope(sound);
+        let gains = sample_envelope_gains(&env, norm_pos);
+        slices.push(ScrubSoundSlice {
+            resource: sound.resource.clone(),
+            start_seconds: start_sec,
+            duration_seconds: dur,
+            gains,
+        });
+    }
+    slices
+}
+
+fn sample_envelope_gains(points: &[[f64; 3]], pos: f64) -> [f32; 2] {
+    if points.is_empty() {
+        return [1.0, 1.0];
+    }
+    if pos <= points[0][0] {
+        return [points[0][1] as f32, points[0][2] as f32];
+    }
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        if pos <= b[0] {
+            let span = (b[0] - a[0]).max(1e-9);
+            let t = ((pos - a[0]) / span).clamp(0.0, 1.0);
+            let l = a[1] + (b[1] - a[1]) * t;
+            let r = a[2] + (b[2] - a[2]) * t;
+            return [l as f32, r as f32];
+        }
+    }
+    let last = points[points.len() - 1];
+    [last[1] as f32, last[2] as f32]
+}
+
+/// Deterministic audio-to-viseme keyframe generator (`T-109` Auto Lip-Sync).
+///
+/// Maps each timeline frame in `start_frame .. start_frame + span_frames` to one of 6 viseme
+/// mouth poses (`[neutral, mbp, fv_consonant, ei_narrow, ou_round, ah_open]`), returning
+/// `(timeline_frame, graphic_single_frame_index)` pairs wherever the viseme changes.
+pub fn compute_lip_sync_keyframes(
+    peaks: &WaveformPeaks,
+    in_point: Option<f64>,
+    out_point: Option<f64>,
+    start_frame: u32,
+    span_frames: u32,
+    fps: u32,
+    viseme_frames: &[u32; 6],
+) -> Vec<(u32, u32)> {
+    if span_frames == 0 || peaks.buckets() == 0 || peaks.duration <= 0.0 {
+        return Vec::new();
+    }
+    let fps_f = f64::from(fps.max(1));
+    let in_sec = in_point.unwrap_or(0.0).max(0.0);
+    let out_sec = out_point.unwrap_or(peaks.duration).min(peaks.duration);
+    let total_buckets = peaks.buckets();
+
+    let mut result: Vec<(u32, u32)> = Vec::new();
+    let mut last_viseme: Option<u32> = None;
+
+    for offset in 0..span_frames {
+        let frame = start_frame + offset;
+        let t0 = in_sec + f64::from(offset) / fps_f;
+        let t1 = (in_sec + f64::from(offset + 1) / fps_f).min(out_sec);
+        let energy = if t0 >= out_sec || t1 <= t0 {
+            0.0_f32
+        } else {
+            let b0 = ((t0 / peaks.duration) * total_buckets as f64).floor() as usize;
+            let b1 = ((t1 / peaks.duration) * total_buckets as f64)
+                .ceil()
+                .max((b0 + 1) as f64) as usize;
+            let b0 = b0.min(total_buckets.saturating_sub(1));
+            let b1 = b1.clamp(b0 + 1, total_buckets);
+            let mut sum = 0.0_f32;
+            let mut max_amp = 0.0_f32;
+            for b in b0..b1 {
+                let amp_l = peaks.peak_amplitude(0, b);
+                let amp_r = peaks.peak_amplitude(1, b);
+                let amp = amp_l.max(amp_r);
+                sum += amp;
+                max_amp = max_amp.max(amp);
+            }
+            let mean = sum / ((b1 - b0) as f32);
+            0.6 * max_amp + 0.4 * mean
+        };
+
+        let viseme_idx = if energy < 0.04 {
+            0 // Neutral / closed mouth
+        } else if energy < 0.16 {
+            1 // M, B, P
+        } else if energy < 0.32 {
+            2 // F, V, D, T, S
+        } else if energy < 0.52 {
+            3 // E, I
+        } else if energy < 0.72 {
+            4 // O, U, W
+        } else {
+            5 // A, AH wide open
+        };
+
+        let target_pose = viseme_frames[viseme_idx];
+        if last_viseme != Some(target_pose) {
+            result.push((frame, target_pose));
+            last_viseme = Some(target_pose);
+        }
+    }
+
+    result
+}

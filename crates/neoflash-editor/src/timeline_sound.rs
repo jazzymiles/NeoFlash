@@ -945,4 +945,151 @@ impl Editor {
         self.timeline_audio.set_muted(muted);
         self.message(if muted { "Sounds muted." } else { "Sounds on." });
     }
+
+    /// Audible playhead scrubbing (`T-108`): emit bounded (`1.0 / fps` s) stream/entry sound slices
+    /// for `frame` without side effects on pure scene evaluation or onion skin.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn scrub_timeline_audio_at_frame(
+        &mut self,
+        frame: u32,
+    ) -> Vec<neoflash_core::ScrubSoundSlice> {
+        let slices =
+            neoflash_core::scrub_sound_slices(self.symbol(), frame, self.project.fps.max(1));
+        if self.timeline_audio.muted || slices.is_empty() {
+            return slices;
+        }
+        let mut commands = Vec::with_capacity(slices.len() + 1);
+        commands.push(SoundCommand::StopAll);
+        for slice in &slices {
+            commands.push(SoundCommand::Play {
+                resource: slice.resource.clone(),
+                sync: SoundSync::Event,
+                loops: 1,
+                loop_forever: false,
+                envelope: vec![[0.0, f64::from(slice.gains[0]), f64::from(slice.gains[1])]],
+                in_point: Some(slice.start_seconds),
+                out_point: Some(slice.start_seconds + slice.duration_seconds),
+            });
+        }
+        self.timeline_audio.apply(&self.project, commands);
+        slices
+    }
+
+    /// Auto Lip-Sync (`T-109`): analyze the active stream/frame sound on this timeline and insert
+    /// `InstancePlayback::SingleFrame` viseme keyframes on the selected Graphic symbol instance's
+    /// layer in one Undo step. Returns the number of viseme keyframes written.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn auto_lip_sync_selected_graphic(&mut self, viseme_frames: &[u32; 6]) -> usize {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return 0;
+        }
+        let Some(selected_id) = self.selection.single().map(|t| t.element.clone()) else {
+            return 0;
+        };
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some((child_sym_id, base_element)) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| k.elements.iter().find(|e| e.id == selected_id))
+            .and_then(|e| match &e.kind {
+                ElementKind::Instance { symbol_id, .. } => Some((symbol_id.clone(), e.clone())),
+                _ => None,
+            })
+        else {
+            return 0;
+        };
+        let Some(child_count) = self
+            .project
+            .symbol(&child_sym_id)
+            .filter(|s| s.kind == SymbolKind::Graphic)
+            .map(|s| s.timeline.frame_count.max(1))
+        else {
+            return 0;
+        };
+
+        // Find the active sound span at `frame` on any layer of the current symbol (prefer Stream).
+        let mut found_sound: Option<(u32, u32, FrameSound)> = None;
+        let sym = self.symbol();
+        for s_layer in &sym.timeline.layers {
+            if let Some(s_key) = s_layer.key_at(frame)
+                && let Some(snd) = &s_key.sound
+            {
+                let end = neoflash_core::sound_span_end(s_layer, s_key, sym.timeline.frame_count);
+                if frame < end {
+                    let is_better = found_sound.as_ref().is_none_or(|(_, _, prev)| {
+                        prev.sync != SoundSync::Stream && snd.sync == SoundSync::Stream
+                    });
+                    if is_better {
+                        found_sound =
+                            Some((s_key.frame, end.saturating_sub(s_key.frame), snd.clone()));
+                    }
+                }
+            }
+        }
+        let Some((start_f, span_frames, snd)) = found_sound else {
+            return 0;
+        };
+        let Ok(decoded) = self.timeline_audio.decoded(&self.project, &snd.resource) else {
+            return 0;
+        };
+        let Some(peaks) = neoflash_core::sample_waveform_peaks(
+            &decoded.samples,
+            decoded.channels,
+            decoded.rate,
+            1024,
+        ) else {
+            return 0;
+        };
+        let clamped_visemes: [u32; 6] =
+            std::array::from_fn(|i| viseme_frames[i].min(child_count - 1));
+        let keyframes = neoflash_core::compute_lip_sync_keyframes(
+            &peaks,
+            snd.in_point,
+            snd.out_point,
+            start_f,
+            span_frames,
+            self.project.fps.max(1),
+            &clamped_visemes,
+        );
+        if keyframes.is_empty() {
+            return 0;
+        }
+        let written = keyframes.len();
+        self.transact_named("Auto lip-sync", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            for &(kf_frame, pose) in &keyframes {
+                if let Some(existing) = layer.keyframes.iter_mut().find(|k| k.frame == kf_frame) {
+                    if let Some(el) = existing.elements.iter_mut().find(|e| e.id == selected_id) {
+                        el.kind = ElementKind::Instance {
+                            symbol_id: child_sym_id.clone(),
+                            playback: InstancePlayback::SingleFrame(pose),
+                        };
+                    }
+                } else {
+                    let mut elems = layer
+                        .key_at(kf_frame)
+                        .map(|k| k.elements.clone())
+                        .unwrap_or_else(|| vec![base_element.clone()]);
+                    if let Some(el) = elems.iter_mut().find(|e| e.id == selected_id) {
+                        el.kind = ElementKind::Instance {
+                            symbol_id: child_sym_id.clone(),
+                            playback: InstancePlayback::SingleFrame(pose),
+                        };
+                    }
+                    layer.keyframes.push(Keyframe {
+                        frame: kf_frame,
+                        elements: elems,
+                        ..Keyframe::default()
+                    });
+                }
+            }
+            layer.normalize_motion_keys();
+        });
+        written
+    }
 }

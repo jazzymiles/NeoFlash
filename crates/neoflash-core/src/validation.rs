@@ -241,6 +241,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 );
             }
         }
+        if let Some(export) = &resource.bitmap_export {
+            if !resource.is_image() {
+                add(
+                    format!("{path}.bitmap_export"),
+                    "bitmap_export is only allowed on image/* resources".into(),
+                );
+            }
+            if !(1..=100).contains(&export.jpeg_quality) {
+                add(
+                    format!("{path}.bitmap_export.jpeg_quality"),
+                    "jpeg_quality must be in 1..=100".into(),
+                );
+            }
+        }
     }
     if resource_bytes > MAX_RESOURCE_TOTAL_BYTES {
         add(
@@ -470,9 +484,46 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     add(format!("{lp}.properties.groups"), "each group requires at least two distinct layer members; groups must not overlap".into());
                 }
             }
+            if let Some(grid) = layer.properties.scale9_grid
+                && (!grid.iter().all(|v| v.is_finite() && v.abs() <= 1e6)
+                    || grid[2] <= 0.0
+                    || grid[3] <= 0.0)
+            {
+                add(
+                    format!("{lp}.properties.scale9_grid"),
+                    "scale9_grid [x, y, width, height] must be finite within +-1e6 with positive width and height".into(),
+                );
+            }
             let mut keys = HashSet::new();
             for (ki, key) in layer.keyframes.iter().enumerate() {
                 let kp = format!("{lp}.keyframes[{ki}]");
+                if key.classic_rotate_turns > Keyframe::MAX_ROTATE_TURNS {
+                    add(
+                        format!("{kp}.classic_rotate_turns"),
+                        format!(
+                            "classic_rotate_turns must be in 0..={}",
+                            Keyframe::MAX_ROTATE_TURNS
+                        ),
+                    );
+                }
+                for (bfi, bf) in key.bitmap_fills.iter().enumerate() {
+                    if !bf.matrix.iter().all(|v| v.is_finite() && v.abs() <= 1e9) {
+                        add(
+                            format!("{kp}.bitmap_fills[{bfi}].matrix"),
+                            "bitmap fill matrix must be finite and within +-1e9".into(),
+                        );
+                    }
+                    if !project
+                        .resources
+                        .iter()
+                        .any(|r| r.id == bf.resource_id && r.is_image())
+                    {
+                        add(
+                            format!("{kp}.bitmap_fills[{bfi}].resource_id"),
+                            format!("missing or non-image resource '{}'", bf.resource_id),
+                        );
+                    }
+                }
                 if key.frame >= symbol.timeline.frame_count {
                     add(
                         format!("{kp}.frame"),
@@ -820,6 +871,41 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                         format!("{ep}.transform.primitive.inner_radius"),
                                         "oval inner radius must be finite and in 0..=99".into(),
                                     );
+                                }
+                            }
+                            PrimitiveOptions::Scale9Grid(grid) => {
+                                if !grid.iter().all(|v| v.is_finite() && v.abs() <= 1e6)
+                                    || grid[2] <= 0.0
+                                    || grid[3] <= 0.0
+                                {
+                                    add(
+                                        format!("{ep}.transform.primitive.scale9_grid"),
+                                        "scale9_grid [x, y, width, height] must be finite within +-1e6 with positive width and height".into(),
+                                    );
+                                }
+                            }
+                            PrimitiveOptions::StrokeProfile(profile) => {
+                                if profile.stop_count > 8 {
+                                    add(
+                                        format!("{ep}.transform.primitive.stroke_profile"),
+                                        "stroke width profile stop_count must be in 0..=8".into(),
+                                    );
+                                }
+                                let count = (profile.stop_count as usize).min(8);
+                                for (si, stop) in profile.stops[..count].iter().enumerate() {
+                                    if !stop.offset.is_finite()
+                                        || !(0.0..=1.0).contains(&stop.offset)
+                                        || !stop.scale.is_finite()
+                                        || !(0.0..=10.0).contains(&stop.scale)
+                                    {
+                                        add(
+                                            format!(
+                                                "{ep}.transform.primitive.stroke_profile.stops[{si}]"
+                                            ),
+                                            "stroke width stop requires offset in 0..=1 and scale in 0..=10"
+                                                .into(),
+                                        );
+                                    }
                                 }
                             }
                         }

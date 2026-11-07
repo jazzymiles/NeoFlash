@@ -980,6 +980,101 @@ fn eval_cubic(p0: Point, c1: Point, c2: Point, p3: Point, t: f64) -> Point {
     ]
 }
 
+/// Expand a stroked path into a closed filled outline contour using `base_width` and a
+/// variable-width `StrokeWidthProfile` (`Modify ▸ Shape ▸ Expand Stroke` / width profiles).
+pub fn expand_variable_width_stroke(
+    commands: &[PathCommand],
+    base_width: f64,
+    profile: &crate::StrokeWidthProfile,
+) -> Vec<PathCommand> {
+    if base_width <= 0.0 || !base_width.is_finite() {
+        return Vec::new();
+    }
+    let Ok(contours) = flatten_path(
+        commands,
+        FlattenOptions {
+            tolerance: 0.25,
+            ..FlattenOptions::default()
+        },
+    ) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for contour in contours {
+        let mut pts = contour.points;
+        if contour.closed && pts.len() >= 2 && pts.first() != pts.last() {
+            pts.push(pts[0]);
+        }
+        pts.dedup_by(|a, b| (a[0] - b[0]).hypot(a[1] - b[1]) < 1e-6);
+        if pts.len() < 2 {
+            continue;
+        }
+        let mut cum = Vec::with_capacity(pts.len());
+        cum.push(0.0);
+        for pair in pts.windows(2) {
+            let d = (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
+            cum.push(cum.last().copied().unwrap_or(0.0) + d);
+        }
+        let total = cum.last().copied().unwrap_or(0.0);
+        if total <= 1e-6 {
+            continue;
+        }
+        let mut left = Vec::with_capacity(pts.len());
+        let mut right = Vec::with_capacity(pts.len());
+        for i in 0..pts.len() {
+            let t = (cum[i] / total).clamp(0.0, 1.0);
+            let hw = (0.5 * base_width * profile.sample_scale(t)).max(0.05);
+            let dir_prev = if i > 0 {
+                let dx = pts[i][0] - pts[i - 1][0];
+                let dy = pts[i][1] - pts[i - 1][1];
+                let len = dx.hypot(dy).max(1e-9);
+                [dx / len, dy / len]
+            } else {
+                let dx = pts[1][0] - pts[0][0];
+                let dy = pts[1][1] - pts[0][1];
+                let len = dx.hypot(dy).max(1e-9);
+                [dx / len, dy / len]
+            };
+            let dir_next = if i + 1 < pts.len() {
+                let dx = pts[i + 1][0] - pts[i][0];
+                let dy = pts[i + 1][1] - pts[i][1];
+                let len = dx.hypot(dy).max(1e-9);
+                [dx / len, dy / len]
+            } else {
+                dir_prev
+            };
+            let n_prev = [-dir_prev[1], dir_prev[0]];
+            let n_next = [-dir_next[1], dir_next[0]];
+            let mut nx = n_prev[0] + n_next[0];
+            let mut ny = n_prev[1] + n_next[1];
+            let n_len = nx.hypot(ny);
+            if n_len > 1e-6 {
+                nx /= n_len;
+                ny /= n_len;
+            } else {
+                nx = n_prev[0];
+                ny = n_prev[1];
+            }
+            left.push([pts[i][0] + nx * hw, pts[i][1] + ny * hw]);
+            right.push([pts[i][0] - nx * hw, pts[i][1] - ny * hw]);
+        }
+        if let Some(&first) = left.first() {
+            out.push(PathCommand::MoveTo {
+                x: first[0],
+                y: first[1],
+            });
+            for &[x, y] in &left[1..] {
+                out.push(PathCommand::LineTo { x, y });
+            }
+            for &[x, y] in right.iter().rev() {
+                out.push(PathCommand::LineTo { x, y });
+            }
+            out.push(PathCommand::Close);
+        }
+    }
+    out
+}
+
 fn closest_on_curve(point: Point, eval: impl Fn(f64) -> Point) -> (f64, Point, f64) {
     const SAMPLES: usize = 32;
     let mut best_t = 0.5;
