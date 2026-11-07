@@ -753,3 +753,110 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Need:** Update the NF2 design system so the open document tabs strip (`NF2/Document Tab` + `⌄` `Open documents` button) sits in its own horizontal bar **directly below the 48 pt main menu bar** (`TopBottomPanel::top("document-tabs")`, 40 pt height, `bg/app` fill, 12 pt horizontal padding, 1 px `border/subtle` bottom divider) instead of inside the 48 pt main menu bar row between `Help` and the workspace selector.
 - **Why:** Direct personal instruction from the project owner (5 November 2026: *"вкладки с открытыми документами должны быть ниже главного меню; поправь и отпишись чтобы клод поправил это в дизайн системе — это мое личное указание"*). Placing document tabs on the same row as the main menu (`File Edit View...`) crowded the top bar and separated the tab strip from the `⌄` overflow button; the editor has already been updated in `T-068` to render the document tab bar directly below the main menu bar using existing NF2 components and tokens.
 - **Checked:** `docs/NF2-REQUESTS.md` R-035, `interface/design-system/docs/data/outline/interface-editor-main.txt`, `crates/neoflash-ui/src/components/headers.rs` (`DocumentTab`), `crates/neoflash-editor/src/document_chrome.rs`.
+
+### R-051 · Comfortable and Compact / Classic Flash editor density profiles
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D01 (approved T-099 visual audit)
+- **Where:** NF2 editor shell, main/document bars, dock headers, panels, Timeline and status chrome.
+- **Need:** Two complete metric profiles with identical information architecture and behavior: the current readable
+  `Comfortable` profile and a materially denser `Compact / Classic Flash` profile. Specify row/header heights, gaps,
+  icon glyph sizes, click/focus rectangles, panel minimums, switching/persistence and representative Dark/Light
+  full-editor references. Compact must reclaim Stage space without shrinking essential pointer targets blindly.
+- **Why:** Actual 4K native screenshots show that individually reasonable bars and panels compound into excessive
+  permanent chrome for a keyboard-first professional workflow. Existing Compact variants cover isolated components,
+  not a coherent editor-wide profile.
+- **Checked:** T-099 screenshots and §9; `interface-editor-main.txt`; current Dark/Light editor exports; R-047 and
+  R-050 (narrow component-specific work, not an editor-wide density system).
+- **Proposal (optional):** Keep 14–16 pt optical glyphs inside 24–28 pt hit/focus rectangles; allow smaller expert
+  spacing only where keyboard access and non-overlapping targets remain explicit.
+
+### R-052 · Responsive Timeline controls, transport-sized Play and compact layer header
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D02; T-078
+- **Where:** NF2 Timeline controls/header, transport row, layer header columns and frame-grid navigation.
+- **Need:** Define control visibility priority and an explicit overflow state for narrower widths; size Play within
+  the transport family while retaining selected/accent emphasis; provide a genuinely narrow adjustable layer-header
+  composition and `Fit range` / `Fit content` commands. Supply normal, narrow and overflow references in both themes.
+- **Why:** `target/t076-midnight-express-2/timeline-controls-clipped.png` proves Duration and frame/key/tween/Ease/
+  Sound controls become visually unreachable at a normal desktop width while the large Play control dominates.
+- **Checked:** T-078; T-099 §9; current Timeline outlines/exports; `midnight-express-3-{dark,light}.png` and
+  `timeline-controls-clipped.png`.
+- **Proposal (optional):** Keep transport and playhead navigation always visible; move low-frequency actions into a
+  labelled overflow rather than clipping them.
+
+### R-053 · Collapsed, edge-docked and contextual Stage toolbar states
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D03
+- **Where:** the floating Stage/canvas toolbar and its interaction with artwork, pasteboard and docks.
+- **Need:** Approved collapsed, edge-docked and context-expanded states, including transition, persistence, keyboard
+  access, drag position and collision/avoidance behavior. The expanded toolbar must not permanently cover artwork.
+- **Why:** The existing toolbar is visually clear but occupies roughly 400 logical points and visibly overlays the
+  drawing in the inspected native authoring screenshots.
+- **Checked:** T-099 §9; `target/ui-shots/t090-post-move-dark.png`; current editor main exports and canvas chrome.
+- **Proposal (optional):** A one-button collapsed state at a canvas edge, expanding in place only for the active tool.
+
+### R-054 · Inspector / Library priority layouts and fast focus expansion
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D04
+- **Where:** right dock composition containing Properties and Library.
+- **Need:** Define saved `Inspector priority` and `Library priority` layouts, a clearer splitter and fast keyboard/
+  pointer focus-expand behavior while preserving the Tools–Stage–Properties/Library spatial model.
+- **Why:** In several normal native screenshots Properties leaves Library as little more than a title and search row,
+  although Library is a continuous production surface for animation work.
+- **Checked:** T-099 §9; `midnight-express-3-{dark,light}.png`, `t027-compact-dark.png`, `t068-dark.png`; current
+  Properties and Library panel outlines.
+- **Proposal (optional):** A reversible focus action that expands the requested panel without changing document state.
+
+### R-055 · Compact Color state and narrower Preferences composition
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D05
+- **Where:** Color panel and Preferences dialog shell/pages.
+- **Need:** A compact persistent Color state (swatches/chip, hex and alpha with on-demand full picker) plus a narrower
+  Preferences composition with reduced unused width and spacing while retaining current type legibility and controls.
+- **Why:** The current Color panel is clear but consumes most of the right dock vertically; Preferences is readable
+  but substantially wider and airier than its content requires.
+- **Checked:** T-099 §9; `target/ui-shots/color-dark.png`; `target/ui-shots/t066-preferences-publish-dark.png`;
+  current Color and Preferences outlines/exports.
+- **Proposal (optional):** Treat the full SV/channels picker as an expanded state, not mandatory permanent chrome.
+
+### R-056 · Pixel-aligned optical icon masters for small UI sizes
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D06
+- **Where:** small Timeline, tool, layer-state and icon-only controls across NF2.
+- **Need:** Define optical vector masters on 16/20/24 grids, integer placement and consistent small-size stroke rules;
+  supply unscaled 1×/2× QA sheets and component guidance so one large SVG is not softly scaled into every slot.
+- **Why:** Most large icons are crisp, but several small Timeline/tool glyphs have uneven optical weight. A wholesale
+  retro-bitmap switch would lose Retina/scaling/accessibility benefits and is not requested.
+- **Checked:** T-099 §9 and its eight native screenshots; current icon catalogue, Timeline legend and tool exports.
+- **Proposal (optional):** Keep fixed optical glyph geometry inside the larger hit/focus rectangles from R-051.
+
+### R-057 · Contrast, focus, accessible-name and keyboard-only acceptance matrix
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D07; T-117
+- **Where:** both themes, editor shell, Timeline, panels, dialogs, icon-only controls and drag-first interactions.
+- **Need:** A measurable acceptance matrix for secondary/disabled text, dividers, selected and focus states, small
+  Timeline marks, non-color state cues, accessible names/tooltips, Tab/Shift-Tab order, target sizes and non-drag
+  alternatives. Provide representative Dark/Light references and testable component states.
+- **Why:** The light theme is visibly weaker for secondary hierarchy, and a keyboard-first professional editor still
+  needs complete native focus/accessibility behavior rather than relying on shortcuts alone.
+- **Checked:** T-099 §9; Apple HIG Accessibility/Focus; WCAG 2.2; current Preferences, Timeline and editor exports;
+  R-011/R-016 (narrower component concerns only).
+- **Proposal (optional):** Preserve the useful status-bar shortcut hints and duplicate state with shape/icon/text when
+  color is currently the main signal.
+
+### R-058 · Denser two-tone raw-shape selection hatch
+- **Status:** open
+- **Requested by / for:** project owner · T-101 / V-D08 (explicit follow-up to T-099)
+- **Where:** `NF2/Shape Selection` in `crates/neoflash-ui/src/components/canvas.rs`; raw/Merge fill and stroke
+  selection overlay used by the Stage.
+- **Need:** Reduce the repeat period/perpendicular gap between the two-tone 45° hatch bands used for selected raw
+  shapes. Preserve the black/white theme-independent pair, current line weights, clipping to fills/strokes and holes,
+  every supported selection path and its minimum contrast. Supply the exact new pitch plus unscaled 1×/2× samples
+  over light, dark, mid-tone and saturated artwork.
+- **Why:** The owner finds the current selection bands too widely spaced and wants a denser, more continuous indication
+  of the selected shape without making the overlay heavier or theme-dependent.
+- **Checked:** `docs/DESIGN-SYSTEM.md` (`NF2/Shape Selection`: current 8 pt repeat, 1.5 pt pair offset);
+  `docs-canvas-editing-chrome.txt`; current canvas component/contrast test; T-030 acceptance and T-099 §9.
+- **Proposal (optional):** Change the 8 pt repeat pitch, not the 1.5 pt white/black pair offset, unless unscaled design
+  samples show that both values need coordinated optical adjustment. Extend the existing selection-hatch acceptance
+  family after the design lands; do not reopen completed T-030.
