@@ -1562,6 +1562,8 @@ impl Editor {
             })
             .collect();
         let mut unpack_group_targets = HashSet::new();
+        let mut unchanged_targets = HashSet::new();
+        let mut did_break_any = false;
         let mut replacements = Vec::new();
         let mut unpacked_groups: Vec<(Id, AuthoringGroup)> = Vec::new();
         let mut unpacked_bitmap_fills: Vec<(Id, AuthoredBitmapFill)> = Vec::new();
@@ -1575,7 +1577,9 @@ impl Editor {
             }
             if grouped_members.contains(&target) {
                 unpack_group_targets.insert(target.clone());
+                unchanged_targets.insert(target.clone());
                 replacements.push((target, vec![instance]));
+                did_break_any = true;
                 continue;
             }
             match &instance.kind {
@@ -1606,6 +1610,7 @@ impl Editor {
                     };
                     let mut broken = instance.clone();
                     broken.transform.primitive = None;
+                    broken.merge = true;
                     broken.kind = ElementKind::Path {
                         commands,
                         fill_rule,
@@ -1614,6 +1619,7 @@ impl Editor {
                         stroke_width: *stroke_width,
                     };
                     replacements.push((target, vec![broken]));
+                    did_break_any = true;
                 }
                 ElementKind::Instance { symbol_id, .. } => {
                     let Some(symbol) = self.project.symbol(symbol_id).cloned() else {
@@ -1703,6 +1709,7 @@ impl Editor {
                         }
                     }
                     expanded_instance = true;
+                    did_break_any = true;
                     replacements.push((target, children));
                 }
                 ElementKind::Bitmap {
@@ -1739,6 +1746,7 @@ impl Editor {
                             smoothing: *smoothing,
                         },
                     ));
+                    did_break_any = true;
                     replacements.push((target, vec![broken]));
                 }
                 ElementKind::TextBox { text, .. } => {
@@ -1750,6 +1758,8 @@ impl Editor {
                     };
                     if visible_chars == 0 {
                         empty_text_skipped = true;
+                        unchanged_targets.insert(target.clone());
+                        replacements.push((target, vec![instance]));
                         continue;
                     }
                     if total_chars <= 1 {
@@ -1783,6 +1793,7 @@ impl Editor {
                             stroke: [0; 4],
                             stroke_width: 0.0,
                         };
+                        did_break_any = true;
                         replacements.push((target, vec![broken]));
                         continue;
                     }
@@ -1860,6 +1871,7 @@ impl Editor {
                             ..Element::default()
                         });
                     }
+                    did_break_any = true;
                     replacements.push((target, children));
                 }
                 ElementKind::Text {
@@ -1872,6 +1884,8 @@ impl Editor {
                     let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
                     if visible_chars == 0 {
                         empty_text_skipped = true;
+                        unchanged_targets.insert(target.clone());
+                        replacements.push((target, vec![instance]));
                         continue;
                     }
                     if total_chars <= 1 {
@@ -1902,6 +1916,7 @@ impl Editor {
                             stroke: [0; 4],
                             stroke_width: 0.0,
                         };
+                        did_break_any = true;
                         replacements.push((target, vec![broken]));
                         continue;
                     }
@@ -1961,6 +1976,7 @@ impl Editor {
                             });
                         }
                     }
+                    did_break_any = true;
                     replacements.push((target, children));
                 }
                 ElementKind::Path { .. } | ElementKind::PaintedPath { .. } if !instance.merge => {
@@ -1971,23 +1987,27 @@ impl Editor {
                         }
                         parts.extend(strokes);
                         if !parts.is_empty() {
+                            did_break_any = true;
                             replacements.push((target, parts));
                             continue;
                         }
                     }
                     let mut broken = instance.clone();
                     broken.merge = true;
+                    did_break_any = true;
                     replacements.push((target, vec![broken]));
                 }
                 _ => {
-                    self.message("Break Apart currently supports groups, symbol instances, bitmaps, text, and Object Drawing shapes.");
-                    return;
+                    unchanged_targets.insert(target.clone());
+                    replacements.push((target, vec![instance]));
                 }
             }
         }
-        if replacements.is_empty() {
+        if !did_break_any {
             if empty_text_skipped {
                 self.message("Text contains no visible glyphs to break apart.");
+            } else {
+                self.message("Break Apart currently supports groups, symbol instances, bitmaps, text, and Object Drawing shapes.");
             }
             return;
         }
@@ -2008,7 +2028,7 @@ impl Editor {
             }
             let mut selection = Vec::new();
             for (target, children) in replacements {
-                if unpack_group_targets.contains(&target) {
+                if unchanged_targets.contains(&target) {
                     selection.push(target);
                     continue;
                 }
@@ -3301,32 +3321,33 @@ impl Editor {
                 .sampled_targets()
                 .into_iter()
                 .filter(|(t, _)| self.target_editable(t))
-                .filter_map(|(_, e)| paints_with_gradients(&e.kind))
+                .filter_map(|(t, e)| {
+                    paints_with_gradients_for_element(&e, self.target_has_bitmap_fill(&t))
+                })
                 .collect();
             if !values.is_empty() {
-                let fill_sample = values
-                    .iter()
-                    .find(|v| v.fill[3] > 0 || v.fill_gradient.is_some())
-                    .unwrap_or(&values[0]);
-                let fill = fill_sample.fill;
-                let fill_grad = fill_sample.fill_gradient.clone();
-                let (stroke, stroke_grad, width) = if let Some(stroke_sample) = values
-                    .iter()
-                    .find(|v| v.supports_stroke && (v.stroke[3] > 0 || v.stroke_gradient.is_some()))
-                    .or_else(|| values.iter().find(|v| v.supports_stroke))
-                {
-                    (
-                        stroke_sample.stroke,
-                        stroke_sample.stroke_gradient.clone(),
-                        stroke_sample.stroke_width,
-                    )
-                } else {
-                    (
-                        self.stroke,
-                        self.authoring_modify.drawing_stroke_gradient.clone(),
-                        self.stroke_width,
-                    )
-                };
+                let (fill, fill_grad) =
+                    if let Some(fill_sample) = values.iter().find(|v| v.has_fill) {
+                        (fill_sample.fill, fill_sample.fill_gradient.clone())
+                    } else {
+                        ([0, 0, 0, 0], None)
+                    };
+                let (stroke, stroke_grad, width) =
+                    if let Some(stroke_sample) = values.iter().find(|v| v.has_stroke) {
+                        (
+                            stroke_sample.stroke,
+                            stroke_sample.stroke_gradient.clone(),
+                            stroke_sample.stroke_width,
+                        )
+                    } else if let Some(stroke_sample) = values.iter().find(|v| v.supports_stroke) {
+                        ([0, 0, 0, 0], None, stroke_sample.stroke_width)
+                    } else {
+                        (
+                            self.stroke,
+                            self.authoring_modify.drawing_stroke_gradient.clone(),
+                            self.stroke_width,
+                        )
+                    };
                 return (fill, fill_grad, stroke, stroke_grad, width);
             }
         }
@@ -3353,12 +3374,19 @@ impl Editor {
             }
             return;
         }
-        self.set_drawing_fill_type(stroke_well, mode);
+        if !stroke_well {
+            self.authoring_modify.drawing_bitmap_fill = None;
+        }
         let targets: Vec<_> = self
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
             .collect();
+        if targets.is_empty() {
+            self.set_drawing_fill_type(stroke_well, mode);
+            return;
+        }
+        let multi = targets.len() > 1;
         let had_bitmap_targets: Vec<SelectionTarget> = if !stroke_well {
             targets
                 .iter()
@@ -3372,19 +3400,29 @@ impl Editor {
             .into_iter()
             .filter_map(|(target, mut element)| {
                 let had_bitmap = had_bitmap_targets.contains(&target);
+                let eligible = if stroke_well {
+                    element_has_stroke(&element) || (!multi && !is_merge_fill(&element))
+                } else {
+                    element_has_fill(&element, had_bitmap)
+                        || (!multi && !element_has_stroke(&element) && !is_merge_stroke(&element))
+                };
+                if !eligible {
+                    return None;
+                }
                 (set_element_fill_type(&mut element, stroke_well, mode) || had_bitmap)
                     .then_some((target, element))
             })
             .collect();
-        if let Some((_, first_el)) = changes.first()
+        if matches!(mode, PaintFillType::None | PaintFillType::Solid)
+            && let Some((_, first_el)) = changes.first()
             && let Some(sample) = paints_with_gradients(&first_el.kind)
         {
             if stroke_well {
                 self.stroke = sample.stroke;
-                self.authoring_modify.drawing_stroke_gradient = sample.stroke_gradient;
+                self.authoring_modify.drawing_stroke_gradient = None;
             } else {
                 self.fill = sample.fill;
-                self.authoring_modify.drawing_fill_gradient = sample.fill_gradient;
+                self.authoring_modify.drawing_fill_gradient = None;
             }
         }
         if !had_bitmap_targets.is_empty() {
@@ -3451,11 +3489,17 @@ impl Editor {
         };
         match mode {
             PaintFillType::None => {
-                color[3] = 0;
+                *color = [0, 0, 0, 0];
                 *grad = None;
             }
             PaintFillType::Solid => {
-                if color[3] == 0 {
+                if *color == [0, 0, 0, 0] {
+                    *color = if stroke_well {
+                        [0, 0, 0, 255]
+                    } else {
+                        [255, 255, 255, 255]
+                    };
+                } else if grad.is_some() && color[3] == 0 {
                     color[3] = 255;
                 }
                 *grad = None;
@@ -3551,47 +3595,51 @@ impl Editor {
     }
 
     pub(crate) fn swap_active_paints(&mut self) {
-        std::mem::swap(&mut self.fill, &mut self.stroke);
-        std::mem::swap(
-            &mut self.authoring_modify.drawing_fill_gradient,
-            &mut self.authoring_modify.drawing_stroke_gradient,
-        );
+        let (ctx_fill, ctx_fill_grad, ctx_stroke, ctx_stroke_grad, _) = self.contextual_paints();
+        self.fill = ctx_stroke;
+        self.stroke = ctx_fill;
+        self.authoring_modify.drawing_fill_gradient = ctx_stroke_grad;
+        self.authoring_modify.drawing_stroke_gradient = ctx_fill_grad;
         if !self.authoring_modify.color_selection {
             return;
         }
-        let changes: Vec<_> = self
+        let targets: Vec<_> = self
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
-            .filter_map(|(target, mut element)| match &mut element.kind {
-                ElementKind::Rectangle { fill, stroke, .. }
-                | ElementKind::Ellipse { fill, stroke, .. }
-                | ElementKind::Path { fill, stroke, .. } => {
-                    std::mem::swap(fill, stroke);
-                    Some((target, element))
+            .collect();
+        let multi = targets.len() > 1;
+        let changes: Vec<_> = targets
+            .into_iter()
+            .filter_map(|(target, mut element)| {
+                if multi
+                    && (!element_has_fill(&element, self.target_has_bitmap_fill(&target))
+                        || !element_has_stroke(&element))
+                {
+                    return None;
                 }
-                ElementKind::PaintedPath {
-                    fill,
-                    stroke,
-                    fill_gradient,
-                    stroke_gradient,
-                    ..
-                } => {
-                    std::mem::swap(fill, stroke);
-                    std::mem::swap(fill_gradient, stroke_gradient);
-                    Some((target, element))
+                match &mut element.kind {
+                    ElementKind::Rectangle { fill, stroke, .. }
+                    | ElementKind::Ellipse { fill, stroke, .. }
+                    | ElementKind::Path { fill, stroke, .. } => {
+                        std::mem::swap(fill, stroke);
+                        Some((target, element))
+                    }
+                    ElementKind::PaintedPath {
+                        fill,
+                        stroke,
+                        fill_gradient,
+                        stroke_gradient,
+                        ..
+                    } => {
+                        std::mem::swap(fill, stroke);
+                        std::mem::swap(fill_gradient, stroke_gradient);
+                        Some((target, element))
+                    }
+                    _ => None,
                 }
-                _ => None,
             })
             .collect();
-        if let Some((_, first_el)) = changes.first()
-            && let Some(sample) = paints_with_gradients(&first_el.kind)
-        {
-            self.fill = sample.fill;
-            self.stroke = sample.stroke;
-            self.authoring_modify.drawing_fill_gradient = sample.fill_gradient;
-            self.authoring_modify.drawing_stroke_gradient = sample.stroke_gradient;
-        }
         self.apply_modified(changes, None);
     }
 
@@ -3604,40 +3652,63 @@ impl Editor {
         if !self.authoring_modify.color_selection {
             return;
         }
-        let changes: Vec<_> = self
+        let targets: Vec<_> = self
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
-            .filter_map(|(target, mut element)| match &mut element.kind {
-                ElementKind::Rectangle { fill, stroke, .. }
-                | ElementKind::Ellipse { fill, stroke, .. }
-                | ElementKind::Path { fill, stroke, .. } => {
-                    *fill = [255, 255, 255, 255];
-                    *stroke = [0, 0, 0, 255];
-                    Some((target, element))
+            .collect();
+        let changes: Vec<_> = targets
+            .into_iter()
+            .filter_map(|(target, mut element)| {
+                let has_fill = element_has_fill(&element, self.target_has_bitmap_fill(&target));
+                let has_stroke = element_has_stroke(&element);
+                match &mut element.kind {
+                    ElementKind::Rectangle { fill, stroke, .. }
+                    | ElementKind::Ellipse { fill, stroke, .. }
+                    | ElementKind::Path { fill, stroke, .. } => {
+                        let mut changed = false;
+                        if has_fill && *fill != [255, 255, 255, 255] {
+                            *fill = [255, 255, 255, 255];
+                            changed = true;
+                        }
+                        if has_stroke && *stroke != [0, 0, 0, 255] {
+                            *stroke = [0, 0, 0, 255];
+                            changed = true;
+                        }
+                        changed.then_some((target, element))
+                    }
+                    ElementKind::PaintedPath {
+                        fill,
+                        stroke,
+                        fill_gradient,
+                        stroke_gradient,
+                        ..
+                    } => {
+                        let mut changed = false;
+                        if has_fill && (*fill != [255, 255, 255, 255] || fill_gradient.is_some()) {
+                            *fill = [255, 255, 255, 255];
+                            *fill_gradient = None;
+                            changed = true;
+                        }
+                        if has_stroke && (*stroke != [0, 0, 0, 255] || stroke_gradient.is_some()) {
+                            *stroke = [0, 0, 0, 255];
+                            *stroke_gradient = None;
+                            changed = true;
+                        }
+                        changed.then_some((target, element))
+                    }
+                    ElementKind::Text { color, .. } => {
+                        let changed = *color != [0, 0, 0, 255];
+                        *color = [0, 0, 0, 255];
+                        changed.then_some((target, element))
+                    }
+                    ElementKind::TextBox { format, .. } => {
+                        let changed = format.color != 0;
+                        format.color = 0;
+                        changed.then_some((target, element))
+                    }
+                    _ => None,
                 }
-                ElementKind::PaintedPath {
-                    fill,
-                    stroke,
-                    fill_gradient,
-                    stroke_gradient,
-                    ..
-                } => {
-                    *fill = [255, 255, 255, 255];
-                    *stroke = [0, 0, 0, 255];
-                    *fill_gradient = None;
-                    *stroke_gradient = None;
-                    Some((target, element))
-                }
-                ElementKind::Text { color, .. } => {
-                    *color = [0, 0, 0, 255];
-                    Some((target, element))
-                }
-                ElementKind::TextBox { format, .. } => {
-                    format.color = 0;
-                    Some((target, element))
-                }
-                _ => None,
             })
             .collect();
         self.apply_modified(changes, None);
@@ -3814,7 +3885,9 @@ impl Editor {
             .collect::<Vec<_>>();
         let values: Vec<_> = targets
             .iter()
-            .filter_map(|(_, e)| paints_with_gradients(&e.kind))
+            .filter_map(|(t, e)| {
+                paints_with_gradients_for_element(e, self.target_has_bitmap_fill(t))
+            })
             .collect();
         // Which paint the wells edit: remembered per panel, Fill by default.
         let active_id = egui::Id::new("color-panel-active-stroke");
@@ -3933,14 +4006,15 @@ impl Editor {
         let supports_stroke = values.iter().any(|value| value.supports_stroke);
         let mixed_fill = values
             .iter()
+            .filter(|v| v.has_fill)
             .any(|v| v.fill != fill || v.fill_gradient != fill_grad);
         let mixed_stroke = values
             .iter()
-            .filter(|v| v.supports_stroke)
+            .filter(|v| v.has_stroke)
             .any(|v| v.stroke != stroke || v.stroke_gradient != stroke_grad);
         let mixed_width = values
             .iter()
-            .filter(|v| v.supports_stroke)
+            .filter(|v| v.has_stroke)
             .any(|v| v.stroke_width != width);
         if !supports_stroke {
             stroke_active = false;
@@ -3986,6 +4060,7 @@ impl Editor {
                     || targets.iter().any(|(t, _)| self.target_has_bitmap_fill(t)));
             let current_mode = classify_fill_type(active_color, active_grad.as_ref(), has_bitmap);
             if let Some(new_mode) = fill_type_select(ui, current_mode, stroke_active) {
+                self.set_drawing_fill_type(stroke_active, new_mode);
                 self.set_selection_fill_type(stroke_active, new_mode);
                 return;
             }
@@ -4064,12 +4139,25 @@ impl Editor {
                             new_fill,
                         );
                     }
+                    let multi = targets.len() > 1;
                     let changes = targets
                         .iter()
                         .cloned()
                         .filter_map(|(target, mut element)| {
+                            let has_bm = self.target_has_bitmap_fill(&target);
+                            let eligible = if stroke_active {
+                                element_has_stroke(&element) || (!multi && !is_merge_fill(&element))
+                            } else {
+                                element_has_fill(&element, has_bm)
+                                    || (!multi
+                                        && !element_has_stroke(&element)
+                                        && !is_merge_stroke(&element))
+                            };
+                            if !eligible {
+                                return None;
+                            }
                             let previous = paints(&element.kind)?;
-                            let old_fill = if !stroke_active && mixed_fill {
+                            let old_fill = if !stroke_active && (mixed_fill || previous.0 != fill) {
                                 [
                                     new_fill[0].wrapping_add(1),
                                     new_fill[1],
@@ -4079,16 +4167,17 @@ impl Editor {
                             } else {
                                 fill
                             };
-                            let old_stroke = if stroke_active && mixed_stroke {
-                                [
-                                    new_stroke[0].wrapping_add(1),
-                                    new_stroke[1],
-                                    new_stroke[2],
-                                    new_stroke[3].wrapping_add(1),
-                                ]
-                            } else {
-                                stroke
-                            };
+                            let old_stroke =
+                                if stroke_active && (mixed_stroke || previous.1 != stroke) {
+                                    [
+                                        new_stroke[0].wrapping_add(1),
+                                        new_stroke[1],
+                                        new_stroke[2],
+                                        new_stroke[3].wrapping_add(1),
+                                    ]
+                                } else {
+                                    stroke
+                                };
                             let changed = edit_paints(
                                 &mut element.kind,
                                 (
@@ -4121,16 +4210,24 @@ impl Editor {
                 let mut new_width = width;
                 if let Some(control) = stroke_section_ui(ui, &mut new_width, true) {
                     self.stroke_width = new_width;
+                    let multi = targets.len() > 1;
                     let changes = targets
                         .into_iter()
                         .filter_map(|(target, mut element)| {
+                            if (multi || is_merge_fill(&element)) && !element_has_stroke(&element) {
+                                return None;
+                            }
                             let previous = paints(&element.kind)?;
                             let changed = edit_paints(
                                 &mut element.kind,
                                 (
                                     previous.0,
                                     previous.1,
-                                    if mixed_width { new_width - 1.0 } else { width },
+                                    if mixed_width || previous.2 != width {
+                                        new_width - 1.0
+                                    } else {
+                                        width
+                                    },
                                 ),
                                 (previous.0, previous.1, new_width),
                             );
@@ -4144,6 +4241,70 @@ impl Editor {
     }
 }
 
+pub(crate) fn ensure_solid_non_none(color: Color) -> Color {
+    if color == [0, 0, 0, 0] {
+        [1, 0, 0, 0]
+    } else {
+        color
+    }
+}
+
+pub(crate) fn element_has_fill(element: &Element, has_bitmap_fill: bool) -> bool {
+    if is_merge_stroke(element) {
+        return false;
+    }
+    match &element.kind {
+        ElementKind::Text { .. } | ElementKind::TextBox { .. } => true,
+        ElementKind::Rectangle { fill, .. } => *fill != [0, 0, 0, 0] || has_bitmap_fill,
+        ElementKind::Ellipse { fill, .. } => {
+            element.oval_options().close_path && (*fill != [0, 0, 0, 0] || has_bitmap_fill)
+        }
+        ElementKind::Path { commands, fill, .. } => {
+            !flatten_closed_rings(commands).is_empty() && (*fill != [0, 0, 0, 0] || has_bitmap_fill)
+        }
+        ElementKind::PaintedPath {
+            commands,
+            fill,
+            fill_gradient,
+            ..
+        } => {
+            !flatten_closed_rings(commands).is_empty()
+                && (fill_gradient.is_some() || *fill != [0, 0, 0, 0] || has_bitmap_fill)
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn element_has_stroke(element: &Element) -> bool {
+    if is_merge_fill(element) {
+        return false;
+    }
+    match &element.kind {
+        ElementKind::Rectangle {
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Path {
+            stroke,
+            stroke_width,
+            ..
+        } => *stroke_width > 0.0 && *stroke != [0, 0, 0, 0],
+        ElementKind::PaintedPath {
+            stroke,
+            stroke_gradient,
+            stroke_width,
+            ..
+        } => *stroke_width > 0.0 && (*stroke != [0, 0, 0, 0] || stroke_gradient.is_some()),
+        _ => false,
+    }
+}
+
 #[derive(Clone)]
 struct PaintSample {
     fill: Color,
@@ -4152,6 +4313,18 @@ struct PaintSample {
     stroke_gradient: Option<GradientPaint>,
     stroke_width: f64,
     supports_stroke: bool,
+    has_fill: bool,
+    has_stroke: bool,
+}
+
+fn paints_with_gradients_for_element(
+    element: &Element,
+    has_bitmap_fill: bool,
+) -> Option<PaintSample> {
+    let mut sample = paints_with_gradients(&element.kind)?;
+    sample.has_fill = element_has_fill(element, has_bitmap_fill);
+    sample.has_stroke = element_has_stroke(element);
+    Some(sample)
 }
 
 fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
@@ -4180,6 +4353,8 @@ fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
             stroke_gradient: None,
             stroke_width: *stroke_width,
             supports_stroke: true,
+            has_fill: *fill != [0, 0, 0, 0],
+            has_stroke: *stroke_width > 0.0 && *stroke != [0, 0, 0, 0],
         }),
         ElementKind::PaintedPath {
             fill,
@@ -4195,6 +4370,9 @@ fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
             stroke_gradient: stroke_gradient.clone(),
             stroke_width: *stroke_width,
             supports_stroke: true,
+            has_fill: fill_gradient.is_some() || *fill != [0, 0, 0, 0],
+            has_stroke: *stroke_width > 0.0
+                && (*stroke != [0, 0, 0, 0] || stroke_gradient.is_some()),
         }),
         ElementKind::Text { color, .. } => Some(PaintSample {
             fill: *color,
@@ -4203,6 +4381,8 @@ fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
             stroke_gradient: None,
             stroke_width: 0.,
             supports_stroke: false,
+            has_fill: true,
+            has_stroke: false,
         }),
         ElementKind::TextBox { format, .. } => {
             let [_, r, g, b] = format.color.to_be_bytes();
@@ -4213,6 +4393,8 @@ fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
                 stroke_gradient: None,
                 stroke_width: 0.,
                 supports_stroke: false,
+                has_fill: true,
+                has_stroke: false,
             })
         }
         _ => None,
@@ -4230,7 +4412,7 @@ fn classify_fill_type(
     match gradient.map(|g| g.kind) {
         Some(GradientKind::Linear) => PaintFillType::LinearGradient,
         Some(GradientKind::Radial) => PaintFillType::RadialGradient,
-        None if color[3] == 0 => PaintFillType::None,
+        None if color == [0, 0, 0, 0] => PaintFillType::None,
         None => PaintFillType::Solid,
     }
 }
@@ -4300,10 +4482,10 @@ fn set_element_fill_type(element: &mut Element, stroke_well: bool, mode: PaintFi
             | ElementKind::Ellipse { fill, stroke, .. }
             | ElementKind::Path { fill, stroke, .. } => {
                 let target = if stroke_well { stroke } else { fill };
-                if target[3] == 0 {
+                if *target == [0, 0, 0, 0] {
                     return false;
                 }
-                target[3] = 0;
+                *target = [0, 0, 0, 0];
                 true
             }
             ElementKind::PaintedPath {
@@ -4318,18 +4500,18 @@ fn set_element_fill_type(element: &mut Element, stroke_well: bool, mode: PaintFi
                 } else {
                     (fill, fill_gradient)
                 };
-                if target[3] == 0 && slot.is_none() {
+                if *target == [0, 0, 0, 0] && slot.is_none() {
                     return false;
                 }
-                target[3] = 0;
+                *target = [0, 0, 0, 0];
                 *slot = None;
                 true
             }
             ElementKind::Text { color, .. } if !stroke_well => {
-                if color[3] == 0 {
+                if *color == [0, 0, 0, 0] {
                     return false;
                 }
-                color[3] = 0;
+                *color = [0, 0, 0, 0];
                 true
             }
             _ => false,
@@ -4339,10 +4521,14 @@ fn set_element_fill_type(element: &mut Element, stroke_well: bool, mode: PaintFi
             | ElementKind::Ellipse { fill, stroke, .. }
             | ElementKind::Path { fill, stroke, .. } => {
                 let target = if stroke_well { stroke } else { fill };
-                if target[3] > 0 {
+                if *target != [0, 0, 0, 0] {
                     return false;
                 }
-                target[3] = 255;
+                *target = if stroke_well {
+                    [0, 0, 0, 255]
+                } else {
+                    [255, 255, 255, 255]
+                };
                 true
             }
             ElementKind::PaintedPath {
@@ -4357,24 +4543,27 @@ fn set_element_fill_type(element: &mut Element, stroke_well: bool, mode: PaintFi
                 } else {
                     (fill, fill_gradient)
                 };
-                if target[3] > 0 && slot.is_none() {
+                if *target != [0, 0, 0, 0] && slot.is_none() {
                     return false;
                 }
                 if let Some(prev) = slot.take()
                     && let Some(first) = prev.stops.first()
                 {
-                    *target = first.color;
-                }
-                if target[3] == 0 {
-                    target[3] = 255;
+                    *target = ensure_solid_non_none(first.color);
+                } else if *target == [0, 0, 0, 0] {
+                    *target = if stroke_well {
+                        [0, 0, 0, 255]
+                    } else {
+                        [255, 255, 255, 255]
+                    };
                 }
                 true
             }
             ElementKind::Text { color, .. } if !stroke_well => {
-                if color[3] > 0 {
+                if *color != [0, 0, 0, 0] {
                     return false;
                 }
-                color[3] = 255;
+                *color = [0, 0, 0, 255];
                 true
             }
             _ => false,
@@ -4498,7 +4687,7 @@ fn color_wells_and_actions(
                 stop.color[3],
             ));
         }
-        (c[3] > 0).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
+        (c != [0, 0, 0, 0]).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
     };
     let mut action = None;
     ui.horizontal(|ui| {
@@ -4655,6 +4844,7 @@ fn color_mixer_ui(
     color: &mut Color,
     model_hsb: &mut bool,
 ) -> Option<egui::Id> {
+    let was_none = *color == [0, 0, 0, 0];
     let mut hsb = ui
         .data(|d| d.get_temp::<Hsb>(hsb_cache_id))
         .filter(|cached| egui::Color32::from(*cached).to_srgba_unmultiplied() == *color)
@@ -4689,9 +4879,10 @@ fn color_mixer_ui(
             if cf.response.changed() {
                 let prev = *color;
                 *color = field_c32.to_srgba_unmultiplied();
-                if prev[3] == 0 && color[..3] != prev[..3] && color[3] == 0 {
+                if was_none && color[..3] != prev[..3] && color[3] == 0 {
                     color[3] = 255;
                 }
+                *color = ensure_solid_non_none(*color);
                 changed_id = Some(cf.response.id);
             }
         });
@@ -4708,7 +4899,7 @@ fn color_mixer_ui(
                         })
                         .on_hover_text(format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]));
                     if r.clicked() {
-                        *color = c;
+                        *color = ensure_solid_non_none(c);
                         changed_id = Some(r.id);
                     }
                 }
@@ -4743,9 +4934,10 @@ fn color_mixer_ui(
         if cf.response.changed() {
             let prev = *color;
             *color = field_c32.to_srgba_unmultiplied();
-            if prev[3] == 0 && color[..3] != prev[..3] && color[3] == 0 {
+            if was_none && color[..3] != prev[..3] && color[3] == 0 {
                 color[3] = 255;
             }
+            *color = ensure_solid_non_none(*color);
             hsb = color_to_hsb(*color);
             changed_id = Some(cf.response.id);
         }
@@ -4754,12 +4946,13 @@ fn color_mixer_ui(
     let before_hsb = hsb;
     let picker_r = ui.add(ColorPicker { color: &mut hsb });
     if picker_r.changed() {
-        if before_hsb.a == 0.0
+        if was_none
+            && before_hsb.a == 0.0
             && (hsb.h != before_hsb.h || hsb.s != before_hsb.s || hsb.v != before_hsb.v)
         {
             hsb.a = 1.0;
         }
-        *color = egui::Color32::from(hsb).to_srgba_unmultiplied();
+        *color = ensure_solid_non_none(egui::Color32::from(hsb).to_srgba_unmultiplied());
         changed_id = Some(picker_r.id);
     }
 
@@ -4796,9 +4989,10 @@ fn color_mixer_ui(
                     color[0] = r.round().clamp(0.0, 255.0) as u8;
                     color[1] = g.round().clamp(0.0, 255.0) as u8;
                     color[2] = b.round().clamp(0.0, 255.0) as u8;
-                    if color[3] == 0 {
+                    if was_none && color[3] == 0 {
                         color[3] = 255;
                     }
+                    *color = ensure_solid_non_none(*color);
                     hsb = color_to_hsb(*color);
                     changed_id = Some(resp.id);
                 }
@@ -4836,10 +5030,11 @@ fn color_mixer_ui(
                     hsb.h = (h_deg.clamp(0.0, 360.0) / 360.0) as f32;
                     hsb.s = (s_pct.clamp(0.0, 100.0) / 100.0) as f32;
                     hsb.v = (v_pct.clamp(0.0, 100.0) / 100.0) as f32;
-                    if hsb.a == 0.0 {
+                    if was_none && hsb.a == 0.0 {
                         hsb.a = 1.0;
                     }
-                    *color = egui::Color32::from(hsb).to_srgba_unmultiplied();
+                    *color =
+                        ensure_solid_non_none(egui::Color32::from(hsb).to_srgba_unmultiplied());
                     changed_id = Some(resp.id);
                 }
             }

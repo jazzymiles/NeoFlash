@@ -423,7 +423,8 @@ impl Editor {
         if targets.is_empty() {
             return;
         }
-        let label = if next[3] == 0 {
+        let multi = targets.len() > 1;
+        let label = if next == [0, 0, 0, 0] {
             if stroke_active {
                 "No stroke"
             } else {
@@ -436,6 +437,19 @@ impl Editor {
         };
         self.transact_named(label, |s| {
             for (target, mut element) in targets {
+                let eligible = if stroke_active {
+                    crate::authoring_modify::element_has_stroke(&element)
+                        || (!multi && !is_merge_fill(&element))
+                } else {
+                    let has_bitmap = s.target_has_bitmap_fill(&target);
+                    crate::authoring_modify::element_has_fill(&element, has_bitmap)
+                        || (!multi
+                            && !crate::authoring_modify::element_has_stroke(&element)
+                            && !is_merge_stroke(&element))
+                };
+                if !eligible {
+                    continue;
+                }
                 if set_element_solid_paint(&mut element.kind, stroke_active, next) {
                     s.ensure_key_for(&target.layer, false);
                     let frame = s.frame;
@@ -445,11 +459,14 @@ impl Editor {
                         .layers
                         .iter_mut()
                         .find(|l| l.id == target.layer)
-                        && let Some(el) = layer
-                            .key_at_mut(frame)
-                            .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                        && let Some(key) = layer.key_at_mut(frame)
                     {
-                        el.kind = element.kind;
+                        if !stroke_active {
+                            key.bitmap_fills.retain(|b| b.element_id != target.element);
+                        }
+                        if let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element) {
+                            el.kind = element.kind;
+                        }
                     }
                 }
             }
@@ -460,17 +477,17 @@ impl Editor {
         let stroke_active = self.active_stroke_well(ctx);
         if let Some(first) = paint.stops.first() {
             if stroke_active {
-                self.stroke = first.color;
+                self.stroke = crate::authoring_modify::ensure_solid_non_none(first.color);
             } else {
-                self.fill = first.color;
+                self.fill = crate::authoring_modify::ensure_solid_non_none(first.color);
             }
         }
+        if stroke_active {
+            self.authoring_modify.drawing_stroke_gradient = Some(paint.clone());
+        } else {
+            self.authoring_modify.drawing_fill_gradient = Some(paint.clone());
+        }
         if !self.authoring_modify.color_selection {
-            if stroke_active {
-                self.authoring_modify.drawing_stroke_gradient = Some(paint.clone());
-            } else {
-                self.authoring_modify.drawing_fill_gradient = Some(paint.clone());
-            }
             return;
         }
         let targets: Vec<_> = self
@@ -481,6 +498,7 @@ impl Editor {
         if targets.is_empty() {
             return;
         }
+        let multi = targets.len() > 1;
         let label = if stroke_active {
             "Stroke gradient"
         } else {
@@ -490,6 +508,19 @@ impl Editor {
         self.transact_named(label, |s| {
             let mut upgraded = false;
             for (target, mut element) in targets {
+                let eligible = if stroke_active {
+                    crate::authoring_modify::element_has_stroke(&element)
+                        || (!multi && !is_merge_fill(&element))
+                } else {
+                    let has_bitmap = s.target_has_bitmap_fill(&target);
+                    crate::authoring_modify::element_has_fill(&element, has_bitmap)
+                        || (!multi
+                            && !crate::authoring_modify::element_has_stroke(&element)
+                            && !is_merge_stroke(&element))
+                };
+                if !eligible {
+                    continue;
+                }
                 if set_element_gradient_paint(&mut element, stroke_active, &template) {
                     s.ensure_key_for(&target.layer, false);
                     let frame = s.frame;
@@ -499,12 +530,15 @@ impl Editor {
                         .layers
                         .iter_mut()
                         .find(|l| l.id == target.layer)
-                        && let Some(el) = layer
-                            .key_at_mut(frame)
-                            .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
+                        && let Some(key) = layer.key_at_mut(frame)
                     {
-                        *el = element;
-                        upgraded = true;
+                        if !stroke_active {
+                            key.bitmap_fills.retain(|b| b.element_id != target.element);
+                        }
+                        if let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element) {
+                            *el = element;
+                            upgraded = true;
+                        }
                     }
                 }
             }
@@ -553,14 +587,14 @@ impl Editor {
             .inner;
 
         if out.no_colour {
-            let mut none = active;
-            none[3] = 0;
-            self.apply_swatch_solid(&ctx, none);
+            self.apply_swatch_solid(&ctx, [0, 0, 0, 0]);
         } else if out.picked || color != before {
             let mut rgba = color.to_srgba_unmultiplied();
-            if rgba[3] == 0 {
+            let before_rgba = before.to_srgba_unmultiplied();
+            if rgba[3] == 0 && (out.picked || rgba[..3] != before_rgba[..3]) {
                 rgba[3] = 255;
             }
+            let rgba = crate::authoring_modify::ensure_solid_non_none(rgba);
             if out.picked {
                 self.record_recent_color(&ctx, rgba);
             }

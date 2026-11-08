@@ -254,6 +254,7 @@ pub(crate) fn color_row(
             let alpha_response = alpha_response.on_hover_text(format!("{label} alpha"));
             if alpha_response.changed() {
                 value[3] = (alpha / 100. * 255.).round().clamp(0., 255.) as u8;
+                *value = crate::authoring_modify::ensure_solid_non_none(*value);
             }
             if alpha_response.changed() {
                 alpha_response
@@ -466,7 +467,7 @@ pub(crate) fn rgba_color_popover(
     let stop_sel_id = state_id.with("stop-sel");
     let hsb_id = state_id.with("hsb");
 
-    let default_mode = if value[3] == 0 {
+    let default_mode = if *value == [0, 0, 0, 0] {
         PaintFillType::None
     } else {
         PaintFillType::Solid
@@ -496,8 +497,8 @@ pub(crate) fn rgba_color_popover(
                     mode = candidate;
                     match mode {
                         PaintFillType::None => {
-                            if value[3] != 0 {
-                                value[3] = 0;
+                            if *value != [0, 0, 0, 0] {
+                                *value = [0, 0, 0, 0];
                                 changed = true;
                             }
                         }
@@ -505,9 +506,11 @@ pub(crate) fn rgba_color_popover(
                         | PaintFillType::LinearGradient
                         | PaintFillType::RadialGradient
                         | PaintFillType::BitmapFill => {
-                            if value[3] == 0 {
-                                value[3] = 255;
+                            if *value == [0, 0, 0, 0] {
+                                *value = [255, 255, 255, 255];
                                 changed = true;
+                            } else {
+                                *value = crate::authoring_modify::ensure_solid_non_none(*value);
                             }
                         }
                     }
@@ -520,7 +523,16 @@ pub(crate) fn rgba_color_popover(
     let mut c32 = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
     let cf = ColorField::new(&mut c32, label).width(width).show(ui);
     if cf.response.changed() {
-        *value = c32.to_srgba_unmultiplied();
+        let next = c32.to_srgba_unmultiplied();
+        if mode == PaintFillType::None && next != *value {
+            mode = PaintFillType::Solid;
+            ui.data_mut(|d| d.insert_temp(mode_id, mode));
+        }
+        *value = if mode == PaintFillType::None {
+            [0, 0, 0, 0]
+        } else {
+            crate::authoring_modify::ensure_solid_non_none(next)
+        };
         changed = true;
     }
 
@@ -702,14 +714,20 @@ pub(crate) fn rgba_color_popover(
             }
             .show(ui);
             if out.no_colour {
-                value[3] = 0;
+                *value = [0, 0, 0, 0];
+                mode = PaintFillType::None;
+                ui.data_mut(|d| d.insert_temp(mode_id, mode));
                 changed = true;
                 should_close = true;
             } else if out.picked || swatch_c32 != before {
-                *value = swatch_c32.to_srgba_unmultiplied();
-                if value[3] == 0 {
-                    value[3] = 255;
+                let mut next = swatch_c32.to_srgba_unmultiplied();
+                let before_rgba = before.to_srgba_unmultiplied();
+                if next[3] == 0 && (out.picked || next[..3] != before_rgba[..3]) {
+                    next[3] = 255;
                 }
+                *value = crate::authoring_modify::ensure_solid_non_none(next);
+                mode = PaintFillType::Solid;
+                ui.data_mut(|d| d.insert_temp(mode_id, mode));
                 changed = true;
                 if out.picked {
                     should_close = true;
@@ -749,6 +767,7 @@ fn hex_field(
             && rgb[..] != value[..3]
         {
             value[..3].copy_from_slice(&rgb);
+            *value = crate::authoring_modify::ensure_solid_non_none(*value);
             applied = true;
         }
         ui.data_mut(|d| d.remove::<String>(draft_id));

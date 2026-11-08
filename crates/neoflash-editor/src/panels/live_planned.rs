@@ -321,23 +321,46 @@ impl Editor {
                     "Select an editable vector shape before applying a bitmap fill.".into(),
                 );
             }
-            crate::bitmaps::apply_bitmap_fill_to_project(
-                &mut candidate,
-                self.symbol_id(),
-                &target.layer,
-                self.frame,
-                neoflash_core::AuthoredBitmapFill {
-                    element_id: target.element,
-                    resource_id: res_id.clone(),
-                    matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                    repeat: true,
-                    smoothing: true,
-                },
-            )?;
-            label = "Bitmap fill";
+            let eligible = self
+                .sampled_targets()
+                .into_iter()
+                .find(|(t, _)| t == &target)
+                .is_none_or(|(_, el)| {
+                    crate::authoring_modify::element_has_fill(
+                        &el,
+                        self.target_has_bitmap_fill(&target),
+                    ) || !crate::authoring_modify::element_has_stroke(&el)
+                });
+            if eligible {
+                crate::bitmaps::apply_bitmap_fill_to_project(
+                    &mut candidate,
+                    self.symbol_id(),
+                    &target.layer,
+                    self.frame,
+                    neoflash_core::AuthoredBitmapFill {
+                        element_id: target.element,
+                        resource_id: res_id.clone(),
+                        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                        repeat: true,
+                        smoothing: true,
+                    },
+                )?;
+                label = "Bitmap fill";
+            }
         } else if self.selection.len() > 1 {
+            let sampled = self.sampled_targets();
             for target in self.selection.targets.clone() {
+                let has_fill = sampled
+                    .iter()
+                    .find(|(t, _)| t == &target)
+                    .is_some_and(|(_, el)| {
+                        crate::authoring_modify::element_has_fill(
+                            el,
+                            self.target_has_bitmap_fill(&target),
+                        )
+                    });
                 if self.target_editable(&target)
+                    && has_fill
                     && crate::bitmaps::apply_bitmap_fill_to_project(
                         &mut candidate,
                         self.symbol_id(),

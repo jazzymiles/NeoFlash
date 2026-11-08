@@ -97,6 +97,7 @@ enum ConvertedTrigger {
     /// Preferences opened on a page (`panels/preferences.rs`).
     Preferences(usize),
     AddSwatch,
+    BitmapFill,
     EditEnvelope,
     SoundProperties,
     LayerProperties,
@@ -127,6 +128,12 @@ impl Editor {
             "File ▸ Export ▸ Export audio…" => Some(ConvertedTrigger::ExportAudio),
             "File ▸ Import ▸ Import video…" => Some(ConvertedTrigger::ImportVideo),
             "Tool options ▸ Stroke style…" => Some(ConvertedTrigger::StrokeStyle),
+            "Tool options ▸ Rectangle primitive…" | "Tool options ▸ Oval primitive…" => {
+                Some(ConvertedTrigger::ShowPanel(PanelId::Properties))
+            }
+            "Tool options ▸ Spray brush…"
+            | "Tool options ▸ Deco tool…"
+            | "Tool options ▸ Bone tool…" => None,
             "Library menu ▸ Font embedding…" => Some(ConvertedTrigger::FontEmbedding),
             "Edit ▸ Preferences…" => Some(ConvertedTrigger::Preferences(
                 crate::panels::preferences::PAGE_GENERAL,
@@ -150,6 +157,7 @@ impl Editor {
             "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
                 Some(ConvertedTrigger::AddSwatch)
             }
+            "Color fill type ▸ Bitmap fill" => Some(ConvertedTrigger::BitmapFill),
             "Library menu ▸ Edit envelope…" => Some(ConvertedTrigger::EditEnvelope),
             "Library menu ▸ Sound properties…" => Some(ConvertedTrigger::SoundProperties),
             "Modify ▸ Timeline ▸ Layer properties…" | "Layer menu ▸ Properties…" => {
@@ -193,6 +201,13 @@ impl Editor {
                 ConvertedTrigger::AddSwatch => {
                     self.add_active_swatch(ctx);
                     self.show_panel(PanelId::Swatches);
+                }
+                ConvertedTrigger::BitmapFill => {
+                    self.set_selection_fill_type(
+                        false,
+                        crate::authoring_modify::PaintFillType::BitmapFill,
+                    );
+                    self.show_panel(PanelId::Color);
                 }
                 ConvertedTrigger::EditEnvelope => self.open_edit_envelope(),
                 ConvertedTrigger::SoundProperties => self.open_sound_properties(ctx, None),

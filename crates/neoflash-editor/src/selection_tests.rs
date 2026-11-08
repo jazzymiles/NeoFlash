@@ -4379,3 +4379,276 @@ fn classic_flash_group_ungroup_and_break_apart_support_single_multi_layer_moviec
         "MovieClip Break Apart is one Undo step"
     );
 }
+
+#[test]
+fn break_apart_mixed_multi_selection_continues_until_all_objects_are_shapes_preserving_nesting() {
+    let (mut editor, _ctx, _page) = fixture(0);
+    editor.layer = 1;
+    let layer = &mut editor.symbol_mut().timeline.layers[1];
+    layer.keyframes[0].elements = vec![
+        Element {
+            id: "already-shape".into(),
+            merge: true,
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 30.0, y: 0.0 },
+                    PathCommand::LineTo { x: 30.0, y: 30.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [200, 80, 80, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "grouped-rect".into(),
+            merge: false,
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 30.0,
+                fill: [80, 160, 240, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "multi-char-text".into(),
+            merge: false,
+            kind: ElementKind::Text {
+                text: "AB".into(),
+                font_family: "Helvetica".into(),
+                font_size: 24.0,
+                color: [255, 255, 255, 255],
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "object-drawing-path".into(),
+            merge: false,
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 25.0, y: 0.0 },
+                    PathCommand::LineTo { x: 25.0, y: 25.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [120, 220, 120, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        },
+    ];
+    layer.properties.groups = vec![AuthoringGroup {
+        id: "g-1".into(),
+        name: "Group".into(),
+        members: vec!["grouped-rect".into()],
+    }];
+
+    let initial = editor.project.clone();
+    select(
+        &mut editor,
+        &[
+            "already-shape",
+            "grouped-rect",
+            "multi-char-text",
+            "object-drawing-path",
+        ],
+    );
+    assert!(
+        editor.can_break_apart_selection(),
+        "Break Apart must be enabled even when some selected objects are already shapes"
+    );
+
+    // Step 1: unpacks group on `grouped-rect`, splits `multi-char-text` into 2 single-char texts,
+    // converts `object-drawing-path` to merge shape, and leaves `already-shape` intact.
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    assert!(
+        editor.symbol().timeline.layers[1]
+            .properties
+            .groups
+            .is_empty(),
+        "Step 1 unpacks the group"
+    );
+    let step1_els: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| el)
+        .collect();
+    assert_eq!(step1_els.len(), 5);
+    assert!(
+        step1_els
+            .iter()
+            .any(|e| e.id == "grouped-rect" && matches!(e.kind, ElementKind::Rectangle { .. })),
+        "Grouped rectangle stays a Rectangle after unpacking its group (nesting preserved)"
+    );
+    assert_eq!(
+        step1_els
+            .iter()
+            .filter(|e| matches!(e.kind, ElementKind::Text { .. }))
+            .count(),
+        2,
+        "Multi-char text splits into 2 single-char Text elements on Step 1"
+    );
+    assert!(
+        editor.can_break_apart_selection(),
+        "Break Apart remains enabled while unpacked rectangle and single-char texts can still become shapes"
+    );
+    let after_step1 = editor.project.clone();
+
+    // Step 2: converts `grouped-rect` and both single-char texts into merge shapes.
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    let step2_els: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| el)
+        .collect();
+    assert_eq!(step2_els.len(), 5);
+    assert!(
+        step2_els
+            .iter()
+            .all(|e| e.merge && matches!(e.kind, ElementKind::Path { .. })),
+        "All selected objects are now final merge shapes"
+    );
+    assert!(
+        !editor.can_break_apart_selection(),
+        "Break Apart is disabled once all selected objects are final shapes"
+    );
+
+    editor.undo();
+    assert_eq!(editor.project, after_step1);
+    editor.undo();
+    assert_eq!(editor.project, initial);
+}
+
+#[test]
+fn no_fill_differs_from_zero_alpha_fill_and_multi_selection_color_only_changes_filled_objects() {
+    use crate::authoring_modify::{PaintFillType, ensure_solid_non_none};
+
+    let (mut editor, ctx, _page) = fixture(0);
+    editor.layer = 1;
+
+    // Solid colour with alpha 0 (`[200, 50, 50, 0]` or `ensure_solid_non_none([0, 0, 0, 0])`)
+    // is a fill, whereas `[0, 0, 0, 0]` is No fill.
+    let zero_alpha_black = ensure_solid_non_none([0, 0, 0, 0]);
+    assert_ne!(zero_alpha_black, [0, 0, 0, 0]);
+    assert_eq!(zero_alpha_black[3], 0);
+
+    editor.symbol_mut().timeline.layers[1].keyframes[0].elements = vec![
+        Element {
+            id: "filled-opaque".into(),
+            kind: ElementKind::Rectangle {
+                width: 50.0,
+                height: 40.0,
+                fill: [40, 100, 200, 255],
+                stroke: [10, 10, 10, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "filled-zero-alpha".into(),
+            kind: ElementKind::Rectangle {
+                width: 50.0,
+                height: 40.0,
+                fill: [200, 50, 50, 0],
+                stroke: [10, 10, 10, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "empty-stroke-only".into(),
+            merge: true,
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 60.0, y: 0.0 },
+                    PathCommand::LineTo { x: 60.0, y: 40.0 },
+                    PathCommand::Close,
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [0, 0, 0, 0],
+                stroke: [10, 10, 10, 255],
+                stroke_width: 3.0,
+            },
+            ..Element::default()
+        },
+    ];
+
+    select(
+        &mut editor,
+        &["filled-opaque", "filled-zero-alpha", "empty-stroke-only"],
+    );
+
+    // Changing fill colour on the multi-selection updates both filled objects (including the one
+    // with alpha = 0), but leaves the unfilled stroke-only path without a fill (`[0, 0, 0, 0]`).
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), false));
+    editor.apply_swatch_solid(&ctx, [0, 220, 100, 255]);
+    editor.project.validate().unwrap();
+
+    let els = &editor.symbol().timeline.layers[1].keyframes[0].elements;
+    assert!(matches!(
+        els[0].kind,
+        ElementKind::Rectangle {
+            fill: [0, 220, 100, 255],
+            ..
+        }
+    ));
+    assert!(
+        matches!(
+            els[1].kind,
+            ElementKind::Rectangle {
+                fill: [0, 220, 100, 255],
+                ..
+            }
+        ),
+        "Object with alpha=0 fill has a fill and must update when fill colour changes"
+    );
+    assert!(
+        matches!(
+            els[2].kind,
+            ElementKind::Path {
+                fill: [0, 0, 0, 0],
+                ..
+            }
+        ),
+        "Empty stroke-only object has No fill and must not be assigned a fill"
+    );
+
+    // Applying a gradient fill to the multi-selection also skips the unfilled stroke-only object.
+    editor.set_selection_fill_type(false, PaintFillType::LinearGradient);
+    editor.project.validate().unwrap();
+    let els = &editor.symbol().timeline.layers[1].keyframes[0].elements;
+    assert!(matches!(
+        els[0].kind,
+        ElementKind::PaintedPath {
+            fill_gradient: Some(_),
+            ..
+        }
+    ));
+    assert!(matches!(
+        els[1].kind,
+        ElementKind::PaintedPath {
+            fill_gradient: Some(_),
+            ..
+        }
+    ));
+    assert!(
+        matches!(
+            els[2].kind,
+            ElementKind::Path {
+                fill: [0, 0, 0, 0],
+                ..
+            }
+        ),
+        "Empty stroke-only object must remain unfilled until filled with the Paint Bucket"
+    );
+}

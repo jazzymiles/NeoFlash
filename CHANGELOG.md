@@ -2,6 +2,27 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Floating `Tools` resize dark-strip fix and left alignment, multi-selection `Break Apart` progression to shapes, and
+  `No Fill` / `No Stroke` vs `Alpha = 0` multi-selection paint semantics (`T-150`):
+  - Fixed `detached_panels` and `compact_floating_tools_window_bottom_up` in `crates/neoflash-editor/src/detached.rs`
+    (plus full-width floating header painting in `crates/neoflash-editor/src/dock_grid.rs`) so horizontal resizing of the
+    floating `Tools` window reads the live `v.inner_rect` width immediately without sending a stale narrower
+    `ViewportCommand::InnerSize` or fighting active mouse resize drags, eliminating the black unrendered strip on the
+    right side of the window.
+  - Left-aligned all section titles (`TOOLS`, `VIEW`, `COLORS`, `OPTIONS`), multi-column tool rows (`tool_grid_row`),
+    `COLORS` controls, and `OPTIONS` modifiers in `crates/neoflash-editor/src/panels/tools.rs`.
+  - Updated `break_apart_selection` (`crates/neoflash-editor/src/authoring_modify.rs`) so `Break Apart` (`⌘B` / `Modify ▸
+    Break Apart`) on a mixed multi-selection continues working when some selected objects have already become final
+    shapes (`Path` / `PaintedPath` with `merge == true`), advancing each still-breakable object (Groups, Symbol
+    Instances, multi-character Text, single-character Text, Bitmaps, Primitives, Object Drawing shapes) by one
+    nesting/hierarchy step per invocation until all selected objects are shapes.
+  - Separated `No fill` / `No stroke` (`PaintFillType::None`, represented by `[0, 0, 0, 0]` with no gradient or bitmap
+    fill) from `Solid colour` with `α = 0 %` (`color != [0, 0, 0, 0]`, `color[3] == 0`, normalized via
+    `ensure_solid_non_none`), and updated `Color`, `Swatches`, `Tools`, and `Properties` (`authoring_modify.rs`,
+    `panels/swatches.rs`, `panels/tools.rs`, `panels/live_planned.rs`, `paint_controls.rs`) so changing Fill on a
+    multi-selection updates only objects that actually have a fill (`element_has_fill == true`) and never assigns a fill
+    to unfilled stroke-only objects until filled with the Paint Bucket (`Tool::Bucket`).
+
 - HTML5 publish text field click/focus rendering and full editor `TextField` property inheritance (`T-151`):
   - Fixed `web/text-input.js` (`focusChanged`, `update`, `makeDom`) and `web/display.js` (`as2FocusBounds`) so clicking
     `Static` or `Dynamic` text fields in HTML5 publications keeps them rendered directly on the Canvas (`hidden() === false`)

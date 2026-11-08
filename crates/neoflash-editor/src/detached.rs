@@ -640,10 +640,6 @@ impl Editor {
                 .root
                 .as_ref()
                 .map_or([80., 80.], |root| root.minimum_size());
-            let tools_lock_h_px = (panels.as_slice() == [PanelId::Tools])
-                .then_some(self.detached.tools_desired_inner_height)
-                .flatten()
-                .map(|h| (h * zoom).max(minimum[1]));
             let saved = window.geometry;
             let mut desired = saved.unwrap_or(WindowGeometry {
                 outer_position: [fallback.origin[0] + 40., fallback.origin[1] + 40.],
@@ -651,7 +647,7 @@ impl Editor {
             });
             desired.inner_size = [
                 desired.inner_size[0].max(minimum[0]),
-                tools_lock_h_px.unwrap_or_else(|| desired.inner_size[1].max(minimum[1])),
+                desired.inner_size[1].max(minimum[1]),
             ];
             let geometry =
                 recover_geometry(panel, Some(desired), &self.detached.monitors, fallback);
@@ -666,19 +662,13 @@ impl Editor {
                     .collect::<Vec<_>>()
                     .join(" + ")
             );
-            let min_h_logical = tools_lock_h_px
-                .map(|h| h / zoom)
-                .unwrap_or_else(|| minimum[1].min(geometry.inner_size[1]) / zoom);
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(&title)
                 .with_window_level(egui::WindowLevel::AlwaysOnTop)
                 .with_min_inner_size([
                     minimum[0].min(geometry.inner_size[0]) / zoom,
-                    min_h_logical,
+                    minimum[1].min(geometry.inner_size[1]) / zoom,
                 ]);
-            if let Some(lock_h_px) = tools_lock_h_px {
-                builder = builder.with_max_inner_size([4096.0, lock_h_px / zoom]);
-            }
             if initial {
                 builder = builder
                     .with_position([
@@ -1064,6 +1054,7 @@ impl Editor {
         min_h_px: f32,
         zoom: f32,
     ) {
+        let _ = min_w_px;
         let Some(mut geom) = self
             .workspace
             .floating
@@ -1073,17 +1064,24 @@ impl Editor {
         else {
             return;
         };
+        if let Some((outer, inner)) = ctx.input(|i| {
+            let v = i.viewport();
+            Some((v.outer_rect?, v.inner_rect?))
+        }) {
+            geom.outer_position = [outer.min.x * zoom, outer.min.y * zoom];
+            geom.inner_size = [inner.width() * zoom, inner.height() * zoom];
+        }
         let target_h_px = (desired_inner_h * zoom).max(min_h_px);
         let target_h_logical = target_h_px / zoom;
-        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-            min_w_px.min(geom.inner_size[0]) / zoom,
-            target_h_logical,
-        )));
-        ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(egui::vec2(
-            4096.0,
-            target_h_logical,
-        )));
         if (geom.inner_size[1] - target_h_px).abs() <= 1.5 {
+            return;
+        }
+        let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
+            || ctx.input(|i| i.pointer.any_down());
+        if pointer_down {
+            // Defer sending programmatic window size/position changes while a live native window
+            // resize drag is in progress so macOS AppKit and egui never desync the inner width.
+            ctx.request_repaint_after(Duration::from_millis(16));
             return;
         }
         // Keep the top edge (`outer_position[1]`) fixed where it is and compact from the bottom up.

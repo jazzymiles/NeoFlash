@@ -7119,11 +7119,18 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     let sub_b = named_bounds(&out_wide, "Subselection (A)").unwrap();
     let tf_b = named_bounds(&out_wide, "Free Transform (Q)").unwrap();
     let grad_b = named_bounds(&out_wide, "Gradient Transform (F)").unwrap();
+    let hand_b = named_bounds(&out_wide, "Hand (H / hold Space)").unwrap();
     assert!(
         (sel_b.center().y - sub_b.center().y).abs() < 2.0
             && (sel_b.center().y - tf_b.center().y).abs() < 2.0
             && (sel_b.center().y - grad_b.center().y).abs() < 2.0,
         "First 4 tools share Row 1 when stretched wide"
+    );
+    assert!(
+        sel_b.min.x < 24.0 && (sel_b.min.x - hand_b.min.x).abs() < 1.0,
+        "Multi-column Tools rows are left-aligned: sel_b.min.x={}, hand_b.min.x={}",
+        sel_b.min.x,
+        hand_b.min.x
     );
 
     editor.set_panel_placement(
@@ -7228,21 +7235,44 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     editor.reset_default_paints();
     assert_eq!(editor.fill, [255, 255, 255, 255]);
     assert_eq!(editor.stroke, [0, 0, 0, 255]);
-    for el in &editor.symbol().timeline.layers[0].keyframes[0].elements {
-        let ElementKind::Rectangle { fill, stroke, .. } = el.kind else {
-            panic!("expected rectangle");
-        };
-        assert_eq!(fill, [255, 255, 255, 255]);
-        assert_eq!(stroke, [0, 0, 0, 255]);
-    }
+    let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    let ElementKind::Rectangle {
+        fill: r1_fill,
+        stroke: r1_stroke,
+        ..
+    } = els[0].kind
+    else {
+        panic!("expected rectangle r1");
+    };
+    let ElementKind::Rectangle {
+        fill: r2_fill,
+        stroke: r2_stroke,
+        ..
+    } = els[1].kind
+    else {
+        panic!("expected rectangle r2");
+    };
+    assert_eq!(
+        r1_fill,
+        [0, 0, 0, 0],
+        "Unfilled stroke-only object in multi-selection must not be assigned a fill"
+    );
+    assert_eq!(r1_stroke, [0, 0, 0, 255]);
+    assert_eq!(r2_fill, [255, 255, 255, 255]);
+    assert_eq!(r2_stroke, [0, 0, 0, 255]);
+
     editor.swap_active_paints();
     assert_eq!(editor.fill, [0, 0, 0, 255]);
     assert_eq!(editor.stroke, [255, 255, 255, 255]);
-    for el in &editor.symbol().timeline.layers[0].keyframes[0].elements {
-        let ElementKind::Rectangle { fill, stroke, .. } = el.kind else {
-            panic!("expected rectangle");
-        };
-        assert_eq!(fill, [0, 0, 0, 255]);
-        assert_eq!(stroke, [255, 255, 255, 255]);
-    }
+    let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    let ElementKind::Rectangle {
+        fill: r2_fill_swapped,
+        stroke: r2_stroke_swapped,
+        ..
+    } = els[1].kind
+    else {
+        panic!("expected rectangle r2");
+    };
+    assert_eq!(r2_fill_swapped, [0, 0, 0, 255]);
+    assert_eq!(r2_stroke_swapped, [255, 255, 255, 255]);
 }

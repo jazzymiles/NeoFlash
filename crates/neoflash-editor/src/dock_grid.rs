@@ -614,8 +614,8 @@ impl Editor {
             header_ui.disable_semantic();
         }
         let nf = neoflash_ui::palette(&ctx);
-        header_ui.painter().rect_filled(header, 0., nf.bg_panel);
-        header_ui.painter().hline(
+        parent.painter().rect_filled(header, 0., nf.bg_panel);
+        parent.painter().hline(
             header.x_range(),
             header.bottom() - 0.5,
             egui::Stroke::new(1.0_f32, nf.border_subtle),

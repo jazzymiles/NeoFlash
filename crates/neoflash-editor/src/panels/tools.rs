@@ -171,7 +171,8 @@ impl Editor {
                     .themed()
                     .show(ui, |ui| {
                         let inner_top = ui.cursor().top();
-                        ui.vertical_centered(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.vertical(|ui| {
                             self.tool_grid(ui, cols);
                             nf::divider(ui, false);
                             section_caption(ui, "Colors");
@@ -549,7 +550,8 @@ impl Editor {
                         stop.color[3],
                     ));
                 }
-                (c[3] > 0).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
+                (c != [0, 0, 0, 0])
+                    .then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
             };
         let (ctx_fill, ctx_fill_grad, ctx_stroke, ctx_stroke_grad, _) = self.contextual_paints();
         let chip = nf::FillStrokeChip {
@@ -1380,8 +1382,7 @@ impl Editor {
     }
 }
 
-/// Lays out up to `cols` tool/modifier buttons on one row, distributing the `cols` column slots
-/// evenly across the available panel width so partial rows stay aligned to the same columns.
+/// Lays out up to `cols` tool/modifier buttons on one row, aligned to the left edge.
 fn tool_grid_row(
     ui: &mut egui::Ui,
     cols: usize,
@@ -1392,11 +1393,9 @@ fn tool_grid_row(
     let side = neoflash_ui::metrics::tool_button();
     let natural_w = cols as f32 * side + (cols.saturating_sub(1)) as f32 * TOOL_GAP;
     let avail_w = ui.available_width().max(natural_w);
-    let extra = (avail_w - natural_w).max(0.0);
-    let pad = extra / (cols + 1) as f32;
-    let step = side + TOOL_GAP + pad;
+    let step = side + TOOL_GAP;
     let (row_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, side), egui::Sense::hover());
-    let start_x = row_rect.left() + pad;
+    let start_x = row_rect.left();
     for idx in 0..items.min(cols) {
         let cell_rect = Rect::from_min_size(
             egui::pos2(start_x + idx as f32 * step, row_rect.top()),
