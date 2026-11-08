@@ -1815,7 +1815,7 @@ impl Editor {
         if self.can_ungroup_selection() && self.take_command_shortcut(ctx, C::ModifyUngroup) {
             self.ungroup_selection();
         }
-        if self.selection.len() >= 2 && self.take_command_shortcut(ctx, C::ModifyGroup) {
+        if !self.selection.is_empty() && self.take_command_shortcut(ctx, C::ModifyGroup) {
             self.group_selection();
         }
         if ctx.wants_keyboard_input() {

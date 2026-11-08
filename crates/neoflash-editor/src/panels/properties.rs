@@ -100,14 +100,279 @@ impl Editor {
                 let original = element.clone();
                 let mut edit_symbol = false;
                 let mut convert_text = false;
+                let mut swap_to_symbol: Option<Id> = None;
+                let mut set_symbol_kind: Option<(Id, SymbolKind)> = None;
+                let mut duplicate_symbol_clicked = false;
+                let is_instance = matches!(element.kind, ElementKind::Instance { .. });
+                let is_text_box = matches!(element.kind, ElementKind::TextBox { .. });
                 let (icon, title, subtitle) = self.object_header(&element);
                 ui.add(TypeHeader { icon, title: &title, subtitle: &subtitle });
                 ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
-                    changes.note(text_row(ui, "Name", &mut element.name));
-                    inspector_section(ui, "Position and transform", |ui| {
-                        for r in numeric_pair(ui, ["X", "Y"], [&mut element.transform.x, &mut element.transform.y], -1_000_000. ..=1_000_000., 1.) { changes.note(r); }
-                        for r in numeric_pair(ui, ["Scale X", "Scale Y"], [&mut element.transform.scale_x, &mut element.transform.scale_y], -1000. ..=1000., 0.01) { changes.note(r); }
-                        changes.note(numeric_row(ui, "Rotation", &mut element.transform.rotation, -36000. ..=36000., 1.));
+                    if let ElementKind::Instance { symbol_id, .. } = &element.kind {
+                        let cur_sym_id = symbol_id.clone();
+                        let cur_sym_kind = self
+                            .project
+                            .symbol(&cur_sym_id)
+                            .map(|s| s.kind)
+                            .unwrap_or(SymbolKind::MovieClip);
+                        // Row 1: Instance Name + Swap… button on one compact row (NF2 Properties — Movie clip).
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            let swap_w = 72.0;
+                            let name_w = (ui.available_width() - swap_w - space::S2).max(80.0);
+                            let mut n_resp = ui.add(
+                                nf::TextField::new(&mut element.name, "Name")
+                                    .prefix("Name")
+                                    .width(name_w),
+                            );
+                            n_resp.id = nf::TextField::edit_id(n_resp.id);
+                            n_resp.widget_info(|| {
+                                let mut info = egui::WidgetInfo::text_edit(
+                                    ui.is_enabled(),
+                                    &element.name,
+                                    &element.name,
+                                    "Name",
+                                );
+                                info.label = Some("Name".into());
+                                info
+                            });
+                            changes.note(n_resp);
+
+                            let swap_btn = ui
+                                .add(nf::Button::new("Swap…"))
+                                .on_hover_text("Swap symbol instance with another Library symbol");
+                            nf::popup_below(&swap_btn, 220.0, |ui| {
+                                if let Some(lib_id) = self.library_selected.clone()
+                                    && self.can_swap_instance_symbol(&lib_id)
+                                    && let Some(lib_sym) = self.project.symbol(&lib_id)
+                                {
+                                    let label = format!("Use selected “{}”", lib_sym.name);
+                                    if ui.add(MenuItem::new(&label)).clicked() {
+                                        swap_to_symbol = Some(lib_id);
+                                        ui.close();
+                                    }
+                                    nf::menu_separator(ui);
+                                }
+                                let symbols: Vec<(Id, String, bool)> = self
+                                    .project
+                                    .symbols
+                                    .iter()
+                                    .filter(|s| !self.project.is_scene(&s.id))
+                                    .map(|s| {
+                                        let allowed = s.id == cur_sym_id
+                                            || self.can_swap_instance_symbol(&s.id);
+                                        (s.id.clone(), s.name.clone(), allowed)
+                                    })
+                                    .collect();
+                                for (sid, sname, allowed) in symbols {
+                                    if ui
+                                        .add_enabled(
+                                            allowed,
+                                            MenuItem::new(&sname).checked(sid == cur_sym_id),
+                                        )
+                                        .clicked()
+                                    {
+                                        if sid != cur_sym_id {
+                                            swap_to_symbol = Some(sid);
+                                        }
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
+
+                        // Row 2: Symbol behavior selector (Movie Clip / Button / Graphic) + Edit / Duplicate.
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
+                            let kind_label = match cur_sym_kind {
+                                SymbolKind::MovieClip => "Movie Clip",
+                                SymbolKind::Button => "Button",
+                                SymbolKind::Graphic => "Graphic",
+                            };
+                            nf::Select::new("instance-symbol-behavior", kind_label)
+                                .width(half)
+                                .show(ui, |ui| {
+                                    for (k, label) in [
+                                        (SymbolKind::MovieClip, "Movie Clip"),
+                                        (SymbolKind::Button, "Button"),
+                                        (SymbolKind::Graphic, "Graphic"),
+                                    ] {
+                                        if ui
+                                            .add(MenuItem::new(label).checked(k == cur_sym_kind))
+                                            .clicked()
+                                        {
+                                            if k != cur_sym_kind {
+                                                set_symbol_kind = Some((cur_sym_id.clone(), k));
+                                            }
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            if ui.add(nf::Button::new("Edit symbol")).clicked() {
+                                edit_symbol = true;
+                            }
+                            if ui
+                                .add(nf::Button::new("Duplicate…"))
+                                .on_hover_text("Duplicate symbol and swap this instance")
+                                .clicked()
+                            {
+                                duplicate_symbol_clicked = true;
+                            }
+                        });
+                    } else {
+                        changes.note(text_row(ui, "Name", &mut element.name));
+                    }
+
+                    let pos_title = if is_instance || is_text_box {
+                        "Position and size"
+                    } else {
+                        "Position and transform"
+                    };
+                    inspector_section(ui, pos_title, |ui| {
+                        for r in numeric_pair(
+                            ui,
+                            ["X", "Y"],
+                            [&mut element.transform.x, &mut element.transform.y],
+                            -1_000_000. ..=1_000_000.,
+                            1.,
+                        ) {
+                            changes.note(r);
+                        }
+                        if let ElementKind::TextBox { width, height, .. } = &mut element.kind {
+                            let (old_w, old_h) = (*width, *height);
+                            let link_id = egui::Id::new("properties-textbox-size-linked");
+                            let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let pair_width =
+                                    (ui.available_width() - crate::theme::control_h() - space::S2)
+                                        .max(80.0);
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(pair_width, crate::theme::control_h()),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        for r in numeric_pair(
+                                            ui,
+                                            ["W", "H"],
+                                            [width, height],
+                                            1. ..=10000.,
+                                            1.,
+                                        ) {
+                                            changes.note(r);
+                                        }
+                                    },
+                                );
+                                if ui
+                                    .add(
+                                        nf::IconButton::new(i16::LINK, "Constrain text box proportions")
+                                            .selected(linked),
+                                    )
+                                    .clicked()
+                                {
+                                    linked = !linked;
+                                }
+                            });
+                            ui.data_mut(|d| d.insert_temp(link_id, linked));
+                            if linked && old_w > 0.0 && old_h > 0.0 {
+                                if (*width - old_w).abs() > 1e-6 {
+                                    *height = (*width * old_h / old_w).clamp(1.0, 10000.0);
+                                } else if (*height - old_h).abs() > 1e-6 {
+                                    *width = (*height * old_w / old_h).clamp(1.0, 10000.0);
+                                }
+                            }
+                        } else if let ElementKind::Instance { symbol_id, .. } = &element.kind {
+                            let (base_w, base_h) = self.unscaled_symbol_size(ctx, symbol_id);
+                            let mut w = (base_w * element.transform.scale_x.abs()).max(0.01);
+                            let mut h = (base_h * element.transform.scale_y.abs()).max(0.01);
+                            let (old_w, old_h) = (w, h);
+                            let link_id = egui::Id::new("properties-instance-size-linked");
+                            let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let pair_width =
+                                    (ui.available_width() - crate::theme::control_h() - space::S2)
+                                        .max(80.0);
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(pair_width, crate::theme::control_h()),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        for r in numeric_pair(
+                                            ui,
+                                            ["W", "H"],
+                                            [&mut w, &mut h],
+                                            0.01..=100_000.,
+                                            1.,
+                                        ) {
+                                            changes.note(r);
+                                        }
+                                    },
+                                );
+                                if ui
+                                    .add(
+                                        nf::IconButton::new(i16::LINK, "Constrain instance proportions")
+                                            .selected(linked),
+                                    )
+                                    .clicked()
+                                {
+                                    linked = !linked;
+                                }
+                            });
+                            ui.data_mut(|d| d.insert_temp(link_id, linked));
+                            let w_changed = (w - old_w).abs() > 1e-6;
+                            let h_changed = (h - old_h).abs() > 1e-6;
+                            if linked && old_w > 0.0 && old_h > 0.0 {
+                                if w_changed {
+                                    h = (w * old_h / old_w).clamp(0.01, 100_000.0);
+                                } else if h_changed {
+                                    w = (h * old_w / old_h).clamp(0.01, 100_000.0);
+                                }
+                            }
+                            if w_changed || (linked && h_changed) {
+                                let sign_x = if element.transform.scale_x < 0.0 { -1.0 } else { 1.0 };
+                                element.transform.scale_x =
+                                    sign_x * (w / base_w.max(1e-6)).clamp(0.0001, 1000.0);
+                            }
+                            if h_changed || (linked && w_changed) {
+                                let sign_y = if element.transform.scale_y < 0.0 { -1.0 } else { 1.0 };
+                                element.transform.scale_y =
+                                    sign_y * (h / base_h.max(1e-6)).clamp(0.0001, 1000.0);
+                            }
+                        }
+                        for r in numeric_pair(
+                            ui,
+                            ["Scale X", "Scale Y"],
+                            [
+                                &mut element.transform.scale_x,
+                                &mut element.transform.scale_y,
+                            ],
+                            -1000. ..=1000.,
+                            0.01,
+                        ) {
+                            changes.note(r);
+                        }
+                        if is_instance {
+                            for r in numeric_pair(
+                                ui,
+                                ["Rotation", "Skew"],
+                                [
+                                    &mut element.transform.rotation,
+                                    &mut element.transform.skew,
+                                ],
+                                -36000. ..=36000.,
+                                1.,
+                            ) {
+                                changes.note(r);
+                            }
+                        } else {
+                            changes.note(numeric_row(
+                                ui,
+                                "Rotation",
+                                &mut element.transform.rotation,
+                                -36000. ..=36000.,
+                                1.,
+                            ));
+                        }
                     });
                     if let ElementKind::Instance { symbol_id, playback } = &mut element.kind
                         && let Some(count) = self
@@ -125,86 +390,115 @@ impl Editor {
                         });
                     }
                     inspector_section(ui, appearance_title(&element.kind), |ui| {
-                    changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
-                    match &mut element.kind {
-                        ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
-                        | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
-                            for r in numeric_pair(ui, ["W", "H"], [width, height], 1. ..=10000., 1.) { changes.note(r); }
-                            changes.note(paint_row(ui, "shape-fill", "Fill", fill));
-                            changes.note(paint_row(ui, "shape-stroke", "Stroke", stroke));
-                            changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
+                        if !is_instance && !is_text_box {
+                            changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
                         }
-                        ElementKind::Text { text, font_family, font_size, color } => {
-                            let focus_text = ctx.data_mut(|data| {
-                                data.remove_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))
-                                    .unwrap_or(false)
-                            });
-                            let text_resp = text_row(ui, "Text", text);
-                            if focus_text {
-                                text_resp.request_focus();
-                                if let Some(mut state) = egui::TextEdit::load_state(ctx, text_resp.id) {
-                                    let end = egui::text::CCursor::new(text.chars().count());
-                                    state.cursor.set_char_range(Some(
-                                        egui::text::CCursorRange::two(egui::text::CCursor::new(0), end),
-                                    ));
-                                    state.store(ctx, text_resp.id);
-                                }
+                        match &mut element.kind {
+                            ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
+                            | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
+                                for r in numeric_pair(ui, ["W", "H"], [width, height], 1. ..=10000., 1.) { changes.note(r); }
+                                changes.note(paint_row(ui, "shape-fill", "Fill", fill));
+                                changes.note(paint_row(ui, "shape-stroke", "Stroke", stroke));
+                                changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
                             }
-                            changes.note(text_resp);
-                            changes.note(numeric_row(ui, "Size", font_size, 4. ..=512., 1.));
-                            changes.note(paint_row(ui, "text-color", "Color", color));
-                            let before = font_family.clone();
-                            let mut response = property_row(ui, "Font", |ui| {
-                                let width = ui.available_width();
-                                let current = font_family.clone();
-                                let (response, _) = nf::Select::new("font_family", &current).width(width).show(ui, |ui| {
-                                    ui.add(nf::Search::new(&mut self.font_filter, "Find font").width(220.));
-                                    for family in &self.fonts.families {
-                                        if (self.font_filter.is_empty() || family.to_lowercase().contains(&self.font_filter.to_lowercase()))
-                                            && ui.add(MenuItem::new(family).checked(family == font_family)).clicked() { *font_family = family.clone(); }
+                            ElementKind::Text { text, font_family, font_size, color } => {
+                                let focus_text = ctx.data_mut(|data| {
+                                    data.remove_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))
+                                        .unwrap_or(false)
+                                });
+                                let text_resp = text_row(ui, "Text", text);
+                                if focus_text {
+                                    text_resp.request_focus();
+                                    if let Some(mut state) = egui::TextEdit::load_state(ctx, text_resp.id) {
+                                        let end = egui::text::CCursor::new(text.chars().count());
+                                        state.cursor.set_char_range(Some(
+                                            egui::text::CCursorRange::two(egui::text::CCursor::new(0), end),
+                                        ));
+                                        state.store(ctx, text_resp.id);
+                                    }
+                                }
+                                changes.note(text_resp);
+                                let before = font_family.clone();
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = space::S2;
+                                    let btn_w = 104.0;
+                                    let font_w = (ui.available_width() - btn_w - space::S2).max(80.0);
+                                    let current = font_family.clone();
+                                    let (mut response, _) = nf::Select::new("font_family", &current)
+                                        .width(font_w)
+                                        .show(ui, |ui| {
+                                            ui.add(nf::Search::new(&mut self.font_filter, "Find font").width(220.));
+                                            for family in &self.fonts.families {
+                                                if (self.font_filter.is_empty()
+                                                    || family.to_lowercase().contains(&self.font_filter.to_lowercase()))
+                                                    && ui.add(MenuItem::new(family).checked(family == font_family)).clicked()
+                                                {
+                                                    *font_family = family.clone();
+                                                    ui.close();
+                                                }
+                                            }
+                                        });
+                                    if *font_family != before {
+                                        response.mark_changed();
+                                    }
+                                    changes.note(response);
+                                    let convert_resp = ui.add(nf::Button::new("Use text box"));
+                                    if convert_resp.clicked() {
+                                        convert_text = true;
+                                        changes.control = Some(convert_resp.id);
                                     }
                                 });
-                                response
-                            });
-                            if *font_family != before { response.mark_changed(); }
-                            changes.note(response);
-                            if let Err(error) = self.fonts.load(ctx, font_family) { ui.label(rich(error, TextStyle::Small).color(UiPalette::current(ctx).error_text)); }
-                            let response = ui.add(nf::Button::new("Use text box"));
-                            if response.clicked() { convert_text = true; changes.control = Some(response.id); }
-                        }
-                        kind @ ElementKind::TextBox { .. } => {
-                            if let Some(control) = self.text_box_properties(ui, ctx, kind) { changes.control = Some(control); }
-                        }
-                        ElementKind::Video { width, height } => {
-                            for r in numeric_pair(ui, ["Width", "Height"], [width, height], 0. ..=8192., 1.) { changes.note(r); }
-                            hint(ui, "Attach a NetStream from ActionScript. Playback runs in the HTML5 preview.");
-                        }
-                        ElementKind::Bitmap { resource_id, width, height, smoothing } => {
-                            let path = self.project.resources.iter().find(|r| r.id == *resource_id).map(|r| r.path.as_str()).unwrap_or("Missing image");
-                            ui.add(egui::Label::new(rich(path, TextStyle::Body).color(neoflash_ui::palette(ctx).text_primary)).truncate()).on_hover_text(path);
-                            hint(ui, &format!("{width} × {height} px"));
-                            changes.note(ui.add(nf::Checkbox::new(smoothing, "Smoothing")));
-                        }
-                        ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } | ElementKind::PaintedPath { commands, fill_rule, fill, stroke, stroke_width, .. } => {
-                            hint(ui, &format!("{} commands", commands.len()));
-                            changes.note(paint_row(ui, "path-fill", "Fill", fill));
-                            changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));
-                            changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
-                            changes.note(select_row(ui, "Fill rule", "fill_rule", fill_rule, &[(FillRule::NonZero, "Nonzero"), (FillRule::EvenOdd, "Even–odd")]));
-                            let edit_pts_sc = self.tooltip_sc(crate::commands::CommandId::ToolSubselect);
-                            let mut edit_pts_btn = nf::Button::new("Edit points");
-                            if let Some(sc) = edit_pts_sc.as_deref() {
-                                edit_pts_btn = edit_pts_btn.shortcut(sc);
+                                changes.note(numeric_row(ui, "Size", font_size, 4. ..=512., 1.));
+                                changes.note(paint_row(ui, "text-color", "Color", color));
+                                if let Err(error) = self.fonts.load(ctx, font_family) {
+                                    ui.label(rich(error, TextStyle::Small).color(UiPalette::current(ctx).error_text));
+                                }
                             }
-                            if ui.add(edit_pts_btn).clicked() { self.set_tool(Tool::Subselect); self.select_single_id(original.id.clone()); }
+                            kind @ ElementKind::TextBox { .. } => {
+                                if let Some(control) =
+                                    self.text_box_properties(ui, ctx, kind, &mut element.transform.alpha)
+                                {
+                                    changes.control = Some(control);
+                                }
+                            }
+                            ElementKind::Video { width, height } => {
+                                for r in numeric_pair(ui, ["Width", "Height"], [width, height], 0. ..=8192., 1.) { changes.note(r); }
+                                hint(ui, "Attach a NetStream from ActionScript. Playback runs in the HTML5 preview.");
+                            }
+                            ElementKind::Bitmap { resource_id, width, height, smoothing } => {
+                                let path = self.project.resources.iter().find(|r| r.id == *resource_id).map(|r| r.path.as_str()).unwrap_or("Missing image");
+                                ui.add(egui::Label::new(rich(path, TextStyle::Body).color(neoflash_ui::palette(ctx).text_primary)).truncate()).on_hover_text(path);
+                                hint(ui, &format!("{width} × {height} px"));
+                                changes.note(ui.add(nf::Checkbox::new(smoothing, "Smoothing")));
+                            }
+                            ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } | ElementKind::PaintedPath { commands, fill_rule, fill, stroke, stroke_width, .. } => {
+                                hint(ui, &format!("{} commands", commands.len()));
+                                changes.note(paint_row(ui, "path-fill", "Fill", fill));
+                                changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));
+                                changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
+                                changes.note(select_row(ui, "Fill rule", "fill_rule", fill_rule, &[(FillRule::NonZero, "Nonzero"), (FillRule::EvenOdd, "Even–odd")]));
+                                let edit_pts_sc = self.tooltip_sc(crate::commands::CommandId::ToolSubselect);
+                                let mut edit_pts_btn = nf::Button::new("Edit points");
+                                if let Some(sc) = edit_pts_sc.as_deref() {
+                                    edit_pts_btn = edit_pts_btn.shortcut(sc);
+                                }
+                                if ui.add(edit_pts_btn).clicked() { self.set_tool(Tool::Subselect); self.select_single_id(original.id.clone()); }
+                            }
+                            ElementKind::Instance { .. } => {
+                                if let Some(control) =
+                                    Self::instance_color_effect_ui(ui, &original.id, &mut element.transform)
+                                {
+                                    changes.control = Some(control);
+                                }
+                            }
                         }
-                        ElementKind::Instance { symbol_id, playback } => {
-                            let name = self.project.symbol(symbol_id).map(|s| s.name.as_str()).unwrap_or("Missing");
-                            property_row(ui, "Symbol", |ui| { ui.add(egui::Label::new(rich(name, TextStyle::Body).color(neoflash_ui::palette(ctx).text_primary)).truncate()).on_hover_text(name); });
-                            let _ = playback;
-                        }
-                    }
                     });
+                    if is_text_box
+                        && let Some(control) =
+                            self.text_box_paragraph_and_options_ui(ui, &mut element.kind)
+                    {
+                        changes.control = Some(control);
+                    }
                     if let Some(control) = self.primitive_options_properties_ui(ui, &mut element) {
                         changes.control = Some(control);
                     }
@@ -260,6 +554,26 @@ impl Editor {
                         current.transform = element.transform;
                         current.kind = element.kind;
                     }
+                    self.project.upgrade_format_for_features();
+                }
+                if let Some(target_sym_id) = swap_to_symbol {
+                    let _ = self.swap_instance_symbol(&target_sym_id);
+                }
+                if let Some((sym_id, next_kind)) = set_symbol_kind {
+                    self.finish_edits();
+                    self.transact_named("Change symbol behavior", move |editor| {
+                        if let Some(sym) = editor.project.symbol_mut(&sym_id) {
+                            sym.kind = next_kind;
+                        }
+                    });
+                }
+                if duplicate_symbol_clicked {
+                    let _ = self.duplicate_selected_instance_symbol();
+                }
+                if is_instance {
+                    self.display_and_filters_sections_ui(ui, "props-mc", true, false);
+                } else if is_text_box {
+                    self.display_and_filters_sections_ui(ui, "props-text", false, false);
                 }
                 if edit_symbol { self.enter_selected_symbol_in_place(); }
             } else {
@@ -511,6 +825,407 @@ impl Editor {
             format!("Drawing object · {layer}")
         };
         (icon, title.into(), subtitle)
+    }
+
+    /// Unscaled local width and height of `symbol_id` at frame 0 (fallback `100.0 × 100.0`).
+    fn unscaled_symbol_size(&self, ctx: &egui::Context, symbol_id: &str) -> (f64, f64) {
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let mut union = egui::Rect::NOTHING;
+        for item in evaluate(&self.project, symbol_id, 0) {
+            let r = crate::stage::world_bounds(&item, &painter);
+            if r.is_finite() {
+                union = union.union(r);
+            }
+        }
+        if union.is_finite() && union.width() > 1e-3 && union.height() > 1e-3 {
+            (f64::from(union.width()), f64::from(union.height()))
+        } else {
+            (100.0, 100.0)
+        }
+    }
+
+    /// `Colour effect` section for Symbol Instances (`PR-05`, NF2 `Panel / Properties — Movie clip`
+    /// and classic Flash Color Effect: `None`, `Brightness`, `Tint`, `Advanced`, `Alpha`).
+    fn instance_color_effect_ui(
+        ui: &mut egui::Ui,
+        element_id: &str,
+        transform: &mut Transform,
+    ) -> Option<egui::Id> {
+        use crate::paint_controls::{PropertyChanges, color_row};
+        let mut changes = PropertyChanges::default();
+        let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        enum ColorEffectStyle {
+            None,
+            Brightness,
+            Tint,
+            Advanced,
+            Alpha,
+        }
+
+        let style_key = egui::Id::new(("mc-color-effect-style-state", element_id));
+        let inferred = if !transform.color_transform.is_identity() {
+            let ct = transform.color_transform;
+            let same_mul = (ct.multipliers[0] - ct.multipliers[1]).abs() < 1e-4
+                && (ct.multipliers[1] - ct.multipliers[2]).abs() < 1e-4;
+            let same_off = (ct.offsets[0] - ct.offsets[1]).abs() < 1e-2
+                && (ct.offsets[1] - ct.offsets[2]).abs() < 1e-2;
+            if same_mul
+                && same_off
+                && (ct.multipliers[3] - 1.0).abs() < 1e-4
+                && ct.offsets[3].abs() < 1e-2
+            {
+                ColorEffectStyle::Brightness
+            } else if same_mul
+                && (ct.multipliers[3] - 1.0).abs() < 1e-4
+                && ct.offsets[3].abs() < 1e-2
+            {
+                ColorEffectStyle::Tint
+            } else {
+                ColorEffectStyle::Advanced
+            }
+        } else {
+            ColorEffectStyle::Alpha
+        };
+        let mut style = ui
+            .data(|d| d.get_temp::<ColorEffectStyle>(style_key))
+            .unwrap_or(inferred);
+
+        let style_label = match style {
+            ColorEffectStyle::None => "Style: None",
+            ColorEffectStyle::Brightness => "Style: Brightness",
+            ColorEffectStyle::Tint => "Style: Tint",
+            ColorEffectStyle::Advanced => "Style: Advanced",
+            ColorEffectStyle::Alpha => "Style: Alpha",
+        };
+        let mut picked_style = None;
+
+        match style {
+            ColorEffectStyle::None => {
+                let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
+                    .width(ui.available_width())
+                    .show(ui, |ui| {
+                        for (st, name) in [
+                            (ColorEffectStyle::None, "None"),
+                            (ColorEffectStyle::Brightness, "Brightness"),
+                            (ColorEffectStyle::Tint, "Tint"),
+                            (ColorEffectStyle::Advanced, "Advanced"),
+                            (ColorEffectStyle::Alpha, "Alpha"),
+                        ] {
+                            if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
+                                picked_style = Some(st);
+                                ui.close();
+                            }
+                        }
+                    });
+                if let Some(next) = picked_style {
+                    style = next;
+                    if next == ColorEffectStyle::None {
+                        transform.alpha = 1.0;
+                        transform.color_transform = ColorTransform::default();
+                        s_resp.mark_changed();
+                    }
+                }
+                changes.note(s_resp);
+            }
+            ColorEffectStyle::Alpha => {
+                let mut alpha_pct = (transform.alpha * 100.0).clamp(0.0, 100.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
+                        .width(half)
+                        .show(ui, |ui| {
+                            for (st, name) in [
+                                (ColorEffectStyle::None, "None"),
+                                (ColorEffectStyle::Brightness, "Brightness"),
+                                (ColorEffectStyle::Tint, "Tint"),
+                                (ColorEffectStyle::Advanced, "Advanced"),
+                                (ColorEffectStyle::Alpha, "Alpha"),
+                            ] {
+                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
+                                    picked_style = Some(st);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    if let Some(next) = picked_style {
+                        style = next;
+                        if next == ColorEffectStyle::None {
+                            transform.alpha = 1.0;
+                            transform.color_transform = ColorTransform::default();
+                            s_resp.mark_changed();
+                        }
+                    }
+                    changes.note(s_resp);
+
+                    let f_resp = ui.add(
+                        nf::Field::new(&mut alpha_pct, "Opacity")
+                            .prefix("α")
+                            .unit("%")
+                            .decimals(0)
+                            .range(0.0..=100.0)
+                            .width(half),
+                    );
+                    if f_resp.changed() {
+                        transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
+                    }
+                    changes.note(f_resp);
+                });
+                let sl_resp = ui.add(
+                    nf::Slider::new(&mut alpha_pct, 0.0..=100.0, "Opacity")
+                        .width(ui.available_width()),
+                );
+                if sl_resp.changed() {
+                    transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
+                }
+                changes.note(sl_resp);
+            }
+            ColorEffectStyle::Brightness => {
+                let ct = transform.color_transform;
+                let avg_off = (ct.offsets[0] + ct.offsets[1] + ct.offsets[2]) / (3.0 * 255.0);
+                let cur_b = if avg_off.abs() > 1e-4 {
+                    avg_off.clamp(-1.0, 1.0)
+                } else {
+                    let avg_mul = (ct.multipliers[0] + ct.multipliers[1] + ct.multipliers[2]) / 3.0;
+                    (avg_mul - 1.0).clamp(-1.0, 1.0)
+                };
+                let mut b_pct = (cur_b * 100.0).clamp(-100.0, 100.0);
+                let apply_b = |ct: &mut ColorTransform, pct: f64| {
+                    let b = (pct / 100.0).clamp(-1.0, 1.0);
+                    if b >= 0.0 {
+                        let m = 1.0 - b;
+                        let o = 255.0 * b;
+                        ct.multipliers[0] = m;
+                        ct.multipliers[1] = m;
+                        ct.multipliers[2] = m;
+                        ct.offsets[0] = o;
+                        ct.offsets[1] = o;
+                        ct.offsets[2] = o;
+                    } else {
+                        let m = 1.0 + b;
+                        ct.multipliers[0] = m;
+                        ct.multipliers[1] = m;
+                        ct.multipliers[2] = m;
+                        ct.offsets[0] = 0.0;
+                        ct.offsets[1] = 0.0;
+                        ct.offsets[2] = 0.0;
+                    }
+                };
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
+                        .width(half)
+                        .show(ui, |ui| {
+                            for (st, name) in [
+                                (ColorEffectStyle::None, "None"),
+                                (ColorEffectStyle::Brightness, "Brightness"),
+                                (ColorEffectStyle::Tint, "Tint"),
+                                (ColorEffectStyle::Advanced, "Advanced"),
+                                (ColorEffectStyle::Alpha, "Alpha"),
+                            ] {
+                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
+                                    picked_style = Some(st);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    if let Some(next) = picked_style {
+                        style = next;
+                        if next == ColorEffectStyle::None {
+                            transform.alpha = 1.0;
+                            transform.color_transform = ColorTransform::default();
+                            s_resp.mark_changed();
+                        }
+                    }
+                    changes.note(s_resp);
+
+                    let f_resp = ui.add(
+                        nf::Field::new(&mut b_pct, "Brightness")
+                            .prefix("Bright")
+                            .unit("%")
+                            .decimals(0)
+                            .range(-100.0..=100.0)
+                            .width(half),
+                    );
+                    if f_resp.changed() {
+                        apply_b(&mut transform.color_transform, b_pct);
+                    }
+                    changes.note(f_resp);
+                });
+                let sl_resp = ui.add(
+                    nf::Slider::new(&mut b_pct, -100.0..=100.0, "Brightness")
+                        .width(ui.available_width()),
+                );
+                if sl_resp.changed() {
+                    apply_b(&mut transform.color_transform, b_pct);
+                }
+                changes.note(sl_resp);
+            }
+            ColorEffectStyle::Tint => {
+                let ct = transform.color_transform;
+                let avg_mul = ((ct.multipliers[0] + ct.multipliers[1] + ct.multipliers[2]) / 3.0)
+                    .clamp(0.0, 1.0);
+                let mut tint_pct = ((1.0 - avg_mul) * 100.0).clamp(0.0, 100.0);
+                let t_denom = (1.0 - avg_mul).max(1e-3);
+                let mut tint_rgba = [
+                    (ct.offsets[0] / t_denom).round().clamp(0.0, 255.0) as u8,
+                    (ct.offsets[1] / t_denom).round().clamp(0.0, 255.0) as u8,
+                    (ct.offsets[2] / t_denom).round().clamp(0.0, 255.0) as u8,
+                    (tint_pct / 100.0 * 255.0).round().clamp(0.0, 255.0) as u8,
+                ];
+                let apply_tint = |ct: &mut ColorTransform, pct: f64, rgb: [u8; 3]| {
+                    let t = (pct / 100.0).clamp(0.0, 1.0);
+                    let m = 1.0 - t;
+                    ct.multipliers[0] = m;
+                    ct.multipliers[1] = m;
+                    ct.multipliers[2] = m;
+                    ct.offsets[0] = f64::from(rgb[0]) * t;
+                    ct.offsets[1] = f64::from(rgb[1]) * t;
+                    ct.offsets[2] = f64::from(rgb[2]) * t;
+                };
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
+                        .width(half)
+                        .show(ui, |ui| {
+                            for (st, name) in [
+                                (ColorEffectStyle::None, "None"),
+                                (ColorEffectStyle::Brightness, "Brightness"),
+                                (ColorEffectStyle::Tint, "Tint"),
+                                (ColorEffectStyle::Advanced, "Advanced"),
+                                (ColorEffectStyle::Alpha, "Alpha"),
+                            ] {
+                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
+                                    picked_style = Some(st);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    if let Some(next) = picked_style {
+                        style = next;
+                        if next == ColorEffectStyle::None {
+                            transform.alpha = 1.0;
+                            transform.color_transform = ColorTransform::default();
+                            s_resp.mark_changed();
+                        }
+                    }
+                    changes.note(s_resp);
+
+                    let f_resp = ui.add(
+                        nf::Field::new(&mut tint_pct, "Tint")
+                            .prefix("Tint")
+                            .unit("%")
+                            .decimals(0)
+                            .range(0.0..=100.0)
+                            .width(half),
+                    );
+                    if f_resp.changed() {
+                        apply_tint(
+                            &mut transform.color_transform,
+                            tint_pct,
+                            [tint_rgba[0], tint_rgba[1], tint_rgba[2]],
+                        );
+                    }
+                    changes.note(f_resp);
+                });
+                let c_resp = color_row(ui, "mc-tint-color", "", "Tint color", &mut tint_rgba);
+                if c_resp.changed() {
+                    tint_pct = (f64::from(tint_rgba[3]) / 255.0 * 100.0).clamp(0.0, 100.0);
+                    apply_tint(
+                        &mut transform.color_transform,
+                        tint_pct,
+                        [tint_rgba[0], tint_rgba[1], tint_rgba[2]],
+                    );
+                }
+                changes.note(c_resp);
+            }
+            ColorEffectStyle::Advanced => {
+                let mut alpha_pct = (transform.alpha * 100.0).clamp(0.0, 100.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
+                        .width(half)
+                        .show(ui, |ui| {
+                            for (st, name) in [
+                                (ColorEffectStyle::None, "None"),
+                                (ColorEffectStyle::Brightness, "Brightness"),
+                                (ColorEffectStyle::Tint, "Tint"),
+                                (ColorEffectStyle::Advanced, "Advanced"),
+                                (ColorEffectStyle::Alpha, "Alpha"),
+                            ] {
+                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
+                                    picked_style = Some(st);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    if let Some(next) = picked_style {
+                        style = next;
+                        if next == ColorEffectStyle::None {
+                            transform.alpha = 1.0;
+                            transform.color_transform = ColorTransform::default();
+                            s_resp.mark_changed();
+                        }
+                    }
+                    changes.note(s_resp);
+
+                    let f_resp = ui.add(
+                        nf::Field::new(&mut alpha_pct, "Opacity")
+                            .prefix("α")
+                            .unit("%")
+                            .decimals(0)
+                            .range(0.0..=100.0)
+                            .width(half),
+                    );
+                    if f_resp.changed() {
+                        transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
+                    }
+                    changes.note(f_resp);
+                });
+                for (ch_idx, mul_label, off_label) in [
+                    (0usize, "R ×", "+ R"),
+                    (1usize, "G ×", "+ G"),
+                    (2usize, "B ×", "+ B"),
+                    (3usize, "A ×", "+ A"),
+                ] {
+                    let mut mul_pct = transform.color_transform.multipliers[ch_idx] * 100.0;
+                    let mut off_val = transform.color_transform.offsets[ch_idx];
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let r_mul = ui.add(
+                            nf::Field::new(&mut mul_pct, mul_label)
+                                .prefix(mul_label)
+                                .unit("%")
+                                .decimals(0)
+                                .range(-1000.0..=1000.0)
+                                .width(half),
+                        );
+                        if r_mul.changed() {
+                            transform.color_transform.multipliers[ch_idx] =
+                                (mul_pct / 100.0).clamp(-16.0, 16.0);
+                        }
+                        changes.note(r_mul);
+
+                        let r_off = ui.add(
+                            nf::Field::new(&mut off_val, off_label)
+                                .prefix(off_label)
+                                .decimals(0)
+                                .range(-255.0..=255.0)
+                                .width(half),
+                        );
+                        if r_off.changed() {
+                            transform.color_transform.offsets[ch_idx] =
+                                off_val.clamp(-255.0, 255.0);
+                        }
+                        changes.note(r_off);
+                    });
+                }
+            }
+        }
+
+        ui.data_mut(|d| d.insert_temp(style_key, style));
+        changes.control
     }
 }
 

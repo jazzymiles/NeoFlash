@@ -332,13 +332,11 @@ impl Project {
                 .flat_map(|k| &k.elements)
                 .map(|e| e.id.as_str())
                 .collect();
-            for group in &mut layer.properties.groups {
+            layer.properties.groups.retain_mut(|group| {
+                let before_len = group.members.len();
                 group.members.retain(|id| members.contains(id.as_str()));
-            }
-            layer
-                .properties
-                .groups
-                .retain(|group| group.members.len() > 1);
+                !group.members.is_empty() && !(before_len > 1 && group.members.len() == 1)
+            });
         }
     }
 }

@@ -191,13 +191,11 @@ impl Editor {
                 .flat_map(|key| &key.elements)
                 .map(|element| element.id.clone())
                 .collect();
-            for group in &mut layer.properties.groups {
+            layer.properties.groups.retain_mut(|group| {
+                let before_len = group.members.len();
                 group.members.retain(|id| existing.contains(id));
-            }
-            layer
-                .properties
-                .groups
-                .retain(|group| group.members.len() >= 2);
+                !group.members.is_empty() && !(before_len > 1 && group.members.len() == 1)
+            });
         }
     }
     pub(crate) fn select_single_id(&mut self, id: Id) {
@@ -534,7 +532,7 @@ impl Editor {
                         .iter()
                         .filter_map(|id| remap.get(&(layer.id.clone(), id.clone())).cloned())
                         .collect::<Vec<_>>();
-                    (members.len() >= 2).then(|| AuthoringGroup {
+                    (!members.is_empty()).then(|| AuthoringGroup {
                         id: new_id("group"),
                         name: group.name.clone(),
                         members,

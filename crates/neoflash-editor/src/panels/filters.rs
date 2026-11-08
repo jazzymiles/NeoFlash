@@ -423,11 +423,22 @@ impl Editor {
     /// Panel / Filters body (moved from `planned_panels::properties_filters`, bound to the
     /// selected `Element`'s `visible`, `cache_as_bitmap`, `blend_mode`, and `filters`).
     fn filters_panel(&mut self, ui: &mut Ui) {
-        let ctx = ui.ctx().clone();
-        let mut state: FiltersPanelState = ctx.data(|d| d.get_temp(state_id())).unwrap_or_default();
-
         let (header_icon, header_title, header_sub) = self.selected_type_header();
         type_header(ui, header_icon, header_title, &header_sub);
+        self.display_and_filters_sections_ui(ui, "filters", true, true);
+    }
+
+    /// Reusable `Display` and `Filters` collapsible sections used both in `Window ▸ Panels ▸ Filters`
+    /// and inline inside `Properties` (`Properties — Movie clip` and `Properties — Text`).
+    pub(crate) fn display_and_filters_sections_ui(
+        &mut self,
+        ui: &mut Ui,
+        id_prefix: &'static str,
+        show_display: bool,
+        default_open_filters: bool,
+    ) {
+        let ctx = ui.ctx().clone();
+        let mut state: FiltersPanelState = ctx.data(|d| d.get_temp(state_id())).unwrap_or_default();
 
         let sampled = if self.selection.len() == 1 {
             self.selected_sampled()
@@ -479,72 +490,75 @@ impl Editor {
         let mut remove_clicked = false;
         let mut filter_edit: Option<(usize, FilterSpec, Option<egui::Id>)> = None;
 
-        ui.add_enabled_ui_semantic(editable || layer_blend_editable, |ui| {
-            c::SectionHeader::new("Display")
-                .id_salt("filters-mc-display")
-                .show(ui, |ui| {
-                    ui.add_enabled_ui_semantic(editable, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.add(c::Switch::new(&mut visible, "Visible")).changed() {
-                                next_visible = Some(visible);
-                            }
-                            if ui
-                                .add(c::Checkbox::new(&mut cache_as_bitmap, "Cache as bitmap"))
-                                .changed()
-                            {
-                                next_cache = Some(cache_as_bitmap);
-                            }
-                        });
-                    });
-                    ui.horizontal(|ui| {
-                        let blend_label = format!("Blending: {}", blend_mode.label());
-                        c::Select::new("filters-blending", &blend_label)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for mode in BlendMode::ALL {
-                                    if ui
-                                        .add(
-                                            c::MenuItem::new(mode.label())
-                                                .checked(mode == blend_mode),
-                                        )
-                                        .clicked()
-                                    {
-                                        next_blend = Some(mode);
-                                        ui.close();
-                                    }
+        if show_display {
+            ui.add_enabled_ui_semantic(editable || layer_blend_editable, |ui| {
+                c::SectionHeader::new("Display")
+                    .id_salt((id_prefix, "filters-mc-display"))
+                    .show(ui, |ui| {
+                        ui.add_enabled_ui_semantic(editable, |ui| {
+                            ui.horizontal(|ui| {
+                                if ui.add(c::Switch::new(&mut visible, "Visible")).changed() {
+                                    next_visible = Some(visible);
+                                }
+                                if ui
+                                    .add(c::Checkbox::new(&mut cache_as_bitmap, "Cache as bitmap"))
+                                    .changed()
+                                {
+                                    next_cache = Some(cache_as_bitmap);
                                 }
                             });
-                        ui.add_enabled_ui_semantic(editable, |ui| {
-                            let render_label = if cache_as_bitmap {
-                                "Render: Export as bitmap"
-                            } else {
-                                "Render: Original"
-                            };
-                            c::Select::new("filters-render", render_label)
+                        });
+                        ui.horizontal(|ui| {
+                            let blend_label = format!("Blending: {}", blend_mode.label());
+                            c::Select::new((id_prefix, "filters-blending"), &blend_label)
                                 .width(half)
                                 .show(ui, |ui| {
-                                    for (cached, label) in
-                                        [(false, "Original"), (true, "Export as bitmap")]
-                                    {
+                                    for mode in BlendMode::ALL {
                                         if ui
                                             .add(
-                                                c::MenuItem::new(label)
-                                                    .checked(cache_as_bitmap == cached),
+                                                c::MenuItem::new(mode.label())
+                                                    .checked(mode == blend_mode),
                                             )
                                             .clicked()
                                         {
-                                            next_cache = Some(cached);
+                                            next_blend = Some(mode);
                                             ui.close();
                                         }
                                     }
                                 });
+                            ui.add_enabled_ui_semantic(editable, |ui| {
+                                let render_label = if cache_as_bitmap {
+                                    "Render: Export as bitmap"
+                                } else {
+                                    "Render: Original"
+                                };
+                                c::Select::new((id_prefix, "filters-render"), render_label)
+                                    .width(half)
+                                    .show(ui, |ui| {
+                                        for (cached, label) in
+                                            [(false, "Original"), (true, "Export as bitmap")]
+                                        {
+                                            if ui
+                                                .add(
+                                                    c::MenuItem::new(label)
+                                                        .checked(cache_as_bitmap == cached),
+                                                )
+                                                .clicked()
+                                            {
+                                                next_cache = Some(cached);
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                            });
                         });
                     });
-                });
-        });
+            });
+        }
         ui.add_enabled_ui_semantic(editable, |ui| {
             c::SectionHeader::new("Filters")
-                .id_salt("filters-mc-filters")
+                .id_salt((id_prefix, "filters-mc-filters"))
+                .default_open(default_open_filters)
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     let cols = &[0.0, 0.5];
@@ -625,68 +639,70 @@ impl Editor {
                                     if r3.changed() {
                                         changed_id = Some(r3.id);
                                     }
-                                    c::Select::new("filters-color-preset", preset_label)
-                                        .width(half)
-                                        .show(ui, |ui| {
-                                            for (name, vals, exact) in [
-                                                (
-                                                    "Identity",
-                                                    AdjustColorSliders::default(),
-                                                    Some(IDENTITY_COLOR_MATRIX),
-                                                ),
-                                                (
-                                                    "Grayscale",
-                                                    AdjustColorSliders {
-                                                        saturation: -100.0,
-                                                        ..Default::default()
-                                                    },
-                                                    None,
-                                                ),
-                                                (
-                                                    "High contrast",
-                                                    AdjustColorSliders {
-                                                        contrast: 40.0,
-                                                        ..Default::default()
-                                                    },
-                                                    None,
-                                                ),
-                                                (
-                                                    "Warm hue (+30°)",
-                                                    AdjustColorSliders {
-                                                        hue: 30.0,
-                                                        ..Default::default()
-                                                    },
-                                                    None,
-                                                ),
-                                                (
-                                                    "Cool hue (-30°)",
-                                                    AdjustColorSliders {
-                                                        hue: -30.0,
-                                                        ..Default::default()
-                                                    },
-                                                    None,
-                                                ),
-                                                (
-                                                    "Invert",
-                                                    AdjustColorSliders::default(),
-                                                    Some(INVERT_COLOR_MATRIX),
-                                                ),
-                                            ] {
-                                                if ui.add(c::MenuItem::new(name)).clicked() {
-                                                    sliders = vals;
-                                                    picked_matrix =
-                                                        Some(exact.unwrap_or_else(|| {
-                                                            adjust_color_matrix(
-                                                                vals.brightness,
-                                                                vals.contrast,
-                                                                vals.saturation,
-                                                                vals.hue,
-                                                            )
-                                                        }));
-                                                    ui.close();
-                                                }
+                                    c::Select::new(
+                                        (id_prefix, "filters-color-preset"),
+                                        preset_label,
+                                    )
+                                    .width(half)
+                                    .show(ui, |ui| {
+                                        for (name, vals, exact) in [
+                                            (
+                                                "Identity",
+                                                AdjustColorSliders::default(),
+                                                Some(IDENTITY_COLOR_MATRIX),
+                                            ),
+                                            (
+                                                "Grayscale",
+                                                AdjustColorSliders {
+                                                    saturation: -100.0,
+                                                    ..Default::default()
+                                                },
+                                                None,
+                                            ),
+                                            (
+                                                "High contrast",
+                                                AdjustColorSliders {
+                                                    contrast: 40.0,
+                                                    ..Default::default()
+                                                },
+                                                None,
+                                            ),
+                                            (
+                                                "Warm hue (+30°)",
+                                                AdjustColorSliders {
+                                                    hue: 30.0,
+                                                    ..Default::default()
+                                                },
+                                                None,
+                                            ),
+                                            (
+                                                "Cool hue (-30°)",
+                                                AdjustColorSliders {
+                                                    hue: -30.0,
+                                                    ..Default::default()
+                                                },
+                                                None,
+                                            ),
+                                            (
+                                                "Invert",
+                                                AdjustColorSliders::default(),
+                                                Some(INVERT_COLOR_MATRIX),
+                                            ),
+                                        ] {
+                                            if ui.add(c::MenuItem::new(name)).clicked() {
+                                                sliders = vals;
+                                                picked_matrix = Some(exact.unwrap_or_else(|| {
+                                                    adjust_color_matrix(
+                                                        vals.brightness,
+                                                        vals.contrast,
+                                                        vals.saturation,
+                                                        vals.hue,
+                                                    )
+                                                }));
+                                                ui.close();
                                             }
-                                        });
+                                        }
+                                    });
                                 });
                                 if let Some(m) = picked_matrix {
                                     state.adjust.insert(key, sliders);
@@ -766,24 +782,27 @@ impl Editor {
                                                     .width(half),
                                             );
                                         }
-                                        c::Select::new("filters-quality", quality_label(cur_q))
-                                            .width(half)
-                                            .show(ui, |ui| {
-                                                for (level, label) in
-                                                    [(1u8, "Low"), (2, "Medium"), (3, "High")]
+                                        c::Select::new(
+                                            (id_prefix, "filters-quality"),
+                                            quality_label(cur_q),
+                                        )
+                                        .width(half)
+                                        .show(ui, |ui| {
+                                            for (level, label) in
+                                                [(1u8, "Low"), (2, "Medium"), (3, "High")]
+                                            {
+                                                if ui
+                                                    .add(
+                                                        c::MenuItem::new(label)
+                                                            .checked(cur_q == level),
+                                                    )
+                                                    .clicked()
                                                 {
-                                                    if ui
-                                                        .add(
-                                                            c::MenuItem::new(label)
-                                                                .checked(cur_q == level),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        picked_quality = Some(level);
-                                                        ui.close();
-                                                    }
+                                                    picked_quality = Some(level);
+                                                    ui.close();
                                                 }
-                                            });
+                                            }
+                                        });
                                     });
                                 }
                                 if let Some(level) = picked_quality
@@ -824,9 +843,12 @@ impl Editor {
                                         .decimals(0)
                                         .width(half),
                                 );
-                                c::Select::new("filters-quality-empty", "Quality: Low")
-                                    .width(half)
-                                    .show(ui, |_| {});
+                                c::Select::new(
+                                    (id_prefix, "filters-quality-empty"),
+                                    "Quality: Low",
+                                )
+                                .width(half)
+                                .show(ui, |_| {});
                             });
                         });
                     }

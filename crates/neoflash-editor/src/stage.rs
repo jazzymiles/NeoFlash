@@ -1268,6 +1268,17 @@ impl Editor {
             self.convert_to_symbol();
             ui.close();
         }
+        if menu_item_enabled(
+            ui,
+            self.can_break_apart_selection(),
+            "Break apart",
+            &self.sc(C::ModifyBreakApart),
+        )
+        .clicked()
+        {
+            self.break_apart_selection();
+            ui.close();
+        }
         let instance = self.selected_instance_symbol();
         if menu_item_enabled(ui, instance.is_some(), "Edit in place", "").clicked() {
             self.enter_selected_symbol_in_place();
@@ -1309,6 +1320,29 @@ impl Editor {
         self.arrange_menu(ui);
         self.align_menu(ui);
         self.transform_menu(ui);
+        nf::menu_separator(ui);
+        if menu_item_enabled(
+            ui,
+            self.can_group_selection(),
+            "Group",
+            &self.sc(C::ModifyGroup),
+        )
+        .clicked()
+        {
+            self.group_selection();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            self.can_ungroup_selection(),
+            "Ungroup",
+            &self.sc(C::ModifyUngroup),
+        )
+        .clicked()
+        {
+            self.ungroup_selection();
+            ui.close();
+        }
         nf::menu_separator(ui);
         if menu_item_enabled(ui, instance.is_some(), "Show in library", "").clicked() {
             self.library_selected = instance;

@@ -1643,12 +1643,15 @@ fn stage_context_menu_follows_design() {
     for row in [
         "Paste in place (⇧⌘V)",
         "Convert to symbol… (F8)",
+        "Break apart (⌘B)",
         "Edit in place",
         "Edit in new window",
         "Swap symbol…",
         "Duplicate symbol…",
         "Create motion tween",
         "Distribute to layers (⇧⌘D)",
+        "Group (⌘G)",
+        "Ungroup (⇧⌘G)",
         "Show in library",
     ] {
         assert!(named_bounds(&out, row).is_some(), "Stage menu ▸ {row}");
@@ -6765,5 +6768,123 @@ fn selected_text_embed_font_is_transactional_preselected_and_round_trips() {
     assert_eq!(
         editor.project, before,
         "one Undo reverts resources and field flag"
+    );
+}
+
+#[test]
+fn compact_text_and_movie_clip_properties_inspectors_expose_two_column_rows_and_controls() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let render_properties = |editor: &mut Editor, time, events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 960.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+
+    // 1. Select the demo MovieClip instance ("orbit") and verify the Movie clip Properties inspector.
+    let orbit_id = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .find(|e| matches!(e.kind, ElementKind::Instance { .. }))
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(orbit_id);
+    render_properties(&mut editor, 0.1, vec![]);
+    let mc_out = render_properties(&mut editor, 0.2, vec![]);
+    let name_rect = named_bounds(&mc_out, "Name").expect("Instance Name field");
+    let swap_rect = named_bounds(&mc_out, "Swap…").expect("Swap… button");
+    assert!(
+        (name_rect.center().y - swap_rect.center().y).abs() < 12.0,
+        "Instance Name and Swap… must share one horizontal row"
+    );
+    let w_rect = named_bounds(&mc_out, "Width (px)").expect("Instance W field");
+    let h_rect = named_bounds(&mc_out, "Height (px)").expect("Instance H field");
+    assert!(
+        (w_rect.center().y - h_rect.center().y).abs() < 12.0,
+        "Instance W and H must share one horizontal row"
+    );
+    for control in [
+        "Edit symbol",
+        "Duplicate…",
+        "Style: Alpha",
+        "Opacity",
+        "Visible",
+        "Cache as bitmap",
+        "Blending: Normal",
+        "Render: Original",
+    ] {
+        assert!(
+            named_bounds(&mc_out, control).is_some(),
+            "Movie clip Properties control missing: {control}"
+        );
+    }
+
+    // 2. Add a TextBox and verify the compact two-column Text Properties inspector.
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Compact Flash Text".into(),
+            width: 240.0,
+            height: 60.0,
+            format: TextFormat {
+                font: "Inter".into(),
+                size: 20.0,
+                ..TextFormat::default()
+            },
+            word_wrap: true,
+            multiline: true,
+        },
+        40.0,
+        40.0,
+    );
+    let text_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(text_id);
+    render_properties(&mut editor, 0.3, vec![]);
+    let txt_out = render_properties(&mut editor, 0.4, vec![]);
+    let style_rect = named_bounds(&txt_out, "Regular").expect("Style selector");
+    let embed_rect = named_bounds(&txt_out, "Embed font").expect("Embed font checkbox");
+    let embedding_rect = named_bounds(&txt_out, "Embedding…").expect("Embedding… button");
+    assert!(
+        (style_rect.center().y - embed_rect.center().y).abs() < 12.0
+            && (style_rect.center().y - embedding_rect.center().y).abs() < 12.0,
+        "Style, Embed font, and Embedding… must be on one compact horizontal row"
+    );
+    let size_rect = named_bounds(&txt_out, "Size").expect("Size field");
+    let spacing_rect = named_bounds(&txt_out, "Letter spacing").expect("Letter spacing field");
+    assert!(
+        (size_rect.center().y - spacing_rect.center().y).abs() < 12.0,
+        "Size and Letter spacing must be side-by-side in two columns"
+    );
+    let indent_rect = named_bounds(&txt_out, "Indent").expect("Indent field");
+    let leading_rect = named_bounds(&txt_out, "Leading").expect("Line / Leading field");
+    assert!(
+        (indent_rect.center().y - leading_rect.center().y).abs() < 12.0,
+        "Indent and Line spacing must be side-by-side in two columns"
+    );
+    let left_rect = named_bounds(&txt_out, "Left margin").expect("Left margin field");
+    let right_rect = named_bounds(&txt_out, "Right margin").expect("Right margin field");
+    assert!(
+        (left_rect.center().y - right_rect.center().y).abs() < 12.0,
+        "Left and Right margins must be side-by-side in two columns"
     );
 }

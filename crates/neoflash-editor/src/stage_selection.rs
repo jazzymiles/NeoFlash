@@ -328,7 +328,7 @@ impl Editor {
                 .properties
                 .groups
                 .iter()
-                .filter(|g| g.members.len() >= 2)
+                .filter(|g| !g.members.is_empty())
                 .flat_map(|g| g.members.iter().cloned())
                 .collect();
             let merge_eligible: HashSet<&Id> = self.symbol().timeline.layers[layer_idx]

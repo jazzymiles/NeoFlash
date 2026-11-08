@@ -906,45 +906,42 @@ impl Editor {
 
     pub(crate) fn can_group_selection(&self) -> bool {
         let targets = &self.selection.targets;
-        if targets.len() < 2 {
+        if targets.is_empty() || targets.iter().any(|target| !self.target_editable(target)) {
             return false;
         }
-        let layer_id = &targets[0].layer;
-        if targets
-            .iter()
-            .any(|target| &target.layer != layer_id || !self.target_editable(target))
-        {
-            return false;
+        for target in targets {
+            let Some(layer_index) = self.target_layer_index(target) else {
+                return false;
+            };
+            let layer = &self.symbol().timeline.layers[layer_index];
+            if !layer
+                .key_at(self.frame)
+                .is_some_and(|key| key.elements.iter().any(|e| e.id == target.element))
+            {
+                return false;
+            }
         }
-        let Some(layer_index) = self.target_layer_index(&targets[0]) else {
-            return false;
-        };
-        let layer = &self.symbol().timeline.layers[layer_index];
-        let members: HashSet<_> = targets
-            .iter()
-            .map(|target| target.element.as_str())
-            .collect();
-        if layer.properties.groups.iter().any(|group| {
-            group.members.len() == members.len()
-                && group
-                    .members
-                    .iter()
-                    .all(|member| members.contains(member.as_str()))
-        }) {
-            return false;
+        let first_layer = &targets[0].layer;
+        if targets.iter().all(|target| &target.layer == first_layer) {
+            let Some(layer_index) = self.target_layer_index(&targets[0]) else {
+                return false;
+            };
+            let layer = &self.symbol().timeline.layers[layer_index];
+            let members: HashSet<_> = targets
+                .iter()
+                .map(|target| target.element.as_str())
+                .collect();
+            if layer.properties.groups.iter().any(|group| {
+                group.members.len() == members.len()
+                    && group
+                        .members
+                        .iter()
+                        .all(|member| members.contains(member.as_str()))
+            }) {
+                return false;
+            }
         }
-        let indices = layer
-            .key_at(self.frame)
-            .into_iter()
-            .flat_map(|key| key.elements.iter().enumerate())
-            .filter(|(_, element)| members.contains(element.id.as_str()))
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        indices.len() == members.len()
-            && indices
-                .first()
-                .zip(indices.last())
-                .is_some_and(|(first, last)| last - first + 1 == indices.len())
+        true
     }
 
     pub(crate) fn can_ungroup_selection(&self) -> bool {
@@ -963,83 +960,264 @@ impl Editor {
         })
     }
 
+    pub(crate) fn can_break_apart_selection(&self) -> bool {
+        let sampled = self.sampled_targets();
+        if sampled.is_empty()
+            || sampled
+                .iter()
+                .any(|(target, _)| !self.target_editable(target))
+        {
+            return false;
+        }
+        if self.can_ungroup_selection() {
+            return true;
+        }
+        sampled.iter().any(|(_, el)| match &el.kind {
+            ElementKind::Instance { symbol_id, .. } => self.project.symbol(symbol_id).is_some(),
+            ElementKind::Bitmap { .. }
+            | ElementKind::Rectangle { .. }
+            | ElementKind::Ellipse { .. } => true,
+            ElementKind::Text { text, .. } | ElementKind::TextBox { text, .. } => {
+                text.chars().any(|ch| !ch.is_whitespace())
+            }
+            ElementKind::Path { .. } | ElementKind::PaintedPath { .. } => !el.merge,
+            ElementKind::Video { .. } => false,
+        })
+    }
+
     pub(crate) fn group_selection(&mut self) {
         self.finish_edits();
         let targets = self.selection.targets.clone();
-        if targets.len() < 2 {
+        if targets.is_empty() {
             return;
         }
-        let layer_id = &targets[0].layer;
-        if targets
-            .iter()
-            .any(|target| &target.layer != layer_id || !self.target_editable(target))
-        {
-            self.message("Group objects on one editable layer. Move them to the same layer first.");
+        if targets.iter().any(|target| !self.target_editable(target)) {
+            self.message("This layer is locked or hidden.");
             return;
         }
-        let layer = &self.symbol().timeline.layers[self.target_layer_index(&targets[0]).unwrap()];
-        let mut members: HashSet<_> = targets
-            .iter()
-            .map(|target| target.element.clone())
-            .collect();
-        if layer.properties.groups.iter().any(|group| {
-            group.members.len() == members.len()
-                && group.members.iter().all(|member| members.contains(member))
-        }) {
-            self.message("The selected objects are already one group.");
-            return;
-        }
-        let indices = layer
-            .key_at(self.frame)
-            .into_iter()
-            .flat_map(|key| key.elements.iter().enumerate())
-            .filter(|(_, element)| members.contains(&element.id))
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        if indices.len() != members.len() {
-            self.message(
-                "Group objects on the current keyframe. Turn off Edit multiple frames or move the playhead to their keyframe.",
-            );
-            return;
-        }
-        if indices.last().unwrap() - indices[0] + 1 != indices.len() {
-            self.message(
-                "Group a contiguous stack of objects; objects between them must be selected too.",
-            );
-            return;
-        }
-        for group in &layer.properties.groups {
-            if group.members.iter().any(|id| members.contains(id)) {
-                members.extend(group.members.iter().cloned());
+        for target in &targets {
+            let Some(layer_index) = self.target_layer_index(target) else {
+                return;
+            };
+            let layer = &self.symbol().timeline.layers[layer_index];
+            if !layer
+                .key_at(self.frame)
+                .is_some_and(|key| key.elements.iter().any(|e| e.id == target.element))
+            {
+                self.message(
+                    "Group objects on the current keyframe. Turn off Edit multiple frames or move the playhead to their keyframe.",
+                );
+                return;
             }
         }
-        let layer_id = layer_id.clone();
-        let mut ordered = Vec::new();
-        for element in layer.keyframes.iter().flat_map(|key| &key.elements) {
-            if members.remove(&element.id) {
-                ordered.push(element.id.clone());
+        let same_layer = targets
+            .iter()
+            .all(|target| target.layer == targets[0].layer);
+        if same_layer {
+            let layer_id = targets[0].layer.clone();
+            let layer_index = self.target_layer_index(&targets[0]).unwrap();
+            let layer = &self.symbol().timeline.layers[layer_index];
+            let mut members: HashSet<_> = targets
+                .iter()
+                .map(|target| target.element.clone())
+                .collect();
+            for group in &layer.properties.groups {
+                if group.members.iter().any(|id| members.contains(id)) {
+                    members.extend(group.members.iter().cloned());
+                }
+            }
+            if layer.properties.groups.iter().any(|group| {
+                group.members.len() == members.len()
+                    && group.members.iter().all(|member| members.contains(member))
+            }) {
+                self.message("The selected objects are already one group.");
+                return;
+            }
+            let key = layer.key_at(self.frame).unwrap();
+            let indices = key
+                .elements
+                .iter()
+                .enumerate()
+                .filter(|(_, element)| members.contains(&element.id))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let is_contiguous = indices
+                .first()
+                .zip(indices.last())
+                .is_some_and(|(first, last)| last - first + 1 == indices.len());
+            let last_index = indices.last().copied().unwrap_or(0);
+            let mut remaining = members.clone();
+            let mut ordered = Vec::new();
+            for element in &key.elements {
+                if remaining.remove(&element.id) {
+                    ordered.push(element.id.clone());
+                }
+            }
+            for element in layer.keyframes.iter().flat_map(|k| &k.elements) {
+                if remaining.remove(&element.id) {
+                    ordered.push(element.id.clone());
+                }
+            }
+            let name = format!("Group {}", layer.properties.groups.len() + 1);
+            let new_selection: Vec<SelectionTarget> = ordered
+                .iter()
+                .map(|elem_id| SelectionTarget {
+                    layer: layer_id.clone(),
+                    element: elem_id.clone(),
+                })
+                .collect();
+            self.playing = false;
+            self.transact(|editor| {
+                editor.project.format_version = editor.project.format_version.max(4);
+                if !is_contiguous {
+                    editor.ensure_key_for(&layer_id, false);
+                }
+                let frame = editor.frame;
+                let layer = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == layer_id)
+                    .unwrap();
+                if !is_contiguous && let Some(key) = layer.key_at_mut(frame) {
+                    let mut before = Vec::with_capacity(key.elements.len());
+                    let mut grouped = Vec::with_capacity(indices.len());
+                    let mut after = Vec::new();
+                    for (idx, el) in key.elements.drain(..).enumerate() {
+                        if members.contains(&el.id) {
+                            grouped.push(el);
+                        } else if idx < last_index {
+                            before.push(el);
+                        } else {
+                            after.push(el);
+                        }
+                    }
+                    before.extend(grouped);
+                    before.extend(after);
+                    key.elements = before;
+                }
+                layer
+                    .properties
+                    .groups
+                    .retain(|group| !group.members.iter().any(|id| ordered.contains(id)));
+                layer.properties.groups.push(AuthoringGroup {
+                    id: new_id("group"),
+                    name,
+                    members: ordered,
+                });
+                editor.set_selection(new_selection);
+            });
+            return;
+        }
+
+        // Multi-layer selection: move all selected objects (and any groups they belong to on their
+        // respective layers) onto the topmost selected layer in back-to-front visual order.
+        let dest_layer_index = targets
+            .iter()
+            .filter_map(|target| self.target_layer_index(target))
+            .max()
+            .unwrap();
+        let dest_layer_id = self.symbol().timeline.layers[dest_layer_index].id.clone();
+        let mut selected_by_layer: HashMap<Id, HashSet<Id>> = HashMap::new();
+        for target in &targets {
+            selected_by_layer
+                .entry(target.layer.clone())
+                .or_default()
+                .insert(target.element.clone());
+        }
+        for layer in &self.symbol().timeline.layers {
+            if let Some(set) = selected_by_layer.get_mut(&layer.id) {
+                for group in &layer.properties.groups {
+                    if group.members.iter().any(|id| set.contains(id)) {
+                        set.extend(group.members.iter().cloned());
+                    }
+                }
             }
         }
-        let name = format!("Group {}", layer.properties.groups.len() + 1);
         self.playing = false;
         self.transact(|editor| {
             editor.project.format_version = editor.project.format_version.max(4);
-            let layer = editor
-                .symbol_mut()
-                .timeline
-                .layers
-                .iter_mut()
-                .find(|l| l.id == layer_id)
-                .unwrap();
-            layer
-                .properties
-                .groups
-                .retain(|group| !group.members.iter().any(|id| ordered.contains(id)));
-            layer.properties.groups.push(AuthoringGroup {
+            let touched_layers: Vec<Id> = selected_by_layer.keys().cloned().collect();
+            for lid in &touched_layers {
+                editor.ensure_key_for(lid, false);
+            }
+            editor.ensure_key_for(&dest_layer_id, false);
+            let frame = editor.frame;
+            let mut moved_elements = Vec::new();
+            let mut moved_bitmap_fills = Vec::new();
+            let layer_count = editor.symbol().timeline.layers.len();
+            for l_idx in 0..layer_count {
+                let lid = editor.symbol().timeline.layers[l_idx].id.clone();
+                let Some(set) = selected_by_layer.get(&lid) else {
+                    continue;
+                };
+                let layer = &mut editor.symbol_mut().timeline.layers[l_idx];
+                layer
+                    .properties
+                    .groups
+                    .retain(|group| !group.members.iter().any(|id| set.contains(id)));
+                let still_in_other_keys: HashSet<Id> = if lid != dest_layer_id {
+                    layer
+                        .keyframes
+                        .iter()
+                        .filter(|k| k.frame != frame)
+                        .flat_map(|k| k.elements.iter().map(|e| e.id.clone()))
+                        .collect()
+                } else {
+                    HashSet::new()
+                };
+                let Some(key) = layer.key_at_mut(frame) else {
+                    continue;
+                };
+                let mut remaining = Vec::with_capacity(key.elements.len());
+                for mut el in key.elements.drain(..) {
+                    if set.contains(&el.id) {
+                        let old_id = el.id.clone();
+                        if still_in_other_keys.contains(&old_id) {
+                            el.id = new_id("object");
+                        }
+                        if let Some(bf_pos) = key
+                            .bitmap_fills
+                            .iter()
+                            .position(|bf| bf.element_id == old_id)
+                        {
+                            let mut bf = key.bitmap_fills.remove(bf_pos);
+                            bf.element_id = el.id.clone();
+                            moved_bitmap_fills.push(bf);
+                        }
+                        moved_elements.push(el);
+                    } else {
+                        remaining.push(el);
+                    }
+                }
+                key.elements = remaining;
+                layer.normalize_motion_keys();
+            }
+            let ordered: Vec<Id> = moved_elements.iter().map(|el| el.id.clone()).collect();
+            let new_selection: Vec<SelectionTarget> = ordered
+                .iter()
+                .map(|elem_id| SelectionTarget {
+                    layer: dest_layer_id.clone(),
+                    element: elem_id.clone(),
+                })
+                .collect();
+            let dest_layer = &mut editor.symbol_mut().timeline.layers[dest_layer_index];
+            let name = format!("Group {}", dest_layer.properties.groups.len() + 1);
+            if let Some(dest_key) = dest_layer.key_at_mut(frame) {
+                dest_key.elements.extend(moved_elements);
+                for bf in moved_bitmap_fills {
+                    dest_key.set_bitmap_fill(bf);
+                }
+            }
+            dest_layer.properties.groups.push(AuthoringGroup {
                 id: new_id("group"),
                 name,
                 members: ordered,
             });
+            editor.prune_authoring_groups();
+            editor.layer = dest_layer_index;
+            editor.set_selection(new_selection);
         });
     }
 
@@ -1047,6 +1225,9 @@ impl Editor {
         self.finish_edits();
         let selected: HashSet<_> = self.selection.targets.iter().cloned().collect();
         if selected.is_empty() {
+            return;
+        }
+        if !self.can_ungroup_selection() {
             return;
         }
         self.playing = false;
@@ -1082,7 +1263,7 @@ impl Editor {
                     .properties
                     .groups
                     .iter()
-                    .filter(|group| group.members.len() >= 2)
+                    .filter(|group| !group.members.is_empty())
                     .flat_map(move |group| {
                         let lid = layer_id.clone();
                         group.members.iter().map(move |elem_id| SelectionTarget {
@@ -1094,6 +1275,8 @@ impl Editor {
             .collect();
         let mut unpack_group_targets = HashSet::new();
         let mut replacements = Vec::new();
+        let mut unpacked_groups: Vec<(Id, AuthoringGroup)> = Vec::new();
+        let mut unpacked_bitmap_fills: Vec<(Id, AuthoredBitmapFill)> = Vec::new();
         let mut expanded_instance = false;
         let mut uses_skew = false;
         let mut empty_text_skipped = false;
@@ -1145,30 +1328,39 @@ impl Editor {
                     replacements.push((target, vec![broken]));
                 }
                 ElementKind::Instance { symbol_id, .. } => {
-                    if !instance.scripts.is_empty() || instance.accessibility.is_some() {
-                        self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
-                        return;
-                    }
-                    let Some(symbol) = self.project.symbol(symbol_id) else {
+                    let Some(symbol) = self.project.symbol(symbol_id).cloned() else {
                         return;
                     };
-                    if symbol.timeline.frame_count != 1
-                        || !symbol.timeline.scripts.is_empty()
-                        || symbol.timeline.layers.iter().any(|l| {
-                            !l.visible || l.locked || l.properties != LayerProperties::default()
-                        })
-                        || contains_scripts(&self.project, symbol_id, &mut HashSet::new())
-                    {
-                        self.message("Break Apart requires a static symbol without scripts, hidden/locked layers, guides or masks. These would lose behavior when flattened.");
-                        return;
-                    }
+                    let child_frame = evaluate_instance_pose(
+                        &self.project,
+                        self.symbol_id(),
+                        self.frame,
+                        &target.layer,
+                        &target.element,
+                    )
+                    .ok()
+                    .map(|pose| pose.frame)
+                    .unwrap_or(0);
                     let parent = instance.transform;
+                    let parent_matrix = transform_matrix(parent);
                     let mut children = Vec::new();
                     for layer in &symbol.timeline.layers {
-                        for mut child in sample_layer_at_fps(layer, 0, f64::from(self.project.fps))
+                        if !layer_effectively_visible(&symbol.timeline, layer)
+                            || !matches!(layer.properties.role, LayerRole::Normal | LayerRole::Mask)
                         {
+                            continue;
+                        }
+                        let active_key = layer.key_at(child_frame);
+                        let mut id_map: HashMap<Id, Id> = HashMap::new();
+                        for mut child in sample_layer_in_at_fps(
+                            &symbol.timeline,
+                            layer,
+                            child_frame,
+                            f64::from(self.project.fps),
+                        ) {
+                            let old_id = child.id.clone();
                             let Some(mut transform) =
-                                affine_transform(child.transform, transform_matrix(parent))
+                                affine_transform(child.transform, parent_matrix)
                             else {
                                 self.message("Break Apart would exceed transform limits.");
                                 return;
@@ -1183,19 +1375,85 @@ impl Editor {
                                 self.message("Break Apart cannot preserve this combined color transform within document limits.");
                                 return;
                             }
+                            if transform.skew != 0.0 {
+                                uses_skew = true;
+                            }
                             child.transform = transform;
-                            child.id = new_id("object");
+                            child.visible &= instance.visible;
+                            if child.blend_mode.is_normal() && !instance.blend_mode.is_normal() {
+                                child.blend_mode = instance.blend_mode;
+                            }
+                            let new_child_id = new_id("object");
+                            child.id = new_child_id.clone();
+                            id_map.insert(old_id.clone(), new_child_id.clone());
+                            if let Some(key) = active_key
+                                && let Some(bf) =
+                                    key.bitmap_fills.iter().find(|bf| bf.element_id == old_id)
+                            {
+                                let mut mapped_bf = bf.clone();
+                                mapped_bf.element_id = new_child_id;
+                                unpacked_bitmap_fills.push((target.layer.clone(), mapped_bf));
+                            }
                             children.push(child);
+                        }
+                        for group in &layer.properties.groups {
+                            let mapped_members: Vec<Id> = group
+                                .members
+                                .iter()
+                                .filter_map(|m| id_map.get(m).cloned())
+                                .collect();
+                            if !mapped_members.is_empty() {
+                                unpacked_groups.push((
+                                    target.layer.clone(),
+                                    AuthoringGroup {
+                                        id: new_id("group"),
+                                        name: group.name.clone(),
+                                        members: mapped_members,
+                                    },
+                                ));
+                            }
                         }
                     }
                     expanded_instance = true;
                     replacements.push((target, children));
                 }
+                ElementKind::Bitmap {
+                    resource_id,
+                    width,
+                    height,
+                    smoothing,
+                } => {
+                    let mut broken = instance.clone();
+                    broken.id = new_id("object");
+                    broken.name.clear();
+                    broken.scripts.clear();
+                    broken.accessibility = None;
+                    broken.transform.primitive = None;
+                    broken.merge = true;
+                    broken.kind = ElementKind::Path {
+                        commands: rectangle_path_commands(
+                            f64::from(*width),
+                            f64::from(*height),
+                            RectangleOptions::default(),
+                        ),
+                        fill_rule: FillRule::NonZero,
+                        fill: [255, 255, 255, 255],
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    };
+                    unpacked_bitmap_fills.push((
+                        target.layer.clone(),
+                        AuthoredBitmapFill {
+                            element_id: broken.id.clone(),
+                            resource_id: resource_id.clone(),
+                            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                            repeat: false,
+                            smoothing: *smoothing,
+                        },
+                    ));
+                    replacements.push((target, vec![broken]));
+                }
                 ElementKind::TextBox { text, .. } => {
-                    if !instance.scripts.is_empty() || instance.accessibility.is_some() {
-                        self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
-                        return;
-                    }
                     let total_chars = text.chars().count();
                     let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
                     let Some(field) = TextFieldState::from_kind(&instance.kind) else {
@@ -1221,6 +1479,8 @@ impl Editor {
                         let format =
                             field.format_at_utf16(0, field.text.encode_utf16().count() as u32);
                         let mut broken = instance.clone();
+                        broken.scripts.clear();
+                        broken.accessibility = None;
                         broken.transform.primitive = None;
                         broken.merge = true;
                         broken.kind = ElementKind::Path {
@@ -1320,10 +1580,6 @@ impl Editor {
                     font_size,
                     color,
                 } => {
-                    if !instance.scripts.is_empty() || instance.accessibility.is_some() {
-                        self.message("Break Apart would remove instance scripts or accessibility. Keep this instance intact.");
-                        return;
-                    }
                     let total_chars = text.chars().count();
                     let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
                     if visible_chars == 0 {
@@ -1347,6 +1603,8 @@ impl Editor {
                             }
                         };
                         let mut broken = instance.clone();
+                        broken.scripts.clear();
+                        broken.accessibility = None;
                         broken.transform.primitive = None;
                         broken.merge = true;
                         broken.kind = ElementKind::Path {
@@ -1434,7 +1692,7 @@ impl Editor {
                     replacements.push((target, vec![broken]));
                 }
                 _ => {
-                    self.message("Break Apart currently supports groups, multi-character text, static symbol instances, and Object Drawing shapes.");
+                    self.message("Break Apart currently supports groups, symbol instances, bitmaps, text, and Object Drawing shapes.");
                     return;
                 }
             }
@@ -1481,10 +1739,35 @@ impl Editor {
                     elements.splice(at..=at, children);
                 }
             }
+            for (layer_id, bf) in unpacked_bitmap_fills {
+                let frame = editor.frame;
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == layer_id)
+                    && let Some(key) = layer.key_at_mut(frame)
+                {
+                    key.set_bitmap_fill(bf);
+                }
+            }
+            for (layer_id, group) in unpacked_groups {
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == layer_id)
+                {
+                    layer.properties.groups.push(group);
+                }
+            }
             editor.prune_authoring_groups();
             if expanded_instance || uses_skew {
                 editor.project.format_version = editor.project.format_version.max(5);
             }
+            editor.project.upgrade_format_for_features();
             editor.set_selection(selection);
         });
     }
@@ -1843,7 +2126,6 @@ impl Editor {
         use crate::commands::CommandId as C;
         use crate::ui_icons::{menu_item_enabled, menu_popup};
         menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
-            let selected = !self.selection.is_empty();
             if menu_item_enabled(
                 ui,
                 self.can_convert_selection(),
@@ -1855,8 +2137,13 @@ impl Editor {
                 self.convert_to_symbol();
                 ui.close();
             }
-            if menu_item_enabled(ui, selected, "Break apart", &self.sc(C::ModifyBreakApart))
-                .clicked()
+            if menu_item_enabled(
+                ui,
+                self.can_break_apart_selection(),
+                "Break apart",
+                &self.sc(C::ModifyBreakApart),
+            )
+            .clicked()
             {
                 self.break_apart_selection();
                 ui.close();
@@ -4137,30 +4424,6 @@ fn retain_center(old: Transform, mut new: Transform, center: Pos2) -> Transform 
         new.y = center.y as f64 - m[1] * local[0] - m[3] * local[1];
     }
     new
-}
-fn contains_scripts(project: &Project, id: &str, seen: &mut HashSet<String>) -> bool {
-    if !seen.insert(id.into()) {
-        return false;
-    }
-    project.symbol(id).is_some_and(|s| {
-        s.timeline.frame_count != 1
-            || s.class_name.is_some()
-            || !s.timeline.scripts.is_empty()
-            || s.timeline
-                .layers
-                .iter()
-                .flat_map(|l| &l.keyframes)
-                .flat_map(|k| &k.elements)
-                .any(|e| {
-                    !e.scripts.is_empty()
-                        || match &e.kind {
-                            ElementKind::Instance { symbol_id, .. } => {
-                                contains_scripts(project, symbol_id, seen)
-                            }
-                            _ => false,
-                        }
-                })
-    })
 }
 fn valid_transform(t: Transform) -> bool {
     [t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.skew, t.alpha]

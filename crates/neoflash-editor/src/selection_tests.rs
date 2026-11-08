@@ -4152,3 +4152,230 @@ fn t093_extreme_multi_brush_and_move_benchmark() {
         }
     }
 }
+
+#[test]
+fn classic_flash_group_ungroup_and_break_apart_support_single_multi_layer_movieclip_and_bitmap() {
+    let (mut editor, _ctx, _page) = fixture(0);
+
+    // 1. Single-object Group (⌘G) wraps 1 element in a 1-member AuthoringGroup; Ungroup (⇧⌘G) unpacks it.
+    select(&mut editor, &["first"]);
+    assert!(editor.can_group_selection());
+    editor.group_selection();
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups.len(),
+        1
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups[0].members,
+        ["first"]
+    );
+    assert!(!editor.can_group_selection(), "already a single group");
+    assert!(editor.can_ungroup_selection());
+    editor.ungroup_selection();
+    editor.project.validate().unwrap();
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty()
+    );
+
+    // 2. Non-contiguous same-layer Group brings selected elements together at the frontmost selected slot.
+    let mid_id = "middle-unselected".to_owned();
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .insert(
+            1,
+            Element {
+                id: mid_id.clone(),
+                name: String::new(),
+                transform: Transform {
+                    x: 150.0,
+                    y: 120.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 30.0,
+                    height: 30.0,
+                    fill: [0, 200, 100, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+        );
+    select(&mut editor, &["first", "untouched"]);
+    assert!(editor.can_group_selection());
+    editor.group_selection();
+    editor.project.validate().unwrap();
+    let order: Vec<String> = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .map(|e| e.id.clone())
+        .collect();
+    assert_eq!(
+        order,
+        vec![mid_id, "first".to_owned(), "untouched".to_owned()]
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups[0].members,
+        ["first", "untouched"]
+    );
+
+    // 3. Multi-layer Group moves selected objects to the topmost selected layer in back-to-front order.
+    let top_layer_id = editor.symbol().timeline.layers[1].id.clone();
+    select(&mut editor, &["first", "untouched", "second"]);
+    assert!(editor.can_group_selection());
+    editor.group_selection();
+    editor.project.validate().unwrap();
+    assert!(
+        editor
+            .selection
+            .targets
+            .iter()
+            .all(|t| t.layer == top_layer_id),
+        "all grouped members must reside on the topmost selected layer"
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1]
+            .properties
+            .groups
+            .last()
+            .unwrap()
+            .members
+            .len(),
+        3
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[1]
+            .properties
+            .groups
+            .last()
+            .unwrap()
+            .members[2],
+        "second"
+    );
+
+    // 4. Break Apart (⌘B) on a multi-frame / scripted MovieClip instance unpacks its evaluated frame's
+    // visible layers in back-to-front order, preserving internal groups and combining transforms.
+    let mc_id = "hero-mc".to_owned();
+    let mc_layer_0 = layer(
+        "bg",
+        vec![Element {
+            id: "mc-bg-rect".into(),
+            name: String::new(),
+            transform: Transform {
+                x: 10.0,
+                y: 20.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 50.0,
+                height: 40.0,
+                fill: [20, 40, 200, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }],
+        false,
+    );
+    let mut mc_layer_1 = layer(
+        "fg",
+        vec![Element {
+            id: "mc-fg-oval".into(),
+            name: String::new(),
+            transform: Transform {
+                x: 30.0,
+                y: 35.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Ellipse {
+                width: 20.0,
+                height: 20.0,
+                fill: [250, 200, 20, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }],
+        false,
+    );
+    mc_layer_1.properties.groups.push(AuthoringGroup {
+        id: "mc-inner-group".into(),
+        name: "Group".into(),
+        members: vec!["mc-fg-oval".into()],
+    });
+    let mut mc_sym = editor.project.symbols[0].clone();
+    mc_sym.id = mc_id.clone();
+    mc_sym.name = "HeroMC".into();
+    mc_sym.kind = SymbolKind::MovieClip;
+    mc_sym.class_name = Some("Hero".into());
+    mc_sym.linkage_id = Some("hero_link".into());
+    mc_sym.timeline.frame_count = 4;
+    mc_sym.timeline.layers = vec![mc_layer_0, mc_layer_1];
+    mc_sym.timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();".into(),
+        },
+    }];
+    editor.project.symbols.push(mc_sym);
+    let inst_elem_id = "placed-hero".to_owned();
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: inst_elem_id.clone(),
+            name: "hero_inst".into(),
+            transform: Transform {
+                x: 200.0,
+                y: 100.0,
+                scale_x: 2.0,
+                scale_y: 2.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: mc_id.clone(),
+                playback: InstancePlayback::Independent,
+            },
+            ..Element::default()
+        });
+    select(&mut editor, &[inst_elem_id.as_str()]);
+    assert!(editor.can_break_apart_selection());
+    let before_mc_break = editor.project.clone();
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    assert_eq!(
+        editor.selection.len(),
+        2,
+        "both MC layers unpacked onto Stage"
+    );
+    assert!(
+        editor.project.symbol(&mc_id).is_some(),
+        "Library symbol remains intact after Break Apart"
+    );
+    let unpacked_sampled: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, el)| el)
+        .collect();
+    assert!(matches!(
+        unpacked_sampled[0].kind,
+        ElementKind::Rectangle { .. }
+    ));
+    assert!(matches!(
+        unpacked_sampled[1].kind,
+        ElementKind::Ellipse { .. }
+    ));
+    assert!((unpacked_sampled[0].transform.x - 220.0).abs() < 1e-6);
+    assert!((unpacked_sampled[0].transform.y - 140.0).abs() < 1e-6);
+    assert!((unpacked_sampled[1].transform.x - 260.0).abs() < 1e-6);
+    assert!((unpacked_sampled[1].transform.y - 170.0).abs() < 1e-6);
+    editor.undo();
+    assert_eq!(
+        editor.project, before_mc_break,
+        "MovieClip Break Apart is one Undo step"
+    );
+}

@@ -507,21 +507,24 @@ the document. The separate Bitmap properties dialog remains unavailable.
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 
-**PR-01 · Properties — Text** — partial (`TextBox` font/size/colour/leading/alignment/wrap and font embedding work)
+**PR-01 · Properties — Text** — partial (compact two-row Character, Paragraph, Options and font embedding work)
 - Stage authoring: clicking with Text creates point text that grows with its content; dragging creates a fixed,
   multiline wrapping TextBox. Break Apart splits multi-character text into positioned characters and a subsequent
   Break Apart converts a character to editable contours from its installed font; single-character text converts
   directly. Conversion is atomic and preserves supported per-character formatting rather than synthesising boxes.
-- Working font controls: `Embed font` and `Embedding…` use the existing NF2 components; the dialog opens on the
-  selected exact Family/Style, stores ranges/custom characters and commits the resource plus field flag in one Undo.
-- Missing NF2 controls: text type Static / Dynamic / Input; orientation; tracking (letter spacing); Auto
-  kern; anti-alias (readability / animation / device); selectable; render as HTML; border; superscript / subscript;
-  paragraph indent / margins (fields exist in `TextFormat` — verify editor exposure); behaviour single line /
-  multiline / no wrap / password; Options; Filters.
+- Working Character, Paragraph and Options controls (`text_boxes.rs`): two-row multiline `Text` editor; two-column
+  `Text type` (`Static Text` / `Dynamic Text` / `Input Text`) and `Family`; `Style` (`Regular` / `Bold` / `Italic` /
+  `Bold Italic`), `Embed font` and `Embedding…` on one row (opening the existing NF2 dialog on the selected exact
+  Family/Style, storing ranges/custom characters and committing the resource plus field flag in one Undo); two-column
+  `Size` (`pt`) and `Letter spacing` (`px`); `Color` and `Auto kern` on one row; compact `Selectable`, `HTML`,
+  `Border` and `Underline` switches; `Paragraph` with 4-mode `Segmented` alignment (`Left` / `Center` / `Right` /
+  `Justify`), two-column `Indent` + `Line` spacing, two-column `Left` + `Right` margins and `Behavior` (`Single line` /
+  `Multiline` / `Multiline no wrap` / `Password`); and collapsible `Options` (`URL`, two-column `Target` + `Max chars`,
+  two-column `Variable` + `Restrict`).
+- Remaining NF2 controls: vertical orientation; anti-alias (readability / animation / device); superscript / subscript.
 - Data: `ElementKind::TextBox { text, width, height, format: TextFormat, word_wrap, multiline }`; `TextFormat.fieldOptions`
-  carries `embed_fonts`, and `TextFormat` has
-  letter_spacing, kerning, indent, margins, url/target. Runtime `TextField` has type/selectable/password for scripts
-  (runtime only). **NEW** authored text type, selectable, html, border, anti-alias, max chars, variable name.
+  carries `field_type`, `selectable`, `editable`, `border`, `password`, `max_chars`, `restrict`, `html` and `embed_fonts`,
+  and `TextFormat` has letter_spacing, kerning, indent, margins, url/target/variable.
 - Depends on: engine (authored dynamic/input text in export; browser-loadable HTML font subset remains partial).
 - Acceptance: Input text authored in the editor is editable in HTML5; Dynamic text has an instance name reachable
   from AS3/AS2; Static text stays non-selectable unless "selectable".
@@ -539,32 +542,31 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Depends on: engine (renderer, export, hit testing). Ragged/Stipple/Hatched are P3; Solid/Dashed/Dotted + caps/joins
   P2. Acceptance: dashed 2 px square-cap line renders the same in editor and HTML5.
 
-**PR-04 · Movie clip — Colour effect styles** — partial (only Opacity row; Style / Tint / Brightness / Advanced rows requested as R-012)
+**PR-04 · Movie clip — Colour effect styles** — done (`panels/properties.rs` `color_effect_section_ui`: `Style: None / Brightness / Tint / Advanced / Alpha` with value fields, sliders, tint colour picker and two-column Advanced RGBA multiplier/offset rows)
 - Purpose: Style None / Brightness / Tint / Advanced / Alpha + value slider (Tint: colour + %, Advanced: 8 fields).
 - Data: `Transform.color_transform: ColorTransform` already exists and interpolates in tweens (format 5).
-- Depends on: editor + R-012. Acceptance: Tint 50 % red shows in editor and HTML5; Undo restores; tween between two
+- Depends on: editor. Acceptance: Tint 50 % red shows in editor and HTML5; Undo restores; tween between two
   tints interpolates.
 
-**PR-05 · Movie clip — Display & Filters** — preview `PropertiesFilters`
+**PR-05 · Movie clip — Display & Filters** — done (`panels/filters.rs::display_and_filters_sections_ui`, wired into `panels/properties.rs` for selected symbol instances and `Window ▸ Panels ▸ Filters`)
 - Controls: Display: Visible, Cache as bitmap, Blending (Normal, Layer, Multiply, Screen, Lighten, Darken,
   Difference, Add, Subtract, Invert, Alpha, Erase, Overlay, Hardlight), Render Original / Export as bitmap. Filters
   table (Drop shadow, Blur, Glow, Bevel, Gradient glow/bevel, Adjust color) with add / duplicate / remove, per-filter
   fields (Blur X/Y, Strength, Quality …), enable checkbox.
-- Data: authored `Element` has no filters/blend/cache/visible. Runtime has `FilterSpec` (Blur, Glow, DropShadow,
-  Bevel, ColorMatrix …, max 8 per object) and AS2 blend modes (runtime only). **NEW** authored fields reusing
-  `FilterSpec`.
+- Data: `Element.{filters, blend_mode, cache_as_bitmap, visible}` in format 7 reusing `FilterSpec` (max 8 per object).
 - Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
   an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
 
-**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library and Stage context `Swap symbol…` plus AE-style `⌥`-drag replacement work; Properties `Swap…` picker remains pending)
-- Done: selecting an instance on Stage (or selecting a layer with a symbol instance) and choosing `Swap symbol` on a
-  Library symbol (row context menu or ⋯ menu), or holding `⌥` (`Alt`) while dragging a symbol from Library onto the Stage
-  (`NF2/Drag Ghost` `Replace “<old>” with “<new>”` + `Selection Box` (`Symbol`), or `Place “<new>”` without `⌥`) or
-  Timeline layer row/frame span (`timeline_row_selected` fill + `1 pt` `accent_default` outline + `Replace on all keyframes
-  of “<layer>”`), replaces `ElementKind::Instance.symbol_id` across the layer/instance while preserving
-  transform, instance name, scripts, filters, blend mode, accessibility and compatible playback settings
-  (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo).
-- Swap…: Stage context `Swap symbol…` works; the Properties `Swap…` button + picker dialog/popover still waits for R-012.
+**PR-06 · Movie clip — Swap…, Parameters tab** — partial (`Properties ▸ Swap…` symbol-picker popover, Library and Stage context `Swap symbol…` plus AE-style `⌥`-drag replacement work; component `Parameters` tab remains absent)
+- Done: selecting an instance on Stage (or selecting a layer with a symbol instance) and clicking `Swap…` in `Properties`,
+  choosing `Swap symbol` on a Library symbol (row context menu or ⋯ menu) or Stage context `Swap symbol…`, or holding `⌥`
+  (`Alt`) while dragging a symbol from Library onto the Stage (`NF2/Drag Ghost` `Replace “<old>” with “<new>”` + `Selection Box`
+  (`Symbol`), or `Place “<new>”` without `⌥`) or Timeline layer row/frame span (`timeline_row_selected` fill + `1 pt`
+  `accent_default` outline + `Replace on all keyframes of “<layer>”`), replaces `ElementKind::Instance.symbol_id` across the
+  layer/instance while preserving transform, instance name, scripts, filters, blend mode, accessibility and compatible playback
+  settings (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo). Selected symbol-instance Properties
+  also provides symbol behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Duplicate…`, and two-column
+  `Position and size` (`X`/`Y`, `W`/`H` + `Constrain instance proportions`, `Scale X`/`Scale Y`, `Rotation`/`Skew`).
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
@@ -989,4 +991,4 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
 | Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
-| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and leaves exactly one hierarchy level without changing the sticky tool or reopening the restored child; repeat the gesture to continue upward, while breadcrumbs provide direct deliberate navigation. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace, Break Apart and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |
+| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and leaves exactly one hierarchy level without changing the sticky tool or reopening the restored child; repeat the gesture to continue upward, while breadcrumbs provide direct deliberate navigation. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library, Break apart (⌘B), Group (⌘G), Ungroup (⇧⌘G) and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace awaits R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |

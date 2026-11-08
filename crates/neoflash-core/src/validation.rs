@@ -475,13 +475,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         "group IDs must be nonempty and unique within a layer".into(),
                     );
                 }
-                if group.members.len() < 2
+                if group.members.is_empty()
                     || group
                         .members
                         .iter()
                         .any(|id| !members.contains(id.as_str()) || !grouped.insert(id.as_str()))
                 {
-                    add(format!("{lp}.properties.groups"), "each group requires at least two distinct layer members; groups must not overlap".into());
+                    add(format!("{lp}.properties.groups"), "each group requires at least one distinct layer member; groups must not overlap".into());
                 }
             }
             if let Some(grid) = layer.properties.scale9_grid

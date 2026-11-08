@@ -99,42 +99,36 @@ impl crate::app::Editor {
         });
     }
 
+    /// Compact Two-Row `Properties — Text` `Character` section (`PR-01`, NF2 `Panel / Properties — Text`).
     pub(crate) fn text_box_properties(
         &mut self,
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         kind: &mut ElementKind,
+        alpha: &mut f64,
     ) -> Option<egui::Id> {
-        use crate::paint_controls::{PropertyChanges, numeric_row, property_row};
-        let ElementKind::TextBox {
-            text,
-            width,
-            height,
-            format,
-            word_wrap,
-            multiline,
-        } = kind
-        else {
+        use crate::paint_controls::{PropertyChanges, color_row};
+        use neoflash_ui::{components as nf, tokens::space};
+        let ElementKind::TextBox { text, format, .. } = kind else {
             return None;
         };
         let mut changes = PropertyChanges::default();
-        ui.strong("Text box");
-        changes.note(numeric_row(ui, "Width", width, 0. ..=10000., 1.));
-        changes.note(numeric_row(ui, "Height", height, 0. ..=10000., 1.));
-        changes.note(ui.checkbox(multiline, "Multiline"));
-        changes.note(ui.checkbox(word_wrap, "Word wrap"));
+        let mut field_options = format.field_options().unwrap_or_default();
+        let before_options = field_options.clone();
+
+        // Compact 2-row text editor (preserving keyboard focus for newly created stage text).
         let focus_text = ctx.data_mut(|data| {
             data.remove_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))
                 .unwrap_or(false)
         });
         egui::ScrollArea::vertical()
             .id_salt("text-box-content")
-            .max_height(120.)
+            .max_height(68.)
             .themed()
             .show(ui, |ui| {
                 let response = ui.add_sized(
-                    [ui.available_width(), 74.],
-                    egui::TextEdit::multiline(text).desired_rows(3),
+                    [ui.available_width(), 48.],
+                    egui::TextEdit::multiline(text).desired_rows(2),
                 );
                 if focus_text {
                     response.request_focus();
@@ -151,60 +145,143 @@ impl crate::app::Editor {
                 }
                 changes.note(response);
             });
+
+        let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
+
+        // Row 1: Text field type (Static / Dynamic / Input) + Family selector in 2 columns.
         let before_font = format.font.clone();
-        let mut response = property_row(ui, "Font", |ui| {
-            egui::ComboBox::from_id_salt("text_box_font")
-                .selected_text(&format.font)
-                .width(ui.available_width())
-                .show_ui(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.font_filter)
-                            .hint_text("Find font")
-                            .desired_width(220.),
-                    );
+        let current_type_idx = match (field_options.field_type, field_options.selectable) {
+            (neoflash_core::TextFieldType::Input, _) => 2usize,
+            (neoflash_core::TextFieldType::Dynamic, false) => 0usize,
+            _ => 1usize,
+        };
+        let type_labels = ["Static text", "Dynamic text", "Input text"];
+        let mut picked_type = None;
+        let mut font_response = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            let (mut type_resp, _) =
+                nf::Select::new("text_box_type", type_labels[current_type_idx])
+                    .width(half)
+                    .show(ui, |ui| {
+                        for (idx, label) in type_labels.into_iter().enumerate() {
+                            if ui
+                                .add(nf::MenuItem::new(label).checked(idx == current_type_idx))
+                                .clicked()
+                            {
+                                picked_type = Some(idx);
+                                ui.close();
+                            }
+                        }
+                    });
+            if let Some(idx) = picked_type {
+                match idx {
+                    0 => {
+                        field_options.field_type = neoflash_core::TextFieldType::Dynamic;
+                        field_options.selectable = false;
+                    }
+                    1 => {
+                        field_options.field_type = neoflash_core::TextFieldType::Dynamic;
+                        field_options.selectable = true;
+                    }
+                    _ => {
+                        field_options.field_type = neoflash_core::TextFieldType::Input;
+                        field_options.selectable = true;
+                    }
+                }
+                if field_options != before_options {
+                    type_resp.mark_changed();
+                }
+            }
+            changes.note(type_resp);
+
+            let current_font = format.font.clone();
+            let (mut f_resp, _) = nf::Select::new("text_box_font", &current_font)
+                .width(half)
+                .show(ui, |ui| {
+                    ui.add(nf::Search::new(&mut self.font_filter, "Find font").width(220.));
                     for family in &self.fonts.families {
-                        if self.font_filter.is_empty()
+                        if (self.font_filter.is_empty()
                             || family
                                 .to_lowercase()
-                                .contains(&self.font_filter.to_lowercase())
+                                .contains(&self.font_filter.to_lowercase()))
+                            && ui
+                                .add(nf::MenuItem::new(family).checked(family == &format.font))
+                                .clicked()
                         {
-                            ui.selectable_value(&mut format.font, family.clone(), family);
+                            format.font = family.clone();
+                            ui.close();
                         }
                     }
-                })
-                .response
+                });
+            if format.font != before_font {
+                f_resp.mark_changed();
+            }
+            font_response = Some(f_resp);
         });
-        if format.font != before_font {
-            response.mark_changed();
+        if let Some(f_resp) = font_response {
+            changes.note(f_resp);
         }
-        changes.note(response);
-        let size_response = numeric_row(ui, "Size", &mut format.size, 0.1..=10000., 1.);
-        let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
-        if size_response.changed() && format.leading < min_leading {
-            format.leading = min_leading;
-        }
-        changes.note(size_response);
-        changes.note(ui.checkbox(&mut format.bold, "Bold"));
-        changes.note(ui.checkbox(&mut format.italic, "Italic"));
-        let mut field_options = format.field_options().unwrap_or_default();
-        let embed_response = ui.add(neoflash_ui::components::Checkbox::new(
-            &mut field_options.embed_fonts,
-            "Embed font",
-        ));
-        let enable_after_confirm = embed_response.changed() && field_options.embed_fonts;
-        if enable_after_confirm {
-            // Enabling is transactional with the dialog: Cancel must not leave the field in
-            // embedded-only mode without a matching embedded font resource.
-            field_options.embed_fonts = false;
-        }
-        if embed_response.changed() && !enable_after_confirm {
-            format.set_field_options((!field_options.is_default()).then_some(field_options));
-        }
-        changes.note(embed_response);
-        let embedding_response = ui
-            .add(neoflash_ui::components::Button::new("Embedding…"))
-            .on_hover_text("Set font embedding options for this text field");
-        let open_embedding = enable_after_confirm || embedding_response.clicked();
+
+        // Row 2: Style (Regular / Bold / Italic / Bold Italic) + Embed font + Embedding… on 1 compact row.
+        let current_style_idx = match (format.bold, format.italic) {
+            (false, false) => 0usize,
+            (true, false) => 1usize,
+            (false, true) => 2usize,
+            (true, true) => 3usize,
+        };
+        let style_options = [
+            (0usize, "Regular", false, false),
+            (1usize, "Bold", true, false),
+            (2usize, "Italic", false, true),
+            (3usize, "Bold Italic", true, true),
+        ];
+        let mut enable_after_confirm = false;
+        let mut open_embedding = false;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            let style_w = (ui.available_width() - 184.0).max(84.0);
+            let mut style_changed = false;
+            let (mut style_resp, _) =
+                nf::Select::new("text_box_style", style_options[current_style_idx].1)
+                    .width(style_w)
+                    .show(ui, |ui| {
+                        for (idx, label, b, i) in style_options {
+                            if ui
+                                .add(nf::MenuItem::new(label).checked(idx == current_style_idx))
+                                .clicked()
+                            {
+                                if (format.bold, format.italic) != (b, i) {
+                                    format.bold = b;
+                                    format.italic = i;
+                                    style_changed = true;
+                                }
+                                ui.close();
+                            }
+                        }
+                    });
+            if style_changed {
+                style_resp.mark_changed();
+            }
+            changes.note(style_resp);
+
+            let embed_response = ui.add(nf::Checkbox::new(
+                &mut field_options.embed_fonts,
+                "Embed font",
+            ));
+            enable_after_confirm = embed_response.changed() && field_options.embed_fonts;
+            if enable_after_confirm {
+                // Enabling is transactional with the dialog: Cancel must not leave the field in
+                // embedded-only mode without a matching embedded font resource.
+                field_options.embed_fonts = false;
+            }
+            changes.note(embed_response);
+
+            let embedding_response = ui
+                .add(nf::Button::new("Embedding…"))
+                .on_hover_text("Set font embedding options for this text field");
+            open_embedding = enable_after_confirm || embedding_response.clicked();
+        });
         if open_embedding {
             let family = format.font.clone();
             let bold = format.bold;
@@ -219,6 +296,83 @@ impl crate::app::Editor {
                 enable_after_confirm,
             );
         }
+
+        // Row 3: Size (pt) + Letter spacing (px) in 2 columns.
+        let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            let size_response = ui.add(
+                nf::Field::new(&mut format.size, "Size")
+                    .prefix("Size")
+                    .unit("pt")
+                    .decimals(1)
+                    .range(0.1..=10000.)
+                    .width(half),
+            );
+            let next_min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
+            if size_response.changed() && format.leading < next_min_leading {
+                format.leading = next_min_leading;
+            }
+            changes.note(size_response);
+
+            let spacing_response = ui.add(
+                nf::Field::new(&mut format.letter_spacing, "Letter spacing")
+                    .prefix("Spacing")
+                    .unit("px")
+                    .decimals(1)
+                    .range(-1000.0..=1000.0)
+                    .width(half),
+            );
+            changes.note(spacing_response);
+        });
+        let _ = min_leading;
+
+        // Row 4: Color swatch/hex/alpha + Auto kern on 1 compact row.
+        let mut rgba = [
+            ((format.color >> 16) & 0xff) as u8,
+            ((format.color >> 8) & 0xff) as u8,
+            (format.color & 0xff) as u8,
+            (*alpha * 255.0).round().clamp(0.0, 255.0) as u8,
+        ];
+        let mut auto_kern = format.kerning.unwrap_or(false);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            let color_w = (ui.available_width() - 86.0 - space::S2).max(120.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(color_w, crate::theme::control_h()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    let c_resp = color_row(ui, "text-box-color", "", "Color", &mut rgba);
+                    if c_resp.changed() {
+                        format.color = u32::from_be_bytes([0, rgba[0], rgba[1], rgba[2]]);
+                        *alpha = f64::from(rgba[3]) / 255.0;
+                    }
+                    changes.note(c_resp);
+                },
+            );
+            let kern_resp = ui.add(nf::Checkbox::new(&mut auto_kern, "Auto kern"));
+            if kern_resp.changed() {
+                format.kerning = auto_kern.then_some(true);
+            }
+            changes.note(kern_resp);
+        });
+
+        // Row 5: Compact character & field toggles on 1 row (Selectable, HTML, Border, Underline).
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::S2;
+            changes.note(ui.add(nf::Checkbox::new(
+                &mut field_options.selectable,
+                "Selectable",
+            )));
+            changes.note(ui.add(nf::Checkbox::new(&mut field_options.html, "HTML")));
+            changes.note(ui.add(nf::Checkbox::new(&mut field_options.border, "Border")));
+            changes.note(ui.add(nf::Checkbox::new(&mut format.underline, "Underline")));
+        });
+
+        if field_options != before_options {
+            format.set_field_options((!field_options.is_default()).then_some(field_options));
+        }
+
         if format
             .field_options()
             .is_some_and(|options| options.embed_fonts)
@@ -229,54 +383,10 @@ impl crate::app::Editor {
                 format.italic,
             )
         {
-            ui.add(neoflash_ui::components::InlineMessage::warning(
+            ui.add(nf::InlineMessage::warning(
                 "This embedded-only field has no matching embedded face. Open Embedding… before publishing.",
             ));
         }
-        changes.note(property_row(ui, "Color", |ui| {
-            let mut rgb = [
-                (format.color >> 16) as u8,
-                (format.color >> 8) as u8,
-                format.color as u8,
-            ];
-            let response = ui.color_edit_button_srgb(&mut rgb);
-            if response.changed() {
-                format.color = u32::from_be_bytes([0, rgb[0], rgb[1], rgb[2]]);
-            }
-            ui.label(
-                egui::RichText::new(format!("#{:06X}", format.color))
-                    .monospace()
-                    .size(crate::theme::SECONDARY_FONT),
-            );
-            response
-        }));
-        changes.note(numeric_row(
-            ui,
-            "Leading",
-            &mut format.leading,
-            min_leading..=10000.,
-            0.25,
-        ));
-        let before_align = format.align;
-        let mut response = property_row(ui, "Alignment", |ui| {
-            egui::ComboBox::from_id_salt("text_box_align")
-                .selected_text(format!("{:?}", format.align))
-                .width(ui.available_width())
-                .show_ui(ui, |ui| {
-                    for (value, label) in [
-                        (neoflash_core::TextAlign::Left, "Left"),
-                        (neoflash_core::TextAlign::Center, "Center"),
-                        (neoflash_core::TextAlign::Right, "Right"),
-                    ] {
-                        ui.selectable_value(&mut format.align, value, label);
-                    }
-                })
-                .response
-        });
-        if format.align != before_align {
-            response.mark_changed();
-        }
-        changes.note(response);
         if let Err(error) = self
             .fonts
             .load_style(ctx, &format.font, format.bold, format.italic)
@@ -284,6 +394,269 @@ impl crate::app::Editor {
         {
             ui.colored_label(crate::theme::UiPalette::current(ctx).error_text, error);
         }
+        changes.control
+    }
+
+    /// `Paragraph` and `Options` collapsible sections for `Properties — Text` (`PR-01`).
+    pub(crate) fn text_box_paragraph_and_options_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        kind: &mut ElementKind,
+    ) -> Option<egui::Id> {
+        use crate::paint_controls::{PropertyChanges, text_row};
+        use neoflash_ui::{
+            components::{self as nf, SectionHeader, Segmented},
+            tokens::space,
+        };
+        let ElementKind::TextBox {
+            format,
+            word_wrap,
+            multiline,
+            ..
+        } = kind
+        else {
+            return None;
+        };
+        let mut changes = PropertyChanges::default();
+        let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
+        let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
+
+        ui.scope(|ui| {
+            ui.spacing_mut().interact_size.y = crate::theme::control_h();
+            SectionHeader::new("Paragraph")
+                .id_salt("text-box-paragraph")
+                .default_open(true)
+                .show(ui, |ui| {
+                    // Row 1: Format alignment (Left / Center / Right / Justify).
+                    let mut align_mode = match format.effective_align_mode() {
+                        "center" => 1usize,
+                        "right" | "end" => 2usize,
+                        "justify" => 3usize,
+                        _ => 0usize,
+                    };
+                    if let Some(mut align_resp) = Segmented::show(
+                        ui,
+                        &mut align_mode,
+                        &[
+                            (0usize, "Left"),
+                            (1usize, "Center"),
+                            (2usize, "Right"),
+                            (3usize, "Justify"),
+                        ],
+                        true,
+                    ) {
+                        match align_mode {
+                            0 => {
+                                format.align = neoflash_core::TextAlign::Left;
+                                format.set_align_mode(None);
+                            }
+                            1 => {
+                                format.align = neoflash_core::TextAlign::Center;
+                                format.set_align_mode(None);
+                            }
+                            2 => {
+                                format.align = neoflash_core::TextAlign::Right;
+                                format.set_align_mode(None);
+                            }
+                            _ => {
+                                format.align = neoflash_core::TextAlign::Left;
+                                format.set_align_mode(Some("justify".into()));
+                            }
+                        }
+                        align_resp.mark_changed();
+                        changes.note(align_resp);
+                    }
+
+                    // Row 2: Spacing — Indent (px) + Line / Leading (pt) in 2 columns.
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        changes.note(
+                            ui.add(
+                                nf::Field::new(&mut format.indent, "Indent")
+                                    .prefix("Indent")
+                                    .unit("px")
+                                    .decimals(1)
+                                    .range(-10000.0..=10000.0)
+                                    .width(half),
+                            ),
+                        );
+                        changes.note(
+                            ui.add(
+                                nf::Field::new(&mut format.leading, "Leading")
+                                    .prefix("Line")
+                                    .unit("pt")
+                                    .decimals(1)
+                                    .range(min_leading..=10000.0)
+                                    .width(half),
+                            ),
+                        );
+                    });
+
+                    // Row 3: Margins — Left (px) + Right (px) in 2 columns.
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        changes.note(
+                            ui.add(
+                                nf::Field::new(&mut format.left_margin, "Left margin")
+                                    .prefix("Left")
+                                    .unit("px")
+                                    .decimals(1)
+                                    .range(0.0..=10000.0)
+                                    .width(half),
+                            ),
+                        );
+                        changes.note(
+                            ui.add(
+                                nf::Field::new(&mut format.right_margin, "Right margin")
+                                    .prefix("Right")
+                                    .unit("px")
+                                    .decimals(1)
+                                    .range(0.0..=10000.0)
+                                    .width(half),
+                            ),
+                        );
+                    });
+
+                    // Row 4: Behavior (Single line / Multiline / Multiline no wrap / Password).
+                    let mut field_options = format.field_options().unwrap_or_default();
+                    let before_opts = field_options.clone();
+                    let current_beh = if field_options.display_as_password {
+                        3usize
+                    } else if !*multiline {
+                        0usize
+                    } else if *word_wrap {
+                        1usize
+                    } else {
+                        2usize
+                    };
+                    let beh_options = [
+                        (0usize, "Behavior: Single line", "Single line"),
+                        (1usize, "Behavior: Multiline", "Multiline"),
+                        (2usize, "Behavior: Multiline no wrap", "Multiline no wrap"),
+                        (3usize, "Behavior: Password", "Password"),
+                    ];
+                    let mut picked_beh = None;
+                    let (mut beh_resp, _) =
+                        nf::Select::new("text_box_behavior", beh_options[current_beh].1)
+                            .width(ui.available_width())
+                            .show(ui, |ui| {
+                                for (idx, _, label) in beh_options {
+                                    if ui
+                                        .add(nf::MenuItem::new(label).checked(idx == current_beh))
+                                        .clicked()
+                                    {
+                                        picked_beh = Some(idx);
+                                        ui.close();
+                                    }
+                                }
+                            });
+                    if let Some(idx) = picked_beh
+                        && idx != current_beh
+                    {
+                        match idx {
+                            0 => {
+                                *multiline = false;
+                                *word_wrap = false;
+                                field_options.display_as_password = false;
+                            }
+                            1 => {
+                                *multiline = true;
+                                *word_wrap = true;
+                                field_options.display_as_password = false;
+                            }
+                            2 => {
+                                *multiline = true;
+                                *word_wrap = false;
+                                field_options.display_as_password = false;
+                            }
+                            _ => {
+                                *multiline = false;
+                                *word_wrap = false;
+                                field_options.display_as_password = true;
+                            }
+                        }
+                        if field_options != before_opts {
+                            format.set_field_options(
+                                (!field_options.is_default()).then_some(field_options),
+                            );
+                        }
+                        beh_resp.mark_changed();
+                    }
+                    changes.note(beh_resp);
+                });
+
+            SectionHeader::new("Options")
+                .id_salt("text-box-options")
+                .default_open(false)
+                .show(ui, |ui| {
+                    let mut field_options = format.field_options().unwrap_or_default();
+                    let before_opts = field_options.clone();
+                    changes.note(text_row(ui, "URL", &mut format.url));
+                    let mut target_str = format.target_str().to_owned();
+                    let mut max_chars = field_options.max_chars as f64;
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let mut t_resp = ui.add(
+                            nf::TextField::new(&mut target_str, "Target")
+                                .prefix("Target")
+                                .width(half),
+                        );
+                        t_resp.id = nf::TextField::edit_id(t_resp.id);
+                        if t_resp.changed() {
+                            format.set_target_str(target_str);
+                        }
+                        changes.note(t_resp);
+
+                        let m_resp = ui.add(
+                            nf::Field::new(&mut max_chars, "Max chars")
+                                .prefix("Max")
+                                .decimals(0)
+                                .range(0.0..=65535.0)
+                                .width(half),
+                        );
+                        if m_resp.changed() {
+                            field_options.max_chars = max_chars.round().max(0.0) as u32;
+                        }
+                        changes.note(m_resp);
+                    });
+
+                    let mut var_str = field_options.variable.clone().unwrap_or_default();
+                    let mut restrict_str = field_options.restrict.clone().unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let mut v_resp = ui.add(
+                            nf::TextField::new(&mut var_str, "Variable")
+                                .prefix("Variable")
+                                .width(half),
+                        );
+                        v_resp.id = nf::TextField::edit_id(v_resp.id);
+                        if v_resp.changed() {
+                            field_options.variable =
+                                (!var_str.trim().is_empty()).then(|| var_str.trim().to_owned());
+                        }
+                        changes.note(v_resp);
+
+                        let mut r_resp = ui.add(
+                            nf::TextField::new(&mut restrict_str, "Restrict")
+                                .prefix("Restrict")
+                                .width(half),
+                        );
+                        r_resp.id = nf::TextField::edit_id(r_resp.id);
+                        if r_resp.changed() {
+                            field_options.restrict =
+                                (!restrict_str.is_empty()).then_some(restrict_str);
+                        }
+                        changes.note(r_resp);
+                    });
+
+                    if field_options != before_opts {
+                        format.set_field_options(
+                            (!field_options.is_default()).then_some(field_options),
+                        );
+                    }
+                });
+        });
+
         changes.control
     }
 

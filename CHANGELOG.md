@@ -2,6 +2,27 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Classic Flash Break Apart / Group / Ungroup, compact two-row Text Properties and full MovieClip / Symbol Instance
+  Properties (`T-138`): `Modify ▸ Group` (`⌘G`), `Modify ▸ Ungroup` (`⇧⌘G`) and `Modify ▸ Break Apart` (`⌘B`) now also
+  appear in the Stage right-click context menu (`stage_object_commands`) and follow classic Flash authoring semantics.
+  `Group` (`⌘G`) groups 1 or more selected objects on the same layer (contiguous or non-contiguous z-order) or across
+  multiple layers (moving selected objects to the topmost selected layer in back-to-front visual order, materializing a
+  keyframe on held frames, combining existing groups and assigning fresh IDs when a moved object still exists on other
+  keyframes of its source layer). `Break Apart` (`⌘B`) expands authoring groups, MovieClip / Button / Graphic symbol
+  instances (evaluating visible child layers at the instance's current playback frame and composing transforms, colour
+  transforms, blend modes, child authoring groups and bitmap fills), bitmaps (converting a `Bitmap` placement into a
+  bitmap-filled Merge `Path` ready for partial selection/erasing), parametric primitives, Object Drawing paths and text
+  in one Undo step. Selected TextBox `Properties` now uses a compact two-column layout (`Text type` + `Family`,
+  `Style` + `Embed font` + `Embedding…`, `Size` + `Letter spacing`, `Color` + `Auto kern`, compact
+  `Selectable`/`HTML`/`Border`/`Underline` switches, `Paragraph` with 4-mode `Segmented` alignment, two-column `Indent`
+  + `Line` spacing, two-column `Left` + `Right` margins and `Behavior`, plus collapsible `Options` with `URL`,
+  `Target` + `Max chars` and `Variable` + `Restrict`). Selected symbol-instance `Properties` now exposes `Name` +
+  `Swap…` symbol-picker popover on one row, symbol behavior switching (`Movie Clip` / `Button` / `Graphic`) + `Edit
+  symbol` + `Duplicate…` on one row, two-column `Position and size` (`X`/`Y`, `W`/`H` + `Constrain instance
+  proportions`, `Scale X`/`Scale Y`, `Rotation`/`Skew`), `Colour effect` (`Style: None / Brightness / Tint / Advanced /
+  Alpha` with sliders, tint colour picker and 8-field Advanced RGBA multiplier/offset rows) and inline `Display` +
+  `Filters` sections.
+
 - Published-media and classic text follow-up (`T-137`): double-clicking genuinely empty canvas while editing a
   nested symbol now leaves exactly one hierarchy level per gesture, preserving the complete press/release guard so
   the restored child is not immediately reopened. Authored timeline video now reaches HTML5 publication through a

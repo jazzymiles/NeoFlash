@@ -83,7 +83,7 @@ impl ClipboardPayload {
                 // A group can span several keys. Capture its currently copied
                 // members, not absent placements from another frame. Group IDs
                 // are layer-local, while the clipboard has one selection layer.
-                (members.len() >= 2).then(|| AuthoringGroup {
+                (!members.is_empty()).then(|| AuthoringGroup {
                     id: new_id("group"),
                     name: group.name.clone(),
                     members,

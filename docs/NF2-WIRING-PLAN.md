@@ -190,13 +190,12 @@ accepts Y1/Y2 in −100…100 and a Flash acceleration field. Bounce/Elastic pre
 - Tests: mapping test tool/hover-state → cursor name exists in `cursors::ALL`.
 - Registry: `editor-workspace`. Acceptance: spec ST-07.
 
-**W0.6 · Colour effect styles (PR-04)** — blocked on R-012 (Properties Colour effect style rows in `panels/properties.rs`)
-- UI: `panels/properties.rs` "Colour effect" section for `ElementKind::Instance` (Style select + value rows using the
-  existing `select_row` / `numeric_row` / `paint_row`). If the Style select or Advanced fields are not in the current
-  composition, request first (layout reference `panel-properties-movie-clip.png`; filed as R-012).
+**W0.6 · Colour effect styles (PR-04)** — **done** (`panels/properties.rs` `color_effect_section_ui`: `Style: None / Brightness / Tint / Advanced / Alpha` with value fields, sliders, tint colour picker and two-column Advanced RGBA multiplier/offset rows)
+- UI: `panels/properties.rs` "Colour effect" section for `ElementKind::Instance` (`Style` select + value rows using
+  `select_row` / `numeric_row` / `paint_row` / `two_columns`).
 - Engine: none — `Transform.color_transform` exists and interpolates.
 - Tests: Tint 50 % → expected `ColorTransform` multipliers/offsets; HTML5 export renders tint (existing runtime).
-- Registry: `editor-paint-effects`. Acceptance: spec PR-04.
+- Registry: `editor-paint-effects`, `editor-symbols`. Acceptance: spec PR-04.
 
 **W0.7 · Output levels and timestamps (OU-01)**
 - UI: `panels/actions.rs › output_panel`; add the NF2 "Show" select only if the reference row exists in the current
@@ -252,11 +251,10 @@ work; folding (Collapse between braces / Expand all) remains disabled.
 Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Undo/Redo `<step>`, Document ▸ Document settings… (`⌘J`),
 Control ▸ Go to end / step, Window ▸ Panels ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
 Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
-keyframes and Select all frames work. Stage `Swap symbol…` / `Duplicate symbol…` work and right-click selects the
-  target under every active tool. Affine in-context symbol editing now targets one exact placement, dims the frozen
+keyframes and Select all frames work. Stage `Swap symbol…` / `Duplicate symbol…` / `Break apart` (`⌘B`) / `Group` (`⌘G`) / `Ungroup` (`⇧⌘G`), Properties `Swap…` symbol-picker popover, and right-click target selection under every active tool work. Affine in-context symbol editing now targets one exact placement, dims the frozen
   parent chain, inverse-maps authoring gestures/drops and restores the nested session view; isolated definition editing
   remains available. Non-affine 9-slice instances refuse safely, while arbitrary oblique guide/grid/ruler chrome waits
-  for R-063. Open: Properties `Swap…` picker (R-012), true `Edit in new window` and Bitmap Trace/broader object rows
+  for R-063. Open: true `Edit in new window` and Bitmap Trace row
   (R-060). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
 Hide panels and Enable simple buttons are implemented; current working/unavailable boundaries are in
 `NF2-FUNCTIONAL-SPEC.md` §11. Real-input menu tests exercise toggles in both directions without document changes.
