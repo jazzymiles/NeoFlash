@@ -415,7 +415,10 @@ impl Editor {
             .iter_mut()
             .find(|layer| layer.id == draft.sampled[0].0.layer)
             .unwrap();
-        if !layer.keyframes.iter().any(|key| key.frame == draft.frame) {
+        let need_key = self.workspace.timeline_prefs.auto_keyframe
+            || layer.key_at(draft.frame).is_some_and(|k| k.tween.is_some())
+            || neoflash_core::motion_span(layer, draft.frame).is_some();
+        if need_key && !layer.keyframes.iter().any(|key| key.frame == draft.frame) {
             let sampled = sample_layer_at_fps(layer, draft.frame, fps);
             let mut key = layer.key_at(draft.frame).cloned().unwrap();
             key.frame = draft.frame;

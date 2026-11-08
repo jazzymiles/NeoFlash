@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 // Includes up to 32 complete user layouts, each with its own floating windows.
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1904,7 +1904,7 @@ impl Default for TimelinePrefs {
             span_selection: false,
             scene_anchors: false,
             onion_falloff: 70.0,
-            auto_keyframe: true,
+            auto_keyframe: false,
             tween_on_drag: TweenOnDrag::None,
         }
     }
@@ -2942,6 +2942,12 @@ impl WorkspacePrefs {
             prefs.active_named_preset = None;
             prefs.unsaved_layout = false;
         }
+        // Versions 1–3 shipped Create keyframe on transform (`auto_keyframe`) enabled by default,
+        // which split spans whenever an object was edited on a held frame. Restore the classic
+        // Flash default (`false`) for existing workspaces while preserving explicit opt-ins from v4+.
+        if saved_version < 4 {
+            prefs.timeline_prefs.auto_keyframe = false;
+        }
         prefs.version = VERSION;
         prefs.sanitize();
         prefs
@@ -3671,12 +3677,20 @@ mod tests {
             WorkspacePrefs::from_json(r#"{"version":1,"timeline_prefs":{"span_selection":true}}"#);
         assert_eq!(migrated.version, VERSION);
         assert!(!migrated.timeline_prefs.span_selection);
+        assert!(!migrated.timeline_prefs.auto_keyframe);
+
+        let v3_migrated =
+            WorkspacePrefs::from_json(r#"{"version":3,"timeline_prefs":{"auto_keyframe":true}}"#);
+        assert_eq!(v3_migrated.version, VERSION);
+        assert!(!v3_migrated.timeline_prefs.auto_keyframe);
 
         let mut opted_in = migrated;
         opted_in.timeline_prefs.span_selection = true;
+        opted_in.timeline_prefs.auto_keyframe = true;
         let restored = WorkspacePrefs::from_json(&serde_json::to_string(&opted_in).unwrap());
         assert_eq!(restored.version, VERSION);
         assert!(restored.timeline_prefs.span_selection);
+        assert!(restored.timeline_prefs.auto_keyframe);
     }
     #[test]
     fn version_two_builtin_layout_refreshes_without_losing_preferences_or_named_presets() {
@@ -3733,7 +3747,7 @@ mod tests {
             "",
             "{",
             "null",
-            r#"{"version":4,"theme":"dark"}"#,
+            r#"{"version":5,"theme":"dark"}"#,
             r#"{"theme":"system"}"#,
             r#"{"sizes":{"timeline_height":null}}"#,
         ] {

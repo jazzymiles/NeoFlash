@@ -2123,14 +2123,20 @@ impl Editor {
     }
 
     pub fn move_key(&mut self, layer: usize, from: u32, to: u32, copy: bool) -> bool {
+        let is_button = self.symbol().kind == SymbolKind::Button;
         let timeline = &self.symbol().timeline;
         let Some(l) = timeline.layers.get(layer) else {
             return false;
         };
+        let max_frames = if is_button {
+            timeline.frame_count
+        } else {
+            1_000_000
+        };
         if layer_effectively_locked(timeline, l)
             || !layer_effectively_visible(timeline, l)
             || l.properties.role == LayerRole::Folder
-            || to >= timeline.frame_count
+            || to >= max_frames
             || from == to
         {
             return false;
@@ -2163,6 +2169,27 @@ impl Editor {
             "Move keyframe"
         };
         self.transact_named(step_label, |s| {
+            let old_count = s.symbol().timeline.frame_count;
+            let (layer_id, old_layer_end, was_trailing_single) = {
+                let l = &s.symbol().timeline.layers[layer];
+                let old_end = l.properties.end_frame.unwrap_or(old_count);
+                let was_last = l.keyframes.last().is_some_and(|k| k.frame == from);
+                let still_last = l
+                    .keyframes
+                    .iter()
+                    .filter(|k| k.frame != from)
+                    .all(|k| k.frame < to);
+                (
+                    l.id.clone(),
+                    old_end,
+                    !copy && from > 0 && was_last && still_last && old_end == from + 1,
+                )
+            };
+            let new_layer_end = if was_trailing_single {
+                to + 1
+            } else {
+                old_layer_end.max(to + 1)
+            };
             let l = &mut s.symbol_mut().timeline.layers[layer];
             if !copy {
                 l.keyframes.retain(|k| k.frame != from);
@@ -2173,9 +2200,7 @@ impl Editor {
             }
             l.keyframes.push(key);
             l.keyframes.sort_by_key(|k| k.frame);
-            if let Some(end) = &mut l.properties.end_frame {
-                *end = (*end).max(to + 1);
-            }
+            l.normalize_motion_keys();
             if let Some(mut script) = script {
                 let scripts = &mut s.symbol_mut().timeline.scripts;
                 if !copy {
@@ -2184,6 +2209,40 @@ impl Editor {
                 script.frame = to;
                 scripts.push(script);
                 scripts.sort_by_key(|item| item.frame);
+            }
+            if new_layer_end != old_layer_end {
+                let timeline = &mut s.symbol_mut().timeline;
+                for other in &mut timeline.layers {
+                    if other.id == layer_id {
+                        other.properties.end_frame = Some(new_layer_end);
+                    } else if other.properties.role != LayerRole::Folder
+                        && other.properties.end_frame.is_none()
+                    {
+                        other.properties.end_frame = Some(old_count);
+                    }
+                }
+                let next_count = timeline
+                    .layers
+                    .iter()
+                    .filter(|other| other.properties.role != LayerRole::Folder)
+                    .map(|other| other.properties.end_frame.unwrap_or(old_count))
+                    .chain(timeline.scripts.iter().map(|sc| sc.frame + 1))
+                    .max()
+                    .unwrap_or(1)
+                    .max(1);
+                timeline.frame_count = next_count;
+                for other in &mut timeline.layers {
+                    if other.properties.role == LayerRole::Folder
+                        && other.properties.end_frame.is_some()
+                    {
+                        other.properties.end_frame = Some(next_count);
+                    }
+                }
+                s.project.format_version = s.project.format_version.max(5);
+            } else if let Some(end) =
+                &mut s.symbol_mut().timeline.layers[layer].properties.end_frame
+            {
+                *end = (*end).max(to + 1);
             }
             s.frame = to;
             s.layer = layer;

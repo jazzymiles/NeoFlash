@@ -455,7 +455,6 @@ impl Editor {
             });
 
         if tween_pref == TweenOnDrag::Motion
-            && self.workspace.timeline_prefs.auto_keyframe
             && let Some((prev_frame, motion_ok)) = prev_untweened
         {
             if motion_ok {
@@ -477,7 +476,11 @@ impl Editor {
             self.message("A motion tween needs at least one object on its keyframe.");
         }
 
-        self.ensure_key_for(layer_id, false);
+        if tween_pref == TweenOnDrag::Classic && prev_untweened.is_some() {
+            self.ensure_key_at(layer_id, self.frame, false);
+        } else {
+            self.ensure_key_for(layer_id, false);
+        }
 
         if tween_pref == TweenOnDrag::Classic
             && let Some((prev_frame, _)) = prev_untweened

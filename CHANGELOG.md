@@ -2,6 +2,24 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Classic Flash Timeline keyframe dragging, non-splitting Stage edits (`auto_keyframe: false`), multi-keyframe
+  `Clear keyframe`, and span-preserving `Remove frames` (`T-146`):
+  - Clicking a keyframe to select its 1-frame cell (`start == end` on one layer) and dragging it now moves the keyframe
+    (`Gesture::Key` / `Editor::move_key`) instead of triggering a multi-frame range move (`Gesture::Move` /
+    `TimelineEdit::Move`) that copied and split extra keyframes around the source and destination frames; dragging a
+    1-frame trailing keyframe or blank keyframe left or right preserves its 1-frame duration while shortening or
+    extending the preceding keyframe's span, and dragging the first keyframe (`frame == 0`) to a later frame moves it to
+    the new frame leaving empty timeline cells before it.
+  - `TimelinePrefs::default().auto_keyframe` now defaults to `false` (and workspace preferences below version `4`
+    migrate `auto_keyframe` to `false`): editing, transforming, drawing, pasting or converting objects on the Stage when
+    the playhead is on a held frame of an untweened span modifies the span's owning keyframe instead of automatically
+    splitting the span with a new keyframe, while edits on interpolated tween frames (`key.tween.is_some()` or Motion
+    spans) and explicit `Tween on drag` gestures still create keyframes at the playhead frame.
+  - `Clear keyframe` (`⇧F6`, Timeline context menu, and `Modify ▸ Timeline ▸ Clear keyframe`) now clears all keyframes
+    across the selected `FrameRange` and editable layers in a single Undo step rather than only the playhead frame.
+  - `Remove frames` (`⇧F5`, `TimelineEdit::Delete`) now removes the selected frames and shortens static/untweened spans
+    directly without splitting a new keyframe at the cut boundary.
+
 - Tight transformed bounding boxes and screen-axis Free Transform box scaling for rotated, skewed and deformed shapes
   (`T-143`):
   - `world_bounds` and `selection_geometry` now compute exact curve-extrema bounding boxes (`transformed_path_bounds_cached`

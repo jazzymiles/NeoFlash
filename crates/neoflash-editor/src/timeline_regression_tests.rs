@@ -471,3 +471,189 @@ fn timeline_marks_unexposed_grid_cells_and_extends_frames_on_f5_f6_f7_and_stage_
     editor.undo();
     assert_eq!(editor.project, before);
 }
+
+#[test]
+fn selected_keyframe_drags_multi_clear_keyframe_and_remove_frames_preserve_spans() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 19;
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![object("hero", 40.0, 50.0)],
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 18,
+            elements: vec![],
+            ..Keyframe::default()
+        },
+    ];
+    let layer_id = project.symbols[0].timeline.layers[0].id.clone();
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.clear_history();
+    let baseline = editor.project.clone();
+
+    timeline_panel_frame(&mut editor, &ctx, 0.1, vec![]);
+    let output = timeline_panel_frame(&mut editor, &ctx, 0.2, vec![]);
+    let key0_pos = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::epaint::Shape::Circle(circle)
+                if (1.5..=3.5).contains(&circle.radius)
+                    && circle.fill == neoflash_ui::palette(&ctx).timeline_marker
+                    && shape.clip_rect.contains(circle.center) =>
+            {
+                Some(circle.center)
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)))
+        .expect("timeline must paint the first keyframe marker");
+    let cell = editor.timeline_cell;
+    let cell_center = |f: u32| key0_pos + egui::vec2(cell * f as f32, 0.0);
+
+    // 1. Clicking the first keyframe (frame 0) selects that 1-frame cell, and dragging it to frame 5
+    // (Frame 6) moves the keyframe cleanly leaving empty timeline cells 0..5 before it.
+    let p0 = cell_center(0);
+    let p5 = cell_center(5);
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![egui::Event::PointerMoved(p0), primary_button(p0, true)],
+    );
+    timeline_panel_frame(&mut editor, &ctx, 0.35, vec![primary_button(p0, false)]);
+    assert_eq!(editor.selected_frame_range(), Some((0, 0, 1)));
+
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![egui::Event::PointerMoved(p0), primary_button(p0, true)],
+    );
+    timeline_panel_frame(&mut editor, &ctx, 0.45, vec![egui::Event::PointerMoved(p5)]);
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![egui::Event::PointerMoved(p5), primary_button(p5, false)],
+    );
+    let keys: Vec<u32> = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .map(|k| k.frame)
+        .collect();
+    assert_eq!(
+        keys,
+        vec![5, 18],
+        "dragging first keyframe must move it without creating extra keyframes"
+    );
+    assert!(sample_layer(&editor.symbol().timeline.layers[0], 0).is_empty());
+    assert_eq!(
+        sample_layer(&editor.symbol().timeline.layers[0], 5).len(),
+        1
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+
+    // 2. Clicking the trailing blank keyframe (frame 18) and dragging it right to frame 32 (Frame 33,
+    // past the previous 19-frame duration) moves the blank keyframe and extends the preceding span.
+    let p18 = cell_center(18);
+    let p32 = cell_center(32);
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.6,
+        vec![egui::Event::PointerMoved(p18), primary_button(p18, true)],
+    );
+    timeline_panel_frame(&mut editor, &ctx, 0.65, vec![primary_button(p18, false)]);
+    assert_eq!(editor.selected_frame_range(), Some((18, 18, 1)));
+
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.7,
+        vec![egui::Event::PointerMoved(p18), primary_button(p18, true)],
+    );
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.75,
+        vec![egui::Event::PointerMoved(p32)],
+    );
+    timeline_panel_frame(
+        &mut editor,
+        &ctx,
+        0.8,
+        vec![egui::Event::PointerMoved(p32), primary_button(p32, false)],
+    );
+    let layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(
+        layer.keyframes.iter().map(|k| k.frame).collect::<Vec<_>>(),
+        vec![0, 32],
+        "dragging trailing blank keyframe must move it and extend the preceding span"
+    );
+    assert_eq!(editor.symbol().timeline.frame_count, 33);
+    assert_eq!(sample_layer(layer, 31).len(), 1);
+    assert!(sample_layer(layer, 32).is_empty());
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+
+    // 3. Remove frames (`TimelineEdit::Delete`) inside a static span shortens the span without
+    // synthesizing a new keyframe at the cut boundary.
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 4,
+        end: 7,
+    });
+    editor.run_frame_command(&ctx, crate::timeline_edit::FrameCommand::Remove);
+    let layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(
+        layer.keyframes.iter().map(|k| k.frame).collect::<Vec<_>>(),
+        vec![0, 14],
+        "Remove frames inside a span must not insert a keyframe at the cut"
+    );
+    assert_eq!(editor.symbol().timeline.frame_count, 15);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+
+    // 4. Clear keyframe with multiple keyframes selected clears all keyframes in the range in one Undo step.
+    for f in [4, 8, 12] {
+        editor.frame = f;
+        editor.make_key(false);
+    }
+    editor.clear_history();
+    let with_keys = editor.project.clone();
+    assert_eq!(
+        editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .map(|k| k.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 4, 8, 12, 18]
+    );
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 4,
+        end: 18,
+    });
+    editor.clear_keyframe();
+    assert_eq!(
+        editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .map(|k| k.frame)
+            .collect::<Vec<_>>(),
+        vec![0],
+        "Clear keyframe must remove every selected keyframe in the range"
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, with_keys);
+}

@@ -544,8 +544,8 @@ fn key_copy_retains_source_and_rejected_destinations_do_not_change_history() {
         "destination collision must not overwrite a key"
     );
     assert!(
-        !editor.move_key(0, 0, 11, true),
-        "copy must stay within the timeline"
+        !editor.move_key(0, 0, 1_000_000, true),
+        "copy must stay within the supported timeline limit"
     );
     assert!(
         !editor.move_key(0, 4, 7, false),
@@ -1195,6 +1195,7 @@ fn saving_finishes_an_open_pen_draft_and_preserves_it_in_json() {
 #[test]
 fn navigating_away_finishes_a_pen_draft_in_its_original_frame() {
     let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.timeline_prefs.auto_keyframe = true;
     editor.frame = 5;
     editor.tool = crate::app::Tool::Pen;
     let a = page.min + egui::vec2(100., 100.);

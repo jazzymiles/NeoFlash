@@ -199,14 +199,14 @@ mod tests {
             editor.selected_element().unwrap().accessibility,
             Some(metadata())
         );
-        assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 2);
+        assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 1);
         assert_eq!(
             editor.symbol().timeline.layers[0],
             before.symbols[0].timeline.layers[0]
         );
         assert_eq!(
-            editor.symbol().timeline.layers[1].keyframes[0],
-            before.symbols[0].timeline.layers[1].keyframes[0]
+            editor.symbol().timeline.layers[1].keyframes[0].elements[0].accessibility,
+            Some(metadata())
         );
         editor.project.validate().unwrap();
         editor.undo();

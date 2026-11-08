@@ -654,7 +654,10 @@ impl Editor {
                 let existing = (!modifiers.command)
                     .then(|| {
                         self.frame_range().filter(|r| {
-                            r.start <= frame && frame <= r.end && r.layers.contains(&layer_id)
+                            (r.layers.len() > 1 || r.start < r.end)
+                                && r.start <= frame
+                                && frame <= r.end
+                                && r.layers.contains(&layer_id)
                         })
                     })
                     .flatten();
@@ -768,7 +771,7 @@ impl Editor {
             && let Some(gesture) = self.timeline_edit.gesture.clone()
         {
             let frame = frame_at_x(pos.x, rect.left(), cell, grid_count);
-            let key_frame = frame_at_x(pos.x, rect.left(), cell, count);
+            let key_frame = frame_at_x(pos.x, rect.left(), cell, grid_count);
             let row = (((pos.y - rect.top()) / row_height).max(0.) as usize)
                 .min(rows.len().saturating_sub(1));
             let dragging = ui.input(|i| i.pointer.is_decidedly_dragging()) || response.dragged();

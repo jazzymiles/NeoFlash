@@ -309,32 +309,63 @@ impl Editor {
         self.message("Draw the motion path on the guide layer. Classic tweens on the guided layer follow its first stroke.");
     }
 
-    /// Clear keyframe (⇧F6): the keyframe under the playhead becomes an ordinary frame holding the
-    /// previous keyframe's content (the first keyframe of a layer becomes blank).
+    /// Clear keyframe (⇧F6): the keyframes in the selected frame range (or under the playhead)
+    /// become ordinary frames holding the previous keyframe's content (the first keyframe of a
+    /// layer becomes blank).
     pub(crate) fn clear_keyframe(&mut self) {
         self.finish_edits();
-        let frame = self.frame;
-        let has_key = self
-            .symbol()
-            .timeline
+        let Some(range) = self.frame_range_or_current() else {
+            self.message("Select a keyframe to clear.");
+            return;
+        };
+        let timeline = &self.symbol().timeline;
+        let editable_layers: Vec<usize> = range
             .layers
-            .get(self.layer)
-            .is_some_and(|layer| layer.keyframes.iter().any(|k| k.frame == frame));
-        if !self.layer_editable() || !has_key {
+            .iter()
+            .filter_map(|id| timeline.layers.iter().position(|l| &l.id == id))
+            .filter(|&idx| {
+                let l = &timeline.layers[idx];
+                l.properties.role != LayerRole::Folder
+                    && !neoflash_core::layer_effectively_locked(timeline, l)
+                    && neoflash_core::layer_effectively_visible(timeline, l)
+            })
+            .collect();
+        if editable_layers.is_empty()
+            || !editable_layers.iter().any(|&idx| {
+                timeline.layers[idx]
+                    .keyframes
+                    .iter()
+                    .any(|k| k.frame >= range.start && k.frame <= range.end)
+            })
+        {
             self.message("Select a keyframe to clear.");
             return;
         }
+        let (start, end) = (range.start, range.end);
         self.transact_named("Clear keyframe", |s| {
-            let l = s.layer;
-            let layer = &mut s.symbol_mut().timeline.layers[l];
-            if layer.keyframes.iter().any(|k| k.frame < frame) {
-                layer.keyframes.retain(|k| k.frame != frame);
+            for &l in &editable_layers {
+                let layer = &mut s.symbol_mut().timeline.layers[l];
+                if !layer
+                    .keyframes
+                    .iter()
+                    .any(|k| k.frame >= start && k.frame <= end)
+                {
+                    continue;
+                }
+                if layer.keyframes.iter().any(|k| k.frame < start) {
+                    layer.keyframes.retain(|k| k.frame < start || k.frame > end);
+                } else if let Some(first_frame) = layer.keyframes.first().map(|k| k.frame) {
+                    layer
+                        .keyframes
+                        .retain(|k| k.frame == first_frame || k.frame > end);
+                    if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == first_frame) {
+                        *key = Keyframe {
+                            frame: first_frame,
+                            ..Default::default()
+                        };
+                    }
+                }
                 layer.normalize_motion_keys();
-            } else if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
-                *key = Keyframe {
-                    frame,
-                    ..Default::default()
-                };
             }
             s.clear_selection();
         });

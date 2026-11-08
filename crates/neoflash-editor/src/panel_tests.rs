@@ -3453,7 +3453,8 @@ fn filters_panel_edits_display_properties_and_filters_with_undo_and_format_7() {
     }
     assert_eq!(d.editor.project, baseline);
 
-    // Held-frame edit inserts a keyframe automatically and leaves frame 0 untouched.
+    // Default (`auto_keyframe == false`): held-frame edit updates the span's keyframe (frame 0)
+    // without inserting a new keyframe at frame 2.
     let target = d.editor.selection.single().unwrap().clone();
     let layer_idx = d
         .editor
@@ -3466,6 +3467,25 @@ fn filters_panel_edits_display_properties_and_filters_with_undo_and_format_7() {
     d.editor.layer = layer_idx;
     d.editor.frame = 4;
     d.editor.insert_frame();
+    d.editor.frame = 2;
+    d.editor.selection.targets = vec![target.clone()];
+    assert!(d.editor.set_selected_blend_mode(BlendMode::Screen));
+    d.editor.project.validate().unwrap();
+    let layer = &d.editor.symbol().timeline.layers[layer_idx];
+    assert_eq!(layer.keyframes.len(), 1);
+    assert_eq!(
+        layer.keyframes[0]
+            .elements
+            .iter()
+            .find(|e| e.id == target.element)
+            .unwrap()
+            .blend_mode,
+        BlendMode::Screen
+    );
+    d.editor.undo();
+
+    // When `auto_keyframe` is explicitly enabled, held-frame edit inserts a keyframe at frame 2.
+    d.editor.workspace.timeline_prefs.auto_keyframe = true;
     d.editor.frame = 2;
     d.editor.selection.targets = vec![target.clone()];
     assert!(d.editor.set_selected_blend_mode(BlendMode::Screen));
@@ -4208,7 +4228,7 @@ fn timeline_preferences_page_wires_controls_live_falloff_caption_and_persists() 
 
     assert!(d.editor.preferences.is_none());
     assert!(d.editor.workspace.timeline_prefs.span_selection);
-    assert!(!d.editor.workspace.timeline_prefs.auto_keyframe);
+    assert!(d.editor.workspace.timeline_prefs.auto_keyframe);
     assert_eq!(
         d.editor.workspace.timeline_prefs.tween_on_drag,
         TweenOnDrag::Classic
@@ -4228,7 +4248,7 @@ fn timeline_preferences_page_wires_controls_live_falloff_caption_and_persists() 
     d.click("Reset to defaults");
     d.click("Save");
     assert!(!d.editor.workspace.timeline_prefs.span_selection);
-    assert!(d.editor.workspace.timeline_prefs.auto_keyframe);
+    assert!(!d.editor.workspace.timeline_prefs.auto_keyframe);
     assert_eq!(
         d.editor.workspace.timeline_prefs.tween_on_drag,
         TweenOnDrag::None

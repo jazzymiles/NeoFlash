@@ -1137,8 +1137,25 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             let count = end - range.start;
             for index in layer_indices(timeline, &range.layers)? {
                 let mut layer = timeline.layers[index].clone();
-                isolate_range(timeline, &mut layer, range.start, end, &mut budget, fps)?;
-                split(timeline, &mut layer, end, fps);
+                let old_end = layer.properties.end_frame.unwrap_or(0);
+                if layer.keyframes.iter().any(|k| k.motion_path.is_some()) {
+                    isolate_range(timeline, &mut layer, range.start, end, &mut budget, fps)?;
+                    split(timeline, &mut layer, end, fps);
+                } else if end < old_end
+                    && !layer
+                        .keyframes
+                        .iter()
+                        .any(|k| k.frame == end && k.keyed_properties.is_none())
+                    && let Some(pos) = layer.keyframes.iter().rposition(|k| {
+                        k.frame >= range.start && k.frame < end && k.keyed_properties.is_none()
+                    })
+                {
+                    if layer.keyframes[pos].tween.is_some() {
+                        let sampled = sample_layer_in_at_fps(timeline, &layer, end, fps);
+                        layer.keyframes[pos].elements = sampled;
+                    }
+                    layer.keyframes[pos].frame = end;
+                }
                 layer
                     .keyframes
                     .retain(|key| key.frame < range.start || key.frame >= end);
@@ -1147,9 +1164,11 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         key.frame -= count;
                     }
                 }
-                let old_end = layer.properties.end_frame.unwrap_or(0);
-                layer.properties.end_frame =
-                    Some(old_end.saturating_sub(old_end.min(end).saturating_sub(range.start)));
+                let new_end = old_end.saturating_sub(old_end.min(end).saturating_sub(range.start));
+                if layer.keyframes.is_empty() && new_end > 0 {
+                    layer.keyframes.push(blank(0));
+                }
+                layer.properties.end_frame = Some(new_end);
                 timeline.layers[index] = layer;
             }
             if include_scripts {

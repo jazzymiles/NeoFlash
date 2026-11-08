@@ -411,9 +411,17 @@ impl Editor {
             .id
             .clone();
         let fps = f64::from(candidate.fps);
+        let auto_keyframe = self.workspace.timeline_prefs.auto_keyframe;
         {
-            let layer = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline.layers[self.layer];
-            if !layer.keyframes.iter().any(|k| k.frame == self.frame) {
+            let timeline = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline;
+            let frame_count = timeline.frame_count;
+            let layer = &mut timeline.layers[self.layer];
+            let layer_end = layer.properties.end_frame.unwrap_or(frame_count);
+            let need_key = auto_keyframe
+                || self.frame >= layer_end
+                || layer.key_at(self.frame).is_none_or(|k| k.tween.is_some())
+                || neoflash_core::motion_span(layer, self.frame).is_some();
+            if need_key && !layer.keyframes.iter().any(|k| k.frame == self.frame) {
                 let elements = neoflash_core::sample_layer_at_fps(layer, self.frame, fps);
                 let tween = layer.key_at(self.frame).and_then(|k| k.tween);
                 layer.keyframes.push(neoflash_core::Keyframe {
@@ -426,9 +434,7 @@ impl Editor {
                 layer.keyframes.sort_by_key(|k| k.frame);
             }
             layer
-                .keyframes
-                .iter_mut()
-                .find(|k| k.frame == self.frame)
+                .key_at_mut(self.frame)
                 .unwrap()
                 .elements
                 .extend(graphic.elements);
@@ -545,9 +551,17 @@ impl Editor {
             .id
             .clone();
         let fps = f64::from(candidate.fps);
+        let auto_keyframe = self.workspace.timeline_prefs.auto_keyframe;
         {
-            let layer = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline.layers[self.layer];
-            if !layer.keyframes.iter().any(|k| k.frame == self.frame) {
+            let timeline = &mut candidate.symbol_mut(&symbol_id).unwrap().timeline;
+            let frame_count = timeline.frame_count;
+            let layer = &mut timeline.layers[self.layer];
+            let layer_end = layer.properties.end_frame.unwrap_or(frame_count);
+            let need_key = auto_keyframe
+                || self.frame >= layer_end
+                || layer.key_at(self.frame).is_none_or(|k| k.tween.is_some())
+                || neoflash_core::motion_span(layer, self.frame).is_some();
+            if need_key && !layer.keyframes.iter().any(|k| k.frame == self.frame) {
                 let elements = neoflash_core::sample_layer_at_fps(layer, self.frame, fps);
                 let tween = layer.key_at(self.frame).and_then(|k| k.tween);
                 layer.keyframes.push(neoflash_core::Keyframe {
@@ -559,13 +573,7 @@ impl Editor {
                 });
                 layer.keyframes.sort_by_key(|k| k.frame);
             }
-            layer
-                .keyframes
-                .iter_mut()
-                .find(|k| k.frame == self.frame)
-                .unwrap()
-                .elements
-                .push(element);
+            layer.key_at_mut(self.frame).unwrap().elements.push(element);
             layer.normalize_motion_keys();
         }
         if let Err(error) = candidate.validate() {

@@ -387,7 +387,9 @@ impl Editor {
                     let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
                     frame < layer_end
                         && motion_span(layer, frame).is_none()
-                        && layer.key_at(frame).is_some()
+                        && layer.key_at(frame).is_some_and(|key| {
+                            key.tween.is_none() || layer.properties.motion_guide.is_some()
+                        })
                 });
             if keep_span_key {
                 return;
