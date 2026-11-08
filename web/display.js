@@ -1235,11 +1235,14 @@
         buttonState(next,buttonPressed===next?2:buttonPressed?0:1);
       }
       if(type==='click'&&target&&target!==getStage()&&descriptor(target).owner==='text'){
-        if(!isStaticTextNode(descriptor(target))){
-          const pt=mousePoint(target),hit=getText()?.linkAt?.(referenceOf(target).key,pt);
-          if(hit&&/^event:/i.test(hit.url)){onTextLink?.(target,hit.url.slice(6));return;}
+        const key=referenceOf(target).key,pt=mousePoint(target),hit=getText()?.linkAt?.(key,pt);
+        if(!isStaticTextNode(descriptor(target))&&hit&&/^event:/i.test(hit.url)){onTextLink?.(target,hit.url.slice(6));return;}
+        if(getAS2Text()?.link(key,pt,event))return;
+        if(hit?.url&&!/^(?:event|asfunction):/i.test(hit.url)){
+          const net=getNet();
+          if(net?.navigateToURL&&net?.URLRequest)net.navigateToURL(new net.URLRequest(hit.url),hit.target||null);
         }
-        getAS2Text()?.link(referenceOf(target).key,mousePoint(target),event);return;
+        return;
       }
       if(type==='mouseWheel'&&target&&target!==getStage()&&descriptor(target).owner==='text'){getAS2Text()?.wheel(referenceOf(target).key,event);return;}
       if(type==='keyDown' ||type==='keyUp'){
@@ -1292,6 +1295,7 @@
       }
       if(!as2TabActive&&interactiveOwners.includes(node.owner)&&!isStaticTextNode(node)){
         const objPref=inputOf(node)?.focus_rect;
+        if(node.owner==='text'&&objPref!==true)return null;
         const stagePref=stage?.stageFocusRect??true;
         if((objPref??stagePref)!==true)return null;
         const rect=bounds(target,stage,true);
@@ -1299,7 +1303,7 @@
       }
       return null;
     }
-    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.owner!=='button'||node.input.button_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
+    function handCursor(target){for(let current=target;current&&current!==getStage()&&alive(current);current=parentSpace(current)){const node=descriptor(current),ref=referenceOf(current),record=legacy.get(ref.key+'\u0000'+ref.lifetime);if(node.owner==='text'&&as2Input(current).enabled){const field=getText()?.info?.(ref.key);if(field?.format?.url||field?.format_runs?.some(r=>r.format?.url)||(field?.html&&/<a\s/i.test(field.text||'')))return true;}if(node.input?.use_hand_cursor&&as2Input(current).enabled&&(node.owner!=='movie_clip'||node.input.movieclip_enabled!==false)&&(node.owner!=='button'||node.input.button_enabled!==false)&&(node.input.button_mode||[...buttonCallbacks].some(name=>hasCallback(record,name))))return true;}return false;}
     function methods(target) {
       const {owner,staticText}=ownerInfo(target);
       const result={

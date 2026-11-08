@@ -105,7 +105,7 @@
       Object.assign(clipped.style,{position:'absolute',inset:'0',pointerEvents:'none'});svg.setAttribute('width','0');svg.setAttribute('height','0');svg.style.position='absolute';svg.appendChild(defs);root.appendChild(svg);root.appendChild(clipped);
       const control=doc.createElement(field.multiline?'textarea':'input');if(!field.multiline)control.type=field.display_as_password?'password':'text';
       control.autocomplete='off';control.autocapitalize='off';control.spellcheck=false;control.setAttribute('aria-label',display.descriptor(record.target).name||'Text field');control.setAttribute('data-neoflash-text-input','true');
-      Object.assign(control.style,{position:'absolute',left:'0',top:'0',margin:'0',padding:'2px',boxSizing:'border-box',border:'0',borderRadius:'0',background:'transparent',outline:'1px solid #2780e3',resize:'none',transformOrigin:'0 0',pointerEvents:'auto',overflow:'auto'});
+      Object.assign(control.style,{position:'absolute',left:'0',top:'0',margin:'0',padding:'2px',boxSizing:'border-box',border:'0',borderRadius:'0',background:'transparent',outline:'none',resize:'none',transformOrigin:'0 0',pointerEvents:'auto',overflow:'hidden',scrollbarWidth:'none'});
       const wrappers=[];let parent=clipped;for(let i=0;i<32;i++){const wrapper=doc.createElement('div');Object.assign(wrapper.style,{position:'absolute',inset:'0',pointerEvents:'none'});parent.appendChild(wrapper);wrappers.push(wrapper);parent=wrapper;}parent.appendChild(control);Object.assign(record,{root,control,defs,clipped,wrappers,clipKey:null,serial:++serial,cleanups:[]});
       const on=(name,fn)=>record.cleanups.push(listen(control,name,fn));
       on('beforeinput',()=>{if(!record.composing){selection(record);record.base=text.info(record.key);}});
@@ -137,14 +137,15 @@
       const w=box.width??box.right-box.left,h=box.height??box.bottom-box.top;
       const rect=options.canvas?.getBoundingClientRect?.(),sx=rect?rect.width/width:1,sy=rect?rect.height/height:1;
       Object.assign(record.root.style,{width:width+'px',height:height+'px',transform:`scale(${sx},${sy})`});
-      const c=field.format.color;
-      Object.assign(record.control.style,{width:w+'px',height:(field.multiline?h:Math.min(h,field.format.size*1.2+field.format.leading+4))+'px',font:global.NeoFlashText?.cssFont?.(field.format)||`${field.format.italic?'italic ':''}${field.format.bold?'bold ':''}${field.format.size}px ${JSON.stringify(field.format.font)},sans-serif`,lineHeight:(field.format.size*1.2+field.format.leading)+'px',textAlign:field.format.align,color:`rgba(${c>>>16},${c>>>8&255},${c&255},${field.alpha/255*(draw?.alpha??1)})`,caretColor:`rgb(${c>>>16},${c>>>8&255},${c&255})`,transform:`matrix(${node.world.join(',')})`,whiteSpace:field.word_wrap?'pre-wrap':'pre'});
-      Object.assign(record.control.style,{paddingLeft:(2+(field.format.leftMargin||0)+(field.format.blockIndent||0))+'px',paddingRight:(2+(field.format.rightMargin||0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:field.format.underline?'underline':'none',letterSpacing:(field.format.letterSpacing||0)+'px',fontKerning:field.format.kerning===null||field.format.kerning===undefined?'auto':field.format.kerning?'normal':'none'});
-      if(field.as2_viewport?.active){
-        const view=field.as2_viewport,rgb=value=>`rgba(${value>>>16},${value>>>8&255},${value&255},${field.alpha/255})`;
+      const c=field.format.color,pad=field.box?2:0,lineH=field.format.size*1.2+(field.format.leading||0),view=field.as2_viewport,hasChrome=Boolean(view&&(view.background||view.border));
+      const boxH=hasChrome?h:(field.multiline?Math.max(h,lineH+pad*2):Math.min(Math.max(h,lineH+pad*2),lineH+pad*2));
+      Object.assign(record.control.style,{width:w+'px',height:boxH+'px',font:global.NeoFlashText?.cssFont?.(field.format)||`${field.format.italic?'italic ':''}${field.format.bold?'bold ':''}${field.format.size}px ${JSON.stringify(field.format.font)},sans-serif`,lineHeight:lineH+'px',textAlign:field.format.alignMode||field.format.align_mode||field.format.align||'left',color:`rgba(${c>>>16},${c>>>8&255},${c&255},${field.alpha/255*(draw?.alpha??1)})`,caretColor:`rgb(${c>>>16},${c>>>8&255},${c&255})`,transform:`matrix(${node.world.join(',')})`,whiteSpace:field.word_wrap?'pre-wrap':'pre'});
+      Object.assign(record.control.style,{paddingTop:pad+'px',paddingBottom:pad+'px',paddingLeft:(pad+(field.format.leftMargin??field.format.left_margin??0)+(field.format.blockIndent??field.format.block_indent??0))+'px',paddingRight:(pad+(field.format.rightMargin??field.format.right_margin??0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:field.format.underline?'underline':'none',letterSpacing:((field.format.letterSpacing??field.format.letter_spacing)||0)+'px',fontKerning:field.format.kerning===null||field.format.kerning===undefined?'auto':field.format.kerning?'normal':'none'});
+      if(view&&(view.active||view.background||view.border)){
+        const rgb=value=>`rgba(${value>>>16},${value>>>8&255},${value&255},${field.alpha/255*(draw?.alpha??1)})`;
         record.control.style.background=view.background?rgb(view.backgroundColor):'transparent';record.control.style.border=view.border?'1px solid '+rgb(view.borderColor):'0';
-        const viewport=text.layout(field).viewport;record.control.scrollLeft=viewport.offset_x;record.control.scrollTop=viewport.offset_y;
-      }
+        if(view.active){const viewport=text.layout(field).viewport;record.control.scrollLeft=viewport.offset_x;record.control.scrollTop=viewport.offset_y;}
+      }else{record.control.style.background='transparent';record.control.style.border='0';}
       record.control.readOnly=!editable(field);if(field.multiline)record.control.wrap=field.word_wrap?'soft':'off';else {const type=field.display_as_password?'password':'text';if(record.control.type!==type)record.control.type=type;}
       // Rust filters restrict before enforcing maxChars; native maxlength would
       // truncate a pasted raw string before disallowed characters are removed.
@@ -168,7 +169,7 @@
         if(node.owner==='text'){
           const key=referenceOf(next).key,field=text.info(key);
           if(!selectable(field))return false;
-          active={target:next,key,field,base:null,composing:false,control:null,cleanups:[]};makeDom(active);
+          active={target:next,key,field,base:null,composing:false,control:null,cleanups:[]};if(editable(field))makeDom(active);
         }
         legacy(next,'onSetFocus',[previous]);
       }
@@ -182,7 +183,9 @@
         const record=active,node=scene.objects.find(node=>refKey(node.object_ref)===record.key);
         if(!alive(record)||!node||!node.on_stage||!node.effective_visible||node.world[0]*node.world[3]-node.world[1]*node.world[2]===0){stage.changeFocus(null);return;}
         const field=text.info(record.key);if(!selectable(field)){stage.changeFocus(null);return;}
-        if(record.control&&Boolean(field.multiline)!==(record.control.tagName==='TEXTAREA')){if(record.composing)record.composing=false;acceptDom(record);removeDom(record);record.field=text.info(record.key);makeDom(record);}
+        if(!editable(field)){if(record.control){if(record.composing)record.composing=false;removeDom(record);}record.field=field;return;}
+        if(!record.control){record.field=field;makeDom(record);}
+        else if(Boolean(field.multiline)!==(record.control.tagName==='TEXTAREA')){if(record.composing)record.composing=false;acceptDom(record);removeDom(record);record.field=text.info(record.key);makeDom(record);}
         sync(record.key);style(record,scene);
       }finally{updating=false;}
     }

@@ -1780,6 +1780,8 @@ fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
     #stage-space {{ position: relative; }}
     #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}
     canvas {{ display: block; width: 100%; height: 100%; outline: none; }}
+    [data-neoflash-text-input] {{ outline: none; scrollbar-width: none; -ms-overflow-style: none; }}
+    [data-neoflash-text-input]::-webkit-scrollbar {{ display: none; width: 0; height: 0; }}
     #semantic-layer {{ position: absolute; inset: 0; pointer-events: none; }}
     footer {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-top: 1px solid #ffffff12; min-width: 0; }}
     .transport {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}

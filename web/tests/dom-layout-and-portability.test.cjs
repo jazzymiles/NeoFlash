@@ -128,6 +128,11 @@ function makeFakeElement(tag = 'div') {
     remove() {
       if (el.parentNode) el.parentNode.removeChild(el);
     },
+    replaceChildren(...next) {
+      for (const c of children) c.parentNode = null;
+      children.length = 0;
+      for (const c of next) el.appendChild(c);
+    },
     addEventListener(type, fn) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(fn);
@@ -169,6 +174,11 @@ function makeFakeDocument() {
     activeElement: null,
     fullscreenElement: null,
     createElement(tag) {
+      const el = makeFakeElement(tag);
+      el.ownerDocument = doc;
+      return el;
+    },
+    createElementNS(_ns, tag) {
       const el = makeFakeElement(tag);
       el.ownerDocument = doc;
       return el;
@@ -849,4 +859,209 @@ test('Alpha masks: cacheAsBitmap on target and mask emits RuntimeAlphaMask and m
 
   player.free();
 });
+
+test('TextInput: clicking Dynamic/Static text keeps Canvas text visible without DOM scrollbars; Input text inherits field properties', async () => {
+  const doc = makeFakeDocument();
+  const { context, wasm, ready } = loadWasmAndModules({ document: doc });
+  await ready;
+
+  const project = {
+    format_version: 2,
+    name: 'Text Input Regression',
+    width: 400,
+    height: 300,
+    fps: 24,
+    background: [15, 21, 35, 255],
+    root: 'root',
+    symbols: [
+      {
+        id: 'root',
+        name: 'Main',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 1,
+          layers: [
+            {
+              id: 'l1',
+              name: 'Layer 1',
+              visible: true,
+              locked: false,
+              keyframes: [
+                {
+                  frame: 0,
+                  label: '',
+                  tween: null,
+                  elements: [
+                    {
+                      id: 'badge-label',
+                      name: 'Badge label',
+                      transform: { x: 40, y: 30, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+                      kind: {
+                        type: 'text',
+                        text: 'BUILT TO BE INTERACTIVE',
+                        font_family: 'Arial',
+                        font_size: 12,
+                        color: [167, 243, 208, 255],
+                      },
+                      scripts: [],
+                    },
+                    {
+                      id: 'authored-input',
+                      name: 'heroInput',
+                      transform: { x: 40, y: 80, scale_x: 1, scale_y: 1, rotation: 0, alpha: 1 },
+                      kind: {
+                        type: 'text_box',
+                        text: 'Type here',
+                        width: 220,
+                        height: 36,
+                        word_wrap: true,
+                        multiline: true,
+                        format: {
+                          font: 'Georgia',
+                          size: 16,
+                          color: 0x336699,
+                          bold: true,
+                          italic: true,
+                          leading: 4,
+                          align: 'center',
+                          leftMargin: 6,
+                          rightMargin: 8,
+                          indent: 10,
+                          blockIndent: 4,
+                          underline: true,
+                          letterSpacing: 2,
+                          kerning: true,
+                          bullet: false,
+                          tabStops: [],
+                          url: '',
+                          target: '',
+                          fieldOptions: {
+                            field_type: 'input',
+                            selectable: true,
+                            border: true,
+                            border_color: 0x112233,
+                            background: true,
+                            background_color: 0xfefefe,
+                          },
+                        },
+                      },
+                      scripts: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          scripts: [],
+        },
+      },
+    ],
+  };
+
+  const player = new wasm.WebPlayer(JSON.stringify(project));
+  const surface = doc.createElement('div');
+  const canvas = doc.createElement('canvas');
+  canvas.width = 400;
+  canvas.height = 300;
+  surface.appendChild(canvas);
+
+  const textService = context.NeoFlashText.create({
+    player,
+    wasm,
+    events: context.NeoFlashEvents,
+    onUpdate: () => {},
+  });
+
+  const snap = JSON.parse(player.runtime_snapshot_json());
+  const badgeNode = snap.objects.find((n) => n.name === 'Badge label');
+  const inputNode = snap.objects.find((n) => n.name === 'heroInput');
+  assert.ok(badgeNode && inputNode);
+
+  const proxies = new Map();
+  const refs = new WeakMap();
+  for (const node of [badgeNode, inputNode]) {
+    const p = { name: node.name };
+    const key = JSON.stringify(node.object_ref);
+    proxies.set(key, p);
+    refs.set(p, { key, objectRef: node.object_ref });
+  }
+
+  let currentFocus = null;
+  let textInput = null;
+  const stageObj = {
+    get focus() {
+      return currentFocus;
+    },
+    set focus(v) {
+      const prev = currentFocus;
+      currentFocus = v;
+      textInput?.focusChanged(v, prev);
+    },
+  };
+  const stageHost = {
+    stage: stageObj,
+    changeFocus(next) {
+      stageObj.focus = next;
+    },
+    handlePointer() {},
+  };
+  const display = {
+    alive: () => true,
+    descriptor: (target) => (target === proxies.get(JSON.stringify(badgeNode.object_ref)) ? badgeNode : inputNode),
+    targetPath: (target) => `_level0.${target.name}`,
+  };
+  const hub = { dispatch: () => true };
+
+  textInput = context.NeoFlashTextInput.create({
+    player,
+    text: textService,
+    display,
+    events: context.NeoFlashEvents,
+    hub,
+    stage: stageHost,
+    referenceOf: (t) => refs.get(t),
+    proxyForRef: (ref) => proxies.get(JSON.stringify(ref)),
+    canvas,
+    surface,
+    document: doc,
+    project,
+  });
+
+  // 1. Focusing static/dynamic text ('BUILT TO BE INTERACTIVE') must NOT create a DOM textarea or hide Canvas text
+  const badgeProxy = proxies.get(JSON.stringify(badgeNode.object_ref));
+  stageHost.changeFocus(badgeProxy);
+  assert.equal(textInput.hidden(badgeNode.object_ref), false, 'Canvas text stays visible when static/dynamic text is clicked');
+  assert.equal(surface.children.length, 1, 'No DOM textarea/input overlay is appended for non-input text');
+
+  // 2. Focusing Input text ('heroInput') creates a scrollbar-free, outline-free DOM textarea inheriting editor properties
+  const inputProxy = proxies.get(JSON.stringify(inputNode.object_ref));
+  stageHost.changeFocus(inputProxy);
+  assert.equal(textInput.hidden(inputNode.object_ref), true, 'Active input text hides duplicate Canvas draw while editing');
+  assert.equal(surface.children.length, 2, 'DOM input overlay is mounted for field_type=input');
+
+  // Find the mounted textarea inside surface.children[1]
+  let control = null;
+  const walk = (el) => {
+    if (el.getAttribute?.('data-neoflash-text-input') === 'true') control = el;
+    for (const ch of el.children || []) walk(ch);
+  };
+  walk(surface.children[1]);
+  assert.ok(control, 'Found mounted [data-neoflash-text-input] control');
+  assert.equal(control.style.outline, 'none', 'No blue #2780e3 outline around focused text input');
+  assert.equal(control.style.overflow, 'hidden', 'No native browser scrollbars around focused text input');
+  assert.equal(control.style.scrollbarWidth, 'none');
+  assert.equal(control.style.textAlign, 'center');
+  assert.equal(control.style.letterSpacing, '2px');
+  assert.equal(control.style.fontKerning, 'normal');
+  assert.equal(control.style.textIndent, '10px');
+  assert.equal(control.style.textDecoration, 'underline');
+  assert.equal(control.style.paddingLeft, '12px'); // 2px pad + 6px leftMargin + 4px blockIndent
+  assert.equal(control.style.paddingRight, '10px'); // 2px pad + 8px rightMargin
+  assert.match(control.style.border, /1px solid rgba\(17,\s*34,\s*51/);
+  assert.match(control.style.background, /rgba\(254,\s*254,\s*254/);
+
+  textInput.dispose();
+  player.free();
+});
+
 

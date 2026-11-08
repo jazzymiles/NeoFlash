@@ -25,7 +25,7 @@
       for(const [name,item]of entries){if(!item.enumerable)continue;if(!Object.hasOwn(item,'value')||(!['string','number','boolean'].includes(typeof item.value)&&item.value!==null))throw new TypeError('StyleSheet styles require primitive own data properties.');result[name]=item.value;}
       return result;
     }
-    function stateFor(ref){active();text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:false,condense:false,style:null,source:null,revision:null,runs:null,baseAlign:null,defaultAlign:null,render:defaultRender()};fields.set(ref,state);}return state;}
+    function stateFor(ref){active();const field=text.info(ref);let state=fields.get(ref);if(!state){if(fields.size>=4096)throw new RangeError('AS2 text state exceeds 4096 fields.');state={html:Boolean(field.html),condense:Boolean(field.condense_white),style:null,source:null,revision:null,runs:null,baseAlign:null,defaultAlign:null,render:{...defaultRender(),embedFonts:Boolean(field.embed_fonts),antiAliasType:field.anti_alias_type||'normal',gridFitType:field.grid_fit_type||'pixel',sharpness:field.sharpness||0,thickness:field.thickness||0}};fields.set(ref,state);}return state;}
     function ensureRuns(state,field){
       const len=field.text.length,base={...field.format,...(state.baseAlign?{align:state.baseAlign}:{})};
       if(!state.runs||state.runs.length!==len)state.runs=Array.from({length:len},()=>({...base,tabStops:Array.isArray(base.tabStops)?base.tabStops.slice():base.tabStops}));
@@ -159,8 +159,8 @@
       if(result.handled){as2Ref(ref,'scroll').set(result.scroll);event.preventDefault?.();return true;}return false;
     }
     function link(ref,point,event){
-      if(disposed||event.defaultPrevented)return false;const field=text.info(ref);if(!field.format.url)return false;
-      const result=execute({op:'hit_link',field,layout:text.layout(field),x:point.x,y:point.y});if(!result)return false;
+      if(disposed||event.defaultPrevented)return false;const field=text.info(ref),layout=text.layout(field);if(!field.format.url&&!(layout.runs||[]).some(r=>r.format?.url))return false;
+      const result=execute({op:'hit_link',field,layout,x:point.x,y:point.y});if(!result)return false;
       if(/^asfunction:/i.test(result.url)){if(typeof onAsfunction==='function')onAsfunction(ref,result.url.slice(11));return true;}
       const net=getNet();if(!net)throw new Error('Text hyperlinks require the publication URL navigation service.');
       net.navigateToURL(new net.URLRequest(result.url),result.target||null);return true;

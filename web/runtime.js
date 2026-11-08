@@ -379,6 +379,7 @@
     const graphMode=typeof player.runtime_snapshot_json==='function';
     const references = new WeakMap();
     const attachedClasses = new Map();
+    const boundTextVariables = new Map();
     const registeredClasses = new Map();
     const executedInitClips = new Set();
     const clipFrameLabels = new Map();
@@ -1046,7 +1047,7 @@
       filterHost?.renderer.clear();
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
-      proxies.clear(); attachedClasses.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
+      proxies.clear(); attachedClasses.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
       soundsPreloaded=false;
       player.reset();
       initializeProgram();
@@ -1058,7 +1059,7 @@
       filterHost?.renderer.clear();
       as2PrintHost?.dispose();as2BoxingHost?.dispose();as2StageHost?.dispose();as2ConnectionsHost?.dispose();as2DepthManagerHost?.dispose();as2TransitionsHost?.dispose();as2MediaHost?.dispose();as2ServicesHost?.dispose();as2FilesHost?.dispose();as2NetworkHost?.dispose();as2LocaleHost?.dispose();as2TextHost?.dispose();as2BindingHost?.dispose();as2DataHost?.dispose();as2ObjectHost?.dispose();
       as3MediaEventsHost?.dispose();fte3dHost?.dispose();as3NetSysHost?.dispose();airHost?.dispose();externalHost?.dispose();textInputHost?.dispose();storageHost?.dispose();amfHost?.reset?.();loaderHost?.dispose();xmlHost?.dispose();videoHost?.dispose();as2CaptureHost?.dispose();audioHost?.dispose();netHost?.dispose();timerRenderGeneration++;easingHost?.dispose?.();broadcasterHost?.dispose?.();timerHost?.dispose();binaryHost?.dispose();bitmapHost?.dispose();textHost?.dispose();
-      registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
+      boundTextVariables.clear();registeredClasses.clear();executedInitClips.clear();clipFrameLabels.clear();callFrameDepth=0;if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0;
       as2PlatformHost?.dispose();legacyHost?.dispose();stageHost?.dispose();eventHub?.clear();display?.clear();
     }
     function as2RootFor(target) {
@@ -1086,10 +1087,12 @@
       display.prune();eventHub?.prune();
       if(!scope){
         for(const key of attachedClasses.keys())if(graphMode?!player.object_alive(key):!player.lifetime_id(key))attachedClasses.delete(key);
+        if(graphMode)for(const key of boundTextVariables.keys())if(!player.object_alive(key))boundTextVariables.delete(key);
       }
       const hasSymbolClasses=Boolean(typeof project!=='undefined'&&project?.symbols?.some(s=>s.class_name));
+      const hasAuthoredTextVariables=Boolean(graphMode&&as2ObjectHost&&typeof project!=='undefined'&&project?.symbols?.some(s=>s?.timeline?.layers?.some(l=>l?.keyframes?.some(kf=>kf?.elements?.some(el=>el?.kind?.format?.fieldOptions?.variable||el?.kind?.format?.field_options?.variable)))));
       const needRootClass=Boolean(typeof project!=='undefined'&&project?.document_class&&attachedClasses.size===0);
-      const needNodeScan=!graphMode||Boolean(scope)||hasSymbolClasses||registeredClasses.size>0||needRootClass;
+      const needNodeScan=!graphMode||Boolean(scope)||hasSymbolClasses||hasAuthoredTextVariables||registeredClasses.size>0||needRootClass;
       if(needNodeScan){
         const nodes=display.nodes(),byRef=nodes.__byKey||new Map(nodes.map(node=>[JSON.stringify(node.object_ref),node]));
         const depth=node=>{let result=0;while(node?.parent_ref){node=byRef.get(JSON.stringify(node.parent_ref));result++;}return result;};
@@ -1102,6 +1105,13 @@
         const candidates=[];
         for(const node of nodes){
           if(graphMode&&!withinScope(node))continue;
+          if(hasAuthoredTextVariables&&node.owner==='text'&&node.text?.variable&&!node.text?.html){
+            const tKey=JSON.stringify(node.object_ref),tLife=node.object_ref.generation;
+            if(boundTextVariables.get(tKey)!==tLife){
+              boundTextVariables.set(tKey,tLife);
+              as2ObjectHost.variableRef(proxyForRef(node.object_ref))?.set(node.text.variable);
+            }
+          }
           const symbolId=node.symbol_id||node.kind?.symbol_id;
           const symLinkage=symbolId&&registeredClasses.size>0&&typeof project!=='undefined'?project?.symbols?.find(s=>s.id===symbolId)?.linkage_id:null;
           const hasRegistered=Boolean(symLinkage&&registeredClasses.has(symLinkage));

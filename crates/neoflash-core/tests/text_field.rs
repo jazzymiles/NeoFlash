@@ -627,3 +627,92 @@ fn input_transaction_workflow(project: &Project) {
         "detached😀A\nB"
     );
 }
+
+#[test]
+fn authored_text_box_properties_and_html_flow_to_runtime_state_and_layout() {
+    let mut format = TextFormat {
+        font: "Georgia".into(),
+        size: 18.,
+        color: 0x336699,
+        bold: false,
+        italic: true,
+        leading: 4.,
+        align: TextAlign::Center,
+        left_margin: 6.,
+        right_margin: 8.,
+        indent: 10.,
+        block_indent: 4.,
+        underline: true,
+        letter_spacing: 1.5,
+        kerning: Some(true),
+        bullet: false,
+        tab_stops: vec![24., 48.],
+        url: "https://neoflash.example/docs".into(),
+        target: "_blank".into(),
+    };
+    format.set_align_mode(Some("justify".into()));
+    format.set_field_options(Some(neoflash_core::AuthoredTextFieldOptions {
+        field_type: TextFieldType::Input,
+        selectable: true,
+        display_as_password: false,
+        max_chars: 64,
+        restrict: Some("A-Za-z0-9 ".into()),
+        variable: Some("heroLabel".into()),
+        auto_size: "left".into(),
+        border: true,
+        border_color: 0x112233,
+        background: true,
+        background_color: 0xfefefe,
+        html: true,
+        embed_fonts: true,
+        format_runs: Vec::new(),
+    }));
+    let kind = neoflash_core::ElementKind::TextBox {
+        text: "<b>Hello</b> <font color=\"#ff0000\">World</font>".into(),
+        width: 240.,
+        height: 60.,
+        format,
+        word_wrap: true,
+        multiline: true,
+    };
+    let state = TextFieldState::from_kind(&kind).expect("TextBox produces TextFieldState");
+    assert_eq!(state.field_type, TextFieldType::Input);
+    assert!(state.selectable);
+    assert_eq!(state.max_chars, 64);
+    assert_eq!(state.restrict.as_deref(), Some("A-Za-z0-9 "));
+    assert_eq!(state.variable.as_deref(), Some("heroLabel"));
+    assert_eq!(state.as2_viewport.auto_size, "left");
+    assert!(state.as2_viewport.active);
+    assert!(state.as2_viewport.border);
+    assert_eq!(state.as2_viewport.border_color, 0x112233);
+    assert!(state.as2_viewport.background);
+    assert_eq!(state.as2_viewport.background_color, 0xfefefe);
+    assert!(state.html);
+    assert!(state.embed_fonts);
+    assert_eq!(state.format.font, "Georgia");
+    assert_eq!(state.format.size, 18.);
+    assert!(state.format.italic);
+    assert!(state.format.underline);
+    assert_eq!(state.format.letter_spacing, 1.5);
+    assert_eq!(state.format.kerning, Some(true));
+    assert_eq!(state.format.effective_align_mode(), "justify");
+    assert_eq!(state.format.url, "https://neoflash.example/docs");
+    assert_eq!(state.format.target_str(), "_blank");
+
+    let layout = layout_text(&state, measure).expect("HTML layout succeeds");
+    assert_eq!(layout.lines.len(), 1);
+    assert_eq!(layout.lines[0].text, "Hello World");
+    assert!(layout.runs.len() >= 2);
+    assert!(layout.runs[0].format.as_ref().unwrap().bold);
+    assert_eq!(
+        layout.runs.last().unwrap().format.as_ref().unwrap().color,
+        0xff0000
+    );
+    assert_eq!(layout.surface.border, Some(0x112233));
+    assert_eq!(layout.surface.background, Some(0xfefefe));
+
+    let mut roundtrip = kind.clone();
+    state.write_to_kind(&mut roundtrip);
+    let state2 = TextFieldState::from_kind(&roundtrip).unwrap();
+    assert_eq!(state2, state);
+}

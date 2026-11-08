@@ -586,6 +586,10 @@ pub struct TextFieldState {
     pub condense_white: bool,
     #[serde(default)]
     pub always_show_selection: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub html: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub format_runs: Vec<TextFormatRun>,
 }
@@ -619,6 +623,8 @@ impl Default for TextFieldState {
             embed_fonts: false,
             condense_white: false,
             always_show_selection: false,
+            html: false,
+            variable: None,
             format_runs: Vec::new(),
         }
     }
@@ -729,7 +735,12 @@ impl AuthoredTextFieldOptions {
         state.as2_viewport.border_color = self.border_color & 0xffffff;
         state.as2_viewport.background = self.background;
         state.as2_viewport.background_color = self.background_color & 0xffffff;
+        state.as2_viewport.active = self.border
+            || self.background
+            || !matches!(state.as2_viewport.auto_size.as_str(), "" | "none");
         state.embed_fonts = self.embed_fonts;
+        state.html = self.html;
+        state.variable = self.variable.clone().filter(|s| !s.trim().is_empty());
         state.format_runs = self.format_runs.clone();
         state.normalize_runs();
     }
@@ -741,13 +752,15 @@ impl AuthoredTextFieldOptions {
             display_as_password: state.display_as_password,
             max_chars: state.max_chars,
             restrict: state.restrict.clone(),
-            variable: variable.filter(|s| !s.trim().is_empty()),
+            variable: variable
+                .or_else(|| state.variable.clone())
+                .filter(|s| !s.trim().is_empty()),
             auto_size: state.as2_viewport.auto_size.clone(),
             border: state.as2_viewport.border,
             border_color: state.as2_viewport.border_color & 0xffffff,
             background: state.as2_viewport.background,
             background_color: state.as2_viewport.background_color & 0xffffff,
-            html,
+            html: html || state.html,
             embed_fonts: state.embed_fonts,
             format_runs: state.format_runs.clone(),
         }
@@ -2238,6 +2251,26 @@ where
     M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
 {
     field.validate()?;
+    if field.html
+        && field.format_runs.is_empty()
+        && field.text.contains('<')
+        && let Ok((parsed_text, parsed_format, parsed_runs)) = crate::as2_text::parse_authored_html(
+            &field.text,
+            field.format.clone(),
+            field.condense_white,
+        )
+    {
+        let mut effective = field.clone();
+        effective.html = false;
+        effective.text = parsed_text;
+        effective.format = parsed_format;
+        effective.format_runs = parsed_runs;
+        let max_len = effective.text.encode_utf16().count() as u32;
+        effective.selection_begin = effective.selection_begin.min(max_len);
+        effective.selection_end = effective.selection_end.min(max_len);
+        effective.caret = effective.caret.min(max_len);
+        return layout_text(&effective, measure);
+    }
     if !field.format_runs.is_empty() {
         return layout_multirun_text(field, measure);
     }

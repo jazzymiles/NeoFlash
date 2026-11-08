@@ -802,6 +802,23 @@ fn html(
     })
 }
 
+pub(crate) fn parse_authored_html(
+    source: &str,
+    base: TextFormat,
+    condense: bool,
+) -> Result<(String, TextFormat, Vec<TextFormatRun>), TextError> {
+    let parsed = html(source, base.clone(), &StyleSheet::default(), condense, true)?;
+    let mut runs = parsed.format_runs;
+    if runs.is_empty() && !parsed.text.is_empty() && parsed.format != base {
+        runs.push(TextFormatRun {
+            start: 0,
+            end: parsed.text.encode_utf16().count() as u32,
+            format: parsed.format.clone(),
+        });
+    }
+    Ok((parsed.text, parsed.format, runs))
+}
+
 fn serialize_single_run_html(text: &str, format: &TextFormat) -> String {
     let escape = |value: &str| {
         value

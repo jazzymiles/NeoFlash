@@ -117,9 +117,7 @@
   function applyFont(context,format,measurement=false,embedOnly=false){
     context.font=cssFont(format,embedOnly);
     if('fontKerning' in context)context.fontKerning=format.kerning===null||format.kerning===undefined?'auto':format.kerning?'normal':'none';
-    else if(format.kerning!==null&&format.kerning!==undefined)throw new Error('Explicit kerning requires Canvas fontKerning support in this browser.');
-    if('letterSpacing' in context)context.letterSpacing=measurement?'0px':(format.letterSpacing||0)+'px';
-    else if(!measurement&&format.letterSpacing)throw new Error('letterSpacing requires Canvas letterSpacing support in this browser.');
+    if('letterSpacing' in context)context.letterSpacing=measurement?'0px':((format.letterSpacing??format.letter_spacing)||0)+'px';
   }
   function string(value){
     if(typeof value!=='string')throw new TypeError('TextField text requires a string; convert other values explicitly with String().');
@@ -436,7 +434,7 @@
           }
         }
         for(const [x,y,radius]of result.bullets||[]){context.beginPath();context.arc(x,y,radius,0,Math.PI*2);context.fill();}
-        for(const item of result.decorations||[])context.fillRect(item.x,item.y,item.width,item.height);
+        for(const item of result.decorations||[]){const dc=item.color??rgb;context.fillStyle=`rgba(${dc>>>16},${dc>>>8&255},${dc&255},${baseAlpha})`;context.fillRect(item.x,item.y,item.width,item.height);}
       }finally{context.restore();}
     }
     function hit(field,x,y){const box=bounds(field);return !!box&&box.right>box.left&&box.bottom>box.top&&field.alpha>0&&x>=box.left&&y>=box.top&&x<=box.right&&y<=box.bottom;}
@@ -653,9 +651,9 @@
     }
     function linkAt(ref,point){
       active();
-      const field=info(ref);
-      if(!field.format.url&&!(field.format_runs||[]).some(r=>r.format?.url))return null;
-      return textKernel({op:'hit_link',field,layout:layout(field),x:point.x,y:point.y});
+      const field=info(ref),result=layout(field);
+      if(!field.format.url&&!(field.format_runs||[]).some(r=>r.format?.url)&&!(result.runs||[]).some(r=>r.format?.url))return null;
+      return textKernel({op:'hit_link',field,layout:result,x:point.x,y:point.y});
     }
     function isFontCompatible(fontName,fontStyle){
       active();

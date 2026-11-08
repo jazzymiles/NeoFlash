@@ -2,6 +2,20 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- HTML5 publish text field click/focus rendering and full editor `TextField` property inheritance (`T-151`):
+  - Fixed `web/text-input.js` (`focusChanged`, `update`, `makeDom`) and `web/display.js` (`as2FocusBounds`) so clicking
+    `Static` or `Dynamic` text fields in HTML5 publications keeps them rendered directly on the Canvas (`hidden() === false`)
+    without mounting a DOM `<textarea>`/`<input>` overlay, native browser scrollbars, or a `#ffcc00`/`#2780e3` focus border.
+  - Added `[data-neoflash-text-input]` CSS rules in `crates/neoflash-export/src/lib.rs` (`outline: none; scrollbar-width: none; ::-webkit-scrollbar { display: none; }`)
+    and updated `makeDom` / `style` in `web/text-input.js` so `Input` text fields inherit all authored editor `TextField`
+    properties (`align`, `letterSpacing`, `fontKerning`, `indent`, `underline`, `leftMargin`, `rightMargin`, `blockIndent`,
+    `leading`, `border`, `borderColor`, `background`, `backgroundColor`, `maxChars`, `restrict`, `password`, `multiline`, `wordWrap`).
+  - Added `html: bool` and `variable: Option<String>` to `TextFieldState` (`crates/neoflash-core/src/text.rs`) and
+    `parse_authored_html` (`crates/neoflash-core/src/as2_text.rs`), wired `AuthoredTextFieldOptions::apply_to_state` to
+    activate `as2_viewport` when `Border` or `Background` is enabled on a `TextBox` (`crates/neoflash-core/src/runtime_graph.rs`),
+    wired `boundTextVariables` in `web/runtime.js` for authored `Variable` bindings, and added direct URL/Target link
+    navigation and hand-cursor detection for `Text` / `TextBox` nodes in `web/display.js`, `web/text.js`, and `web/as2-text.js`.
+
 - Floating `Tools` live-resize height locking, unified contextual Color without `Selection` / `Drawing` toggle or
   `Mixed` apply gates, and always-on-top floating panel windows (`T-149`):
   - Locked the floating `Tools` viewport's `MinInnerSize.height` and `MaxInnerSize.height` to its computed content
