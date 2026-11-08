@@ -42,6 +42,27 @@ impl PaintFillType {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct ActiveDistortSession {
+    pub symbol: Id,
+    pub frame: u32,
+    pub targets: Vec<SelectionTarget>,
+    pub source_bounds: crate::transform_geometry::Bounds,
+    pub quad: crate::transform_geometry::DistortQuad,
+    pub base_elements: Vec<(SelectionTarget, Element)>,
+    pub last_applied_elements: Vec<(SelectionTarget, Element)>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ActiveEnvelopeSession {
+    pub symbol: Id,
+    pub frame: u32,
+    pub targets: Vec<SelectionTarget>,
+    pub cage: crate::transform_geometry::EnvelopeCage,
+    pub base_elements: Vec<(SelectionTarget, Element)>,
+    pub last_applied_elements: Vec<(SelectionTarget, Element)>,
+}
+
 pub(crate) struct AuthoringModify {
     pub to_stage: bool,
     pub horizontal_gap: f64,
@@ -54,6 +75,10 @@ pub(crate) struct AuthoringModify {
     pub drawing_stroke_gradient: Option<GradientPaint>,
     /// Transient world-space transformation point for a multi-selection in Free Transform.
     pub group_pivot: Option<(Vec<SelectionTarget>, [f64; 2])>,
+    pub distort_session: Option<ActiveDistortSession>,
+    pub envelope_session: Option<ActiveEnvelopeSession>,
+    pub envelope_backups: HashMap<(Id, u32, Id), Element>,
+    pub scale_and_rotate_dialog: Option<(f64, f64)>,
 }
 impl Default for AuthoringModify {
     fn default() -> Self {
@@ -68,6 +93,10 @@ impl Default for AuthoringModify {
             drawing_fill_gradient: None,
             drawing_stroke_gradient: None,
             group_pivot: None,
+            distort_session: None,
+            envelope_session: None,
+            envelope_backups: HashMap::new(),
+            scale_and_rotate_dialog: None,
         }
     }
 }
@@ -671,11 +700,216 @@ impl Editor {
         self.apply_modified(changes, None);
     }
 
+    pub(crate) fn rotate_90_cw_selection(&mut self, ctx: &egui::Context) {
+        self.affine_selection(ctx, [0., 1., -1., 0., 0., 0.]);
+    }
+
+    pub(crate) fn rotate_90_ccw_selection(&mut self, ctx: &egui::Context) {
+        self.affine_selection(ctx, [0., -1., 1., 0., 0., 0.]);
+    }
+
+    pub(crate) fn flip_horizontal_selection(&mut self, ctx: &egui::Context) {
+        self.affine_selection(ctx, [-1., 0., 0., 1., 0., 0.]);
+    }
+
+    pub(crate) fn flip_vertical_selection(&mut self, ctx: &egui::Context) {
+        self.affine_selection(ctx, [1., 0., 0., -1., 0., 0.]);
+    }
+
+    pub(crate) fn can_distort_or_envelope_selection(&self) -> bool {
+        let sampled = self.sampled_targets();
+        !sampled.is_empty()
+            && sampled.iter().all(|(target, element)| {
+                self.target_editable(target)
+                    && crate::transform_geometry::element_supports_mesh_deform(element)
+            })
+    }
+
+    pub(crate) fn can_delete_envelope_selection(&self) -> bool {
+        let sampled = self.sampled_targets();
+        if sampled.is_empty() {
+            return false;
+        }
+        let symbol_id = self.symbol_id();
+        let frame = self.frame;
+        let has_backup = sampled.iter().any(|(target, element)| {
+            self.target_editable(target)
+                && self.authoring_modify.envelope_backups.contains_key(&(
+                    symbol_id.to_owned(),
+                    frame,
+                    element.id.clone(),
+                ))
+        });
+        has_backup
+            || (self.can_distort_or_envelope_selection()
+                && (self.authoring_modify.envelope_session.is_some()
+                    || (self.tool == crate::app::Tool::Transform
+                        && self.authoring_tools.transform_mode
+                            == crate::authoring_tools::FreeTransformMode::Envelope)))
+    }
+
+    pub(crate) fn delete_envelope_selection(&mut self) -> bool {
+        self.finish_edits();
+        let sampled = self.sampled_targets();
+        if sampled.is_empty() {
+            return false;
+        }
+        let symbol_id = self.symbol_id().to_owned();
+        let frame = self.frame;
+        let mut restored = Vec::new();
+        for (target, element) in &sampled {
+            if !self.target_editable(target) {
+                continue;
+            }
+            if let Some(backup) = self.authoring_modify.envelope_backups.remove(&(
+                symbol_id.clone(),
+                frame,
+                element.id.clone(),
+            )) {
+                restored.push((target.clone(), backup));
+            }
+        }
+        let had_session = self.authoring_modify.envelope_session.take().is_some();
+        let was_envelope_mode = self.tool == crate::app::Tool::Transform
+            && self.authoring_tools.transform_mode
+                == crate::authoring_tools::FreeTransformMode::Envelope;
+        if was_envelope_mode {
+            self.authoring_tools.transform_mode =
+                crate::authoring_tools::FreeTransformMode::FreeTransform;
+        }
+        if !restored.is_empty() {
+            self.playing = false;
+            self.transact_named("Delete Envelope", |editor| editor.write_modified(restored));
+            self.status = "Deleted envelope.".to_owned();
+            true
+        } else if had_session || was_envelope_mode {
+            self.status = "Deleted envelope.".to_owned();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn open_scale_and_rotate_dialog(&mut self) {
+        self.finish_edits();
+        if self.selection.is_empty() {
+            return;
+        }
+        let current = self
+            .authoring_modify
+            .scale_and_rotate_dialog
+            .unwrap_or((100.0, 0.0));
+        self.authoring_modify.scale_and_rotate_dialog = Some(current);
+    }
+
+    pub(crate) fn apply_scale_and_rotate(
+        &mut self,
+        ctx: &egui::Context,
+        scale_percent: f64,
+        rotate_degrees: f64,
+    ) -> bool {
+        if !scale_percent.is_finite() || !rotate_degrees.is_finite() {
+            return false;
+        }
+        let s = (scale_percent / 100.0).clamp(0.01, 100.0);
+        let (sin, cos) = rotate_degrees.to_radians().sin_cos();
+        self.affine_selection(ctx, [s * cos, s * sin, -s * sin, s * cos, 0.0, 0.0]);
+        true
+    }
+
+    pub(crate) fn scale_and_rotate_modal(&mut self, ctx: &egui::Context) {
+        let Some((mut scale_pct, mut rotate_deg)) = self.authoring_modify.scale_and_rotate_dialog
+        else {
+            return;
+        };
+        use neoflash_ui::{
+            components as c,
+            tokens::{TextStyle, space},
+            typography::rich,
+        };
+        let mut accept = false;
+        let mut cancel = false;
+        let modal = egui::Modal::new(egui::Id::new("nf2-scale-and-rotate"))
+            .frame(c::Surface::Dialog.frame(ctx))
+            .show(ctx, |ui| {
+                ui.set_width(340.0);
+                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                cancel |= c::DialogHeader {
+                    title: "Scale and Rotate",
+                }
+                .show(ui);
+                let w = ui.available_width();
+                ui.add(
+                    c::Field::new(&mut scale_pct, "Scale")
+                        .prefix("Scale")
+                        .unit("%")
+                        .range(1.0..=1000.0)
+                        .decimals(1)
+                        .stepper()
+                        .width(w),
+                );
+                ui.add(
+                    c::Field::new(&mut rotate_deg, "Rotate")
+                        .prefix("Rotate")
+                        .unit("°")
+                        .range(-360.0..=360.0)
+                        .decimals(1)
+                        .stepper()
+                        .width(w),
+                );
+                let p = neoflash_ui::palette(ui.ctx());
+                ui.label(
+                    rich(
+                        "Scales and rotates the selection around its transformation point.",
+                        TextStyle::Small,
+                    )
+                    .color(p.text_tertiary),
+                );
+                ui.add_space(space::S2);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(c::Button::primary("OK").shortcut("↵")).clicked() {
+                        accept = true;
+                    }
+                    if ui.add(c::Button::new("Cancel").shortcut("Esc")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            accept = true;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if accept {
+            self.authoring_modify.scale_and_rotate_dialog = None;
+            self.apply_scale_and_rotate(ctx, scale_pct, rotate_deg);
+        } else if cancel {
+            self.authoring_modify.scale_and_rotate_dialog = None;
+        } else {
+            self.authoring_modify.scale_and_rotate_dialog = Some((scale_pct, rotate_deg));
+        }
+    }
+
     pub(crate) fn reset_selection_transform(&mut self, ctx: &egui::Context) {
+        self.authoring_modify.distort_session = None;
+        self.authoring_modify.envelope_session = None;
+        let symbol_id = self.symbol_id().to_owned();
+        let frame = self.frame;
         let changes = self
             .modify_placements(ctx)
             .into_iter()
             .map(|mut item| {
+                if let Some(backup) = self.authoring_modify.envelope_backups.remove(&(
+                    symbol_id.clone(),
+                    frame,
+                    item.element.id.clone(),
+                )) {
+                    item.element = backup;
+                }
                 let mut t = item.element.transform;
                 t.scale_x = 1.;
                 t.scale_y = 1.;
@@ -2126,6 +2360,11 @@ impl Editor {
         use crate::commands::CommandId as C;
         use crate::ui_icons::{menu_item_enabled, menu_popup};
         menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
+            if crate::ui_icons::menu_item(ui, "Document…", &self.sc(C::ModifyDocument)).clicked() {
+                self.open_document_settings();
+                ui.close();
+            }
+            neoflash_ui::components::menu_separator(ui);
             if menu_item_enabled(
                 ui,
                 self.can_convert_selection(),
@@ -2137,6 +2376,7 @@ impl Editor {
                 self.convert_to_symbol();
                 ui.close();
             }
+            let _ = menu_item_enabled(ui, false, "Convert to Bitmap", "");
             if menu_item_enabled(
                 ui,
                 self.can_break_apart_selection(),
@@ -2174,7 +2414,15 @@ impl Editor {
                 }
             });
             let can_combine = self.can_combine_objects();
-            menu_popup(ui, "Combine objects", "Intersect", "", |ui| {
+            let can_del_envelope = self.can_delete_envelope_selection();
+            let del_env_sc = self.sc(C::ModifyDeleteEnvelope);
+            menu_popup(ui, "Combine objects", "Delete Envelope", &del_env_sc, |ui| {
+                if menu_item_enabled(ui, can_del_envelope, "Delete Envelope", &del_env_sc).clicked()
+                {
+                    self.delete_envelope_selection();
+                    ui.close();
+                }
+                neoflash_ui::components::menu_separator(ui);
                 if menu_item_enabled(ui, can_combine, "Union", "").clicked() {
                     self.combine_objects_selection(BooleanOp::Union, false);
                     ui.close();
@@ -2310,17 +2558,138 @@ impl Editor {
 
     /// Transform ▸ (Modify and the stage object menu).
     pub(crate) fn transform_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::authoring_tools::FreeTransformMode;
         use crate::commands::CommandId as C;
+        use crate::ui_icons::{menu_check_enabled, menu_item_enabled};
         let selected = !self.selection.is_empty();
-        crate::ui_icons::menu_popup(ui, "Transform", "Remove Transform", "", |ui| {
-            if crate::ui_icons::menu_item(ui, "Transform panel", &self.sc(C::WindowTransform))
+        let can_deform = self.can_distort_or_envelope_selection();
+        let is_transform_tool = self.tool == crate::app::Tool::Transform;
+        let active_mode = self.active_free_transform_mode();
+        let scale_rot_sc = self.sc(C::ModifyScaleAndRotate);
+        let cw_sc = self.sc(C::ModifyRotate90Cw);
+        let ccw_sc = self.sc(C::ModifyRotate90Ccw);
+        let remove_custom_sc = self.sc(C::ModifyRemoveTransform);
+        let remove_sc = if remove_custom_sc.is_empty() {
+            "⇧⌘Z".to_owned()
+        } else {
+            remove_custom_sc
+        };
+        crate::ui_icons::menu_popup(
+            ui,
+            "Transform",
+            "Scale and Rotate…",
+            &scale_rot_sc,
+            |ui| {
+                if menu_check_enabled(
+                    ui,
+                    selected,
+                    "Free Transform",
+                    &self.sc(C::ModifyFreeTransform),
+                    is_transform_tool && active_mode == FreeTransformMode::FreeTransform,
+                )
                 .clicked()
-            {
-                self.show_panel(PanelId::Transform);
-                ui.close();
-            }
-            ui.add_enabled_ui_semantic(selected, |ui| self.transform_commands(ui));
-        });
+                {
+                    self.set_free_transform_mode(FreeTransformMode::FreeTransform);
+                    ui.close();
+                }
+                if menu_check_enabled(
+                    ui,
+                    can_deform,
+                    "Distort",
+                    &self.sc(C::ModifyDistort),
+                    is_transform_tool && active_mode == FreeTransformMode::Distort,
+                )
+                .clicked()
+                {
+                    self.set_free_transform_mode(FreeTransformMode::Distort);
+                    ui.close();
+                }
+                if menu_check_enabled(
+                    ui,
+                    can_deform,
+                    "Envelope",
+                    &self.sc(C::ModifyEnvelope),
+                    is_transform_tool && active_mode == FreeTransformMode::Envelope,
+                )
+                .clicked()
+                {
+                    self.set_free_transform_mode(FreeTransformMode::Envelope);
+                    ui.close();
+                }
+                if menu_check_enabled(
+                    ui,
+                    selected,
+                    "Scale",
+                    &self.sc(C::ModifyScale),
+                    is_transform_tool && active_mode == FreeTransformMode::Scale,
+                )
+                .clicked()
+                {
+                    self.set_free_transform_mode(FreeTransformMode::Scale);
+                    ui.close();
+                }
+                if menu_check_enabled(
+                    ui,
+                    selected,
+                    "Rotate and Skew",
+                    &self.sc(C::ModifyRotateAndSkew),
+                    is_transform_tool && active_mode == FreeTransformMode::RotateAndSkew,
+                )
+                .clicked()
+                {
+                    self.set_free_transform_mode(FreeTransformMode::RotateAndSkew);
+                    ui.close();
+                }
+                if menu_item_enabled(ui, selected, "Scale and Rotate…", &scale_rot_sc).clicked() {
+                    self.open_scale_and_rotate_dialog();
+                    ui.close();
+                }
+                neoflash_ui::components::menu_separator(ui);
+                if menu_item_enabled(ui, selected, "Rotate 90° CW", &cw_sc).clicked() {
+                    self.rotate_90_cw_selection(ui.ctx());
+                    ui.close();
+                }
+                if menu_item_enabled(ui, selected, "Rotate 90° CCW", &ccw_sc).clicked() {
+                    self.rotate_90_ccw_selection(ui.ctx());
+                    ui.close();
+                }
+                neoflash_ui::components::menu_separator(ui);
+                if menu_item_enabled(
+                    ui,
+                    selected,
+                    "Flip Vertical",
+                    &self.sc(C::ModifyFlipVertical),
+                )
+                .clicked()
+                {
+                    self.flip_vertical_selection(ui.ctx());
+                    ui.close();
+                }
+                if menu_item_enabled(
+                    ui,
+                    selected,
+                    "Flip Horizontal",
+                    &self.sc(C::ModifyFlipHorizontal),
+                )
+                .clicked()
+                {
+                    self.flip_horizontal_selection(ui.ctx());
+                    ui.close();
+                }
+                neoflash_ui::components::menu_separator(ui);
+                if menu_item_enabled(ui, selected, "Remove Transform", &remove_sc).clicked() {
+                    self.reset_selection_transform(ui.ctx());
+                    ui.close();
+                }
+                neoflash_ui::components::menu_separator(ui);
+                if crate::ui_icons::menu_item(ui, "Transform panel", &self.sc(C::WindowTransform))
+                    .clicked()
+                {
+                    self.show_panel(PanelId::Transform);
+                    ui.close();
+                }
+            },
+        );
     }
 
     /// Arrange ▸ (Modify and the stage object menu).
@@ -2742,6 +3111,7 @@ impl Editor {
         });
     }
 
+    #[allow(dead_code)]
     fn transform_commands(&mut self, ui: &mut egui::Ui) {
         for (label, matrix) in TRANSFORM_COMMANDS {
             let response = if egui::containers::menu::is_in_menu(ui) {
@@ -4681,6 +5051,169 @@ mod arrange_tests {
             vec!["back", "mid", "front"],
             "Send backward must step behind an entire authoring group without splitting its members"
         );
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn grouped_selection_shows_single_combined_bounding_box_and_ungroup_restores_individual_boxes()
+    {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        let mut a = make_rect("a", 10.0);
+        a.merge = true;
+        let mut b = make_rect("b", 80.0);
+        b.merge = true;
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![a, b];
+
+        editor.set_selection(vec![
+            SelectionTarget {
+                layer: layer_id.clone(),
+                element: "a".into(),
+            },
+            SelectionTarget {
+                layer: layer_id.clone(),
+                element: "b".into(),
+            },
+        ]);
+
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let scene: Vec<DrawItem> = editor
+            .presented_interactive_authored_scene(false)
+            .draws
+            .into_iter()
+            .map(|d| d.item)
+            .collect();
+        let mapping = crate::stage_mapping::StageMapping::identity();
+
+        // Before grouping: 2 separate boxes (one for "a" and one for "b", both merge shapes).
+        let before_boxes = editor.selection_boxes(&scene, &painter, mapping);
+        assert_eq!(before_boxes.len(), 2);
+        assert!(before_boxes.iter().all(|(_, _, _, _, is_merge)| *is_merge));
+
+        // Group via ⌘G (`group_selection`): must coalesce into 1 single combined Group bounding box.
+        editor.group_selection();
+        let grouped_boxes = editor.selection_boxes(&scene, &painter, mapping);
+        assert_eq!(
+            grouped_boxes.len(),
+            1,
+            "Grouped objects must display a single combined bounding box"
+        );
+        let (_, world_rect, context_rect, kind, is_merge) = &grouped_boxes[0];
+        assert_eq!(*kind, neoflash_ui::components::canvas::SelectionKind::Group);
+        assert!(!*is_merge);
+        assert!(world_rect.min.x <= 10.5 && world_rect.max.x >= 99.5);
+        assert!(context_rect.min.x <= 10.5 && context_rect.max.x >= 99.5);
+
+        // Ungroup via ⇧⌘G (`ungroup_selection`): restores individual bounding boxes for each object.
+        editor.ungroup_selection();
+        let after_boxes = editor.selection_boxes(&scene, &painter, mapping);
+        assert_eq!(
+            after_boxes.len(),
+            2,
+            "After Ungroup, each object must display its own individual bounding box"
+        );
+        assert!(after_boxes.iter().all(|(_, _, _, _, is_merge)| *is_merge));
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn transform_submodes_menu_commands_envelope_delete_and_hotkey_bindings_work() {
+        use crate::authoring_tools::FreeTransformMode;
+        use crate::transform_geometry::{Bounds, EnvelopeCage, EnvelopeHandle, deform_element_envelope};
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements =
+            vec![make_rect("shape1", 20.0), make_rect("shape2", 60.0)];
+
+        let prefs = ShortcutPrefs::default();
+        assert_eq!(primary_shortcut_label(&prefs, CommandId::ModifyGroup), "⌘G");
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyUngroup),
+            "⇧⌘G"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyBreakApart),
+            "⌘B"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyScaleAndRotate),
+            "⌥⌘S"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyRotate90Cw),
+            "⇧⌘9"
+        );
+        assert_eq!(
+            primary_shortcut_label(&prefs, CommandId::ModifyRotate90Ccw),
+            "⇧⌘7"
+        );
+
+        editor.set_selection(vec![SelectionTarget {
+            layer: layer_id.clone(),
+            element: "shape1".into(),
+        }]);
+        assert!(editor.can_distort_or_envelope_selection());
+
+        // Switching Free Transform sub-modes activates Tool::Transform and sets the mode.
+        for mode in [
+            FreeTransformMode::RotateAndSkew,
+            FreeTransformMode::Scale,
+            FreeTransformMode::Distort,
+            FreeTransformMode::Envelope,
+            FreeTransformMode::FreeTransform,
+        ] {
+            editor.set_free_transform_mode(mode);
+            assert_eq!(editor.tool, crate::app::Tool::Transform);
+            assert_eq!(editor.active_free_transform_mode(), mode);
+        }
+
+        // Rotate 90° CW / CCW and Flip Horizontal / Vertical.
+        editor.rotate_90_cw_selection(&ctx);
+        let rot_cw = editor.selected_element().unwrap().transform.rotation;
+        assert!((rot_cw - 90.0).abs() < 1e-4);
+        editor.rotate_90_ccw_selection(&ctx);
+        let rot_ccw = editor.selected_element().unwrap().transform.rotation;
+        assert!(rot_ccw.abs() < 1e-4);
+
+        editor.flip_horizontal_selection(&ctx);
+        let m_h = transform_matrix(editor.selected_element().unwrap().transform);
+        assert!((m_h[0] + 1.0).abs() < 1e-4 && (m_h[3] - 1.0).abs() < 1e-4);
+        editor.flip_vertical_selection(&ctx);
+        let m_hv = transform_matrix(editor.selected_element().unwrap().transform);
+        assert!((m_hv[0] + 1.0).abs() < 1e-4 && (m_hv[3] + 1.0).abs() < 1e-4);
+
+        // Scale and Rotate numeric dialog apply.
+        assert!(editor.apply_scale_and_rotate(&ctx, 150.0, 45.0));
+        assert!((editor.selected_element().unwrap().transform.scale_x.abs() - 1.5).abs() < 1e-3);
+
+        // Remove Transform resets scale/rotation/skew to identity.
+        editor.reset_selection_transform(&ctx);
+        let reset_t = editor.selected_element().unwrap().transform;
+        assert!((reset_t.scale_x - 1.0).abs() < 1e-4);
+        assert!((reset_t.scale_y - 1.0).abs() < 1e-4);
+        assert!(reset_t.rotation.abs() < 1e-4);
+        assert!(reset_t.skew.abs() < 1e-4);
+
+        // Envelope deformation and Delete Envelope restoration.
+        let orig = editor.selected_element().unwrap().clone();
+        let cage = EnvelopeCage::from_bounds(Bounds {
+            min: [20.0, 0.0],
+            max: [40.0, 20.0],
+        })
+        .dragged(EnvelopeHandle::Anchor(1), [30.0, 0.0], [30.0, -10.0])
+        .unwrap();
+        let warped = deform_element_envelope(&orig, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], &cage).unwrap();
+        editor.authoring_modify.envelope_backups.insert(
+            (editor.symbol_id().to_owned(), editor.frame, orig.id.clone()),
+            orig.clone(),
+        );
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements[0] = warped;
+        assert!(editor.can_delete_envelope_selection());
+        assert!(editor.delete_envelope_selection());
+        assert_eq!(editor.selected_element().unwrap().kind, orig.kind);
         editor.project.validate().unwrap();
     }
 }

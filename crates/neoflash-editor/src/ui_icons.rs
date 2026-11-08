@@ -253,6 +253,19 @@ pub(crate) fn menu_item_enabled(
         .inner
 }
 
+pub(crate) fn menu_check_enabled(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    label: &str,
+    shortcut: &str,
+    checked: bool,
+) -> Response {
+    ui.add_enabled_ui_semantic(enabled, |ui| {
+        menu_row(ui, label, shortcut, Some(checked), false)
+    })
+    .inner
+}
+
 pub(crate) fn menu_toggle(
     ui: &mut egui::Ui,
     value: &mut bool,
@@ -306,6 +319,149 @@ pub(crate) fn menu_submenu<R>(
     egui::containers::menu::SubMenu::new().show(ui, &response, content);
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TransformModifierIcon {
+    RotateAndSkew,
+    Scale,
+    Distort,
+    Envelope,
+}
+
+/// Paints one of the four Classic Flash Free Transform sub-mode modifier icons (`Rotate and Skew`,
+/// `Scale`, `Distort`, `Envelope`) centred inside `rect` on a 16×16 logical grid.
+pub(crate) fn paint_transform_modifier_icon(
+    p: &Painter,
+    rect: Rect,
+    icon: TransformModifierIcon,
+    color: egui::Color32,
+) {
+    let size = rect.width().min(rect.height()).min(16.0);
+    if !size.is_finite() || size <= 0.0 {
+        return;
+    }
+    let box_rect = Rect::from_center_size(rect.center(), Vec2::splat(size));
+    let pt = |x: f32, y: f32| -> Pos2 {
+        Pos2::new(
+            box_rect.left() + (x / 16.0) * box_rect.width(),
+            box_rect.top() + (y / 16.0) * box_rect.height(),
+        )
+    };
+    let stroke = Stroke::new(1.25_f32, color);
+    let thin = Stroke::new(1.0_f32, color);
+    match icon {
+        TransformModifierIcon::RotateAndSkew => {
+            // Top horizontal right-pointing arrow (`→`) + sheared parallelogram below it.
+            p.line_segment([pt(3.0, 3.0), pt(12.5, 3.0)], stroke);
+            p.line_segment([pt(10.0, 1.2), pt(12.8, 3.0)], stroke);
+            p.line_segment([pt(10.0, 4.8), pt(12.8, 3.0)], stroke);
+            let poly = [
+                pt(4.5, 6.5),
+                pt(13.5, 6.5),
+                pt(11.5, 14.0),
+                pt(2.5, 14.0),
+            ];
+            for i in 0..4 {
+                p.line_segment([poly[i], poly[(i + 1) % 4]], stroke);
+            }
+        }
+        TransformModifierIcon::Scale => {
+            // Outer frame + inset bottom-right corner box + diagonal scale arrow (`↖`).
+            let outer = Rect::from_min_max(pt(2.0, 2.0), pt(14.0, 14.0));
+            p.rect_stroke(outer, 0.0, stroke, egui::StrokeKind::Inside);
+            let inner = Rect::from_min_max(pt(8.5, 8.5), pt(14.0, 14.0));
+            p.rect_stroke(inner, 0.0, thin, egui::StrokeKind::Inside);
+            p.line_segment([pt(8.5, 8.5), pt(4.2, 4.2)], stroke);
+            p.line_segment([pt(4.2, 4.2), pt(7.2, 4.2)], stroke);
+            p.line_segment([pt(4.2, 4.2), pt(4.2, 7.2)], stroke);
+        }
+        TransformModifierIcon::Distort => {
+            // Perspective-tapered trapezoid (narrower left edge, taller right edge) + corner handles.
+            let quad = [
+                pt(3.0, 5.5),
+                pt(13.0, 2.5),
+                pt(13.0, 13.5),
+                pt(3.0, 11.5),
+            ];
+            for i in 0..4 {
+                p.line_segment([quad[i], quad[(i + 1) % 4]], stroke);
+                p.rect_filled(Rect::from_center_size(quad[i], Vec2::splat(2.2)), 0.0, color);
+            }
+        }
+        TransformModifierIcon::Envelope => {
+            // Outer bounding guide with 8 handle dots + pinched curved envelope contour inside.
+            let outer = Rect::from_min_max(pt(2.2, 2.2), pt(13.8, 13.8));
+            p.rect_stroke(outer, 0.0, thin, egui::StrokeKind::Inside);
+            for (hx, hy) in [
+                (2.2, 2.2),
+                (8.0, 2.2),
+                (13.8, 2.2),
+                (13.8, 8.0),
+                (13.8, 13.8),
+                (8.0, 13.8),
+                (2.2, 13.8),
+                (2.2, 8.0),
+            ] {
+                p.rect_filled(
+                    Rect::from_center_size(pt(hx, hy), Vec2::splat(2.0)),
+                    0.0,
+                    color,
+                );
+            }
+            // Pinched bezier-like inner shape
+            let curve = [
+                pt(3.5, 4.2),
+                pt(8.0, 6.2),
+                pt(12.5, 4.2),
+                pt(10.8, 8.0),
+                pt(12.5, 11.8),
+                pt(8.0, 9.8),
+                pt(3.5, 11.8),
+                pt(5.2, 8.0),
+            ];
+            for i in 0..curve.len() {
+                p.line_segment([curve[i], curve[(i + 1) % curve.len()]], stroke);
+            }
+        }
+    }
+}
+
+pub(crate) fn transform_modifier_button(
+    ui: &mut egui::Ui,
+    icon: TransformModifierIcon,
+    selected: bool,
+    enabled: bool,
+    label: &str,
+) -> Response {
+    ui.add_enabled_ui_semantic(enabled, |ui| {
+        let p = neoflash_ui::palette(ui.ctx());
+        let side = neoflash_ui::metrics::tool_button();
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+        let s = neoflash_ui::components::State::of(ui, &response);
+        let (bg, fg) = match (selected, s.enabled, s.hovered) {
+            (_, false, _) => (egui::Color32::TRANSPARENT, p.text_disabled),
+            (true, _, _) => (p.accent_subtle, p.accent_default),
+            (false, _, true) => (p.bg_hover, p.text_primary),
+            (false, _, false) => (egui::Color32::TRANSPARENT, p.text_secondary),
+        };
+        let r = neoflash_ui::tokens::radius::MD;
+        if ui.is_rect_visible(rect) {
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(r as u8), bg);
+            paint_transform_modifier_icon(ui.painter(), rect, icon, fg);
+            if s.focused {
+                neoflash_ui::theme::focus_ring(ui, rect, r);
+            }
+        }
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, s.enabled, label);
+            info.selected = Some(selected);
+            info
+        });
+        neoflash_ui::components::tooltip(response, label, None)
+    })
+    .inner
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +505,24 @@ mod tests {
             assert!(!output.shapes.is_empty(), "{icon:?} paints");
             for shape in &output.shapes {
                 assert!(!matches!(shape.shape, Shape::Text(_)));
+                assert!(
+                    rect.expand(1.)
+                        .contains_rect(shape.shape.visual_bounding_rect())
+                );
+            }
+        }
+        for modifier in [
+            TransformModifierIcon::RotateAndSkew,
+            TransformModifierIcon::Scale,
+            TransformModifierIcon::Distort,
+            TransformModifierIcon::Envelope,
+        ] {
+            let output = ctx.run(Default::default(), |ctx| {
+                let p = ctx.layer_painter(egui::LayerId::background());
+                paint_transform_modifier_icon(&p, rect, modifier, Color32::WHITE);
+            });
+            assert!(!output.shapes.is_empty(), "{modifier:?} paints");
+            for shape in &output.shapes {
                 assert!(
                     rect.expand(1.)
                         .contains_rect(shape.shape.visual_bounding_rect())

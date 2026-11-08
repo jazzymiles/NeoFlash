@@ -171,6 +171,11 @@ impl Editor {
                                     self.tool_options_body(ui);
                                 });
                             } else {
+                                if self.tool == Tool::Transform
+                                    && popover(ui.ctx()) != Some(RailPopover::Options)
+                                {
+                                    self.free_transform_modifier_grid(ui);
+                                }
                                 self.tool_options_button(ui);
                             }
                         });

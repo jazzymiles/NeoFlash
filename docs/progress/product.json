@@ -391,7 +391,7 @@
       "category": "editor",
       "title": "Multiple selection",
       "status": "implemented",
-      "scope": "Shift-click, marquee, Select All, Option-drag (⌥-drag) duplication on Stage, Arrow (1 px) / Shift+Arrow (10 px) keyboard nudging and selection-wide operations across visible, unlocked, solo-active layers.",
+      "scope": "Shift-click, marquee, Select All, Option-drag (⌥-drag) duplication on Stage, Arrow (1 px) / Shift+Arrow (10 px) keyboard nudging and selection-wide operations across visible, unlocked, solo-active layers, with a single combined Group bounding box for grouped objects (⌘G) and per-object selection bounds after Ungroup (⇧⌘G).",
       "limitations": "This is a defined, testable set of operations; complete Flash workflow parity is not claimed.",
       "items": [
         {
@@ -441,7 +441,7 @@
       "category": "editor",
       "title": "Free Transform",
       "status": "implemented",
-      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection. Free Transform uses the NF2 transform box with Flash zones and a draggable transformation point (`Transform.pivot` in format 7 for single placements and a transient stage pivot for multi-selections; rotation and ⌥-scale pivot around it, double-click resets to centre): handles scale, edges skew, just outside a corner rotates, inside moves; NF2 cursors show each zone.",
+      "scope": "Move, scale and rotate individual objects; uniformly scale and rotate a group through stage gestures. Tools Options for Free Transform (Q) and Modify ▸ Transform provide Rotate and Skew, Scale, Distort (4-corner bilinear quad deformation plus ⌘-corner drag and ⇧-drag perspective tapering) and Envelope (8 square anchor points and 16 circular cubic-Bézier tangent handles around the perimeter via a bicubic Coons patch, plus Modify ▸ Combine objects ▸ Delete Envelope), alongside Scale and Rotate… (⌥⌘S), Rotate 90° CW (⇧⌘9), Rotate 90° CCW (⇧⌘7), Flip Vertical, Flip Horizontal and Remove Transform (⇧⌘Z). Transform panel adds exact position/dimensions, optional linked proportions and nonuniform W/H scaling of the selection, plus single-object rotation/skew, flips and reset. Skew-aware handle resizing preserves its fixed anchor and authored reflection. Free Transform uses the NF2 transform box with Flash zones and a draggable transformation point (`Transform.pivot` in format 7 for single placements and a transient stage pivot for multi-selections; rotation and ⌥-scale pivot around it, double-click resets to centre): handles scale, edges skew, just outside a corner rotates, inside moves; NF2 cursors show each zone.",
       "limitations": "The transform box is axis-aligned for rotated objects (NF2 request R-011), and direct numeric skew editing of multi-object groups remains unfinished. Numeric selection sizing and stage transform gestures have separate supported operations.",
       "items": [
         {
@@ -493,6 +493,11 @@
           "id": "group-skew",
           "title": "Direct skew editing of groups in the Transform panel",
           "status": "working"
+        },
+        {
+          "id": "free-transform-distort-envelope",
+          "title": "Free Transform sub-modes (Rotate and Skew, Scale, Distort, Envelope), Delete Envelope and Modify ▸ Transform actions",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -501,7 +506,9 @@
         "crates/neoflash-editor/src/transform_gesture_tests.rs",
         "crates/neoflash-core/src/model.rs",
         "docs/BACKLOG.md",
-        "crates/neoflash-editor/src/authoring_modify.rs"
+        "crates/neoflash-editor/src/authoring_modify.rs",
+        "crates/neoflash-editor/src/ui_icons.rs",
+        "crates/neoflash-editor/src/panels/tools.rs"
       ]
     },
     {

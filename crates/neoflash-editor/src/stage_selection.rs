@@ -69,6 +69,15 @@ enum GestureKind {
         opposite: f64,
         center: f64,
     },
+    Distort {
+        source_bounds: geometry::Bounds,
+        initial_quad: geometry::DistortQuad,
+        handle: geometry::ResizeHandle,
+    },
+    Envelope {
+        initial_cage: geometry::EnvelopeCage,
+        handle: geometry::EnvelopeHandle,
+    },
     Marquee,
 }
 
@@ -106,6 +115,7 @@ pub(crate) struct SelectionGesture {
     latest: Pos2,
     original_selection: Selection,
     targets: Vec<(SelectionTarget, Transform)>,
+    base_elements: Vec<(SelectionTarget, Element)>,
     /// `(layer_id, keyframe_frame, element_id, original_transform)` for other keyframes in
     /// `onion_range()` when `Edit multiple frames` is active.
     other_keyframes: Vec<(Id, u32, Id, Transform)>,
@@ -280,6 +290,18 @@ impl Editor {
     ) -> Option<Rect> {
         self.selection_geometry(scene, painter, mapping)
             .map(|geometry| geometry.context_world)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn selection_boxes(
+        &self,
+        scene: &[DrawItem],
+        painter: &egui::Painter,
+        mapping: StageMapping,
+    ) -> Vec<(Id, Rect, Rect, cv::SelectionKind, bool)> {
+        self.selection_geometry(scene, painter, mapping)
+            .map(|geometry| geometry.boxes)
+            .unwrap_or_default()
     }
     pub(crate) fn finish_selection_gesture(&mut self) {
         if let Some(gesture) = self.object_gesture.take()
@@ -475,6 +497,13 @@ impl Editor {
             if gesture.began {
                 self.history.cancel(&mut self.project);
             }
+            if matches!(
+                gesture.kind,
+                GestureKind::Distort { .. } | GestureKind::Envelope { .. }
+            ) {
+                self.authoring_modify.distort_session = None;
+                self.authoring_modify.envelope_session = None;
+            }
             self.selection = gesture.original_selection;
         }
     }
@@ -563,15 +592,16 @@ impl Editor {
         } else {
             self.selection.len() > 1 && world.width() > 1e-6 && world.height() > 1e-6
         };
-        let grouped_ids: HashSet<Id> = self
-            .symbol()
-            .timeline
-            .layers
-            .iter()
-            .flat_map(|l| &l.properties.groups)
-            .filter(|g| g.members.len() >= 2)
-            .flat_map(|g| g.members.iter().cloned())
-            .collect();
+        let mut member_to_group: HashMap<&Id, &Id> = HashMap::new();
+        for layer in &self.symbol().timeline.layers {
+            for group in &layer.properties.groups {
+                if !group.members.is_empty() {
+                    for member in &group.members {
+                        member_to_group.insert(member, &group.id);
+                    }
+                }
+            }
+        }
         let multiple = self.timeline_edit.edit_multiple;
         let (start_f, end_f) = if multiple {
             self.onion_range()
@@ -584,7 +614,7 @@ impl Editor {
             if let Some(key) = layer.key_at(self.frame) {
                 for element in &key.elements {
                     if selected.contains(&element.id) {
-                        let is_merge = element.merge && !grouped_ids.contains(&element.id);
+                        let is_merge = element.merge && !member_to_group.contains_key(&element.id);
                         kinds.insert(element.id.clone(), (selection_kind(element), is_merge));
                     }
                 }
@@ -597,24 +627,42 @@ impl Editor {
                 {
                     for element in &key.elements {
                         if selected.contains(&element.id) && !kinds.contains_key(&element.id) {
-                            let is_merge = element.merge && !grouped_ids.contains(&element.id);
+                            let is_merge =
+                                element.merge && !member_to_group.contains_key(&element.id);
                             kinds.insert(element.id.clone(), (selection_kind(element), is_merge));
                         }
                     }
                 }
             }
         }
-        let boxes = per_target
+        let mut boxes: Vec<(Id, Rect, Rect, cv::SelectionKind, bool)> = Vec::new();
+        let mut group_box_idx: HashMap<&Id, usize> = HashMap::new();
+        for (id, local, context) in per_target
             .into_iter()
             .filter(|(_, local, context)| local.is_finite() && context.is_finite())
-            .map(|(id, local, context)| {
+        {
+            if let Some(&group_id) = member_to_group.get(id) {
+                if let Some(&idx) = group_box_idx.get(group_id) {
+                    boxes[idx].1 = boxes[idx].1.union(local);
+                    boxes[idx].2 = boxes[idx].2.union(context);
+                } else {
+                    group_box_idx.insert(group_id, boxes.len());
+                    boxes.push((
+                        group_id.clone(),
+                        local,
+                        context,
+                        cv::SelectionKind::Group,
+                        false,
+                    ));
+                }
+            } else {
                 let (kind, is_merge) = kinds
                     .get(id)
                     .copied()
                     .unwrap_or((cv::SelectionKind::Group, false));
-                (id.clone(), local, context, kind, is_merge)
-            })
-            .collect();
+                boxes.push((id.clone(), local, context, kind, is_merge));
+            }
+        }
         let world_pivot = if let (Some(local), Some(initial)) = (local, initial) {
             let local_pivot = initial.pivot.unwrap_or_else(|| local.center());
             geometry::transformed_point(initial, local_pivot)
@@ -732,6 +780,124 @@ impl Editor {
                     .map(|(target, _)| target),
             );
             self.set_selection(targets);
+            self.object_gesture = Some(gesture);
+            return;
+        }
+        if matches!(
+            gesture.kind,
+            GestureKind::Distort { .. } | GestureKind::Envelope { .. }
+        ) {
+            let press = gesture.scope.local(gesture.press);
+            let current = gesture.scope.local(pos);
+            let context_press = gesture.scope.mapping.edit_to_stage_point(press);
+            let context_current = gesture.scope.mapping.edit_to_stage_point(current);
+            let edit_to_context = gesture.scope.mapping.matrix();
+            let deformed: Option<Vec<(SelectionTarget, Element)>> = match gesture.kind {
+                GestureKind::Distort {
+                    source_bounds,
+                    initial_quad,
+                    handle,
+                } => initial_quad
+                    .dragged(handle, context_press, context_current, modifiers.shift)
+                    .and_then(|next_quad| {
+                        let updated: Vec<_> = gesture
+                            .base_elements
+                            .iter()
+                            .filter_map(|(target, base_el)| {
+                                let el = geometry::deform_element_quad(
+                                    base_el,
+                                    edit_to_context,
+                                    source_bounds,
+                                    next_quad,
+                                )?;
+                                Some((target.clone(), el))
+                            })
+                            .collect();
+                        (updated.len() == gesture.base_elements.len()).then(|| {
+                            self.authoring_modify.distort_session =
+                                Some(crate::authoring_modify::ActiveDistortSession {
+                                    symbol: self.symbol_id().to_owned(),
+                                    frame: self.frame,
+                                    targets: self.selection.targets.clone(),
+                                    source_bounds,
+                                    quad: next_quad,
+                                    base_elements: gesture.base_elements.clone(),
+                                    last_applied_elements: updated.clone(),
+                                });
+                            updated
+                        })
+                    }),
+                GestureKind::Envelope {
+                    initial_cage,
+                    handle,
+                } => initial_cage
+                    .dragged(handle, context_press, context_current)
+                    .and_then(|next_cage| {
+                        let updated: Vec<_> = gesture
+                            .base_elements
+                            .iter()
+                            .filter_map(|(target, base_el)| {
+                                let el = geometry::deform_element_envelope(
+                                    base_el,
+                                    edit_to_context,
+                                    &next_cage,
+                                )?;
+                                Some((target.clone(), el))
+                            })
+                            .collect();
+                        (updated.len() == gesture.base_elements.len()).then(|| {
+                            let sym_id = self.symbol_id().to_owned();
+                            let frame = self.frame;
+                            for (target, base_el) in &gesture.base_elements {
+                                self.authoring_modify
+                                    .envelope_backups
+                                    .entry((sym_id.clone(), frame, target.element.clone()))
+                                    .or_insert_with(|| base_el.clone());
+                            }
+                            self.authoring_modify.envelope_session =
+                                Some(crate::authoring_modify::ActiveEnvelopeSession {
+                                    symbol: sym_id,
+                                    frame,
+                                    targets: self.selection.targets.clone(),
+                                    cage: next_cage,
+                                    base_elements: gesture.base_elements.clone(),
+                                    last_applied_elements: updated.clone(),
+                                });
+                            updated
+                        })
+                    }),
+                _ => None,
+            };
+            if let Some(updated_elements) = deformed {
+                if !gesture.began {
+                    self.history.begin(&self.project);
+                    let mut layers_to_split = Vec::new();
+                    for (target, _) in &gesture.targets {
+                        if !layers_to_split.contains(&target.layer) {
+                            layers_to_split.push(target.layer.clone());
+                        }
+                    }
+                    for layer_id in &layers_to_split {
+                        self.split_layer_for_stage_transform(layer_id);
+                    }
+                    gesture.began = true;
+                }
+                gesture.changed = true;
+                let frame = self.frame;
+                let updated_map: HashMap<&str, &Element> = updated_elements
+                    .iter()
+                    .map(|(target, el)| (target.element.as_str(), el))
+                    .collect();
+                for layer in &mut self.symbol_mut().timeline.layers {
+                    if let Some(key) = layer.key_at_mut(frame) {
+                        for element in &mut key.elements {
+                            if let Some(new_el) = updated_map.get(element.id.as_str()) {
+                                *element = (*new_el).clone();
+                            }
+                        }
+                    }
+                }
+            }
             self.object_gesture = Some(gesture);
             return;
         }
@@ -1009,7 +1175,9 @@ impl Editor {
                 };
                 (main, others)
             }
-            GestureKind::Marquee => unreachable!(),
+            GestureKind::Distort { .. } | GestureKind::Envelope { .. } | GestureKind::Marquee => {
+                unreachable!()
+            }
         };
         if let Some(transforms) = transforms {
             let others_ok = gesture.other_keyframes.is_empty() || other_transforms.is_some();
@@ -1338,35 +1506,13 @@ impl Editor {
         let geometry = self.selection_geometry(scene, p, mapping);
         // Free Transform zones, first match wins: handles, then skew edges, then rotate corners.
         let mut zones: Vec<(Zone, GestureKind, Cursor)> = Vec::new();
+        let mut cmd_corner_distort_zones: Vec<(Rect, GestureKind, Cursor)> = Vec::new();
         let mut transform_frame = None;
         let mut transform_pivot_screen = None;
         if let Some(g) = &geometry {
             if self.tool == Tool::Transform {
-                // `NF2/Transform Box` (Scale mode) on the selection's stage bounds, also for
-                // rotated objects (the box itself is never rotated).
-                let frame = context_rect_to_screen(g.context_world, origin, zoom);
-                transform_frame = Some(frame);
-                let rects = cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
-                let pivot_world = g.world_pivot;
-                let pivot_screen = screen(position(pivot_world));
-                transform_pivot_screen = Some(pivot_screen);
-                if pivot_screen.distance(frame.center()) > 0.5 {
-                    cv::transformation_point(p, p.ctx(), pivot_screen);
-                }
-                let pivot_first = (frame.width() > 18.0 && frame.height() > 18.0)
-                    || pivot_screen.distance(frame.center()) > 0.5;
-                if pivot_first {
-                    zones.push((
-                        Zone::Pivot(pivot_screen),
-                        GestureKind::Pivot {
-                            initial_world: pivot_world,
-                        },
-                        nf::MOVE,
-                    ));
-                }
-                let context_world = bounds(g.context_world);
+                use crate::authoring_tools::FreeTransformMode;
                 use geometry::ResizeHandle as H;
-                // `paint_transform_box` order: corners clockwise from top-left, then edges T R B L.
                 const BOX: [H; 8] = [
                     H::NorthWest,
                     H::NorthEast,
@@ -1377,82 +1523,333 @@ impl Editor {
                     H::South,
                     H::West,
                 ];
-                if g.resizable {
-                    for (rect, box_handle) in rects.iter().zip(BOX) {
-                        let kind = if let (Some(local), Some(initial)) = (g.local, g.initial) {
-                            // A single placement resizes in its own axes: the box handle drives the
-                            // local handle of the same kind nearest to it on screen.
-                            let distance = |h: &H| {
-                                screen(position(geometry::transformed_point(
-                                    initial,
-                                    h.point(local),
-                                )))
-                                .distance(rect.center())
+                let active_mode = self.active_free_transform_mode();
+                let frame = context_rect_to_screen(g.context_world, origin, zoom);
+                transform_frame = Some(frame);
+                let context_world = bounds(g.context_world);
+                let pal = neoflash_ui::palette(p.ctx());
+                let ctx_to_screen = |pt: geometry::Point| -> Pos2 {
+                    origin + egui::vec2(pt[0] as f32, pt[1] as f32) * zoom
+                };
+
+                if active_mode == FreeTransformMode::Envelope {
+                    let sampled = self.sampled_targets();
+                    let session_valid = self
+                        .authoring_modify
+                        .envelope_session
+                        .as_ref()
+                        .is_some_and(|s| {
+                            s.symbol == self.symbol_id()
+                                && s.frame == self.frame
+                                && s.targets == self.selection.targets
+                                && s.last_applied_elements == sampled
+                        });
+                    if !session_valid {
+                        let cage = geometry::EnvelopeCage::from_bounds(context_world);
+                        self.authoring_modify.envelope_session =
+                            Some(crate::authoring_modify::ActiveEnvelopeSession {
+                                symbol: self.symbol_id().to_owned(),
+                                frame: self.frame,
+                                targets: self.selection.targets.clone(),
+                                cage,
+                                base_elements: sampled.clone(),
+                                last_applied_elements: sampled,
+                            });
+                    }
+                    if let Some(session) = &self.authoring_modify.envelope_session {
+                        let cage = session.cage;
+                        let ref_rect = Rect::from_min_max(
+                            ctx_to_screen(cage.bounds.min),
+                            ctx_to_screen(cage.bounds.max),
+                        );
+                        p.rect_stroke(
+                            ref_rect,
+                            0.0,
+                            Stroke::new(1.0_f32, pal.accent_default),
+                            egui::StrokeKind::Inside,
+                        );
+                        for seg in 0..8 {
+                            let mut prev_pt = ctx_to_screen(cage.boundary_segment(seg, 0.0));
+                            for step in 1..=12 {
+                                let next_pt =
+                                    ctx_to_screen(cage.boundary_segment(seg, step as f64 / 12.0));
+                                p.line_segment(
+                                    [prev_pt, next_pt],
+                                    Stroke::new(1.0_f32, pal.accent_default),
+                                );
+                                prev_pt = next_pt;
+                            }
+                        }
+                        for i in 0..8 {
+                            let a = ctx_to_screen(cage.anchors[i]);
+                            let tp = ctx_to_screen(cage.tangent_prev[i]);
+                            let tn = ctx_to_screen(cage.tangent_next[i]);
+                            p.line_segment([a, tp], Stroke::new(1.0_f32, pal.accent_default));
+                            p.line_segment([a, tn], Stroke::new(1.0_f32, pal.accent_default));
+                        }
+                        // Register anchor squares first in `zones` so overlapping anchor/tangent hits prefer the anchor if exact, then paint tangents and anchors.
+                        for i in 0..8 {
+                            let pos = ctx_to_screen(cage.anchors[i]);
+                            let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.5));
+                            zones.push((
+                                Zone::Handle(h_rect),
+                                GestureKind::Envelope {
+                                    initial_cage: cage,
+                                    handle: geometry::EnvelopeHandle::Anchor(i),
+                                },
+                                nf::ARROW_MOVE,
+                            ));
+                        }
+                        for i in 0..8 {
+                            for (pt, handle) in [
+                                (
+                                    cage.tangent_prev[i],
+                                    geometry::EnvelopeHandle::TangentPrev(i),
+                                ),
+                                (
+                                    cage.tangent_next[i],
+                                    geometry::EnvelopeHandle::TangentNext(i),
+                                ),
+                            ] {
+                                let pos = ctx_to_screen(pt);
+                                p.circle_filled(pos, 4.0, pal.bg_panel);
+                                p.circle_filled(pos, 2.5, pal.text_primary);
+                                p.circle_stroke(pos, 4.0, Stroke::new(1.0_f32, pal.accent_default));
+                                let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.5));
+                                zones.push((
+                                    Zone::Handle(h_rect),
+                                    GestureKind::Envelope {
+                                        initial_cage: cage,
+                                        handle,
+                                    },
+                                    nf::ARROW_MOVE,
+                                ));
+                            }
+                        }
+                        for i in 0..8 {
+                            let pos = ctx_to_screen(cage.anchors[i]);
+                            let sq = Rect::from_center_size(pos, egui::Vec2::splat(6.5));
+                            p.rect_filled(sq, 0.0, pal.text_primary);
+                            p.rect_stroke(
+                                sq.expand(0.75),
+                                0.0,
+                                Stroke::new(1.25_f32, pal.bg_panel),
+                                egui::StrokeKind::Outside,
+                            );
+                        }
+                    }
+                } else if active_mode == FreeTransformMode::Distort {
+                    let sampled = self.sampled_targets();
+                    let session_valid = self
+                        .authoring_modify
+                        .distort_session
+                        .as_ref()
+                        .is_some_and(|s| {
+                            s.symbol == self.symbol_id()
+                                && s.frame == self.frame
+                                && s.targets == self.selection.targets
+                                && s.last_applied_elements == sampled
+                        });
+                    if !session_valid {
+                        let quad = geometry::DistortQuad::from_bounds(context_world);
+                        self.authoring_modify.distort_session =
+                            Some(crate::authoring_modify::ActiveDistortSession {
+                                symbol: self.symbol_id().to_owned(),
+                                frame: self.frame,
+                                targets: self.selection.targets.clone(),
+                                source_bounds: context_world,
+                                quad,
+                                base_elements: sampled.clone(),
+                                last_applied_elements: sampled,
+                            });
+                    }
+                    if let Some(session) = &self.authoring_modify.distort_session {
+                        let source_bounds = session.source_bounds;
+                        let quad = session.quad;
+                        for i in 0..4 {
+                            let a = ctx_to_screen(quad.corners[i]);
+                            let b = ctx_to_screen(quad.corners[(i + 1) % 4]);
+                            p.line_segment([a, b], Stroke::new(1.0_f32, pal.accent_default));
+                        }
+                        let quad_center = ctx_to_screen(quad.center());
+                        for box_handle in BOX {
+                            let pos = ctx_to_screen(quad.handle_point(box_handle));
+                            let h_rect = Rect::from_center_size(pos, egui::Vec2::splat(7.0));
+                            p.rect_filled(h_rect, 0.0, pal.bg_panel);
+                            p.rect_stroke(
+                                h_rect,
+                                0.0,
+                                Stroke::new(1.25_f32, pal.accent_default),
+                                egui::StrokeKind::Inside,
+                            );
+                            let cursor = crate::stage_cursor::resize_cursor(pos - quad_center);
+                            zones.push((
+                                Zone::Handle(h_rect),
+                                GestureKind::Distort {
+                                    source_bounds,
+                                    initial_quad: quad,
+                                    handle: box_handle,
+                                },
+                                cursor,
+                            ));
+                        }
+                    }
+                } else {
+                    // `NF2/Transform Box` (Scale / RotateAndSkew / FreeTransform) on the selection's stage bounds.
+                    let rects = cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
+                    let pivot_world = g.world_pivot;
+                    let pivot_screen = screen(position(pivot_world));
+                    transform_pivot_screen = Some(pivot_screen);
+                    if pivot_screen.distance(frame.center()) > 0.5 {
+                        cv::transformation_point(p, p.ctx(), pivot_screen);
+                    }
+                    let pivot_first = (frame.width() > 18.0 && frame.height() > 18.0)
+                        || pivot_screen.distance(frame.center()) > 0.5;
+                    if pivot_first {
+                        zones.push((
+                            Zone::Pivot(pivot_screen),
+                            GestureKind::Pivot {
+                                initial_world: pivot_world,
+                            },
+                            nf::MOVE,
+                        ));
+                    }
+                    let single = g.local.is_some() && g.initial.is_some();
+                    let context_pivot = mapping.edit_to_stage_point(pivot_world);
+                    let can_deform = self.can_distort_or_envelope_selection();
+                    if matches!(
+                        active_mode,
+                        FreeTransformMode::FreeTransform | FreeTransformMode::Scale
+                    ) && g.resizable
+                    {
+                        for (rect, box_handle) in rects.iter().zip(BOX) {
+                            let kind = if let (Some(local), Some(initial)) = (g.local, g.initial) {
+                                // A single placement resizes in its own axes: the box handle drives the
+                                // local handle of the same kind nearest to it on screen.
+                                let distance = |h: &H| {
+                                    screen(position(geometry::transformed_point(
+                                        initial,
+                                        h.point(local),
+                                    )))
+                                    .distance(rect.center())
+                                };
+                                let handle = H::ALL
+                                    .into_iter()
+                                    .filter(|h| h.is_corner() == box_handle.is_corner())
+                                    .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+                                    .unwrap_or(box_handle);
+                                GestureKind::Resize {
+                                    bounds: local,
+                                    handle,
+                                }
+                            } else {
+                                GestureKind::Scale {
+                                    context_pivot: box_handle.opposite().point(context_world),
+                                    context_center: context_pivot,
+                                }
                             };
-                            let handle = H::ALL
-                                .into_iter()
-                                .filter(|h| h.is_corner() == box_handle.is_corner())
-                                .min_by(|a, b| distance(a).total_cmp(&distance(b)))
-                                .unwrap_or(box_handle);
-                            GestureKind::Resize {
-                                bounds: local,
-                                handle,
+                            let cursor =
+                                crate::stage_cursor::resize_cursor(rect.center() - frame.center());
+                            zones.push((Zone::Handle(*rect), kind, cursor));
+                            if active_mode == FreeTransformMode::FreeTransform
+                                && can_deform
+                                && box_handle.is_corner()
+                            {
+                                let quad = geometry::DistortQuad::from_bounds(context_world);
+                                cmd_corner_distort_zones.push((
+                                    rect.expand(3.0),
+                                    GestureKind::Distort {
+                                        source_bounds: context_world,
+                                        initial_quad: quad,
+                                        handle: box_handle,
+                                    },
+                                    cursor,
+                                ));
                             }
-                        } else {
-                            GestureKind::Scale {
-                                context_pivot: box_handle.opposite().point(context_world),
-                                context_center: mapping.edit_to_stage_point(pivot_world),
+                        }
+                    } else if active_mode == FreeTransformMode::RotateAndSkew {
+                        // In `Rotate and Skew` sub-mode, corner handles rotate and edge midpoint handles skew.
+                        for (rect, box_handle) in rects.iter().zip(BOX) {
+                            if box_handle.is_corner() {
+                                zones.push((
+                                    Zone::Handle(*rect),
+                                    GestureKind::Rotate {
+                                        single,
+                                        pivot: pivot_world,
+                                        local_bounds: g.local,
+                                    },
+                                    nf::ROTATE,
+                                ));
+                            } else {
+                                let (horizontal, edge, opposite) = match box_handle {
+                                    H::North => (true, context_world.min[1], context_world.max[1]),
+                                    H::South => (true, context_world.max[1], context_world.min[1]),
+                                    H::West => (false, context_world.min[0], context_world.max[0]),
+                                    H::East => (false, context_world.max[0], context_world.min[0]),
+                                    _ => unreachable!(),
+                                };
+                                let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
+                                zones.push((
+                                    Zone::Handle(*rect),
+                                    GestureKind::Skew {
+                                        horizontal,
+                                        edge,
+                                        opposite,
+                                        center: context_pivot[if horizontal { 1 } else { 0 }],
+                                    },
+                                    cursor,
+                                ));
                             }
-                        };
-                        let cursor =
-                            crate::stage_cursor::resize_cursor(rect.center() - frame.center());
-                        zones.push((Zone::Handle(*rect), kind, cursor));
+                        }
                     }
-                }
-                if !pivot_first {
-                    zones.push((
-                        Zone::Pivot(pivot_screen),
-                        GestureKind::Pivot {
-                            initial_world: pivot_world,
-                        },
-                        nf::MOVE,
-                    ));
-                }
-                let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
-                let context_pivot = mapping.edit_to_stage_point(pivot_world);
-                let edges = [
-                    (nw, n, true, context_world.min[1], context_world.max[1]),
-                    (n, ne, true, context_world.min[1], context_world.max[1]),
-                    (sw, s, true, context_world.max[1], context_world.min[1]),
-                    (s, se, true, context_world.max[1], context_world.min[1]),
-                    (nw, w, false, context_world.min[0], context_world.max[0]),
-                    (w, sw, false, context_world.min[0], context_world.max[0]),
-                    (ne, e, false, context_world.max[0], context_world.min[0]),
-                    (e, se, false, context_world.max[0], context_world.min[0]),
-                ];
-                for (from, to, horizontal, edge, opposite) in edges {
-                    // Leave room around the handles; tiny boxes have no skew zone.
-                    let gap = (to - from).normalized() * 9.;
-                    if from.distance(to) <= 18. || !gap.is_finite() {
-                        continue;
+                    if !pivot_first {
+                        zones.push((
+                            Zone::Pivot(pivot_screen),
+                            GestureKind::Pivot {
+                                initial_world: pivot_world,
+                            },
+                            nf::MOVE,
+                        ));
                     }
-                    let kind = GestureKind::Skew {
-                        horizontal,
-                        edge,
-                        opposite,
-                        center: context_pivot[if horizontal { 1 } else { 0 }],
-                    };
-                    let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
-                    zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
-                }
-                let single = g.local.is_some() && g.initial.is_some();
-                for corner in [nw, ne, se, sw] {
-                    let kind = GestureKind::Rotate {
-                        single,
-                        pivot: pivot_world,
-                        local_bounds: g.local,
-                    };
-                    zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
+                    if matches!(
+                        active_mode,
+                        FreeTransformMode::FreeTransform | FreeTransformMode::RotateAndSkew
+                    ) {
+                        let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
+                        let edges = [
+                            (nw, n, true, context_world.min[1], context_world.max[1]),
+                            (n, ne, true, context_world.min[1], context_world.max[1]),
+                            (sw, s, true, context_world.max[1], context_world.min[1]),
+                            (s, se, true, context_world.max[1], context_world.min[1]),
+                            (nw, w, false, context_world.min[0], context_world.max[0]),
+                            (w, sw, false, context_world.min[0], context_world.max[0]),
+                            (ne, e, false, context_world.max[0], context_world.min[0]),
+                            (e, se, false, context_world.max[0], context_world.min[0]),
+                        ];
+                        for (from, to, horizontal, edge, opposite) in edges {
+                            // Leave room around the handles; tiny boxes have no skew zone.
+                            let gap = (to - from).normalized() * 9.;
+                            if from.distance(to) <= 18. || !gap.is_finite() {
+                                continue;
+                            }
+                            let kind = GestureKind::Skew {
+                                horizontal,
+                                edge,
+                                opposite,
+                                center: context_pivot[if horizontal { 1 } else { 0 }],
+                            };
+                            let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
+                            zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
+                        }
+                        for corner in [nw, ne, se, sw] {
+                            let kind = GestureKind::Rotate {
+                                single,
+                                pivot: pivot_world,
+                                local_bounds: g.local,
+                            };
+                            zones.push((Zone::Rotate { corner, frame }, kind, nf::ROTATE));
+                        }
+                    }
                 }
             } else {
                 // `NF2/Selection Box` around Object-mode placements; hatch mesh over Merge shapes.
@@ -1577,10 +1974,20 @@ impl Editor {
                     self.playing = false;
                     let original_selection = self.selection.clone();
                     let local = mapping.screen_to_edit(origin, self.zoom, pos);
-                    let zone = zones
-                        .iter()
-                        .find(|(zone, ..)| zone.contains(pos))
-                        .map(|(_, kind, cursor)| (*kind, *cursor));
+                    let cmd_distort = (modifiers.command || modifiers.ctrl)
+                        .then(|| {
+                            cmd_corner_distort_zones
+                                .iter()
+                                .find(|(r, ..)| r.contains(pos))
+                                .map(|(_, kind, cursor)| (*kind, *cursor))
+                        })
+                        .flatten();
+                    let zone = cmd_distort.or_else(|| {
+                        zones
+                            .iter()
+                            .find(|(zone, ..)| zone.contains(pos))
+                            .map(|(_, kind, cursor)| (*kind, *cursor))
+                    });
                     if matches!(zone, Some((GestureKind::Pivot { .. }, _))) {
                         let pivot_click_id = egui::Id::new("nf2-pivot-click");
                         let now = ui.input(|i| i.time);
@@ -1635,11 +2042,37 @@ impl Editor {
                         cursor = nf::ARROW;
                         GestureKind::Marquee
                     };
-                    let targets: Vec<(SelectionTarget, Transform)> = self
-                        .sampled_targets()
-                        .into_iter()
-                        .map(|(target, element)| (target, element.transform))
+                    let sampled_now = self.sampled_targets();
+                    let targets: Vec<(SelectionTarget, Transform)> = sampled_now
+                        .iter()
+                        .map(|(target, element)| (target.clone(), element.transform))
                         .collect();
+                    let base_elements: Vec<(SelectionTarget, Element)> = match kind {
+                        GestureKind::Envelope { .. } => self
+                            .authoring_modify
+                            .envelope_session
+                            .as_ref()
+                            .filter(|s| {
+                                s.symbol == self.symbol_id()
+                                    && s.frame == self.frame
+                                    && s.targets == self.selection.targets
+                            })
+                            .map(|s| s.base_elements.clone())
+                            .unwrap_or_else(|| sampled_now.clone()),
+                        GestureKind::Distort { .. } => self
+                            .authoring_modify
+                            .distort_session
+                            .as_ref()
+                            .filter(|s| {
+                                s.symbol == self.symbol_id()
+                                    && s.frame == self.frame
+                                    && s.targets == self.selection.targets
+                                    && s.last_applied_elements == sampled_now
+                            })
+                            .map(|s| s.base_elements.clone())
+                            .unwrap_or_else(|| sampled_now.clone()),
+                        _ => Vec::new(),
+                    };
                     let other_keyframes = if self.timeline_edit.edit_multiple {
                         let (start, end) = self.onion_range();
                         let selected_set: HashSet<&SelectionTarget> =
@@ -1690,6 +2123,7 @@ impl Editor {
                         latest: pos,
                         original_selection,
                         targets,
+                        base_elements,
                         other_keyframes,
                         hit,
                         shift: additive,

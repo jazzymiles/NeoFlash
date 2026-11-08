@@ -658,6 +658,7 @@ impl Editor {
             || self.export_video.is_some()
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
+            || self.authoring_modify.scale_and_rotate_dialog.is_some()
             || self.find_replace.is_some()
             || self.confirm_revert
             || (self.recovery.has_prompt() && (!self.dirty() || !self.sessions.is_empty()))
@@ -1634,7 +1635,16 @@ impl Editor {
         let typing = ctx.wants_keyboard_input();
         if !typing {
             if self.take_command_shortcut(ctx, C::EditRedo) {
-                self.redo();
+                if self.history.can_redo() {
+                    self.redo();
+                } else if !self.selection.is_empty()
+                    && !crate::commands::has_override(
+                        &self.workspace.shortcuts,
+                        C::ModifyRemoveTransform,
+                    )
+                {
+                    self.reset_selection_transform(ctx);
+                }
             }
             if self.take_command_shortcut(ctx, C::EditUndo) {
                 self.undo();
@@ -1976,6 +1986,48 @@ impl Editor {
         {
             self.convert_to_keyframes(true);
         }
+        if self.take_command_shortcut(ctx, C::ModifyFreeTransform) && !self.selection.is_empty() {
+            self.set_free_transform_mode(crate::authoring_tools::FreeTransformMode::FreeTransform);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyDistort)
+            && self.can_distort_or_envelope_selection()
+        {
+            self.set_free_transform_mode(crate::authoring_tools::FreeTransformMode::Distort);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyEnvelope)
+            && self.can_distort_or_envelope_selection()
+        {
+            self.set_free_transform_mode(crate::authoring_tools::FreeTransformMode::Envelope);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyScale) && !self.selection.is_empty() {
+            self.set_free_transform_mode(crate::authoring_tools::FreeTransformMode::Scale);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyRotateAndSkew) && !self.selection.is_empty() {
+            self.set_free_transform_mode(crate::authoring_tools::FreeTransformMode::RotateAndSkew);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyScaleAndRotate) && !self.selection.is_empty() {
+            self.open_scale_and_rotate_dialog();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyRotate90Cw) && !self.selection.is_empty() {
+            self.rotate_90_cw_selection(ctx);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyRotate90Ccw) && !self.selection.is_empty() {
+            self.rotate_90_ccw_selection(ctx);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyFlipVertical) && !self.selection.is_empty() {
+            self.flip_vertical_selection(ctx);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyFlipHorizontal) && !self.selection.is_empty() {
+            self.flip_horizontal_selection(ctx);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyRemoveTransform) && !self.selection.is_empty() {
+            self.reset_selection_transform(ctx);
+        }
+        if self.take_command_shortcut(ctx, C::ModifyDeleteEnvelope)
+            && self.can_delete_envelope_selection()
+        {
+            self.delete_envelope_selection();
+        }
         for (cmd, dir) in [
             (C::ModifyArrangeFront, Arrange::Front),
             (C::ModifyArrangeForward, Arrange::Forward),
@@ -2168,6 +2220,7 @@ impl Editor {
         self.font_embedding_dialog(ctx);
         self.layer_properties_dialog(ctx);
         self.polystar_settings_modal(ctx);
+        self.scale_and_rotate_modal(ctx);
         use neoflash_ui::{
             TextStyle,
             components::{Button, DialogHeader, Surface, logo, surface::dialog_footer},

@@ -5,7 +5,10 @@
 //! existing affine pose without changing its skew. Edge skew (`skew_many`) is the one gesture
 //! that shears in stage space and decomposes the result into scale, rotation and skew.
 
-use neoflash_core::{Transform, affine_multiply, invert_affine_matrix, transform_matrix};
+use neoflash_core::{
+    Element, ElementKind, PathCommand, Transform, affine_multiply, invert_affine_matrix,
+    transform_matrix,
+};
 
 pub(crate) type Point = [f64; 2];
 const EPSILON: f64 = 1e-12;
@@ -526,6 +529,600 @@ fn transform_many_by_affine(initial: &[Transform], affine: [f64; 6]) -> Option<V
             (valid_transform(result) && nonsingular(result)).then_some(result)
         })
         .collect()
+}
+
+/// Classic Flash 4-corner `Distort` quad in context space `[TL, TR, BR, BL]`.
+///
+/// Dragging a corner moves that corner independently; holding `Shift` (or `Shift+Cmd` in default
+/// Free Transform mode) performs Classic Flash **perspective tapering** by moving the adjoining
+/// corner on the dominant drag axis in the opposite direction by the same distance.
+/// Dragging an edge midpoint moves both endpoints of that edge together.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DistortQuad {
+    pub corners: [Point; 4],
+}
+
+impl DistortQuad {
+    pub(crate) fn from_bounds(bounds: Bounds) -> Self {
+        Self {
+            corners: [
+                bounds.min,
+                [bounds.max[0], bounds.min[1]],
+                bounds.max,
+                [bounds.min[0], bounds.max[1]],
+            ],
+        }
+    }
+
+    pub(crate) fn valid(self) -> bool {
+        self.corners.into_iter().all(finite_point)
+    }
+
+    pub(crate) fn handle_point(self, handle: ResizeHandle) -> Point {
+        let [tl, tr, br, bl] = self.corners;
+        match handle {
+            ResizeHandle::NorthWest => tl,
+            ResizeHandle::North => [tl[0] * 0.5 + tr[0] * 0.5, tl[1] * 0.5 + tr[1] * 0.5],
+            ResizeHandle::NorthEast => tr,
+            ResizeHandle::East => [tr[0] * 0.5 + br[0] * 0.5, tr[1] * 0.5 + br[1] * 0.5],
+            ResizeHandle::SouthEast => br,
+            ResizeHandle::South => [br[0] * 0.5 + bl[0] * 0.5, br[1] * 0.5 + bl[1] * 0.5],
+            ResizeHandle::SouthWest => bl,
+            ResizeHandle::West => [bl[0] * 0.5 + tl[0] * 0.5, bl[1] * 0.5 + tl[1] * 0.5],
+        }
+    }
+
+    pub(crate) fn center(self) -> Point {
+        let [tl, tr, br, bl] = self.corners;
+        [
+            (tl[0] + tr[0] + br[0] + bl[0]) * 0.25,
+            (tl[1] + tr[1] + br[1] + bl[1]) * 0.25,
+        ]
+    }
+
+    pub(crate) fn dragged(
+        self,
+        handle: ResizeHandle,
+        press: Point,
+        current: Point,
+        perspective_taper: bool,
+    ) -> Option<Self> {
+        if !self.valid() || !finite_point(press) || !finite_point(current) {
+            return None;
+        }
+        let delta = [current[0] - press[0], current[1] - press[1]];
+        if !finite_point(delta) {
+            return None;
+        }
+        let mut corners = self.corners;
+        match handle {
+            ResizeHandle::NorthWest
+            | ResizeHandle::NorthEast
+            | ResizeHandle::SouthEast
+            | ResizeHandle::SouthWest => {
+                let idx = match handle {
+                    ResizeHandle::NorthWest => 0,
+                    ResizeHandle::NorthEast => 1,
+                    ResizeHandle::SouthEast => 2,
+                    ResizeHandle::SouthWest => 3,
+                    _ => unreachable!(),
+                };
+                if perspective_taper {
+                    // Classic Flash Shift-drag perspective taper: move the dragged corner along
+                    // the dominant drag axis and move the opposite corner on the same edge in the
+                    // opposite direction by the same distance.
+                    if delta[0].abs() >= delta[1].abs() {
+                        let pair = idx ^ 1; // 0<->1 (top edge), 2<->3 (bottom edge)
+                        corners[idx][0] += delta[0];
+                        corners[pair][0] -= delta[0];
+                    } else {
+                        let pair = 3 - idx; // 0<->3 (left edge), 1<->2 (right edge)
+                        corners[idx][1] += delta[1];
+                        corners[pair][1] -= delta[1];
+                    }
+                } else {
+                    corners[idx] = add(corners[idx], delta);
+                }
+            }
+            ResizeHandle::North => {
+                corners[0] = add(corners[0], delta);
+                corners[1] = add(corners[1], delta);
+            }
+            ResizeHandle::East => {
+                corners[1] = add(corners[1], delta);
+                corners[2] = add(corners[2], delta);
+            }
+            ResizeHandle::South => {
+                corners[2] = add(corners[2], delta);
+                corners[3] = add(corners[3], delta);
+            }
+            ResizeHandle::West => {
+                corners[3] = add(corners[3], delta);
+                corners[0] = add(corners[0], delta);
+            }
+        }
+        let next = Self { corners };
+        next.valid().then_some(next)
+    }
+
+    /// Bilinear interpolation of normalized `(u, v)` in `[0, 1]^2` across the 4 corners.
+    pub(crate) fn eval(self, u: f64, v: f64) -> Point {
+        let [tl, tr, br, bl] = self.corners;
+        let top = lerp_point(tl, tr, u);
+        let bottom = lerp_point(bl, br, u);
+        lerp_point(top, bottom, v)
+    }
+}
+
+/// Interactive handle on the 24-point Classic Flash `Envelope` modifier cage:
+/// 8 square anchor points (`■`) and 16 circular tangent handles (`●`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EnvelopeHandle {
+    Anchor(usize),
+    TangentPrev(usize),
+    TangentNext(usize),
+}
+
+/// Classic Flash `Envelope` cage in context space:
+/// - 8 anchor points (`■`) clockwise around the perimeter:
+///   `0 = TL`, `1 = TC`, `2 = TR`, `3 = RC`, `4 = BR`, `5 = BC`, `6 = BL`, `7 = LC`
+/// - `tangent_prev[i]`: incoming cubic Bézier tangent handle (`●`) attached to `anchors[i]`
+///   along the perimeter segment from `(i + 7) % 8` to `i`
+/// - `tangent_next[i]`: outgoing cubic Bézier tangent handle (`●`) attached to `anchors[i]`
+///   along the perimeter segment from `i` to `(i + 1) % 8`
+///
+/// Each of the 4 sides therefore has 3 square anchors (`■`) and 4 circular tangent handles (`●`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct EnvelopeCage {
+    pub bounds: Bounds,
+    pub anchors: [Point; 8],
+    pub tangent_prev: [Point; 8],
+    pub tangent_next: [Point; 8],
+}
+
+impl EnvelopeCage {
+    pub(crate) fn from_bounds(bounds: Bounds) -> Self {
+        let c = bounds.center();
+        let anchors = [
+            bounds.min,                  // 0: TL
+            [c[0], bounds.min[1]],       // 1: TC
+            [bounds.max[0], bounds.min[1]], // 2: TR
+            [bounds.max[0], c[1]],       // 3: RC
+            bounds.max,                  // 4: BR
+            [c[0], bounds.max[1]],       // 5: BC
+            [bounds.min[0], bounds.max[1]], // 6: BL
+            [bounds.min[0], c[1]],       // 7: LC
+        ];
+        let mut tangent_prev = [[0.0; 2]; 8];
+        let mut tangent_next = [[0.0; 2]; 8];
+        for i in 0..8 {
+            let prev = anchors[(i + 7) % 8];
+            let curr = anchors[i];
+            let next = anchors[(i + 1) % 8];
+            tangent_prev[i] = lerp_point(curr, prev, 1.0 / 3.0);
+            tangent_next[i] = lerp_point(curr, next, 1.0 / 3.0);
+        }
+        Self {
+            bounds,
+            anchors,
+            tangent_prev,
+            tangent_next,
+        }
+    }
+
+    pub(crate) fn valid(&self) -> bool {
+        self.bounds.valid()
+            && self.anchors.into_iter().all(finite_point)
+            && self.tangent_prev.into_iter().all(finite_point)
+            && self.tangent_next.into_iter().all(finite_point)
+    }
+
+    pub(crate) fn dragged(
+        &self,
+        handle: EnvelopeHandle,
+        press: Point,
+        current: Point,
+    ) -> Option<Self> {
+        if !self.valid() || !finite_point(press) || !finite_point(current) {
+            return None;
+        }
+        let delta = [current[0] - press[0], current[1] - press[1]];
+        if !finite_point(delta) {
+            return None;
+        }
+        let mut next = *self;
+        match handle {
+            EnvelopeHandle::Anchor(i) if i < 8 => {
+                // Moving an anchor point translates its two attached tangent handles with it.
+                next.anchors[i] = add(next.anchors[i], delta);
+                next.tangent_prev[i] = add(next.tangent_prev[i], delta);
+                next.tangent_next[i] = add(next.tangent_next[i], delta);
+            }
+            EnvelopeHandle::TangentPrev(i) if i < 8 => {
+                next.tangent_prev[i] = add(next.tangent_prev[i], delta);
+            }
+            EnvelopeHandle::TangentNext(i) if i < 8 => {
+                next.tangent_next[i] = add(next.tangent_next[i], delta);
+            }
+            _ => return None,
+        }
+        next.valid().then_some(next)
+    }
+
+    /// Evaluates one of the 8 clockwise perimeter cubic Bézier segments `seg` in `0..8` at `t`.
+    pub(crate) fn boundary_segment(&self, seg: usize, t: f64) -> Point {
+        let i = seg % 8;
+        let j = (i + 1) % 8;
+        eval_cubic(
+            self.anchors[i],
+            self.tangent_next[i],
+            self.tangent_prev[j],
+            self.anchors[j],
+            t,
+        )
+    }
+
+    fn top_curve(&self, u: f64) -> Point {
+        if u <= 0.5 {
+            self.boundary_segment(0, u * 2.0)
+        } else {
+            self.boundary_segment(1, (u - 0.5) * 2.0)
+        }
+    }
+
+    fn right_curve(&self, v: f64) -> Point {
+        if v <= 0.5 {
+            self.boundary_segment(2, v * 2.0)
+        } else {
+            self.boundary_segment(3, (v - 0.5) * 2.0)
+        }
+    }
+
+    fn bottom_curve(&self, u: f64) -> Point {
+        // Segments 4 (BR -> BC) and 5 (BC -> BL) run right-to-left, so invert `u`.
+        if u <= 0.5 {
+            self.boundary_segment(5, 1.0 - u * 2.0)
+        } else {
+            self.boundary_segment(4, 1.0 - (u - 0.5) * 2.0)
+        }
+    }
+
+    fn left_curve(&self, v: f64) -> Point {
+        // Segments 6 (BL -> LC) and 7 (LC -> TL) run bottom-to-top, so invert `v`.
+        if v <= 0.5 {
+            self.boundary_segment(7, 1.0 - v * 2.0)
+        } else {
+            self.boundary_segment(6, 1.0 - (v - 0.5) * 2.0)
+        }
+    }
+
+    /// Bicubic Coons patch evaluation at normalized `(u, v)` in `[0, 1]^2` with smoothly blended
+    /// internal midpoint tangents (`TC`, `RC`, `BC`, `LC`) so dragging any of the 8 anchors or 16
+    /// tangent handles warps the interior as well as the boundary.
+    pub(crate) fn eval(&self, u: f64, v: f64) -> Point {
+        let top = self.top_curve(u);
+        let bottom = self.bottom_curve(u);
+        let left = self.left_curve(v);
+        let right = self.right_curve(v);
+
+        let lc = lerp_point(top, bottom, v);
+        let ld = lerp_point(left, right, u);
+
+        let [tl, _, tr, _, br, _, bl, _] = self.anchors;
+        let bilinear = lerp_point(lerp_point(tl, tr, u), lerp_point(bl, br, u), v);
+        [
+            lc[0] + ld[0] - bilinear[0],
+            lc[1] + ld[1] - bilinear[1],
+        ]
+    }
+}
+
+fn lerp_point(a: Point, b: Point, t: f64) -> Point {
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+}
+
+fn eval_quad(p0: Point, p1: Point, p2: Point, t: f64) -> Point {
+    let mt = 1.0 - t;
+    let w0 = mt * mt;
+    let w1 = 2.0 * mt * t;
+    let w2 = t * t;
+    [
+        w0 * p0[0] + w1 * p1[0] + w2 * p2[0],
+        w0 * p0[1] + w1 * p1[1] + w2 * p2[1],
+    ]
+}
+
+fn eval_cubic(p0: Point, p1: Point, p2: Point, p3: Point, t: f64) -> Point {
+    let mt = 1.0 - t;
+    let mt2 = mt * mt;
+    let t2 = t * t;
+    let w0 = mt2 * mt;
+    let w1 = 3.0 * mt2 * t;
+    let w2 = 3.0 * mt * t2;
+    let w3 = t2 * t;
+    [
+        w0 * p0[0] + w1 * p1[0] + w2 * p2[0] + w3 * p3[0],
+        w0 * p0[1] + w1 * p1[1] + w2 * p2[1] + w3 * p3[1],
+    ]
+}
+
+/// Fits a cubic Bézier `CubicTo` segment whose curve passes through `q0` at `t = 0`,
+/// `q1` at `t = 1/3`, `q2` at `t = 2/3`, and `q3` at `t = 1`.
+fn fit_cubic_through_four_points(q0: Point, q1: Point, q2: Point, q3: Point) -> PathCommand {
+    let cx1 = (-5.0 * q0[0] + 18.0 * q1[0] - 9.0 * q2[0] + 2.0 * q3[0]) / 6.0;
+    let cy1 = (-5.0 * q0[1] + 18.0 * q1[1] - 9.0 * q2[1] + 2.0 * q3[1]) / 6.0;
+    let cx2 = (2.0 * q0[0] - 9.0 * q1[0] + 18.0 * q2[0] - 5.0 * q3[0]) / 6.0;
+    let cy2 = (2.0 * q0[1] - 9.0 * q1[1] + 18.0 * q2[1] - 5.0 * q3[1]) / 6.0;
+    PathCommand::CubicTo {
+        cx1,
+        cy1,
+        cx2,
+        cy2,
+        x: q3[0],
+        y: q3[1],
+    }
+}
+
+fn apply_affine(m: [f64; 6], p: Point) -> Point {
+    [
+        m[0] * p[0] + m[2] * p[1] + m[4],
+        m[1] * p[0] + m[3] * p[1] + m[5],
+    ]
+}
+
+fn deform_element_commands(
+    element: &Element,
+    element_to_context: [f64; 6],
+    context_to_element: [f64; 6],
+    subdivide_lines: usize,
+    map_context_point: &impl Fn(Point) -> Point,
+) -> Option<Element> {
+    let (source_commands, fill_rule) = element.to_path_commands()?;
+    let map_local = |local: Point| -> Point {
+        let ctx_pt = apply_affine(element_to_context, local);
+        let warped_ctx = map_context_point(ctx_pt);
+        apply_affine(context_to_element, warped_ctx)
+    };
+    let mut commands = Vec::with_capacity(source_commands.len() * subdivide_lines.max(1));
+    let mut current = [0.0, 0.0];
+    let mut subpath_start = [0.0, 0.0];
+
+    let emit_subdivided_segment = |commands: &mut Vec<PathCommand>,
+                                   subdivisions: usize,
+                                   sample_local: &dyn Fn(f64) -> Point| {
+        let n = subdivisions.max(1);
+        for i in 0..n {
+            let t0 = i as f64 / n as f64;
+            let t3 = (i + 1) as f64 / n as f64;
+            let t1 = t0 + (t3 - t0) / 3.0;
+            let t2 = t0 + (t3 - t0) * (2.0 / 3.0);
+            let q0 = map_local(sample_local(t0));
+            let q1 = map_local(sample_local(t1));
+            let q2 = map_local(sample_local(t2));
+            let q3 = map_local(sample_local(t3));
+            if subdivide_lines <= 1 {
+                commands.push(PathCommand::LineTo { x: q3[0], y: q3[1] });
+            } else {
+                commands.push(fit_cubic_through_four_points(q0, q1, q2, q3));
+            }
+        }
+    };
+
+    for cmd in source_commands {
+        match cmd {
+            PathCommand::MoveTo { x, y } => {
+                let point = [x, y];
+                current = point;
+                subpath_start = point;
+                let mapped = map_local(point);
+                commands.push(PathCommand::MoveTo {
+                    x: mapped[0],
+                    y: mapped[1],
+                });
+            }
+            PathCommand::LineTo { x, y } => {
+                let p0 = current;
+                let p1 = [x, y];
+                if subdivide_lines <= 1 {
+                    let mapped = map_local(p1);
+                    commands.push(PathCommand::LineTo {
+                        x: mapped[0],
+                        y: mapped[1],
+                    });
+                } else {
+                    emit_subdivided_segment(&mut commands, subdivide_lines, &|t| {
+                        lerp_point(p0, p1, t)
+                    });
+                }
+                current = p1;
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let p0 = current;
+                let control = [cx, cy];
+                let to = [x, y];
+                emit_subdivided_segment(&mut commands, subdivide_lines.clamp(1, 2), &|t| {
+                    eval_quad(p0, control, to, t)
+                });
+                current = to;
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let p0 = current;
+                let control_1 = [cx1, cy1];
+                let control_2 = [cx2, cy2];
+                let to = [x, y];
+                emit_subdivided_segment(&mut commands, subdivide_lines.clamp(1, 2), &|t| {
+                    eval_cubic(p0, control_1, control_2, to, t)
+                });
+                current = to;
+            }
+            PathCommand::Close => {
+                if (current[0] - subpath_start[0]).hypot(current[1] - subpath_start[1]) > 1e-6
+                    && subdivide_lines > 1
+                {
+                    let p0 = current;
+                    let p1 = subpath_start;
+                    emit_subdivided_segment(&mut commands, subdivide_lines, &|t| {
+                        lerp_point(p0, p1, t)
+                    });
+                }
+                current = subpath_start;
+                commands.push(PathCommand::Close);
+            }
+        }
+    }
+
+    for cmd in &commands {
+        match *cmd {
+            PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                if !finite_point([x, y]) {
+                    return None;
+                }
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                if !finite_point([cx, cy]) || !finite_point([x, y]) {
+                    return None;
+                }
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                if !finite_point([cx1, cy1])
+                    || !finite_point([cx2, cy2])
+                    || !finite_point([x, y])
+                {
+                    return None;
+                }
+            }
+            PathCommand::Close => {}
+        }
+    }
+
+    let mut updated = element.clone();
+    updated.transform.primitive = None;
+    updated.kind = match &element.kind {
+        ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Path {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => ElementKind::Path {
+            commands,
+            fill_rule,
+            fill: *fill,
+            stroke: *stroke,
+            stroke_width: *stroke_width,
+        },
+        ElementKind::PaintedPath {
+            fill,
+            stroke,
+            fill_gradient,
+            stroke_gradient,
+            stroke_width,
+            ..
+        } => ElementKind::PaintedPath {
+            commands,
+            fill_rule,
+            fill: *fill,
+            stroke: *stroke,
+            fill_gradient: fill_gradient.clone(),
+            stroke_gradient: stroke_gradient.clone(),
+            stroke_width: *stroke_width,
+        },
+        _ => return None,
+    };
+    Some(updated)
+}
+
+pub(crate) fn element_supports_mesh_deform(element: &Element) -> bool {
+    matches!(
+        element.kind,
+        ElementKind::Rectangle { .. }
+            | ElementKind::Ellipse { .. }
+            | ElementKind::Path { .. }
+            | ElementKind::PaintedPath { .. }
+    )
+}
+
+/// Deforms a vector shape (`Rectangle`, `Ellipse`, `Path`, `PaintedPath`) using the 4-corner
+/// `DistortQuad` over `source_bounds` in context space. Straight lines are subdivided so non-affine
+/// bilinear quad warps bend smoothly.
+pub(crate) fn deform_element_quad(
+    element: &Element,
+    edit_to_context: [f64; 6],
+    source_bounds: Bounds,
+    quad: DistortQuad,
+) -> Option<Element> {
+    if !source_bounds.resizable() || !quad.valid() || !element_supports_mesh_deform(element) {
+        return None;
+    }
+    let element_to_context = affine_multiply(edit_to_context, transform_matrix(element.transform));
+    let context_to_element = invert_affine_matrix(element_to_context)?;
+    let span_x = source_bounds.max[0] - source_bounds.min[0];
+    let span_y = source_bounds.max[1] - source_bounds.min[1];
+    deform_element_commands(
+        element,
+        element_to_context,
+        context_to_element,
+        2,
+        &|pt| {
+            let u = (pt[0] - source_bounds.min[0]) / span_x;
+            let v = (pt[1] - source_bounds.min[1]) / span_y;
+            quad.eval(u, v)
+        },
+    )
+}
+
+/// Deforms a vector shape (`Rectangle`, `Ellipse`, `Path`, `PaintedPath`) using the 24-handle
+/// `EnvelopeCage` in context space. Straight lines are subdivided into 4 cubic Bézier segments
+/// (hitting the midpoint anchors at `0.5`) so dragging any of the 8 square anchors or 16 circular
+/// tangent handles bends edges into smooth cubic curves.
+pub(crate) fn deform_element_envelope(
+    element: &Element,
+    edit_to_context: [f64; 6],
+    cage: &EnvelopeCage,
+) -> Option<Element> {
+    if !cage.valid() || !cage.bounds.resizable() || !element_supports_mesh_deform(element) {
+        return None;
+    }
+    let element_to_context = affine_multiply(edit_to_context, transform_matrix(element.transform));
+    let context_to_element = invert_affine_matrix(element_to_context)?;
+    let span_x = cage.bounds.max[0] - cage.bounds.min[0];
+    let span_y = cage.bounds.max[1] - cage.bounds.min[1];
+    deform_element_commands(
+        element,
+        element_to_context,
+        context_to_element,
+        4,
+        &|pt| {
+            let u = (pt[0] - cage.bounds.min[0]) / span_x;
+            let v = (pt[1] - cage.bounds.min[1]) / span_y;
+            cage.eval(u, v)
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1141,5 +1738,82 @@ mod tests {
             ..pose()
         };
         assert!(rotate_many_by(&[pose(), near_limit], [0., 0.], 1., false).is_none());
+    }
+
+    #[test]
+    fn distort_quad_moves_single_corner_and_shift_perspective_tapers_opposite_corner() {
+        let quad = DistortQuad::from_bounds(BOUNDS);
+        let moved = quad
+            .dragged(
+                ResizeHandle::NorthWest,
+                BOUNDS.min,
+                [BOUNDS.min[0] + 15.0, BOUNDS.min[1] + 5.0],
+                false,
+            )
+            .unwrap();
+        point_close(moved.corners[0], [BOUNDS.min[0] + 15.0, BOUNDS.min[1] + 5.0]);
+        point_close(moved.corners[1], quad.corners[1]);
+        point_close(moved.corners[2], quad.corners[2]);
+        point_close(moved.corners[3], quad.corners[3]);
+
+        // Shift-drag horizontal taper on NorthWest moves NorthWest.x by +15 and NorthEast.x by -15.
+        let tapered = quad
+            .dragged(
+                ResizeHandle::NorthWest,
+                BOUNDS.min,
+                [BOUNDS.min[0] + 15.0, BOUNDS.min[1] + 5.0],
+                true,
+            )
+            .unwrap();
+        point_close(tapered.corners[0], [BOUNDS.min[0] + 15.0, BOUNDS.min[1]]);
+        point_close(tapered.corners[1], [BOUNDS.max[0] - 15.0, BOUNDS.min[1]]);
+    }
+
+    #[test]
+    fn envelope_cage_preserves_identity_and_bends_straight_rect_into_cubic_curves() {
+        let cage = EnvelopeCage::from_bounds(BOUNDS);
+        point_close(cage.eval(0.0, 0.0), BOUNDS.min);
+        point_close(cage.eval(1.0, 1.0), BOUNDS.max);
+        point_close(cage.eval(0.5, 0.5), BOUNDS.center());
+
+        let warped = cage
+            .dragged(
+                EnvelopeHandle::Anchor(1),
+                cage.anchors[1],
+                [cage.anchors[1][0], cage.anchors[1][1] - 20.0],
+            )
+            .unwrap();
+        point_close(
+            warped.eval(0.5, 0.0),
+            [cage.anchors[1][0], cage.anchors[1][1] - 20.0],
+        );
+
+        let rect = Element {
+            id: "rect".to_owned(),
+            name: "Rect".to_owned(),
+            transform: Transform {
+                x: BOUNDS.min[0],
+                y: BOUNDS.min[1],
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: BOUNDS.max[0] - BOUNDS.min[0],
+                height: BOUNDS.max[1] - BOUNDS.min[1],
+                fill: [255, 204, 0, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        };
+        let deformed =
+            deform_element_envelope(&rect, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], &warped).unwrap();
+        let ElementKind::Path { commands, .. } = deformed.kind else {
+            panic!("expected path");
+        };
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| matches!(cmd, PathCommand::CubicTo { .. }))
+        );
     }
 }

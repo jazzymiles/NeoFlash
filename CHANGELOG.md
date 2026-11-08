@@ -2,6 +2,30 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Classic Flash Free Transform mechanics (`Rotate and Skew`, `Scale`, `Distort`, `Envelope`), `Modify ▸ Transform` /
+  `Modify ▸ Combine objects ▸ Delete Envelope` menus, combined Group bounding box and shortcut bindings (`T-139`):
+  - **Free Transform sub-modes & Tools Options icons:** When `Free Transform` (`Q`) is active, the `Tools` panel
+    `Options` section now renders a 2×2 grid of vector-painted modifier buttons (`Rotate and Skew`, `Scale`, `Distort`,
+    `Envelope`), matching classic Flash. Clicking the active sub-mode toggles back to full `Free Transform`.
+  - **Distort & Perspective Taper:** `Distort` (`FreeTransformMode::Distort` or holding `⌘`/`Ctrl` while dragging a
+    corner handle in `Free Transform`) warps vector shapes via a 4-corner/4-edge bilinear quad (`DistortQuad`); holding
+    `⇧` (`Shift`) while dragging a corner symmetrically moves the adjacent corner on the same edge in the opposite
+    direction along the dominant drag axis for perspective tapering.
+  - **24-handle Bézier Envelope & Delete Envelope:** `Envelope` (`FreeTransformMode::Envelope`) surrounds the selection
+    with 8 square anchor points (`■`) and 16 circular cubic-Bézier tangent handles (`●`) connected by tangent lines (3
+    anchors and 4 tangent circles per side) and deforms vector contours via a bicubic Coons patch (`EnvelopeCage`).
+    `Modify ▸ Combine objects ▸ Delete Envelope` restores the pre-envelope shape geometry.
+  - **`Modify ▸ Transform` menu & `Scale and Rotate…` (`⌥⌘S`):** Reorganized `Modify ▸ Transform` (and the Stage
+    context-menu `Transform ▸` submenu) to match Flash (`Free Transform`, `Distort`, `Envelope`, `Scale`, `Rotate and
+    Skew`, `Scale and Rotate…` (`⌥⌘S`), `---`, `Rotate 90° CW` (`⇧⌘9`), `Rotate 90° CCW` (`⇧⌘7`), `---`, `Flip
+    Vertical`, `Flip Horizontal`, `---`, `Remove Transform` (`⇧⌘Z`), `---`, `Transform panel`), and reordered the
+    top-level `Modify` menu (`Document…`, `Convert to symbol…`, `Convert to Bitmap`, `Break apart`, `Bitmap ▸`, `Symbol
+    ▸`, `Shape ▸`, `Combine objects ▸`, `Timeline ▸`, `Transform ▸`, `Arrange ▸`, `Align ▸`, `Group`, `Ungroup`).
+  - **Combined Group bounding box & Ungroup per-object bounds:** Grouping objects (`Modify ▸ Group`, `⌘G`) now coalesces
+    all members of an `AuthoringGroup` into a single combined `SelectionKind::Group` bounding box on the Stage in
+    `Selection` tool mode (`V`), while `Modify ▸ Ungroup` (`⇧⌘G`) restores individual bounding boxes / Merge hatches for
+    each object.
+
 - Classic Flash Break Apart / Group / Ungroup, compact two-row Text Properties and full MovieClip / Symbol Instance
   Properties (`T-138`): `Modify ▸ Group` (`⌘G`), `Modify ▸ Ungroup` (`⇧⌘G`) and `Modify ▸ Break Apart` (`⌘B`) now also
   appear in the Stage right-click context menu (`stage_object_commands`) and follow classic Flash authoring semantics.

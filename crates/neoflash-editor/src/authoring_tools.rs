@@ -11,6 +11,16 @@ use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
 use neoflash_core::*;
 use std::collections::HashMap;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum FreeTransformMode {
+    #[default]
+    FreeTransform,
+    RotateAndSkew,
+    Scale,
+    Distort,
+    Envelope,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum EraserMode {
     Objects,
@@ -75,6 +85,7 @@ pub(crate) struct AuthoringToolsState {
     pub polystar_dialog: Option<(bool, u32, f64)>,
     pub rect_options: RectangleOptions,
     pub oval_options: OvalOptions,
+    pub transform_mode: FreeTransformMode,
 }
 impl Default for AuthoringToolsState {
     fn default() -> Self {
@@ -104,6 +115,7 @@ impl Default for AuthoringToolsState {
             polystar_dialog: None,
             rect_options: RectangleOptions::default(),
             oval_options: OvalOptions::default(),
+            transform_mode: FreeTransformMode::FreeTransform,
         }
     }
 }
@@ -2989,6 +3001,121 @@ impl Editor {
                 self.toggle_object_snap();
             }
         }
+        if self.tool == Tool::Transform {
+            self.free_transform_modifier_grid(ui);
+        }
+    }
+
+    pub(crate) fn set_free_transform_mode(&mut self, mode: FreeTransformMode) {
+        self.set_tool(Tool::Transform);
+        self.authoring_tools.transform_mode = mode;
+        self.status = match mode {
+            FreeTransformMode::FreeTransform => "Free Transform".to_owned(),
+            FreeTransformMode::RotateAndSkew => "Free Transform: Rotate and Skew".to_owned(),
+            FreeTransformMode::Scale => "Free Transform: Scale".to_owned(),
+            FreeTransformMode::Distort => "Free Transform: Distort".to_owned(),
+            FreeTransformMode::Envelope => "Free Transform: Envelope".to_owned(),
+        };
+    }
+
+    pub(crate) fn active_free_transform_mode(&self) -> FreeTransformMode {
+        let mode = self.authoring_tools.transform_mode;
+        if matches!(mode, FreeTransformMode::Distort | FreeTransformMode::Envelope)
+            && !self.can_distort_or_envelope_selection()
+        {
+            FreeTransformMode::FreeTransform
+        } else {
+            mode
+        }
+    }
+
+    /// 2×2 Classic Flash Free Transform sub-mode modifier buttons (`Rotate and Skew`, `Scale`,
+    /// `Distort`, `Envelope`) shown under `Options` when the Free Transform tool (`Q`) is active.
+    pub(crate) fn free_transform_modifier_grid(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{TransformModifierIcon, transform_modifier_button};
+        let active = self.active_free_transform_mode();
+        let can_deform = self.can_distort_or_envelope_selection();
+        let gap = neoflash_ui::tokens::space::S1 / 2.0;
+        let row_w = 2.0 * neoflash_ui::metrics::tool_button() + gap;
+        let row_h = neoflash_ui::metrics::tool_button();
+        ui.allocate_ui_with_layout(
+            Vec2::new(row_w, row_h),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                if transform_modifier_button(
+                    ui,
+                    TransformModifierIcon::RotateAndSkew,
+                    active == FreeTransformMode::RotateAndSkew,
+                    true,
+                    "Rotate and Skew",
+                )
+                .clicked()
+                {
+                    let next = if active == FreeTransformMode::RotateAndSkew {
+                        FreeTransformMode::FreeTransform
+                    } else {
+                        FreeTransformMode::RotateAndSkew
+                    };
+                    self.set_free_transform_mode(next);
+                }
+                if transform_modifier_button(
+                    ui,
+                    TransformModifierIcon::Scale,
+                    active == FreeTransformMode::Scale,
+                    true,
+                    "Scale",
+                )
+                .clicked()
+                {
+                    let next = if active == FreeTransformMode::Scale {
+                        FreeTransformMode::FreeTransform
+                    } else {
+                        FreeTransformMode::Scale
+                    };
+                    self.set_free_transform_mode(next);
+                }
+            },
+        );
+        ui.allocate_ui_with_layout(
+            Vec2::new(row_w, row_h),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                if transform_modifier_button(
+                    ui,
+                    TransformModifierIcon::Distort,
+                    active == FreeTransformMode::Distort,
+                    can_deform,
+                    "Distort",
+                )
+                .clicked()
+                {
+                    let next = if active == FreeTransformMode::Distort {
+                        FreeTransformMode::FreeTransform
+                    } else {
+                        FreeTransformMode::Distort
+                    };
+                    self.set_free_transform_mode(next);
+                }
+                if transform_modifier_button(
+                    ui,
+                    TransformModifierIcon::Envelope,
+                    active == FreeTransformMode::Envelope,
+                    can_deform,
+                    "Envelope",
+                )
+                .clicked()
+                {
+                    let next = if active == FreeTransformMode::Envelope {
+                        FreeTransformMode::FreeTransform
+                    } else {
+                        FreeTransformMode::Envelope
+                    };
+                    self.set_free_transform_mode(next);
+                }
+            },
+        );
     }
 
     /// Open the NF2 `PolyStar tool settings` modal seeded from current PolyStar tool state.
