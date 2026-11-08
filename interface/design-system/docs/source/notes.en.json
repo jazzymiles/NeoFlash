@@ -2,7 +2,42 @@
  "panel-tools-floating": {
   "cat": "panels",
   "title": "Tools",
-  "text": "`NF2/Tools Panel` in a floating window. Layout = **1 Column** (docked rail, 56 px: related tools behind flyouts — Selection/Subselection, Free/Gradient transform, Line/Pen, Rectangle/Oval/PolyStar/primitives, Pencil/Brush/Spray, Bucket/Ink, Eyedropper, Eraser, Bone, Deco, Hand/Zoom) or **2 Columns** (every tool visible, sections Tools · View · Colors · Options). Tool = `NF2/Tool Button` 32 × 32 with a 20 px monochrome icon, `Flyout` marks a group (long-press opens it), `State` Default / Hover / Selected (accent). Colours: `Fill Stroke Chip` (click → Swatches popover), default colours, no colour, swap. Options area shows the active tool's modifiers (snap, smooth / straighten). Tooltips show name + key."
+  "text": "Standard **Tools** panel header, matching the Properties title style and left inset. The body has no Tools / View / Colors / Options captions: dividers preserve every group and control without redundant labels. Layout = **1 Column** at the Stage middle-left/right anchors and **2 Columns** at corners or top/bottom centres. Tool = `NF2/Tool Button` with the same flyouts, shortcuts and states as before. Fill/Stroke plus default/swap actions are centred on the active grid; clicking them opens or focuses the real Color panel instead of squeezing a picker into the narrow Tools window."
+ },
+ "tools-v2-25-stage-anchors": {
+  "cat": "panels",
+  "title": "Tools — eight Stage anchors",
+  "text": "Detached Tools snaps 16 px inside the Stage workspace at Top Left / Centre / Right, Middle Left / Right and Bottom Left / Centre / Right; magnetic capture distance is 112 px. Middle side anchors force the vertical rail. Top anchors grow down, bottom anchors grow up; left-side popovers open right and right-side popovers open left. Anchor persistence is scale-stable."
+ },
+ "floating-panels-v2-25-headers-docking-and-minima": {
+  "cat": "panels",
+  "title": "Floating panels — headers, docking and minima",
+  "text": "One `NF2/Floating Panel Header`, never extra native title chrome. Shows one/two/three tabs, active, overflow, compact and collapsed states with menu/collapse/close. Tabs still reorder, tear off and dock individually. Width minima apply docked and floating; panel-specific height minima only floating. Visible edge target ≈5.5% (44–80 px / 36–66 px); invisible hit halo ≈9.5% (72–132 px / 60–112 px, at most 30%). Dashed halo is annotation only."
+ },
+ "properties-v2-25-contextual-states": {
+  "cat": "panels",
+  "title": "Properties — automatic context",
+  "text": "Properties follows the Stage, selected object/text/symbol/video, Timeline frame/range/tween/sound or active tool automatically. There is no persistent Selection / Tool mode switch. Brush options selects Brush and opens its contextual settings. Every implemented field and command remains available in its context."
+ },
+ "popover-function-search": {
+  "cat": "panels",
+  "title": "Function Search — direct focus",
+  "text": "Help ▸ Search functions… / F1 opens with the input already focused. The first character survives native-menu dismissal and keyboard selection scrolls into view. Maximum width 560, at most 24 results, result region at most 392 px; the reference state shows a typed query and highlighted keyboard result."
+ },
+ "v2-25-behavioral-contract-notes": {
+  "cat": "panels",
+  "title": "v2.25 behavioral contracts",
+  "text": "Design notes distinguish behavior from visible chrome: automatic Properties context, Stage-anchor persistence, invisible dock halo, direct-focus Function Search, Color-panel reveal/focus, floating-only minimum heights and tab drag semantics. No implemented feature, tool, modifier, color mode, text option or command is removed."
+ },
+ "dialog-help-reference": {
+  "cat": "dialogs",
+  "title": "Help & Reference",
+  "text": "Nominal 920 × 760 clamped shell with fixed 52 px header and close control, stationary search/filter and chapter badge, 212 px chapter sidebar, independently scrolling chapter list and article, stationary Previous/Next, and footer Open in browser · Command Search (F1) · Close."
+ },
+ "dialog-help-reference-constrained-viewport": {
+  "cat": "dialogs",
+  "title": "Help — constrained viewport / high scale",
+  "text": "The same Help shell clamped at the minimum viewport or high UI scale. Header, close, filter, navigation and footer stay fixed; the two content regions scroll without overlap, horizontal jumping or width changes."
  },
  "panel-align": {
   "cat": "panels",
@@ -17,12 +52,12 @@
  "panel-color-solid": {
   "cat": "panels",
   "title": "Color — Solid",
-  "text": "Tabs Color / Swatches. Scope **Selection / Drawing** + selection count (\"1 object\"). Stroke and Fill `NF2/Color Well`s (the active one is edited) + swap. Type select **Solid colour**. `NF2/Color Picker` (saturation/brightness area, hue strip, alpha strip), RGB / HSB segmented with R G B fields, `Color Field` hex + alpha. Stroke section: width, line style."
+  "text": "Contextual Color panel with no Selection / Drawing switch, object count or Mixed/apply gate. **Fill is left; Stroke is right**; the active `NF2/Color Well` is edited and swap is preserved. Type select **Solid colour**. `NF2/Color Picker` includes saturation/brightness, hue and alpha; RGB / HSB, channel fields, hex + alpha, stroke width/style and Add to swatches remain available. Floating minimum 248 × 190."
  },
  "panel-color-radial-gradient": {
   "cat": "panels",
   "title": "Color — Radial gradient",
-  "text": "Same as Solid plus: **Flow** (extend / reflect / repeat icon group), **Linear RGB** checkbox, `NF2/Gradient Bar` with draggable `Gradient Stop`s (click the bar to add, drag off to remove; the selected stop is edited by the picker). Linear gradient is identical with a linear preview. The gradient is edited on stage with `NF2/Gradient Transform`."
+  "text": "Same contextual shell as Solid plus approved **Overflow** previews (Extend / Reflect / Repeat), **Linear RGB** and a `NF2/Gradient Bar` with draggable `Gradient Stop`s (click to add, drag off to remove; the selected stop is edited by the picker). Linear gradient uses the same controls with a linear preview. The on-stage editor is the approved `NF2/Gradient Transform` master."
  },
  "color-type-menu-open": {
   "cat": "panels",
@@ -47,7 +82,7 @@
  "panel-properties-text": {
   "cat": "panels",
   "title": "Properties — Text",
-  "text": "Header: text engine (Classic text), type (**Static / Dynamic / Input**), orientation. **Position and size** X Y W H. **Character**: family, style, Embed…, size (pt), tracking, colour field, Auto kern, anti-alias (for readability / animation / device fonts), toggles: selectable, render as HTML, border around text, superscript, subscript. **Paragraph**: align left / centre / right / justify, indent, line spacing, left / right margins, behaviour (single line / multiline / no wrap / password). **Options**, **Filters** table (Drop shadow, Glow …) with add / remove / reset."
+  "text": "Contextual Properties has no Selection / Tool switch. Minimum content width 320; equal two-column pairs use an 8 px gap and stack in the narrow fallback instead of clipping. Transform order is W/H, X/Y, Scale X/Y, Rotation/Skew. Text preserves **Character**, **Advanced character**, **Paragraph**, **Container and flow**, **Options** and **Filters**, including engine/type/orientation, columns and gutter, four-sided padding, vertical alignment, border width, first-line offset, highlight, strike/super/subscript, case/digit/ligature/break options, leading mode, paragraph spacing, direction/orientation and baseline/locale controls."
  },
  "panel-properties-oval-primitive": {
   "cat": "panels",

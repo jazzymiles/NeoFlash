@@ -9,8 +9,8 @@
 
 <section class="cover">
   <div class="brand"><span class="logo"><i></i></span> NeoFlash</div>
-  <h1>Design System&nbsp;2.0</h1>
-  <p class="sub">Foundations, components, screens, panels, dialogs and workflow of the NeoFlash animation editor — the redesign (v2) and how it was derived from the current interface (v1).</p>
+  <h1>Design System&nbsp;2.25</h1>
+  <p class="sub">The current NF2 v2.25 reference for the NeoFlash animation editor: foundations, components, screens, panels, dialogs and interaction contracts.</p>
   <div class="hero">{{GEN:img:exports/interface/dark/png/editor-main.png|}}</div>
   <div class="meta"><span>Figma file “{{FILE_NAME}}” · key BUz3pseopiuOg2Uiy3Fog7</span><span>Generated {{GENERATED}}</span></div>
 </section>
@@ -44,7 +44,7 @@
 
 <!-- 1 -->
 <h1><span class="num">1</span>Overview and principles</h1>
-<p>The Figma file holds two independent versions. <b>v1</b> is a faithful vector reconstruction of the shipped interface (NF1 components and tokens). <b>v2</b> is the redesign with its own system (NF2). No variable, text style or component is shared, so changing one version never affects the other.</p>
+<p>The Figma file keeps independent generations. <b>v1</b> is the original interface reconstruction (NF1); <b>v2.25</b> is the live redesign (NF2). The dated v2.2 pages are frozen migration references. No NF1 variable, text style or component is shared with NF2.</p>
 <div class="cards">
   <div class="card"><b>One primary path</b><span>Every screen has one obvious primary action — Publish, Play, Save, Apply. The rest is secondary.</span></div>
   <div class="card"><b>Group by task</b><span>Transport, onion skin, zoom and layer actions are grouped controls, not scattered rows.</span></div>
@@ -57,11 +57,11 @@
 <h2>Audit of v1</h2>
 <p>14 findings — 5 high, 7 medium, 2 low. In v1 disabled text had 2.16:1 contrast (norm 4.5:1) and 20 tool buttons had neither labels nor tooltips. The most important changes:</p>
 <table>
-<thead><tr><th>Area</th><th>v1 problem</th><th>v2 solution</th></tr></thead>
+<thead><tr><th>Area</th><th>v1 problem</th><th>NF2 solution</th></tr></thead>
 <tbody>
 <tr><td>Action hierarchy</td><td>Test Movie is a small link, Publish hidden at the bottom of Properties.</td><td>Top bar: Test Movie (secondary) and <b>Publish</b> (primary). Project title and unsaved badge centred.</td></tr>
 <tr><td>Timeline controls</td><td>Scene, FPS, play, onion skin and zoom spread over three rows.</td><td>One control bar: transport, timecode, scene / FPS / duration, frame tools, onion skin, zoom.</td></tr>
-<tr><td>Tools palette</td><td>20 icons without labels, shortcuts or tooltips.</td><td>56 px rail, grouped, flyouts, accent active tool, tooltip with shortcut; one- and two-column layouts.</td></tr>
+<tr><td>Tools palette</td><td>20 icons without labels, shortcuts or tooltips.</td><td>88 px panel shell with a standard Tools header; grouped controls, flyouts, accent active tool and shortcut tooltips; one- and two-column layouts.</td></tr>
 <tr><td>Typography &amp; contrast</td><td>Small secondary text, disabled at 2.16:1.</td><td>Scale 11–20 px, ≥ 12 px for text, all text tokens ≥ 4.5:1.</td></tr>
 <tr><td>Surfaces</td><td>Every control outlined; no depth.</td><td>Surface levels, borders as separators, radii from tokens.</td></tr>
 <tr><td>Fields</td><td>Fields look like buttons; no units, steppers or scrub.</td><td>One Field component: prefix label, units, steppers, scrub, states.</td></tr>
@@ -123,9 +123,9 @@
 <thead><tr><th>Region</th><th>Size</th><th>Content</th></tr></thead>
 <tbody>
 <tr><td>Top bar</td><td>1920 × 48</td><td>Logo, main menu (File · Edit · View · Insert · Modify · Control · Document · Window · Help), project title with Unsaved badge in the centre, workspace selector, <b>Test Movie</b> (secondary), <b>Publish</b> (primary).</td></tr>
-<tr><td>Tools rail</td><td>56 × 588</td><td>Tools panel, one column: tool groups behind flyouts, fill / stroke chip, default / swap colours, snap.</td></tr>
-<tr><td>Canvas</td><td>1544 × 588</td><td>Pasteboard, stage 960 × 600 at 75 %, stage grid, rulers 20 px with the corner origin, guides, breadcrumb (top-left), stage size badge (top-right), floating zoom control (hand, −, 75 %, +, fit, rulers, guides, grid, snap, view settings ⚙).</td></tr>
-<tr><td>Inspector</td><td>320 × 588</td><td>Properties (Selection / Tool; Stage name, size, background, FPS, frames, publish target) and Library.</td></tr>
+<tr><td>Tools panel</td><td>88 × 588</td><td>Standard Tools header; no internal group captions. One-column side layout or two-column detached anchor layout; fill / stroke and default / swap actions stay centred.</td></tr>
+<tr><td>Canvas</td><td>1512 × 588</td><td>Pasteboard, stage 960 × 600 at 75 %, stage grid, rulers 20 px with the corner origin, guides, breadcrumb (top-left), stage size badge (top-right), floating zoom control (hand, −, 75 %, +, fit, rulers, guides, grid, snap, view settings ⚙).</td></tr>
+<tr><td>Inspector</td><td>320 × 588</td><td>Contextual Properties follows Stage, object, text, symbol, video, Timeline or the active tool automatically; Library retains search and tree.</td></tr>
 <tr><td>Bottom dock</td><td>1920 × 420</td><td>Tabs Timeline · Actions · Output · Accessibility (40), timeline controls (44), timeline (336).</td></tr>
 <tr><td>Status bar</td><td>1920 × 24</td><td>“Ready”, document summary; shortcut chips F5 frame, F6 keyframe, F7 blank keyframe, ⌘↵ Test Movie.</td></tr>
 </tbody></table>
@@ -139,7 +139,7 @@
 <h2>Geometry</h2>
 <ul>
   <li><b>12 px per frame</b> in Normal view; Tiny 6, Small 9, Medium 16, Large 22 px. Rows 28 px (Short: 18 px).</li>
-  <li>Ruler 32 px: seconds on top (at 24 fps), frame numbers and ticks below. Layer column 280 px.</li>
+  <li>Ruler 32 px: seconds on top (at 24 fps), frame numbers and ticks below. Major frame labels are optically centred on their ticks, with an edge-safe rule for frame 1. Layer column 280 px.</li>
   <li>Grid: every 5th frame shaded; per-frame lines are drawn over spans so filled frames stay countable.</li>
   <li>Frame <i>n</i> starts at <code>x = (n − 1) × 12</code>; a span of <i>k</i> frames is <code>k × 12</code> wide.</li>
 </ul>
@@ -211,7 +211,7 @@
 
 <!-- 11 -->
 <h1><span class="num">11</span>Components</h1>
-<p>All components live on the page <i>v2 · System &amp; Components</i>, grouped in shelves. Variant properties are listed with their options; text and boolean properties with their defaults.</p>
+<p>All live components are on <i>v2.25 · System &amp; Components</i>, grouped in shelves. Variant properties are listed with their options; text and boolean properties with their defaults.</p>
 {{GEN:components}}
 <h2>Shelves</h2>
 {{GEN:shelf-gallery}}
@@ -236,7 +236,7 @@
 {{GEN:exports}}
 <h2>Updating</h2>
 <ol>
-  <li>Change the design in Figma (v2 pages only; bind colours to NF2 tokens, text to NF2 styles).</li>
+  <li>Change the design in Figma (live v2.25 pages only; bind colours to NF2 tokens, text to NF2 styles).</li>
   <li>Start the receiver: <code>python3 tools/receiver.py</code>.</li>
   <li>In Figma Desktop run <b>Plugins → Development → NeoFlash Export</b> → Export.</li>
   <li>Rebuild: <code>python3 tools/build-docs.py &amp;&amp; tools/build-pdf.sh</code>.</li>
@@ -245,7 +245,7 @@
 
 <!-- A -->
 <h1><span class="num">A</span>Functional coverage</h1>
-<p>v2 checked against what a Flash-style animation editor needs: drawing, nested symbols, timeline animation, scripting, import and export of graphics, video and sound. <b>33 of 33 covered.</b></p>
+<p>NF2 v2.25 is checked against what a Flash-style animation editor needs: drawing, nested symbols, timeline animation, scripting, import and export of graphics, video and sound. <b>33 of 33 covered.</b></p>
 {{GEN:coverage}}
 
 </body>

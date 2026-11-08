@@ -1,0 +1,8 @@
+F v2.25 · Behavioral contract notes 1040×520
+  T "Behavioral contracts · documented, not drawn as controls"
+  T "• Properties follows context automatically; Brush options activates Brush and opens its context."
+  T "• Tools anchors persist and remain scale-stable. Fill/Stroke opens or focuses the real Color panel."
+  T "• Dock width minimums apply docked and floating; panel-specific minimum height applies only floating."
+  T "• Function Search focuses immediately, preserves the first character and scrolls keyboard selection."
+  T "• Detached tabs retain reorder, tear-off, individual docking, overflow selection and panel commands."
+  T "• No implemented tool, modifier, Color mode, Text option or command is removed in v2.25."

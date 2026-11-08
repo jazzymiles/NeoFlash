@@ -1,8 +1,10 @@
 # NeoFlash UI design system (NF2)
 
 NF2 is the design system of the NeoFlash authoring UI. It replaces the earlier `docs/design-system/tokens.json`
-standard. The design system is **locked**: implementation agents use it and never change it (AGENTS.md ›
-"Design system (NF2) — locked"; requests go to [NF2-REQUESTS.md](NF2-REQUESTS.md)).
+standard. **v2.25** is the current live reference; the detached v2.2 Figma pages are the frozen pre-migration
+checkpoint. The design system remains **locked** outside an explicit owner-authorized design delivery:
+implementation agents use it and never improvise changes (AGENTS.md › "Design system (NF2) — locked"; requests go
+to [NF2-REQUESTS.md](NF2-REQUESTS.md)).
 
 | What | Where |
 | --- | --- |
@@ -36,9 +38,11 @@ of truth for visuals. Code never copies a hex value or a size from a screenshot:
    frame labels). Warnings amber, breakpoints orange.
 6. **Fixed geometry.** Fields / buttons 32, tree items 32, menu items / layer rows / segments 28, panel header 40,
    panel tabs 36, dock tabs 40, timeline controls 44, status bar 24, top bar 48, tools rail 56 (1 column) or 80
-   (2 columns, the base layout), inspector 320, bottom dock 420. Inspector body: 16 pt padding, 12 pt between rows;
+   (2 columns, the base layout), Properties/inspector minimum 320, bottom dock 420. Inspector body: 16 pt padding,
+   12 pt between rows;
    Library body: 8 pt padding and gaps; floating panels: 12 / 12. Timeline: 12 pt per frame (Normal), rows 28,
    ruler 32, layer column 280, frame `n` at `(n − 1) × 12`, view modes Tiny 6 · Small 9 · Normal 12 · Medium 16 · Large 22.
+   Major frame labels are centred on their ticks; frame 1 uses the edge-safe rule and seconds labels remain separate.
 7. **Single-line text has no extra leading.** Labels inside controls use `rich` / `format_line` so glyphs centre
    exactly in 28/32/40 pt rows; the style line height is only for paragraphs.
 8. **Accessibility.** Text contrast ≥ 4.5:1 (see findings), 2 pt focus ring on keyboard focus only
@@ -115,35 +119,42 @@ crates/neoflash-editor
 | `envelope.rs` | Sound envelope lanes and anchor points (Edit envelope) |
 | `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection (two-tone hatch), Gradient Transform, Snap Ring, Motion Path, Motion Path Handle, Shape Hint |
 
-### Additions after the original v2.2 baseline
+### v2.25 contract and additions after the original v2.2 baseline
 
-The live Figma file and generated `interface/design-system/` reference were synchronized on 2026-11-08. This table
-records decisions added after the original v2.2 baseline; the named shelves/components remain the implementation
-contract together with the exported outlines.
+The live Figma file and generated `interface/design-system/` reference are synchronized through the v2.25 migration.
+The owner-authorized repair changes layout and behavior contracts without removing implemented functions. The named
+shelves/components remain the implementation contract together with the exported outlines.
 
 | Component | Rule |
 | --- | --- |
 | `NF2/Shape Selection` (changed) | Two-tone 45° hatch: 1 pt white at 90 % plus 1 pt black at 75 %, 1.5 pt apart, repeating every 4 pt (both measured horizontally; ≈ 1.06 pt and 2.83 pt perpendicular to the stripes; R-058, was 8 pt). It does not follow the theme. On any fill, the better of the two lines reaches at least 3.8:1 (the v2.2 single grey hatch reached 1.5:1 on blue artwork in Dark and 1.1:1 in Light). |
-| Figma file structure v2.2 (T-123, 2026-11-07) | Live pages are `v2.2 · System & Components`, `v2.2 · Panels`, `v2.2 · Interface — Dark` / `— Light` (the former v2 pages renamed, so node IDs and the export manifest stay valid). `v2 · … (archive)` pages are full clones kept for comparison; they reference the live components and styles. New boards `v2.2 · Timeline density, type & selection (T-101)` on `v2.2 · Panels`: Dark `211:28634`, Light `212:29343`. The owner export and generated data are synchronized through 2026-11-08. |
-| Optical icon masters 12 / 16 / 20 (changed, owner decision 2026-11-07) | Every icon grid has its own master in `exports/icons/{12,16,20}` and in Figma (`NF2 Icon/12/*` on the new shelf "Icons · 12 px", page `v2.2 · System & Components`). 12 and 16 px: 1 pt strokes whose straight edges sit on half pixels, fill edges on whole pixels (a fill edge may sit on a stroke axis it touches). 20 px: 1.5 pt strokes on .25 / .75, fill edges on half points. Hinting is TrueType-style per axis: knots are straight edges and the extremes of curves, one map per icon, so parts stay aligned; a dot or circle drawn on a stroke axis stays centred on it (the dot of an "i", a slider knob) and keeps its round shape. `icons::paint_sized` and `Icon::at` draw an icon asked for at 12, 16 or 20 pt from that grid's master instead of scaling it: 12 pt in Short / Compact layer rows and fields, 16 pt tool icons in Classic Flash density (R-056). |
-| Color panel and Preferences composition (changed, owner decision 2026-11-07) | Color is compact by default: a leading › / ⌄ icon button and the `NF2/Color Field` (hex · alpha) stay on top in both states, recent colours follow as `NF2/Swatch` cells; the SV field, hue / alpha strips, RGB / HSB and channel fields open below on demand (workspace preference). Preferences is 720 pt wide with a 160 pt category list and 120 pt labels; type sizes unchanged (R-055). |
+| Figma file structure v2.25 (T-159, owner decision 2026-11-09) | Live pages are `v2.25 · System & Components`, `v2.25 · Panels`, `v2.25 · Interface — Dark` / `— Light`; their existing node IDs remain stable for the export manifest. `v2.2 · … (archive 2026-11-09)` pages are detached frozen references created before the migration. Older `v2 · … (archive)` pages remain historical, but are not a frozen implementation source. |
+| Optical icon masters 12 / 16 / 20 | Every icon grid has its own master in `exports/icons/{12,16,20}` and in Figma (`NF2 Icon/{12,16,20}/*`, page `v2.25 · System & Components`). 12 and 16 px use 1 pt hinted strokes; 20 px uses 1.5 pt strokes. `icons::paint_sized` and `Icon::at` select the matching master instead of scaling. v2.25 approves Gradient Transform, ToolModifierGlyph, missing TextPropertyGlyph and Extend / Reflect / Repeat overflow-preview masters; existing super/subscript, alignment and text-border masters are reused. |
+| Tools panel v2.25 | One standard `NF2/Panel Header` titled Tools, with the Properties title style and left inset. There are no internal Tools / View / Colors / Options captions; dividers and every control remain. Fill/Stroke and reset/swap are centred on the active grid. Detached Tools snaps 16 pt inside eight Stage anchors with 112 pt capture: middle-left/right force the vertical rail, other anchors keep the two-column palette. Left-side popovers open right, right-side popovers left. Fill/Stroke reveals or focuses the real Color panel. |
+| Contextual Properties v2.25 | No Selection / Tool switch. Context follows Stage, selected object/text/symbol/video, Timeline frame/range/tween/sound or active tool. Minimum content/floating width is 320; paired fields share equal columns with 8 pt gap and ≥80 pt cells, stacking below the fit threshold. Transform order: W/H, X/Y, Scale X/Y, Rotation/Skew. Text retains Character, Advanced character, Paragraph, Container and flow, Options and Filters, including every implemented CS5/TLF field. |
+| Color panel v2.25 | No Selection / Drawing switch, object count or Mixed/apply gate. Fill is left, Stroke right. None / Solid / Linear / Radial / Bitmap share one contextual panel; Extend / Reflect / Repeat and Linear RGB, gradient stops, RGB/HSB, alpha, stroke width and Add to swatches remain. Floating minimum 248×190. Preferences remains 720 pt wide with a 160 pt category list and 120 pt labels (R-055). |
+| Floating panels and docking v2.25 | The single `NF2/Floating Panel Header` covers one/two/three tabs, overflow, active, compact and collapsed states; no native macOS title chrome. Tabs keep reorder, tear-off, individual docking and commands. Width minima apply docked and floating; panel-specific height minima only floating. Visible edge target ≈5.5%, clamped 44–80 / 36–66; invisible hit halo ≈9.5%, clamped 72–132 / 60–112 and capped at 30% of the surface. The dashed halo appears only in explanatory boards. |
+| Help and Function Search v2.25 | Help uses a 920×760 nominal clamped shell with fixed 52 pt header/close, 212 pt sidebar, stationary filter/badge/navigation, independent chapter/article scrolling, and Open in browser · Command Search (F1) · Close. Function Search opens with input focused; the first character survives menu dismissal and keyboard selection scrolls into view (width ≤560, ≤24 results, results height ≤392). |
+| Panel minimums v2.25 | Tools 88×160; Timeline 320×180; Library 248×300; Properties 320×220; Align/Transform/Color/Scene/History/Info 248×190; Swatches 300×360; Project 248×280; Filters 268×260; Code Snippets/Movie Explorer 280×280; Compiler Errors 360×180; Ease 320×420; Motion Editor 640×260; remaining panels 320×220. |
 | Side-dock priority and splitter (changed, owner decision 2026-11-07) | Stacked side-dock groups have Inspector priority (Properties 68 %, Library 32 %; the new default, was 83 / 17) or Library priority (the reverse); minimums stay Library 100 pt, others 120 pt. Switch with Window ▸ Inspector / Library priority (⌥⌘F3 / ⌥⌘L) or a double-click on the splitter. `NF2/Splitter` always shows its 24 × 3 grip in `border/strong`, accent while hovered or dragged (R-054). |
 | Stage toolbar states (new, owner decision 2026-11-07) | `NF2/Zoom Control` has three states: Floating (bottom centre), Collapsed (a pill with ‹ and the zoom percentage at the bottom-right corner that expands in place on hover and collapses 1 s after the pointer leaves) and Edit bar (a `control + 8` pt strip above the Stage, `bg/panel` with a `border/subtle` bottom line: breadcrumb left; stage size, hand, zoom, fit, rulers / guides / grid / snap and ⚙ right; the canvas shrinks, nothing covers artwork). Floating states hide while a drag that started on the canvas is in progress. Switch: View ▸ Stage toolbar or right-click the toolbar; Comfortable and Compact default to Collapsed, Classic Flash to Edit bar (R-053). |
-| Density profiles (new, owner decision 2026-11-07) | Comfortable / Compact / Classic Flash change chrome sizes only: top bar 48/40/32, dock tabs and panel headers 40/32/28, section headers 32/28/24, fields and buttons 32/28/24, rows 28/24/20, tool buttons 32/28/24 (tool icons 20/20/16), Tools rail 56/48/40, Timeline controls 44/40/32, frame ruler and layers header 32/26/22, default layer rows 28/22/16, layer column 372/332/292 (with Mode and Solo), Inspector 320/288/256, status bar 24/22/20, minimum target 32/28/24. `neoflash_ui::metrics` keeps the Comfortable constants and exposes density functions (`control()`, `row()` …). Switch: Preferences ▸ General ▸ Density (live preview) and Window ▸ Density; stored in workspace preferences, default Comfortable (R-051). |
-| Main menu composition (changed, owner decision 2026-11-08) | Order: File · Edit · View · Insert · Modify · Control · **Document** · Window · Help. Document contains Document settings… (`⌘J`, including Background), the open-document list, Next / Previous and Close / Close other documents / Close all. Every authoring-panel visibility row is under Window ▸ Panels; Workspaces, Hide panels, Inspector / Library priority, detach/dock, Appearance and Density stay at Window top level. The first Help row is Search functions… (`F1`), opening the existing catalogue with Search commands focused (R-059, R-064). |
+| Density profiles (new, owner decision 2026-11-07; v2.25 width clarification) | Comfortable / Compact / Classic Flash change chrome sizes only: top bar 48/40/32, dock tabs and panel headers 40/32/28, section headers 32/28/24, fields and buttons 32/28/24, rows 28/24/20, tool buttons 32/28/24 (tool icons 20/20/16), Tools button grid 56/48/40 inside an 88 pt minimum panel shell, Timeline controls 44/40/32, frame ruler and layers header 32/26/22, default layer rows 28/22/16, layer column 372/332/292 (with Mode and Solo), status bar 24/22/20, minimum target 32/28/24. Density never reduces Properties below its v2.25 320 pt content minimum or the Tools shell below 88 pt. `neoflash_ui::metrics` keeps the Comfortable constants and exposes density functions (`control()`, `row()` …). Switch: Preferences ▸ General ▸ Density (live preview) and Window ▸ Density; stored in workspace preferences, default Comfortable (R-051). |
+| Main menu composition (changed, owner decision 2026-11-08; v2.25 search behavior) | Order: File · Edit · View · Insert · Modify · Control · **Document** · Window · Help. Document contains Document settings… (`⌘J`, including Background), the open-document list, Next / Previous and Close / Close other documents / Close all. Every authoring-panel visibility row is under Window ▸ Panels; Workspaces, Hide panels, Inspector / Library priority, detach/dock, Appearance and Density stay at Window top level. The first Help row is Search functions… (`F1`), opening the existing catalogue with its input already focused (R-059, R-064). |
 | Type scale B (changed, owner decision 2026-11-07) | Professional-tool scale, one table in `tokens.json` / `typography.css`: Heading 14/20, Dialog Title 14/20, Title 12/16 (600; panel titles such as Properties, Color, Library), Dialog Body 12/16, Body 11/14, Body Strong 11/14, Small 10/13, Small Strong 10/13, new Caption 10/12, Overline 10/12, Mono 11/14, Mono Small 10/12 (was 20/18/16/14/13/13/12/12/–/11/12/11). Row, control and panel heights are unchanged; density profiles are R-051. Authored stage text and the user-set code editor font are not UI type. |
 | `NF2/Icon Button` Type=Primary (changed) | Square like every icon button (radius md), `accent/default` fill; the round shape is retired. The Timeline Play is Primary **SM 32 pt** inside the 2 pt transport group (R-052, 2026-11-07). |
 | `NF2/TL Layer` heights (changed) | Three presets: Normal 28 pt with `NF2/Body`, Short 22 pt with `NF2/Small`, Compact 16 pt with the new `NF2/Caption`; Short and Compact use 12 pt icons; toggle columns stay 20 pt (R-052). |
 | `NF2/TL Layer` Narrow (new) | Below a 280 pt layer column the 64 pt `Mode` cell becomes a 20 pt cell with a 12/16 pt `mixer` glyph in `accent/default`, shown only for non-Normal blend modes (and on hover); the header hides the "Mode" label (R-052). |
 | Timeline controls bar (changed) | No clipping or hidden scrolling: controls hide by priority (zoom slider, Duration / Center playhead, Scene, Folder…), the right-end More ⋯ turns Selected and lists them under "Hidden controls" (grouped into Layers / Playback / Frames and tweens / Onion skin / View submenus beyond 8 rows). Add layer, transport and More are always shown; transport-over-frame-1 alignment applies only when everything fits. Frame view adds Fit selection / Fit content (R-052). |
+| Timeline ruler labels v2.25 | Major frame labels are optically centred on their tick for mixed digit counts (1, 5, 10, 100). Frame 1 uses an edge-safe rule; the seconds row retains its independent placement. |
 | `NF2/Shape Hint` | 16 pt disc with a letter a–z. Unplaced = `danger/default`, Start = `warning/default`, End = `success/default`, with `text/on-accent` for the letter and outline. Colours are pinned to the Dark token mode (R-009). |
 | `NF2/Motion Path Handle` | `color/guide` tangent line and a 7 pt disc. Hover adds a ring; Drag uses `color/guide-selected` (R-008). |
 | `NF2/TL Span · Sound — decoded peaks` | One mirrored 1 pt column per point in `success/default`; stereo uses two lanes; while not yet decoded, a 1 pt centre line at 50 % (R-010). |
 | Paste motion special dialog | Checkbox grid of properties, two override options, Select none · Cancel · **Paste** (R-006). |
 | Properties — Classic tween | Rotate × count + Direction, then Orient to path, Snap to motion guide, Sync graphic symbols and Scale (R-007). |
 
-Shared pieces of the 5 November 2026 answers (R-022, R-032, R-033, R-035, R-036, R-038; page `v2 · Panels`, frames
-`124:18100` Dark / `132:19052` Light) and the v2.2 shelf "Brushes & tool flyouts" (`96:793`):
+Shared pieces of the 5 November 2026 answers (R-022, R-032, R-033, R-035, R-036, R-038; live page
+`v2.25 · Panels`, frames `124:18100` Dark / `132:19052` Light) and the live `v2.25 · System & Components` shelf
+"Brushes & tool flyouts" (`96:793`):
 
 | Component | Rule |
 | --- | --- |
@@ -161,8 +172,8 @@ Shared pieces of the 5 November 2026 answers (R-022, R-032, R-033, R-035, R-036,
 | --- | --- | --- |
 | `menu.rs` | Menu bar in the top bar | `interface/*/png/editor-edit-menu-open.png`, `panels/*/png/menus.png` |
 | `timeline.rs`, `timeline_controls.rs` | Timeline (layers, ruler, frames; 44 pt controls bar, onion popover, frame view menu) | `interface/*/png/editor-main.png`, `timeline-states-legend.png`, `panels/*/png/timeline-frame-views.png` |
-| `tools.rs` | Tools (2 columns; 1 column with "…" overflow when narrow) | `panels/*/png/panel-tools-floating.png` |
-| `properties.rs` | Properties | `interface/*/png/editor-main.png`, `panels/*/png/panel-properties-*.png` |
+| `tools.rs` | Tools (contextual 2-column palette; forced 1-column rail at middle side Stage anchors; no body captions) | `panels/*/png/panel-tools-floating.png` |
+| `properties.rs` | Contextual Properties (320 pt minimum; no Selection / Tool switch) | `interface/*/png/editor-main.png`, `panels/*/png/panel-properties-*.png` |
 | `library.rs` | Library | `panels/*/png/panels-more.png` |
 | `actions.rs` | Actions, Output, bottom-panel dispatch | `interface/*/png/editor-actions-tab.png`, `panels/*/png/panel-actions-floating.png`, `panels-more-2.png` |
 | `accessibility.rs` | Accessibility | `panels/*/png/panels-more-2.png` |

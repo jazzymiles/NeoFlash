@@ -34,7 +34,8 @@ Generated: {{GENERATED}} · Figma file: `{{FILE_NAME}}` (key `BUz3pseopiuOg2Uiy3
   stage + timeline + layers + nested symbols (movie clip / graphic / button) + ActionScript-style scripting,
   publishing to HTML5 (Rust / WebAssembly runtime), video, images and audio.
 - **Two designs live in one Figma file.** `v1` is a faithful vector reconstruction of the current app
-  (NF1 components, `NF1 · Tokens`). `v2` is the redesign (NF2 components, `NF2 · Tokens`, Dark + Light modes).
+  (NF1 components, `NF1 · Tokens`). `v2.25` is the current redesign (NF2 components, `NF2 · Tokens`, Dark + Light
+  modes); the detached `v2.2` archive pages are a preserved comparison checkpoint.
   **They never share a variable, style or component.** Editing one must not change the other.
 - **Source of truth is the Figma file**, edited through the Figma MCP `use_figma` tool (Plugin API).
   The old generator plugin in `figma-plugin/` is history; never re-run it on this file.
@@ -42,8 +43,9 @@ Generated: {{GENERATED}} · Figma file: `{{FILE_NAME}}` (key `BUz3pseopiuOg2Uiy3
   Never hard-code a hex in v2 except translucent tints (see §11 gotchas).
 - **Red is reserved for errors** (and the playhead / frame labels, which are Flash conventions). Breakpoints are orange,
   warnings amber, strings green, tags blue.
-- **Timeline geometry:** 12 px per frame (Normal view), rows 28 px, ruler 32 px, frame `n` starts at `x = (n − 1) × 12`.
-- **Icons:** monochrome, 16 px (UI) and 20 px (tools), components `NF2 Icon/16/*` and `NF2 Icon/20/*`, recoloured by token.
+- **Timeline geometry:** 12 px per frame (Normal view), rows 28 px, ruler 32 px, frame `n` starts at `x = (n − 1) × 12`;
+  every major frame label is centred on its tick (including 1-, 2- and 3-digit labels).
+- **Icons:** monochrome optical masters at 12, 16 and 20 px, components `NF2 Icon/{12,16,20}/*`, recoloured by token.
 - **Exports and data** live next to this file: `../exports/` (PNG @2x + SVG, Dark and Light), `data/figma-dump.json`,
   `data/outline/*.txt` (text outline of every exported frame). Re-export with `tools/export-plugin` (no MCP limits).
 
@@ -68,13 +70,13 @@ NeoFlash keeps the mental model Flash animators already have, and modernises the
 The audit board (`Audit · v1 → v2`) lists 14 findings: 5 High, 7 Medium, 2 Low. Key numbers: disabled text contrast
 in v1 is 2.16:1 (norm 4.5:1); 20 tool buttons had no labels or tooltips.
 
-| # | Area | Severity | v1 problem | v2 solution |
+| # | Area | Severity | v1 problem | NF2 solution |
 |---|---|---|---|---|
 | 1 | Action hierarchy | High | "Test Movie" is a small link; "Publish HTML5…" hidden at the bottom of Properties. No primary action. | Top bar: Test Movie (secondary) + **Publish** (primary, accent). Project title + unsaved badge centred. |
 | 2 | Timeline controls | High | Scene/FPS/duration on top, Play and onion skin at the bottom, zoom on a third row. Transport next to add/delete layer. | One control bar above the grid: transport + timecode + scene / FPS / duration + frame tools + onion + zoom on the right. |
 | 3 | Layer column | Med | Three unlabelled header icons; 60 % empty; add/delete detached from the list. | Add/delete in the layer column; 28 px rows with colour dot; lock/eye with tooltips. |
 | 4 | Timeline bottom row | Med | Onion skin checkboxes, fields and slider in one ungrouped line. | Onion skin is one toggle + range handles on the ruler; options in a popover and Preferences ▸ Timeline. |
-| 5 | Tools palette | High | 20 icons, no labels, no shortcuts, grey group captions. | 56 px rail, groups split by dividers, accent active tool, tooltip "Name  key", flyouts for tool groups. |
+| 5 | Tools palette | High | 20 icons, no labels, no shortcuts, grey group captions. | 88 px panel shell with a standard Tools header; groups split by dividers, accent active tool, tooltip "Name  key", flyouts for tool groups. |
 | 6 | Typography & contrast | High | 14 px base, 11–12 px secondary, disabled 2.16:1. | Scale 11/12/13/14/16/18/20, ≥ 12 px for running text, all text tokens ≥ 4.5:1 (except disabled). |
 | 7 | Surfaces & borders | Med | Every control outlined 1 px #6D7690; no depth. | Surface levels; borders only as separators; radii 4/6/8/12 from tokens. |
 | 8 | Property fields | Med | FPS/Frames/Alpha look like buttons; no units, steppers or scrub. | One Field: inline prefix label, units in value, hover/focus/disabled, linked W × H. |
@@ -103,15 +105,17 @@ Page roles:
 
 - **v1 · Components / v1 · Interface** — reconstruction of the shipped app. Touch only when asked.
 - **Audit · v1 → v2** — findings, annotated v1 map, principles, functional coverage table.
-- **v2 · System & Components** — tokens boards (Colors Dark/Light, Type scale, Spacing and radius) and component
+- **v2.25 · System & Components** — tokens boards (Colors Dark/Light, Type scale, Spacing and radius) and component
   *shelves* (`Shelf / …` frames). Every NF2 component lives here.
 - **Icons** — every NF2 / NF1 icon grouped with "where used", the Cursors section and the list of unused icons.
   Regenerate it after adding icons (see §11).
-- **v2 · Panels** — every floating panel, dialog, menu, preferences page and timeline view mode, in a Dark board and a
+- **v2.25 · Panels** — every floating panel, dialog, menu, preferences page and timeline view mode, in a Dark board and a
   Light twin board (`Panels — Light`, `Menus — Light`, `Preferences — Light`, `Timeline frame views — Light`).
-- **v2 · Interface — Dark / Light** — full 1920 × 1080 editor screens in each state. The Light page holds clones of the
+- **v2.25 · Interface — Dark / Light** — full 1920 × 1080 editor screens in each state. The Light page holds clones of the
   Dark frames with the NF2 collection set to Light mode on the frame. **After changing a Dark screen, re-clone it to
   Light** (delete the old twin, clone, set explicit mode Light).
+- **v2.2 · … (archive 2026-11-09)** — detached reference pages frozen immediately before the v2.25 migration. Do not
+  relink these pages to live masters or use them as implementation references.
 
 ---
 
@@ -178,12 +182,16 @@ Usage:
 
 ### 3.4 Iconography
 
-- Two grids: **16 px** for UI (panels, menus, timeline, dialogs) and **20 px** for tools (Tools panel, colour
-  controls). Stroke icons (≈1.3 px on the 16 grid, 1.5 px on the 20 grid, round caps), no colour of their own:
+- Three optical grids: **12 px** for compact chrome, **16 px** for UI (panels, menus, timeline, dialogs) and **20 px**
+  for tools (Tools panel, colour controls). Stroke icons use their grid-specific hinted master instead of scaling
+  another size; they have no colour of their own:
   the instance is recoloured by token
   (`text/secondary` default, `text/primary` hover, `accent/default` active, `text/on-accent` on primary buttons).
-- Names: `NF2 Icon/16/<name>`, `NF2 Icon/20/<name>`; tools are `NF2 Icon/20/tool-<name>`, colour controls
+- Names: `NF2 Icon/{12,16,20}/<name>`; tools are `NF2 Icon/20/tool-<name>`, colour controls
   `NF2 Icon/20/color-<name>`.
+- v2.25 adds approved masters for Gradient Transform, tool-modifier glyphs, text-property glyphs and gradient
+  overflow previews (Extend / Reflect / Repeat). Reuse the existing superscript, subscript, alignment and text-border
+  masters instead of duplicating them.
 - The **Icons** page lists every icon with where it is used, grouped like the table below. Unused icons are listed
   as cleanup candidates (kept on purpose for upcoming features).
 
@@ -222,9 +230,9 @@ Frame `NF2 / Editor — Main`, 1920 × 1080. Regions (top to bottom, left to rig
 | Region | Size | Content |
 |---|---|---|
 | Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Insert · Modify · Control · Document · Window · Help (ghost buttons, open as dropdowns, §8); centred project title "Ideas in motion" + `Badge` "Unsaved" (warning); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). |
-| Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools (long-press opens the group menu built from `NF2/Tool Flyout Item`; all groups and their shortcuts are on the board “Tools — flyout groups”, §6; the rail is edited in “Customize tools panel”, §9), fill/stroke chip, swap/default colours, snap toggle at the bottom. |
-| Canvas | 1544 × 588 | Pasteboard `bg/canvas`; stage 960 × 600 shown at 75 % (720 × 452) with `NF2/Stage Grid`; horizontal + vertical `NF2/Stage Ruler` (20 px) and `NF2/Ruler Corner`; `NF2/Guide` lines; breadcrumb (floating, top-left, 34 px); stage-size badge (top-right); `NF2/Zoom Control` floating bottom-centre (hand, −, 75 %, +, fit, rulers, guides, grid, snap to guides, view settings ⚙). |
-| Inspector | 320 × 588 | **Properties** (`Panel Header`, `Segmented Control` Selection / Tool; sections Stage: Name, W × H with link, Background swatch + hex + α; Playback: FPS, Frames; Publish: target badge "HTML5 · Rust / WebAssembly" + "Publish settings…") and **Library** (search, tree). Content changes with the selection (see §6 Properties variants). |
+| Tools panel | 88 × 588 | Standard `NF2/Panel Header` titled **Tools**, with the same title style and left inset as Properties. `NF2/Tools Panel` Layout=1 Column; a detached top/bottom/corner palette may use 2 Columns. Tool groups are separated only by dividers: there are no internal Tools / View / Colors / Options captions. Grouped tools retain flyouts and every shortcut; the fill/stroke chip plus swap/default actions are centred on the active grid. |
+| Canvas | 1512 × 588 | Pasteboard `bg/canvas`; stage 960 × 600 shown at 75 % (720 × 452) with `NF2/Stage Grid`; horizontal + vertical `NF2/Stage Ruler` (20 px) and `NF2/Ruler Corner`; `NF2/Guide` lines; breadcrumb (floating, top-left, 34 px); stage-size badge (top-right); `NF2/Zoom Control` floating bottom-centre (hand, −, 75 %, +, fit, rulers, guides, grid, snap to guides, view settings ⚙). |
+| Inspector | 320 × 588 | **Properties** has no Selection / Tool switch: it follows Stage, selected object/text/symbol/video, Timeline frame/range/tween/sound or the active tool automatically. Its paired controls share one aligned equal-column grid and stack instead of clipping below the two-column threshold. **Library** retains search and tree. |
 | Bottom dock | 1920 × 420 | Dock tabs (40): Timeline · Actions · Output · Accessibility, collapse ⌄ and more ⋯. Timeline controls (44). Timeline body (336). |
 | Status bar | 1920 × 24 | "Ready" + document summary "Stage 960 × 600 · 24 fps · 120 frames" left; shortcut hints right: `F5` frame, `F6` keyframe, `F7` blank keyframe, `⌘↵` Test Movie. |
 
@@ -266,7 +274,7 @@ frame view ⋯ · zoom − slider +.
 |---|---|
 | Frame width | 12 px (Normal). View modes: Tiny 6, Small 9, Normal 12, Medium 16, Large 22 px/frame. |
 | Row height | 28 px (Short mode: 18 px). |
-| Ruler | `NF2/TL Ruler`, 32 px: seconds row on top (`0s 1s 2s …` at 24 fps), frame numbers row below (1, 5, 10, …) with ticks. |
+| Ruler | `NF2/TL Ruler`, 32 px: seconds row on top (`0s 1s 2s …` at 24 fps), frame numbers row below (1, 5, 10, 100, …), each optically centred on its tick. Frame 1 uses the edge-safe rule; the seconds row is independent. |
 | Layer column | 280 px (`NF2/TL Layers Header` + `NF2/TL Layer` rows). |
 | Grid | `NF2/TL Grid` 1440 px = 120 frames: frame dividers are **short ticks at the bottom** of the row (1 × 4 px, Flash style), not full-height lines; every 5th frame shaded (`timeline/empty-5th`); row line at the bottom. `NF2/TL Grid Lines` (the same ticks) sits directly above `TL Grid` and **below** spans, so static and tween spans stay continuous. |
 | Glyph line | Keyframe glyphs sit low in the cell: centre at y 19 of the 27 px cell. Tween lines and arrowheads use the same line. The action “a”, label flags and label text sit at the top of the cell. |
@@ -334,9 +342,54 @@ Button symbols get the 4-frame timeline Up · Over · Down · Hit (Hit is never 
 
 ## 6. Panels
 
-All detached panels share `NF2/Floating Panel Header` (drag grip, up to 3 `Panel Tab`s via `Tab 2` / `Tab 3`
-booleans, panel menu ⋯, collapse, close), `bg/raised`, radius 12, 1 px border, shadow. Bodies use 12 px padding and
-`NF2/Section Header` (collapsible, Overline style) between groups. Docked versions use `NF2/Panel Header`.
+All detached panels share one `NF2/Floating Panel Header` (never an additional native macOS title bar): drag grip,
+one to three visible `Panel Tab`s, active/overflow/compact states, panel menu ⋯, collapse and close. Tabs retain
+reorder, tear-off, individual docking and panel commands. Bodies use 12 px padding and `NF2/Section Header`
+(collapsible, Overline style) between groups; docked versions use `NF2/Panel Header`.
+
+Minimum widths apply docked and floating. Panel-specific minimum heights apply only while floating:
+
+| Panel | Minimum (W × H) |
+|---|---|
+| Tools | 88 × 160 |
+| Timeline | 320 × 180 |
+| Library | 248 × 300 |
+| Properties | 320 × 220 |
+| Align / Transform / Color / Scene / History / Info | 248 × 190 |
+| Swatches | 300 × 360 |
+| Project | 248 × 280 |
+| Filters | 268 × 260 |
+| Code Snippets / Movie Explorer | 280 × 280 |
+| Compiler Errors | 360 × 180 |
+| Ease | 320 × 420 |
+| Motion Editor | 640 × 260 |
+| Other panels | 320 × 220 |
+
+The visible dock edge target is about 5.5% of the surface, clamped to 44–80 px horizontally and 36–66 px
+vertically. Its invisible acceptance halo is about 9.5%, clamped to 72–132 px / 60–112 px and never more than 30%
+of the surface. Dashed halo drawings are documentation annotations only, never production chrome.
+
+### 6.1 Tools placement and paint controls
+
+Detached Tools snaps to eight Stage anchors at a 16 px inset: top-left / centre / right, middle-left / right and
+bottom-left / centre / right. Capture distance is 112 px. Middle-left and middle-right force the one-column vertical
+rail; corners and top/bottom centres keep the horizontal/two-column palette. Top anchors grow down, bottom anchors
+grow up; left-side popovers open right and right-side popovers open left. Fill/Stroke never squeezes a colour picker
+inside the narrow Tools window: it opens or focuses the real Color panel.
+
+### 6.2 Contextual Properties and Color
+
+Properties minimum content width is 320 px. True pairs use an equal two-column grid with an 8 px gap and at least
+80 px per cell; below that threshold they stack. Transform order is W/H (with constraint), X/Y, Scale X/Y,
+Rotation/Skew. Text preserves Character, Advanced character, Paragraph, Container and flow, Options and Filters,
+including implemented column/gutter, four-sided padding, vertical alignment, border, first-line offset, highlight,
+strike/super/subscript, case/digit/ligature/break, leading, paragraph spacing, direction/orientation and baseline/locale
+controls. The canonical 320 px state and narrow stacked fallback are both reference states.
+
+Color is contextual; it has no Selection / Drawing switch, object-count row or Mixed/apply gate. Fill is left and
+Stroke right. One panel covers None, Solid colour, Linear gradient, Radial gradient and Bitmap fill, including
+Extend / Reflect / Repeat and Linear RGB, stops, RGB/HSB, alpha, stroke width and Add to swatches. Floating minimum:
+248 × 190 px.
 
 {{GEN:panels}}
 
@@ -383,7 +436,9 @@ Main menu items are `NF2/Menu Bar Item` (Default / Open); dropdowns are `bg/rais
 `Document` sits directly before `Window`: Document settings… (`⌘J`, including Stage Background), the open-document
 list, Next / Previous and Close / Close other documents / Close all. `Window` keeps window/workspace operations at
 top level and groups all authoring-panel visibility rows under `Window ▸ Panels`. `Help` starts with
-`Search functions…` (`F1`), which opens the existing searchable command catalogue and focuses `Search commands`.
+`Search functions…` (`F1`), which opens the existing searchable command catalogue with its input already focused.
+The first typed character survives native-menu dismissal, keyboard selection stays visible, the popover is at most
+560 px wide, lists at most 24 results and caps its results region at 392 px.
 
 {{GEN:menus}}
 
@@ -395,6 +450,11 @@ top level and groups all authoring-panel visibility rows under `Window ▸ Panel
 
 Dialog anatomy: `NF2/Dialog Header` (title + close), body 24 px padding, footer right-aligned buttons
 (primary last; destructive as danger-ghost on the left), `overlay` scrim, radius 12. Esc = Cancel, Enter = primary.
+
+Help & Reference uses a nominal 920 × 760 px clamped shell: fixed 52 px header and close control, fixed search/filter
+and chapter badge, 212 px chapter sidebar, independently scrolling chapter list and article, stationary Previous/Next,
+and footer actions Open in browser · Command Search (F1) · Close. At the minimum viewport or high UI scale those
+regions clamp without overlapping, changing width or moving the close control.
 
 Preferences: 920 px dialog, left category tree (`Tree Item`) General · Code editor · Timeline · Drawing · Text ·
 Clipboard · Shortcuts · Publish · Updates; right column of `Overline` sections with label + control rows;
@@ -410,7 +470,7 @@ footer Reset to defaults · Cancel · **Save**.
 
 ## 10. Components (catalogue)
 
-Every NF2 component, grouped by its shelf on `v2 · System & Components`. `set` = component set (variants);
+Every NF2 component, grouped by its shelf on `v2.25 · System & Components`. `set` = component set (variants);
 property types: VARIANT (options), TEXT (default), BOOLEAN (default), INSTANCE_SWAP.
 
 {{GEN:components}}
@@ -469,7 +529,7 @@ const al = (name, dir, gap) => { const f = figma.createAutoLayout(dir, { name, i
 ### 11.4 Rules
 
 - New v2 work: NF2 components only; colours via `P(token)`; text via NF2 styles; spacing/radius values from tokens.
-- New component → put it on a `Shelf / …` frame on `v2 · System & Components`, give it a description (what, when,
+- New component → put it on a `Shelf / …` frame on `v2.25 · System & Components`, give it a description (what, when,
   interaction), then use instances in panels/screens. Add Light twins for new panels/screens.
 - New icon → `NF2 Icon/16/<name>` (or 20), stroke-only, then regenerate the Icons page.
 - Keep the coverage table and this document in sync: run the export plugin, then `tools/build-docs.py`.
@@ -554,7 +614,7 @@ Switch theme by setting `data-theme="light"` on the root (or on a subtree, like 
 
 ### 13.3 Icons and cursors
 
-- Icons: `exports/icons/16/*.svg`, `exports/icons/20/*.svg` (one file per `NF2 Icon/*` component, exported by the
+- Icons: `exports/icons/{12,16,20}/*.svg` (one file per `NF2 Icon/*` component, exported by the
   plugin). They are monochrome strokes; replace the stroke colour with `currentColor` so the token colour of the
   parent applies.
 - Cursors: `exports/cursors/*.svg` (24 × 24) with the hotspot from §3.5 →
@@ -564,7 +624,8 @@ Switch theme by setting `data-theme="light"` on the root (or on a subtree, like 
 
 - Numeric fields: drag the prefix label to scrub, ↑/↓ steps, ⇧ = ×10, units shown in the value.
 - Tool buttons with `Flyout`: long-press (or right-click) opens the tool group; tooltip = name + shortcut.
-- Panels: floating panels can dock (dock zones + docking compass), splitters resize docks, tabs drag between panels.
+- Panels: floating panels can dock through the larger invisible acceptance halo (dock zones + docking compass),
+  splitters resize docks, tabs reorder, tear off, dock individually and preserve their panel commands.
 - Keyboard: all shortcuts in §8; Esc = cancel / close popover, Enter = primary action in dialogs; focus ring only on
   keyboard focus.
 - Red only for errors; never use `--nf-color-danger-*` for anything decorative.

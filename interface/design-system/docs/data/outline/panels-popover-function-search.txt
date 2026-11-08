@@ -1,0 +1,13 @@
+F Popover / Function Search 560×520 [V gap 0]
+  I NF2/Search {Label=color, State=Filled} 536×32 "color"
+  T "MENU ITEMS"
+  I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘C, Label=Window > Panels > Color, State=Hover} 536×28 "Window > Panels > Color" "⌥⌘C"
+  I NF2/Menu Item {Submenu=false, Shortcut=, Label=Modify > Shape > Convert lines to fills, State=Default} 536×28 "Modify > Shape > Convert lines to fills"
+  I NF2/Menu Item {Submenu=false, Shortcut=⌘F, Label=Edit > Find and replace > Colour, State=Default} 536×28 "Edit > Find and replace > Colour" "⌘F"
+  I NF2/Menu Item {Submenu=false, Shortcut=⌘F9, Label=Window > Panels > Swatches, State=Default} 536×28 "Window > Panels > Swatches" "⌘F9"
+  I NF2/Menu Item {Submenu=false, Shortcut=⌘J, Label=Document > Document settings > Background, State=Default} 536×28 "Document > Document settings > Background" "⌘J"
+  I NF2/Menu Item {Submenu=false, Shortcut=, Label=Help > NeoFlash Help & Reference…, State=Default} 536×28 "Help > NeoFlash Help & Reference…"
+  F Keyboard help 536×40 [H gap 8]
+    I NF2/Kbd 32×20 "F1"
+    T "↑↓ move   ↵ run   Esc close"
+    I NF2/Button {Icon=false, Label=Help & Reference…, Type=Secondary, State=Default} 144×32 "Help & Reference…"

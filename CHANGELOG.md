@@ -2,6 +2,13 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Synchronized the owner-approved panel repair as the NF2 v2.25 design-system baseline (`T-159`): the live Figma
+  references and exported design library now cover contextual Tools/Properties, eight magnetic Tools positions,
+  centred Fill/Stroke controls, stable and constrained Help layouts, first-keystroke function search, panel minima and
+  docking behavior, responsive Text Properties, approved 12/16/20 tool/text glyph masters and gradient-overflow
+  states in both themes. Timeline frame numbers now remain centred on their major ticks as the digit count changes;
+  the prior v2.2 boards remain available as a dated archive.
+
 - Stabilized the v2.2 panel workflow without removing any authoring controls (`T-156`):
   - **Contextual Tools and Properties:** Removed the redundant `Selection / Tool` switch; Properties now chooses
     object, Timeline frame/range, Stage or active-tool settings from the live editing context. Tools keeps its normal

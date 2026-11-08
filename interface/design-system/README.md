@@ -1,6 +1,7 @@
 # NeoFlash design system
 
-Design system, UI specification and exports of the NeoFlash animation editor (v2 redesign).
+Design system, UI specification and exports of the NeoFlash animation editor. **v2.25** is the current live NF2
+reference; the detached v2.2 pages in Figma are the preserved pre-migration checkpoint.
 Source of truth: Figma file `BUz3pseopiuOg2Uiy3Fog7`.
 
 | Start here | For |
@@ -19,3 +20,7 @@ Rebuild after a design change:
 python3 tools/receiver.py            # keep running, then run "NeoFlash Export" in Figma Desktop
 python3 tools/build-docs.py && tools/build-pdf.sh
 ```
+
+The v2.25 contract keeps every implemented feature while repairing Tools/Color alignment, contextual Properties,
+panel minima and docking capture, Help, Function Search, Timeline ruler labels and approved optical glyph masters.
+Export and verify both Dark and Light; never substitute the old local `.fig` copy for the cloud source.

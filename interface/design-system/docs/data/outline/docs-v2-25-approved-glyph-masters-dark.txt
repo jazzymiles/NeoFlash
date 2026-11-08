@@ -1,0 +1,320 @@
+F Shelf / v2.25 — Approved glyph masters 1320×718 [V gap 16]
+  T "v2.25 · Approved tool, text and gradient masters"
+  F Icons · 12 px 1260×200 [H gap 12]
+    F NF2 Icon/12/gradient-transform 12×12
+      F Group 8×7
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-object-drawing 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-gap-size 12×12
+      F Group 9×5
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-normal 12×12
+      F Group 8×7
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-paint-fills 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-paint-behind 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-paint-selection 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-paint-inside 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-size 12×12
+      F Group 9×5
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-brush-shape 12×12
+      F Group 9×5
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-eraser-mode 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-eraser-size 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-eraser-shape 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-faucet 12×12
+      F Group 8×7
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-touch-selects 12×12
+      F Group 7×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-slice-merge-fills 12×12
+      F Group 9×9
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-lasso-polygon 12×12
+      F Group 8×9
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-magic-wand 12×12
+      F Group 9×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/mod-settings 12×12
+      F Group 9×9
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-orientation-horizontal 12×12
+      F Group 8×6
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-orientation-vertical-ltr 12×12
+      F Group 6×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-orientation-vertical-rtl 12×12
+      F Group 6×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-underline 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-strikethrough 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/talign-justify-all 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-bullets 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-direction-ltr 12×12
+      F Group 9×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-direction-rtl 12×12
+      F Group 9×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-valign-top 12×12
+      F Group 9×6
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-valign-center 12×12
+      F Group 9×6
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-valign-bottom 12×12
+      F Group 9×6
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-valign-justify 12×12
+      F Group 9×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-columns 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-gutter 12×12
+      F Group 8×9
+      F v2.25 corrected optical master 12×12
+    F NF2 Icon/12/text-background 12×12
+      F Group 8×8
+      F v2.25 corrected optical master 12×12
+  F Icons · 16 px 1260×200 [H gap 12]
+    F NF2 Icon/16/gradient-transform 16×16
+      F Group 11×9
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-object-drawing 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-gap-size 16×16
+      F Group 12×6
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-normal 16×16
+      F Group 10×9
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-paint-fills 16×16
+      F Group 10×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-paint-behind 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-paint-selection 16×16
+      F Group 11×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-paint-inside 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-size 16×16
+      F Group 12×7
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-brush-shape 16×16
+      F Group 12×6
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-eraser-mode 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-eraser-size 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-eraser-shape 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-faucet 16×16
+      F Group 10×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-touch-selects 16×16
+      F Group 9×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-slice-merge-fills 16×16
+      F Group 12×12
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-lasso-polygon 16×16
+      F Group 11×12
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-magic-wand 16×16
+      F Group 12×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/mod-settings 16×16
+      F Group 12×12
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-orientation-horizontal 16×16
+      F Group 11×9
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-orientation-vertical-ltr 16×16
+      F Group 9×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-orientation-vertical-rtl 16×16
+      F Group 9×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-underline 16×16
+      F Group 10×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-strikethrough 16×16
+      F Group 11×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/talign-justify-all 16×16
+      F Group 11×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-bullets 16×16
+      F Group 11×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-direction-ltr 16×16
+      F Group 12×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-direction-rtl 16×16
+      F Group 12×10
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-valign-top 16×16
+      F Group 12×9
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-valign-center 16×16
+      F Group 12×8
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-valign-bottom 16×16
+      F Group 12×9
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-valign-justify 16×16
+      F Group 12×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-columns 16×16
+      F Group 11×11
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-gutter 16×16
+      F Group 11×12
+      F v2.25 corrected optical master 16×16
+    F NF2 Icon/16/text-background 16×16
+      F Group 11×10
+      F v2.25 corrected optical master 16×16
+  F Icons · 20 px 1260×200 [H gap 12]
+    F NF2 Icon/20/gradient-transform 20×20
+      F Group 14×11
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-object-drawing 20×20
+      F Group 14×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-gap-size 20×20
+      F Group 15×8
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-normal 20×20
+      F Group 13×12
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-paint-fills 20×20
+      F Group 13×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-paint-behind 20×20
+      F Group 13×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-paint-selection 20×20
+      F Group 14×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-paint-inside 20×20
+      F Group 14×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-size 20×20
+      F Group 14×9
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-brush-shape 20×20
+      F Group 15×8
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-eraser-mode 20×20
+      F Group 14×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-eraser-size 20×20
+      F Group 14×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-eraser-shape 20×20
+      F Group 14×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-faucet 20×20
+      F Group 13×12
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-touch-selects 20×20
+      F Group 11×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-slice-merge-fills 20×20
+      F Group 15×15
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-lasso-polygon 20×20
+      F Group 14×15
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-magic-wand 20×20
+      F Group 15×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/mod-settings 20×20
+      F Group 15×15
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-orientation-horizontal 20×20
+      F Group 14×11
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-orientation-vertical-ltr 20×20
+      F Group 11×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-orientation-vertical-rtl 20×20
+      F Group 11×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-underline 20×20
+      F Group 13×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-strikethrough 20×20
+      F Group 14×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/talign-justify-all 20×20
+      F Group 14×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-bullets 20×20
+      F Group 13×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-direction-ltr 20×20
+      F Group 14×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-direction-rtl 20×20
+      F Group 14×13
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-valign-top 20×20
+      F Group 15×11
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-valign-center 20×20
+      F Group 15×10
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-valign-bottom 20×20
+      F Group 15×11
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-valign-justify 20×20
+      F Group 15×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-columns 20×20
+      F Group 14×14
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-gutter 20×20
+      F Group 14×15
+      F v2.25 corrected optical master 20×20
+    F NF2 Icon/20/text-background 20×20
+      F Group 14×13
+      F v2.25 corrected optical master 20×20

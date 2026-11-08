@@ -127,8 +127,11 @@ async function run(opts) {
     } catch (e) { failed.push(it.id + ' ' + it.png + ': ' + e.message); }
   }
   if (opts.icons) {
-    // NF2 v2.2 (T-123): live components; 'v2 · … (archive)' pages are clones with instances only.
-    const sys = figma.root.children.find(p => p.name === 'v2.2 · System & Components');
+    // Prefer the current live component page while retaining older export compatibility.
+    const sys = ['v2.25 · System & Components', 'v2.2 · System & Components', 'v2 · System & Components']
+      .map(name => figma.root.children.find(page => page.name === name))
+      .find(Boolean);
+    if (!sys) throw new Error('NF2 System & Components page not found');
     await sys.loadAsync();
     const comps = sys.findAll(n => n.type === 'COMPONENT' && /^NF2 (Icon|Cursor)\//.test(n.name));
     let k = 0;

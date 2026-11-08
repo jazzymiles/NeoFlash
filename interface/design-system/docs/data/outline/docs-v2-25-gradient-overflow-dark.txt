@@ -1,0 +1,7 @@
+F Shelf / v2.25 — Gradient overflow 560×146 [V gap 16]
+  T "Gradient overflow · Extend / Reflect / Repeat"
+  F Variants 452×60 [H gap 16]
+    F NF2/Gradient Overflow Preview 452×40
+      F Mode=Extend 140×40
+      F Mode=Reflect 140×40
+      F Mode=Repeat 140×40

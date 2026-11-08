@@ -26,8 +26,16 @@ dump = json.load(open(os.path.join(DOCS, 'data', 'figma-dump.json')))
 manifest = json.load(open(os.path.join(ROOT, 'exports', 'manifest.json')))
 NF2 = next(c for c in dump['collections'] if c['name'] == 'NF2 · Tokens')
 TOK = {v['name']: v for v in NF2['variables']}
-# The live component page is 'v2.2 · System & Components' since T-123; older dumps use the v2 name.
-COMPS = dump['components'].get('v2.2 · System & Components') or dump['components']['v2 · System & Components']
+# Prefer the current live component page while retaining older dump compatibility.
+COMPS = next(
+    dump['components'][name]
+    for name in (
+        'v2.25 · System & Components',
+        'v2.2 · System & Components',
+        'v2 · System & Components',
+    )
+    if name in dump['components']
+)
 
 T = {  # UI strings of generated parts
     'en': dict(token='Token', dark='Dark', light='Light', name='Name', font='Font', size='Size', lh='Line height',

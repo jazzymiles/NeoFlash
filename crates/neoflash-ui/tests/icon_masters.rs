@@ -4,7 +4,7 @@
 //! fill edges on whole pixels. 20 px: 1.5 pt strokes on .25 / .75, fill edges on half points.
 //! A fill edge may sit on a stroke axis of the same icon (the stroke covers it). Icons asked for at
 //! another grid size come from that grid's master instead of being scaled.
-use neoflash_ui::icons::{Icon, i12, i16, i20};
+use neoflash_ui::icons::{i12, i16, i20, Icon};
 
 /// (stroked, stroke width, axis-aligned straight segments as (axis, coordinate)).
 type PathFacts = (bool, Option<f32>, Vec<(usize, f32)>);
@@ -51,7 +51,11 @@ fn facts(svg: &str) -> Vec<PathFacts> {
         .map(|rest| {
             let tag = &rest[..rest.find("/>").unwrap()];
             let stroked = attr(tag, "stroke").is_some_and(|s| s != "none");
-            let width = attr(tag, "stroke-width").map(|w| w.parse().unwrap());
+            // SVG's specified default stroke width is 1 user unit. Figma omits
+            // the attribute when a 12/16 px optical master uses that default.
+            let width = attr(tag, "stroke-width")
+                .map(|w| w.parse().unwrap())
+                .or_else(|| stroked.then_some(1.0));
             let (mut cur, mut start) = ((0.0f32, 0.0f32), (0.0f32, 0.0f32));
             let mut segs = Vec::new();
             for (cmd, a) in numbers(&attr(tag, "d").unwrap()) {

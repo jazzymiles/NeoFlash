@@ -1,4 +1,4 @@
-//! NF2 v2.2 frame-area geometry (`NF2/TL Grid`, `Grid Lines`, `Span`, `Marker`, `Frame Label`,
+//! NF2 v2.25 frame-area geometry (`NF2/TL Grid`, `Grid Lines`, `Span`, `Marker`, `Frame Label`,
 //! `Playhead`), checked against the locked Figma masters (`9:325`, `9:326`, `9:460`, `9:485`,
 //! `9:499`, `9:651`) in every Frame View row height and frame width, so the painter cannot drift back
 //! to row-centred, zoom-scaled glyphs.
@@ -6,7 +6,7 @@ use eframe::egui::{self, Pos2, Rect, Shape};
 use neoflash_ui::components::timeline::{
     self as tl, FrameLabelKind, Geometry, MarkerKind, SpanType,
 };
-use neoflash_ui::{Theme, theme, typography};
+use neoflash_ui::{theme, typography, Theme};
 
 /// Row heights: Compact, Short, Normal, Preview, Layer height 200 % / 300 %.
 const ROWS: [f32; 6] = [14.0, 18.0, 28.0, 44.0, 56.0, 84.0];
@@ -346,6 +346,58 @@ fn playhead_chip_shares_the_ruler_digit_line() {
             "frame number on the digits' top line ({time:?})"
         );
         assert!(chip.bottom() <= ruler.bottom());
+    }
+}
+
+#[test]
+fn ruler_frame_numbers_are_tick_centred_and_frame_one_is_edge_safe() {
+    let ruler = Rect::from_min_size(Pos2::new(100.0, 0.0), egui::vec2(1400.0, 32.0));
+    for theme in [Theme::Dark, Theme::Light] {
+        for (width, labelled_frames) in [
+            (6.0, &[20_u32, 100][..]),
+            (9.0, &[5_u32, 10, 100][..]),
+            (12.0, &[5_u32, 10, 100][..]),
+        ] {
+            let g = geo(width, 28.0);
+            let s = flat(shapes(theme, |p, ctx| {
+                let clipped = p.with_clip_rect(ruler);
+                tl::paint_ruler(&clipped, ctx, ruler, &g, 24.0, false);
+            }));
+            let label = |wanted: &str| {
+                s.iter()
+                    .find_map(|shape| match shape {
+                        Shape::Text(text) if text.galley.job.text == wanted => Some(text),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("missing ruler label {wanted}"))
+            };
+
+            // Major labels stay optically centred on their half-pixel tick regardless of digit
+            // count and frame zoom.
+            for &frame in labelled_frames {
+                let text = label(&frame.to_string());
+                let centre = text.pos.x + text.galley.size().x / 2.0;
+                assert!(
+                    close(centre, g.frame_x(frame) + 0.5),
+                    "{theme:?} width {width} frame {frame}: label centre {centre}, tick {}",
+                    g.frame_x(frame) + 0.5
+                );
+            }
+
+            // The first tick is at the left clip edge, so its label is shifted just enough to
+            // remain completely visible instead of losing the left half of the glyph.
+            let first = label("1");
+            assert!(
+                first.pos.x >= ruler.left() - 0.01,
+                "{theme:?} width {width}: frame 1 starts at {}, clip starts at {}",
+                first.pos.x,
+                ruler.left()
+            );
+            assert!(
+                first.pos.x + first.galley.size().x <= ruler.right() + 0.01,
+                "{theme:?} width {width}: frame 1 leaves the ruler"
+            );
+        }
     }
 }
 

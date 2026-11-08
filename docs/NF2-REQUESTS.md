@@ -1023,7 +1023,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   showing the anchor centred on the visible nib; retain every existing SVG path and cursor size.
 
 ### R-066 · Owner-authorized v2.2 panel, floating-tools and Help repair batch
-- **Status:** open
+- **Status:** resolved — owner decision 2026-11-09; implemented and synchronized as NF2 v2.25
 - **Requested by / for:** project owner · T-156 native UI report and six annotated screenshots (8 November 2026)
 - **Where:** Figma `BUz3pseopiuOg2Uiy3Fog7` v2.2 Interface/Panels/Components; `NF2/Panel Header`,
   `NF2/Floating Panel Header`, Tools, Properties — Text, Timeline ruler, Help and tool/text icon masters.
@@ -1050,4 +1050,15 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   detached Color routing and eight functional Tools anchors are implemented and covered without removing existing
   controls. The design track still owns Figma synchronization, optically centred Timeline ruler labels and approved
   masters for the remaining editor-local tool/text/gradient glyphs.
-- **Answer:**
+- **Answer (T-159, 2026-11-09):** The owner explicitly authorized the locked design-system/Figma update and chose
+  `v2.25` as the new live version. Figma `BUz3pseopiuOg2Uiy3Fog7` now uses live pages `v2.25 · System & Components`
+  (`1:2845`), `v2.25 · Panels` (`22:31`), `v2.25 · Interface — Dark` (`1:2846`) and
+  `v2.25 · Interface — Light` (`59:50907`); the previous v2.2 pages are retained as dated archive pages. The approved
+  references include Tools Stage anchors (`227:452709`; panel examples `227:452786` / `227:452817`), Help and its
+  constrained viewport (`227:452848`, `227:453030`, `227:453212`, `227:453394`), Function Search (`227:453576` /
+  `227:453657`), floating headers/docking/minima (`227:453738` / `227:453892`), contextual Properties
+  (`227:454916` / `227:454999`), Text narrow fallback (`227:450104` / `227:450395`), approved 12/16/20 glyph masters
+  (`227:454046` / `227:454519`) and gradient-overflow components (`227:454887` / `227:454902`). Timeline frame labels
+  now centre on their major ticks in both themes, including multi-digit labels. The design reference, bilingual notes,
+  manifest, exports and design-library consumers prefer v2.25 while retaining v2.2/v2 fallbacks. No implemented
+  authoring control or colour mode was removed.

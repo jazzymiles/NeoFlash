@@ -344,8 +344,8 @@
   "png": "exports/panels/dark/png/panel-tools-floating.png",
   "svg": "exports/panels/dark/svg/panel-tools-floating.svg",
   "w": 108,
-  "h": 650,
-  "pngMaxDimension": 1300
+  "h": 562,
+  "pngMaxDimension": 1124
  },
  {
   "id": "69:15263",
@@ -356,8 +356,8 @@
   "png": "exports/panels/light/png/panel-tools-floating.png",
   "svg": "exports/panels/light/svg/panel-tools-floating.svg",
   "w": 108,
-  "h": 650,
-  "pngMaxDimension": 1300
+  "h": 562,
+  "pngMaxDimension": 1124
  },
  {
   "id": "24:773",
@@ -368,8 +368,8 @@
   "png": "exports/panels/dark/png/panel-color-solid.png",
   "svg": "exports/panels/dark/svg/panel-color-solid.svg",
   "w": 280,
-  "h": 561,
-  "pngMaxDimension": 1122
+  "h": 555,
+  "pngMaxDimension": 1110
  },
  {
   "id": "69:15267",
@@ -380,8 +380,8 @@
   "png": "exports/panels/light/png/panel-color-solid.png",
   "svg": "exports/panels/light/svg/panel-color-solid.svg",
   "w": 280,
-  "h": 561,
-  "pngMaxDimension": 1122
+  "h": 555,
+  "pngMaxDimension": 1110
  },
  {
   "id": "24:884",
@@ -464,8 +464,9 @@
   "png": "exports/panels/dark/png/panel-properties-text.png",
   "svg": "exports/panels/dark/svg/panel-properties-text.svg",
   "w": 320,
-  "h": 986,
-  "pngMaxDimension": 1972
+  "h": 1628,
+  "pngMaxDimension": 3256,
+  "split": true
  },
  {
   "id": "69:15404",
@@ -476,8 +477,9 @@
   "png": "exports/panels/light/png/panel-properties-text.png",
   "svg": "exports/panels/light/svg/panel-properties-text.svg",
   "w": 320,
-  "h": 986,
-  "pngMaxDimension": 1972
+  "h": 1628,
+  "pngMaxDimension": 3256,
+  "split": true
  },
  {
   "id": "27:1526",
@@ -1832,5 +1834,247 @@
   "w": 1000,
   "h": 590,
   "pngMaxDimension": 2000
+ },
+ {
+  "id": "227:452786",
+  "name": "Tools — v2.25 Stage anchors",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "tools-v2-25-stage-anchors",
+  "png": "exports/panels/dark/boards/png/tools-v2-25-stage-anchors.png",
+  "svg": "exports/panels/dark/boards/svg/tools-v2-25-stage-anchors.svg",
+  "w": 1240,
+  "h": 840,
+  "pngMaxDimension": 2480
+ },
+ {
+  "id": "227:452817",
+  "name": "Tools — v2.25 Stage anchors — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "tools-v2-25-stage-anchors",
+  "png": "exports/panels/light/boards/png/tools-v2-25-stage-anchors.png",
+  "svg": "exports/panels/light/boards/svg/tools-v2-25-stage-anchors.svg",
+  "w": 1240,
+  "h": 840,
+  "pngMaxDimension": 2480
+ },
+ {
+  "id": "227:452848",
+  "name": "Dialog / Help & Reference",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "dialog-help-reference",
+  "png": "exports/panels/dark/png/dialog-help-reference.png",
+  "svg": "exports/panels/dark/svg/dialog-help-reference.svg",
+  "w": 920,
+  "h": 760,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "227:453212",
+  "name": "Dialog / Help & Reference — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "dialog-help-reference",
+  "png": "exports/panels/light/png/dialog-help-reference.png",
+  "svg": "exports/panels/light/svg/dialog-help-reference.svg",
+  "w": 920,
+  "h": 760,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "227:453030",
+  "name": "Dialog / Help & Reference — constrained viewport",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "dialog-help-reference-constrained-viewport",
+  "png": "exports/panels/dark/png/dialog-help-reference-constrained-viewport.png",
+  "svg": "exports/panels/dark/svg/dialog-help-reference-constrained-viewport.svg",
+  "w": 760,
+  "h": 560,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "227:453394",
+  "name": "Dialog / Help & Reference — constrained viewport — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "dialog-help-reference-constrained-viewport",
+  "png": "exports/panels/light/png/dialog-help-reference-constrained-viewport.png",
+  "svg": "exports/panels/light/svg/dialog-help-reference-constrained-viewport.svg",
+  "w": 760,
+  "h": 560,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "227:453576",
+  "name": "Popover / Function Search",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "popover-function-search",
+  "png": "exports/panels/dark/png/popover-function-search.png",
+  "svg": "exports/panels/dark/svg/popover-function-search.svg",
+  "w": 560,
+  "h": 520,
+  "pngMaxDimension": 1120
+ },
+ {
+  "id": "227:453657",
+  "name": "Popover / Function Search — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "popover-function-search",
+  "png": "exports/panels/light/png/popover-function-search.png",
+  "svg": "exports/panels/light/svg/popover-function-search.svg",
+  "w": 560,
+  "h": 520,
+  "pngMaxDimension": 1120
+ },
+ {
+  "id": "227:453738",
+  "name": "Floating panels — v2.25 headers, docking and minima",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "floating-panels-v2-25-headers-docking-and-minima",
+  "png": "exports/panels/dark/boards/png/floating-panels-v2-25-headers-docking-and-minima.png",
+  "svg": "exports/panels/dark/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg",
+  "w": 1200,
+  "h": 980,
+  "pngMaxDimension": 2400
+ },
+ {
+  "id": "227:453892",
+  "name": "Floating panels — v2.25 headers, docking and minima — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "floating-panels-v2-25-headers-docking-and-minima",
+  "png": "exports/panels/light/boards/png/floating-panels-v2-25-headers-docking-and-minima.png",
+  "svg": "exports/panels/light/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg",
+  "w": 1200,
+  "h": 980,
+  "pngMaxDimension": 2400
+ },
+ {
+  "id": "227:454916",
+  "name": "Properties — v2.25 contextual states",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "properties-v2-25-contextual-states",
+  "png": "exports/panels/dark/boards/png/properties-v2-25-contextual-states.png",
+  "svg": "exports/panels/dark/boards/svg/properties-v2-25-contextual-states.svg",
+  "w": 1180,
+  "h": 560,
+  "pngMaxDimension": 2360
+ },
+ {
+  "id": "227:454999",
+  "name": "Properties — v2.25 contextual states — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "properties-v2-25-contextual-states",
+  "png": "exports/panels/light/boards/png/properties-v2-25-contextual-states.png",
+  "svg": "exports/panels/light/boards/svg/properties-v2-25-contextual-states.svg",
+  "w": 1180,
+  "h": 560,
+  "pngMaxDimension": 2360
+ },
+ {
+  "id": "227:455082",
+  "name": "v2.25 · Behavioral contract notes",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "v2-25-behavioral-contract-notes",
+  "png": "exports/panels/dark/boards/png/v2-25-behavioral-contract-notes.png",
+  "svg": "exports/panels/dark/boards/svg/v2-25-behavioral-contract-notes.svg",
+  "w": 1040,
+  "h": 520,
+  "pngMaxDimension": 2080
+ },
+ {
+  "id": "227:455090",
+  "name": "v2.25 · Behavioral contract notes — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "v2-25-behavioral-contract-notes",
+  "png": "exports/panels/light/boards/png/v2-25-behavioral-contract-notes.png",
+  "svg": "exports/panels/light/boards/svg/v2-25-behavioral-contract-notes.svg",
+  "w": 1040,
+  "h": 520,
+  "pngMaxDimension": 2080
+ },
+ {
+  "id": "227:450104",
+  "name": "Panel / Properties — Text — narrow fallback",
+  "group": "panels",
+  "theme": "dark",
+  "slug": "panel-properties-text-narrow-fallback",
+  "png": "exports/panels/dark/png/panel-properties-text-narrow-fallback.png",
+  "svg": "exports/panels/dark/svg/panel-properties-text-narrow-fallback.svg",
+  "w": 192,
+  "h": 2614,
+  "pngMaxDimension": 5228,
+  "split": true
+ },
+ {
+  "id": "227:450395",
+  "name": "Panel / Properties — Text — narrow fallback — Light",
+  "group": "panels",
+  "theme": "light",
+  "slug": "panel-properties-text-narrow-fallback",
+  "png": "exports/panels/light/png/panel-properties-text-narrow-fallback.png",
+  "svg": "exports/panels/light/svg/panel-properties-text-narrow-fallback.svg",
+  "w": 192,
+  "h": 2614,
+  "pngMaxDimension": 5228,
+  "split": true
+ },
+ {
+  "id": "227:454046",
+  "name": "Shelf / v2.25 — Approved glyph masters",
+  "group": "docs",
+  "theme": "dark",
+  "slug": "v2-25-approved-glyph-masters-dark",
+  "png": "docs/illustrations/v2-25-approved-glyph-masters-dark.png",
+  "svg": null,
+  "w": 1320,
+  "h": 718,
+  "pngMaxDimension": 2640
+ },
+ {
+  "id": "227:454519",
+  "name": "Shelf / v2.25 — Approved glyphs — Light",
+  "group": "docs",
+  "theme": "light",
+  "slug": "v2-25-approved-glyph-masters-light",
+  "png": "docs/illustrations/v2-25-approved-glyph-masters-light.png",
+  "svg": null,
+  "w": 1320,
+  "h": 448,
+  "pngMaxDimension": 2640
+ },
+ {
+  "id": "227:454887",
+  "name": "Shelf / v2.25 — Gradient overflow",
+  "group": "docs",
+  "theme": "dark",
+  "slug": "v2-25-gradient-overflow-dark",
+  "png": "docs/illustrations/v2-25-gradient-overflow-dark.png",
+  "svg": null,
+  "w": 560,
+  "h": 146,
+  "pngMaxDimension": 1120
+ },
+ {
+  "id": "227:454902",
+  "name": "Shelf / v2.25 — Gradient overflow — Light",
+  "group": "docs",
+  "theme": "light",
+  "slug": "v2-25-gradient-overflow-light",
+  "png": "docs/illustrations/v2-25-gradient-overflow-light.png",
+  "svg": null,
+  "w": 560,
+  "h": 146,
+  "pngMaxDimension": 1120
  }
 ]

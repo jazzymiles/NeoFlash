@@ -31,12 +31,17 @@ to HTML5 / Rust + WebAssembly, video, images, audio). The design is made in Figm
 4. **Component API mirrors Figma.** Variant properties → props with the same option names; booleans → boolean props;
    text properties → strings. Hover / focus / disabled are states, not props. See §10 and §13 of the reference.
 5. **Timeline geometry is exact:** 12 px per frame (Normal), rows 28 px, ruler 32 px, frame `n` at `(n − 1) × 12`;
-   view modes Tiny 6 · Small 9 · Normal 12 · Medium 16 · Large 22 px; Short rows 18 px. Virtualise rows and frames.
+   view modes Tiny 6 · Small 9 · Normal 12 · Medium 16 · Large 22 px; Short rows 18 px. Major frame labels are
+   centred on their ticks (1-, 2- and 3-digit); frame 1 uses the edge-safe rule and the seconds row is independent.
+   Virtualise rows and frames.
 6. **Flash semantics are part of the spec:** layer kinds (normal, folder, guide, motion guide, mask, masked, sound,
    video, armature), keyframe glyphs (● ○ ▯ ◆ a), tween colours, symbol types, shortcuts (F5 / F6 / F7, F8, F9, ⌘↵).
 7. Accessibility: text contrast ≥ 4.5:1 (tokens already satisfy it), 2 px focus ring on keyboard focus only,
    hit areas ≥ 32 px, every icon-only control has a tooltip with its shortcut.
 8. v1 (`NF1`) is the legacy UI kept for comparison. Do not implement or reuse it.
+9. **v2.25 preserves features.** Tools has one standard title and no redundant body captions; Properties and Color
+   are contextual and have no Selection / Tool or Selection / Drawing mode switches. Never remove an implemented
+   tool, modifier, colour mode, text option, panel command or floating-tab operation while applying the layout rules.
 
 ## Key numbers
 
@@ -46,6 +51,14 @@ to HTML5 / Rust + WebAssembly, video, images, audio). The design is made in Figm
   40 dock tabs and the main play button, 24 status bar.
 - Spacing scale 4 / 8 / 12 / 16 / 24 / 32; radii 4 / 6 / 8 / 12 / full.
 - Fonts: Inter (UI), Roboto Mono (code, timecode, numbers).
+- Panel minima (W × H): Tools 88×160; Timeline 320×180; Library 248×300; Properties 320×220;
+  Align/Transform/Color/Scene/History/Info 248×190; Swatches 300×360; Project 248×280; Filters 268×260;
+  Code Snippets/Movie Explorer 280×280; Compiler Errors 360×180; Ease 320×420; Motion Editor 640×260;
+  remaining panels 320×220. Width applies docked and floating; panel-specific height only floating.
+- Detached Tools uses eight Stage anchors at 16 px inset with 112 px capture. Middle-left/right use one column;
+  all other anchors keep the two-column palette. Fill/Stroke opens or focuses the Color panel.
+- Help is a clamped 920×760 shell with fixed 52 px header, 212 px sidebar and independent content scrolling.
+  Function Search opens focused, preserves the first character, is at most 560 px wide and shows at most 24 results.
 
 ## Regenerating
 

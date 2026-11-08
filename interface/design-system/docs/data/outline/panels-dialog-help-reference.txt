@@ -1,0 +1,32 @@
+F Dialog / Help & Reference 920×760
+  F Fixed dialog header 920×52 [H gap 8]
+    T "NeoFlash Help & Reference — Tools, Modes & Capabilities"
+    F Spacer 449×1
+    I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Stationary filter bar 880×40 [H gap 8]
+    I NF2/Search {Label=Filter topics, tools, modes or shortcuts…, State=Filled} 340×32 "Filter topics, tools, modes or shortcuts…"
+    I NF2/Badge {Label=Chapter 1 of 10, Type=Neutral} 101×22 "Chapter 1 of 10"
+    I NF2/Button {Icon=false, Label=Previous, Type=Secondary, State=Default} 96×32 "Previous"
+    I NF2/Button {Icon=false, Label=Next topic, Type=Secondary, State=Default} 112×32 "Next topic"
+  F Independent chapter scroll 212×572 [V gap 2]
+    I NF2/Tree Item {Label=1. Workspace & Stage, Type=Symbol, Selected=True} 204×32 "1. Workspace & Stage"
+    I NF2/Tree Item {Label=2. Drawing tools, Type=Symbol, Selected=False} 204×32 "2. Drawing tools"
+    I NF2/Tree Item {Label=3. Paint & colour, Type=Symbol, Selected=False} 204×32 "3. Paint & colour"
+    I NF2/Tree Item {Label=4. Selection & transform, Type=Symbol, Selected=False} 204×32 "4. Selection & transform"
+    I NF2/Tree Item {Label=5. Timeline, Type=Symbol, Selected=False} 204×32 "5. Timeline"
+    I NF2/Tree Item {Label=6. Text, Type=Symbol, Selected=False} 204×32 "6. Text"
+    I NF2/Tree Item {Label=7. Symbols, Type=Symbol, Selected=False} 204×32 "7. Symbols"
+    I NF2/Tree Item {Label=8. Scripting, Type=Symbol, Selected=False} 204×32 "8. Scripting"
+    I NF2/Tree Item {Label=9. Publishing, Type=Symbol, Selected=False} 204×32 "9. Publishing"
+    I NF2/Tree Item {Label=10. Shortcuts, Type=Symbol, Selected=False} 204×32 "10. Shortcuts"
+  F Independent article scroll 652×572 [V gap 12]
+    T "Workspace & Stage"
+    T "Stage, Pasteboard, Rulers, Guides, Grid & Snapping priority"
+    F Illustrated topic 620×220
+      T "Stage"
+      T "Guides > Objects > Grid > Pixels"
+    T "The chapter list and this illustrated article scroll independently. Search, chapter count, navigation, footer and close control never move when content changes."
+  F Fixed footer 920×64 [H gap 8]
+    I NF2/Button {Icon=false, Label=Open in browser, Type=Secondary, State=Default} 132×32 "Open in browser"
+    I NF2/Button {Icon=false, Label=Command Search (F1), Type=Secondary, State=Default} 160×32 "Command Search (F1)"
+    I NF2/Button {Icon=false, Label=Close, Type=Primary, State=Default} 88×32 "Close"

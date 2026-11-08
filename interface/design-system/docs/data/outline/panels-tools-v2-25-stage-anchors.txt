@@ -1,0 +1,15 @@
+F Tools — v2.25 Stage anchors 1240×840
+  T "Tools · magnetic Stage anchors"
+  T "16 pt inset · 112 pt capture · side centres become vertical · every popover opens toward the Stage"
+  F Stage workspace 1120×700
+    I NF2/Tools Stage Anchor {Position=Top Left} 120×110
+    I NF2/Tools Stage Anchor {Position=Top Centre} 120×110
+    I NF2/Tools Stage Anchor {Position=Top Right} 120×110
+    I NF2/Tools Stage Anchor {Position=Middle Left} 120×110
+    I NF2/Tools Stage Anchor {Position=Middle Right} 120×110
+    I NF2/Tools Stage Anchor {Position=Bottom Left} 120×110
+    I NF2/Tools Stage Anchor {Position=Bottom Centre} 120×110
+    I NF2/Tools Stage Anchor {Position=Bottom Right} 120×110
+    F Invisible docking halo annotation 360×100
+      T "Dock return target"
+      T "Visible edge stays unchanged. The larger 9.5% hit halo is behavioral and never production chrome."

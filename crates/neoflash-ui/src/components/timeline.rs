@@ -4,11 +4,11 @@
 //!
 //! The frame area is virtualised: callers paint only the visible frame range with these painters.
 //! Frame `n` (1-based) starts at `origin + (n − 1) × frame_width` ([`Geometry::frame_x`]).
-use super::{State, a11y, galley, text_at};
-use crate::icons::{self, Icon, i16};
+use super::{a11y, galley, text_at, State};
+use crate::icons::{self, i16, Icon};
 use crate::metrics::{FrameView, LAYER_INDENT, LAYER_MODE, LAYER_ROW, LAYER_TOGGLE};
 use crate::theme::{cr, palette};
-use crate::tokens::{Palette, TextStyle, radius, space};
+use crate::tokens::{radius, space, Palette, TextStyle};
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui};
 
 /// Horizontal mapping between frames and pixels.
@@ -1163,10 +1163,26 @@ pub fn paint_ruler(
             Stroke::new(1.0_f32, p.border_default),
         );
         if n == 1 || n % step == 0 {
+            let label = n.to_string();
+            let label_width = painter
+                .layout_no_wrap(label.clone(), mono.clone(), p.text_tertiary)
+                .size()
+                .x;
+            // Major labels are centred on the half-pixel tick, independent of the number of
+            // digits. At the leading edge, keep frame 1 fully visible instead of clipping half
+            // of its glyph into the layer-column boundary.
+            let label_x = if clip.width() >= label_width {
+                (x + 0.5).clamp(
+                    clip.left() + label_width / 2.0,
+                    clip.right() - label_width / 2.0,
+                )
+            } else {
+                clip.center().x
+            };
             painter.text(
-                egui::pos2(x + 1.0, digits_top),
-                egui::Align2::LEFT_TOP,
-                n.to_string(),
+                egui::pos2(label_x, digits_top),
+                egui::Align2::CENTER_TOP,
+                label,
                 mono.clone(),
                 p.text_tertiary,
             );

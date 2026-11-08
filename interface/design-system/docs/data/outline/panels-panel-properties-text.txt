@@ -1,55 +1,93 @@
-F Panel / Properties — Text 320×986 [V gap 0]
+F Panel / Properties — Text 320×1628 [V gap 0]
   I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Library" "Panel"
-  F Body 318×948 [V gap 10]
-    F Row 294×72 [H gap 8]
-      F Type icon 64×72 [H gap 0]
-        I NF2 Icon/20/tool-text 32×32
-      F Text kind 216×72 [V gap 8]
-        I NF2/Select {Label=Classic text, State=Default} 216×32 "Classic text"
-        F Row 216×32 [H gap 8]
-          I NF2/Select {Label=Static text, State=Default} 176×32 "Static text"
-          I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-    I NF2/Section Header {Label=Position and size, State=Expanded} 294×32 "Position and size"
-    F Row 294×32 [H gap 8]
-      I NF2/Field {Show prefix=true, Prefix=X, Label=141.50, State=Default} 140×32 "X" "141.50"
-      I NF2/Field {Show prefix=true, Prefix=Y, Label=137.85, State=Default} 140×32 "Y" "137.85"
-    F Row 294×32 [H gap 8]
-      I NF2/Field {Show prefix=true, Prefix=W, Label=303.10, State=Default} 120×32 "W" "303.10"
-      I NF2/Field {Show prefix=true, Prefix=H, Label=151.20, State=Default} 120×32 "H" "151.20"
-      I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+  F Body 318×1590 [V gap 8]
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=TLF Text (CS5), State=Default} 143×32 "TLF Text (CS5)"
+      I NF2/Select {Label=Horizontal, State=Default} 143×32 "Horizontal"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=LTR, State=Default} 143×32 "LTR"
+      I NF2/Select {Label=Editable, State=Default} 143×32 "Editable"
+    I NF2/Section Header {Label=Position and transform, State=Expanded} 294×32 "Position and transform"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=W, Label=303.10, State=Default} 143×32 "W" "303.10"
+      I NF2/Field {Show prefix=true, Prefix=H, Label=151.20, State=Default} 143×32 "H" "151.20"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=X, Label=141.50, State=Default} 143×32 "X" "141.50"
+      I NF2/Field {Show prefix=true, Prefix=Y, Label=137.85, State=Default} 143×32 "Y" "137.85"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Scale X, Label=100 %, State=Default} 143×32 "Scale X" "100 %"
+      I NF2/Field {Show prefix=true, Prefix=Scale Y, Label=100 %, State=Default} 143×32 "Scale Y" "100 %"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Rotation, Label=0°, State=Default} 143×32 "Rotation" "0°"
+      I NF2/Field {Show prefix=true, Prefix=Skew, Label=0°, State=Default} 143×32 "Skew" "0°"
     I NF2/Section Header {Label=Character, State=Expanded} 294×32 "Character"
-    I NF2/Select {Label=Arial, State=Default} 294×32 "Arial"
-    F Row 294×32 [H gap 8]
-      I NF2/Select {Label=Bold, State=Default} 172×32 "Bold"
-      I NF2/Button {Icon=true, Label=Embed…, Type=Secondary, State=Default} 96×32 "Embed…"
-    F Row 294×32 [H gap 8]
-      I NF2/Field {Show prefix=true, Prefix=Size, Label=24 pt, State=Default} 140×32 "Size" "24 pt"
-      I NF2/Field {Show prefix=true, Prefix=Tracking, Label=-5.0, State=Default} 140×32 "Tracking" "-5.0"
-    F Row 294×32 [H gap 8]
-      I NF2/Color Field {Alpha=100 %, Hex=1A1A1A} 180×32 "1A1A1A" "100 %"
-      I NF2/Checkbox {Label=Auto kern, Checked=True} 77×18 "Auto kern"
+    I NF2/Select {Label=Inter, State=Default} 294×32 "Inter"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=Regular, State=Default} 143×32 "Regular"
+      I NF2/Button {Icon=false, Label=Embed…, Type=Secondary, State=Default} 143×32 "Embed…"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Size, Label=24 pt, State=Default} 143×32 "Size" "24 pt"
+      I NF2/Field {Show prefix=true, Prefix=Leading, Label=120 %, State=Default} 143×32 "Leading" "120 %"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Color, Label=#1A1A1A, State=Default} 143×32 "Color" "#1A1A1A"
+      I NF2/Field {Show prefix=true, Prefix=Tracking, Label=-5.0, State=Default} 143×32 "Tracking" "-5.0"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Highlight, Label=None, State=Default} 143×32 "Highlight" "None"
+      I NF2/Checkbox {Label=Auto kern, Checked=True} 143×18 "Auto kern"
     I NF2/Select {Label=Anti-alias for readability, State=Default} 294×32 "Anti-alias for readability"
-    F Row 294×34 [H gap 8]
-      I NF2/Icon Group {Count=3} 100×34
-      I NF2/Icon Group {Count=2} 68×34
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=Glyph rotation: Auto, State=Default} 143×32 "Glyph rotation: Auto"
+      I NF2/Select {Label=Underline · Strike · Super · Sub, State=Default} 143×32 "Underline · Strike · Super · Sub"
+    I NF2/Section Header {Label=Advanced character, State=Expanded} 294×32 "Advanced character"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=Case: Default, State=Default} 143×32 "Case: Default"
+      I NF2/Select {Label=Digit case: Default, State=Default} 143×32 "Digit case: Default"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=Digit width: Proportional, State=Default} 143×32 "Digit width: Proportional"
+      I NF2/Select {Label=Ligatures: Common, State=Default} 143×32 "Ligatures: Common"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=Break: Auto, State=Default} 143×32 "Break: Auto"
+      I NF2/Field {Show prefix=true, Prefix=Baseline, Label=0 px, State=Default} 143×32 "Baseline" "0 px"
+    I NF2/Select {Label=Locale: en-US, State=Default} 294×32 "Locale: en-US"
     I NF2/Section Header {Label=Paragraph, State=Expanded} 294×32 "Paragraph"
-    F Row 294×34 [H gap 8]
-      I NF2/Icon Group {Count=4} 132×34
-    F Row 294×32 [H gap 8]
-      I NF2/Field {Show prefix=true, Prefix=Indent, Label=-0.9 px, State=Default} 140×32 "Indent" "-0.9 px"
-      I NF2/Field {Show prefix=true, Prefix=Line, Label=2.0 pt, State=Default} 140×32 "Line" "2.0 pt"
-    F Row 294×32 [H gap 8]
-      I NF2/Field {Show prefix=true, Prefix=Left, Label=0.0 px, State=Default} 140×32 "Left" "0.0 px"
-      I NF2/Field {Show prefix=true, Prefix=Right, Label=0.0 px, State=Default} 140×32 "Right" "0.0 px"
-    I NF2/Select {Label=Behavior: Multiline, State=Disabled} 294×32 "Behavior: Multiline"
-    I NF2/Section Header {Label=Options, State=Collapsed} 294×32 "Options"
+    I NF2/Select {Label=Align: Left · Center · Right · Justify · All, State=Default} 294×32 "Align: Left · Center · Right · Justify · All"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Left, Label=0 px, State=Default} 143×32 "Left" "0 px"
+      I NF2/Field {Show prefix=true, Prefix=Right, Label=0 px, State=Default} 143×32 "Right" "0 px"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Indent, Label=0 px, State=Default} 143×32 "Indent" "0 px"
+      I NF2/Select {Label=Text justify: Inter-word, State=Default} 143×32 "Text justify: Inter-word"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Before, Label=0 pt, State=Default} 143×32 "Before" "0 pt"
+      I NF2/Field {Show prefix=true, Prefix=After, Label=0 pt, State=Default} 143×32 "After" "0 pt"
+    I NF2/Section Header {Label=Container and flow, State=Expanded} 294×32 "Container and flow"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=Behavior: Multiline, State=Default} 143×32 "Behavior: Multiline"
+      I NF2/Select {Label=Vertical: Top, State=Default} 143×32 "Vertical: Top"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Columns, Label=2, State=Default} 143×32 "Columns" "2"
+      I NF2/Field {Show prefix=true, Prefix=Gutter, Label=20 px, State=Default} 143×32 "Gutter" "20 px"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Padding L, Label=2 px, State=Default} 143×32 "Padding L" "2 px"
+      I NF2/Field {Show prefix=true, Prefix=Padding R, Label=2 px, State=Default} 143×32 "Padding R" "2 px"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Padding T, Label=2 px, State=Default} 143×32 "Padding T" "2 px"
+      I NF2/Field {Show prefix=true, Prefix=Padding B, Label=2 px, State=Default} 143×32 "Padding B" "2 px"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Border, Label=1 pt, State=Default} 143×32 "Border" "1 pt"
+      I NF2/Field {Show prefix=true, Prefix=Background, Label=None, State=Default} 143×32 "Background" "None"
+    F Pair 294×32 [H gap 8]
+      I NF2/Select {Label=1st line: Auto, State=Default} 143×32 "1st line: Auto"
+      I NF2/Field {Show prefix=true, Prefix=Offset, Label=0 pt, State=Default} 143×32 "Offset" "0 pt"
+    I NF2/Section Header {Label=Options, State=Expanded} 294×32 "Options"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=URL, Label=https://, State=Default} 143×32 "URL" "https://"
+      I NF2/Select {Label=Target: _self, State=Default} 143×32 "Target: _self"
+    F Pair 294×32 [H gap 8]
+      I NF2/Field {Show prefix=true, Prefix=Variable, Label=, State=Default} 143×32 "Variable"
+      I NF2/Field {Show prefix=true, Prefix=Restrict, Label=, State=Default} 143×32 "Restrict"
+    I NF2/Checkbox {Label=Render as HTML, Checked=False} 113×18 "Render as HTML"
     I NF2/Section Header {Label=Filters, State=Expanded} 294×32 "Filters"
-    F Filters table 294×122 [V gap 0]
-      I NF2/Table Row {Value=Value, Property=Property, Kind=Header} 292×28 "Property" "Value"
-      I NF2/Table Row {Value=Blur 4 px · 100 %, Property=Drop shadow, Kind=Selected} 292×28 "Drop shadow" "Blur 4 px · 100 %"
-      I NF2/Table Row {Value=Blur 6 px · #FFCC00, Property=Glow, Kind=Row} 292×28 "Glow" "Blur 6 px · #FFCC00"
-      F Filter actions 292×36 [H gap 2]
-        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-        I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
+    I NF2/Table Row {Value=Value, Property=Property, Kind=Header} 294×28 "Property" "Value"
+    I NF2/Table Row {Value=Blur 4 px · 100 %, Property=Drop shadow, Kind=Selected} 294×28 "Drop shadow" "Blur 4 px · 100 %"
+    I NF2/Table Row {Value=Blur 6 px · #FFCC00, Property=Glow, Kind=Row} 294×28 "Glow" "Blur 6 px · #FFCC00"

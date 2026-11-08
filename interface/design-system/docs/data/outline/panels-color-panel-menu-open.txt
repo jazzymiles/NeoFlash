@@ -1,20 +1,17 @@
 F Color — panel menu open 280×659
-  F Panel / Color — Panel menu 280×655 [V gap 0]
+  F Panel / Color — Panel menu 280×653 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 278×36 "Color" "Swatches" "Panel"
-    F Body 278×617 [V gap 12]
-      F Row 254×34 [H gap 8]
-        I NF2/Segmented Control 143×34 "Selection" "Drawing"
-        T "1 object"
+    F Body 278×615 [V gap 12]
       F Row 254×32 [H gap 4]
-        I NF2/Color Well {Target=Stroke, Active=False} 74×32
         I NF2/Color Well {Target=Fill, Active=True} 74×32
+        I NF2/Color Well {Target=Stroke, Active=False} 74×32
         F Frame 2×2
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 28×28
       I NF2/Select {Label=Radial gradient, State=Default} 254×32 "Radial gradient"
       F Row 254×34 [H gap 8]
-        T "Flow"
+        T "Overflow"
         I NF2/Icon Group {Count=3} 100×34
         I NF2/Checkbox {Label=Linear RGB, Checked=False} 84×18 "Linear RGB"
       I NF2/Color Picker 248×150
@@ -31,6 +28,7 @@ F Color — panel menu open 280×659
         F Row 254×32 [H gap 8]
           I NF2/Field {Show prefix=true, Prefix=Width, Label=1.0 px, State=Default} 122×32 "Width" "1.0 px"
           I NF2/Select {Label=Solid, State=Default} 124×32 "Solid"
+      I NF2/Button {Icon=false, Label=Add to swatches, Type=Secondary, State=Default} 254×32 "Add to swatches"
   F Menu 210×140 [V gap 0]
     I NF2/Menu Item {Submenu=false, Shortcut= , Label=Add swatch, State=Hover} 200×28 "Add swatch" " "
     I NF2/Menu Separator 200×9

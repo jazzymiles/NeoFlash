@@ -1,0 +1,24 @@
+F Floating panels — v2.25 headers, docking and minima 1200×980
+  T "Floating panels · one NF2 header"
+  T "No native macOS title chrome · tabs keep reorder, tear-off, individual docking and panel commands"
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 360×36 "Properties" "Library" "Color"
+  T "1 tab"
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 360×36 "Properties" "Library" "Color"
+  T "2 tabs"
+  I NF2/Floating Panel Header {Tab 3=true, Tab 2=true} 360×36 "Properties" "Library" "Color"
+  T "3 tabs / overflow"
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 220×36 "Properties" "Library" "Color"
+  T "compact"
+  I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 360×36 "Properties" "Library" "Color"
+  T "collapsed"
+  T "Panel minimums (width × floating height, pt)"
+  T "Tools 88×160 · Timeline 320×180 · Library 248×300 · Properties 320×220"
+  T "Align / Transform / Color / Scene / History / Info 248×190 · Swatches 300×360"
+  T "Project 248×280 · Filters 268×260 · Code Snippets / Movie Explorer 280×280"
+  T "Compiler Errors 360×180 · Ease 320×420 · Motion Editor 640×260 · other 320×220"
+  F Docking target explanation 760×260
+    F Visible docking edge 68×210
+    F Invisible acceptance halo 128×230
+    T "visible edge target ≈ 5.5% · 44–80 pt horizontal / 36–66 vertical"
+    T "invisible hit halo ≈ 9.5% · 72–132 / 60–112 · max 30%"
+    T "The dashed halo is documentation only. Production chrome never grows."
