@@ -29,6 +29,38 @@ pub(crate) enum Icon {
     ChevronRight,
 }
 
+const GRADIENT_TRANSFORM_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "gradient-transform",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="gt16" x1="2" y1="8" x2="14" y2="8" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#9AA3B6" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#9AA3B6" stop-opacity="0.48"/>
+<stop offset="1" stop-color="#9AA3B6" stop-opacity="0.02"/>
+</linearGradient>
+</defs>
+<rect x="2" y="4" width="12" height="8" fill="url(#gt16)"/>
+<rect x="1.5" y="3.5" width="13" height="9" stroke="#9AA3B6" stroke-width="1"/>
+</svg>"##,
+};
+
+const TOOL_GRADIENT_TRANSFORM_20: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 20,
+    name: "tool-gradient-transform",
+    svg: r##"<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="gt20" x1="3" y1="10" x2="17" y2="10" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#9AA3B6" stop-opacity="1"/>
+<stop offset="0.5" stop-color="#9AA3B6" stop-opacity="0.48"/>
+<stop offset="1" stop-color="#9AA3B6" stop-opacity="0.02"/>
+</linearGradient>
+</defs>
+<rect x="3" y="5" width="14" height="10" fill="url(#gt20)"/>
+<rect x="2.5" y="4.5" width="15" height="11" stroke="#9AA3B6" stroke-width="1"/>
+</svg>"##,
+};
+
 impl Icon {
     /// The tool-rail glyph for the current density: the 20 px tool master, or the 16 px master in
     /// Classic Flash density (`icon_tool` 16 pt), so tool icons are drawn at their own grid, never
@@ -55,7 +87,7 @@ impl Icon {
             Self::Eraser => pick(i16::ERASER, i20::TOOL_ERASER),
             Self::Lasso => pick(i16::LASSO, i20::TOOL_LASSO),
             Self::Hand => pick(i16::HAND, i20::TOOL_HAND),
-            Self::Gradient => pick(i16::GRADIENT, i20::TOOL_GRADIENT),
+            Self::Gradient => pick(GRADIENT_TRANSFORM_16, TOOL_GRADIENT_TRANSFORM_20),
             Self::Rectangle => pick(i16::RECT, i20::TOOL_RECT),
             Self::Ellipse => pick(i16::OVAL, i20::TOOL_OVAL),
             Self::PolyStar => i20::TOOL_POLYSTAR,
@@ -456,6 +488,273 @@ pub(crate) fn transform_modifier_button(
     .inner
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ToolModifierGlyph {
+    ObjectDrawing,
+    GapSize(crate::authoring_tools::GapCloseMode),
+    BrushMode(neoflash_core::BrushPaintMode),
+    BrushSize(f32),
+    BrushShape(neoflash_ui::components::BrushShapeKind),
+    EraserMode(crate::authoring_tools::EraserMode),
+    Faucet,
+    EraserSize(f32),
+    TouchSelects,
+    SliceMergeFills,
+}
+
+fn paint_dropdown_corner(p: &Painter, pt: impl Fn(f32, f32) -> Pos2, color: egui::Color32) {
+    p.add(egui::Shape::convex_polygon(
+        vec![pt(11.8, 14.2), pt(14.5, 14.2), pt(14.5, 11.5)],
+        color,
+        Stroke::NONE,
+    ));
+}
+
+pub(crate) fn paint_tool_modifier_glyph(
+    p: &Painter,
+    rect: Rect,
+    glyph: ToolModifierGlyph,
+    color: egui::Color32,
+) {
+    let size = rect.width().min(rect.height()).min(16.0);
+    if !size.is_finite() || size <= 0.0 {
+        return;
+    }
+    let box_rect = Rect::from_center_size(rect.center(), Vec2::splat(size));
+    let pt = |x: f32, y: f32| -> Pos2 {
+        Pos2::new(
+            box_rect.left() + (x / 16.0) * box_rect.width(),
+            box_rect.top() + (y / 16.0) * box_rect.height(),
+        )
+    };
+    let scale = box_rect.width() / 16.0;
+    let stroke = Stroke::new(1.25_f32, color);
+    let thin = Stroke::new(1.0_f32, color);
+    match glyph {
+        ToolModifierGlyph::ObjectDrawing => {
+            // Classic Flash Object Drawing (J): circle inside a bounding box with 4 corner handles.
+            let outer = Rect::from_min_max(pt(2.5, 2.5), pt(13.5, 13.5));
+            p.rect_stroke(outer, 0.0, thin, egui::StrokeKind::Inside);
+            for (hx, hy) in [(2.5, 2.5), (13.5, 2.5), (13.5, 13.5), (2.5, 13.5)] {
+                p.rect_filled(
+                    Rect::from_center_size(pt(hx, hy), Vec2::splat(2.2 * scale)),
+                    0.0,
+                    color,
+                );
+            }
+            p.circle_stroke(pt(8.0, 8.0), 3.4 * scale, stroke);
+        }
+        ToolModifierGlyph::GapSize(mode) => {
+            // Circle contour with a gap in the top-right quadrant proportional to GapCloseMode.
+            let gap_half_rad = match mode {
+                crate::authoring_tools::GapCloseMode::None => 0.0_f32,
+                crate::authoring_tools::GapCloseMode::Small => 0.24_f32,
+                crate::authoring_tools::GapCloseMode::Medium => 0.50_f32,
+                crate::authoring_tools::GapCloseMode::Large => 0.82_f32,
+            };
+            let center = pt(7.6, 7.8);
+            let r = 4.6 * scale;
+            if gap_half_rad <= 0.01 {
+                p.circle_stroke(center, r, stroke);
+            } else {
+                let gap_center = -std::f32::consts::FRAC_PI_4;
+                let a0 = gap_center + gap_half_rad;
+                let a1 = gap_center + std::f32::consts::TAU - gap_half_rad;
+                let steps = 20;
+                let pts: Vec<Pos2> = (0..=steps)
+                    .map(|i| {
+                        let t = i as f32 / steps as f32;
+                        let a = a0 + (a1 - a0) * t;
+                        Pos2::new(center.x + r * a.cos(), center.y + r * a.sin())
+                    })
+                    .collect();
+                p.add(egui::Shape::line(pts, stroke));
+            }
+            paint_dropdown_corner(p, pt, color);
+        }
+        ToolModifierGlyph::BrushMode(mode) => {
+            let back_rect = Rect::from_min_max(pt(2.4, 2.6), pt(9.8, 10.0));
+            let front_center = pt(9.8, 9.6);
+            let front_r = 3.4 * scale;
+            match mode {
+                neoflash_core::BrushPaintMode::PaintNormal => {
+                    p.rect_stroke(back_rect, 0.0, thin, egui::StrokeKind::Inside);
+                    p.circle_filled(front_center, front_r, color);
+                }
+                neoflash_core::BrushPaintMode::PaintFills => {
+                    p.rect_filled(back_rect, 0.0, color.gamma_multiply(0.35));
+                    p.rect_stroke(back_rect, 0.0, thin, egui::StrokeKind::Inside);
+                    p.circle_stroke(front_center, front_r, stroke);
+                }
+                neoflash_core::BrushPaintMode::PaintBehind => {
+                    p.circle_filled(pt(6.2, 6.2), front_r, color.gamma_multiply(0.45));
+                    let fg_rect = Rect::from_min_max(pt(6.0, 6.0), pt(13.0, 13.0));
+                    p.rect_stroke(fg_rect, 0.0, stroke, egui::StrokeKind::Inside);
+                }
+                neoflash_core::BrushPaintMode::PaintSelection => {
+                    p.rect_stroke(back_rect, 0.0, stroke, egui::StrokeKind::Inside);
+                    p.line_segment([pt(3.4, 6.3), pt(8.8, 6.3)], thin);
+                    p.circle_filled(front_center, front_r * 0.85, color);
+                }
+                neoflash_core::BrushPaintMode::PaintInside => {
+                    let outer = Rect::from_min_max(pt(2.6, 2.6), pt(12.6, 12.6));
+                    p.rect_stroke(outer, 0.0, stroke, egui::StrokeKind::Inside);
+                    p.circle_filled(pt(7.6, 7.6), 2.8 * scale, color);
+                }
+            }
+            paint_dropdown_corner(p, pt, color);
+        }
+        ToolModifierGlyph::BrushSize(px) => {
+            let norm = ((px - 1.0) / 40.0).clamp(0.0, 1.0);
+            let r = (1.4 + norm * 3.8) * scale;
+            p.circle_filled(pt(7.6, 7.8), r, color);
+            paint_dropdown_corner(p, pt, color);
+        }
+        ToolModifierGlyph::BrushShape(shape) => {
+            use neoflash_ui::components::BrushShapeKind as S;
+            let c = pt(7.6, 7.8);
+            match shape {
+                S::Round => {
+                    p.circle_filled(c, 3.8 * scale, color);
+                }
+                S::OvalH => {
+                    p.rect_filled(
+                        Rect::from_center_size(c, Vec2::new(8.4 * scale, 4.2 * scale)),
+                        2.1 * scale,
+                        color,
+                    );
+                }
+                S::OvalV => {
+                    p.rect_filled(
+                        Rect::from_center_size(c, Vec2::new(4.2 * scale, 8.4 * scale)),
+                        2.1 * scale,
+                        color,
+                    );
+                }
+                S::Square => {
+                    p.rect_filled(
+                        Rect::from_center_size(c, Vec2::splat(7.2 * scale)),
+                        0.0,
+                        color,
+                    );
+                }
+                S::RectH => {
+                    p.rect_filled(
+                        Rect::from_center_size(c, Vec2::new(8.4 * scale, 3.6 * scale)),
+                        0.0,
+                        color,
+                    );
+                }
+                S::RectV => {
+                    p.rect_filled(
+                        Rect::from_center_size(c, Vec2::new(3.6 * scale, 8.4 * scale)),
+                        0.0,
+                        color,
+                    );
+                }
+                S::Slash => {
+                    p.line_segment([pt(4.2, 11.4), pt(11.0, 4.2)], Stroke::new(2.2_f32, color));
+                }
+                S::Backslash => {
+                    p.line_segment([pt(4.2, 4.2), pt(11.0, 11.4)], Stroke::new(2.2_f32, color));
+                }
+            }
+            paint_dropdown_corner(p, pt, color);
+        }
+        ToolModifierGlyph::EraserMode(mode) => {
+            use crate::authoring_tools::EraserMode as E;
+            let box_r = Rect::from_min_max(pt(2.6, 3.0), pt(12.2, 12.2));
+            match mode {
+                E::StrokeSegments => {
+                    p.rect_filled(box_r.shrink(1.5 * scale), 0.0, color.gamma_multiply(0.35));
+                    p.rect_stroke(box_r, 0.0, stroke, egui::StrokeKind::Inside);
+                }
+                E::Fills => {
+                    p.rect_filled(box_r.shrink(1.5 * scale), 0.0, color);
+                }
+                E::Strokes => {
+                    p.rect_stroke(box_r, 0.0, stroke, egui::StrokeKind::Inside);
+                }
+                E::Objects => {
+                    p.rect_stroke(box_r, 0.0, thin, egui::StrokeKind::Inside);
+                    p.line_segment([pt(3.6, 4.0), pt(11.2, 11.2)], thin);
+                }
+            }
+            paint_dropdown_corner(p, pt, color);
+        }
+        ToolModifierGlyph::Faucet => {
+            // Classic Flash Faucet (Кран): T-valve on top, horizontal pipe, downward spout, and water drop.
+            p.line_segment([pt(5.0, 2.8), pt(10.6, 2.8)], stroke);
+            p.line_segment([pt(7.8, 2.8), pt(7.8, 5.6)], stroke);
+            p.line_segment([pt(2.6, 5.6), pt(11.4, 5.6)], Stroke::new(1.8_f32, color));
+            p.line_segment([pt(11.4, 5.6), pt(11.4, 9.2)], Stroke::new(1.8_f32, color));
+            p.circle_filled(pt(11.4, 12.4), 1.5 * scale, color);
+        }
+        ToolModifierGlyph::EraserSize(px) => {
+            let norm = ((px - 2.0) / 46.0).clamp(0.0, 1.0);
+            let r = (1.6 + norm * 3.6) * scale;
+            p.circle_stroke(pt(7.6, 7.8), r, stroke);
+            paint_dropdown_corner(p, pt, color);
+        }
+        ToolModifierGlyph::TouchSelects => {
+            let shape_r = Rect::from_min_max(pt(7.2, 3.0), pt(13.4, 9.2));
+            p.rect_filled(shape_r, 0.0, color.gamma_multiply(0.35));
+            p.rect_stroke(shape_r, 0.0, thin, egui::StrokeKind::Inside);
+            let sel_r = Rect::from_min_max(pt(2.4, 6.8), pt(9.4, 13.4));
+            p.rect_stroke(sel_r, 0.0, stroke, egui::StrokeKind::Inside);
+        }
+        ToolModifierGlyph::SliceMergeFills => {
+            // Polygon lasso contour slicing across a filled shape.
+            let poly = [pt(2.4, 11.8), pt(5.8, 3.2), pt(13.4, 5.6), pt(10.6, 13.2)];
+            for i in 0..4 {
+                p.line_segment([poly[i], poly[(i + 1) % 4]], stroke);
+                p.rect_filled(
+                    Rect::from_center_size(poly[i], Vec2::splat(2.0 * scale)),
+                    0.0,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+pub(crate) fn tool_modifier_button(
+    ui: &mut egui::Ui,
+    glyph: ToolModifierGlyph,
+    selected: bool,
+    enabled: bool,
+    label: &str,
+) -> Response {
+    ui.add_enabled_ui_semantic(enabled, |ui| {
+        let p = neoflash_ui::palette(ui.ctx());
+        let side = neoflash_ui::metrics::tool_button();
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+        let s = neoflash_ui::components::State::of(ui, &response);
+        let (bg, fg) = match (selected, s.enabled, s.hovered) {
+            (_, false, _) => (egui::Color32::TRANSPARENT, p.text_disabled),
+            (true, _, _) => (p.accent_subtle, p.accent_default),
+            (false, _, true) => (p.bg_hover, p.text_primary),
+            (false, _, false) => (egui::Color32::TRANSPARENT, p.text_secondary),
+        };
+        let r = neoflash_ui::tokens::radius::MD;
+        if ui.is_rect_visible(rect) {
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(r as u8), bg);
+            paint_tool_modifier_glyph(ui.painter(), rect, glyph, fg);
+            if s.focused {
+                neoflash_ui::theme::focus_ring(ui, rect, r);
+            }
+        }
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, s.enabled, label);
+            info.selected = Some(selected);
+            info
+        });
+        neoflash_ui::components::tooltip(response, label, None)
+    })
+    .inner
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +815,33 @@ mod tests {
                 paint_transform_modifier_icon(&p, rect, modifier, Color32::WHITE);
             });
             assert!(!output.shapes.is_empty(), "{modifier:?} paints");
+            for shape in &output.shapes {
+                assert!(
+                    rect.expand(1.)
+                        .contains_rect(shape.shape.visual_bounding_rect())
+                );
+            }
+        }
+        for glyph in [
+            ToolModifierGlyph::ObjectDrawing,
+            ToolModifierGlyph::GapSize(crate::authoring_tools::GapCloseMode::None),
+            ToolModifierGlyph::GapSize(crate::authoring_tools::GapCloseMode::Medium),
+            ToolModifierGlyph::BrushMode(neoflash_core::BrushPaintMode::PaintNormal),
+            ToolModifierGlyph::BrushMode(neoflash_core::BrushPaintMode::PaintInside),
+            ToolModifierGlyph::BrushSize(12.0),
+            ToolModifierGlyph::BrushShape(neoflash_ui::components::BrushShapeKind::Round),
+            ToolModifierGlyph::BrushShape(neoflash_ui::components::BrushShapeKind::Slash),
+            ToolModifierGlyph::EraserMode(crate::authoring_tools::EraserMode::StrokeSegments),
+            ToolModifierGlyph::Faucet,
+            ToolModifierGlyph::EraserSize(16.0),
+            ToolModifierGlyph::TouchSelects,
+            ToolModifierGlyph::SliceMergeFills,
+        ] {
+            let output = ctx.run(Default::default(), |ctx| {
+                let p = ctx.layer_painter(egui::LayerId::background());
+                paint_tool_modifier_glyph(&p, rect, glyph, Color32::WHITE);
+            });
+            assert!(!output.shapes.is_empty(), "{glyph:?} paints");
             for shape in &output.shapes {
                 assert!(
                     rect.expand(1.)

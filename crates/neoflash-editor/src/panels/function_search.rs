@@ -164,6 +164,7 @@ impl Editor {
         let width = (content.width() - space::S5 * 2.0).clamp(1.0, 560.0);
         let has_document = self.has_document();
         let mut activated = None;
+        let mut open_manual = false;
 
         let area = egui::Area::new(egui::Id::new("nf2-function-search-area"))
             .order(egui::Order::Foreground)
@@ -246,6 +247,11 @@ impl Editor {
                             rich("close", TextStyle::Small)
                                 .color(neoflash_ui::palette(ctx).text_secondary),
                         );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.add(c::Button::ghost("Help & Reference…")).clicked() {
+                                open_manual = true;
+                            }
+                        });
                     });
                 });
             });
@@ -278,12 +284,15 @@ impl Editor {
             close = true;
         }
         state.just_opened = false;
-        if activated.is_some() || close {
+        if activated.is_some() || open_manual || close {
             state.open = false;
         }
         store_state(ctx, state);
 
-        if let Some(command) = activated {
+        if open_manual {
+            crate::panels::help_manual::open_help_manual(ctx);
+            ctx.request_repaint();
+        } else if let Some(command) = activated {
             crate::commands::queue_command(ctx, command);
             ctx.request_repaint();
         }

@@ -29,6 +29,7 @@ pub(crate) enum PaintFillType {
     Solid,
     LinearGradient,
     RadialGradient,
+    BitmapFill,
 }
 
 impl PaintFillType {
@@ -38,8 +39,62 @@ impl PaintFillType {
             Self::Solid => "Solid colour",
             Self::LinearGradient => "Linear gradient",
             Self::RadialGradient => "Radial gradient",
+            Self::BitmapFill => "Bitmap fill",
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ActiveColorPopover {
+    pub source_id: String,
+    pub anchor_rect: Rect,
+    pub stroke_well: bool,
+    pub selection_mode: bool,
+}
+
+fn active_color_popover_id() -> egui::Id {
+    egui::Id::new("nf2-active-color-popover")
+}
+
+pub(crate) fn request_color_popover(
+    ctx: &egui::Context,
+    source_id: &str,
+    anchor_rect: Rect,
+    stroke_well: bool,
+    selection_mode: bool,
+) {
+    let current = ctx.data(|d| d.get_temp::<ActiveColorPopover>(active_color_popover_id()));
+    if current.as_ref().is_some_and(|p| p.source_id == source_id) {
+        ctx.data_mut(|d| d.remove::<ActiveColorPopover>(active_color_popover_id()));
+    } else {
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke_well);
+            d.insert_temp(
+                active_color_popover_id(),
+                ActiveColorPopover {
+                    source_id: source_id.to_owned(),
+                    anchor_rect,
+                    stroke_well,
+                    selection_mode,
+                },
+            );
+        });
+    }
+}
+
+pub(crate) fn update_color_popover_anchor(ctx: &egui::Context, source_id: &str, anchor_rect: Rect) {
+    ctx.data_mut(|d| {
+        if let Some(mut p) = d.get_temp::<ActiveColorPopover>(active_color_popover_id())
+            && p.source_id == source_id
+        {
+            p.anchor_rect = anchor_rect;
+            d.insert_temp(active_color_popover_id(), p);
+        }
+    });
+}
+
+pub(crate) fn close_color_popover(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<ActiveColorPopover>(active_color_popover_id()));
 }
 
 #[derive(Clone)]
@@ -73,6 +128,7 @@ pub(crate) struct AuthoringModify {
     pub selected_stop: usize,
     pub drawing_fill_gradient: Option<GradientPaint>,
     pub drawing_stroke_gradient: Option<GradientPaint>,
+    pub drawing_bitmap_fill: Option<usize>,
     /// Transient world-space transformation point for a multi-selection in Free Transform.
     pub group_pivot: Option<(Vec<SelectionTarget>, [f64; 2])>,
     pub distort_session: Option<ActiveDistortSession>,
@@ -92,6 +148,7 @@ impl Default for AuthoringModify {
             selected_stop: 0,
             drawing_fill_gradient: None,
             drawing_stroke_gradient: None,
+            drawing_bitmap_fill: None,
             group_pivot: None,
             distort_session: None,
             envelope_session: None,
@@ -3219,26 +3276,110 @@ impl Editor {
         true
     }
 
+    pub(crate) fn target_has_bitmap_fill(&self, target: &SelectionTarget) -> bool {
+        self.symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|l| l.id == target.layer)
+            .and_then(|l| l.key_at(self.frame))
+            .is_some_and(|k| {
+                k.bitmap_fills
+                    .iter()
+                    .any(|bf| bf.element_id == target.element)
+            })
+    }
+
     pub(crate) fn set_selection_fill_type(&mut self, stroke_well: bool, mode: PaintFillType) {
         if !self.authoring_modify.color_selection {
             self.set_drawing_fill_type(stroke_well, mode);
             return;
+        }
+        if mode == PaintFillType::BitmapFill {
+            if !stroke_well {
+                let idx = self.authoring_modify.drawing_bitmap_fill.unwrap_or(0);
+                self.authoring_modify.drawing_bitmap_fill = Some(idx);
+                self.authoring_modify.drawing_fill_gradient = None;
+                let _ = self.apply_bitmap_swatch_tile(idx);
+            }
+            return;
+        }
+        if !stroke_well {
+            self.authoring_modify.drawing_bitmap_fill = None;
         }
         let targets: Vec<_> = self
             .sampled_targets()
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
             .collect();
+        let had_bitmap_targets: Vec<SelectionTarget> = if !stroke_well {
+            targets
+                .iter()
+                .filter(|(t, _)| self.target_has_bitmap_fill(t))
+                .map(|(t, _)| t.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         let changes: Vec<_> = targets
             .into_iter()
             .filter_map(|(target, mut element)| {
-                set_element_fill_type(&mut element, stroke_well, mode).then_some((target, element))
+                let had_bitmap = had_bitmap_targets.contains(&target);
+                (set_element_fill_type(&mut element, stroke_well, mode) || had_bitmap)
+                    .then_some((target, element))
             })
             .collect();
+        if !had_bitmap_targets.is_empty() {
+            let frame = self.frame;
+            self.finish_edits();
+            self.transact(|editor| {
+                for target in &had_bitmap_targets {
+                    editor.ensure_key_for(&target.layer, false);
+                    if let Some(layer) = editor
+                        .symbol_mut()
+                        .timeline
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id == target.layer)
+                        && let Some(key) = layer.key_at_mut(frame)
+                    {
+                        key.bitmap_fills
+                            .retain(|bf| bf.element_id != target.element);
+                    }
+                }
+                for (target, element) in changes {
+                    editor.ensure_key_for(&target.layer, false);
+                    if let Some(layer) = editor
+                        .symbol_mut()
+                        .timeline
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id == target.layer)
+                        && let Some(key) = layer.key_at_mut(frame)
+                        && let Some(slot) = key.elements.iter_mut().find(|e| e.id == target.element)
+                    {
+                        *slot = element;
+                    }
+                }
+            });
+            return;
+        }
         self.apply_modified(changes, None);
     }
 
     pub(crate) fn set_drawing_fill_type(&mut self, stroke_well: bool, mode: PaintFillType) {
+        if mode == PaintFillType::BitmapFill {
+            if !stroke_well {
+                let idx = self.authoring_modify.drawing_bitmap_fill.unwrap_or(0);
+                self.authoring_modify.drawing_bitmap_fill = Some(idx);
+                self.authoring_modify.drawing_fill_gradient = None;
+                let _ = self.apply_bitmap_swatch_tile(idx);
+            }
+            return;
+        }
+        if !stroke_well {
+            self.authoring_modify.drawing_bitmap_fill = None;
+        }
         let (color, grad) = if stroke_well {
             (
                 &mut self.stroke,
@@ -3282,6 +3423,7 @@ impl Editor {
                     *grad = Some(default_gradient_paint(kind, *color, &box_cmds));
                 }
             }
+            PaintFillType::BitmapFill => {}
         }
     }
 
@@ -3422,10 +3564,176 @@ impl Editor {
                     *color = [0, 0, 0, 255];
                     Some((target, element))
                 }
+                ElementKind::TextBox { format, .. } => {
+                    format.color = 0;
+                    Some((target, element))
+                }
                 _ => None,
             })
             .collect();
         self.apply_modified(changes, None);
+    }
+
+    pub(crate) fn bitmap_fill_section_ui(&mut self, ui: &mut egui::Ui) {
+        let nf = neoflash_ui::palette(ui.ctx());
+        let mut selected_tile = self.authoring_modify.drawing_bitmap_fill.unwrap_or(0);
+        let lock_id = egui::Id::new("nf2-color-bitmap-lock-fill");
+        let mut lock_fill = ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(lock_id))
+            .unwrap_or(false);
+        let tile = |h: f32, s: f32| -> (egui::Color32, egui::Color32) {
+            (hsv(h, s, 0.85, 1.0).into(), hsv(h, s, 0.35, 1.0).into())
+        };
+        let bitmaps = [
+            tile(0.07, 0.7),
+            tile(0.64, 0.55),
+            tile(0.38, 0.55),
+            tile(0.0, 0.0),
+            tile(0.96, 0.65),
+            tile(0.62, 0.15),
+        ];
+        for (row_idx, row) in bitmaps.chunks(4).enumerate() {
+            ui.horizontal(|ui| {
+                for (col_idx, (from, to)) in row.iter().enumerate() {
+                    let idx = row_idx * 4 + col_idx;
+                    let (rect, resp) =
+                        ui.allocate_exact_size(egui::vec2(58.0, 58.0), egui::Sense::click());
+                    neoflash_ui::components::swatches::paint_gradient(
+                        ui.painter(),
+                        rect,
+                        neoflash_ui::components::GradientSwatch {
+                            from: *from,
+                            to: *to,
+                            radial: false,
+                        },
+                    );
+                    let selected = selected_tile == idx;
+                    let (w, color) = if selected {
+                        (2.0_f32, nf.accent_default)
+                    } else {
+                        (1.0, nf.border_subtle)
+                    };
+                    ui.painter().rect_stroke(
+                        rect,
+                        egui::CornerRadius::same(neoflash_ui::tokens::radius::MD as u8),
+                        egui::Stroke::new(w, color),
+                        egui::StrokeKind::Inside,
+                    );
+                    if resp
+                        .on_hover_text(format!("tile_{}.png", idx + 1))
+                        .clicked()
+                    {
+                        selected_tile = idx;
+                        self.authoring_modify.drawing_bitmap_fill = Some(idx);
+                        let _ = self.apply_bitmap_swatch_tile(idx);
+                    }
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            if ui.add(Button::new("Import…").icon(i16::PLUS)).clicked() {
+                self.authoring_modify.drawing_bitmap_fill = Some(selected_tile);
+                let _ = self.apply_bitmap_swatch_tile(selected_tile);
+            }
+            if ui
+                .add(IconButton::new(i16::LOCK_FILL, "Lock fill").selected(lock_fill))
+                .clicked()
+            {
+                lock_fill = !lock_fill;
+                ui.ctx().data_mut(|d| d.insert_temp(lock_id, lock_fill));
+            }
+            caption_label(ui, "Lock fill");
+        });
+        let img_count = self
+            .project
+            .resources
+            .iter()
+            .filter(|r| r.is_image())
+            .count();
+        caption_label(
+            ui,
+            &format!(
+                "tile_{}.png · {} bitmap resource(s) · tiles across selection",
+                selected_tile + 1,
+                img_count
+            ),
+        );
+    }
+
+    pub(crate) fn color_fill_popover_contents(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.set_min_width(276.0);
+        ui.set_max_width(276.0);
+        ui.data_mut(|d| {
+            d.remove::<bool>(color_picker_expanded());
+            d.remove::<bool>(color_picker_toggle());
+        });
+        self.color_panel_contents(ui);
+        let mut should_close = false;
+        ui.horizontal(|ui| {
+            if ui
+                .add(Button::new("Add to swatches").icon(i16::PLUS))
+                .clicked()
+            {
+                self.add_active_swatch(ui.ctx());
+            }
+            if ui
+                .add(IconButton::new(i16::EYEDROPPER, "Eyedropper"))
+                .clicked()
+            {
+                self.set_tool(crate::app::Tool::Eyedropper);
+                should_close = true;
+            }
+        });
+        should_close
+    }
+
+    pub(crate) fn show_active_color_popover(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let Some(active) =
+            ctx.data(|d| d.get_temp::<ActiveColorPopover>(active_color_popover_id()))
+        else {
+            return;
+        };
+        let pass_guard_id = egui::Id::new("nf2-active-color-popover-pass");
+        let pass = ctx.cumulative_pass_nr();
+        if ctx.data(|d| d.get_temp::<u64>(pass_guard_id)) == Some(pass) {
+            return;
+        }
+        ctx.data_mut(|d| d.insert_temp(pass_guard_id, pass));
+        let mut close_now = false;
+        let area_resp =
+            egui::Area::new(egui::Id::new(("nf2-color-fill-popover", &active.source_id)))
+                .order(egui::Order::Foreground)
+                .constrain(true)
+                .fixed_pos(egui::pos2(
+                    active.anchor_rect.left(),
+                    active.anchor_rect.bottom() + 4.0,
+                ))
+                .show(&ctx, |ui| {
+                    neoflash_ui::components::popover_frame(&ctx).show(ui, |ui| {
+                        close_now = self.color_fill_popover_contents(ui);
+                    });
+                });
+        let popup_rect = area_resp.response.rect;
+        let (pressed, pointer_pos, escape) = ctx.input(|i| {
+            (
+                i.pointer.any_pressed(),
+                i.pointer.interact_pos(),
+                i.key_pressed(egui::Key::Escape),
+            )
+        });
+        let clicked_outside = pressed
+            && pointer_pos.is_some_and(|pos| {
+                !popup_rect.contains(pos)
+                    && !active.anchor_rect.contains(pos)
+                    && ctx
+                        .layer_id_at(pos)
+                        .is_none_or(|layer| layer.order < egui::Order::Foreground)
+            });
+        if close_now || clicked_outside || escape {
+            close_color_popover(&ctx);
+        }
     }
 
     fn color_panel_contents(&mut self, ui: &mut egui::Ui) {
@@ -3436,6 +3744,10 @@ impl Editor {
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
             .collect::<Vec<_>>();
+        let values: Vec<_> = targets
+            .iter()
+            .filter_map(|(_, e)| paints_with_gradients(&e.kind))
+            .collect();
         ui.horizontal(|ui| {
             Segmented::show(
                 ui,
@@ -3459,9 +3771,9 @@ impl Editor {
         // Which paint the wells edit: remembered per panel, Fill by default.
         let active_id = egui::Id::new("color-panel-active-stroke");
         let mut stroke_active = ui.data(|d| d.get_temp::<bool>(active_id).unwrap_or(false));
-        // Flash behaviour: with nothing selected the Color panel edits the tool (drawing) colours
-        // instead of going blank; the scope control and the "0 objects" count stay as they are.
-        if !self.authoring_modify.color_selection || targets.is_empty() {
+        // Flash behaviour: with nothing paintable selected the Color panel edits the tool (drawing)
+        // colours instead of going blank; the scope control and the object count stay as they are.
+        if !self.authoring_modify.color_selection || targets.is_empty() || values.is_empty() {
             let fill_grad = self.authoring_modify.drawing_fill_gradient.clone();
             let stroke_grad = self.authoring_modify.drawing_stroke_gradient.clone();
             let action = color_wells_and_actions(
@@ -3484,6 +3796,7 @@ impl Editor {
                     return;
                 }
                 Some(WellAction::DefaultBlackWhite) => {
+                    self.authoring_modify.drawing_bitmap_fill = None;
                     self.reset_default_paints();
                     return;
                 }
@@ -3499,12 +3812,15 @@ impl Editor {
             } else {
                 self.authoring_modify.drawing_fill_gradient.clone()
             };
-            let current_mode = classify_fill_type(active_color, active_grad.as_ref());
-            if let Some(new_mode) = fill_type_select(ui, current_mode, true) {
+            let has_bitmap = !stroke_active && self.authoring_modify.drawing_bitmap_fill.is_some();
+            let current_mode = classify_fill_type(active_color, active_grad.as_ref(), has_bitmap);
+            if let Some(new_mode) = fill_type_select(ui, current_mode, stroke_active) {
                 self.set_drawing_fill_type(stroke_active, new_mode);
                 return;
             }
-            if let Some(mut grad) = active_grad {
+            if current_mode == PaintFillType::BitmapFill {
+                self.bitmap_fill_section_ui(ui);
+            } else if let Some(mut grad) = active_grad {
                 flow_row(ui);
                 let stop_count = grad.stops.len().max(1);
                 if self.authoring_modify.selected_stop >= stop_count {
@@ -3564,17 +3880,7 @@ impl Editor {
             return;
         }
 
-        let values: Vec<_> = targets
-            .iter()
-            .filter_map(|(_, e)| paints_with_gradients(&e.kind))
-            .collect();
-        let Some(first) = values.first().cloned() else {
-            crate::panels::properties::hint(
-                ui,
-                "Select a shape, path or text object; use Drawing for tool colors.",
-            );
-            return;
-        };
+        let first = values[0].clone();
         let fill = first.fill;
         let fill_grad = first.fill_gradient.clone();
         let mut stroke = first.stroke;
@@ -3632,6 +3938,7 @@ impl Editor {
                     return;
                 }
                 Some(WellAction::DefaultBlackWhite) => {
+                    self.authoring_modify.drawing_bitmap_fill = None;
                     self.reset_default_paints();
                     return;
                 }
@@ -3644,13 +3951,30 @@ impl Editor {
             } else {
                 fill_grad.clone()
             };
-            let current_mode = classify_fill_type(active_color, active_grad.as_ref());
-            if let Some(new_mode) = fill_type_select(ui, current_mode, supports_gradient) {
-                self.set_selection_fill_type(stroke_active, new_mode);
+            let has_bitmap = !stroke_active
+                && (self.authoring_modify.drawing_bitmap_fill.is_some()
+                    || targets.iter().any(|(t, _)| self.target_has_bitmap_fill(t)));
+            let current_mode = classify_fill_type(active_color, active_grad.as_ref(), has_bitmap);
+            if let Some(new_mode) = fill_type_select(ui, current_mode, stroke_active) {
+                if !supports_gradient
+                    && matches!(
+                        new_mode,
+                        PaintFillType::LinearGradient
+                            | PaintFillType::RadialGradient
+                            | PaintFillType::BitmapFill
+                    )
+                {
+                    self.authoring_modify.color_selection = false;
+                    self.set_drawing_fill_type(stroke_active, new_mode);
+                } else {
+                    self.set_selection_fill_type(stroke_active, new_mode);
+                }
                 return;
             }
 
-            if let Some(mut grad) = active_grad {
+            if current_mode == PaintFillType::BitmapFill {
+                self.bitmap_fill_section_ui(ui);
+            } else if let Some(mut grad) = active_grad {
                 flow_row(ui);
                 let stop_count = grad.stops.len().max(1);
                 if self.authoring_modify.selected_stop >= stop_count {
@@ -3840,11 +4164,29 @@ fn paints_with_gradients(kind: &ElementKind) -> Option<PaintSample> {
             stroke_width: 0.,
             supports_stroke: false,
         }),
+        ElementKind::TextBox { format, .. } => {
+            let [_, r, g, b] = format.color.to_be_bytes();
+            Some(PaintSample {
+                fill: [r, g, b, 255],
+                stroke: [0; 4],
+                fill_gradient: None,
+                stroke_gradient: None,
+                stroke_width: 0.,
+                supports_stroke: false,
+            })
+        }
         _ => None,
     }
 }
 
-fn classify_fill_type(color: Color, gradient: Option<&GradientPaint>) -> PaintFillType {
+fn classify_fill_type(
+    color: Color,
+    gradient: Option<&GradientPaint>,
+    has_bitmap_fill: bool,
+) -> PaintFillType {
+    if has_bitmap_fill {
+        return PaintFillType::BitmapFill;
+    }
     match gradient.map(|g| g.kind) {
         Some(GradientKind::Linear) => PaintFillType::LinearGradient,
         Some(GradientKind::Radial) => PaintFillType::RadialGradient,
@@ -4084,6 +4426,7 @@ fn set_element_fill_type(element: &mut Element, stroke_well: bool, mode: PaintFi
             };
             true
         }
+        PaintFillType::BitmapFill => false,
     }
 }
 
@@ -4168,12 +4511,12 @@ fn color_wells_and_actions(
     action
 }
 
-/// Fill type `NF2/Select` (§6 "Color — type menu"): edits None, Solid colour, Linear gradient and
-/// Radial gradient directly; Bitmap fill opens its planned preview.
+/// Fill type `NF2/Select` (§6 "Color — type menu"): edits None, Solid colour, Linear gradient,
+/// Radial gradient and Bitmap fill directly.
 fn fill_type_select(
     ui: &mut egui::Ui,
     current: PaintFillType,
-    supports_gradient: bool,
+    stroke_active: bool,
 ) -> Option<PaintFillType> {
     let width = ui.available_width();
     let mut chosen = None;
@@ -4185,29 +4528,18 @@ fn fill_type_select(
                 PaintFillType::Solid,
                 PaintFillType::LinearGradient,
                 PaintFillType::RadialGradient,
+                PaintFillType::BitmapFill,
             ] {
-                let enabled = match mode {
-                    PaintFillType::LinearGradient | PaintFillType::RadialGradient => {
-                        supports_gradient
-                    }
-                    _ => true,
-                };
-                let resp = ui
-                    .add_enabled(
-                        enabled,
-                        MenuItem::new(mode.label()).checked(current == mode),
-                    )
-                    .on_disabled_hover_text(
-                        "Select a rectangle, oval or vector path to apply a gradient",
-                    );
-                if resp.clicked() {
+                if mode == PaintFillType::BitmapFill && stroke_active {
+                    continue;
+                }
+                if ui
+                    .add(MenuItem::new(mode.label()).checked(current == mode))
+                    .clicked()
+                {
                     chosen = Some(mode);
                     ui.close();
                 }
-            }
-            if ui.add(MenuItem::new("Bitmap fill")).clicked() {
-                Editor::open_planned(ui.ctx(), "Color fill type ▸ Bitmap fill");
-                ui.close();
             }
         });
     chosen
@@ -4311,6 +4643,9 @@ fn color_mixer_ui(
             let cf = ColorField::new(&mut field_c32, field_label)
                 .width(w)
                 .show(ui);
+            if cf.swatch_clicked {
+                ui.data_mut(|d| d.insert_temp(color_picker_toggle(), true));
+            }
             if cf.response.changed() {
                 *color = field_c32.to_srgba_unmultiplied();
                 changed_id = Some(cf.response.id);
@@ -4834,6 +5169,10 @@ fn paints(kind: &ElementKind) -> Option<(Color, Color, f64, bool)> {
             ..
         } => Some((*fill, *stroke, *stroke_width, true)),
         ElementKind::Text { color, .. } => Some((*color, [0; 4], 0., false)),
+        ElementKind::TextBox { format, .. } => {
+            let [_, r, g, b] = format.color.to_be_bytes();
+            Some(([r, g, b, 255], [0; 4], 0., false))
+        }
         _ => None,
     }
 }
@@ -4878,6 +5217,12 @@ fn edit_paints(kind: &mut ElementKind, old: (Color, Color, f64), new: (Color, Co
             }
         }
         ElementKind::Text { color, .. } => apply_color(color, old.0, new.0),
+        ElementKind::TextBox { format, .. } => {
+            let [_, r, g, b] = format.color.to_be_bytes();
+            let mut color = [r, g, b, 255];
+            apply_color(&mut color, old.0, new.0);
+            format.color = u32::from_be_bytes([0, color[0], color[1], color[2]]);
+        }
         _ => return false,
     }
     if let ElementKind::PaintedPath {
@@ -5219,5 +5564,114 @@ mod arrange_tests {
         assert!(editor.delete_envelope_selection());
         assert_eq!(editor.selected_element().unwrap().kind, orig.kind);
         editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn gradient_transform_icon_and_color_fill_type_popover_work_everywhere() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+
+        // 1. Gradient Transform icon (16px and 20px) uses a crisp bordered horizontal linearGradient.
+        let g16 = crate::ui_icons::Icon::Gradient.nf2(false);
+        let g20 = crate::ui_icons::Icon::Gradient.tool_glyph();
+        assert!(g16.svg.contains("<linearGradient"));
+        assert!(g20.svg.contains("<linearGradient"));
+        assert_eq!(g16.size, 16);
+        assert_eq!(g20.size, 20);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            neoflash_ui::icons::paint(
+                &p,
+                ctx,
+                egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(16.0, 16.0)),
+                g16,
+                egui::Color32::WHITE,
+            );
+            neoflash_ui::icons::paint(
+                &p,
+                ctx,
+                egui::Rect::from_min_size(egui::pos2(20.0, 0.0), egui::vec2(20.0, 20.0)),
+                g20,
+                egui::Color32::WHITE,
+            );
+        });
+
+        // 2. Switching a selected Rectangle through Linear gradient, Radial gradient, Bitmap fill,
+        // None and Solid colour via `set_selection_fill_type`, plus Undo/Redo.
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![make_rect("r1", 10.0)];
+        editor.set_selection(vec![SelectionTarget {
+            layer: layer_id.clone(),
+            element: "r1".into(),
+        }]);
+        editor.authoring_modify.color_selection = true;
+
+        editor.set_selection_fill_type(false, PaintFillType::LinearGradient);
+        assert!(matches!(
+            editor.selected_element().unwrap().kind,
+            ElementKind::PaintedPath {
+                fill_gradient: Some(GradientPaint {
+                    kind: GradientKind::Linear,
+                    ..
+                }),
+                ..
+            }
+        ));
+        editor.project.validate().unwrap();
+
+        editor.set_selection_fill_type(false, PaintFillType::RadialGradient);
+        assert!(matches!(
+            editor.selected_element().unwrap().kind,
+            ElementKind::PaintedPath {
+                fill_gradient: Some(GradientPaint {
+                    kind: GradientKind::Radial,
+                    ..
+                }),
+                ..
+            }
+        ));
+        editor.project.validate().unwrap();
+
+        editor.set_selection_fill_type(false, PaintFillType::BitmapFill);
+        assert!(editor.target_has_bitmap_fill(&SelectionTarget {
+            layer: layer_id.clone(),
+            element: "r1".into(),
+        }));
+        editor.project.validate().unwrap();
+
+        editor.set_selection_fill_type(false, PaintFillType::Solid);
+        assert!(!editor.target_has_bitmap_fill(&SelectionTarget {
+            layer: layer_id.clone(),
+            element: "r1".into(),
+        }));
+        editor.project.validate().unwrap();
+
+        // 3. Opening the anchored Color & Fill Type popover from Properties (`shape-fill`),
+        // Tool defaults (`inspector-tool-fill`), Brushes (`tool-well-fill`) and Swatches
+        // (`swatches-open-mixer`) renders without panic and exposes all fill types.
+        for (key, stroke_well, sel) in [
+            ("shape-fill", false, true),
+            ("inspector-tool-fill", false, false),
+            ("tool-well-fill", false, false),
+            ("swatches-open-mixer", false, true),
+        ] {
+            request_color_popover(
+                &ctx,
+                key,
+                egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(22.0, 22.0)),
+                stroke_well,
+                sel,
+            );
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.properties(ui, ctx);
+                });
+            });
+            assert!(
+                ctx.data(|d| d.get_temp::<ActiveColorPopover>(active_color_popover_id()))
+                    .is_some()
+            );
+            close_color_popover(&ctx);
+        }
     }
 }

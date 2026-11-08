@@ -126,17 +126,30 @@ const GRID: &[ToolSpec] = &[
 const VIEW: &[ToolSpec] = &[HAND, ZOOM];
 
 /// Popover owned by the Tools panel (at most one is open).
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum RailPopover {
     Flyout(usize),
     Overflow,
     Fill,
     Stroke,
-    Options,
+    PencilMode,
+    BrushMode,
+    BrushSize,
+    BrushShape,
+    GapSize,
+    EraserMode,
+    EraserSize,
 }
 
 fn popover_id() -> egui::Id {
     egui::Id::new("nf2-tools-popover")
+}
+
+pub(crate) fn tool_columns_for_width(available_width: f32) -> usize {
+    let side = neoflash_ui::metrics::tool_button();
+    ((available_width + TOOL_GAP) / (side + TOOL_GAP))
+        .floor()
+        .max(1.0) as usize
 }
 
 impl Editor {
@@ -148,44 +161,36 @@ impl Editor {
         );
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
-            let two_columns =
-                ui.available_width() >= 2. * neoflash_ui::metrics::tool_button() + TOOL_GAP;
-            if two_columns {
+            let cols = tool_columns_for_width(ui.available_width());
+            if cols >= 2 {
+                let panel_top = ui.cursor().top().max(0.0);
+                let mut content_h = 0.0_f32;
                 egui::ScrollArea::vertical()
                     .id_salt("tool_controls")
-                    .auto_shrink([false, false])
+                    .auto_shrink([false, true])
                     .themed()
                     .show(ui, |ui| {
+                        let inner_top = ui.cursor().top();
                         ui.vertical_centered(|ui| {
-                            self.tool_grid(ui);
-                            self.view_commands(ui);
+                            self.tool_grid(ui, cols);
                             nf::divider(ui, false);
                             section_caption(ui, "Colors");
-                            self.fill_stroke_chip(ui);
-                            self.color_actions(ui);
+                            self.colors_section(ui, cols);
                             nf::divider(ui, false);
                             section_caption(ui, "Options");
-                            if ui.available_width() >= inline_options_width() {
-                                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                                    ui.spacing_mut().item_spacing = Vec2::splat(space::S2);
-                                    self.tool_options_body(ui);
-                                });
-                            } else {
-                                if self.tool == Tool::Transform
-                                    && popover(ui.ctx()) != Some(RailPopover::Options)
-                                {
-                                    self.free_transform_modifier_grid(ui);
-                                }
-                                self.tool_options_button(ui);
-                            }
+                            self.tool_modifiers_ui(ui, cols);
                         });
+                        content_h = (ui.cursor().top() - inner_top).max(0.0);
                     });
+                self.detached.tools_desired_inner_height =
+                    Some((panel_top + content_h + space::S2).ceil());
                 return;
             }
-            // Rail: paint colours and options stay pinned while only the tools scroll.
+            self.detached.tools_desired_inner_height = None;
+            // Rail: paint colours and snap modifier stay pinned while only the tools scroll.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.add_space(space::S1);
-                self.tool_options_button(ui);
+                self.snap_to_objects_button(ui);
                 self.color_actions(ui);
                 self.fill_stroke_chip(ui);
                 nf::divider(ui, false);
@@ -359,7 +364,7 @@ impl Editor {
         self.pan = Vec2::ZERO;
     }
 
-    fn tool_grid(&mut self, ui: &mut egui::Ui) {
+    fn tool_grid(&mut self, ui: &mut egui::Ui, cols: usize) {
         section_caption(ui, "Tools");
         let tools: Vec<_> = self
             .tool_groups()
@@ -367,43 +372,66 @@ impl Editor {
             .flatten()
             .filter(|spec| !matches!(spec.tool, Tool::Hand | Tool::Zoom))
             .collect();
-        for row in tools.chunks(2) {
-            tool_row(ui, |ui| {
-                for spec in row {
-                    self.single_tool_button(ui, *spec);
-                }
+        for row in tools.chunks(cols) {
+            tool_grid_row(ui, cols, row.len(), |ui, idx| {
+                self.single_tool_button(ui, row[idx]);
             });
         }
         nf::divider(ui, false);
         section_caption(ui, "View");
-        tool_row(ui, |ui| {
-            let view: Vec<_> = self
-                .tool_groups()
-                .into_iter()
-                .flatten()
-                .filter(|spec| matches!(spec.tool, Tool::Hand | Tool::Zoom))
-                .collect();
-            for spec in view {
-                self.single_tool_button(ui, spec);
-            }
-        });
-    }
-
-    /// Zoom out and Fit stay reachable here even when the stage zoom control is hidden.
-    fn view_commands(&mut self, ui: &mut egui::Ui) {
+        let view: Vec<_> = self
+            .tool_groups()
+            .into_iter()
+            .flatten()
+            .filter(|spec| matches!(spec.tool, Tool::Hand | Tool::Zoom))
+            .collect();
+        let total_view = view.len() + 2;
         let mut zoom_out = false;
         let mut fit = false;
-        tool_row(ui, |ui| {
-            zoom_out = ui
-                .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
-                .clicked();
-            fit = ui.add(nf::IconButton::new(i20::FIT, "Fit stage")).clicked();
-        });
+        let indices: Vec<usize> = (0..total_view).collect();
+        for row in indices.chunks(cols) {
+            tool_grid_row(ui, cols, row.len(), |ui, idx| {
+                let item = row[idx];
+                if let Some(&spec) = view.get(item) {
+                    self.single_tool_button(ui, spec);
+                } else if item == view.len() {
+                    if ui
+                        .add(nf::IconButton::new(i20::ZOOMOUT, "Zoom out"))
+                        .clicked()
+                    {
+                        zoom_out = true;
+                    }
+                } else if ui.add(nf::IconButton::new(i20::FIT, "Fit stage")).clicked() {
+                    fit = true;
+                }
+            });
+        }
         if zoom_out {
             self.zoom_out_stage();
         }
         if fit {
             self.fit_stage_from_tools();
+        }
+    }
+
+    fn colors_section(&mut self, ui: &mut egui::Ui, cols: usize) {
+        if cols >= 3 {
+            let chip_w = 36.0;
+            let actions_w = 2.0 * COLOR_ACTION + TOOL_GAP;
+            let row_w = chip_w + space::S2 + actions_w;
+            let row_h = 36.0_f32.max(COLOR_ACTION);
+            ui.allocate_ui_with_layout(
+                Vec2::new(row_w, row_h),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    self.fill_stroke_chip(ui);
+                    self.color_actions(ui);
+                },
+            );
+        } else {
+            self.fill_stroke_chip(ui);
+            self.color_actions(ui);
         }
     }
 
@@ -504,226 +532,729 @@ impl Editor {
         }
     }
 
-    /// `NF2/Fill Stroke Chip`: click a square to open the `NF2/Swatches Popover` (§6) for that tool
-    /// colour. Picking a swatch or editing hex/alpha changes the tool colour; the colour wheel opens the
-    /// Color panel (full mixer), the eyedropper selects the Eyedropper tool, and Add swatch / gradients
-    /// open their planned previews.
+    /// `NF2/Fill Stroke Chip`: click Fill or Stroke to open the full NF2 Color & Fill Type
+    /// popover (Fill type selector `None / Solid colour / Linear gradient / Radial gradient /
+    /// Bitmap fill`, 2D colour picker, RGB/HSB fields, interactive gradient stops, bitmap tiles,
+    /// `Add to swatches`, `Eyedropper`, and collapsible `Swatches`).
     fn fill_stroke_chip(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
-        let rgb = |c: [u8; 4]| egui::Color32::from_rgb(c[0], c[1], c[2]);
+        let chip_color =
+            |c: [u8; 4], grad: Option<&neoflash_core::GradientPaint>| -> Option<egui::Color32> {
+                if let Some(g) = grad
+                    && let Some(stop) = g.stops.first()
+                {
+                    return Some(egui::Color32::from_rgba_unmultiplied(
+                        stop.color[0],
+                        stop.color[1],
+                        stop.color[2],
+                        stop.color[3],
+                    ));
+                }
+                (c[3] > 0).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
+            };
         let chip = nf::FillStrokeChip {
-            fill: Some(rgb(self.fill)),
-            stroke: Some(rgb(self.stroke)),
+            fill: chip_color(
+                self.fill,
+                self.authoring_modify.drawing_fill_gradient.as_ref(),
+            ),
+            stroke: chip_color(
+                self.stroke,
+                self.authoring_modify.drawing_stroke_gradient.as_ref(),
+            ),
         }
         .show(ui);
         if chip.fill_clicked {
-            set_popover(&ctx, Some(RailPopover::Fill));
+            let next = if popover(&ctx) == Some(RailPopover::Fill) {
+                None
+            } else {
+                Some(RailPopover::Fill)
+            };
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), false));
+            self.authoring_modify.color_selection = !self.selection.targets.is_empty();
+            set_popover(&ctx, next);
         } else if chip.stroke_clicked {
-            set_popover(&ctx, Some(RailPopover::Stroke));
+            let next = if popover(&ctx) == Some(RailPopover::Stroke) {
+                None
+            } else {
+                Some(RailPopover::Stroke)
+            };
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), true));
+            self.authoring_modify.color_selection = !self.selection.targets.is_empty();
+            set_popover(&ctx, next);
         }
-        let fill = match popover(&ctx) {
-            Some(RailPopover::Fill) => true,
-            Some(RailPopover::Stroke) => false,
+        let stroke_well = match popover(&ctx) {
+            Some(RailPopover::Fill) => false,
+            Some(RailPopover::Stroke) => true,
             _ => return,
         };
-        let recent_id = egui::Id::new("tools-recent-colours");
-        let mut recent: Vec<egui::Color32> =
-            ctx.data(|d| d.get_temp(recent_id)).unwrap_or_default();
-        let palette = nf::default_palette();
-        let pick = |i: usize| palette[i % palette.len()];
-        let gradients = [
-            nf::GradientSwatch {
-                from: pick(0),
-                to: pick(11),
-                radial: false,
-            },
-            nf::GradientSwatch {
-                from: pick(67),
-                to: pick(91),
-                radial: false,
-            },
-            nf::GradientSwatch {
-                from: pick(48),
-                to: pick(84),
-                radial: true,
-            },
-        ];
-        let document = [rgb(self.fill), rgb(self.stroke)];
-        let (mut eyedropper, mut mixer) = (false, false);
-        let mut chosen_gradient: Option<(
-            crate::authoring_modify::PaintFillType,
-            neoflash_core::Color,
-            neoflash_core::Color,
-        )> = None;
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke_well));
         let keep = rail_popover(ui, chip.response.rect, |ui| {
-            ui.set_width(300.);
-            nf::menu_section(ui, if fill { "Fill colour" } else { "Stroke colour" });
-            let color = if fill {
-                &mut self.fill
-            } else {
-                &mut self.stroke
-            };
-            let [r, g, b, a] = *color;
-            let mut value = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
-            let before = value;
-            let out = nf::SwatchesPopover {
-                color: &mut value,
-                recent: &recent,
-                document: &document,
-                palette: &palette,
-                gradients: &gradients,
-            }
-            .show(ui);
-            if value != before {
-                *color = value.to_srgba_unmultiplied();
-            }
-            if out.picked {
-                let opaque = egui::Color32::from_rgb(value.r(), value.g(), value.b());
-                recent.retain(|c| *c != opaque);
-                recent.insert(0, opaque);
-                recent.truncate(nf::swatches::PALETTE_COLUMNS);
-            }
-            if out.no_colour {
-                color[3] = 0;
-            }
-            eyedropper = out.eyedropper;
-            mixer = out.open_mixer;
-            if out.add_swatch {
-                Editor::open_planned(ui.ctx(), "Swatches popover ▸ Add swatch");
-            }
-            if let Some(swatch) = out.gradient {
-                let mode = if swatch.radial {
-                    crate::authoring_modify::PaintFillType::RadialGradient
-                } else {
-                    crate::authoring_modify::PaintFillType::LinearGradient
-                };
-                chosen_gradient = Some((
-                    mode,
-                    swatch.from.to_srgba_unmultiplied(),
-                    swatch.to.to_srgba_unmultiplied(),
-                ));
-            }
-            out.picked
-                || out.no_colour
-                || out.eyedropper
-                || out.open_mixer
-                || out.gradient.is_some()
+            self.color_fill_popover_contents(ui)
         });
-        ctx.data_mut(|d| d.insert_temp(recent_id, recent));
-        if let Some((mode, from, to)) = chosen_gradient {
-            let stroke_well = !fill;
-            ctx.data_mut(|d| {
-                d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke_well);
-            });
-            let stops = vec![
-                neoflash_core::GradientStop {
-                    ratio: 0,
-                    color: from,
-                },
-                neoflash_core::GradientStop {
-                    ratio: 255,
-                    color: to,
-                },
-            ];
-            if !self.selection.targets.is_empty() {
-                self.authoring_modify.color_selection = true;
-                self.set_selection_fill_type(stroke_well, mode);
-                self.set_selection_gradient_stops(stroke_well, stops, None);
-            } else {
-                self.authoring_modify.color_selection = false;
-                self.set_drawing_fill_type(stroke_well, mode);
-                self.set_selection_gradient_stops(stroke_well, stops, None);
-            }
-            self.show_panel(PanelId::Color);
-        }
-        // Eyedropper and colour wheel hand off to the tool / the Color panel's mixer.
-        if eyedropper {
-            self.set_tool(Tool::Eyedropper);
-        }
-        if mixer {
-            self.show_panel(PanelId::Color);
-        }
         if !keep {
             set_popover(&ctx, None);
         }
     }
 
-    /// Settings button opening the active tool's options in a popover.
-    fn tool_options_button(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        let open = popover(&ctx) == Some(RailPopover::Options);
-        let response = ui.add(nf::IconButton::new(i20::SETTINGS, "Tool options").selected(open));
-        if response.clicked() {
-            set_popover(
-                &ctx,
-                if open {
-                    None
-                } else {
-                    Some(RailPopover::Options)
-                },
-            );
+    fn snap_to_objects_button(&mut self, ui: &mut egui::Ui) {
+        let snap_on = self.stage_view.prefs.objects_snap;
+        if ui
+            .add(nf::IconButton::new(i20::TOOL_SNAP, "Snap to objects").selected(snap_on))
+            .clicked()
+        {
+            self.toggle_object_snap();
         }
-        if popover(&ctx) != Some(RailPopover::Options) {
+    }
+
+    fn object_drawing_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        let active = self.workspace.drawing.object_drawing;
+        if tool_modifier_button(
+            ui,
+            ToolModifierGlyph::ObjectDrawing,
+            active,
+            true,
+            "Object drawing (J)",
+        )
+        .clicked()
+        {
+            self.workspace.drawing.object_drawing = !active;
+        }
+    }
+
+    fn lock_fill_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use neoflash_ui::icons::i16;
+        let locked = self.authoring_tools.brush_lock_fill;
+        if ui
+            .add(nf::IconButton::new(i16::LOCK_FILL, "Lock fill").selected(locked))
+            .clicked()
+        {
+            self.authoring_tools.brush_lock_fill = !locked;
+        }
+    }
+
+    fn pencil_mode_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::tool_preferences::PencilMode;
+        use neoflash_ui::icons::i16;
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::PencilMode);
+        let icon = match self.workspace.tools.pencil_mode {
+            PencilMode::Straighten => i16::PENCIL_STRAIGHTEN,
+            PencilMode::Smooth => i16::PENCIL_SMOOTH,
+            PencilMode::Ink => i16::PENCIL_INK,
+        };
+        let response = ui.add(nf::IconButton::new(icon, "Pencil mode").selected(open));
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::PencilMode));
+        }
+        if popover(&ctx) != Some(RailPopover::PencilMode) {
             return;
         }
+        let mut chosen = None;
         let keep = rail_popover(ui, response.rect, |ui| {
-            ui.set_width(240.);
-            ui.spacing_mut().item_spacing = Vec2::splat(space::S2);
-            self.tool_options_body(ui)
+            ui.set_min_width(180.);
+            for (mode, mode_icon, label) in [
+                (PencilMode::Straighten, i16::PENCIL_STRAIGHTEN, "Straighten"),
+                (PencilMode::Smooth, i16::PENCIL_SMOOTH, "Smooth"),
+                (PencilMode::Ink, i16::PENCIL_INK, "Ink"),
+            ] {
+                if ui
+                    .add(
+                        nf::MenuItem::new(label)
+                            .icon(mode_icon)
+                            .checked(self.workspace.tools.pencil_mode == mode),
+                    )
+                    .clicked()
+                {
+                    chosen = Some(mode);
+                }
+            }
+            chosen.is_some()
         });
+        if let Some(mode) = chosen {
+            self.workspace.tools.pencil_mode = mode;
+        }
         if !keep {
             set_popover(&ctx, None);
         }
     }
 
-    /// Returns `true` when the user moved on to Tool properties (closes the popover).
-    fn tool_options_body(&mut self, ui: &mut egui::Ui) -> bool {
-        let p = neoflash_ui::palette(ui.ctx());
-        nf::menu_section(ui, "Tool options");
-        let top = ui.cursor().top();
-        self.authoring_tool_options(ui);
-        // §6 tool settings the engine does not support yet open their planned previews.
-        let planned: &[&str] = match self.tool {
-            Tool::Rectangle => &[
-                "Tool options ▸ Rectangle primitive…",
-                "Tool options ▸ Stroke style…",
-            ],
-            Tool::Ellipse => &[
-                "Tool options ▸ Oval primitive…",
-                "Tool options ▸ Stroke style…",
-            ],
-            Tool::Line | Tool::Pen | Tool::Pencil | Tool::PolyStar => {
-                &["Tool options ▸ Stroke style…"]
+    fn brush_mode_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        use neoflash_core::BrushPaintMode;
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::BrushMode);
+        let response = tool_modifier_button(
+            ui,
+            ToolModifierGlyph::BrushMode(self.authoring_tools.brush_paint_mode),
+            open,
+            true,
+            "Brush mode",
+        );
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::BrushMode));
+        }
+        if popover(&ctx) != Some(RailPopover::BrushMode) {
+            return;
+        }
+        let mut chosen = None;
+        let keep = rail_popover(ui, response.rect, |ui| {
+            ui.set_min_width(180.);
+            for (mode, label) in [
+                (BrushPaintMode::PaintNormal, "Paint normal"),
+                (BrushPaintMode::PaintFills, "Paint fills"),
+                (BrushPaintMode::PaintBehind, "Paint behind"),
+                (BrushPaintMode::PaintSelection, "Paint selection"),
+                (BrushPaintMode::PaintInside, "Paint inside"),
+            ] {
+                if ui
+                    .add(
+                        nf::MenuItem::new(label)
+                            .checked(self.authoring_tools.brush_paint_mode == mode),
+                    )
+                    .clicked()
+                {
+                    chosen = Some(mode);
+                }
             }
-            Tool::Brush => &["Tool options ▸ Spray brush…", "Tool options ▸ Deco tool…"],
-            Tool::Transform => &["Tool options ▸ Bone tool…"],
-            _ => &[],
-        };
-        for path in planned {
-            let label = path.rsplit(" ▸ ").next().unwrap_or(path);
-            if ui.add(nf::Button::ghost(label)).clicked() {
-                Editor::open_planned(ui.ctx(), path);
-            }
+            chosen.is_some()
+        });
+        if let Some(mode) = chosen {
+            self.authoring_tools.brush_paint_mode = mode;
         }
-        if ui.cursor().top() <= top {
-            ui.label(rich("No options for this tool.", TextStyle::Small).color(p.text_tertiary));
+        if !keep {
+            set_popover(&ctx, None);
         }
-        let more = ui
-            .add(nf::Button::ghost("Tool properties…"))
-            .on_hover_text("Tool properties: paint alpha, stroke width and tool options")
-            .clicked();
-        if more {
-            ui.ctx()
-                .data_mut(|data| data.insert_temp(egui::Id::new("properties-tool-tab"), true));
-            self.show_panel(PanelId::Properties);
-        }
-        more
     }
-}
 
-/// Width from which a two-column Tools panel shows tool options inline instead of in a popover.
-fn inline_options_width() -> f32 {
-    neoflash_ui::metrics::inspector() / 2.
+    fn brush_size_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::BrushSize);
+        let response = tool_modifier_button(
+            ui,
+            ToolModifierGlyph::BrushSize(self.authoring_tools.brush_size),
+            open,
+            true,
+            "Brush size",
+        );
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::BrushSize));
+        }
+        if popover(&ctx) != Some(RailPopover::BrushSize) {
+            return;
+        }
+        let mut chosen = None;
+        let keep = rail_popover(ui, response.rect, |ui| {
+            ui.set_min_width(160.);
+            for preset in [2.0_f32, 4.0, 8.0, 12.0, 18.0, 24.0, 36.0, 48.0] {
+                let is_cur = (self.authoring_tools.brush_size - preset).abs() < 0.5;
+                if ui
+                    .add(nf::MenuItem::new(&format!("{preset:.0} px")).checked(is_cur))
+                    .clicked()
+                {
+                    chosen = Some(preset);
+                }
+            }
+            chosen.is_some()
+        });
+        if let Some(size) = chosen {
+            self.authoring_tools.brush_size = size;
+        }
+        if !keep {
+            set_popover(&ctx, None);
+        }
+    }
+
+    fn brush_shape_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        use neoflash_ui::components::BrushShapeKind;
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::BrushShape);
+        let response = tool_modifier_button(
+            ui,
+            ToolModifierGlyph::BrushShape(self.authoring_tools.brush_shape),
+            open,
+            true,
+            "Brush shape",
+        );
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::BrushShape));
+        }
+        if popover(&ctx) != Some(RailPopover::BrushShape) {
+            return;
+        }
+        let mut chosen = None;
+        let keep = rail_popover(ui, response.rect, |ui| {
+            ui.set_min_width(180.);
+            for shape in BrushShapeKind::ALL {
+                if ui
+                    .add(
+                        nf::MenuItem::new(shape.label())
+                            .checked(self.authoring_tools.brush_shape == shape),
+                    )
+                    .clicked()
+                {
+                    chosen = Some(shape);
+                }
+            }
+            chosen.is_some()
+        });
+        if let Some(shape) = chosen {
+            self.authoring_tools.brush_shape = shape;
+        }
+        if !keep {
+            set_popover(&ctx, None);
+        }
+    }
+
+    fn gap_size_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::authoring_tools::GapCloseMode;
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::GapSize);
+        let response = tool_modifier_button(
+            ui,
+            ToolModifierGlyph::GapSize(self.authoring_tools.gap_close),
+            open,
+            true,
+            "Gap size",
+        );
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::GapSize));
+        }
+        if popover(&ctx) != Some(RailPopover::GapSize) {
+            return;
+        }
+        let mut chosen = None;
+        let keep = rail_popover(ui, response.rect, |ui| {
+            ui.set_min_width(180.);
+            for (mode, label) in [
+                (GapCloseMode::None, "Don’t close gaps"),
+                (GapCloseMode::Small, "Close small gaps"),
+                (GapCloseMode::Medium, "Close medium gaps"),
+                (GapCloseMode::Large, "Close large gaps"),
+            ] {
+                if ui
+                    .add(nf::MenuItem::new(label).checked(self.authoring_tools.gap_close == mode))
+                    .clicked()
+                {
+                    chosen = Some(mode);
+                }
+            }
+            chosen.is_some()
+        });
+        if let Some(mode) = chosen {
+            self.authoring_tools.gap_close = mode;
+        }
+        if !keep {
+            set_popover(&ctx, None);
+        }
+    }
+
+    fn eraser_mode_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::authoring_tools::EraserMode;
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::EraserMode);
+        let response = tool_modifier_button(
+            ui,
+            ToolModifierGlyph::EraserMode(self.authoring_tools.eraser_mode),
+            open,
+            true,
+            "Eraser mode",
+        );
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::EraserMode));
+        }
+        if popover(&ctx) != Some(RailPopover::EraserMode) {
+            return;
+        }
+        let mut chosen = None;
+        let keep = rail_popover(ui, response.rect, |ui| {
+            ui.set_min_width(180.);
+            for (mode, label) in [
+                (EraserMode::StrokeSegments, "Erase normal"),
+                (EraserMode::Fills, "Erase fills"),
+                (EraserMode::Strokes, "Erase lines"),
+                (EraserMode::Objects, "Erase whole objects"),
+            ] {
+                if ui
+                    .add(nf::MenuItem::new(label).checked(self.authoring_tools.eraser_mode == mode))
+                    .clicked()
+                {
+                    chosen = Some(mode);
+                }
+            }
+            chosen.is_some()
+        });
+        if let Some(mode) = chosen {
+            self.authoring_tools.eraser_mode = mode;
+        }
+        if !keep {
+            set_popover(&ctx, None);
+        }
+    }
+
+    fn eraser_size_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
+        let ctx = ui.ctx().clone();
+        let open = popover(&ctx) == Some(RailPopover::EraserSize);
+        let response = tool_modifier_button(
+            ui,
+            ToolModifierGlyph::EraserSize(self.authoring_tools.eraser_size),
+            open,
+            true,
+            "Eraser size",
+        );
+        if response.clicked() {
+            set_popover(&ctx, (!open).then_some(RailPopover::EraserSize));
+        }
+        if popover(&ctx) != Some(RailPopover::EraserSize) {
+            return;
+        }
+        let mut chosen = None;
+        let keep = rail_popover(ui, response.rect, |ui| {
+            ui.set_min_width(160.);
+            for preset in [4.0_f32, 8.0, 12.0, 18.0, 24.0, 36.0, 48.0] {
+                let is_cur = (self.authoring_tools.eraser_size - preset).abs() < 0.5;
+                if ui
+                    .add(nf::MenuItem::new(&format!("{preset:.0} px")).checked(is_cur))
+                    .clicked()
+                {
+                    chosen = Some(preset);
+                }
+            }
+            chosen.is_some()
+        });
+        if let Some(size) = chosen {
+            self.authoring_tools.eraser_size = size;
+        }
+        if !keep {
+            set_popover(&ctx, None);
+        }
+    }
+
+    /// Classic Flash per-tool icon modifiers under `Options` in the multi-column Tools panel.
+    fn tool_modifiers_ui(&mut self, ui: &mut egui::Ui, cols: usize) {
+        use crate::authoring_tools::{EraserMode, FreeTransformMode};
+        use crate::ui_icons::{
+            ToolModifierGlyph, TransformModifierIcon, tool_modifier_button,
+            transform_modifier_button,
+        };
+        use neoflash_ui::icons::i16;
+
+        match self.tool {
+            Tool::Select => {
+                let can_shape = self.can_smooth_or_straighten_selection();
+                if cols == 2 {
+                    tool_grid_row(ui, cols, 1, |ui, _| {
+                        self.snap_to_objects_button(ui);
+                    });
+                    tool_grid_row(ui, cols, 2, |ui, idx| match idx {
+                        0 => {
+                            if ui
+                                .add_enabled(
+                                    can_shape,
+                                    nf::IconButton::new(i20::TOOL_SMOOTH, "Smooth"),
+                                )
+                                .clicked()
+                            {
+                                self.smooth_selection();
+                            }
+                        }
+                        _ => {
+                            if ui
+                                .add_enabled(
+                                    can_shape,
+                                    nf::IconButton::new(i20::TOOL_STRAIGHTEN, "Straighten"),
+                                )
+                                .clicked()
+                            {
+                                self.straighten_selection();
+                            }
+                        }
+                    });
+                } else {
+                    let items = [0_usize, 1, 2];
+                    for row in items.chunks(cols) {
+                        tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                            0 => self.snap_to_objects_button(ui),
+                            1 => {
+                                if ui
+                                    .add_enabled(
+                                        can_shape,
+                                        nf::IconButton::new(i20::TOOL_SMOOTH, "Smooth"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.smooth_selection();
+                                }
+                            }
+                            _ => {
+                                if ui
+                                    .add_enabled(
+                                        can_shape,
+                                        nf::IconButton::new(i20::TOOL_STRAIGHTEN, "Straighten"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.straighten_selection();
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            Tool::Transform => {
+                let active = self.active_free_transform_mode();
+                let can_deform = self.can_distort_or_envelope_selection();
+                let render_item = |s: &mut Self, ui: &mut egui::Ui, item: usize| match item {
+                    0 => s.snap_to_objects_button(ui),
+                    1 => {
+                        if transform_modifier_button(
+                            ui,
+                            TransformModifierIcon::RotateAndSkew,
+                            active == FreeTransformMode::RotateAndSkew,
+                            true,
+                            "Rotate and Skew",
+                        )
+                        .clicked()
+                        {
+                            let next = if active == FreeTransformMode::RotateAndSkew {
+                                FreeTransformMode::FreeTransform
+                            } else {
+                                FreeTransformMode::RotateAndSkew
+                            };
+                            s.set_free_transform_mode(next);
+                        }
+                    }
+                    2 => {
+                        if transform_modifier_button(
+                            ui,
+                            TransformModifierIcon::Scale,
+                            active == FreeTransformMode::Scale,
+                            true,
+                            "Scale",
+                        )
+                        .clicked()
+                        {
+                            let next = if active == FreeTransformMode::Scale {
+                                FreeTransformMode::FreeTransform
+                            } else {
+                                FreeTransformMode::Scale
+                            };
+                            s.set_free_transform_mode(next);
+                        }
+                    }
+                    3 => {
+                        if transform_modifier_button(
+                            ui,
+                            TransformModifierIcon::Distort,
+                            active == FreeTransformMode::Distort,
+                            can_deform,
+                            "Distort",
+                        )
+                        .clicked()
+                        {
+                            let next = if active == FreeTransformMode::Distort {
+                                FreeTransformMode::FreeTransform
+                            } else {
+                                FreeTransformMode::Distort
+                            };
+                            s.set_free_transform_mode(next);
+                        }
+                    }
+                    _ => {
+                        if transform_modifier_button(
+                            ui,
+                            TransformModifierIcon::Envelope,
+                            active == FreeTransformMode::Envelope,
+                            can_deform,
+                            "Envelope",
+                        )
+                        .clicked()
+                        {
+                            let next = if active == FreeTransformMode::Envelope {
+                                FreeTransformMode::FreeTransform
+                            } else {
+                                FreeTransformMode::Envelope
+                            };
+                            s.set_free_transform_mode(next);
+                        }
+                    }
+                };
+                if cols == 2 {
+                    tool_grid_row(ui, cols, 1, |ui, _| render_item(self, ui, 0));
+                    tool_grid_row(ui, cols, 2, |ui, idx| render_item(self, ui, 1 + idx));
+                    tool_grid_row(ui, cols, 2, |ui, idx| render_item(self, ui, 3 + idx));
+                } else {
+                    let items = [0_usize, 1, 2, 3, 4];
+                    for row in items.chunks(cols) {
+                        tool_grid_row(ui, cols, row.len(), |ui, idx| {
+                            render_item(self, ui, row[idx]);
+                        });
+                    }
+                }
+            }
+            Tool::Line | Tool::Pen | Tool::Rectangle | Tool::Ellipse => {
+                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
+                    0 => self.object_drawing_modifier_button(ui),
+                    _ => self.snap_to_objects_button(ui),
+                });
+            }
+            Tool::PolyStar => {
+                let items = [0_usize, 1, 2];
+                for row in items.chunks(cols) {
+                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                        0 => self.object_drawing_modifier_button(ui),
+                        1 => self.snap_to_objects_button(ui),
+                        _ => {
+                            if ui
+                                .add(nf::IconButton::new(
+                                    i16::SETTINGS,
+                                    "PolyStar tool settings…",
+                                ))
+                                .clicked()
+                            {
+                                self.open_polystar_settings();
+                            }
+                        }
+                    });
+                }
+            }
+            Tool::Pencil => {
+                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
+                    0 => self.object_drawing_modifier_button(ui),
+                    _ => self.pencil_mode_modifier_button(ui),
+                });
+            }
+            Tool::Brush => {
+                let items = [0_usize, 1, 2, 3, 4, 5, 6];
+                for row in items.chunks(cols) {
+                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                        0 => self.object_drawing_modifier_button(ui),
+                        1 => self.lock_fill_modifier_button(ui),
+                        2 => self.brush_mode_modifier_button(ui),
+                        3 => self.brush_size_modifier_button(ui),
+                        4 => self.brush_shape_modifier_button(ui),
+                        5 => {
+                            let on = self.authoring_tools.brush_pressure;
+                            if ui
+                                .add(
+                                    nf::IconButton::new(i16::PRESSURE, "Use pressure").selected(on),
+                                )
+                                .clicked()
+                            {
+                                self.authoring_tools.brush_pressure = !on;
+                            }
+                        }
+                        _ => {
+                            let on = self.authoring_tools.brush_tilt;
+                            if ui
+                                .add(nf::IconButton::new(i16::TILT, "Use tilt").selected(on))
+                                .clicked()
+                            {
+                                self.authoring_tools.brush_tilt = !on;
+                            }
+                        }
+                    });
+                }
+            }
+            Tool::Bucket => {
+                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
+                    0 => self.gap_size_modifier_button(ui),
+                    _ => self.lock_fill_modifier_button(ui),
+                });
+            }
+            Tool::Eraser => {
+                let items = [0_usize, 1, 2];
+                for row in items.chunks(cols) {
+                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                        0 => self.eraser_mode_modifier_button(ui),
+                        1 => {
+                            let faucet_on = self.authoring_tools.eraser_mode == EraserMode::Objects;
+                            if tool_modifier_button(
+                                ui,
+                                ToolModifierGlyph::Faucet,
+                                faucet_on,
+                                true,
+                                "Faucet",
+                            )
+                            .clicked()
+                            {
+                                self.authoring_tools.eraser_mode = if faucet_on {
+                                    EraserMode::StrokeSegments
+                                } else {
+                                    EraserMode::Objects
+                                };
+                            }
+                        }
+                        _ => self.eraser_size_modifier_button(ui),
+                    });
+                }
+            }
+            Tool::Lasso => {
+                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
+                    0 => {
+                        let on = self.authoring_tools.lasso_contact;
+                        if tool_modifier_button(
+                            ui,
+                            ToolModifierGlyph::TouchSelects,
+                            on,
+                            true,
+                            "Touch selects",
+                        )
+                        .clicked()
+                        {
+                            self.authoring_tools.lasso_contact = !on;
+                        }
+                    }
+                    _ => {
+                        let on = self.authoring_tools.lasso_partial_fills;
+                        if tool_modifier_button(
+                            ui,
+                            ToolModifierGlyph::SliceMergeFills,
+                            on,
+                            true,
+                            "Slice merge fills",
+                        )
+                        .clicked()
+                        {
+                            self.authoring_tools.lasso_partial_fills = !on;
+                        }
+                    }
+                });
+            }
+            Tool::Zoom => {
+                let zoom_out = self.authoring_tools.zoom_out;
+                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
+                    0 => {
+                        if ui
+                            .add(nf::IconButton::new(i20::ZOOMIN, "Enlarge").selected(!zoom_out))
+                            .clicked()
+                        {
+                            self.authoring_tools.zoom_out = false;
+                        }
+                    }
+                    _ => {
+                        if ui
+                            .add(nf::IconButton::new(i20::ZOOMOUT, "Reduce").selected(zoom_out))
+                            .clicked()
+                        {
+                            self.authoring_tools.zoom_out = true;
+                        }
+                    }
+                });
+            }
+            Tool::Subselect
+            | Tool::Gradient
+            | Tool::Text
+            | Tool::Ink
+            | Tool::Eyedropper
+            | Tool::Hand => {}
+        }
+    }
 }
 
 /// One entry of the 1 Column rail.
@@ -855,19 +1386,35 @@ impl Editor {
     }
 }
 
-/// Two tool buttons side by side, centred in the panel.
-fn tool_row(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
-    ui.allocate_ui_with_layout(
-        Vec2::new(
-            2. * neoflash_ui::metrics::tool_button() + TOOL_GAP,
-            neoflash_ui::metrics::tool_button(),
-        ),
-        egui::Layout::left_to_right(egui::Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = TOOL_GAP;
-            content(ui)
-        },
-    );
+/// Lays out up to `cols` tool/modifier buttons on one row, distributing the `cols` column slots
+/// evenly across the available panel width so partial rows stay aligned to the same columns.
+fn tool_grid_row(
+    ui: &mut egui::Ui,
+    cols: usize,
+    items: usize,
+    mut render_item: impl FnMut(&mut egui::Ui, usize),
+) {
+    let cols = cols.max(1);
+    let side = neoflash_ui::metrics::tool_button();
+    let natural_w = cols as f32 * side + (cols.saturating_sub(1)) as f32 * TOOL_GAP;
+    let avail_w = ui.available_width().max(natural_w);
+    let extra = (avail_w - natural_w).max(0.0);
+    let pad = extra / (cols + 1) as f32;
+    let step = side + TOOL_GAP + pad;
+    let (row_rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, side), egui::Sense::hover());
+    let start_x = row_rect.left() + pad;
+    for idx in 0..items.min(cols) {
+        let cell_rect = Rect::from_min_size(
+            egui::pos2(start_x + idx as f32 * step, row_rect.top()),
+            Vec2::splat(side),
+        );
+        let mut cell_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(cell_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        render_item(&mut cell_ui, idx);
+    }
 }
 
 /// Section caption of the 2 Columns layout (Tools · View · Colors · Options).

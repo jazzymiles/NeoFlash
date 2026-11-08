@@ -199,8 +199,23 @@ pub(crate) fn paint_row(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Co
     color_row(ui, id, label, label, value)
 }
 
+pub(crate) fn set_paint_row_gradient_swatch(
+    ctx: &egui::Context,
+    id: &str,
+    swatch: Option<neoflash_ui::components::GradientSwatch>,
+) {
+    let key = egui::Id::new(("paint-row-grad-swatch", id));
+    ctx.data_mut(|d| {
+        if let Some(s) = swatch {
+            d.insert_temp(key, s);
+        } else {
+            d.remove::<neoflash_ui::components::GradientSwatch>(key);
+        }
+    });
+}
+
 /// `NF2/Color Field` layout for an unmultiplied RGBA value: swatch (opens the
-/// picker), hex with optional inline prefix, and an `α` percentage field.
+/// NF2 Color & Fill Type popover), hex with optional inline prefix, and an `α` percentage field.
 pub(crate) fn color_row(
     ui: &mut egui::Ui,
     id: &str,
@@ -211,7 +226,7 @@ pub(crate) fn color_row(
     ui.push_id(id, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
-            let swatch = color_swatch(ui, label, value);
+            let swatch = color_swatch(ui, id, label, value);
             // Figma Background row: swatch 22 · hex 116 · α 134 (of 288 with 8 pt gaps).
             let alpha_width = ((ui.available_width() - space::S2) * 134. / 250.).max(64.);
             let hex_width =
@@ -253,17 +268,23 @@ pub(crate) fn color_row(
     .inner
 }
 
-/// 32 px hit area with a 22 px `NF2/Swatch`; click opens egui's HSV picker
-/// on RGB only, so alpha and hidden RGB of transparent paints are preserved.
-fn color_swatch(ui: &mut egui::Ui, label: &str, value: &mut Color) -> Response {
+/// 32 px hit area with a 22 px `NF2/Swatch`; click opens the NF2 Color & Fill Type popover.
+fn color_swatch(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Color) -> Response {
     // Figma `NF2/Swatch` 22 × 22 at the row's left edge; the hit area keeps the 32 pt row height.
     let (rect, mut response) = ui.allocate_exact_size(
         egui::vec2(22., crate::theme::control_h()),
         egui::Sense::click(),
     );
     let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.));
-    let shown = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
-    neoflash_ui::components::display::paint_swatch(ui, chip, shown, space::S1);
+    let grad_key = egui::Id::new(("paint-row-grad-swatch", id));
+    if let Some(grad_swatch) =
+        ui.data(|d| d.get_temp::<neoflash_ui::components::GradientSwatch>(grad_key))
+    {
+        neoflash_ui::components::swatches::paint_gradient(ui.painter(), chip, grad_swatch);
+    } else {
+        let shown = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
+        neoflash_ui::components::display::paint_swatch(ui, chip, shown, space::S1);
+    }
     let p = nf_palette(ui.ctx());
     if response.hovered() && ui.is_enabled() {
         ui.painter().rect_stroke(
@@ -276,21 +297,29 @@ fn color_swatch(ui: &mut egui::Ui, label: &str, value: &mut Color) -> Response {
     if neoflash_ui::theme::keyboard_focus(ui, &response) {
         neoflash_ui::theme::focus_ring(ui, chip, space::S1);
     }
-    let mut rgb = egui::Color32::from_rgb(value[0], value[1], value[2]);
-    let mut edited = false;
-    egui::Popup::menu(&response)
-        .id(response.id.with("picker"))
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| {
-            ui.spacing_mut().slider_width = 240.;
-            edited = egui::widgets::color_picker::color_picker_color32(
-                ui,
-                &mut rgb,
-                egui::widgets::color_picker::Alpha::Opaque,
+    let popover_target = match id {
+        "shape-fill" => Some(("shape-fill", false, true)),
+        "shape-stroke" => Some(("shape-stroke", true, true)),
+        "path-fill" => Some(("path-fill", false, true)),
+        "path-stroke" => Some(("path-stroke", true, true)),
+        "text-color" => Some(("text-color", false, true)),
+        "text-box-color" => Some(("text-box-color", false, true)),
+        "inspector-tool-fill" => Some(("inspector-tool-fill", false, false)),
+        "inspector-tool-stroke" => Some(("inspector-tool-stroke", true, false)),
+        _ => None,
+    };
+    if let Some((static_id, stroke_well, color_selection)) = popover_target {
+        crate::authoring_modify::update_color_popover_anchor(ui.ctx(), static_id, chip);
+        if response.clicked() {
+            crate::authoring_modify::request_color_popover(
+                ui.ctx(),
+                static_id,
+                chip,
+                stroke_well,
+                color_selection,
             );
-        });
-    if edited && rgb.to_array()[..3] != value[..3] {
-        value[..3].copy_from_slice(&rgb.to_array()[..3]);
+        }
+    } else if show_rgba_color_popup(ui, &response, chip, label, value) {
         response.mark_changed();
     }
     response.widget_info(|| {
@@ -301,6 +330,394 @@ fn color_swatch(ui: &mut egui::Ui, label: &str, value: &mut Color) -> Response {
         )
     });
     neoflash_ui::components::tooltip(response, &format!("{label} color"), None)
+}
+
+pub(crate) fn show_color32_field_popup(
+    ui: &mut egui::Ui,
+    response: &Response,
+    swatch_clicked: bool,
+    label: &str,
+    color: &mut egui::Color32,
+) -> bool {
+    let ctx = ui.ctx().clone();
+    let open_id = response.id.with("nf2-rgba-popup-open");
+    let mut is_open = ctx.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+    if swatch_clicked {
+        is_open = !is_open;
+        ctx.data_mut(|d| d.insert_temp(open_id, is_open));
+    }
+    if !is_open {
+        return false;
+    }
+    let anchor = response.rect;
+    let mut rgba = color.to_srgba_unmultiplied();
+    let mut changed = false;
+    let mut close_now = false;
+    let area_resp = egui::Area::new(response.id.with("nf2-rgba-popup-area"))
+        .order(egui::Order::Foreground)
+        .constrain(true)
+        .fixed_pos(egui::pos2(anchor.left(), anchor.bottom() + 4.0))
+        .show(&ctx, |ui| {
+            neoflash_ui::components::popover_frame(&ctx).show(ui, |ui| {
+                let (c, should_close) =
+                    rgba_color_popover(ui, response.id.with("nf2-rgba-state"), label, &mut rgba);
+                changed = c;
+                close_now = should_close;
+            });
+        });
+    if changed {
+        *color = egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3]);
+    }
+    let popup_rect = area_resp.response.rect;
+    let (pressed, pointer_pos, escape) = ctx.input(|i| {
+        (
+            i.pointer.any_pressed(),
+            i.pointer.interact_pos(),
+            i.key_pressed(egui::Key::Escape),
+        )
+    });
+    let clicked_outside = pressed
+        && pointer_pos.is_some_and(|pos| {
+            !popup_rect.contains(pos)
+                && !anchor.contains(pos)
+                && ctx
+                    .layer_id_at(pos)
+                    .is_none_or(|layer| layer.order < egui::Order::Foreground)
+        });
+    if close_now || clicked_outside || escape {
+        ctx.data_mut(|d| d.insert_temp(open_id, false));
+    }
+    changed
+}
+
+pub(crate) fn show_rgba_color_popup(
+    ui: &mut egui::Ui,
+    trigger: &Response,
+    anchor: egui::Rect,
+    label: &str,
+    value: &mut Color,
+) -> bool {
+    let ctx = ui.ctx().clone();
+    let open_id = trigger.id.with("nf2-rgba-popup-open");
+    let mut is_open = ctx.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+    if trigger.clicked() {
+        is_open = !is_open;
+        ctx.data_mut(|d| d.insert_temp(open_id, is_open));
+    }
+    if !is_open {
+        return false;
+    }
+    let mut changed = false;
+    let mut close_now = false;
+    let area_resp = egui::Area::new(trigger.id.with("nf2-rgba-popup-area"))
+        .order(egui::Order::Foreground)
+        .constrain(true)
+        .fixed_pos(egui::pos2(anchor.left(), anchor.bottom() + 4.0))
+        .show(&ctx, |ui| {
+            neoflash_ui::components::popover_frame(&ctx).show(ui, |ui| {
+                let (c, should_close) =
+                    rgba_color_popover(ui, trigger.id.with("nf2-rgba-state"), label, value);
+                changed = c;
+                close_now = should_close;
+            });
+        });
+    let popup_rect = area_resp.response.rect;
+    let (pressed, pointer_pos, escape) = ctx.input(|i| {
+        (
+            i.pointer.any_pressed(),
+            i.pointer.interact_pos(),
+            i.key_pressed(egui::Key::Escape),
+        )
+    });
+    let clicked_outside = pressed
+        && pointer_pos.is_some_and(|pos| {
+            !popup_rect.contains(pos)
+                && !anchor.contains(pos)
+                && ctx
+                    .layer_id_at(pos)
+                    .is_none_or(|layer| layer.order < egui::Order::Foreground)
+        });
+    if close_now || clicked_outside || escape {
+        ctx.data_mut(|d| d.insert_temp(open_id, false));
+    }
+    changed
+}
+
+pub(crate) fn rgba_color_popover(
+    ui: &mut egui::Ui,
+    state_id: egui::Id,
+    label: &str,
+    value: &mut Color,
+) -> (bool, bool) {
+    use crate::authoring_modify::PaintFillType;
+    use neoflash_ui::components::{
+        self as c, ColorField, ColorPicker, Field, GradientBar, MenuItem, Segmented, Select,
+        SwatchesPopover,
+        color_picker::{Hsb, hsv},
+    };
+
+    ui.set_min_width(276.0);
+    ui.set_max_width(276.0);
+    ui.spacing_mut().item_spacing.y = space::S2;
+
+    let mode_id = state_id.with("mode");
+    let model_id = state_id.with("model-hsb");
+    let stops_id = state_id.with("stops");
+    let stop_sel_id = state_id.with("stop-sel");
+    let hsb_id = state_id.with("hsb");
+
+    let default_mode = if value[3] == 0 {
+        PaintFillType::None
+    } else {
+        PaintFillType::Solid
+    };
+    let mut mode = ui
+        .data(|d| d.get_temp::<PaintFillType>(mode_id))
+        .unwrap_or(default_mode);
+    let mut model_hsb = ui.data(|d| d.get_temp::<bool>(model_id)).unwrap_or(false);
+    let mut changed = false;
+    let mut should_close = false;
+
+    let width = ui.available_width();
+    Select::new(state_id.with("fill-type-select"), mode.label())
+        .width(width)
+        .show(ui, |ui| {
+            for candidate in [
+                PaintFillType::None,
+                PaintFillType::Solid,
+                PaintFillType::LinearGradient,
+                PaintFillType::RadialGradient,
+                PaintFillType::BitmapFill,
+            ] {
+                if ui
+                    .add(MenuItem::new(candidate.label()).checked(mode == candidate))
+                    .clicked()
+                {
+                    mode = candidate;
+                    match mode {
+                        PaintFillType::None => {
+                            if value[3] != 0 {
+                                value[3] = 0;
+                                changed = true;
+                            }
+                        }
+                        PaintFillType::Solid
+                        | PaintFillType::LinearGradient
+                        | PaintFillType::RadialGradient
+                        | PaintFillType::BitmapFill => {
+                            if value[3] == 0 {
+                                value[3] = 255;
+                                changed = true;
+                            }
+                        }
+                    }
+                    ui.close();
+                }
+            }
+        });
+    ui.data_mut(|d| d.insert_temp(mode_id, mode));
+
+    let mut c32 = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
+    let cf = ColorField::new(&mut c32, label).width(width).show(ui);
+    if cf.response.changed() {
+        *value = c32.to_srgba_unmultiplied();
+        changed = true;
+    }
+
+    let to_hsb = |c: Color| -> Hsb {
+        let (r, g, b, a) = (
+            c[0] as f32 / 255.0,
+            c[1] as f32 / 255.0,
+            c[2] as f32 / 255.0,
+            c[3] as f32 / 255.0,
+        );
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let d = max - min;
+        let h = if d <= 1e-6 {
+            0.0
+        } else if (max - r).abs() <= 1e-6 {
+            ((g - b) / d).rem_euclid(6.0) / 6.0
+        } else if (max - g).abs() <= 1e-6 {
+            ((b - r) / d + 2.0) / 6.0
+        } else {
+            ((r - g) / d + 4.0) / 6.0
+        };
+        let s = if max <= 1e-6 { 0.0 } else { d / max };
+        hsv(h, s, max, a)
+    };
+    let mut hsb = ui
+        .data(|d| d.get_temp::<Hsb>(hsb_id))
+        .filter(|cached| egui::Color32::from(*cached).to_srgba_unmultiplied() == *value)
+        .unwrap_or_else(|| to_hsb(*value));
+
+    if ui.add(ColorPicker { color: &mut hsb }).changed() {
+        *value = egui::Color32::from(hsb).to_srgba_unmultiplied();
+        if mode == PaintFillType::None && value[3] > 0 {
+            mode = PaintFillType::Solid;
+            ui.data_mut(|d| d.insert_temp(mode_id, mode));
+        }
+        changed = true;
+    }
+
+    Segmented::show(ui, &mut model_hsb, &[(false, "RGB"), (true, "HSB")], false);
+    ui.data_mut(|d| d.insert_temp(model_id, model_hsb));
+
+    ui.horizontal(|ui| {
+        if !model_hsb {
+            let mut r = f64::from(value[0]);
+            let mut g = f64::from(value[1]);
+            let mut b = f64::from(value[2]);
+            let rr = ui.add(
+                Field::new(&mut r, "Red")
+                    .prefix("R")
+                    .range(0.0..=255.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rg = ui.add(
+                Field::new(&mut g, "Green")
+                    .prefix("G")
+                    .range(0.0..=255.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rb = ui.add(
+                Field::new(&mut b, "Blue")
+                    .prefix("B")
+                    .range(0.0..=255.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            for resp in [&rr, &rg, &rb] {
+                if resp.changed() {
+                    value[0] = r.round().clamp(0.0, 255.0) as u8;
+                    value[1] = g.round().clamp(0.0, 255.0) as u8;
+                    value[2] = b.round().clamp(0.0, 255.0) as u8;
+                    if value[3] == 0 {
+                        value[3] = 255;
+                    }
+                    hsb = to_hsb(*value);
+                    changed = true;
+                }
+            }
+        } else {
+            let mut h_deg = f64::from(hsb.h * 360.0);
+            let mut s_pct = f64::from(hsb.s * 100.0);
+            let mut v_pct = f64::from(hsb.v * 100.0);
+            let rh = ui.add(
+                Field::new(&mut h_deg, "Hue")
+                    .prefix("H")
+                    .unit("°")
+                    .range(0.0..=360.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rs = ui.add(
+                Field::new(&mut s_pct, "Saturation")
+                    .prefix("S")
+                    .unit("%")
+                    .range(0.0..=100.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            let rv = ui.add(
+                Field::new(&mut v_pct, "Brightness")
+                    .prefix("B")
+                    .unit("%")
+                    .range(0.0..=100.0)
+                    .decimals(0)
+                    .width(80.0),
+            );
+            for resp in [&rh, &rs, &rv] {
+                if resp.changed() {
+                    hsb.h = (h_deg.clamp(0.0, 360.0) / 360.0) as f32;
+                    hsb.s = (s_pct.clamp(0.0, 100.0) / 100.0) as f32;
+                    hsb.v = (v_pct.clamp(0.0, 100.0) / 100.0) as f32;
+                    if hsb.a == 0.0 {
+                        hsb.a = 1.0;
+                    }
+                    *value = egui::Color32::from(hsb).to_srgba_unmultiplied();
+                    changed = true;
+                }
+            }
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(hsb_id, hsb));
+
+    if matches!(
+        mode,
+        PaintFillType::LinearGradient | PaintFillType::RadialGradient
+    ) {
+        let mut stops = ui
+            .data(|d| d.get_temp::<Vec<(f32, egui::Color32)>>(stops_id))
+            .unwrap_or_else(|| {
+                vec![
+                    (
+                        0.0,
+                        egui::Color32::from_rgba_unmultiplied(
+                            value[0], value[1], value[2], value[3],
+                        ),
+                    ),
+                    (1.0, egui::Color32::BLACK),
+                ]
+            });
+        let mut selected = ui.data(|d| d.get_temp::<usize>(stop_sel_id)).unwrap_or(0);
+        if selected >= stops.len() {
+            selected = stops.len().saturating_sub(1);
+        }
+        let bar_w = ui.available_width().max(120.0);
+        if ui
+            .add(GradientBar {
+                stops: &mut stops,
+                selected: &mut selected,
+                width: bar_w,
+            })
+            .changed()
+            && let Some((_, stop_col)) = stops.get(selected)
+        {
+            *value = stop_col.to_srgba_unmultiplied();
+            changed = true;
+        }
+        ui.data_mut(|d| {
+            d.insert_temp(stops_id, stops);
+            d.insert_temp(stop_sel_id, selected);
+        });
+    }
+
+    c::SectionHeader::new("Swatches")
+        .id_salt(state_id.with("swatches-sec"))
+        .default_open(false)
+        .show(ui, |ui| {
+            let palette = c::default_palette();
+            let mut swatch_c32 =
+                egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
+            let before = swatch_c32;
+            let out = SwatchesPopover {
+                color: &mut swatch_c32,
+                recent: &[],
+                document: &[before],
+                palette: &palette,
+                gradients: &[],
+            }
+            .show(ui);
+            if out.no_colour {
+                value[3] = 0;
+                changed = true;
+                should_close = true;
+            } else if out.picked || swatch_c32 != before {
+                *value = swatch_c32.to_srgba_unmultiplied();
+                if value[3] == 0 {
+                    value[3] = 255;
+                }
+                changed = true;
+                if out.picked {
+                    should_close = true;
+                }
+            }
+        });
+
+    (changed, should_close)
 }
 
 /// Hex value (`#RRGGBB`, Roboto Mono). Typed text applies on Enter/blur;

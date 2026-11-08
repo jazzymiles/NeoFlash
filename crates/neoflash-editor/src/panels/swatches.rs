@@ -578,7 +578,16 @@ impl Editor {
             self.set_tool(Tool::Eyedropper);
         }
         if out.open_mixer {
+            self.workspace.color_picker_expanded = true;
+            crate::authoring_modify::request_color_popover(
+                &ctx,
+                "swatches-open-mixer",
+                ui.min_rect(),
+                self.active_stroke_well(&ctx),
+                !self.selection.targets.is_empty(),
+            );
             self.show_panel(PanelId::Color);
         }
+        self.show_active_color_popover(ui);
     }
 }

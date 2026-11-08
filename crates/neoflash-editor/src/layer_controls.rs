@@ -785,11 +785,17 @@ impl Editor {
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.label(&draft.name);
-                egui::color_picker::color_picker_color32(
+                let mut rgba = draft.color.to_srgba_unmultiplied();
+                let (changed, _) = crate::paint_controls::rgba_color_popover(
                     ui,
-                    &mut draft.color,
-                    egui::color_picker::Alpha::Opaque,
+                    id.with("outline-rgba"),
+                    "Outline colour",
+                    &mut rgba,
                 );
+                if changed {
+                    draft.color =
+                        egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], 255);
+                }
                 ui.horizontal(|ui| {
                     apply = ui.button("Apply").clicked();
                     cancel = ui.button("Cancel").clicked();

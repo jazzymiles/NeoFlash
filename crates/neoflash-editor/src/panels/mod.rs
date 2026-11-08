@@ -28,6 +28,7 @@
 //! | `movie_explorer.rs` | Movie Explorer (`Window ▸ Panels ▸ Movie Explorer`) |
 //! | `find_replace.rs` | Find and replace modal dialog (`Edit ▸ Find and replace`, `⌘F`) |
 //! | `function_search.rs` | Immediate Help/F1 menu-command search popover |
+//! | `help_manual.rs` | Illustrated in-app Help & Reference manual (`Help ▸ NeoFlash Help & Reference…`) |
 //! | `document_settings.rs` | Document settings modal dialog (`Document ▸ Document settings…`, `⌘J`) |
 //! | `export_audio.rs` | Export audio modal dialog (`File ▸ Export ▸ Export audio…`, `⌥⇧⌘A`) |
 //! | `export_lottie.rs` | Export Lottie modal dialog (`File ▸ Export ▸ Export Lottie…`, `⌥⇧⌘L`) |
@@ -54,6 +55,7 @@ pub(crate) mod filters;
 pub(crate) mod find_replace;
 pub(crate) mod font_embedding;
 pub(crate) mod function_search;
+pub(crate) mod help_manual;
 mod history;
 pub(crate) mod import_video;
 mod info;

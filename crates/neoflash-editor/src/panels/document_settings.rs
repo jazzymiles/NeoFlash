@@ -378,9 +378,16 @@ impl Editor {
 
                         ui.horizontal(|ui| {
                             form_label(ui, "Background", L);
-                            c::ColorField::new(&mut draft.background, "Background")
+                            let cf = c::ColorField::new(&mut draft.background, "Background")
                                 .width(200.0)
                                 .show(ui);
+                            crate::paint_controls::show_color32_field_popup(
+                                ui,
+                                &cf.response,
+                                cf.swatch_clicked,
+                                "Background",
+                                &mut draft.background,
+                            );
                         });
 
                         ui.horizontal(|ui| {

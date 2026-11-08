@@ -2308,6 +2308,7 @@ impl Editor {
         self.layer_properties_dialog(ctx);
         self.polystar_settings_modal(ctx);
         self.scale_and_rotate_modal(ctx);
+        self.help_manual_dialog(ctx);
         use neoflash_ui::{
             TextStyle,
             components::{Button, DialogHeader, Surface, logo, surface::dialog_footer},
@@ -2323,6 +2324,7 @@ impl Editor {
         };
         if self.show_about {
             let mut close = false;
+            let mut open_manual = false;
             let modal = egui::Modal::new(egui::Id::new("about-neoflash"))
                 .frame(Surface::Dialog.frame(ctx))
                 .backdrop_color(p.overlay)
@@ -2360,12 +2362,17 @@ impl Editor {
                     });
                     dialog_footer(
                         ui,
-                        |_| {},
+                        |ui| {
+                            open_manual |= ui.add(Button::new("Help & Reference…")).clicked();
+                        },
                         |ui| close |= ui.add(Button::primary("Close").shortcut("↵")).clicked(),
                     );
                 });
             let enter = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-            if close || enter || modal.should_close() {
+            if open_manual {
+                self.show_about = false;
+                crate::panels::help_manual::open_help_manual(ctx);
+            } else if close || enter || modal.should_close() {
                 self.show_about = false;
             }
         }

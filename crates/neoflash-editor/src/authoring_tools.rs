@@ -21,7 +21,7 @@ pub(crate) enum FreeTransformMode {
     Envelope,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) enum EraserMode {
     Objects,
     Fills,

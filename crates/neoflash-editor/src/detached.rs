@@ -30,6 +30,7 @@ pub(crate) struct DetachedState {
     pub(crate) dock_viewports: Vec<DockViewportTarget>,
     pub(crate) activation: u64,
     context_menu_open: bool,
+    pub(crate) tools_desired_inner_height: Option<f32>,
 }
 
 /// A header gesture keeps its source viewport until release. This avoids
@@ -775,6 +776,17 @@ impl Editor {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
                         .show(ctx, |ui| self.floating_dock_contents(ui, window_id));
+                    if panels.as_slice() == [PanelId::Tools]
+                        && let Some(desired_h) = self.detached.tools_desired_inner_height
+                    {
+                        self.compact_floating_tools_window_bottom_up(
+                            ctx,
+                            window_id,
+                            desired_h,
+                            minimum[1],
+                            zoom,
+                        );
+                    }
                 }
                 self.docking_overlay(ctx, DockSurface::Floating(window_id));
                 self.finish_floating_context_menu(ctx);
@@ -988,6 +1000,12 @@ impl Editor {
         if let Some(position) = ctx.data(|d| d.get_temp::<egui::Pos2>(position_id)) {
             window = window.current_pos(position);
         }
+        if !collapsed
+            && visible.as_slice() == [PanelId::Tools]
+            && let Some(desired_h) = self.detached.tools_desired_inner_height
+        {
+            window = window.max_height(desired_h);
+        }
         window
             .title_bar(false)
             .frame(neoflash_ui::components::Surface::Floating.frame(ctx))
@@ -1023,6 +1041,40 @@ impl Editor {
                 }
             });
         open
+    }
+
+    pub(crate) fn compact_floating_tools_window_bottom_up(
+        &mut self,
+        ctx: &egui::Context,
+        window_id: PanelId,
+        desired_inner_h: f32,
+        min_h_px: f32,
+        zoom: f32,
+    ) {
+        let Some(mut geom) = self
+            .workspace
+            .floating
+            .iter()
+            .find(|w| w.id == window_id)
+            .and_then(|w| w.geometry)
+        else {
+            return;
+        };
+        let target_h_px = (desired_inner_h * zoom).max(min_h_px);
+        if (geom.inner_size[1] - target_h_px).abs() <= 1.5 {
+            return;
+        }
+        // Keep the top edge (`outer_position[1]`) fixed where it is and compact from the bottom up.
+        geom.inner_size[1] = target_h_px;
+        self.workspace.remember_floating_geometry(window_id, geom);
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            geom.inner_size[0] / zoom,
+            target_h_px / zoom,
+        )));
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+            geom.outer_position[0] / zoom,
+            geom.outer_position[1] / zoom,
+        )));
     }
 
     fn finish_floating_context_menu(&mut self, ctx: &egui::Context) {

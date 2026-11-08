@@ -651,9 +651,16 @@ impl Editor {
                                         }
                                     }
                                 });
-                                c::ColorField::new(&mut draft.outline_color, "Outline colour")
+                                let cf = c::ColorField::new(&mut draft.outline_color, "Outline colour")
                                     .width(216.0)
                                     .show(ui);
+                                crate::paint_controls::show_color32_field_popup(
+                                    ui,
+                                    &cf.response,
+                                    cf.swatch_clicked,
+                                    "Outline colour",
+                                    &mut draft.outline_color,
+                                );
                             });
                             ui.add_enabled(
                                 draft.kind != LayerTypeChoice::Folder,

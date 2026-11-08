@@ -373,6 +373,10 @@ impl Editor {
                                 self.open_function_search_at(ctx, Some(search.rect));
                                 ui.close();
                             }
+                            if menu_item(ui, "NeoFlash Help & Reference…", "").clicked() {
+                                crate::panels::help_manual::open_help_manual(ctx);
+                                ui.close();
+                            }
                             nf::menu_separator(ui);
                             if menu_item(ui, "Open example", "").clicked() {
                                 self.request(Pending::Demo, ctx);

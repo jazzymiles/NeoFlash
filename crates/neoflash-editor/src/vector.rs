@@ -2612,6 +2612,620 @@ impl Editor {
         self.vector.selected_anchors = None;
         true
     }
+
+    /// True when at least one selected element on an editable layer is a shape or path
+    /// that can be smoothed or straightened with the Selection tool (`V`) modifiers.
+    pub(crate) fn can_smooth_or_straighten_selection(&self) -> bool {
+        if self.selection.is_empty() {
+            return false;
+        }
+        let timeline = &self.symbol().timeline;
+        self.selection.targets.iter().any(|target| {
+            let Some(layer_idx) = self.target_layer_index(target) else {
+                return false;
+            };
+            let layer = &timeline.layers[layer_idx];
+            if layer.properties.role == LayerRole::Folder
+                || !layer_effectively_visible(timeline, layer)
+                || layer_effectively_locked(timeline, layer)
+            {
+                return false;
+            }
+            sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+                .into_iter()
+                .find(|el| el.id == target.element)
+                .is_some_and(|el| {
+                    el.transform.primitive.is_none() && editable_element_commands(&el).is_some()
+                })
+        })
+    }
+
+    /// Smooths selected path/shape contours in one Undo step (`Selection` tool `Smooth` modifier).
+    pub(crate) fn smooth_selection(&mut self) -> bool {
+        self.apply_selection_contour_modifier(smooth_path_commands)
+    }
+
+    /// Straightens selected path/shape contours in one Undo step (`Selection` tool `Straighten` modifier).
+    pub(crate) fn straighten_selection(&mut self) -> bool {
+        self.apply_selection_contour_modifier(straighten_path_commands)
+    }
+
+    fn apply_selection_contour_modifier(
+        &mut self,
+        op: fn(&[PathCommand], f32) -> Vec<PathCommand>,
+    ) -> bool {
+        if !self.can_smooth_or_straighten_selection() {
+            return false;
+        }
+        let zoom = self.zoom.max(0.1);
+        let timeline = &self.symbol().timeline;
+        let mut updates: Vec<(crate::selection::SelectionTarget, Vec<PathCommand>)> = Vec::new();
+        for target in &self.selection.targets {
+            let Some(layer_idx) = self.target_layer_index(target) else {
+                continue;
+            };
+            let layer = &timeline.layers[layer_idx];
+            if layer.properties.role == LayerRole::Folder
+                || !layer_effectively_visible(timeline, layer)
+                || layer_effectively_locked(timeline, layer)
+            {
+                continue;
+            }
+            let Some(sampled) = sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+                .into_iter()
+                .find(|el| el.id == target.element)
+            else {
+                continue;
+            };
+            if sampled.transform.primitive.is_some() {
+                continue;
+            }
+            let Some(commands) = editable_element_commands(&sampled) else {
+                continue;
+            };
+            let next = op(&commands, zoom);
+            if next != commands && validate_path_commands(&next).is_ok() {
+                updates.push((target.clone(), next));
+            }
+        }
+        if updates.is_empty() {
+            return false;
+        }
+        self.finish_edits();
+        self.playing = false;
+        self.transact(|s| {
+            let mut ensured_layers: Vec<Id> = Vec::new();
+            for (target, next_commands) in updates {
+                if !ensured_layers.contains(&target.layer) {
+                    s.ensure_key_for(&target.layer, false);
+                    ensured_layers.push(target.layer.clone());
+                }
+                if let Some(layer_idx) = s.target_layer_index(&target) {
+                    let frame = s.frame;
+                    if let Some(key) = s.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame)
+                        && let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element)
+                    {
+                        write_editable_element_commands(el, next_commands);
+                    }
+                }
+            }
+        });
+        true
+    }
+}
+
+fn contour_anchor_points(
+    commands: &[PathCommand],
+    start: usize,
+    body_end: usize,
+    closed: bool,
+) -> Vec<Pos2> {
+    let mut pts = Vec::new();
+    let Some(PathCommand::MoveTo { x: x0, y: y0 }) = commands.get(start).copied() else {
+        return pts;
+    };
+    pts.push(Pos2::new(x0 as f32, y0 as f32));
+    for cmd in &commands[(start + 1)..body_end] {
+        match *cmd {
+            PathCommand::LineTo { x, y }
+            | PathCommand::QuadraticTo { x, y, .. }
+            | PathCommand::CubicTo { x, y, .. } => {
+                pts.push(Pos2::new(x as f32, y as f32));
+            }
+            PathCommand::MoveTo { .. } | PathCommand::Close => {}
+        }
+    }
+    if closed && pts.len() >= 2 && pts.first().unwrap().distance(*pts.last().unwrap()) <= 1e-3 {
+        pts.pop();
+    }
+    pts
+}
+
+fn contour_dense_samples(commands: &[PathCommand], start: usize, body_end: usize) -> Vec<Pos2> {
+    let mut pts = Vec::new();
+    let Some(PathCommand::MoveTo { x: x0, y: y0 }) = commands.get(start).copied() else {
+        return pts;
+    };
+    let mut cur = [x0, y0];
+    pts.push(Pos2::new(x0 as f32, y0 as f32));
+    for cmd in &commands[(start + 1)..body_end] {
+        match *cmd {
+            PathCommand::LineTo { x, y } => {
+                pts.push(Pos2::new(x as f32, y as f32));
+                cur = [x, y];
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                for step in 1..=4 {
+                    let t = f64::from(step) / 4.0;
+                    let mt = 1.0 - t;
+                    let px = mt * mt * cur[0] + 2.0 * mt * t * cx + t * t * x;
+                    let py = mt * mt * cur[1] + 2.0 * mt * t * cy + t * t * y;
+                    pts.push(Pos2::new(px as f32, py as f32));
+                }
+                cur = [x, y];
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                for step in 1..=4 {
+                    let t = f64::from(step) / 4.0;
+                    let mt = 1.0 - t;
+                    let px = mt * mt * mt * cur[0]
+                        + 3.0 * mt * mt * t * cx1
+                        + 3.0 * mt * t * t * cx2
+                        + t * t * t * x;
+                    let py = mt * mt * mt * cur[1]
+                        + 3.0 * mt * mt * t * cy1
+                        + 3.0 * mt * t * t * cy2
+                        + t * t * t * y;
+                    pts.push(Pos2::new(px as f32, py as f32));
+                }
+                cur = [x, y];
+            }
+            PathCommand::MoveTo { .. } | PathCommand::Close => {}
+        }
+    }
+    pts
+}
+
+fn rdp_simplify_points(points: &[Pos2], tolerance: f32) -> Vec<Pos2> {
+    let anchors: Vec<Anchor> = points
+        .iter()
+        .map(|&point| Anchor {
+            point,
+            tangent: Vec2::ZERO,
+        })
+        .collect();
+    simplify(&anchors, tolerance)
+        .into_iter()
+        .map(|a| a.point)
+        .collect()
+}
+
+fn open_catmull_rom_to_cubic(pts: &[Pos2], tension: f32) -> Vec<PathCommand> {
+    let n = pts.len();
+    if n < 2 {
+        return Vec::new();
+    }
+    let k = tension / 6.0;
+    let mut out = Vec::with_capacity(n);
+    out.push(PathCommand::MoveTo {
+        x: f64::from(pts[0].x),
+        y: f64::from(pts[0].y),
+    });
+    for i in 0..(n - 1) {
+        let p0 = if i == 0 { pts[0] } else { pts[i - 1] };
+        let p1 = pts[i];
+        let p2 = pts[i + 1];
+        let p3 = if i + 2 < n { pts[i + 2] } else { pts[n - 1] };
+        let c1 = p1 + (p2 - p0) * k;
+        let c2 = p2 - (p3 - p1) * k;
+        out.push(PathCommand::CubicTo {
+            cx1: f64::from(c1.x),
+            cy1: f64::from(c1.y),
+            cx2: f64::from(c2.x),
+            cy2: f64::from(c2.y),
+            x: f64::from(p2.x),
+            y: f64::from(p2.y),
+        });
+    }
+    out
+}
+
+fn closed_catmull_rom_to_cubic(pts: &[Pos2], tension: f32) -> Vec<PathCommand> {
+    let n = pts.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    let k = tension / 6.0;
+    let mut out = Vec::with_capacity(n + 2);
+    out.push(PathCommand::MoveTo {
+        x: f64::from(pts[0].x),
+        y: f64::from(pts[0].y),
+    });
+    for i in 0..n {
+        let p0 = pts[(i + n - 1) % n];
+        let p1 = pts[i];
+        let p2 = pts[(i + 1) % n];
+        let p3 = pts[(i + 2) % n];
+        let c1 = p1 + (p2 - p0) * k;
+        let c2 = p2 - (p3 - p1) * k;
+        out.push(PathCommand::CubicTo {
+            cx1: f64::from(c1.x),
+            cy1: f64::from(c1.y),
+            cx2: f64::from(c2.x),
+            cy2: f64::from(c2.y),
+            x: f64::from(p2.x),
+            y: f64::from(p2.y),
+        });
+    }
+    out.push(PathCommand::Close);
+    out
+}
+
+pub(crate) fn smooth_path_commands(commands: &[PathCommand], zoom: f32) -> Vec<PathCommand> {
+    let ranges = contour_ranges(commands);
+    if ranges.is_empty() {
+        return commands.to_vec();
+    }
+    let rdp_eps = (1.2 / zoom.max(0.25)).clamp(0.35, 2.5);
+    let mut out = Vec::new();
+    for (start, body_end, closed) in ranges {
+        let mut pts = contour_anchor_points(commands, start, body_end, closed);
+        if closed {
+            if pts.len() >= 3 {
+                if pts.len() > 8 {
+                    let mut loop_pts = pts.clone();
+                    let mid = loop_pts.len() / 2;
+                    let first_half = rdp_simplify_points(&loop_pts[..=mid], rdp_eps);
+                    loop_pts.push(pts[0]);
+                    let second_half = rdp_simplify_points(&loop_pts[mid..], rdp_eps);
+                    let mut combined = first_half;
+                    if second_half.len() > 2 {
+                        combined.extend_from_slice(&second_half[1..(second_half.len() - 1)]);
+                    }
+                    if combined.len() >= 3 {
+                        pts = combined;
+                    }
+                }
+                let n = pts.len();
+                let smoothed: Vec<Pos2> = (0..n)
+                    .map(|i| {
+                        let prev = pts[(i + n - 1) % n];
+                        let cur = pts[i];
+                        let next = pts[(i + 1) % n];
+                        Pos2::new(
+                            0.2 * prev.x + 0.6 * cur.x + 0.2 * next.x,
+                            0.2 * prev.y + 0.6 * cur.y + 0.2 * next.y,
+                        )
+                    })
+                    .collect();
+                out.extend(closed_catmull_rom_to_cubic(&smoothed, 1.0));
+            } else {
+                out.extend_from_slice(&commands[start..body_end]);
+                if closed {
+                    out.push(PathCommand::Close);
+                }
+            }
+        } else if pts.len() >= 3 {
+            if pts.len() > 8 {
+                let simplified = rdp_simplify_points(&pts, rdp_eps);
+                if simplified.len() >= 3 {
+                    pts = simplified;
+                }
+            }
+            let n = pts.len();
+            let mut smoothed = pts.clone();
+            for i in 1..(n - 1) {
+                let prev = pts[i - 1];
+                let cur = pts[i];
+                let next = pts[i + 1];
+                smoothed[i] = Pos2::new(
+                    0.22 * prev.x + 0.56 * cur.x + 0.22 * next.x,
+                    0.22 * prev.y + 0.56 * cur.y + 0.22 * next.y,
+                );
+            }
+            out.extend(open_catmull_rom_to_cubic(&smoothed, 1.0));
+        } else if body_end == start + 2 {
+            // Single 2-point curve: relax control points gently toward the chord.
+            let p0 = [f64::from(pts[0].x), f64::from(pts[0].y)];
+            out.push(commands[start]);
+            match commands[start + 1] {
+                PathCommand::QuadraticTo { cx, cy, x, y } => {
+                    let mid_x = 0.5 * (p0[0] + x);
+                    let mid_y = 0.5 * (p0[1] + y);
+                    out.push(PathCommand::QuadraticTo {
+                        cx: 0.75 * cx + 0.25 * mid_x,
+                        cy: 0.75 * cy + 0.25 * mid_y,
+                        x,
+                        y,
+                    });
+                }
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                } => {
+                    let l1x = p0[0] + (x - p0[0]) / 3.0;
+                    let l1y = p0[1] + (y - p0[1]) / 3.0;
+                    let l2x = p0[0] + 2.0 * (x - p0[0]) / 3.0;
+                    let l2y = p0[1] + 2.0 * (y - p0[1]) / 3.0;
+                    out.push(PathCommand::CubicTo {
+                        cx1: 0.75 * cx1 + 0.25 * l1x,
+                        cy1: 0.75 * cy1 + 0.25 * l1y,
+                        cx2: 0.75 * cx2 + 0.25 * l2x,
+                        cy2: 0.75 * cy2 + 0.25 * l2y,
+                        x,
+                        y,
+                    });
+                }
+                other => out.push(other),
+            }
+        } else {
+            out.extend_from_slice(&commands[start..body_end]);
+        }
+    }
+    out
+}
+
+fn snap_near_axis_endpoint(from: [f64; 2], to: [f64; 2]) -> [f64; 2] {
+    let dx = to[0] - from[0];
+    let dy = to[1] - from[1];
+    let len = dx.hypot(dy);
+    if len <= 1e-5 {
+        return to;
+    }
+    // Snap segments within ~4 degrees of horizontal or vertical.
+    let tan_limit = 0.07;
+    if (dy.abs() / len) <= tan_limit {
+        [to[0], from[1]]
+    } else if (dx.abs() / len) <= tan_limit {
+        [from[0], to[1]]
+    } else {
+        to
+    }
+}
+
+pub(crate) fn straighten_path_commands(commands: &[PathCommand], zoom: f32) -> Vec<PathCommand> {
+    use crate::workspace::Tolerance;
+    let ranges = contour_ranges(commands);
+    if ranges.is_empty() {
+        return commands.to_vec();
+    }
+    let rdp_eps = (2.4 / zoom.max(0.25)).clamp(0.8, 6.0);
+    let curve_flat_tol = f64::from((5.0 / zoom.max(0.25)).clamp(1.5, 12.0));
+    let mut out = Vec::new();
+    for (start, body_end, closed) in ranges {
+        let samples = contour_dense_samples(commands, start, body_end);
+        let sample_anchors: Vec<Anchor> = samples
+            .iter()
+            .map(|&point| Anchor {
+                point,
+                tangent: Vec2::ZERO,
+            })
+            .collect();
+        if closed {
+            if let Some(recognised) =
+                recognise_primitive_shape(&sample_anchors, true, zoom, Tolerance::Normal)
+            {
+                match recognised {
+                    RecognisedShape::Rectangle {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } => {
+                        out.push(PathCommand::MoveTo { x, y });
+                        out.push(PathCommand::LineTo { x: x + width, y });
+                        out.push(PathCommand::LineTo {
+                            x: x + width,
+                            y: y + height,
+                        });
+                        out.push(PathCommand::LineTo { x, y: y + height });
+                        out.push(PathCommand::Close);
+                        continue;
+                    }
+                    RecognisedShape::Ellipse {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } => {
+                        let rx = width * 0.5;
+                        let ry = height * 0.5;
+                        let cx = x + rx;
+                        let cy = y + ry;
+                        let k = 0.552_284_749_830_793_6;
+                        let kx = rx * k;
+                        let ky = ry * k;
+                        out.push(PathCommand::MoveTo { x: cx + rx, y: cy });
+                        out.push(PathCommand::CubicTo {
+                            cx1: cx + rx,
+                            cy1: cy + ky,
+                            cx2: cx + kx,
+                            cy2: cy + ry,
+                            x: cx,
+                            y: cy + ry,
+                        });
+                        out.push(PathCommand::CubicTo {
+                            cx1: cx - kx,
+                            cy1: cy + ry,
+                            cx2: cx - rx,
+                            cy2: cy + ky,
+                            x: cx - rx,
+                            y: cy,
+                        });
+                        out.push(PathCommand::CubicTo {
+                            cx1: cx - rx,
+                            cy1: cy - ky,
+                            cx2: cx - kx,
+                            cy2: cy - ry,
+                            x: cx,
+                            y: cy - ry,
+                        });
+                        out.push(PathCommand::CubicTo {
+                            cx1: cx + kx,
+                            cy1: cy - ry,
+                            cx2: cx + rx,
+                            cy2: cy - ky,
+                            x: cx + rx,
+                            y: cy,
+                        });
+                        out.push(PathCommand::Close);
+                        continue;
+                    }
+                }
+            }
+        } else if let Some([s_pt, e_pt]) =
+            recognise_straight_line(&sample_anchors, zoom, Tolerance::Normal)
+        {
+            let snapped_end = snap_near_axis_endpoint(
+                [f64::from(s_pt.x), f64::from(s_pt.y)],
+                [f64::from(e_pt.x), f64::from(e_pt.y)],
+            );
+            out.push(PathCommand::MoveTo {
+                x: f64::from(s_pt.x),
+                y: f64::from(s_pt.y),
+            });
+            out.push(PathCommand::LineTo {
+                x: snapped_end[0],
+                y: snapped_end[1],
+            });
+            continue;
+        }
+
+        // Stepwise straightening: flatten shallow curves / pull deeper curve control points
+        // toward their chord, then simplify nearly-collinear LineTo runs.
+        let has_curves = commands[(start + 1)..body_end].iter().any(|c| {
+            matches!(
+                c,
+                PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. }
+            )
+        });
+        if has_curves {
+            let Some(PathCommand::MoveTo { x: x0, y: y0 }) = commands.get(start).copied() else {
+                continue;
+            };
+            let mut cur = [x0, y0];
+            out.push(PathCommand::MoveTo { x: x0, y: y0 });
+            for cmd in &commands[(start + 1)..body_end] {
+                match *cmd {
+                    PathCommand::LineTo { x, y } => {
+                        let p = snap_near_axis_endpoint(cur, [x, y]);
+                        out.push(PathCommand::LineTo { x: p[0], y: p[1] });
+                        cur = p;
+                    }
+                    PathCommand::QuadraticTo { cx, cy, x, y } => {
+                        let mid = [0.5 * (cur[0] + x), 0.5 * (cur[1] + y)];
+                        let dev = (cx - mid[0]).hypot(cy - mid[1]);
+                        if dev <= curve_flat_tol {
+                            let p = snap_near_axis_endpoint(cur, [x, y]);
+                            out.push(PathCommand::LineTo { x: p[0], y: p[1] });
+                            cur = p;
+                        } else {
+                            out.push(PathCommand::QuadraticTo {
+                                cx: 0.5 * cx + 0.5 * mid[0],
+                                cy: 0.5 * cy + 0.5 * mid[1],
+                                x,
+                                y,
+                            });
+                            cur = [x, y];
+                        }
+                    }
+                    PathCommand::CubicTo {
+                        cx1,
+                        cy1,
+                        cx2,
+                        cy2,
+                        x,
+                        y,
+                    } => {
+                        let l1 = [cur[0] + (x - cur[0]) / 3.0, cur[1] + (y - cur[1]) / 3.0];
+                        let l2 = [
+                            cur[0] + 2.0 * (x - cur[0]) / 3.0,
+                            cur[1] + 2.0 * (y - cur[1]) / 3.0,
+                        ];
+                        let dev = (cx1 - l1[0])
+                            .hypot(cy1 - l1[1])
+                            .max((cx2 - l2[0]).hypot(cy2 - l2[1]));
+                        if dev <= curve_flat_tol {
+                            let p = snap_near_axis_endpoint(cur, [x, y]);
+                            out.push(PathCommand::LineTo { x: p[0], y: p[1] });
+                            cur = p;
+                        } else {
+                            out.push(PathCommand::CubicTo {
+                                cx1: 0.5 * cx1 + 0.5 * l1[0],
+                                cy1: 0.5 * cy1 + 0.5 * l1[1],
+                                cx2: 0.5 * cx2 + 0.5 * l2[0],
+                                cy2: 0.5 * cy2 + 0.5 * l2[1],
+                                x,
+                                y,
+                            });
+                            cur = [x, y];
+                        }
+                    }
+                    PathCommand::MoveTo { .. } | PathCommand::Close => {}
+                }
+            }
+            if closed {
+                out.push(PathCommand::Close);
+            }
+        } else {
+            let anchors = contour_anchor_points(commands, start, body_end, closed);
+            if closed && anchors.len() >= 3 {
+                let mut loop_pts = anchors.clone();
+                loop_pts.push(anchors[0]);
+                let simplified = rdp_simplify_points(&loop_pts, rdp_eps);
+                let mut clean: Vec<Pos2> = if simplified.len() >= 4 {
+                    simplified[..(simplified.len() - 1)].to_vec()
+                } else {
+                    anchors
+                };
+                out.push(PathCommand::MoveTo {
+                    x: f64::from(clean[0].x),
+                    y: f64::from(clean[0].y),
+                });
+                let mut cur = [f64::from(clean[0].x), f64::from(clean[0].y)];
+                for pt in clean.drain(1..) {
+                    let p = snap_near_axis_endpoint(cur, [f64::from(pt.x), f64::from(pt.y)]);
+                    out.push(PathCommand::LineTo { x: p[0], y: p[1] });
+                    cur = p;
+                }
+                out.push(PathCommand::Close);
+            } else if !closed && anchors.len() >= 2 {
+                let simplified = rdp_simplify_points(&anchors, rdp_eps);
+                let clean = if simplified.len() >= 2 {
+                    simplified
+                } else {
+                    anchors
+                };
+                out.push(PathCommand::MoveTo {
+                    x: f64::from(clean[0].x),
+                    y: f64::from(clean[0].y),
+                });
+                let mut cur = [f64::from(clean[0].x), f64::from(clean[0].y)];
+                for pt in &clean[1..] {
+                    let p = snap_near_axis_endpoint(cur, [f64::from(pt.x), f64::from(pt.y)]);
+                    out.push(PathCommand::LineTo { x: p[0], y: p[1] });
+                    cur = p;
+                }
+            } else {
+                out.extend_from_slice(&commands[start..body_end]);
+                if closed {
+                    out.push(PathCommand::Close);
+                }
+            }
+        }
+    }
+    out
 }
 
 pub(crate) fn editable_element_commands(element: &Element) -> Option<Vec<PathCommand>> {

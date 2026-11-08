@@ -140,10 +140,14 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
         "Fill colour",
         "Stroke colour",
         "Swap colors",
-        "Tool options",
+        "Snap to objects",
     ] {
         assert!(named_bounds(&out, pinned).is_some(), "missing {pinned}");
     }
+    assert!(
+        named_bounds(&out, "Tool options").is_none(),
+        "Tool options sun button must not appear on the rail"
+    );
     let more = named_bounds(&out, "More tools").expect("short rail ends with More tools");
     assert!(more.bottom() <= 348., "{more:?}");
     assert!(
@@ -152,24 +156,21 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
     );
 
     // Regression: an outside press used to query egui's layer stack while `Context::input`
-    // still held its write lock. Opening Options and then right-clicking a grouped tool therefore
-    // deadlocked the whole editor. The same frame must now close Options and open the flyout.
-    let options = named_bounds(&out, "Tool options").expect("rail pins Tool options");
+    // still held its write lock. Opening a rail popover and then right-clicking a grouped tool
+    // therefore deadlocked the whole editor. The same frame must now close the popover and open
+    // the flyout.
+    let fill_well = named_bounds(&out, "Fill colour").expect("rail pins Fill colour");
     rail(
         &mut editor,
         &ctx,
         0.21,
         vec![
-            Event::PointerMoved(options.center()),
-            primary_button(options.center(), true),
-            primary_button(options.center(), false),
+            Event::PointerMoved(fill_well.center()),
+            primary_button(fill_well.center(), true),
+            primary_button(fill_well.center(), false),
         ],
     );
     let out = rail(&mut editor, &ctx, 0.22, vec![]);
-    assert!(
-        named_bounds(&out, "Tool properties…").is_some(),
-        "Options popover is open before the outside click"
-    );
     let selection = named_bounds(&out, "Selection (V)").unwrap().center();
     rail(
         &mut editor,
@@ -194,7 +195,7 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
     let out = rail(&mut editor, &ctx, 0.24, vec![]);
     assert!(
         named_bounds(&out, "Subselection tool").is_some(),
-        "outside secondary click replaces Options with the grouped-tool flyout"
+        "outside secondary click replaces the open popover with the grouped-tool flyout"
     );
     rail(
         &mut editor,
@@ -1478,7 +1479,12 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
         ("Window", &["Panels", "Workspaces", "Appearance"]),
         (
             "Help",
-            &["Search functions… (F1)", "Open example", "About NeoFlash"],
+            &[
+                "Search functions… (F1)",
+                "NeoFlash Help & Reference…",
+                "Open example",
+                "About NeoFlash",
+            ],
         ),
     ];
     for (title, rows) in menus {
@@ -6906,5 +6912,247 @@ fn compact_text_and_movie_clip_properties_inspectors_expose_two_column_rows_and_
     assert!(
         (left_rect.center().y - right_rect.center().y).abs() < 12.0,
         "Left and Right margins must be side-by-side in two columns"
+    );
+}
+
+#[test]
+fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
+    use crate::app::Tool;
+    use neoflash_core::model::{ElementKind, FillRule, PathCommand};
+    fn render_tools(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        width: f32,
+        time: f64,
+        events: Vec<Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600., 800.))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let rect = Rect::from_min_size(Pos2::new(8., 8.), Vec2::new(width, 760.));
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                        editor.tools_contents(ui);
+                    });
+                });
+            },
+        )
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. In 2-column mode (`Select` tool), `Options` shows `Snap to objects` on Row 1 and
+    // `Smooth` + `Straighten` side-by-side on Row 2, with no `Tool options` sun button or inline
+    // `Tool properties…` dump even at wide widths.
+    editor.set_tool(Tool::Select);
+    render_tools(&mut editor, &ctx, 76.0, 0.1, vec![]);
+    let out_2col = render_tools(&mut editor, &ctx, 76.0, 0.2, vec![]);
+    let h_2col = editor
+        .detached
+        .tools_desired_inner_height
+        .expect("2-column Tools records desired inner height");
+    assert!(named_bounds(&out_2col, "Tool options").is_none());
+    assert!(named_bounds(&out_2col, "Tool properties…").is_none());
+    let snap_rect = named_bounds(&out_2col, "Snap to objects").expect("Snap to objects modifier");
+    let smooth_rect = named_bounds(&out_2col, "Smooth").expect("Smooth modifier");
+    let straighten_rect = named_bounds(&out_2col, "Straighten").expect("Straighten modifier");
+    assert!(
+        snap_rect.bottom() <= smooth_rect.top() + 2.0,
+        "Snap to objects is on Row 1 above Smooth/Straighten in 2-column mode"
+    );
+    assert!(
+        (smooth_rect.center().y - straighten_rect.center().y).abs() < 2.0
+            && smooth_rect.right() <= straighten_rect.left() + 2.0,
+        "Smooth and Straighten sit side-by-side on Row 2"
+    );
+
+    // 2. Add a jagged polyline path, select it, and verify Smooth and Straighten modify the path
+    // with one-step Undo.
+    editor.add_element(
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 20.0, y: 20.0 },
+                PathCommand::LineTo { x: 60.0, y: 23.0 },
+                PathCommand::LineTo { x: 100.0, y: 19.0 },
+                PathCommand::LineTo { x: 140.0, y: 21.0 },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0, 0, 0, 0],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.0,
+        },
+        0.0,
+        0.0,
+    );
+    let path_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(path_id.clone());
+    assert!(editor.can_smooth_or_straighten_selection());
+    let before_cmds = editor
+        .selected_sampled()
+        .unwrap()
+        .to_path_commands()
+        .unwrap()
+        .0;
+    assert!(editor.smooth_selection());
+    let smoothed_cmds = editor
+        .selected_sampled()
+        .unwrap()
+        .to_path_commands()
+        .unwrap()
+        .0;
+    assert_ne!(smoothed_cmds, before_cmds);
+    assert!(
+        smoothed_cmds
+            .iter()
+            .any(|c| matches!(c, PathCommand::CubicTo { .. })),
+        "Smooth converts polyline into smooth cubic Bézier segments"
+    );
+    editor.undo();
+    assert_eq!(
+        editor
+            .selected_sampled()
+            .unwrap()
+            .to_path_commands()
+            .unwrap()
+            .0,
+        before_cmds,
+        "One Undo restores original path before Smooth"
+    );
+    assert!(editor.straighten_selection());
+    let straightened_cmds = editor
+        .selected_sampled()
+        .unwrap()
+        .to_path_commands()
+        .unwrap()
+        .0;
+    assert_eq!(
+        straightened_cmds.len(),
+        2,
+        "Straighten recognises near-collinear polyline as a 2-point straight line"
+    );
+    editor.undo();
+    assert_eq!(
+        editor
+            .selected_sampled()
+            .unwrap()
+            .to_path_commands()
+            .unwrap()
+            .0,
+        before_cmds,
+        "One Undo restores original path before Straighten"
+    );
+    assert!(editor.project.validate().is_ok());
+
+    // 3. Verify per-tool classic Flash modifiers across Pencil, Brush, Bucket, Eraser, Lasso, Zoom.
+    editor.set_tool(Tool::Pencil);
+    let out_pencil = render_tools(&mut editor, &ctx, 76.0, 0.3, vec![]);
+    assert!(named_bounds(&out_pencil, "Object drawing (J)").is_some());
+    assert!(named_bounds(&out_pencil, "Pencil mode").is_some());
+
+    editor.set_tool(Tool::Brush);
+    let out_brush = render_tools(&mut editor, &ctx, 76.0, 0.4, vec![]);
+    for label in [
+        "Object drawing (J)",
+        "Lock fill",
+        "Brush mode",
+        "Brush size",
+        "Brush shape",
+        "Use pressure",
+        "Use tilt",
+    ] {
+        assert!(
+            named_bounds(&out_brush, label).is_some(),
+            "Brush missing modifier: {label}"
+        );
+    }
+
+    editor.set_tool(Tool::Bucket);
+    let out_bucket = render_tools(&mut editor, &ctx, 76.0, 0.5, vec![]);
+    assert!(named_bounds(&out_bucket, "Gap size").is_some());
+    assert!(named_bounds(&out_bucket, "Lock fill").is_some());
+
+    editor.set_tool(Tool::Eraser);
+    let out_eraser = render_tools(&mut editor, &ctx, 76.0, 0.6, vec![]);
+    assert!(named_bounds(&out_eraser, "Eraser mode").is_some());
+    assert!(named_bounds(&out_eraser, "Faucet").is_some());
+    assert!(named_bounds(&out_eraser, "Eraser size").is_some());
+
+    editor.set_tool(Tool::Lasso);
+    let out_lasso = render_tools(&mut editor, &ctx, 76.0, 0.7, vec![]);
+    assert!(named_bounds(&out_lasso, "Touch selects").is_some());
+    assert!(named_bounds(&out_lasso, "Slice merge fills").is_some());
+
+    editor.set_tool(Tool::Zoom);
+    let out_zoom = render_tools(&mut editor, &ctx, 76.0, 0.8, vec![]);
+    assert!(named_bounds(&out_zoom, "Enlarge").is_some());
+    assert!(named_bounds(&out_zoom, "Reduce").is_some());
+
+    // 4. Stretch the Tools panel wider (4 columns) and verify tools reflow into 4 columns across
+    // the width, desired height decreases from the bottom up, and `compact_floating_tools_window_bottom_up`
+    // shrinks `inner_size[1]` while keeping the top edge `outer_position[1]` fixed.
+    editor.set_tool(Tool::Select);
+    render_tools(&mut editor, &ctx, 180.0, 0.9, vec![]);
+    let out_wide = render_tools(&mut editor, &ctx, 180.0, 1.0, vec![]);
+    let h_wide = editor
+        .detached
+        .tools_desired_inner_height
+        .expect("Wide Tools records compacted desired height");
+    assert!(
+        h_wide < h_2col - 80.0,
+        "Widening Tools panel must compact height from the bottom up: h_wide={h_wide} vs h_2col={h_2col}"
+    );
+    let sel_b = named_bounds(&out_wide, "Selection (V)").unwrap();
+    let sub_b = named_bounds(&out_wide, "Subselection (A)").unwrap();
+    let tf_b = named_bounds(&out_wide, "Free Transform (Q)").unwrap();
+    let grad_b = named_bounds(&out_wide, "Gradient Transform (F)").unwrap();
+    assert!(
+        (sel_b.center().y - sub_b.center().y).abs() < 2.0
+            && (sel_b.center().y - tf_b.center().y).abs() < 2.0
+            && (sel_b.center().y - grad_b.center().y).abs() < 2.0,
+        "First 4 tools share Row 1 when stretched wide"
+    );
+
+    editor.set_panel_placement(
+        &ctx,
+        PanelId::Tools,
+        crate::workspace::PanelPlacement::Detached,
+    );
+    let initial_top_y = 142.0_f32;
+    editor.workspace.remember_floating_geometry(
+        PanelId::Tools,
+        crate::workspace::WindowGeometry {
+            outer_position: [80.0, initial_top_y],
+            inner_size: [180.0, h_2col],
+        },
+    );
+    editor.compact_floating_tools_window_bottom_up(&ctx, PanelId::Tools, h_wide, 80.0, 1.0);
+    let compacted = editor
+        .workspace
+        .floating
+        .iter()
+        .find(|w| w.id == PanelId::Tools)
+        .and_then(|w| w.geometry)
+        .expect("Floating Tools geometry");
+    assert_eq!(
+        compacted.outer_position[1], initial_top_y,
+        "Top edge of floating Tools window must remain fixed where it was"
+    );
+    assert_eq!(
+        compacted.inner_size[1], h_wide,
+        "Bottom of floating Tools window compacts upward to match content height"
     );
 }

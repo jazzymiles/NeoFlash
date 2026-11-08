@@ -2,6 +2,41 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Classic Flash `Tools` panel `Options` icon modifiers, multi-column horizontal reflow, and bottom-up floating window
+  compaction (`T-148`):
+  - Replaced the `Tool options` sun button (`i20::SETTINGS`) and inline `"Tool properties…"` text dump under `Options`
+    in the `Tools` panel with authentic Classic Flash per-tool icon modifier buttons (`Selection`: `Snap to objects` on
+    Row 1 + `Smooth` and `Straighten` on Row 2 with one-step Undo contour smoothing/straightening; `Free Transform`:
+    `Snap to objects` + `Rotate and Skew`, `Scale`, `Distort`, `Envelope`; `Line` / `Pen` / `Rectangle` / `Ellipse`:
+    `Object drawing (J)` + `Snap to objects`; `PolyStar`: `Object drawing (J)`, `Snap to objects`, `PolyStar tool
+    settings…`; `Pencil`: `Object drawing (J)` + `Pencil mode` popover; `Brush`: `Object drawing (J)`, `Lock fill`,
+    `Brush mode` popover, `Brush size` popover, `Brush shape` popover, `Use pressure`, `Use tilt`; `Paint Bucket`:
+    `Gap size` popover + `Lock fill`; `Eraser`: `Eraser mode` popover, `Faucet`, `Eraser size` popover; `Lasso`:
+    `Touch selects` + `Slice merge fills`; `Zoom`: `Enlarge` + `Reduce`; 1-column rail pins `Snap to objects`).
+  - Widening the `Tools` panel dynamically increases the column count (`cols = 2, 3, 4…`) and distributes columns
+    uniformly across the available width while compacting the floating `Tools` window height from the bottom up,
+    keeping its top edge (`outer_position[1]`) fixed in place.
+
+- Full import and HTML5/`.fla` export support for the 302-document `Macromedia Flash MX ActionScript` corpus (`T-144`):
+  - `legacy/compound.rs` now accepts null-terminated empty root storage names (`index == 0 && kind == 5 && name_len == 2`) written by Mac OS Flash MX as `"Root Entry"`, and `legacy/convert/assets.rs` trims leading/trailing whitespace from library folder names (`" FSelectableList SubClasses"` in Flash MX UI Components).
+  - `legacy/convert.rs` (`attach_companion_includes`) scans imported timeline and object scripts for `#include` directives, resolves companion `.as` files relative to the `.fla` directory (with case-insensitive filename fallback, UTF-8/Windows-1252 decoding, and `\r`/`\r\n` line-ending normalization), and attaches them as `text/x-actionscript` `ResourceUnit`s; `actionscript/includes.rs` handles `\r` line endings, UTF-8 BOMs, case-insensitive resource lookup, and built-in Flash MX Remoting fallback stubs for `NetServices.as` and `NetDebug.as`.
+  - `neoflash-script` now supports prototype-based `super(...)` and `super.method(...)` in `ActionScript2` functions outside classes (`__nfLegacySuperConstruct` / `__nfLegacySuperMethod`), function expressions (`submitButton.onRelease = function() { ... }`) and `eval`/`set` calls inside `with (...)` blocks, deep braced `else { if (...) { ... } }` chains (`else_if_branch`), `new UserConstructor(...)` for timeline/function-scope constructors, `var` redeclarations of function parameters, `RegExp` in AS1, and computed bracket method calls (`obj[expr](...)`) in AS2.
+  - Raised the XFL archive single-entry cap to `16 MiB` and total archive cap to `128 MiB` (`xfl_export.rs`, `source.rs`) and excluded `.as` script include resources from media library export so large shared-library FLA documents round-trip cleanly.
+
+- Classic Flash `Gradient Transform` (`F`) icon and unified NF2 Color & Fill Type popover across all color controls
+  (`T-147`):
+  - Redrew the `Gradient Transform` (`Tool::Gradient`, shortcut `F`) tool icon (`GRADIENT_TRANSFORM_16` and
+    `TOOL_GRADIENT_TRANSFORM_20`) as a crisp bordered horizontal rectangle filled with a smooth left-to-right linear
+    gradient matching classic Flash.
+  - Clicking any color control across the editor — Tools `FillStrokeChip` (`Fill colour` / `Stroke colour`), Properties
+    `paint_row` / `color_row` swatches (`shape-fill`, `shape-stroke`, `path-fill`, `path-stroke`, `text-color`,
+    `text-box-color`, `inspector-tool-fill`, `inspector-tool-stroke`, `background`, `mc-tint-color`, filter colors, and
+    multi-selection `Color…`), Brushes `ColorWell`, Swatches `Open colour mixer`, Document Settings `Background`, Layer
+    Properties `Outline colour`, and `Layer Outline Color` — now opens the full NF2 Color & Fill Type dialog with the
+    fill type selector (`None`, `Solid colour`, `Linear gradient`, `Radial gradient`, `Bitmap fill`), 2D HSB/RGB color
+    picker, RGB/HSB numeric fields, hex/alpha field, interactive `GradientBar` stops, inline procedural/imported
+    `Bitmap fill` tiles, `Add to swatches`, and `Eyedropper`.
+
 - Classic Flash Timeline keyframe dragging, non-splitting Stage edits (`auto_keyframe: false`), multi-keyframe
   `Clear keyframe`, and span-preserving `Remove frames` (`T-146`):
   - Clicking a keyframe to select its 1-frame cell (`start == end` on one layer) and dragging it now moves the keyframe

@@ -18,9 +18,34 @@ use neoflash_ui::{
 
 impl Editor {
     pub(crate) fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.properties_contents(ui, ctx);
+        self.show_active_color_popover(ui);
+    }
+
+    fn properties_contents(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::paint_controls::{
             PropertyChanges, color_row, numeric_pair, numeric_row, paint_row, percent_row,
-            property_row, text_row,
+            property_row, set_paint_row_gradient_swatch, text_row,
+        };
+        let to_grad_swatch = |g: Option<&GradientPaint>| -> Option<nf::GradientSwatch> {
+            let g = g?;
+            let first = g.stops.first()?;
+            let last = g.stops.last()?;
+            Some(nf::GradientSwatch {
+                from: egui::Color32::from_rgba_unmultiplied(
+                    first.color[0],
+                    first.color[1],
+                    first.color[2],
+                    first.color[3],
+                ),
+                to: egui::Color32::from_rgba_unmultiplied(
+                    last.color[0],
+                    last.color[1],
+                    last.color[2],
+                    last.color[3],
+                ),
+                radial: g.kind == GradientKind::Radial,
+            })
         };
         // Figma inspector body: V gap 12 between all rows.
         ui.spacing_mut().item_spacing.y = space::S3;
@@ -49,6 +74,16 @@ impl Editor {
             inspector_section(ui, "Tool options", |ui| self.authoring_tool_options(ui));
             inspector_section(ui, "Drawing defaults", |ui| {
                 let (old_fill, old_stroke) = (self.fill, self.stroke);
+                set_paint_row_gradient_swatch(
+                    ctx,
+                    "inspector-tool-fill",
+                    to_grad_swatch(self.authoring_modify.drawing_fill_gradient.as_ref()),
+                );
+                set_paint_row_gradient_swatch(
+                    ctx,
+                    "inspector-tool-stroke",
+                    to_grad_swatch(self.authoring_modify.drawing_stroke_gradient.as_ref()),
+                );
                 if paint_row(ui, "inspector-tool-fill", "Fill", &mut self.fill).changed() {
                     crate::authoring_modify::update_gradient_for_color_edit(
                         &mut self.authoring_modify.drawing_fill_gradient,
@@ -79,7 +114,22 @@ impl Editor {
                 if ui.add(nf::Button::new("Transform…")).clicked() {
                     self.show_panel(crate::workspace::PanelId::Transform);
                 }
-                if ui.add(nf::Button::new("Color…")).clicked() {
+                let color_btn = ui.add(nf::Button::new("Color…"));
+                crate::authoring_modify::update_color_popover_anchor(
+                    ctx,
+                    "multi-select-color",
+                    color_btn.rect,
+                );
+                if color_btn.clicked() {
+                    self.workspace.color_picker_expanded = true;
+                    self.authoring_modify.color_selection = true;
+                    crate::authoring_modify::request_color_popover(
+                        ctx,
+                        "multi-select-color",
+                        color_btn.rect,
+                        false,
+                        true,
+                    );
                     self.show_panel(crate::workspace::PanelId::Color);
                 }
             });
@@ -393,9 +443,22 @@ impl Editor {
                         if !is_instance && !is_text_box {
                             changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
                         }
+                        let (orig_fill_grad, orig_stroke_grad) = match &original.kind {
+                            ElementKind::PaintedPath {
+                                fill_gradient,
+                                stroke_gradient,
+                                ..
+                            } => (
+                                to_grad_swatch(fill_gradient.as_ref()),
+                                to_grad_swatch(stroke_gradient.as_ref()),
+                            ),
+                            _ => (None, None),
+                        };
                         match &mut element.kind {
                             ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
                             | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
+                                set_paint_row_gradient_swatch(ctx, "shape-fill", None);
+                                set_paint_row_gradient_swatch(ctx, "shape-stroke", None);
                                 for r in numeric_pair(ui, ["W", "H"], [width, height], 1. ..=10000., 1.) { changes.note(r); }
                                 changes.note(paint_row(ui, "shape-fill", "Fill", fill));
                                 changes.note(paint_row(ui, "shape-stroke", "Stroke", stroke));
@@ -472,6 +535,8 @@ impl Editor {
                                 changes.note(ui.add(nf::Checkbox::new(smoothing, "Smoothing")));
                             }
                             ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } | ElementKind::PaintedPath { commands, fill_rule, fill, stroke, stroke_width, .. } => {
+                                set_paint_row_gradient_swatch(ctx, "path-fill", orig_fill_grad);
+                                set_paint_row_gradient_swatch(ctx, "path-stroke", orig_stroke_grad);
                                 hint(ui, &format!("{} commands", commands.len()));
                                 changes.note(paint_row(ui, "path-fill", "Fill", fill));
                                 changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));

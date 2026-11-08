@@ -372,25 +372,31 @@ impl Editor {
     }
     fn tool_color_well(&mut self, ui: &mut egui::Ui, stroke: bool) {
         let color = if stroke { self.stroke } else { self.fill };
-        if ui
-            .add(nf::ColorWell {
-                target: if stroke {
-                    nf::ColorWellTarget::Stroke
-                } else {
-                    nf::ColorWellTarget::Fill
-                },
-                color: Some(Color32::from_rgba_unmultiplied(
-                    color[0], color[1], color[2], color[3],
-                )),
-                active: true,
-            })
-            .clicked()
-        {
+        let key = if stroke {
+            "tool-well-stroke"
+        } else {
+            "tool-well-fill"
+        };
+        let resp = ui.add(nf::ColorWell {
+            target: if stroke {
+                nf::ColorWellTarget::Stroke
+            } else {
+                nf::ColorWellTarget::Fill
+            },
+            color: (color[3] > 0)
+                .then(|| Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3])),
+            active: true,
+        });
+        crate::authoring_modify::update_color_popover_anchor(ui.ctx(), key, resp.rect);
+        if resp.clicked() {
             ui.ctx()
                 .data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke));
             self.authoring_modify.color_selection = false;
+            self.workspace.color_picker_expanded = true;
+            crate::authoring_modify::request_color_popover(ui.ctx(), key, resp.rect, stroke, false);
             self.show_panel(PanelId::Color);
         }
+        self.show_active_color_popover(ui);
     }
 }
 
