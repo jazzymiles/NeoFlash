@@ -895,7 +895,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   cache tests pass; the design lock is re-pinned. Native 1×/2× Stage acceptance over real artwork remains pending.
 
 ### R-059 · Help ▸ Search functions entry point
-- **Status:** open
+- **Status:** answered (owner decision 2026-11-08; implemented, Figma sync pending)
 - **Requested by / for:** project owner · T-132 live authoring report
 - **Where:** main `Help` menu in `crates/neoflash-editor/src/panels/menu.rs`; existing searchable command catalogue in
   `panels/preferences.rs::prefs_shortcuts` (`R-046`).
@@ -909,6 +909,10 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   NeoFlash`) and Timeline menu (`Help`, `F1`).
 - **Proposal (optional):** first Help row `Search functions…` with `F1`, opening `PAGE_SHORTCUTS`, clearing the current
   filter only when explicitly requested and focusing `Search commands`; keep `Open example`, separator and About.
+- **Answer (T-134, 2026-11-08):** Owner explicitly authorized implementation from the existing NF2 components without
+  waiting for the design-track handoff. The proposal is adopted exactly: `Search functions…` is the first Help row,
+  shows `F1`, clears prior filters and focuses the existing `Search commands` field. Global F1 and Timeline Help share
+  the same path. The design track will synchronize the Figma/menu reference after the functional delivery.
 
 ### R-060 · Bitmap Trace and object actions in Stage / Library context menus
 - **Status:** open
@@ -978,3 +982,19 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** add context-axis variants that retain existing colors, weights and selected/locked states:
   two oblique ruler axes anchored at the instance registration point, oblique full-canvas guides/grid, and an affine
   outline Brush cursor with the existing size label and focus/hit target. Keep screen-space click tolerances unchanged.
+
+### R-064 · Compact Document and Window menu grouping
+- **Status:** answered (owner decision 2026-11-08; implemented, Figma sync pending)
+- **Requested by / for:** project owner · T-134 live authoring repair
+- **Where:** main menu bar and menu popovers in `crates/neoflash-editor/src/panels/menu.rs`; command paths in
+  `commands.rs`; existing NF2 Menu / Menu item / separator components.
+- **Need:** keep the growing Window menu compact and make document-wide controls discoverable without inventing a new
+  visual component.
+- **Why:** panel visibility rows had overwhelmed Window, while Stage background and document navigation were scattered.
+- **Checked:** `panels-menus.txt`, the exported menus board, current Window rows, Document settings dialog and existing
+  open-document submenu.
+- **Answer (T-134, 2026-11-08):** Owner explicitly approved a top-level `Document` immediately before `Window` and
+  allowed implementation without waiting for the design-track handoff. `Document` contains `Document settings…` and
+  open-document navigation/list. All panel visibility rows, including Brushes and planned panels, move under
+  `Window ▸ Panels`; workspace, placement, appearance, density and Hide panels stay directly under Window. Existing
+  NF2 menu components and spacing are unchanged. The design track will synchronize Figma/menu references afterward.

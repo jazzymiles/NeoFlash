@@ -118,7 +118,7 @@ if the preview frame differs from the modal frame in any visible way, file a req
 | W2.1 motion path | Resolved (R-005): `NF2/Motion Path` painter in `components/canvas.rs`. R-006 Paste motion special dialog resolved (design ready). |
 | W0.8 toasts | R-044 resolved and host connected: canvas-bottom stack, severity timers, modal delay and Output actions. General Open/import/export result routing remains partial. |
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
-| W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help and Close panel rows are in the frame-view ⋯ menu; Help and global F1 open the searchable Shortcuts command catalogue. |
+| W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help and Close panel rows are in the frame-view ⋯ menu; Timeline Help, global F1 and the first main Help row `Search functions…` open the searchable Shortcuts command catalogue with its search focused. |
 | W0.15 menus | Confirm order/grouping for absent §8 menu items and View ▸ Grid/Guides/Snapping submenus. |
 | v2.2 tool/command/brush panels | R-038 flyouts, Brushes, Brush/Pencil controls and Customize are connected; the compact 36 pt TypeHeader still needs a shared API (current component is 48 pt). Commands awaits a `.nfsl` execution contract. R-022 Trace bitmap is connected; Bitmap properties remains unavailable. |
 | W2.x canvas chrome | Painters exist and are used for selection/transform boxes, anchors and marquee; open R-011 (rotated box, contrast over artwork, Light transformation point) and a gradient-transform gesture model. |
@@ -243,14 +243,14 @@ work; folding (Collapse between braces / Expand all) remains disabled.
 - Tests: comment toggle round-trip per language; fold ranges from `components::code::tokens`.
 - Registry: `web-project-toolchain`. Acceptance: spec AC-04/AC-05.
 
-**W0.14 · Document settings dialog (DL-02)** — **done** (`panels/document_settings.rs`, `Modify ▸ Document…` `⌘J`; linked W × H, Match contents, Scale content with stage + 9-point anchor, Units, Background, Frame rate, Make default in `WorkspacePrefs::document_defaults`, OK as one `"Document settings"` Undo step, Script row informational until W1.12)
+**W0.14 · Document settings dialog (DL-02)** — **done** (`panels/document_settings.rs`, `Document ▸ Document settings…` `⌘J`; linked W × H, Match contents, Scale content with stage + 9-point anchor, Units, Background, Frame rate, Make default in `WorkspacePrefs::document_defaults`, OK as one `"Document settings"` Undo step, Script row informational until W1.12). A blank Stage click clears Timeline frame/range focus so Properties exposes Stage Background.
 - UI: dialog from `planned_dialogs::document_settings` (3.3); "Scale content with stage" transforms root content in
   one transaction; Match contents uses root bounds; Script version row stays informational until W1.12.
 - Tests: OK = single Undo; Cancel no change. Registry: `platform-document-model`. Acceptance: spec DL-02.
 
 **W0.15 · Menu items backed by existing commands (MN-01, MN-02 subset, LI-01, PR-06)** — **partial**: Insert ▸ Layer /
-Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Undo/Redo `<step>`, Modify ▸ Document… (`⌘J`),
-Control ▸ Go to end / step, Window ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
+Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Undo/Redo `<step>`, Document ▸ Document settings… (`⌘J`),
+Control ▸ Go to end / step, Window ▸ Panels ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
 Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
 keyframes and Select all frames work. Stage `Swap symbol…` / `Duplicate symbol…` work and right-click selects the
   target under every active tool. Affine in-context symbol editing now targets one exact placement, dims the frozen
@@ -263,7 +263,8 @@ Hide panels and Enable simple buttons are implemented; current working/unavailab
 - UI: `panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus (`panels/timeline.rs`,
   `timeline_edit.rs::frame_range_menu`, `layer_controls.rs`), Library actions in `panels/library.rs`.
 - Commands that already exist and only need rows/shortcuts: Insert ▸ Layer / Layer folder; Edit ▸ Timeline ▸
-  Cut/Copy/Paste/Clear/Remove frames; Control ▸ Go to end, step `.` `,`; Window ▸ new panels; Modify ▸ Document….
+  Cut/Copy/Paste/Clear/Remove frames; Control ▸ Go to end, step `.` `,`; Window ▸ Panels ▸ new panels;
+  Document ▸ Document settings….
 - New editor commands (no engine): Delete / Duplicate symbol (refuse or list usages for used symbols — `validate`
   rejects dangling `symbol_id`), Swap symbol…, Show in library, Clear keyframe, Convert to (blank) keyframes, Select all
   frames, Distribute to layers.
@@ -439,7 +440,7 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.5 Import video, Import PSD — partial | DL-07, DL-10 | `panels/import_video.rs` imports validated media into the document; authored playback remains partial. `neoflash_import::psd` is a tested importer library; editor/CLI wiring remains. | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
-| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | `panels/font_embedding.rs` stores real license-permitted font binaries and metadata; browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
+| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | `panels/font_embedding.rs` stores the author-selected standalone font binary and metadata after technical container validation; NeoFlash does not infer the author's licence rights, so compliance remains the author's responsibility. Browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
 | W3.9 Deco, Spray, Bone/IK — done | TO-03…05 | `panels/live_planned.rs` (`apply_deco_pattern`, `apply_spray_brush_burst`, `live_bone_properties`) | E-27, E-28 | `editor-advanced-drawing` |
 | W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. 9-slice/shared-library/accessibility engines have tested commands, but their complete authoring controls remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
@@ -543,7 +544,7 @@ non-MovieClip scenes, instances of scene symbols and frame sounds without an aud
 | `neoflash-editor/src/timeline_motion.rs` | Motion path on the stage (`motion_path`, `paint_motion_path`, ◆ key drag with one Undo, `snap_motion_span_to_guide`), Copy / Paste motion. |
 | `neoflash-editor/src/timeline_preview.rs` | Frame view ▸ Preview thumbnails, cached per keyframe and `History::revision`. |
 | `neoflash-editor/src/timeline_sound.rs` | Attach/import/edit frame sounds; native preview: decodes with rodio/Symphonia (MP3, WAV) and plays the preview `Player`'s `SoundCommand`s and custom envelopes; Sound properties audition/update/replace; Mute sounds. Scrubbing is silent. |
-| `neoflash-editor/src/panels/` | `timeline_controls.rs` (transport, tween/ease/sound buttons, scene select, frame view menu), `timeline.rs` (frame menu), `layer_controls.rs` + `layer_properties.rs` (layer menu, Add classic motion guide, Layer properties modal), `symbols_popover.rs` (breadcrumb `▾` + Symbols & scenes popover), `ease.rs`, `scene.rs`, `motion_editor.rs`, `motion_tween.rs` (also the motion-span edits shared with the Motion editor), `properties_sound.rs`, `edit_envelope.rs`, `sound_properties.rs`, `menu.rs` (Insert / Edit ▸ Timeline / Modify ▸ Timeline / Control / Window). |
+| `neoflash-editor/src/panels/` | `timeline_controls.rs` (transport, tween/ease/sound buttons, scene select, frame view menu), `timeline.rs` (frame menu), `layer_controls.rs` + `layer_properties.rs` (layer menu, Add classic motion guide, Layer properties modal), `symbols_popover.rs` (breadcrumb `▾` + Symbols & scenes popover), `ease.rs`, `scene.rs`, `motion_editor.rs`, `motion_tween.rs` (also the motion-span edits shared with the Motion editor), `properties_sound.rs`, `edit_envelope.rs`, `sound_properties.rs`, `menu.rs` (Insert / Edit ▸ Timeline / Modify ▸ Timeline / Control / Document / Window ▸ Panels / Help search). |
 | `neoflash-editor/src/workspace.rs` | `TimelineView { tinted, show_seconds, compact_rows, short_rows, snap_playhead, loop_playback, preview, show_motion_path, show_motion_frame_dots }` (saved with the workspace; `row_height()` feeds painters and `timeline_cell_at`, including 14 pt `Compact` rows); `PanelId::{Ease, Scene, MotionEditor}` start hidden. Session-only state (`edit_multiple`, `play_all_scenes`) lives in `timeline_edit.rs::TimelineSelection`. |
 
 **Invariant.** Every history commit goes through `Editor::commit_history` (`Editor::transact` already ends with it):
@@ -600,7 +601,7 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 18 | ~~Range edits inside tweens keep editable curves (`animation-frame-ranges`)~~ | Done: `timeline_edit.rs` subdivides `CubicBezier`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `Linear` span and `property_eases` curves via exact De Casteljau cubic-Bézier splitting (`subdivide_cubic_bezier`) on `InsertKeyframe`, `ClearFrames` and `RemoveFrames` (`timeline_tweens.rs`). | | | |
 | 19 | ~~XFL import of tween kinds, guides and scenes~~ | Done: `neoflash-import/src/xfl.rs` and `xfl/shape.rs` import multi-scene `DOMTimeline`s (`Project.scenes`), library folders, `normal`/`guide`/`mask`/`folder` layers, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), Graphic `firstFrame` offsets, skew matrices and stroke-only straight/quadratic guide paths (`tests/batch_import_capabilities.rs`). | | | |
 | 20 | ~~Layer properties dialog: Guided type (DL-16)~~ | Done: modal `panels/layer_properties.rs` (`Modify ▸ Timeline ▸ Layer properties…`, `Layer menu ▸ Properties…`, double-click layer icon) edits Name, Visible, Locked, `Normal`/`Guide`/`Guided`/`Mask`/`Masked`/`Folder` (`Guided` ↔ `motion_guide`), `Mask mode` (`Geometry`/`Alpha`/`Luminance`) + `Invert mask` (`R-048`), Outline colour & outlines toggle, and Layer height `Compact`/`Short`/`100 %`/`200 %` with one Undo step (`panel_tests.rs`, `timeline_commands_tests.rs`). | | | |
-| 21 | ~~Frame view ▸ Help (F1) (TL-12)~~ | Done: `panels/timeline_controls.rs` opens Preferences ▸ Shortcuts, the same searchable command/function catalogue as global F1 (`panel_tests::preferences_dialog_previews_saves_cancels_and_resets`). | none | | |
+| 21 | ~~Frame view ▸ Help (F1) (TL-12)~~ | Done: `panels/timeline_controls.rs`, global F1 and main `Help ▸ Search functions…` open Preferences ▸ Shortcuts as one searchable command/function catalogue and focus its search (`panel_tests::preferences_dialog_previews_saves_cancels_and_resets`). | none | | |
 | 22 | ~~Timeline and AS2/AS3 masks: geometry, alpha, luminance and AE-style mask inversion~~ | Done: format-9 `MaskMode::{Geometry, Alpha, Luminance}` (BT.709 luminance) and `LayerProperties.mask_invert`, evaluated across core (`authored_layers.rs`, `mask_composition.rs`, `mask_coverage.rs`), native stage (`stage_clipping.rs`), HTML5 Canvas 2D (`web/path.js`) and Lottie export (`lottie.rs` `"inv": true`), with editor controls in `Layer properties` (`R-048`), layer context menu / `Folder and mask…` and the 2 inline AE-style 16×16 mask icons on `LayerRole::Mask` timeline rows (`R-049`) (`timeline_masks.rs`, `timeline_commands_tests.rs`, `path-cache.test.cjs`). | | | |
 
 Related stage work outside the timeline: object and pixel snapping (`Guides > Objects > Grid > Pixels`), the Tools

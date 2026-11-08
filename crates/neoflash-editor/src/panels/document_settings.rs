@@ -1,5 +1,5 @@
 //! Document settings modal dialog (NF2 `Dialog / Document settings`, DL-02 / W0.14; reference
-//! `document-dialogs.png`), opened by `Modify ▸ Document…` (`⌘J`).
+//! `document-dialogs.png`), opened by `Document ▸ Document settings…` (`⌘J`).
 //!
 //! Edits live on a draft until confirmed: `Cancel` / `Esc` discards without touching the project,
 //! `OK` / `Enter` commits stage size, optional content scaling / anchoring, units, background and
@@ -88,7 +88,7 @@ fn primary_script_label(project: &Project) -> &'static str {
 }
 
 impl Editor {
-    /// Open the `Document settings` modal dialog (`Modify ▸ Document…`, `⌘J`).
+    /// Open the `Document settings` modal dialog (`Document ▸ Document settings…`, `⌘J`).
     pub(crate) fn open_document_settings(&mut self) {
         self.finish_edits();
         let w = self.project.width.max(1) as f64;

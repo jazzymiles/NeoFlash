@@ -1,6 +1,6 @@
 //! Font embedding modal dialog and live floating body (NF2 `Dialog / Font embedding`, `DL-11`,
 //! `W3.8`; reference `publish-misc-dialogs.png`), opened from `Library menu ▸ Font embedding…`
-//! and `Window ▸ Planned panels ▸ Font embedding`.
+//! and `Window ▸ Panels ▸ Planned panels ▸ Font embedding`.
 
 use super::planned_dialogs::group;
 use crate::app::Editor;

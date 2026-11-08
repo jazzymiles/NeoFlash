@@ -1,6 +1,6 @@
 //! Export image modal dialog and live floating body (NF2 `Dialog / Export image`, `DL-04`,
 //! `W3.1` / `W3.2`; reference `dialogs-export.png`), opened from `File ▸ Export ▸ Export image…`
-//! and `Window ▸ Planned panels ▸ Export image`.
+//! and `Window ▸ Panels ▸ Planned panels ▸ Export image`.
 
 use super::planned::{FooterClick, caption, footer_clicked};
 use super::planned_dialogs::{group, preview_box};

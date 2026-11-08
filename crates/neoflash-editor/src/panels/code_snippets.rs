@@ -1,5 +1,5 @@
 //! Code snippets panel (`Panel / Code snippets`, `PP-03`; reference `scripting-panels.png`),
-//! opened by Window ▸ Code snippets.
+//! opened by Window ▸ Panels ▸ Code snippets.
 //!
 //! Displays the six NF2 snippet categories, live search, a language-aware preview adapted to the
 //! selected stage instance (defaulting to `orbit_mc`), `Copy` to clipboard, and `Insert at frame N`

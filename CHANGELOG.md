@@ -2,6 +2,15 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Live authoring follow-up (`T-134`): double-clicking genuinely empty canvas with no active draft exits nested editing
+  directly to the root Stage without changing the sticky tool, while a blank Stage click returns Properties to the
+  accessible Stage Background control. Eraser gestures no longer flash whole-object target boxes. The main Help menu
+  now exposes focused `Search functions…` (`F1`); Document settings and open-document navigation live in a new
+  top-level Document menu before Window, whose panel rows are grouped under Panels. Explicit font embedding now keeps
+  technical container validation but no longer treats OpenType licence flags as proof that an author lacks separate
+  rights; lawful use remains the author's responsibility, superseding the T-129 application-side licence gate.
+  Fixed the Tools Options → outside/right-click deadlock by avoiding a recursive egui Context lock.
+
 - Affine Edit in Place (`T-133`): double-click and contextual Edit in place now enter the exact selected instance,
   keep its rotated/scaled/skewed parent chain dimmed, and share one invertible mapping across rendering, picking,
   selection, transforms, drawing/paint tools, drops, snapping and motion overlays. Nested sessions preserve and restore

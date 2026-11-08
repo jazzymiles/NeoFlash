@@ -1,5 +1,5 @@
 //! Movie Explorer panel (`Panel / Movie Explorer`, `PP-12`; reference `document-dialogs.png`),
-//! opened by Window ▸ Movie Explorer.
+//! opened by Window ▸ Panels ▸ Movie Explorer.
 //!
 //! Displays a live, searchable, filterable tree of the open document: scenes, layers, frames,
 //! symbol instances, text fields, bitmaps/videos/frame sounds, timeline/object/project scripts,

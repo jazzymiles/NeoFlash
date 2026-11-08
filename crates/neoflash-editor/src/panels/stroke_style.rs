@@ -1,6 +1,6 @@
 //! Stroke style modal dialog and live floating body (NF2 `Dialog / Stroke style`, `PR-03`,
 //! `W1.7`; reference `dialogs-sound-stroke.png`), opened from `Tool options ▸ Stroke style…`,
-//! `Properties ▸ Custom…`, and `Window ▸ Planned panels ▸ Stroke style`.
+//! `Properties ▸ Custom…`, and `Window ▸ Panels ▸ Planned panels ▸ Stroke style`.
 
 use crate::app::Editor;
 use eframe::egui::{self, Color32, Ui};

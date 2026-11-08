@@ -19,7 +19,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 ## Conventions
 
 - **Status**: `done` = works as specified (remaining limits are named in its entry); `disabled` = control exists, rendered disabled with "Not available yet"; `preview` = body exists as a
-  read-only planned preview (`panels/planned*.rs`, Window ▸ Planned panels); `absent` = in the NF2 reference, not in
+  read-only planned preview (`panels/planned*.rs`, Window ▸ Panels ▸ Planned panels); `absent` = in the NF2 reference, not in
   the UI; `partial` = control works but part of its NF2 behaviour is missing.
 - **Engine**: `yes` = needs new `neoflash-core` / `-script` / `-export` / `-import` / `-web` behaviour; `editor` =
   needs editor-crate logic only (no engine change); `UI-only` = state and wiring inside the panel file.
@@ -200,7 +200,7 @@ groups.
 
 **TL-06 · Ease panel button** — `timeline_frame_tools` · done
 - Done: enabled only while the playhead is inside a tween (classic, shape or motion); opens the Ease panel (PP-01). Frame
-  menu ▸ Ease… and Window ▸ Ease open it too.
+  menu ▸ Ease… and Window ▸ Panels ▸ Ease open it too.
 - Purpose: open the Ease panel (PP-01) for the selected classic tween.
 - Behaviour: enabled when the current frame is inside a tweened span; click opens/focuses the Ease panel bound to that
   keyframe.
@@ -354,7 +354,8 @@ the document. The separate Bitmap properties dialog remains unavailable.
   to a transparent contour; Eyedropper replaces the selected well with the sampled solid color. Properties RGB edits
   replace a gradient; alpha-only edits retain stops and update their alpha.
 - Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks. Its default
-  mode cuts through raw Merge fills and Bézier strokes; whole-object/fill/stroke modes remain explicit choices.
+  mode cuts through raw Merge fills and Bézier strokes; whole-object/fill/stroke modes remain explicit choices. The
+  cursor is the complete preview: crossing artwork never flashes whole-object bounding boxes.
 - Pen closes only inside the displayed first-anchor Close zone. Escape commits a valid open contour and keeps Pen
   active, so the next click begins a second path instead of losing the first one.
 - Brush: Round, Flat and Chisel presets; eight tip shapes; Size 1–200 px in document units; smoothing; pressure size
@@ -733,7 +734,7 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 - Acceptance: real exported AS2/JS scenarios verify breakpoints, all three steps, locals, a timer that freezes during
   Pause and advances after Continue, Restart and owned-process cleanup. This does not imply full Flash VM semantics.
 
-**PP-05 · Project** — done (`panels/project.rs`, `Window ▸ Project`)
+**PP-05 · Project** — done (`panels/project.rs`, `Window ▸ Panels ▸ Project`)
 - Done: project selector, Find file filter, hierarchical `src` (`Project.sources` + virtual folders), `assets`
   (`Project.resources`) and `.nflash` document tree, inline source rename, `New file` / `New folder` / `Delete` /
   `Publish` bar with one Undo step per source edit, double-click to open in `Actions ▸ Project files`, and linkage
@@ -762,11 +763,11 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 - Depends on: editor (+ small script change). Acceptance: Check project / Test Movie fill the panel; Go to source opens
   Actions at the right script, line and column.
 
-**PP-08 · Scene** — done (`panels/scene.rs`, Window ▸ Scene ⇧F2): Find scene, list (current highlighted), Add / Duplicate / Delete; drag to
+**PP-08 · Scene** — done (`panels/scene.rs`, Window ▸ Panels ▸ Scene ⇧F2): Find scene, list (current highlighted), Add / Duplicate / Delete; drag to
 reorder; double-click rename. Depends on TL-03. Acceptance: reorder changes playback order; delete of the last scene
 refused.
 
-**PP-09 · History** — done (`panels/history.rs`, `Window ▸ History` `⌘F10`)
+**PP-09 · History** — done (`panels/history.rs`, `Window ▸ Panels ▸ History` `⌘F10`)
 - Done: chronological `Open` + named step rows (`History::undo_labels` / `redo_labels`) with the current step checked
   and undone steps dimmed yet clickable (`History::step_to`), `Edit ▸ Undo <step>` / `Redo <step>` menu labels, and
   footer Undo · Redo · Clear history controls.
@@ -775,7 +776,7 @@ refused.
 - Acceptance: labels match commands ("Move", "Fill colour", "Delete"); jumping 5 steps back equals 5 × Undo; Clear
   disables Undo.
 
-**PP-10 · Swatches** — done (`panels/swatches.rs`, `Window ▸ Swatches` `⌘F9`)
+**PP-10 · Swatches** — done (`panels/swatches.rs`, `Window ▸ Panels ▸ Swatches` `⌘F9`)
 - Done: `SwatchesPopover` panel with hex + alpha readout, eyedropper, no colour, wheel → Color panel, Recent colours,
   Document colours (derived from `Project` paints + user-added swatches in `WorkspacePrefs.swatches`, also populated by
   Color panel ⋯ `Add swatch`), switchable Palette (`Default`, `Web 216`, `Grayscale`, `Pastels`) and Gradients (default +
@@ -785,7 +786,7 @@ refused.
 - Acceptance: clicking a swatch applies to the active well (drawing colour or selection fill/stroke with one Undo);
   Recent updates.
 
-**PP-11 · Info** — done (`panels/info.rs`, `Window ▸ Info` `⌘I`)
+**PP-11 · Info** — done (`panels/info.rs`, `Window ▸ Panels ▸ Info` `⌘I`)
 - Done: editable 2×2 selection `W` / `H` / `X` / `Y` fields (committed as one Undo step via Transform layout units),
   live `Cursor` `X` / `Y` in active ruler units, and `Colour` `R` `G` `B` `A` + swatch under the stage pointer (sampling
   topmost painted elements, gradients and cached bitmap pixels, falling back to stage background).
@@ -851,12 +852,13 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 
 ### Other planned dialogs
 
-**DL-02 · Document settings (⌘J)** — done (`panels/document_settings.rs`, `Modify ▸ Document…` `⌘J`)
+**DL-02 · Document settings (⌘J)** — done (`panels/document_settings.rs`, `Document ▸ Document settings…` `⌘J`)
 - Done: modal dialog editing a draft of stage `W × H` (with optional aspect lock), `Match contents` (translates root
   scene content so union bounds start at `(0, 0)`), `Scale content with stage` + 9-point registration anchor, `Units`
   (updates `ViewPrefs.ruler_units`), `Background`, `Frame rate`, and `Make default` (`WorkspacePrefs.document_defaults`,
   applied by `File ▸ New`). `OK` / `Enter` commits document changes in one `"Document settings"` Undo step; `Cancel` /
-  `Esc` discards. `Script` version stays informational until W1.12.
+  `Esc` discards. A blank unmodified Stage click clears Timeline frame/range focus, so Properties returns to the Stage
+  context and exposes the same Background colour directly. `Script` version stays informational until W1.12.
 - Controls: stage W × H linked; Match contents / Match printer; Scale content with stage + anchor (registration
   picker); Units; Background; Frame rate (→ "N frames · s"); Script version; Make default · Cancel · OK.
 - Acceptance: OK applies everything as one Undo; Cancel changes nothing.
@@ -917,7 +919,7 @@ audition). P3.
 | --- | --- | --- | --- | --- |
 | DL-09 | Edit envelope — **done** (`panels/edit_envelope.rs`) | Modal dialog with Left/right `EnvelopeLane`s (`1..=8` draggable stereo points in format-7 `FrameSound.envelope`, `SoundEffect::Custom`), presets, seconds/frames ruler, zoom, Play/Stop preview, one Undo | TL-07 audio model (done) | P3 |
 | DL-10 | Import PSD to library — **partial** | The bounded PSD/PSB reader and project conversion options work in `neoflash-import`; the author-facing editor/CLI workflow is not wired yet | importer library complete enough for supported files; UI/CLI wiring open | P3 |
-| DL-11 | Font embedding — **done for full resources** (`panels/font_embedding.rs`) | Font list, character ranges, extra chars, export for AS + class, glyph count; stores real embeddable font binaries plus metadata and rejects restricted licenses atomically. Range/class choices are retained as metadata; browser-loadable subset and complete generated-class output remain partial. | `web-font-portability` export policy | P3 |
+| DL-11 | Font embedding — **done for full resources** (`panels/font_embedding.rs`) | Font list, character ranges, extra chars, export for AS + class, glyph count; stores the author-selected standalone TTF/OTF binary plus metadata after technical container validation. NeoFlash does not adjudicate OpenType licence flags because it cannot know the author's separate rights; lawful use remains the author's responsibility. Range/class choices are retained as metadata; browser-loadable subset and complete generated-class output remain partial. | `web-font-portability` export policy | P3 |
 | DL-12 | Test Movie window | Native window: stage, transport, speed, fps/memory badge, Output drawer | Embedded runtime host (today Test Movie opens a browser) | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
@@ -951,10 +953,11 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences, Keyboard shortcuts and Customize tools | Editing commands require the appropriate active document, selection and history |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
-| Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup and Bitmap ▸ Trace bitmap | Other Bitmap operations and Symbol submenu remain unavailable; shape hints need a shape-tween endpoint |
+| Modify | Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup and Bitmap ▸ Trace bitmap | Other Bitmap operations and Symbol submenu remain unavailable; shape hints need a shape-tween endpoint |
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
-| Window | Real authoring panels including Brushes, built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, document list and Next/Previous document, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
-| Help | Open example, About NeoFlash; F1 opens the searchable command/function catalogue | A dedicated Search functions row awaits R-059 |
+| Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
+| Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
+| Help | `Search functions…` (F1) opens the existing searchable command/function catalogue with cleared filters and focused search; Open example; About NeoFlash | — |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts
@@ -968,7 +971,7 @@ refresh once to that composition; theme, Timeline/editor/tool/publish preference
 intact. Tests: `document_sessions_tests`, document-strip `panel_tests`, `workspace_editor_tests`, recovery
 and notification families.
 
-Coverage: `panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all eight menus,
+Coverage: `panel_tests::menu_bar_toggles_live_state_without_changing_the_document` opens all nine menus,
 checks explicitly unavailable rows, exercises View/Control/Window toggles in both directions, panel visibility,
 Find opening and theme changes without editing the document or Undo history. `stage_view_tests` additionally
 checks actual grid paint on the next idle frame and drawing/moving with snapping enabled and disabled.
@@ -979,5 +982,5 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | Menu | Still absent or disabled | Depends on |
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
-| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
-| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |
+| Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
+| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture exits directly to the root Stage without changing the sticky tool; breadcrumbs still provide deliberate level-by-level exit. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |

@@ -588,7 +588,7 @@ pub(crate) fn embeddable_font_bytes(family: &str, style: &str) -> Result<Vec<u8>
         _ => None,
     };
     if let Some(bytes) = bundled {
-        ensure_font_embedding_allowed(bytes, family, style)?;
+        validate_embeddable_font_container(bytes, family, style)?;
         return Ok(bytes.to_vec());
     }
 
@@ -622,19 +622,24 @@ pub(crate) fn embeddable_font_bytes(family: &str, style: &str) -> Result<Vec<u8>
             "Font '{family}' ({style}) is a collection or unsupported outline; choose a standalone TrueType face."
         )
     })?;
-    ensure_font_embedding_allowed(&bytes, family, style)?;
+    validate_embeddable_font_container(&bytes, family, style)?;
     Ok(bytes)
 }
 
-/// Refuse faces whose OpenType permissions explicitly prohibit embedding.
+/// Validate the standalone sfnt container before storing it in the authored document.
 ///
-/// OS/2.fsType bit 1 is the OpenType `Restricted License Embedding` flag. A missing OS/2 table
-/// does not assert a restriction, while a malformed permissions table is rejected rather than
-/// guessed.
-fn ensure_font_embedding_allowed(bytes: &[u8], family: &str, style: &str) -> Result<(), String> {
+/// OpenType `OS/2.fsType` records a font vendor's embedding policy. NeoFlash does not know what
+/// separate licence or permission the author holds, so those policy bits are deliberately not an
+/// authoring gate. The author remains responsible for using the font lawfully. Malformed tables
+/// and unsupported collection containers still fail as technical errors.
+fn validate_embeddable_font_container(
+    bytes: &[u8],
+    family: &str,
+    style: &str,
+) -> Result<(), String> {
     if bytes.starts_with(b"ttcf") {
         return Err(format!(
-            "Font '{family}' ({style}) is a collection; choose a standalone TrueType or OpenType face so embedding permissions can be verified."
+            "Font '{family}' ({style}) is a collection; choose a standalone TrueType or OpenType face that can be stored as one renderable font resource."
         ));
     }
     let num_tables = bytes
@@ -664,22 +669,7 @@ fn ensure_font_embedding_allowed(bytes: &[u8], family: &str, style: &str) -> Res
             .ok_or_else(|| format!("Font '{family}' ({style}) has an invalid OS/2 table range."))?;
         if length < 10 || table_end > bytes.len() {
             return Err(format!(
-                "Font '{family}' ({style}) has an invalid OS/2 permissions table."
-            ));
-        }
-        let fs_type = u16::from_be_bytes(
-            bytes[offset + 8..offset + 10]
-                .try_into()
-                .expect("two-byte slice"),
-        );
-        if fs_type & 0x0002 != 0 {
-            return Err(format!(
-                "Font '{family}' ({style}) forbids embedding (Restricted License Embedding)."
-            ));
-        }
-        if fs_type & 0x0004 != 0 && fs_type & 0x0008 == 0 {
-            return Err(format!(
-                "Font '{family}' ({style}) permits Preview & Print embedding only, not embedding in an editable authoring document."
+                "Font '{family}' ({style}) has an invalid OS/2 table."
             ));
         }
         break;
@@ -692,7 +682,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn restricted_font_embedding_permission_is_rejected() {
+    fn font_embedding_license_bits_are_not_an_authoring_gate() {
         let mut font = vec![0_u8; 38];
         font[..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
         font[4..6].copy_from_slice(&1_u16.to_be_bytes());
@@ -701,27 +691,30 @@ mod tests {
         font[24..28].copy_from_slice(&10_u32.to_be_bytes());
         font[36..38].copy_from_slice(&0x0002_u16.to_be_bytes());
 
-        let error = ensure_font_embedding_allowed(&font, "Restricted", "Regular")
-            .expect_err("restricted embedding must fail");
-        assert!(error.contains("Restricted License Embedding"));
+        validate_embeddable_font_container(&font, "Restricted", "Regular")
+            .expect("a restricted flag does not reveal the author's separate licence");
         font[36..38].copy_from_slice(&0x0004_u16.to_be_bytes());
-        let error = ensure_font_embedding_allowed(&font, "Preview only", "Regular")
-            .expect_err("preview-and-print embedding must fail for editable projects");
-        assert!(error.contains("Preview & Print"));
+        validate_embeddable_font_container(&font, "Preview only", "Regular")
+            .expect("preview-and-print policy is advisory, not a technical failure");
         font[36..38].copy_from_slice(&0x0008_u16.to_be_bytes());
-        ensure_font_embedding_allowed(&font, "Editable", "Regular")
+        validate_embeddable_font_container(&font, "Editable", "Regular")
             .expect("editable embedding is allowed");
         font[36..38].copy_from_slice(&0x0100_u16.to_be_bytes());
-        ensure_font_embedding_allowed(&font, "No subsetting", "Regular")
+        validate_embeddable_font_container(&font, "No subsetting", "Regular")
             .expect("no-subsetting is allowed because complete bytes are stored");
         font[36..38].copy_from_slice(&0_u16.to_be_bytes());
-        ensure_font_embedding_allowed(&font, "Installable", "Regular")
+        validate_embeddable_font_container(&font, "Installable", "Regular")
             .expect("installable embedding is allowed");
+
+        font[24..28].copy_from_slice(&9_u32.to_be_bytes());
+        let error = validate_embeddable_font_container(&font, "Malformed", "Regular")
+            .expect_err("a short OS/2 table remains a technical failure");
+        assert!(error.contains("invalid OS/2 table"));
 
         let mut collection = b"ttcf\0\x01\0\0\0\0\0\x01\0\0\0\x10".to_vec();
         collection.resize(32, 0);
-        let error = ensure_font_embedding_allowed(&collection, "Collection", "Regular")
-            .expect_err("collection permissions cannot be inferred from the TTC header");
+        let error = validate_embeddable_font_container(&collection, "Collection", "Regular")
+            .expect_err("collections remain unsupported as authored font resources");
         assert!(error.contains("collection"));
     }
 

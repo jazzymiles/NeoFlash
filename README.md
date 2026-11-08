@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 138 of 151 | 12 | 1 | 7 / 5 / 0 |
+| Editor and graphics | 140 of 152 | 11 | 1 | 7 / 5 / 0 |
 | Timelines and animation | 75 of 78 | 3 | 0 | 7 / 3 / 0 |
 | HTML5 and interactivity | 81 of 91 | 9 | 1 | 8 / 4 / 0 |
 | Import and file compatibility | 57 of 68 | 11 | 0 | 4 / 6 / 0 |
 | Platform and quality | 38 of 54 | 4 | 12 | 3 / 6 / 1 |
-| **All areas** | 389 of 442 | 39 | 14 | 29 / 24 / 1 |
+| **All areas** | 391 of 443 | 38 | 14 | 29 / 24 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -84,9 +84,9 @@ The first build downloads pinned Rust/WASM dependencies. Apple Silicon is locall
 Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks, guides, a linked library symbol, four-state buttons and Graphic playback. Drag [authoring-badge.svg](examples/authoring-badge.svg) onto the stage to import editable artwork. PNG/JPEG and more complex SVG artwork also import through **File → Import graphics to Stage**.
 
 1. Open the example, scrub the top timeline and enable **Onion Skin**. Drag the blue range handles or change Before/After; choose outlines and opacity.
-2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline. Use the breadcrumbs to return.
+2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline. Double-click empty canvas to return directly to the root Stage without changing the active tool; use breadcrumbs for level-by-level navigation.
 3. Draw a rectangle or oval, or add text. Change position, scale, rotation, fill/stroke color, alpha and font in Properties. Fonts are discovered through macOS CoreText.
-4. Press **F6** to insert a keyframe, move the object, and create a classic, shape or motion tween from the Timeline controls or the frame menu; edit its curve in Properties or **Window → Ease**. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it. [timeline-tweens.nflash](examples/timeline-tweens.nflash) shows shape, motion and guided tweens in two scenes.
+4. Press **F6** to insert a keyframe, move the object, and create a classic, shape or motion tween from the Timeline controls or the frame menu; edit its curve in Properties or **Window → Panels → Ease**. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it. [timeline-tweens.nflash](examples/timeline-tweens.nflash) shows shape, motion and guided tweens in two scenes.
 5. Select artwork and press **F8**. Choose a name, Movie Clip / Graphic / Button, a library folder, a registration point, and optional ActionScript linkage. Confirm to create a reusable symbol without moving its artwork; Cancel leaves the document unchanged. Drag more instances from the Library onto the Stage.
 6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript (with static type checking, ES module bundling and Source Map v3 debugging) and ActionScript 1/2/3 are supported; see the audited declaration catalogue above. **Actions → Debug options** starts the connected Chromium debugger for source breakpoints, pause/step and read-only locals; see [setup and limits](docs/NF2-ACTIONS-EDITOR.md#56-source-maps-and-test-movie).
 7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish** (or the Publish button in the top bar) writes a self-contained HTML5 folder. The editor's Enter playback is a side-effect-free authoring preview with independent nested MovieClip clocks, including one-frame parent timelines. Pause retains the current pose; Rewind or scrubbing resets the preview.
@@ -106,7 +106,7 @@ HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Can
 
 Timeline masks retain classic geometric silhouettes by default. Saved format9 projects can use explicit soft alpha with gradients, PNG transparency and nested/moving sources in the native stage and HTML5; the editor mode selector is still pending. AS2/AS3 use source-and-target `cacheAsBitmap` for the same soft coverage ([mask behavior and limits](docs/decisions/0023-runtime-masks-and-scroll-rectangles.md)).
 
-System fonts are discovered through CoreText and can be subsetted and embedded as portable `@font-face` assets on HTML5 export. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [roadmap](docs/ROADMAP.md).
+System fonts are discovered through CoreText and author-selected standalone font bytes can be embedded as portable `@font-face` assets on HTML5 export. NeoFlash validates the font container but cannot determine the user's separate licence rights; lawful embedding remains the author's responsibility. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [roadmap](docs/ROADMAP.md).
 
 ## Examples
 

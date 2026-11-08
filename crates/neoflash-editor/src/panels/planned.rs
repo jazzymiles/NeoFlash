@@ -69,7 +69,7 @@ impl PlannedPanel {
         Self::TestMovie,
     ];
 
-    /// Menu label (Window ▸ Planned panels ▸ …).
+    /// Menu label (Window ▸ Panels ▸ Planned panels ▸ …).
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Debugger => "Debugger",
@@ -175,7 +175,7 @@ pub(crate) fn is_open(ctx: &egui::Context, panel: PlannedPanel) -> bool {
     planned_state(ctx).open.iter().any(|(p, _)| *p == panel)
 }
 
-/// Open or close a preview (Window ▸ Planned panels). New previews cascade from the top-left of the content.
+/// Open or close a preview (Window ▸ Panels ▸ Planned panels). New previews cascade from the top-left of the content.
 pub(crate) fn set_open(ctx: &egui::Context, panel: PlannedPanel, open: bool) {
     let mut state = planned_state(ctx);
     state.open.retain(|(p, _)| *p != panel);
@@ -191,7 +191,7 @@ pub(crate) fn set_open(ctx: &egui::Context, panel: PlannedPanel, open: bool) {
     store_state(ctx, state);
 }
 
-/// Window ▸ Planned panels submenu body: one toggle per preview.
+/// Window ▸ Panels ▸ Planned panels submenu body: one toggle per preview.
 pub(crate) fn menu_items(ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     for panel in PlannedPanel::ALL {
@@ -745,7 +745,7 @@ mod tests {
         assert!(kinds(|c| matches!(c, Chrome::Panel(_))));
         assert!(kinds(|c| c == Chrome::Dialog));
         assert!(kinds(|c| c == Chrome::Window));
-        // Titles are unique so the Window ▸ Planned panels menu stays unambiguous.
+        // Titles are unique so the Window ▸ Panels ▸ Planned panels menu stays unambiguous.
         let mut titles: Vec<_> = PlannedPanel::ALL.iter().map(|p| p.title()).collect();
         titles.sort_unstable();
         titles.dedup();

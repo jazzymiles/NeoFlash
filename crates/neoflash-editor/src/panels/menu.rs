@@ -1,5 +1,5 @@
-//! Application menu bar inside the NF2 top bar (design §8: File · Edit · View · Insert · Modify ·
-//! Control · Window · Help) and the table of natural entry points that open planned previews.
+//! Application menu bar inside the NF2 top bar (File · Edit · View · Insert · Modify · Control ·
+//! Document · Window · Help) and the table of natural entry points that open planned previews.
 //!
 //! Every item follows one rule: a command the editor supports runs the existing editor method; a
 //! command whose NF2 panel or dialog is only a read-only preview opens that preview; anything else is
@@ -22,13 +22,13 @@ use PlannedPanel as P;
 
 /// Natural entry points (design §4–§9) that open a planned preview, by location. Menu rows use the last
 /// path segment as their label. `GraphicProperties` has no entry: graphic looping is a working
-/// Properties section (`instance_playback_ui`), so its preview stays under Window ▸ Planned panels.
+/// Properties section (`instance_playback_ui`), so its preview stays under Window ▸ Panels ▸ Planned panels.
 pub(crate) const PLANNED_ENTRY_POINTS: &[(&str, PlannedPanel)] = &[
     // Menu bar (§8).
     ("File ▸ Import ▸ Import video…", P::ImportVideo),
     ("File ▸ Export ▸ Export image…", P::ExportImage),
     // §6 panels the §8 Window list does not name.
-    ("Window ▸ Debugger", P::Debugger),
+    ("Window ▸ Panels ▸ Debugger", P::Debugger),
     // Panel menus (§6).
     ("Color fill type ▸ Bitmap fill", P::BitmapFill),
     ("Library menu ▸ Font embedding…", P::FontEmbedding),
@@ -116,7 +116,9 @@ impl Editor {
     /// that only hold `&egui::Context` still open the real feature.
     pub(crate) fn open_planned(ctx: &egui::Context, path: &str) {
         let converted = match path {
-            "Modify ▸ Document…" => Some(ConvertedTrigger::DocumentSettings),
+            "Document ▸ Document settings…" | "Modify ▸ Document…" => {
+                Some(ConvertedTrigger::DocumentSettings)
+            }
             "File ▸ Publish settings…" | "Properties ▸ Publish settings…" => {
                 Some(ConvertedTrigger::PublishSettings)
             }
@@ -133,14 +135,18 @@ impl Editor {
                 crate::panels::preferences::PAGE_SHORTCUTS,
             )),
             "Edit ▸ Find and replace" => Some(ConvertedTrigger::FindReplace),
-            "Window ▸ Compiler errors" => {
+            "Window ▸ Panels ▸ Compiler errors" | "Window ▸ Compiler errors" => {
                 Some(ConvertedTrigger::ShowPanel(PanelId::CompilerErrors))
             }
-            "Window ▸ Code snippets" => Some(ConvertedTrigger::ShowPanel(PanelId::CodeSnippets)),
-            "Window ▸ Movie Explorer" => {
+            "Window ▸ Panels ▸ Code snippets" | "Window ▸ Code snippets" => {
+                Some(ConvertedTrigger::ShowPanel(PanelId::CodeSnippets))
+            }
+            "Window ▸ Panels ▸ Movie Explorer" | "Window ▸ Movie Explorer" => {
                 Some(ConvertedTrigger::ShowPanel(PanelId::MovieExplorer))
             }
-            "Window ▸ Filters" => Some(ConvertedTrigger::ShowPanel(PanelId::Filters)),
+            "Window ▸ Panels ▸ Filters" | "Window ▸ Filters" => {
+                Some(ConvertedTrigger::ShowPanel(PanelId::Filters))
+            }
             "Color menu ▸ Add swatch" | "Swatches popover ▸ Add swatch" => {
                 Some(ConvertedTrigger::AddSwatch)
             }
@@ -355,10 +361,18 @@ impl Editor {
                                 self.control_menu(ui)
                             });
                         });
+                        menu_popup(ui, "Document", "Document settings…", "⌘J", |ui| {
+                            self.document_menu(ui, ctx);
+                        });
                         menu_popup(ui, "Window", "Compiler errors", "⇧⌘F9", |ui| {
                             self.window_menu(ui, ctx);
                         });
-                        menu_popup(ui, "Help", "About NeoFlash", "", |ui| {
+                        menu_popup(ui, "Help", "Search functions…", "F1", |ui| {
+                            if menu_item(ui, "Search functions…", "F1").clicked() {
+                                self.open_function_search(ctx);
+                                ui.close();
+                            }
+                            nf::menu_separator(ui);
                             if menu_item(ui, "Open example", "").clicked() {
                                 self.request(Pending::Demo, ctx);
                                 ui.close();
@@ -989,17 +1003,25 @@ impl Editor {
         }
     }
 
-    /// Window (§8), then the §6 panels §8 does not list, then workspace placement and appearance.
-    fn window_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    /// Document settings and document navigation, kept together immediately before Window.
+    fn document_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::commands::CommandId as C;
-        Self::unavailable_item(ui, "Duplicate window", "⌥⌘K");
+        ui.add_enabled_ui_semantic(self.has_document(), |ui| {
+            if menu_item(ui, "Document settings…", &self.sc(C::ModifyDocument)).clicked() {
+                self.open_document_settings();
+                ui.close();
+            }
+        });
+        nf::menu_separator(ui);
+        self.document_list(ui, ctx);
+    }
+
+    /// All panel visibility rows live in one submenu so Window remains compact.
+    fn panels_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::CommandId as C;
         let mut brushes = self.workspace.panels.brushes;
         if menu_toggle(ui, &mut brushes, "Brushes", "").changed() {
             self.set_panel_visible(PanelId::Brushes, brushes);
-            ui.close();
-        }
-        if menu_item(ui, "Customize tools…", "").clicked() {
-            self.open_customize_tools(ctx);
             ui.close();
         }
         nf::menu_separator(ui);
@@ -1018,6 +1040,35 @@ impl Editor {
             toggle(self, ui, index);
         }
         nf::menu_separator(ui);
+        toggle(self, ui, 16);
+        Self::planned_menu_toggle(ui, "Window ▸ Panels ▸ Debugger", "");
+        for index in 17..21 {
+            toggle(self, ui, index);
+        }
+        nf::menu_separator(ui);
+        menu_popup(
+            ui,
+            "Planned panels",
+            "Properties — Rectangle primitive",
+            "",
+            |ui| {
+                planned::menu_items(ui);
+            },
+        );
+    }
+
+    /// Window keeps window/workspace operations; panel toggles are grouped in Panels.
+    fn window_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::commands::CommandId as C;
+        Self::unavailable_item(ui, "Duplicate window", "⌥⌘K");
+        if menu_item(ui, "Customize tools…", "").clicked() {
+            self.open_customize_tools(ctx);
+            ui.close();
+        }
+        menu_popup(ui, "Panels", "Compiler errors", "", |ui| {
+            self.panels_menu(ui);
+        });
+        nf::menu_separator(ui);
         for (label, panel, cmd) in [
             (
                 "Inspector priority",
@@ -1035,12 +1086,6 @@ impl Editor {
                 self.give_dock_priority(panel);
                 ui.close();
             }
-        }
-        nf::menu_separator(ui);
-        toggle(self, ui, 16);
-        Self::planned_menu_toggle(ui, "Window ▸ Debugger", "");
-        for index in 17..21 {
-            toggle(self, ui, index);
         }
         nf::menu_separator(ui);
         menu_popup(ui, "Workspaces", "Reset Developer workspace", "", |ui| {
@@ -1100,17 +1145,6 @@ impl Editor {
                 }
             }
         });
-        menu_popup(
-            ui,
-            "Planned panels",
-            "Properties — Rectangle primitive",
-            "",
-            |ui| {
-                planned::menu_items(ui);
-            },
-        );
-        nf::menu_separator(ui);
-        self.document_list(ui, ctx);
     }
 }
 
@@ -1148,7 +1182,7 @@ mod tests {
                 PLANNED_ENTRY_POINTS
                     .iter()
                     .any(|(path, p)| *p == panel && !path.contains("Planned panels")),
-                "{panel:?} is reachable only from Window ▸ Planned panels"
+                "{panel:?} is reachable only from Window ▸ Panels ▸ Planned panels"
             );
         }
     }

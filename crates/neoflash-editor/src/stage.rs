@@ -952,7 +952,11 @@ impl Editor {
                 self.paint_motion_path(&p, origin, mapping);
                 self.paint_shape_hints(&p, origin, mapping);
                 self.paint_stage_guides(&p, rect, mapping, origin);
-                if !simple_button_consumed {
+                let quick_stage_exit = !simple_button_consumed
+                    && self.take_empty_stage_double_click(
+                        ui, &p, origin, mapping, &scene, &response,
+                    );
+                if !simple_button_consumed && !quick_stage_exit {
                     let extended_tool =
                         self.authoring_tool_stage(ui, &p, origin, mapping, rect, &scene);
                     if self.tool == Tool::Lasso {
@@ -1028,6 +1032,9 @@ impl Editor {
                         self.vector_stage(ui, &content, origin, mapping, page, &response);
                     }
                 }
+                if !simple_button_consumed && !quick_stage_exit {
+                    self.remember_empty_stage_click(ui, &p, origin, mapping, &scene, &response);
+                }
                 self.paint_snap_ring(&p);
                 self.stage_context_menu(&response, &scene, &p, mapping, origin);
                 self.stage_rulers(ctx, rect, mapping, origin);
@@ -1037,6 +1044,116 @@ impl Editor {
                 self.stage_chrome(ui, rect);
                 self.show_stage_cursor(ctx, rect, ui.layer_id());
             });
+    }
+
+    /// Treat two clean clicks on genuinely empty canvas as the classic quick exit from symbol
+    /// editing. Tracking the first click ourselves lets the second press be intercepted before a
+    /// sticky drawing tool starts another gesture; active Pen/shape/paint gestures keep ownership.
+    fn take_empty_stage_double_click(
+        &mut self,
+        ui: &egui::Ui,
+        p: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+        scene: &[DrawItem],
+        response: &egui::Response,
+    ) -> bool {
+        let click_id = egui::Id::new("nf2-empty-stage-click");
+        let (pressed, pos, now) = ui.input(|input| {
+            (
+                input.pointer.primary_pressed(),
+                input.pointer.interact_pos(),
+                input.time,
+            )
+        });
+        if !pressed {
+            return false;
+        }
+        let previous = ui
+            .ctx()
+            .data_mut(|data| data.remove_temp::<(String, f64, Pos2)>(click_id));
+        let Some(pos) = pos else {
+            return false;
+        };
+        if self.edit_depth() <= 1
+            || self.stage_view.guide_pointer
+            || self.object_gesture.is_some()
+            || self.authoring_tools.is_drawing()
+            || self.shape_draft.is_some()
+            || self.vector.point_drag.is_some()
+            || self.vector.draft.is_some()
+            || !response.rect.contains(pos)
+            || ui
+                .ctx()
+                .layer_id_at(pos)
+                .is_some_and(|layer| layer != response.layer_id)
+            || self
+                .pick_placement(
+                    scene,
+                    p,
+                    mapping.screen_to_edit(origin, self.zoom, pos),
+                    mapping,
+                )
+                .is_some()
+        {
+            return false;
+        }
+        let symbol = self.symbol_id();
+        let double = previous.is_some_and(|(previous_symbol, time, previous_pos)| {
+            previous_symbol == symbol
+                && now >= time
+                && now - time <= 0.45
+                && previous_pos.distance(pos) <= 8.0
+        });
+        if double {
+            self.finish_edits();
+            self.playing = false;
+            self.leave_symbol_to_level(0);
+        }
+        double
+    }
+
+    fn remember_empty_stage_click(
+        &self,
+        ui: &egui::Ui,
+        p: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+        scene: &[DrawItem],
+        response: &egui::Response,
+    ) {
+        if self.edit_depth() <= 1
+            || self.stage_view.guide_pointer
+            || !response.clicked()
+            || self.object_gesture.is_some()
+            || self.authoring_tools.is_drawing()
+            || self.shape_draft.is_some()
+            || self.vector.point_drag.is_some()
+            || self.vector.draft.is_some()
+        {
+            return;
+        }
+        let Some(pos) = response.interact_pointer_pos() else {
+            return;
+        };
+        if self
+            .pick_placement(
+                scene,
+                p,
+                mapping.screen_to_edit(origin, self.zoom, pos),
+                mapping,
+            )
+            .is_some()
+        {
+            return;
+        }
+        let now = ui.input(|input| input.time);
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("nf2-empty-stage-click"),
+                (self.symbol_id().to_owned(), now, pos),
+            );
+        });
     }
 
     /// Stage object (right-click) menu, design §8. Right-clicking an unselected object selects it.

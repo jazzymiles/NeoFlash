@@ -165,7 +165,7 @@ impl Editor {
         true
     }
 
-    /// Window ▸ Scene (⇧F2).
+    /// Window ▸ Panels ▸ Scene (⇧F2).
     pub(crate) fn scene_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, crate::workspace::PanelId::Scene, "Scene");
         egui::ScrollArea::vertical()

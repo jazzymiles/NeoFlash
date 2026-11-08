@@ -1628,6 +1628,9 @@ impl Editor {
                     } else {
                         if !modifiers.shift {
                             self.clear_selection();
+                            // A blank Stage click returns Properties from a Timeline frame/range
+                            // to the document Stage, where the approved Background field lives.
+                            self.clear_timeline_frame_selection();
                         }
                         cursor = nf::ARROW;
                         GestureKind::Marquee

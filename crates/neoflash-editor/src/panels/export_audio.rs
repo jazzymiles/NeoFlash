@@ -1,6 +1,6 @@
 //! Export audio modal dialog (NF2 `Dialog / Export audio`, DL-06; reference
 //! `dialogs-export.png` / `dialog-export-audio.png`), opened from `File ▸ Export ▸ Export audio…`
-//! (`⌥⇧⌘A`), `Library ▸ Export audio…`, and `Window ▸ Planned panels ▸ Export audio`.
+//! (`⌥⇧⌘A`), `Library ▸ Export audio…`, and `Window ▸ Panels ▸ Planned panels ▸ Export audio`.
 //!
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without writing any file, while `Export` / `Enter` prompts for an output `.wav`/`.mp3`/`.ogg`/`.aac`

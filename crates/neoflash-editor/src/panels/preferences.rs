@@ -224,6 +224,18 @@ impl Editor {
         ));
     }
 
+    /// Open the existing command/function catalogue as a focused Help search.
+    pub(crate) fn open_function_search(&mut self, ctx: &egui::Context) {
+        self.open_preferences(PAGE_SHORTCUTS);
+        let mut state = load_shortcuts_ui_state(ctx);
+        state.search.clear();
+        state.only_assigned = false;
+        state.only_conflicts = false;
+        state.stop_recording();
+        store_shortcuts_ui_state(ctx, state);
+        ctx.data_mut(|data| data.insert_temp(shortcuts_search_focus_request_id(), true));
+    }
+
     /// Apply and persist a confirmed draft (Save).
     pub(crate) fn save_preferences(&mut self, ctx: &egui::Context, draft: &PreferencesDraft) {
         self.set_theme(ctx, draft.theme);
@@ -1166,6 +1178,10 @@ fn shortcuts_ui_state_id() -> egui::Id {
     egui::Id::new("prefs-shortcuts-ui-state")
 }
 
+fn shortcuts_search_focus_request_id() -> egui::Id {
+    egui::Id::new("prefs-shortcuts-search-focus-request")
+}
+
 fn load_shortcuts_ui_state(ctx: &egui::Context) -> ShortcutsUiState {
     ctx.data(|d| d.get_temp::<ShortcutsUiState>(shortcuts_ui_state_id()))
         .unwrap_or_default()
@@ -1387,6 +1403,12 @@ fn prefs_shortcuts(ui: &mut Ui, draft: &mut PreferencesDraft) {
                     .unwrap_or(false);
                 let search_resp =
                     ui.add(c::Search::new(&mut state.search, "Search commands").width(search_w));
+                if ui.ctx().data_mut(|data| {
+                    data.remove_temp::<bool>(shortcuts_search_focus_request_id())
+                        .unwrap_or(false)
+                }) {
+                    ui.memory_mut(|memory| memory.request_focus(search_resp.id.with("edit")));
+                }
                 let search_now_focused = ui.memory(|m| m.has_focus(search_resp.id.with("edit")));
                 ui.data_mut(|d| {
                     d.insert_temp(

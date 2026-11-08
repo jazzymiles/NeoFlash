@@ -150,6 +150,66 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
         named_bounds(&out, "Fit stage").is_none(),
         "Fit moved into More tools"
     );
+
+    // Regression: an outside press used to query egui's layer stack while `Context::input`
+    // still held its write lock. Opening Options and then right-clicking a grouped tool therefore
+    // deadlocked the whole editor. The same frame must now close Options and open the flyout.
+    let options = named_bounds(&out, "Tool options").expect("rail pins Tool options");
+    rail(
+        &mut editor,
+        &ctx,
+        0.21,
+        vec![
+            Event::PointerMoved(options.center()),
+            primary_button(options.center(), true),
+            primary_button(options.center(), false),
+        ],
+    );
+    let out = rail(&mut editor, &ctx, 0.22, vec![]);
+    assert!(
+        named_bounds(&out, "Tool properties…").is_some(),
+        "Options popover is open before the outside click"
+    );
+    let selection = named_bounds(&out, "Selection (V)").unwrap().center();
+    rail(
+        &mut editor,
+        &ctx,
+        0.23,
+        vec![
+            Event::PointerMoved(selection),
+            Event::PointerButton {
+                pos: selection,
+                button: egui::PointerButton::Secondary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            Event::PointerButton {
+                pos: selection,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let out = rail(&mut editor, &ctx, 0.24, vec![]);
+    assert!(
+        named_bounds(&out, "Subselection tool").is_some(),
+        "outside secondary click replaces Options with the grouped-tool flyout"
+    );
+    rail(
+        &mut editor,
+        &ctx,
+        0.25,
+        vec![Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    rail(&mut editor, &ctx, 0.26, vec![]);
+
     rail(
         &mut editor,
         &ctx,
@@ -1388,7 +1448,7 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
             egui::PointerButton::Primary,
         );
     };
-    let menus: [(&str, &[&str]); 8] = [
+    let menus: [(&str, &[&str]); 9] = [
         (
             "File",
             &["Publish settings… (⇧F12)", "Publish (⇧⌥F12)", "Print… (⌘P)"],
@@ -1409,19 +1469,17 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
             "Insert",
             &["New symbol… (⌘F8)", "Layer folder", "Motion tween"],
         ),
-        (
-            "Modify",
-            &["Document… (⌘J)", "Break apart (⌘B)", "Ungroup (⇧⌘G)"],
-        ),
+        ("Modify", &["Break apart (⌘B)", "Ungroup (⇧⌘G)"]),
         (
             "Control",
             &["Go to end (⌥⇧.)", "Test scene (⌥⌘↵)", "Mute sounds (⌥⌘M)"],
         ),
+        ("Document", &["Document settings… (⌘J)"]),
+        ("Window", &["Panels", "Workspaces", "Appearance"]),
         (
-            "Window",
-            &["Swatches (⌘F9)", "Compiler errors (⌥F2)", "Movie Explorer"],
+            "Help",
+            &["Search functions… (F1)", "Open example", "About NeoFlash"],
         ),
-        ("Help", &["Open example", "About NeoFlash"]),
     ];
     for (title, rows) in menus {
         d.click(title);
@@ -1525,6 +1583,7 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
     assert!(d.tab(PanelId::Timeline).is_some());
     for visible in [false, true] {
         d.click("Window");
+        d.click("Panels");
         d.click("Timeline (⌥⌘T)");
         assert_eq!(
             d.editor.workspace.is_panel_visible(PanelId::Timeline),
@@ -1670,7 +1729,19 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
     );
     d.click("Cancel");
 
-    // F1 and Timeline ▸ Frame view ▸ Help share the searchable command catalogue.
+    // The main Help row, F1 and Timeline ▸ Frame view ▸ Help share the searchable command
+    // catalogue. Help also focuses its search immediately: typing needs no extra click.
+    d.click("Help");
+    d.click("Search functions… (F1)");
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(PAGE_SHORTCUTS)
+    );
+    d.step(vec![Event::Text("keyframe".into())]);
+    d.settle();
+    assert!(d.find("Convert to keyframes").is_some());
+    d.click("Cancel");
+
     d.step(vec![Event::Key {
         key: egui::Key::F1,
         physical_key: Some(egui::Key::F1),
@@ -1683,7 +1754,6 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
         d.editor.preferences.as_ref().map(|p| p.page),
         Some(PAGE_SHORTCUTS)
     );
-    d.click("Search commands");
     d.step(vec![Event::Text("keyframe".into())]);
     d.settle();
     assert!(d.find("Convert to keyframes").is_some());
@@ -1977,6 +2047,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         d.editor.set_panel_visible(panel, false);
         d.settle();
         d.click("Window");
+        d.click("Panels");
         click_panel_menu(&mut d, window_row(panel));
         assert!(
             d.editor.workspace.is_panel_visible(panel),
@@ -1984,6 +2055,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         );
         assert!(d.tab(panel).is_some(), "{panel:?} tab is drawn");
         d.click("Window");
+        d.click("Panels");
         click_panel_menu(&mut d, window_row(panel));
         assert!(
             !d.editor.workspace.is_panel_visible(panel),
@@ -1992,6 +2064,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         assert!(d.tab(panel).is_none(), "{panel:?} tab disappears");
 
         d.click("Window");
+        d.click("Panels");
         click_panel_menu(&mut d, window_row(panel));
         assert!(d.editor.workspace.is_panel_visible(panel));
         let tab = d.tab(panel).unwrap();
@@ -2008,6 +2081,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
     // Inactive background tabs and Hide panels: Window menu must open in 1 click, not 2.
     assert!(!d.editor.workspace.is_panel_active(PanelId::Actions));
     d.click("Window");
+    d.click("Panels");
     d.click(window_row(PanelId::Actions));
     assert!(
         d.editor.workspace.is_panel_active(PanelId::Actions),
@@ -2016,6 +2090,7 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
     d.editor.set_panels_hidden(true);
     d.settle();
     d.click("Window");
+    d.click("Panels");
     d.click(window_row(PanelId::Properties));
     assert!(!d.editor.panels_hidden);
     assert!(
@@ -2064,8 +2139,8 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
         "New symbol closes with Cancel"
     );
 
-    d.click("Modify");
-    d.click("Document… (⌘J)");
+    d.click("Document");
+    d.click("Document settings… (⌘J)");
     assert!(
         d.editor.document_settings.is_some(),
         "Document settings opens"
@@ -2451,9 +2526,10 @@ fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_
     d.editor = editor;
     d.settle();
 
-    // Open Document settings via Modify ▸ Document…, click Match contents, Make default, and OK.
-    d.click("Modify");
-    d.click("Document… (⌘J)");
+    // Open Document settings via Document ▸ Document settings…, click Match contents,
+    // Make default, and OK.
+    d.click("Document");
+    d.click("Document settings… (⌘J)");
     assert!(d.editor.document_settings.is_some());
     d.click("Match contents");
     {

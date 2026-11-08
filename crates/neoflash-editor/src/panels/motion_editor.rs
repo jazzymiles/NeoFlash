@@ -158,7 +158,7 @@ fn lane_range(property: TweenProperty, values: &[f64]) -> (f64, f64) {
 }
 
 impl Editor {
-    /// Window ▸ Motion editor.
+    /// Window ▸ Panels ▸ Motion editor.
     pub(crate) fn motion_editor_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, PanelId::MotionEditor, "Motion editor");
         let ctx = ui.ctx().clone();

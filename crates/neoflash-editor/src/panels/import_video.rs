@@ -1,6 +1,6 @@
 //! Import video modal dialog and live floating body (NF2 `Dialog / Import video`, `DL-07`,
 //! `W3.5`; reference `dialog-import-video.png`), opened from `File ▸ Import ▸ Import video…`
-//! and `Window ▸ Planned panels ▸ Import video`.
+//! and `Window ▸ Panels ▸ Planned panels ▸ Import video`.
 
 use super::planned::{FooterClick, caption, footer_clicked};
 use super::planned_dialogs::{group, preview_box};

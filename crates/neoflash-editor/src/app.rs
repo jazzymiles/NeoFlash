@@ -2036,7 +2036,7 @@ impl Editor {
         if ctx.input_mut(|input| input.consume_key(none, Key::F1)) {
             // The existing Keyboard Shortcuts page is also the command/function catalogue: it
             // searches every registered action by name, menu path and shortcut.
-            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
+            self.open_function_search(ctx);
         }
         for (m, key) in [(cmd, Key::P), (cmd | shift, Key::W), (alt | cmd, Key::K)] {
             ctx.input_mut(|i| {

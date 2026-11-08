@@ -1,5 +1,5 @@
 //! Compiler errors panel (`Panel / Compiler errors`, `PP-04`; reference `panels-more-2.png`),
-//! opened by Window ▸ Compiler errors (`⌥F2`).
+//! opened by Window ▸ Panels ▸ Compiler errors (`⌥F2`).
 //!
 //! Compiles project source units, timeline frame scripts and object event scripts against the
 //! current `Project` snapshot (plus HTML5 publish warnings) without mutating document state.

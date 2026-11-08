@@ -1739,7 +1739,40 @@ fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
     editor.authoring_tools.eraser_size = 128.;
     editor.set_tool(Tool::Eraser);
     let point = page.min + egui::vec2(200., 200.);
-    pen_click(&mut editor, &ctx, 0.1, point, point);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            egui::Event::PointerMoved(point),
+            primary_button(point, true),
+        ],
+    );
+    let preview = stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![egui::Event::PointerMoved(point + egui::vec2(1., 0.))],
+    );
+    let error = crate::theme::UiPalette::current(&ctx).error_text;
+    assert!(
+        !preview.shapes.iter().any(|shape| {
+            matches!(
+                &shape.shape,
+                egui::Shape::Rect(rect)
+                    if rect.stroke.color == error
+                        && (rect.stroke.width - 1.5).abs() < f32::EPSILON
+                        && rect.rect.size() == egui::vec2(8., 8.)
+            )
+        }),
+        "Eraser target bookkeeping must not flash whole-object bounding boxes"
+    );
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![primary_button(point + egui::vec2(1., 0.), false)],
+    );
     assert!(
         editor.symbol().timeline.layers[0].keyframes[0]
             .elements

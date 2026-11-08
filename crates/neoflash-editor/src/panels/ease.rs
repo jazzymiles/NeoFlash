@@ -329,7 +329,7 @@ impl Editor {
         true
     }
 
-    /// Window ▸ Ease (and the Timeline controls Ease button, Frame menu ▸ Ease…).
+    /// Window ▸ Panels ▸ Ease (and the Timeline controls Ease button, Frame menu ▸ Ease…).
     pub(crate) fn ease_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, crate::workspace::PanelId::Ease, "Ease");
         egui::ScrollArea::vertical()

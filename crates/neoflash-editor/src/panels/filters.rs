@@ -1,4 +1,4 @@
-//! Filters panel (`Window ▸ Filters`, NF2 `Panel / Properties — Movie clip` Display & Filters
+//! Filters panel (`Window ▸ Panels ▸ Filters`, NF2 `Panel / Properties — Movie clip` Display & Filters
 //! sections; reference `panel-properties-movie-clip.png`): authored object visibility,
 //! bitmap caching, blend mode, and ordered display filters (`DropShadow`, `Blur`, `Glow`,
 //! `Bevel`, `GradientGlow`, `GradientBevel`, and `Adjust color` → 4×5 `ColorMatrix`).
@@ -405,7 +405,7 @@ impl Editor {
         }
     }
 
-    /// Window ▸ Filters.
+    /// Window ▸ Panels ▸ Filters.
     pub(crate) fn filters_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, PanelId::Filters, "Filters");
         let ctx = ui.ctx().clone();

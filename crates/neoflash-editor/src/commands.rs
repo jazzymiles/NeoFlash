@@ -18,18 +18,20 @@ pub enum CommandCategory {
     Insert,
     Modify,
     Control,
+    Document,
     Window,
     Tools,
 }
 
 impl CommandCategory {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::File,
         Self::Edit,
         Self::View,
         Self::Insert,
         Self::Modify,
         Self::Control,
+        Self::Document,
         Self::Window,
         Self::Tools,
     ];
@@ -42,6 +44,7 @@ impl CommandCategory {
             Self::Insert => "Insert",
             Self::Modify => "Modify",
             Self::Control => "Control",
+            Self::Document => "Document",
             Self::Window => "Window",
             Self::Tools => "Tools",
         }
@@ -1508,8 +1511,8 @@ impl CommandId {
             },
             Self::ModifyDocument => CommandMeta {
                 id: "modify.document",
-                category: C::Modify,
-                title: "Modify ▸ Document…",
+                category: C::Document,
+                title: "Document ▸ Document settings…",
                 keywords: "",
                 defaults: S_CMD_J,
                 allow_when_typing: false,
@@ -1717,7 +1720,7 @@ impl CommandId {
             Self::WindowTimeline => CommandMeta {
                 id: "window.timeline",
                 category: C::Window,
-                title: "Window ▸ Timeline",
+                title: "Window ▸ Panels ▸ Timeline",
                 keywords: "",
                 defaults: S_ALT_CMD_T,
                 allow_when_typing: false,
@@ -1725,7 +1728,7 @@ impl CommandId {
             Self::WindowTools => CommandMeta {
                 id: "window.tools",
                 category: C::Window,
-                title: "Window ▸ Tools",
+                title: "Window ▸ Panels ▸ Tools",
                 keywords: "",
                 defaults: S_CMD_F2,
                 allow_when_typing: false,
@@ -1733,7 +1736,7 @@ impl CommandId {
             Self::WindowProperties => CommandMeta {
                 id: "window.properties",
                 category: C::Window,
-                title: "Window ▸ Properties",
+                title: "Window ▸ Panels ▸ Properties",
                 keywords: "",
                 defaults: S_CMD_F3,
                 allow_when_typing: false,
@@ -1741,7 +1744,7 @@ impl CommandId {
             Self::WindowLibrary => CommandMeta {
                 id: "window.library",
                 category: C::Window,
-                title: "Window ▸ Library",
+                title: "Window ▸ Panels ▸ Library",
                 keywords: "",
                 defaults: S_CMD_L,
                 allow_when_typing: false,
@@ -1749,7 +1752,7 @@ impl CommandId {
             Self::WindowActions => CommandMeta {
                 id: "window.actions",
                 category: C::Window,
-                title: "Window ▸ Actions",
+                title: "Window ▸ Panels ▸ Actions",
                 keywords: "script code",
                 defaults: S_F9,
                 allow_when_typing: true,
@@ -1757,7 +1760,7 @@ impl CommandId {
             Self::WindowAlign => CommandMeta {
                 id: "window.align",
                 category: C::Window,
-                title: "Window ▸ Align",
+                title: "Window ▸ Panels ▸ Align",
                 keywords: "",
                 defaults: S_CMD_K,
                 allow_when_typing: false,
@@ -1765,7 +1768,7 @@ impl CommandId {
             Self::WindowColor => CommandMeta {
                 id: "window.color",
                 category: C::Window,
-                title: "Window ▸ Color",
+                title: "Window ▸ Panels ▸ Color",
                 keywords: "",
                 defaults: S_SHIFT_CMD_F9,
                 allow_when_typing: false,
@@ -1773,7 +1776,7 @@ impl CommandId {
             Self::WindowSwatches => CommandMeta {
                 id: "window.swatches",
                 category: C::Window,
-                title: "Window ▸ Swatches",
+                title: "Window ▸ Panels ▸ Swatches",
                 keywords: "",
                 defaults: S_CMD_F9,
                 allow_when_typing: false,
@@ -1781,7 +1784,7 @@ impl CommandId {
             Self::WindowFilters => CommandMeta {
                 id: "window.filters",
                 category: C::Window,
-                title: "Window ▸ Filters",
+                title: "Window ▸ Panels ▸ Filters",
                 keywords: "",
                 defaults: &[],
                 allow_when_typing: false,
@@ -1789,7 +1792,7 @@ impl CommandId {
             Self::WindowTransform => CommandMeta {
                 id: "window.transform",
                 category: C::Window,
-                title: "Window ▸ Transform",
+                title: "Window ▸ Panels ▸ Transform",
                 keywords: "",
                 defaults: S_CMD_T,
                 allow_when_typing: false,
@@ -1797,7 +1800,7 @@ impl CommandId {
             Self::WindowInfo => CommandMeta {
                 id: "window.info",
                 category: C::Window,
-                title: "Window ▸ Info",
+                title: "Window ▸ Panels ▸ Info",
                 keywords: "",
                 defaults: S_CMD_I,
                 allow_when_typing: false,
@@ -1805,7 +1808,7 @@ impl CommandId {
             Self::WindowEase => CommandMeta {
                 id: "window.ease",
                 category: C::Window,
-                title: "Window ▸ Ease",
+                title: "Window ▸ Panels ▸ Ease",
                 keywords: "",
                 defaults: &[],
                 allow_when_typing: false,
@@ -1813,7 +1816,7 @@ impl CommandId {
             Self::WindowHistory => CommandMeta {
                 id: "window.history",
                 category: C::Window,
-                title: "Window ▸ History",
+                title: "Window ▸ Panels ▸ History",
                 keywords: "",
                 defaults: S_CMD_F10,
                 allow_when_typing: false,
@@ -1821,7 +1824,7 @@ impl CommandId {
             Self::WindowScene => CommandMeta {
                 id: "window.scene",
                 category: C::Window,
-                title: "Window ▸ Scene",
+                title: "Window ▸ Panels ▸ Scene",
                 keywords: "",
                 defaults: S_SHIFT_F2,
                 allow_when_typing: false,
@@ -1829,7 +1832,7 @@ impl CommandId {
             Self::WindowCompilerErrors => CommandMeta {
                 id: "window.compiler_errors",
                 category: C::Window,
-                title: "Window ▸ Compiler errors",
+                title: "Window ▸ Panels ▸ Compiler errors",
                 keywords: "",
                 defaults: S_ALT_F2,
                 allow_when_typing: false,
@@ -1837,7 +1840,7 @@ impl CommandId {
             Self::WindowOutput => CommandMeta {
                 id: "window.output",
                 category: C::Window,
-                title: "Window ▸ Output",
+                title: "Window ▸ Panels ▸ Output",
                 keywords: "",
                 defaults: S_F2,
                 allow_when_typing: false,
@@ -1845,7 +1848,7 @@ impl CommandId {
             Self::WindowCodeSnippets => CommandMeta {
                 id: "window.code_snippets",
                 category: C::Window,
-                title: "Window ▸ Code snippets",
+                title: "Window ▸ Panels ▸ Code snippets",
                 keywords: "",
                 defaults: &[],
                 allow_when_typing: false,
@@ -1853,7 +1856,7 @@ impl CommandId {
             Self::WindowMovieExplorer => CommandMeta {
                 id: "window.movie_explorer",
                 category: C::Window,
-                title: "Window ▸ Movie Explorer",
+                title: "Window ▸ Panels ▸ Movie Explorer",
                 keywords: "",
                 defaults: &[],
                 allow_when_typing: false,
@@ -1861,7 +1864,7 @@ impl CommandId {
             Self::WindowAccessibility => CommandMeta {
                 id: "window.accessibility",
                 category: C::Window,
-                title: "Window ▸ Accessibility",
+                title: "Window ▸ Panels ▸ Accessibility",
                 keywords: "",
                 defaults: S_SHIFT_F11,
                 allow_when_typing: false,
@@ -1869,7 +1872,7 @@ impl CommandId {
             Self::WindowMotionEditor => CommandMeta {
                 id: "window.motion_editor",
                 category: C::Window,
-                title: "Window ▸ Motion editor",
+                title: "Window ▸ Panels ▸ Motion editor",
                 keywords: "",
                 defaults: &[],
                 allow_when_typing: false,
@@ -1877,7 +1880,7 @@ impl CommandId {
             Self::WindowBrushes => CommandMeta {
                 id: "window.brushes",
                 category: C::Window,
-                title: "Window ▸ Brushes",
+                title: "Window ▸ Panels ▸ Brushes",
                 keywords: "brush presets",
                 defaults: &[],
                 allow_when_typing: false,
@@ -1885,7 +1888,7 @@ impl CommandId {
             Self::WindowProject => CommandMeta {
                 id: "window.project",
                 category: C::Window,
-                title: "Window ▸ Project",
+                title: "Window ▸ Panels ▸ Project",
                 keywords: "",
                 defaults: &[],
                 allow_when_typing: false,

@@ -1490,7 +1490,7 @@ impl Editor {
                 _ => {}
             }
         }
-        self.paint_authoring_gesture(p, origin, mapping, view, scene);
+        self.paint_authoring_gesture(p, origin, mapping, view);
         if let Some(pos) = ui.input(|i| i.pointer.latest_pos())
             && view.contains(pos)
         {
@@ -1897,7 +1897,6 @@ impl Editor {
         origin: Pos2,
         mapping: StageMapping,
         view: Rect,
-        scene: &[DrawItem],
     ) {
         let palette = UiPalette::current(p.ctx());
         if let Some(g) = &self.authoring_tools.gesture {
@@ -1966,27 +1965,9 @@ impl Editor {
                         StrokeKind::Inside,
                     );
                 }
-                Tool::Eraser => {
-                    for item in scene {
-                        if item
-                            .instance_path
-                            .first()
-                            .is_some_and(|id| g.targets.iter().any(|target| &target.element == id))
-                        {
-                            let mut mapped = item.clone();
-                            mapped.transform = g.mapping.map_matrix(mapped.transform);
-                            let bounds = crate::stage::world_bounds(&mapped, p);
-                            let bounds = StageMapping::identity()
-                                .map_rect_to_screen(g.origin, g.zoom, bounds);
-                            p.rect_stroke(
-                                bounds,
-                                0,
-                                Stroke::new(1.5_f32, palette.error_text),
-                                StrokeKind::Inside,
-                            );
-                        }
-                    }
-                }
+                // The cursor is the complete Eraser preview. Hit targets stay internal instead
+                // of flashing whole-object boxes while the cursor crosses artwork.
+                Tool::Eraser => {}
                 Tool::Gradient => {
                     if let Some(gradient) = &g.gradient {
                         let matrix = if gradient.focal_handle {

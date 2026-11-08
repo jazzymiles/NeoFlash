@@ -921,16 +921,23 @@ fn rail_popover(ui: &egui::Ui, anchor: Rect, content: impl FnOnce(&mut egui::Ui)
         return false;
     };
     let popup = shown.response.rect;
-    let outside = ctx.input(|i| {
-        i.pointer.any_pressed()
-            && i.pointer.interact_pos().is_some_and(|pos| {
-                !popup.contains(pos)
-                    && !anchor.contains(pos)
-                    && ctx
-                        .layer_id_at(pos)
-                        .is_none_or(|layer| layer.order < egui::Order::Foreground)
-            })
+    // Never call back into `Context` while an input guard is held: egui's Context lock is not
+    // re-entrant. The old code called `layer_id_at` inside `ctx.input`, deadlocking as soon as an
+    // outside press reached this branch (for example Options, then right-click another tool).
+    let (pressed, pointer_pos, escape) = ctx.input(|i| {
+        (
+            i.pointer.any_pressed(),
+            i.pointer.interact_pos(),
+            i.key_pressed(Key::Escape),
+        )
     });
-    let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+    let outside = pressed
+        && pointer_pos.is_some_and(|pos| {
+            !popup.contains(pos)
+                && !anchor.contains(pos)
+                && ctx
+                    .layer_id_at(pos)
+                    .is_none_or(|layer| layer.order < egui::Order::Foreground)
+        });
     !(shown.inner || outside || escape)
 }

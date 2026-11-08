@@ -1365,7 +1365,7 @@ impl Editor {
         }
         nf::menu_separator(ui);
         if ui.add(MenuItem::new("Help").shortcut("F1")).clicked() {
-            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
+            self.open_function_search(ui.ctx());
             ui.close();
         }
         if ui.add(MenuItem::new("Close panel")).clicked() {

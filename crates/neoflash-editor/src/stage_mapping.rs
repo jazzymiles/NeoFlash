@@ -1,4 +1,6 @@
-use eframe::egui::{Pos2, Rect};
+use eframe::egui::Pos2;
+#[cfg(test)]
+use eframe::egui::Rect;
 use neoflash_core::{AuthoredScene, affine_multiply, invert_affine_matrix};
 
 const IDENTITY: [f64; 6] = [1., 0., 0., 1., 0., 0.];
@@ -130,6 +132,7 @@ impl StageMapping {
         mapped
     }
 
+    #[cfg(test)]
     pub(crate) fn map_rect_to_screen(self, origin: Pos2, zoom: f32, rect: Rect) -> Rect {
         let mut mapped = Rect::NOTHING;
         for corner in [

@@ -1776,7 +1776,6 @@ impl Editor {
         use crate::ui_icons::{menu_item_enabled, menu_popup};
         menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
             let selected = !self.selection.is_empty();
-            Self::planned_menu_item(ui, "Modify ▸ Document…", &self.sc(C::ModifyDocument));
             if menu_item_enabled(
                 ui,
                 self.can_convert_selection(),

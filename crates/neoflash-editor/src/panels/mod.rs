@@ -23,11 +23,11 @@
 //! | `info.rs` | Info (selection bounds and live stage cursor / RGBA readout) |
 //! | `project.rs` | Project (source/asset file tree, search, create/delete/publish) |
 //! | `filters.rs` | Filters (display visibility, blend mode, bitmap caching and display filters) |
-//! | `compiler_errors.rs` | Compiler errors (`Window ▸ Compiler errors`, `⌥F2`) |
-//! | `code_snippets.rs` | Code snippets (`Window ▸ Code snippets`) |
-//! | `movie_explorer.rs` | Movie Explorer (`Window ▸ Movie Explorer`) |
+//! | `compiler_errors.rs` | Compiler errors (`Window ▸ Panels ▸ Compiler errors`, `⌥F2`) |
+//! | `code_snippets.rs` | Code snippets (`Window ▸ Panels ▸ Code snippets`) |
+//! | `movie_explorer.rs` | Movie Explorer (`Window ▸ Panels ▸ Movie Explorer`) |
 //! | `find_replace.rs` | Find and replace modal dialog (`Edit ▸ Find and replace`, `⌘F`) |
-//! | `document_settings.rs` | Document settings modal dialog (`Modify ▸ Document…`, `⌘J`) |
+//! | `document_settings.rs` | Document settings modal dialog (`Document ▸ Document settings…`, `⌘J`) |
 //! | `export_audio.rs` | Export audio modal dialog (`File ▸ Export ▸ Export audio…`, `⌥⇧⌘A`) |
 //! | `export_lottie.rs` | Export Lottie modal dialog (`File ▸ Export ▸ Export Lottie…`, `⌥⇧⌘L`) |
 //! | `export_video.rs` | Export video modal dialog (`File ▸ Export ▸ Export video…`, `⌥⇧⌘V`) |

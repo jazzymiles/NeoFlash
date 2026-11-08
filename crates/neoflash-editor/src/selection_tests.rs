@@ -156,6 +156,109 @@ fn input(
     }
 }
 
+#[test]
+fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_scene() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_tool(Tool::Select);
+
+    // A Timeline frame selection used to keep Properties in Frame mode even after the user
+    // deliberately clicked empty Stage space. The blank press must expose Stage properties.
+    let root_layer = editor.symbol().timeline.layers[0].id.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![root_layer],
+        start: 0,
+        end: 0,
+    });
+    assert!(editor.selected_frame_range().is_some());
+    let root_blank = page.min + egui::vec2(30., 30.);
+    input(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            Event::PointerMoved(root_blank),
+            primary_button(root_blank, true),
+        ],
+        Modifiers::NONE,
+    );
+    input(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![primary_button(root_blank, false)],
+        Modifiers::NONE,
+    );
+    assert!(editor.frame_range().is_none());
+    assert!(!editor.timeline_edit.focused);
+
+    // Build two clean symbol levels, enter both, then double-click genuinely empty canvas. This
+    // is the quick escape gesture: it returns straight to the scene rather than one breadcrumb.
+    for id in ["double-click-outer", "double-click-inner"] {
+        let mut symbol = editor.symbol().clone();
+        symbol.id = id.into();
+        symbol.name = id.into();
+        symbol.class_name = None;
+        symbol.linkage_id = None;
+        symbol.timeline.layers[0].id = format!("{id}-layer");
+        symbol.timeline.layers[0].keyframes[0].elements.clear();
+        editor.project.symbols.push(symbol);
+    }
+    editor.project.validate().unwrap();
+    let before_navigation = editor.project.clone();
+    assert!(editor.enter_symbol_isolated("double-click-outer".into()));
+    assert!(editor.enter_symbol_isolated("double-click-inner".into()));
+    assert_eq!(editor.edit_depth(), 3);
+    editor.set_tool(Tool::PolyStar);
+
+    let nested_blank = page.center();
+    for (time, pressed) in [(2.0, true), (2.05, false)] {
+        input(
+            &mut editor,
+            &ctx,
+            time,
+            if pressed {
+                vec![
+                    Event::PointerMoved(nested_blank),
+                    primary_button(nested_blank, true),
+                ]
+            } else {
+                vec![primary_button(nested_blank, false)]
+            },
+            Modifiers::NONE,
+        );
+    }
+    assert_eq!(
+        editor.edit_depth(),
+        3,
+        "one click keeps the nested edit open"
+    );
+    for (time, pressed) in [(2.15, true), (2.2, false)] {
+        input(
+            &mut editor,
+            &ctx,
+            time,
+            if pressed {
+                vec![
+                    Event::PointerMoved(nested_blank),
+                    primary_button(nested_blank, true),
+                ]
+            } else {
+                vec![primary_button(nested_blank, false)]
+            },
+            Modifiers::NONE,
+        );
+    }
+    assert!(editor.editing_scene());
+    assert_eq!(editor.edit_depth(), 1);
+    assert_eq!(
+        editor.tool,
+        Tool::PolyStar,
+        "the sticky drawing tool is preserved"
+    );
+    assert_eq!(editor.project, before_navigation);
+    assert!(!editor.history.can_undo());
+}
+
 fn drag(
     editor: &mut Editor,
     ctx: &egui::Context,
