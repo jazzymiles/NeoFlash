@@ -904,6 +904,65 @@ impl Editor {
         });
     }
 
+    pub(crate) fn can_group_selection(&self) -> bool {
+        let targets = &self.selection.targets;
+        if targets.len() < 2 {
+            return false;
+        }
+        let layer_id = &targets[0].layer;
+        if targets
+            .iter()
+            .any(|target| &target.layer != layer_id || !self.target_editable(target))
+        {
+            return false;
+        }
+        let Some(layer_index) = self.target_layer_index(&targets[0]) else {
+            return false;
+        };
+        let layer = &self.symbol().timeline.layers[layer_index];
+        let members: HashSet<_> = targets
+            .iter()
+            .map(|target| target.element.as_str())
+            .collect();
+        if layer.properties.groups.iter().any(|group| {
+            group.members.len() == members.len()
+                && group
+                    .members
+                    .iter()
+                    .all(|member| members.contains(member.as_str()))
+        }) {
+            return false;
+        }
+        let indices = layer
+            .key_at(self.frame)
+            .into_iter()
+            .flat_map(|key| key.elements.iter().enumerate())
+            .filter(|(_, element)| members.contains(element.id.as_str()))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        indices.len() == members.len()
+            && indices
+                .first()
+                .zip(indices.last())
+                .is_some_and(|(first, last)| last - first + 1 == indices.len())
+    }
+
+    pub(crate) fn can_ungroup_selection(&self) -> bool {
+        if self.selection.is_empty() {
+            return false;
+        }
+        self.symbol().timeline.layers.iter().any(|layer| {
+            layer.properties.groups.iter().any(|group| {
+                group.members.iter().any(|element| {
+                    self.selection.targets.contains(&SelectionTarget {
+                        layer: layer.id.clone(),
+                        element: element.clone(),
+                    })
+                })
+            })
+        })
+    }
+
     pub(crate) fn group_selection(&mut self) {
         self.finish_edits();
         let targets = self.selection.targets.clone();
@@ -923,6 +982,13 @@ impl Editor {
             .iter()
             .map(|target| target.element.clone())
             .collect();
+        if layer.properties.groups.iter().any(|group| {
+            group.members.len() == members.len()
+                && group.members.iter().all(|member| members.contains(member))
+        }) {
+            self.message("The selected objects are already one group.");
+            return;
+        }
         let indices = layer
             .key_at(self.frame)
             .into_iter()
@@ -955,6 +1021,7 @@ impl Editor {
             }
         }
         let name = format!("Group {}", layer.properties.groups.len() + 1);
+        self.playing = false;
         self.transact(|editor| {
             editor.project.format_version = editor.project.format_version.max(4);
             let layer = editor
@@ -982,6 +1049,7 @@ impl Editor {
         if selected.is_empty() {
             return;
         }
+        self.playing = false;
         self.transact(|editor| {
             for layer in &mut editor.symbol_mut().timeline.layers {
                 let id = layer.id.clone();
@@ -1930,7 +1998,7 @@ impl Editor {
             neoflash_ui::components::menu_separator(ui);
             if menu_item_enabled(
                 ui,
-                self.selection.len() >= 2,
+                self.can_group_selection(),
                 "Group",
                 &self.sc(C::ModifyGroup),
             )
@@ -1939,7 +2007,14 @@ impl Editor {
                 self.group_selection();
                 ui.close();
             }
-            if menu_item_enabled(ui, selected, "Ungroup", &self.sc(C::ModifyUngroup)).clicked() {
+            if menu_item_enabled(
+                ui,
+                self.can_ungroup_selection(),
+                "Ungroup",
+                &self.sc(C::ModifyUngroup),
+            )
+            .clicked()
+            {
                 self.ungroup_selection();
                 ui.close();
             }

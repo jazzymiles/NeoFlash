@@ -914,6 +914,11 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   shows `F1`, clears prior filters and focuses the existing `Search commands` field. Global F1 and Timeline Help share
   the same path. T-135 synchronized the Dark/Light Menus boards and every v2.2 editor top bar, exported the outlines
   and reference data, regenerated the design reference, and re-pinned the design lock.
+- **Follow-up answer (T-136, 2026-11-08):** Native use showed that routing discovery through the shortcut editor was
+  not the approved modern-package interaction. The owner supplied the Figma menu-search reference and authorized the
+  existing NF2 components: the Help row, global F1 and Timeline Help now open a focused popover with `Search`,
+  `Menu Items`, fuzzy matching, menu paths, shortcuts, keyboard navigation and direct command execution. Preferences
+  ▸ Shortcuts remains exclusively for editing bindings; the locked menu row itself is unchanged.
 
 ### R-060 · Bitmap Trace and object actions in Stage / Library context menus
 - **Status:** open
@@ -1001,3 +1006,18 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   directly under Window. `Document` then lists open documents, Next / Previous and Close / Close other documents /
   Close all. Existing NF2 menu components and spacing are unchanged. T-135 synchronized this exact composition to
   both Menus boards and all v2.2 editor top bars, then exported the outlines/reference data and re-pinned the lock.
+
+### R-065 · Pen-family cursor hotspot metadata
+- **Status:** open (runtime correction in T-136; locked source synchronization pending)
+- **Requested by / for:** project owner · T-136 native Pen report
+- **Where:** locked Pen-family cursor metadata under `interface/`; runtime mapping in
+  `crates/neoflash-editor/src/stage_cursor.rs`.
+- **Need:** move the Pen, Pen add/remove/close and Convert cursor hotspot metadata from stale `[6, 21]` to the visible
+  nib at `[11, 3]`, then re-export/re-pin through the design track without changing glyph geometry.
+- **Why:** native clicking placed the anchor at the old lower-left hotspot while the visible nib was above/right, so
+  the cursor did not show where the next point would land. T-136 corrects the editor boundary to `[11, 3]`; leaving
+  locked metadata stale risks reintroducing the offset on a future generated-cursor refresh.
+- **Checked:** owner native screenshot, `ST-07` click-at-hotspot acceptance, current cursor metadata and the T-136
+  runtime hotspot regression.
+- **Proposal (optional):** metadata-only synchronization for the whole Pen family, with one 1× Stage click sample
+  showing the anchor centred on the visible nib; retain every existing SVG path and cursor size.

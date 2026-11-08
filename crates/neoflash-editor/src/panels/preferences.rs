@@ -224,18 +224,6 @@ impl Editor {
         ));
     }
 
-    /// Open the existing command/function catalogue as a focused Help search.
-    pub(crate) fn open_function_search(&mut self, ctx: &egui::Context) {
-        self.open_preferences(PAGE_SHORTCUTS);
-        let mut state = load_shortcuts_ui_state(ctx);
-        state.search.clear();
-        state.only_assigned = false;
-        state.only_conflicts = false;
-        state.stop_recording();
-        store_shortcuts_ui_state(ctx, state);
-        ctx.data_mut(|data| data.insert_temp(shortcuts_search_focus_request_id(), true));
-    }
-
     /// Apply and persist a confirmed draft (Save).
     pub(crate) fn save_preferences(&mut self, ctx: &egui::Context, draft: &PreferencesDraft) {
         self.set_theme(ctx, draft.theme);

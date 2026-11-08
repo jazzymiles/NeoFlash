@@ -191,22 +191,47 @@ fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_
     assert!(editor.frame_range().is_none());
     assert!(!editor.timeline_edit.focused);
 
-    // Build two clean symbol levels, enter both, then double-click genuinely empty canvas. This
-    // is the quick escape gesture: it returns straight to the scene rather than one breadcrumb.
-    for id in ["double-click-outer", "double-click-inner"] {
-        let mut symbol = editor.symbol().clone();
-        symbol.id = id.into();
-        symbol.name = id.into();
-        symbol.class_name = None;
-        symbol.linkage_id = None;
-        symbol.timeline.layers[0].id = format!("{id}-layer");
-        symbol.timeline.layers[0].keyframes[0].elements.clear();
-        editor.project.symbols.push(symbol);
-    }
+    // Build two real placement levels and enter through them. The root placement deliberately
+    // remains selected in its saved view: before T-136 the release half of the exit double-click
+    // saw that restored selection and immediately entered it again, even though the pointer was
+    // over empty Stage space.
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .clear();
+    let mut inner = editor.symbol().clone();
+    inner.id = "double-click-inner".into();
+    inner.name = "double-click-inner".into();
+    inner.class_name = None;
+    inner.linkage_id = None;
+    inner.timeline.layers[0].id = "double-click-inner-layer".into();
+    inner.timeline.layers[0].keyframes[0].elements = vec![object("double-click-inner-art", 0., 0.)];
+
+    let mut inner_placement = object("double-click-inner-placement", 40., 40.);
+    inner_placement.kind = ElementKind::Instance {
+        symbol_id: inner.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    let mut outer = editor.symbol().clone();
+    outer.id = "double-click-outer".into();
+    outer.name = "double-click-outer".into();
+    outer.class_name = None;
+    outer.linkage_id = None;
+    outer.timeline.layers[0].id = "double-click-outer-layer".into();
+    outer.timeline.layers[0].keyframes[0].elements = vec![inner_placement];
+
+    let mut outer_placement = object("double-click-outer-placement", 60., 60.);
+    outer_placement.kind = ElementKind::Instance {
+        symbol_id: outer.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![outer_placement];
+    editor.project.symbols.extend([inner, outer]);
     editor.project.validate().unwrap();
     let before_navigation = editor.project.clone();
-    assert!(editor.enter_symbol_isolated("double-click-outer".into()));
-    assert!(editor.enter_symbol_isolated("double-click-inner".into()));
+    editor.select_single_id("double-click-outer-placement".into());
+    editor.enter_selected_symbol_in_place();
+    editor.select_single_id("double-click-inner-placement".into());
+    editor.enter_selected_symbol_in_place();
     assert_eq!(editor.edit_depth(), 3);
     editor.set_tool(Tool::PolyStar);
 
@@ -250,6 +275,7 @@ fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_
     }
     assert!(editor.editing_scene());
     assert_eq!(editor.edit_depth(), 1);
+    assert_eq!(ids(&editor), vec!["double-click-outer-placement"]);
     assert_eq!(
         editor.tool,
         Tool::PolyStar,
@@ -257,6 +283,48 @@ fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_
     );
     assert_eq!(editor.project, before_navigation);
     assert!(!editor.history.can_undo());
+
+    // A selected MovieClip alone is not enough to enter it: the double-click must actually hit
+    // that placement. This prevents any later empty double-click from reopening a stale selection.
+    editor.set_tool(Tool::Select);
+    let empty_root = page.center();
+    for (time, pressed) in [(3.0, true), (3.05, false), (3.15, true), (3.2, false)] {
+        input(
+            &mut editor,
+            &ctx,
+            time,
+            if pressed {
+                vec![
+                    Event::PointerMoved(empty_root),
+                    primary_button(empty_root, true),
+                ]
+            } else {
+                vec![primary_button(empty_root, false)]
+            },
+            Modifiers::NONE,
+        );
+    }
+    assert!(editor.editing_scene());
+
+    // The ordinary affordance is preserved when the pointer really is on the instance artwork.
+    let root_instance_art = page.min + egui::vec2(130., 120.);
+    for (time, pressed) in [(4.0, true), (4.05, false), (4.15, true), (4.2, false)] {
+        input(
+            &mut editor,
+            &ctx,
+            time,
+            if pressed {
+                vec![
+                    Event::PointerMoved(root_instance_art),
+                    primary_button(root_instance_art, true),
+                ]
+            } else {
+                vec![primary_button(root_instance_art, false)]
+            },
+            Modifiers::NONE,
+        );
+    }
+    assert_eq!(editor.symbol_id(), "double-click-outer");
 }
 
 fn drag(
@@ -2181,6 +2249,120 @@ fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters()
     assert_eq!(editor.project, split_point_text);
     editor.undo();
     assert_eq!(editor.project, before_pt);
+}
+
+#[test]
+fn classic_break_group_shortcuts_work_with_properties_text_focus_and_one_undo() {
+    let (mut editor, ctx, _page) = fixture(0);
+    let mut field = "Properties text focus".to_owned();
+    let mut press_with_text_focus =
+        |editor: &mut Editor, time: f64, key: egui::Key, modifiers: Modifiers| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280., 900.))),
+                    time: Some(time),
+                    modifiers,
+                    events: vec![Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers,
+                    }],
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut field)
+                                .id(egui::Id::new("t136-properties-text-focus")),
+                        )
+                        .request_focus();
+                    });
+                    assert!(
+                        ctx.wants_keyboard_input(),
+                        "the regression requires a live Properties-style text focus"
+                    );
+                    editor.shortcuts(ctx);
+                },
+            );
+        };
+
+    // Newly created text focuses Properties. The classic ⌘B object command must still run from
+    // that state; use a primitive here so the assertion is independent of installed system fonts.
+    select(&mut editor, &["first"]);
+    let before_break = editor.project.clone();
+    press_with_text_focus(&mut editor, 1.0, egui::Key::B, Modifiers::COMMAND);
+    assert!(matches!(
+        sampled(&editor, "first").kind,
+        ElementKind::Path { .. }
+    ));
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_break);
+    assert!(!editor.history.can_undo(), "Break Apart is one Undo step");
+
+    // Group and Ungroup use their Flash shortcuts even if the previous Properties editor kept
+    // focus. Grouping changes metadata only: transforms, z-order and the selected member IDs stay.
+    select(&mut editor, &["first", "untouched"]);
+    let before_group = editor.project.clone();
+    let before_order: Vec<_> = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .map(|element| (element.id.clone(), element.transform))
+        .collect();
+    press_with_text_focus(&mut editor, 2.0, egui::Key::G, Modifiers::COMMAND);
+    let groups = &editor.symbol().timeline.layers[0].properties.groups;
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].members, ["first", "untouched"]);
+    let group_id = groups[0].id.clone();
+    assert_eq!(ids(&editor), ["first", "untouched"]);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .map(|element| (element.id.clone(), element.transform))
+            .collect::<Vec<_>>(),
+        before_order
+    );
+    editor.project.validate().unwrap();
+    let grouped = editor.project.clone();
+
+    // Grouping one already-selected group is a no-op: it must not churn its stable group ID or
+    // create a redundant history entry.
+    press_with_text_focus(&mut editor, 2.5, egui::Key::G, Modifiers::COMMAND);
+    assert_eq!(editor.project, grouped);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].properties.groups[0].id,
+        group_id
+    );
+
+    press_with_text_focus(
+        &mut editor,
+        3.0,
+        egui::Key::G,
+        Modifiers::SHIFT | Modifiers::COMMAND,
+    );
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .properties
+            .groups
+            .is_empty()
+    );
+    assert_eq!(ids(&editor), ["first", "untouched"]);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .map(|element| (element.id.clone(), element.transform))
+            .collect::<Vec<_>>(),
+        before_order
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, grouped, "Ungroup is one Undo step");
+    editor.undo();
+    assert_eq!(editor.project, before_group, "Group is one Undo step");
 }
 
 #[test]

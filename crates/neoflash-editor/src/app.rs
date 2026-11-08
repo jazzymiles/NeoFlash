@@ -1581,10 +1581,13 @@ impl Editor {
         use crate::commands::{CommandId as C, modifiers_match};
         if self.has_modal_dialog_in(ctx)
             || crate::panels::symbols_popover::is_symbols_popover_open(ctx)
+            || crate::panels::function_search::is_function_search_open(ctx)
         {
+            crate::commands::clear_queued_commands(ctx);
             return;
         }
         if self.document_shortcuts(ctx) {
+            crate::commands::clear_queued_commands(ctx);
             return;
         }
         if !self.has_document() {
@@ -1597,6 +1600,7 @@ impl Editor {
             if self.take_command_shortcut(ctx, C::EditPreferences) {
                 Self::open_planned(ctx, "Edit ▸ Preferences…");
             }
+            crate::commands::clear_queued_commands(ctx);
             return;
         }
         self.menu_shortcuts(ctx);
@@ -1791,6 +1795,7 @@ impl Editor {
                 self.seek_frame((self.frame + 1).min(last));
             }
         }
+        crate::commands::clear_queued_commands(ctx);
     }
 
     /// Design §8 menu shortcuts routed through [`crate::commands`]. Modifiers match exactly, so ⇧F5
@@ -1800,6 +1805,19 @@ impl Editor {
         use crate::authoring_modify::Arrange;
         use crate::commands::{CommandId as C, has_override, modifiers_match};
         use crate::timeline_edit::FrameCommand as F;
+        // Text creation and text-object editing deliberately focus the Properties text field.
+        // Classic Flash object shortcuts remain object commands while a Stage selection exists,
+        // so handle them before the general typing guard. Their Command-modified chords are safe
+        // from ordinary character input and each command still validates the current selection.
+        if !self.selection.is_empty() && self.take_command_shortcut(ctx, C::ModifyBreakApart) {
+            self.break_apart_selection();
+        }
+        if self.can_ungroup_selection() && self.take_command_shortcut(ctx, C::ModifyUngroup) {
+            self.ungroup_selection();
+        }
+        if self.selection.len() >= 2 && self.take_command_shortcut(ctx, C::ModifyGroup) {
+            self.group_selection();
+        }
         if ctx.wants_keyboard_input() {
             return;
         }
@@ -1939,9 +1957,6 @@ impl Editor {
         {
             self.distribute_to_layers();
         }
-        if self.take_command_shortcut(ctx, C::ModifyBreakApart) && !self.selection.is_empty() {
-            self.break_apart_selection();
-        }
         if self.take_command_shortcut(ctx, C::ModifyTraceBitmap) && self.can_trace_bitmap() {
             self.open_trace_bitmap(ctx);
         }
@@ -1971,13 +1986,6 @@ impl Editor {
                 self.arrange_selection(dir);
             }
         }
-        if self.take_command_shortcut(ctx, C::ModifyUngroup) && !self.selection.is_empty() {
-            self.ungroup_selection();
-        }
-        if self.take_command_shortcut(ctx, C::ModifyGroup) && self.selection.len() >= 2 {
-            self.group_selection();
-        }
-
         // Control.
         let last = self.symbol().timeline.frame_count.saturating_sub(1);
         if self.take_command_shortcut(ctx, C::ControlRewind) {
@@ -2034,8 +2042,8 @@ impl Editor {
             self.add_shape_hint();
         }
         if ctx.input_mut(|input| input.consume_key(none, Key::F1)) {
-            // The existing Keyboard Shortcuts page is also the command/function catalogue: it
-            // searches every registered action by name, menu path and shortcut.
+            // Help search is an immediate command palette; Preferences remains the separate place
+            // for reviewing and changing shortcuts.
             self.open_function_search(ctx);
         }
         for (m, key) in [(cmd, Key::P), (cmd | shift, Key::W), (alt | cmd, Key::K)] {

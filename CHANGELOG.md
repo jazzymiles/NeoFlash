@@ -2,6 +2,14 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Live-workflow regression repair (`T-136`): a nested-editing empty-canvas double-click now consumes the complete
+  gesture and stays on the root Stage instead of immediately reopening the selected MovieClip. Help, `F1` and
+  Timeline Help open an immediate menu-command palette with focused fuzzy search, keyboard navigation and direct
+  execution; Keyboard shortcuts remains a separate preferences page. Pen-family cursors now place anchors at the
+  visible nib. Finder drops accept validated MP4/M4V/MOV/WebM/OGV video, import through the existing video workflow
+  and centre the 320×240 placeholder at the exact drop point. Classic `⌘B`, `⌘G` and `⇧⌘G` remain object commands
+  even after the Properties text field held focus; Break Apart, Group and Ungroup preserve one-step Undo.
+
 - Live authoring follow-up (`T-134`): double-clicking genuinely empty canvas with no active draft exits nested editing
   directly to the root Stage without changing the sticky tool, while a blank Stage click returns Properties to the
   accessible Stage Background control. Eraser gestures no longer flash whole-object target boxes. The main Help menu

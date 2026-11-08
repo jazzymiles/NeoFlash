@@ -8,6 +8,28 @@ use eframe::egui::{self, Pos2, Rect};
 use neoflash_core::*;
 use std::{collections::HashMap, path::PathBuf};
 
+fn is_supported_video_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp4" | "m4v" | "mov" | "webm" | "ogv"
+            )
+        })
+}
+
+fn is_known_unsupported_video_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "avi" | "flv" | "mkv" | "wmv"
+            )
+        })
+}
+
 pub(crate) struct PreparedGraphic {
     pub name: String,
     pub width: f64,
@@ -108,6 +130,29 @@ impl Editor {
             return;
         };
         let point = mapped_drop_point(mapping, origin, self.zoom, position);
+        let videos: Vec<_> = paths
+            .iter()
+            .filter(|path| is_supported_video_path(path))
+            .collect();
+        if paths
+            .iter()
+            .any(|path| is_known_unsupported_video_path(path))
+        {
+            self.message(
+                "Video import supports H.264 MP4/M4V/MOV, VP9 WebM and Ogg video. Transcode this file, then drop it again.",
+            );
+            return;
+        }
+        if !videos.is_empty() {
+            if videos.len() != 1 || paths.len() != 1 {
+                self.message("Drop one video at a time; import graphics in a separate drop.");
+                return;
+            }
+            if let Err(error) = self.import_video_path_at(ctx, videos[0], point) {
+                self.message(format!("Video import failed: {error}"));
+            }
+            return;
+        }
         if let Err(error) = self.import_graphics_paths(&paths, Some(point)) {
             self.message(format!("Graphic import failed: {error}"));
         }

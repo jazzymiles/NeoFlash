@@ -1730,17 +1730,30 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
     d.click("Cancel");
 
     // The main Help row, F1 and Timeline ▸ Frame view ▸ Help share the searchable command
-    // catalogue. Help also focuses its search immediately: typing needs no extra click.
+    // palette. Help focuses search immediately, shows full menu paths and executes the selected
+    // command instead of opening the shortcut editor.
     d.click("Help");
     d.click("Search functions… (F1)");
-    assert_eq!(
-        d.editor.preferences.as_ref().map(|p| p.page),
-        Some(PAGE_SHORTCUTS)
+    assert!(d.editor.preferences.is_none());
+    assert!(
+        crate::panels::function_search::is_function_search_open(&d.ctx),
+        "Help opens the immediate command palette"
     );
+    assert!(d.find("Search menu items and functions").is_some());
     d.step(vec![Event::Text("keyframe".into())]);
     d.settle();
-    assert!(d.find("Convert to keyframes").is_some());
-    d.click("Cancel");
+    assert!(d.find("Modify > Timeline > Convert to keyframes").is_some());
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: Some(egui::Key::Escape),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(!crate::panels::function_search::is_function_search_open(
+        &d.ctx
+    ));
 
     d.step(vec![Event::Key {
         key: egui::Key::F1,
@@ -1750,14 +1763,40 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
         modifiers: egui::Modifiers::NONE,
     }]);
     d.settle();
-    assert_eq!(
-        d.editor.preferences.as_ref().map(|p| p.page),
-        Some(PAGE_SHORTCUTS)
-    );
-    d.step(vec![Event::Text("keyframe".into())]);
+    assert!(crate::panels::function_search::is_function_search_open(
+        &d.ctx
+    ));
+    d.step(vec![Event::Text("select all".into())]);
     d.settle();
-    assert!(d.find("Convert to keyframes").is_some());
-    d.click("Cancel");
+    d.click("Edit > Select all");
+    assert!(!d.editor.selection.is_empty(), "a search result runs");
+    assert!(!crate::panels::function_search::is_function_search_open(
+        &d.ctx
+    ));
+
+    d.step(vec![Event::Key {
+        key: egui::Key::F1,
+        physical_key: Some(egui::Key::F1),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    d.step(vec![Event::Text("deselect".into())]);
+    d.settle();
+    d.step(vec![Event::Key {
+        key: egui::Key::Enter,
+        physical_key: Some(egui::Key::Enter),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(
+        d.editor.selection.is_empty(),
+        "Enter runs the active result"
+    );
+
     d.click("Frame view options");
     let timeline_help = d
         .out
@@ -1781,11 +1820,19 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
         ),
         egui::PointerButton::Primary,
     );
-    assert_eq!(
-        d.editor.preferences.as_ref().map(|p| p.page),
-        Some(PAGE_SHORTCUTS)
+    assert!(d.editor.preferences.is_none());
+    assert!(
+        crate::panels::function_search::is_function_search_open(&d.ctx),
+        "Timeline Help opens the same palette"
     );
-    d.click("Cancel");
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: Some(egui::Key::Escape),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
 
     // Undo levels, onion range and UI scale apply on Save (set on the draft directly).
     d.editor.open_preferences(0);

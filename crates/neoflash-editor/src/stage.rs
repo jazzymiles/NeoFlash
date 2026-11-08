@@ -953,9 +953,9 @@ impl Editor {
                 self.paint_shape_hints(&p, origin, mapping);
                 self.paint_stage_guides(&p, rect, mapping, origin);
                 let quick_stage_exit = !simple_button_consumed
-                    && self.take_empty_stage_double_click(
+                    && (self.take_empty_stage_double_click(
                         ui, &p, origin, mapping, &scene, &response,
-                    );
+                    ) || self.take_empty_stage_exit_release(ui, &response));
                 if !simple_button_consumed && !quick_stage_exit {
                     let extended_tool =
                         self.authoring_tool_stage(ui, &p, origin, mapping, rect, &scene);
@@ -1109,8 +1109,58 @@ impl Editor {
             self.finish_edits();
             self.playing = false;
             self.leave_symbol_to_level(0);
+            // The transition happens on the second press so a sticky authoring tool cannot claim
+            // it. egui reports `double_clicked()` on the following release frame; keep that
+            // matching release owned by the exit gesture or Select could immediately reopen the
+            // root MovieClip underneath the same screen position.
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("nf2-empty-stage-exit-release"),
+                    (now + 0.6, pos),
+                );
+            });
         }
         double
+    }
+
+    fn take_empty_stage_exit_release(&self, ui: &egui::Ui, response: &egui::Response) -> bool {
+        let id = egui::Id::new("nf2-empty-stage-exit-release");
+        let Some((deadline, press_pos)) = ui.ctx().data(|data| data.get_temp::<(f64, Pos2)>(id))
+        else {
+            return false;
+        };
+        let (now, pointer_down, released_pos) = ui.input(|input| {
+            let released = input.events.iter().find_map(|event| match event {
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    ..
+                } => Some(*pos),
+                _ => None,
+            });
+            (input.time, input.pointer.primary_down(), released)
+        });
+        if now > deadline {
+            ui.ctx().data_mut(|data| {
+                data.remove_temp::<(f64, Pos2)>(id);
+            });
+            return false;
+        }
+        let same_pointer = released_pos
+            .or_else(|| response.interact_pointer_pos())
+            .is_some_and(|pos| pos.distance(press_pos) <= 8.0);
+        let owns_frame = same_pointer
+            && (pointer_down
+                || released_pos.is_some()
+                || response.clicked()
+                || response.double_clicked());
+        if released_pos.is_some() || response.clicked() || response.double_clicked() {
+            ui.ctx().data_mut(|data| {
+                data.remove_temp::<(f64, Pos2)>(id);
+            });
+        }
+        owns_frame
     }
 
     fn remember_empty_stage_click(

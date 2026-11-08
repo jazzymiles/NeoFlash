@@ -13,7 +13,10 @@ use neoflash_core::{
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
 use neoflash_ui::tokens::space;
-use std::{io::Read, path::PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ImportVideoDraft {
@@ -165,7 +168,31 @@ impl Editor {
             .data(|d| d.get_temp::<ImportVideoDraft>(draft_id()))
             .or_else(|| ctx.data(|d| d.get_temp::<ImportVideoDraft>(inline_draft_id())))
             .unwrap_or_default();
+        self.import_video_draft(ctx, draft, None)
+    }
 
+    /// Import a Finder-dropped video immediately at the authored pointer coordinate. Native drops
+    /// use the same validated resource/timeline path as the dialog, but do not require a second
+    /// modal confirmation after the user has already dropped the file on the Stage.
+    pub(crate) fn import_video_path_at(
+        &mut self,
+        ctx: &egui::Context,
+        path: &Path,
+        point: [f64; 2],
+    ) -> Result<Id, String> {
+        let draft = ImportVideoDraft {
+            file_path: path.display().to_string(),
+            ..ImportVideoDraft::default()
+        };
+        self.import_video_draft(ctx, draft, Some(point))
+    }
+
+    fn import_video_draft(
+        &mut self,
+        ctx: &egui::Context,
+        draft: ImportVideoDraft,
+        placement: Option<[f64; 2]>,
+    ) -> Result<Id, String> {
         if !self.layer_editable() {
             return Err("Select an unlocked, visible layer before importing video.".into());
         }
@@ -316,12 +343,13 @@ impl Editor {
             .ok_or_else(|| "Could not create the destination video keyframe.".to_string())?;
         key.video = Some(video_span);
         if draft.place_on_stage {
+            let center = placement.unwrap_or([240.0, 180.0]);
             key.elements.push(Element {
                 id: new_id("video"),
                 name: file_name.to_owned(),
                 transform: Transform {
-                    x: 80.0,
-                    y: 60.0,
+                    x: center[0] - 160.0,
+                    y: center[1] - 120.0,
                     ..Transform::default()
                 },
                 kind: ElementKind::Video {

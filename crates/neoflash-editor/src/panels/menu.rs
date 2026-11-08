@@ -368,8 +368,9 @@ impl Editor {
                             self.window_menu(ui, ctx);
                         });
                         menu_popup(ui, "Help", "Search functions…", "F1", |ui| {
-                            if menu_item(ui, "Search functions…", "F1").clicked() {
-                                self.open_function_search(ctx);
+                            let search = menu_item(ui, "Search functions…", "F1");
+                            if search.clicked() {
+                                self.open_function_search_at(ctx, Some(search.rect));
                                 ui.close();
                             }
                             nf::menu_separator(ui);
@@ -397,6 +398,7 @@ impl Editor {
                     self.top_bar_actions(&mut actions_ui);
                 });
             });
+        self.function_search_popover(ctx);
         if edit_open {
             self.clipboard.menu_open = true;
             self.clipboard.menu_viewport = Some(ctx.viewport_id());

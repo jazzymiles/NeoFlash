@@ -748,6 +748,116 @@ fn transformed_stage_drop_uses_the_exact_inverse_pointer_position() {
 }
 
 #[test]
+fn finder_video_drop_imports_at_the_pointer_keeps_the_pen_and_undoes_once() {
+    use neoflash_core::ElementKind;
+
+    let temp =
+        std::env::temp_dir().join(format!("neoflash-finder-video-drop-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp);
+    std::fs::create_dir_all(&temp).unwrap();
+    let video_path = temp.join("drop.mp4");
+    std::fs::write(
+        &video_path,
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41",
+    )
+    .unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.set_tool(Tool::Pen);
+    editor.history.clear();
+    let before = editor.project.clone();
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new([1.2, 0.1, -0.2, 0.8, 40.0, 20.0]).unwrap();
+    let origin = egui::pos2(50.0, 70.0);
+    editor.zoom = 1.5;
+    let local = egui::pos2(120.0, 80.0);
+    let screen = mapping.edit_to_screen(origin, editor.zoom, local);
+    let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+    let raw = egui::RawInput {
+        screen_rect: Some(area),
+        events: vec![egui::Event::PointerMoved(screen)],
+        dropped_files: vec![egui::DroppedFile {
+            path: Some(video_path.clone()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let _ = ctx.run(raw, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            editor.stage_file_drop(ui, area, origin, mapping);
+        });
+    });
+
+    assert_eq!(
+        editor.tool,
+        Tool::Pen,
+        "a Finder drop must keep the sticky tool"
+    );
+    assert_eq!(editor.history.undo_label(), Some("Import video"));
+    assert_eq!(
+        editor
+            .project
+            .resources
+            .iter()
+            .filter(|resource| resource.is_video())
+            .count(),
+        1
+    );
+    let placed = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|key| &key.elements)
+        .find(|element| matches!(element.kind, ElementKind::Video { .. }))
+        .expect("the dropped video is placed on Stage");
+    assert!((placed.transform.x - (f64::from(local.x) - 160.0)).abs() < 1e-4);
+    assert!((placed.transform.y - (f64::from(local.y) - 120.0)).abs() < 1e-4);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "one Undo removes the complete import"
+    );
+
+    let malformed = temp.join("broken.mp4");
+    std::fs::write(&malformed, b"NOT_A_VIDEO").unwrap();
+    let error = editor
+        .import_video_path_at(&ctx, &malformed, [120.0, 80.0])
+        .expect_err("a malformed MP4 must fail before mutation");
+    assert!(error.contains("missing a valid MP4"), "{error}");
+    assert_eq!(editor.project, before);
+    assert_eq!(editor.tool, Tool::Pen);
+
+    let unsupported = temp.join("legacy.avi");
+    std::fs::write(&unsupported, b"RIFF\x00\x00\x00\x00AVI ").unwrap();
+    let raw = egui::RawInput {
+        screen_rect: Some(area),
+        events: vec![egui::Event::PointerMoved(screen)],
+        dropped_files: vec![egui::DroppedFile {
+            path: Some(unsupported),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let _ = ctx.run(raw, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            editor.stage_file_drop(ui, area, origin, mapping);
+        });
+    });
+    assert!(
+        editor.status.contains("Video import supports H.264"),
+        "{}",
+        editor.status
+    );
+    assert_eq!(editor.project, before);
+    assert_eq!(editor.tool, Tool::Pen);
+    let _ = std::fs::remove_dir_all(temp);
+}
+
+#[test]
 fn f9_reveals_hidden_actions_even_while_a_text_field_has_focus() {
     let ctx = egui::Context::default();
     let mut project = Project::blank();

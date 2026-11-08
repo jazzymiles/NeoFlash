@@ -1767,7 +1767,19 @@ impl Editor {
         {
             self.reset_transformation_point();
         }
-        if self.tool == Tool::Select && response.double_clicked() && !self.stage_view.guide_pointer
+        let double_click_hits_selection = response.interact_pointer_pos().is_some_and(|pos| {
+            self.pick_placement(
+                scene,
+                p,
+                mapping.screen_to_edit(origin, self.zoom, pos),
+                mapping,
+            )
+            .is_some_and(|target| self.selection.targets.contains(&target))
+        });
+        if self.tool == Tool::Select
+            && response.double_clicked()
+            && !self.stage_view.guide_pointer
+            && double_click_hits_selection
         {
             if self
                 .selected_element()

@@ -115,6 +115,7 @@ impl Editor {
     }
 
     pub(crate) fn open_symbols_popover(&self, ctx: &egui::Context, trigger_rect: Option<Rect>) {
+        self.close_function_search(ctx);
         let mut state = popover_state(ctx);
         self.sync_recent_symbols(&mut state);
         state.open = true;

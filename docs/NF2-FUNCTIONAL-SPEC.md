@@ -448,7 +448,8 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Purpose: 39 `NF2 Cursor/*` glyphs (tool cursors, reshape corner/curve, move, rotate, skew, hand open/closed,
   zoom in/out, eyedropper, bucket, pen add/remove/close …) over the canvas.
 - Behaviour: stage tools call `neoflash_ui::cursors::show(ctx, canvas, cursor)` (hides the system cursor); chrome
-  keeps system cursors; cursor reflects hover target (e.g. reshape curve near a stroke).
+  keeps system cursors; cursor reflects hover target (e.g. reshape curve near a stroke). The Pen-family runtime
+  hotspot is the visible nib (`[11, 3]`); R-065 tracks synchronization of the stale locked cursor metadata.
 - Data: none. Depends on: UI-only. Acceptance: each tool shows its NF2 cursor only over the canvas; hotspot accurate
   (click lands at the glyph's hotspot).
 
@@ -957,7 +958,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
 | Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
-| Help | `Search functions…` (F1) opens the existing searchable command/function catalogue with cleared filters and focused search; Open example; About NeoFlash | — |
+| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, supports ↑/↓/↵/Esc and runs the chosen command; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts
@@ -983,4 +984,4 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
 | Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
-| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture exits directly to the root Stage without changing the sticky tool; breadcrumbs still provide deliberate level-by-level exit. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |
+| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and stays returned on the root Stage without changing the sticky tool; breadcrumbs still provide deliberate level-by-level exit. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace, Break Apart and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |

@@ -1531,7 +1531,9 @@ impl CommandId {
                 title: "Modify ▸ Break apart",
                 keywords: "",
                 defaults: S_CMD_B,
-                allow_when_typing: false,
+                // Point/box text creation focuses the Properties text field. Flash's classic
+                // ⌘B object command must still break the selected text apart from that state.
+                allow_when_typing: true,
             },
             Self::ModifyTraceBitmap => CommandMeta {
                 id: "modify.bitmap.trace_bitmap",
@@ -1619,7 +1621,7 @@ impl CommandId {
                 title: "Modify ▸ Group",
                 keywords: "",
                 defaults: S_CMD_G,
-                allow_when_typing: false,
+                allow_when_typing: true,
             },
             Self::ModifyUngroup => CommandMeta {
                 id: "modify.ungroup",
@@ -1627,7 +1629,7 @@ impl CommandId {
                 title: "Modify ▸ Ungroup",
                 keywords: "",
                 defaults: S_SHIFT_CMD_G,
-                allow_when_typing: false,
+                allow_when_typing: true,
             },
             Self::ControlPlay => CommandMeta {
                 id: "control.play",
@@ -2216,6 +2218,48 @@ pub fn primary_shortcut_label(prefs: &ShortcutPrefs, cmd: CommandId) -> String {
         .unwrap_or_default()
 }
 
+fn queued_commands_id() -> egui::Id {
+    egui::Id::new("nf2-queued-editor-commands")
+}
+
+/// Queue a command selected from the Help search palette. The existing shortcut router consumes
+/// it on the next update, so palette, menu and keyboard execution share all availability checks,
+/// history boundaries and diagnostics.
+pub(crate) fn queue_command(ctx: &egui::Context, command: CommandId) {
+    ctx.data_mut(|data| {
+        let mut commands = data
+            .remove_temp::<Vec<CommandId>>(queued_commands_id())
+            .unwrap_or_default();
+        commands.push(command);
+        data.insert_temp(queued_commands_id(), commands);
+    });
+}
+
+fn take_queued_command(ctx: &egui::Context, command: CommandId) -> bool {
+    ctx.data_mut(|data| {
+        let mut commands = data
+            .remove_temp::<Vec<CommandId>>(queued_commands_id())
+            .unwrap_or_default();
+        let matched = commands
+            .iter()
+            .position(|queued| *queued == command)
+            .map(|index| commands.remove(index))
+            .is_some();
+        if !commands.is_empty() {
+            data.insert_temp(queued_commands_id(), commands);
+        }
+        matched
+    })
+}
+
+/// Drop command-palette requests left unmatched by the current editor state. Palette commands are
+/// one-shot actions: an unavailable command must not run later after the selection changes.
+pub(crate) fn clear_queued_commands(ctx: &egui::Context) {
+    ctx.data_mut(|data| {
+        data.remove_temp::<Vec<CommandId>>(queued_commands_id());
+    });
+}
+
 /// Shortcut label for timeline transport `Previous frame` / `Next frame` buttons: uses the arrow
 /// chord (`"←"` / `"→"`) when un-overridden, or the user's primary override when customized.
 pub fn transport_step_label(prefs: &ShortcutPrefs, cmd: CommandId) -> String {
@@ -2349,6 +2393,9 @@ impl Editor {
     /// Consume a matching pressed key event for `cmd` according to the active shortcut set and
     /// text-editing focus rules.
     pub(crate) fn take_command_shortcut(&self, ctx: &egui::Context, cmd: CommandId) -> bool {
+        if take_queued_command(ctx, cmd) {
+            return true;
+        }
         let typing = ctx.wants_keyboard_input();
         if typing && !cmd.allow_when_typing() {
             return false;
@@ -2431,6 +2478,19 @@ mod tests {
     }
 
     #[test]
+    fn queued_palette_commands_are_one_shot() {
+        let ctx = egui::Context::default();
+        queue_command(&ctx, CommandId::ModifyGroup);
+        assert!(!take_queued_command(&ctx, CommandId::FileNew));
+        assert!(take_queued_command(&ctx, CommandId::ModifyGroup));
+        assert!(!take_queued_command(&ctx, CommandId::ModifyGroup));
+
+        queue_command(&ctx, CommandId::ModifyGroup);
+        clear_queued_commands(&ctx);
+        assert!(!take_queued_command(&ctx, CommandId::ModifyGroup));
+    }
+
+    #[test]
     fn default_labels_match_nf2_menu_and_tool_strings() {
         let p = ShortcutPrefs::default();
         let cases = [
@@ -2462,6 +2522,7 @@ mod tests {
             (CommandId::InsertKeyframe, "F6"),
             (CommandId::InsertBlankKeyframe, "F7"),
             (CommandId::ModifyConvertToSymbol, "F8"),
+            (CommandId::ModifyBreakApart, "⌘B"),
             (CommandId::ModifyTimelineClearKeyframe, "⇧F6"),
             (CommandId::ModifyTimelineConvertToKeyframes, ""),
             (CommandId::ModifyGroup, "⌘G"),

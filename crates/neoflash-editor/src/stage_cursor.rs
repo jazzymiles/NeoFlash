@@ -10,6 +10,22 @@ use crate::app::{Editor, Tool};
 use eframe::egui::{self, Rect};
 use neoflash_ui::cursors::{self as nf, Cursor};
 
+/// The authored Pen anchor is the upper nib tip in the NF2 glyph. The exported cursor metadata
+/// still names the lower-left outline corner as the hotspot, which makes the point land well away
+/// from the visible nib (especially on Retina displays). Keep the locked asset unchanged and
+/// correct only the interactive hotspot at the editor boundary.
+const PEN_NIB_HOTSPOT: [f32; 2] = [11.0, 3.0];
+
+fn authored_hotspot(mut cursor: Cursor) -> Cursor {
+    if matches!(
+        cursor.name,
+        "pen" | "pen-add" | "pen-remove" | "pen-close" | "pen-convert"
+    ) {
+        cursor.hotspot = PEN_NIB_HOTSPOT;
+    }
+    cursor
+}
+
 /// Idle cursor of a stage tool, before any hover target refines it.
 pub(crate) fn tool_cursor(tool: Tool) -> Cursor {
     match tool {
@@ -86,6 +102,7 @@ impl Editor {
         {
             cursor = nf::HAND_OPEN;
         }
+        cursor = authored_hotspot(cursor);
         let Some(pos) = ctx.pointer_hover_pos() else {
             return;
         };
@@ -142,5 +159,22 @@ mod tests {
         ] {
             assert_eq!(tool_cursor_precise(tool, true), tool_cursor(tool));
         }
+    }
+
+    #[test]
+    fn pen_family_hotspot_is_the_visible_nib_tip() {
+        for cursor in [
+            nf::PEN,
+            nf::PEN_ADD,
+            nf::PEN_REMOVE,
+            nf::PEN_CLOSE,
+            nf::PEN_CONVERT,
+        ] {
+            let corrected = authored_hotspot(cursor);
+            assert_eq!(corrected.hotspot, PEN_NIB_HOTSPOT, "{}", cursor.name);
+            assert_eq!(corrected.svg, cursor.svg);
+        }
+        assert_eq!(authored_hotspot(nf::PENCIL), nf::PENCIL);
+        assert_eq!(authored_hotspot(nf::CROSSHAIR), nf::CROSSHAIR);
     }
 }
