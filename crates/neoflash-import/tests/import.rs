@@ -161,7 +161,7 @@ fn rejects_archive_traversal_and_oversized_input() {
     let big = temp.0.join("large");
     fs::create_dir(&big).unwrap();
     let file = fs::File::create(big.join("DOMDocument.xml")).unwrap();
-    file.set_len(8 * 1024 * 1024 + 1).unwrap();
+    file.set_len(16 * 1024 * 1024 + 1).unwrap();
     assert!(inspect(&big).is_err());
 }
 

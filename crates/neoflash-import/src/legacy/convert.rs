@@ -486,7 +486,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             true
         }
     };
-    let (resources, bitmaps, sounds) = assets::resources(document, report)?;
+    let (mut resources, bitmaps, sounds) = assets::resources(document, report)?;
     let (folders, folder_paths) = assets::folders(c)?;
     let mut library = BTreeMap::new();
     for d in &c.descriptors {
@@ -579,6 +579,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     }
     symbols.append(&mut context.generated);
     normalize_playback(&mut symbols, context.report);
+    attach_companion_includes(&context.report.source, &symbols, &mut resources);
     // The exact original is embedded when it fits the project resource budget,
     // split into parts of at most one resource each. Larger sources stay
     // external; provenance records their size and digest either way.
@@ -1611,6 +1612,161 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
             };
             report.warning("fla_graphic_first_frame",&element.id,format!("The graphic's first frame lies beyond the symbol's {len} frames; it is mapped to {fixed:?}."));
             *playback = fixed;
+        }
+    }
+}
+fn resolve_include_logical_path(parent: &str, requested: &str) -> Option<String> {
+    if requested.is_empty() || requested.starts_with('/') || requested.contains(['\\', ':', '\0']) {
+        return None;
+    }
+    let mut parts: Vec<_> = parent
+        .rsplit_once('/')
+        .map_or("", |(base, _)| base)
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    for part in requested.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            value => parts.push(value),
+        }
+    }
+    let result = parts.join("/");
+    result
+        .to_ascii_lowercase()
+        .ends_with(".as")
+        .then_some(result)
+}
+fn scan_include_directives(source: &str, parent_logical: &str, out: &mut Vec<String>) {
+    for line in source.split(['\r', '\n']) {
+        let trimmed = line.trim();
+        let raw_arg = if let Some(rest) = trimmed.strip_prefix("#include")
+            && (rest.is_empty()
+                || rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\''))
+        {
+            Some(rest.trim())
+        } else if let Some(rest) = trimmed.strip_prefix("include")
+            && rest.starts_with(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        {
+            Some(rest.trim())
+        } else {
+            None
+        };
+        let Some(raw_arg) = raw_arg else {
+            continue;
+        };
+        let no_comment = raw_arg.split("//").next().unwrap_or(raw_arg).trim();
+        let argument = no_comment.strip_suffix(';').map_or(no_comment, str::trim);
+        let Some(requested) = argument
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .or_else(|| {
+                argument
+                    .strip_prefix('\'')
+                    .and_then(|v| v.strip_suffix('\''))
+            })
+            .filter(|v| !v.contains(['"', '\'', '\\']))
+        else {
+            continue;
+        };
+        if let Some(logical) = resolve_include_logical_path(parent_logical, requested) {
+            out.push(logical);
+        }
+    }
+}
+fn attach_companion_includes(
+    source_path: &str,
+    symbols: &[Symbol],
+    resources: &mut Vec<ResourceUnit>,
+) {
+    let Some(base_dir) = std::path::Path::new(source_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty() && p.is_dir())
+    else {
+        return;
+    };
+    let mut queue = Vec::new();
+    for symbol in symbols {
+        for frame in &symbol.timeline.scripts {
+            scan_include_directives(&frame.script.source, "", &mut queue);
+        }
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    for handler in &element.scripts {
+                        scan_include_directives(&handler.script.source, "", &mut queue);
+                    }
+                }
+            }
+        }
+    }
+    if queue.is_empty() {
+        return;
+    }
+    let mut seen_lower = std::collections::BTreeSet::new();
+    for existing in resources.iter() {
+        seen_lower.insert(existing.path.to_ascii_lowercase());
+    }
+    let mut used_bytes: usize = resources.iter().map(ResourceUnit::byte_len).sum();
+    let mut include_idx = 0usize;
+    let mut cursor = 0usize;
+    while cursor < queue.len() {
+        let logical = queue[cursor].clone();
+        cursor += 1;
+        let lower = logical.to_ascii_lowercase();
+        if !seen_lower.insert(lower) || resources.len() >= MAX_RESOURCES {
+            continue;
+        }
+        let mut candidate = base_dir.to_path_buf();
+        for seg in logical.split('/') {
+            candidate.push(seg);
+        }
+        let raw = std::fs::read(&candidate).ok().or_else(|| {
+            let parent = candidate.parent()?;
+            let want = candidate
+                .file_name()?
+                .to_string_lossy()
+                .to_ascii_lowercase();
+            let entry = std::fs::read_dir(parent)
+                .ok()?
+                .flatten()
+                .find(|entry| entry.file_name().to_string_lossy().to_ascii_lowercase() == want)?;
+            std::fs::read(entry.path()).ok()
+        });
+        let Some(raw) = raw else {
+            continue;
+        };
+        if raw.len() > MAX_RESOURCE_BYTES {
+            continue;
+        }
+        let without_bom = raw.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&raw);
+        let decoded = match std::str::from_utf8(without_bom) {
+            Ok(s) => s.to_owned(),
+            Err(_) => encoding_rs::WINDOWS_1252
+                .decode_without_bom_handling(without_bom)
+                .0
+                .into_owned(),
+        };
+        let normalized = decoded.replace("\r\n", "\n").replace('\r', "\n");
+        let bytes = normalized.as_bytes();
+        if bytes.len() > MAX_RESOURCE_BYTES
+            || used_bytes.saturating_add(bytes.len()) > MAX_RESOURCE_TOTAL_BYTES
+        {
+            continue;
+        }
+        include_idx += 1;
+        if let Ok(unit) = ResourceUnit::from_bytes(
+            format!("fla-include-{include_idx}"),
+            logical.clone(),
+            "text/x-actionscript",
+            bytes,
+        ) {
+            used_bytes = used_bytes.saturating_add(bytes.len());
+            resources.push(unit);
+            scan_include_directives(&normalized, &logical, &mut queue);
         }
     }
 }

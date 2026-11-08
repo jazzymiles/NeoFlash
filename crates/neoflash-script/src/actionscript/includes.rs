@@ -133,6 +133,71 @@ fn parse_as3_include_arg(trimmed: &str) -> Option<&str> {
     None
 }
 
+fn split_lines_with_endings(source: &str) -> impl Iterator<Item = &str> {
+    let bytes = source.as_bytes();
+    let mut start = 0usize;
+    std::iter::from_fn(move || {
+        if start >= bytes.len() {
+            return None;
+        }
+        let mut i = start;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'\n' => {
+                    i += 1;
+                    break;
+                }
+                b'\r' => {
+                    i += 1;
+                    if i < bytes.len() && bytes[i] == b'\n' {
+                        i += 1;
+                    }
+                    break;
+                }
+                _ => i += 1,
+            }
+        }
+        let slice = &source[start..i];
+        start = i;
+        Some(slice)
+    })
+}
+
+fn builtin_include_source(included: &str) -> Option<&'static str> {
+    let file_name = included.rsplit_once('/').map_or(included, |(_, name)| name);
+    if file_name.eq_ignore_ascii_case("NetServices.as") {
+        Some(
+            "if (_global.NetServices == undefined) {\n\
+             _global.NetServices = {};\n\
+             _global.NetServices.setDefaultGatewayUrl = function(url) { this.defaultGatewayUrl = url; };\n\
+             _global.NetServices.setGatewayUrl = function(url) { this.gatewayUrl = url; };\n\
+             _global.NetServices.createGatewayConnection = function(url) {\n\
+                 var nc = new NetConnection();\n\
+                 var targetUrl = (url != undefined) ? url : ((this.gatewayUrl != undefined) ? this.gatewayUrl : this.defaultGatewayUrl);\n\
+                 if (targetUrl != undefined) { nc.connect(targetUrl); }\n\
+                 nc.getService = function(serviceName, responder) {\n\
+                     return { _serviceName: serviceName, _responder: responder, _nc: this };\n\
+                 };\n\
+                 return nc;\n\
+             };\n\
+             }\n\
+             var NetServices = _global.NetServices;\n",
+        )
+    } else if file_name.eq_ignore_ascii_case("NetDebug.as") {
+        Some(
+            "if (_global.NetDebug == undefined) {\n\
+             _global.NetDebug = {};\n\
+             _global.NetDebug.initialize = function() { return true; };\n\
+             _global.NetDebug.trace = function(obj) { trace(obj); };\n\
+             _global.NetDebug.traceNetServices = function(who, severity, number, message) { trace(message); };\n\
+             }\n\
+             var NetDebug = _global.NetDebug;\n",
+        )
+    } else {
+        None
+    }
+}
+
 fn append(
     script: &Script,
     path: &str,
@@ -147,7 +212,7 @@ fn append(
     let is_as3 = script.language == ScriptLanguage::ActionScript3;
     let mut block = false;
     let mut offset = 0;
-    for (line_number, line) in script.source.split_inclusive('\n').enumerate() {
+    for (line_number, line) in split_lines_with_endings(&script.source).enumerate() {
         let trimmed = line.trim();
         let directive_arg = if !block {
             if is_as3 {
@@ -173,7 +238,7 @@ fn append(
                 let no_comment = raw_arg.split("//").next().unwrap_or(raw_arg).trim();
                 no_comment.strip_suffix(';').map_or(no_comment, str::trim)
             } else {
-                raw_arg
+                raw_arg.split("//").next().unwrap_or(raw_arg).trim()
             };
             let requested = argument
                 .strip_prefix('"')
@@ -197,16 +262,31 @@ fn append(
                     "Cyclic or over-deep #include: {included} (maximum 32 levels)"
                 )));
             }
-            let resource = resources.get(&included).ok_or_else(|| error(format!("Missing #include resource '{included}'; add the .as file to Project Resource files")))?;
-            let bytes = resource.decoded_bytes().map_err(|e| error(e.to_string()))?;
-            if bytes.len() > MAX_BYTES {
-                return Err(error("An included source is limited to 1 MiB".into()));
-            }
-            let source = String::from_utf8(bytes).map_err(|_| {
-                error(format!(
-                    "#include resource '{included}' must contain UTF-8 source"
-                ))
-            })?;
+            let source = if let Some(resource) = resources.get(&included).or_else(|| {
+                resources
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&included))
+                    .map(|(_, v)| v)
+            }) {
+                let bytes = resource.decoded_bytes().map_err(|e| error(e.to_string()))?;
+                if bytes.len() > MAX_BYTES {
+                    return Err(error("An included source is limited to 1 MiB".into()));
+                }
+                let raw_source = String::from_utf8(bytes).map_err(|_| {
+                    error(format!(
+                        "#include resource '{included}' must contain UTF-8 source"
+                    ))
+                })?;
+                raw_source
+                    .strip_prefix('\u{feff}')
+                    .map_or(raw_source.clone(), str::to_owned)
+            } else if !is_as3 && let Some(builtin) = builtin_include_source(&included) {
+                builtin.to_owned()
+            } else {
+                return Err(error(format!(
+                    "Missing #include resource '{included}'; add the .as file to Project Resource files"
+                )));
+            };
             stack.push(included.clone());
             append(
                 &Script {
@@ -220,12 +300,15 @@ fn append(
             )?;
             stack.pop();
         } else {
-            output.script.source.push_str(line);
-            if !line.ends_with('\n') {
-                output.script.source.push('\n');
-            }
+            let line_without_ending = line
+                .strip_suffix("\r\n")
+                .or_else(|| line.strip_suffix('\n'))
+                .or_else(|| line.strip_suffix('\r'))
+                .unwrap_or(line);
+            output.script.source.push_str(line_without_ending);
+            output.script.source.push('\n');
             output.origins.push((path.into(), line_number + 1));
-            scan_comments(line, &mut block);
+            scan_comments(line_without_ending, &mut block);
         }
         if output.script.source.len() > MAX_BYTES {
             return Err(Diagnostic::at(

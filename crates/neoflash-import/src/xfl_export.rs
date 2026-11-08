@@ -29,8 +29,8 @@ const FLA_MIMETYPE: &[u8] = b"application/vnd.adobe.fla";
 const XFL_PROXY: &[u8] = b"PROXY-CS5";
 
 const MAX_ARCHIVE_FILES: usize = 10_000;
-const MAX_ARCHIVE_ENTRY_BYTES: u64 = 8 * 1024 * 1024;
-const MAX_ARCHIVE_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_ARCHIVE_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
 
 /// Maximum bytes in a single `<Edge edges="...">` attribute (`xfl/shape.rs` caps at 65,535).
 const MAX_EDGE_ATTR_BYTES: usize = 48_000;
@@ -718,6 +718,9 @@ fn is_internal_provenance_resource(res: &ResourceUnit) -> bool {
             .media_type
             .eq_ignore_ascii_case("application/x-neoflash-fla-source")
         || res.media_type.eq_ignore_ascii_case("application/json")
+        || res.media_type.eq_ignore_ascii_case("text/x-actionscript")
+        || res.media_type.eq_ignore_ascii_case("text/plain")
+        || res.path.to_ascii_lowercase().ends_with(".as")
 }
 
 fn clean_resource_stem(resource_path: &str, fallback: &str) -> String {

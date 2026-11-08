@@ -1679,3 +1679,89 @@ deletedLocal = delete localScore;"
         );
     }
 }
+
+#[test]
+fn flash_mx_prototype_super_with_closures_computed_methods_and_includes_compile() {
+    let mut proj = Project::blank();
+    proj.format_version = 5;
+    proj.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "inc-cr",
+            "Table.as",
+            "text/x-actionscript",
+            b"\xEF\xBB\xBFfunction Cell(v) {\r  var v = v;\r  this.value = v;\r}\rfunction Table(c) {\r  this.cell = new Cell(c);\r}\r",
+        )
+        .unwrap(),
+    );
+
+    let mut nested_else =
+        String::from("var code = 50;\nvar hit = -1;\nif (code == 0) { hit = 0; }");
+    for i in 1..80 {
+        nested_else.push_str(&format!(" else {{\n  if (code == {i}) {{ hit = {i}; }}"));
+    }
+    for _ in 1..80 {
+        nested_else.push_str("\n}");
+    }
+
+    let as2_frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript2,
+        source: format!(
+            "#include \"table.as\"\r\
+             #include \"NetServices.as\"\r\
+             #include \"NetDebug.as\"\r\
+             function Organism(alive) {{\n\
+                 this.alive = alive;\n\
+             }}\n\
+             Organism.prototype.eat = function(food) {{\n\
+                 this.lastFood = food;\n\
+             }};\n\
+             function Mammal() {{\n\
+                 super(true);\n\
+             }}\n\
+             Mammal.prototype = new Organism();\n\
+             Mammal.prototype.eat = function() {{\n\
+                 super.eat(\"grass\");\n\
+             }};\n\
+             var m = new Mammal();\n\
+             m.eat();\n\
+             var t = new Table(42);\n\
+             var method = \"eat\";\n\
+             m[method]();\n\
+             with (this) {{\n\
+                 submitBtn.onRelease = function() {{\n\
+                     var chosen = eval(\"item1\");\n\
+                     set(\"statusText\", chosen);\n\
+                 }};\n\
+             }}\n\
+             {nested_else}\n"
+        ),
+    };
+    proj.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            frame: 0,
+            script: as2_frame.clone(),
+        });
+
+    let program = neoflash_script::compile_project(&proj).expect("Flash MX AS2 project compiles");
+    let compiled_as2 = neoflash_script::compile_with_program(&as2_frame, &program)
+        .expect("Flash MX AS2 frame script compiles");
+    assert!(compiled_as2.contains("__nfLegacySuperConstruct"));
+    assert!(compiled_as2.contains("__nfLegacySuperMethod"));
+    assert!(compiled_as2.contains("NetServices"));
+
+    let as1_frame = neoflash_core::Script {
+        language: ScriptLanguage::ActionScript1,
+        source: "var re = new RegExp(\"a+\", \"g\");\n\
+                 with (this) {\n\
+                     btn.onRelease = function() {\n\
+                         var target = eval(\"clip0\");\n\
+                     };\n\
+                 }\n"
+        .into(),
+    };
+    let compiled_as1 = neoflash_script::compile_with_program(&as1_frame, &program)
+        .expect("Flash MX AS1 script with RegExp and with-closure compiles");
+    assert!(compiled_as1.contains("RegExp"));
+}

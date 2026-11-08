@@ -7,8 +7,8 @@ use std::{
 };
 
 const MAX_FILES: usize = 10_000;
-const MAX_FILE: u64 = 8 * 1024 * 1024;
-const MAX_TOTAL: u64 = 64 * 1024 * 1024;
+const MAX_FILE: u64 = 16 * 1024 * 1024;
+const MAX_TOTAL: u64 = 128 * 1024 * 1024;
 
 pub(crate) struct Source {
     pub format: ImportFormat,

@@ -35,7 +35,9 @@ pub(super) fn folders(contents: &BinaryContentsPrefix) -> Result<FolderPaths, St
     let mut identities = BTreeMap::new();
     let mut names = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
-        let name = super::read_string(&contents.original_bytes, &entry.name)?;
+        let name = super::read_string(&contents.original_bytes, &entry.name)?
+            .trim()
+            .to_owned();
         if name.is_empty() || name.contains('/') || !valid_library_folder(&name) {
             return Err(
                 "A library-folder name cannot be represented as a normalized NeoFlash folder."

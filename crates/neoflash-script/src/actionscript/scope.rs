@@ -135,7 +135,15 @@ impl<'a> Analysis<'a> {
         let key = self.fold(name);
         let current = self.scopes.get_mut(&scope).unwrap();
         if let Some(previous) = current.bindings.get(&key) {
-            if kind == BindingKind::Variable && previous.kind == kind && previous.ty == ty {
+            if kind == BindingKind::Variable
+                && ((previous.kind == kind && previous.ty == ty)
+                    || (self.script.language == ScriptLanguage::ActionScript2
+                        && matches!(
+                            previous.kind,
+                            BindingKind::Variable | BindingKind::Parameter
+                        )
+                        && (previous.ty == ty || ty.is_none() || previous.ty.is_none())))
+            {
                 return Ok(());
             }
             return Err(self.error(
@@ -516,14 +524,14 @@ impl<'a> Analysis<'a> {
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="XMLNode" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Bare XMLNode belongs to the AS2 legacy DOM profile. AS3 XML/XMLList are supported; flash.xml legacy aliases are not integrated yet.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="Selection" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"Selection is the AS2 focus singleton. AS3 uses Stage.focus and TextField selection methods.")),
             Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript3 && name=="MovieClipLoader" && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"MovieClipLoader is the AS2 loading API. AS3 uses flash.display.Loader and its contentLoaderInfo.")),
-            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList" | "Namespace" | "QName") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && !self.context.legacy_case && matches!(name.as_str(), "RegExp" | "JSON" | "XMLList" | "Namespace" | "QName") && self.resolve(scope,name).is_none() && !self.context.types.contains_key(name) => return Err(self.error(self.scopes[&scope].offset, format!("{name} is an AS3 native family; AS2 has no native {name} in this profile. A declared user binding/class with that name is supported."))),
             Expr::TypeTest(op, _, name, offset) if !(self.context.legacy_case && op == "instanceof") && self.resolve(scope,name.split('.').next().unwrap()).is_some() => return Err(self.error(*offset, "is/as requires a resolved type name; a shadowed value or dynamic class alias is outside this profile.")),
-            Expr::NewBuiltin(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
+            Expr::NewBuiltin(name, _, offset) | Expr::NewValue(name, _, offset) if matches!(name.as_str(), "RegExp" | "JSON") && self.script.language == ScriptLanguage::ActionScript2 && !self.context.legacy_case && self.resolve(scope, name).is_none() => return Err(self.error(*offset, format!("{name} is an AS3 native family, not an AS2 constructor."))),
             Expr::NewBuiltin(name, _, offset) if name == "JSON" => return Err(self.error(*offset, "JSON supplies parse/stringify static functions and is not constructible.")),
             Expr::Name(name) if self.context.static_method && self.resolve(scope,name).is_some_and(|(id,b)|id==0&&b.kind==BindingKind::Field) && !self.context.static_members.contains_key(name) => return Err(self.error(self.scopes[&scope].offset,"A static method cannot access an instance member without an explicit object receiver.")),
             Expr::Name(name) if self.context.static_method && name=="super" => return Err(self.error(self.scopes[&scope].offset,"Static methods cannot use instance super access.")),
-            Expr::Name(name) if self.context.legacy_case && self.context.class_name.is_none() && name=="super" && self.scopes[&scope].function == 0 => return Err(self.error(self.scopes[&scope].offset,"super is only valid inside a constructor or prototype method function.")),
-            Expr::Name(name) if self.context.legacy_case && self.context.class_name.is_none() && name=="super" && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS1 super property values and method extraction are outside this profile; call super(...) or super.method(...) directly.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.context.class_name.is_none() && name=="super" && self.scopes[&scope].function == 0 => return Err(self.error(self.scopes[&scope].offset,"super is only valid inside a constructor or prototype method function.")),
+            Expr::Name(name) if self.script.language == ScriptLanguage::ActionScript2 && self.context.class_name.is_none() && name=="super" && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS1 super property values and method extraction are outside this profile; call super(...) or super.method(...) directly.")),
             Expr::Name(name) if self.script.language==ScriptLanguage::ActionScript3 && name=="super" && (self.context.class_name.is_none() || !direct_callee) => return Err(self.error(self.scopes[&scope].offset,"AS3 super is not a standalone value; use super(...) or super.member inside a project class.")),
             Expr::Member(base,_) if self.script.language==ScriptLanguage::ActionScript2 && matches!(base.as_ref(),Expr::Name(n)if n=="super") && !direct_callee => return Err(self.error(self.scopes[&scope].offset,"AS2 super property values and method extraction are outside this profile; call super.method(...) directly.")),
             Expr::Name(name) if self.script.language != ScriptLanguage::ActionScript3 && is_error_type(name) && self.resolve(scope, name).is_none() => return Err(self.error(self.scopes[&scope].offset, "Core Error class values and constructor aliases are not supported; use an explicit new Error-family constructor.")),
@@ -712,9 +720,13 @@ impl<'a> Analysis<'a> {
                                         | "setPropertyIsEnumerable"
                                 )
                         ));
-                let legacy_proto_call = self.context.legacy_case
-                    && (matches!(callee.as_ref(), Expr::Member(_, _))
-                        || matches!(callee.as_ref(), Expr::Name(name) if name == "super" && self.scopes[&scope].function != 0));
+                let legacy_proto_call = (self.context.legacy_case
+                    && (matches!(callee.as_ref(), Expr::Member(_, _) | Expr::Index(_, _))
+                        || matches!(callee.as_ref(), Expr::Name(name) if name == "super" && self.scopes[&scope].function != 0)))
+                    || (self.script.language == ScriptLanguage::ActionScript2
+                        && (matches!(callee.as_ref(), Expr::Index(_, index) if super::literal_property_name(index).is_none())
+                            || matches!(callee.as_ref(), Expr::Name(name) if name == "super" && self.scopes[&scope].function != 0)
+                            || matches!(callee.as_ref(), Expr::Member(base, _) if matches!(base.as_ref(), Expr::Name(n) if n == "super") && self.scopes[&scope].function != 0)));
                 if !builtin && !project_call && !legacy_proto_call && !user_binding && !dynamic_timeline && !as3_scene_step && !matches!(callee.as_ref(),Expr::Function(_) | Expr::TypeValue(_, _)) && !self.known_member(scope,callee) {
                     return Err(self.error(*offset,"This ActionScript call is not a supported API or a declared user function/value. Unknown member APIs and dynamic computed calls remain unsupported; source is not discarded."));
                 }
@@ -977,6 +989,13 @@ pub(super) fn with_body_supported(stmt: &Stmt) -> bool {
         Stmt::Function(_) | Stmt::LegacyEvent(_, _)
     ) && expressions(stmt).into_iter().all(supported)
         && statements(stmt).into_iter().all(with_body_supported)
+}
+
+pub(super) fn as2_with_body_supported(stmt: &Stmt) -> bool {
+    !matches!(
+        stmt.unlocated(),
+        Stmt::Function(_) | Stmt::LegacyEvent(_, _)
+    ) && statements(stmt).into_iter().all(as2_with_body_supported)
 }
 
 pub(super) fn tell_target_body_supported(stmt: &Stmt) -> bool {

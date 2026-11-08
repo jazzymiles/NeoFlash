@@ -663,7 +663,7 @@ impl<'a> Frontend<'a> {
     fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
         let mut branches = Vec::new();
         let mut tail = None;
-        let mut close_braces = 0usize;
+        let mut opened_brace = false;
         loop {
             if branches.len() >= 1024 {
                 return Err(self.error("ActionScript if/else-if chain exceeds 1024 branches."));
@@ -673,7 +673,8 @@ impl<'a> Frontend<'a> {
             let condition = self.sequence_expression()?;
             self.expect(")")?;
             let yes = Box::new(self.statement()?);
-            branches.push((offset, condition, yes));
+            branches.push((offset, condition, yes, opened_brace));
+            opened_brace = false;
             if self.eat("else") {
                 if self.eat("if") {
                     continue;
@@ -681,7 +682,7 @@ impl<'a> Frontend<'a> {
                 let saved_pos = self.pos;
                 if self.eat("{") {
                     if self.eat("if") {
-                        close_braces += 1;
+                        opened_brace = true;
                         continue;
                     }
                     self.pos = saved_pos;
@@ -690,15 +691,20 @@ impl<'a> Frontend<'a> {
             }
             break;
         }
-        for _ in 0..close_braces {
-            self.expect("}")?;
-        }
         let mut current = tail;
-        for (offset, condition, yes) in branches.into_iter().rev() {
-            current = Some(Box::new(Stmt::Located(
-                offset,
-                Box::new(Stmt::If(condition, yes, current)),
-            )));
+        for (offset, condition, yes, close_brace) in branches.into_iter().rev() {
+            let mut node = Stmt::Located(offset, Box::new(Stmt::If(condition, yes, current)));
+            if close_brace {
+                if !self.is("}") {
+                    let mut stmts = vec![node];
+                    while self.token().kind != Kind::End && !self.is("}") {
+                        stmts.push(self.statement()?);
+                    }
+                    node = Stmt::Block(stmts);
+                }
+                self.expect("}")?;
+            }
+            current = Some(Box::new(node));
         }
         Ok(*current.unwrap())
     }
@@ -930,7 +936,12 @@ impl<'a> Frontend<'a> {
             self.with_depth += 1;
             let body = self.statement()?;
             self.with_depth -= 1;
-            if !scope::with_body_supported(&body) {
+            let supported = if self.script.language == ScriptLanguage::ActionScript3 {
+                scope::with_body_supported(&body)
+            } else {
+                scope::as2_with_body_supported(&body)
+            };
+            if !supported {
                 return Err(self.error("Function definitions and eval/set calls inside with require captured/dynamic scope-chain semantics outside this profile. Define callbacks and resolve named paths outside the with block."));
             }
             return Ok(Stmt::With(target, Box::new(body), offset));
@@ -1368,7 +1379,7 @@ impl<'a> Frontend<'a> {
             && !(word == "set" && self.script.language == ScriptLanguage::ActionScript2)
             && !matches!(word.as_str(), "new" | "delete" | "void")
             && !(((self.context.project && self.context.class_name.is_some())
-                || self.context.legacy_case)
+                || self.script.language == ScriptLanguage::ActionScript2)
                 && word == "super")
         {
             return Err(self.error(format!("ActionScript '{word}' is not implemented yet. See docs/COMPATIBILITY.md; use a JavaScript/TypeScript handler for this feature.")));
@@ -2106,9 +2117,6 @@ impl<'a> Frontend<'a> {
                     .context
                     .intrinsic_type(&name, self.script.language == ScriptLanguage::ActionScript3)
                 || (self.script.language == ScriptLanguage::ActionScript2
-                    && class.is_none()
-                    && matches!(name.as_str(), "RegExp" | "JSON"))
-                || (self.script.language == ScriptLanguage::ActionScript2
                     && matches!(name.as_str(), "LoadVars" | "TextFormat" | "Sound"))
                 || (self.script.language == ScriptLanguage::ActionScript2
                     && class.is_none()
@@ -2144,7 +2152,7 @@ impl<'a> Frontend<'a> {
                 && (!is_error_type(&name)
                     || (self.script.language == ScriptLanguage::ActionScript2 && name != "Error"))
                 && !self.context.legacy_case
-                && (self.script.language != ScriptLanguage::ActionScript3 || name.contains('.'))
+                && (is_error_type(&name) || name.contains('.'))
             {
                 return Err(self.error("This constructor is not a supported native type in this language/profile; user classes require project type resolution."));
             }
@@ -2218,7 +2226,7 @@ impl<'a> Frontend<'a> {
         match token.kind {
             Kind::Number(value) | Kind::String(value) => { self.pos += 1; Ok(Expr::Literal(value)) }
             Kind::Ident(name) => {
-                if (is_unsupported_keyword(&name) && !(name == "super" && (self.context.class_name.is_some() || self.context.legacy_case)) && !(name == "set" && self.script.language == ScriptLanguage::ActionScript2)) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
+                if (is_unsupported_keyword(&name) && !(name == "super" && (self.context.class_name.is_some() || self.script.language == ScriptLanguage::ActionScript2)) && !(name == "set" && self.script.language == ScriptLanguage::ActionScript2)) || matches!(name.as_str(), "if" | "else" | "while" | "for" | "var" | "break" | "continue" | "return") {
                     return Err(self.error(format!("ActionScript construct '{name}' is not supported in this expression.")));
                 }
                 self.pos += 1;
@@ -3049,7 +3057,7 @@ fn binding_power(operator: &str) -> Option<(u8, u8, bool)> {
 }
 
 struct Emitter<'a> {
-    with_targets: Vec<String>,
+    with_targets: Vec<(usize, String)>,
     tell_target: Option<String>,
     as3: bool,
     analysis: &'a scope::Analysis<'a>,
@@ -3228,11 +3236,34 @@ impl Emitter<'_> {
             tell_target: self.tell_target.clone(),
         }
     }
+    fn scope_at_or_inside(&self, inner: usize, outer: usize) -> bool {
+        let mut cur = Some(inner);
+        while let Some(id) = cur {
+            if id == outer {
+                return true;
+            }
+            cur = self.analysis.scopes[&id].parent;
+        }
+        false
+    }
     fn with_reference(&self, name: &str) -> Option<String> {
         if self.with_targets.is_empty()
             || matches!(name, "this" | "super" | "eval" | "set")
             || (!self.as3 && parse_as2_level(name).is_some())
         {
+            return None;
+        }
+        let min_scope = self
+            .analysis
+            .resolve(self.scope, name)
+            .map_or(0, |(id, _)| id);
+        let active_targets: Vec<&str> = self
+            .with_targets
+            .iter()
+            .filter(|(with_scope, _)| self.scope_at_or_inside(*with_scope, min_scope))
+            .map(|(_, target)| target.as_str())
+            .collect();
+        if active_targets.is_empty() {
             return None;
         }
         let plain = self.without_with();
@@ -3279,10 +3310,9 @@ impl Emitter<'_> {
         let receiver = receiver.unwrap_or_else(|| "undefined".into());
         Some(format!(
             "__nfWithRef([{}],{name:?},()=>({fallback}),{receiver},{}{})",
-            self.with_targets
-                .iter()
+            active_targets
+                .into_iter()
                 .rev()
-                .cloned()
                 .collect::<Vec<_>>()
                 .join(","),
             self.as3,
@@ -3624,7 +3654,22 @@ impl Emitter<'_> {
         } else {
             "__nfName"
         };
-        format!("(__nfName)=>{{switch({selector}){{{cases}}}return null;}}")
+        let with_lookup = if self.with_targets.is_empty() || self.tell_target.is_some() {
+            String::new()
+        } else {
+            let targets = self
+                .with_targets
+                .iter()
+                .rev()
+                .map(|(_, t)| t.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "for(const __nfWithObj of [{targets}]){{const __nfRef=__nfContainerRef(__nfWithObj,__nfName,false{});if(__nfRef.has())return __nfRef;}}",
+                self.container_tail()
+            )
+        };
+        format!("(__nfName)=>{{{with_lookup}switch({selector}){{{cases}}}return null;}}")
     }
     fn default_value(&self, ty: Option<&str>) -> &'static str {
         if !self.as3 {
@@ -3652,7 +3697,7 @@ impl Emitter<'_> {
             as3: self.as3,
             analysis: self.analysis,
             scope: f.id,
-            with_targets: Vec::new(),
+            with_targets: self.with_targets.clone(),
             tell_target: None,
         };
         let mut prologue = String::new();
@@ -3924,7 +3969,7 @@ impl Emitter<'_> {
                     self.with_targets
                         .iter()
                         .rev()
-                        .cloned()
+                        .map(|(_, t)| t.as_str())
                         .collect::<Vec<_>>()
                         .join(",")
                 ))
@@ -4020,7 +4065,7 @@ impl Emitter<'_> {
             Expr::XmlFilter(base, predicate, id) => {
                 let item = format!("__nfXmlFilter{id}");
                 let mut targets = self.with_targets.clone();
-                targets.push(item.clone());
+                targets.push((self.scope, item.clone()));
                 let inner = Emitter {
                     as3: self.as3,
                     analysis: self.analysis,
@@ -4123,10 +4168,14 @@ impl Emitter<'_> {
                     .join(", ")
             ),
             Expr::NewValue(name, args, _) => {
-                if self.legacy_case() {
+                if !self.as3 {
                     format!(
                         "__nfLegacyConstruct({}, [{}])",
-                        self.dotted_value_expr(name),
+                        if self.legacy_case() {
+                            self.dotted_value_expr(name)
+                        } else {
+                            self.name(name)
+                        },
                         args.iter()
                             .map(|a| self.expression(a))
                             .collect::<Vec<_>>()
@@ -4808,7 +4857,7 @@ impl Emitter<'_> {
                                     .join(", ")
                             );
                         }
-                        if self.legacy_case() {
+                        if !self.as3 {
                             return format!(
                                 "__nfLegacySuperConstruct(this, [{}])",
                                 args.iter()
@@ -4869,13 +4918,14 @@ impl Emitter<'_> {
                     }
                     _ => None,
                 };
-                if self.legacy_case()
+                if !self.as3
                     && self.analysis.context.class_name.is_none()
                     && let Some((Expr::Name(base_name), method_name)) = &member
                     && base_name == "super"
                 {
                     return format!(
-                        "__nfLegacySuperMethod(this, {method_name:?}, true)({})",
+                        "__nfLegacySuperMethod(this, {method_name:?}, {})({})",
+                        self.legacy_case(),
                         args.iter()
                             .map(|arg| self.expression(arg))
                             .collect::<Vec<_>>()
@@ -4971,12 +5021,18 @@ impl Emitter<'_> {
                                 && (!is_global(name)
                                     || matches!(name.as_str(), "gotoAndPlay" | "gotoAndStop")) =>
                         {
-                            Some((self.active_timeline().to_owned(), name))
+                            Some((self.active_timeline().to_owned(), format!("{name:?}")))
                         }
-                        Expr::Member(base, name) => Some((self.expression(base), name)),
-                        Expr::Index(_, _) => member
-                            .as_ref()
-                            .map(|(base, name)| (self.expression(base), name)),
+                        Expr::Member(base, name) => {
+                            Some((self.expression(base), format!("{name:?}")))
+                        }
+                        Expr::Index(base, index) => Some((
+                            self.expression(base),
+                            member.as_ref().map_or_else(
+                                || self.expression(index),
+                                |(_, name)| format!("{name:?}"),
+                            ),
+                        )),
                         _ => None,
                     }
                 };
@@ -5039,11 +5095,11 @@ impl Emitter<'_> {
                             self.expression(callee)
                         }
                     },
-                    |(receiver, name)| {
+                    |(receiver, name_expr)| {
                         if self.legacy_case() {
-                            format!("__nfAs2Method({receiver}, {name:?}, true)")
+                            format!("__nfAs2Method({receiver}, {name_expr}, true)")
                         } else {
-                            format!("__nfAs2Method({receiver}, {name:?})")
+                            format!("__nfAs2Method({receiver}, {name_expr})")
                         }
                     },
                 );
@@ -5137,7 +5193,7 @@ impl Emitter<'_> {
             Stmt::With(target, body, id) => {
                 let name = format!("__nfWith{id}");
                 let mut targets = self.with_targets.clone();
-                targets.push(name.clone());
+                targets.push((self.scope, name.clone()));
                 let inner = Emitter {
                     as3: self.as3,
                     analysis: self.analysis,
@@ -5155,7 +5211,7 @@ impl Emitter<'_> {
             Stmt::TellTarget(target, body, id) => {
                 let name = format!("__nfWith{id}");
                 let mut targets = self.with_targets.clone();
-                targets.push(name.clone());
+                targets.push((self.scope, name.clone()));
                 let inner = Emitter {
                     as3: self.as3,
                     analysis: self.analysis,

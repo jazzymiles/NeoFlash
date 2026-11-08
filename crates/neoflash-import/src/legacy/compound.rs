@@ -425,6 +425,8 @@ fn raw_entry(directory: &[u8], index: usize) -> Result<RawEntry, ImportError> {
     let kind = e[66];
     let name = if kind == 0 {
         String::new()
+    } else if index == 0 && kind == 5 && name_len == 2 {
+        String::from("Root Entry")
     } else {
         if !(2..=64).contains(&name_len) || name_len % 2 != 0 {
             return Err(invalid("directory name length"));
@@ -524,6 +526,13 @@ mod tests {
         let c = Compound::open(&bytes, &LIMITS).unwrap();
         assert!(c.tolerances.stale_difat_slots);
         assert!(c.tolerances.nonzero_stream_times);
+        assert_eq!(
+            streams(&bytes).unwrap(),
+            streams(&sample(cfb::Version::V3)).unwrap()
+        );
+        // Mac Flash MX writes a null-terminated empty name (name_len == 2) on root entry 0.
+        bytes[dir..dir + 64].fill(0);
+        bytes[dir + 64..dir + 66].copy_from_slice(&2u16.to_le_bytes());
         assert_eq!(
             streams(&bytes).unwrap(),
             streams(&sample(cfb::Version::V3)).unwrap()
