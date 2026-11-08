@@ -47,6 +47,7 @@ fn gradient(id: &str) -> Element {
                         color: [0, 0, 0, 255],
                     },
                 ],
+                ..Default::default()
             }),
         },
         ..rect(id, 100., 100.)

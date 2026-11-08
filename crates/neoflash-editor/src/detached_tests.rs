@@ -24,6 +24,7 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
     ] {
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.set_panel_visible(panel, true);
         editor.output.clear();
         if let Some(inner_size) = saved_size {
             editor.workspace.remember_geometry(
@@ -253,7 +254,7 @@ fn panel_drag_previews_actual_contents_including_inactive_tabs_and_cancels_clean
             vec![crate::tests::primary_button(stage, false)],
         );
         let geometry = editor.workspace.detached_geometry(panel).unwrap();
-        let expected_position = origin + expected_rect.min.to_vec2() - egui::vec2(0., 28.);
+        let expected_position = origin + expected_rect.min.to_vec2();
         assert_eq!(
             geometry.outer_position,
             [expected_position.x, expected_position.y]
@@ -281,6 +282,13 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
     let (seen_child, close_child, outputs_child) = (seen.clone(), close.clone(), outputs.clone());
     egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
         let id = viewport.ids.this;
+        assert_eq!(viewport.builder.decorations, Some(false));
+        assert_eq!(viewport.builder.title_shown, Some(false));
+        assert_eq!(viewport.builder.titlebar_shown, Some(false));
+        assert_eq!(viewport.builder.titlebar_buttons_shown, Some(false));
+        assert_eq!(viewport.builder.close_button, Some(false));
+        assert_eq!(viewport.builder.minimize_button, Some(false));
+        assert_eq!(viewport.builder.maximize_button, Some(false));
         seen_child.borrow_mut().push(id);
         let mut input = egui::RawInput {
             viewport_id: id,
@@ -558,4 +566,111 @@ fn immediate_panels_share_state_close_reopen_and_dock_without_duplicate_contents
     assert_eq!(editor.frame, 7);
     assert!(!editor.dirty());
     assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_from_edges() {
+    let ctx = egui::Context::default();
+    ctx.set_embed_viewports(false);
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Align);
+    editor.set_panel_placement(&ctx, PanelId::Align, PanelPlacement::Detached);
+    editor.workspace.remember_floating_geometry(
+        PanelId::Align,
+        crate::workspace::WindowGeometry {
+            outer_position: [300., 200.],
+            inner_size: [260., 240.],
+        },
+    );
+    let align_id = egui::ViewportId::from_hash_of(PanelId::Align.viewport_key().unwrap());
+    let run_floating_frame = |editor: &mut Editor, origin: egui::Pos2, size: egui::Vec2, events| {
+        let mut input = egui::RawInput {
+            viewport_id: align_id,
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            events,
+            ..Default::default()
+        };
+        let info = egui::ViewportInfo {
+            parent: Some(egui::ViewportId::ROOT),
+            outer_rect: Some(egui::Rect::from_min_size(origin, size)),
+            inner_rect: Some(egui::Rect::from_min_size(origin, size)),
+            ..Default::default()
+        };
+        input.viewports.insert(egui::ViewportId::ROOT, info.clone());
+        input.viewports.insert(align_id, info);
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                .show(ctx, |ui| editor.floating_dock_contents(ui, PanelId::Align));
+            editor.floating_window_resize_borders(
+                ctx,
+                PanelId::Align,
+                &[PanelId::Align],
+                [200., 160.],
+                1.0,
+            );
+            editor.finalize_panel_drag(ctx);
+        });
+    };
+    run_floating_frame(
+        &mut editor,
+        egui::pos2(300., 200.),
+        egui::vec2(260., 240.),
+        vec![],
+    );
+    // Dragging the header to (80, 54) — still well inside the 260x240 floating window —
+    // must move the floating window to a new outer_position and never self-dock it.
+    run_floating_frame(
+        &mut editor,
+        egui::pos2(300., 200.),
+        egui::vec2(260., 240.),
+        vec![
+            egui::Event::PointerMoved(egui::pos2(30., 14.)),
+            crate::tests::primary_button(egui::pos2(30., 14.), true),
+            egui::Event::PointerMoved(egui::pos2(80., 54.)),
+            crate::tests::primary_button(egui::pos2(80., 54.), false),
+        ],
+    );
+    assert_eq!(
+        editor.workspace.panel_surface(PanelId::Align),
+        DockSurface::Floating(PanelId::Align)
+    );
+    let moved = editor
+        .workspace
+        .detached_geometry(PanelId::Align)
+        .expect("Align floating geometry");
+    assert_eq!(moved.outer_position, [350., 240.]);
+    assert_eq!(
+        editor
+            .workspace
+            .floating_window(PanelId::Align)
+            .unwrap()
+            .panels(),
+        vec![PanelId::Align]
+    );
+    // Dragging the bottom-right corner of the borderless floating window resizes its inner_size.
+    run_floating_frame(
+        &mut editor,
+        egui::pos2(350., 240.),
+        egui::vec2(260., 240.),
+        vec![
+            egui::Event::PointerMoved(egui::pos2(259., 239.)),
+            crate::tests::primary_button(egui::pos2(259., 239.), true),
+        ],
+    );
+    run_floating_frame(
+        &mut editor,
+        egui::pos2(350., 240.),
+        egui::vec2(260., 240.),
+        vec![
+            egui::Event::PointerMoved(egui::pos2(299., 269.)),
+            crate::tests::primary_button(egui::pos2(299., 269.), false),
+        ],
+    );
+    let resized = editor
+        .workspace
+        .detached_geometry(PanelId::Align)
+        .expect("Align resized geometry");
+    assert_eq!(resized.outer_position, [350., 240.]);
+    assert_eq!(resized.inner_size, [300., 270.]);
 }

@@ -1807,7 +1807,7 @@ impl Editor {
                         }
                     }
                 });
-                if nudge != [0.0, 0.0] {
+                if nudge != [0.0, 0.0] && !self.nudge_selected_vector_points(nudge[0], nudge[1]) {
                     self.nudge_selection(nudge[0], nudge[1]);
                 }
             }

@@ -24,28 +24,8 @@ impl Editor {
 
     fn properties_contents(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::paint_controls::{
-            PropertyChanges, color_row, numeric_pair, numeric_row, paint_row, percent_row,
-            property_row, set_paint_row_gradient_swatch, text_row,
-        };
-        let to_grad_swatch = |g: Option<&GradientPaint>| -> Option<nf::GradientSwatch> {
-            let g = g?;
-            let first = g.stops.first()?;
-            let last = g.stops.last()?;
-            Some(nf::GradientSwatch {
-                from: egui::Color32::from_rgba_unmultiplied(
-                    first.color[0],
-                    first.color[1],
-                    first.color[2],
-                    first.color[3],
-                ),
-                to: egui::Color32::from_rgba_unmultiplied(
-                    last.color[0],
-                    last.color[1],
-                    last.color[2],
-                    last.color[3],
-                ),
-                radial: g.kind == GradientKind::Radial,
-            })
+            PropertyChanges, color_row, numeric_pair, numeric_pair_with_suffix, numeric_row,
+            paint_row, percent_row, property_row, set_paint_row_gradient, text_row,
         };
         // Figma inspector body: V gap 12 between all rows.
         ui.spacing_mut().item_spacing.y = space::S3;
@@ -74,15 +54,15 @@ impl Editor {
             inspector_section(ui, "Tool options", |ui| self.authoring_tool_options(ui));
             inspector_section(ui, "Drawing defaults", |ui| {
                 let (old_fill, old_stroke) = (self.fill, self.stroke);
-                set_paint_row_gradient_swatch(
+                set_paint_row_gradient(
                     ctx,
                     "inspector-tool-fill",
-                    to_grad_swatch(self.authoring_modify.drawing_fill_gradient.as_ref()),
+                    self.authoring_modify.drawing_fill_gradient.clone(),
                 );
-                set_paint_row_gradient_swatch(
+                set_paint_row_gradient(
                     ctx,
                     "inspector-tool-stroke",
-                    to_grad_swatch(self.authoring_modify.drawing_stroke_gradient.as_ref()),
+                    self.authoring_modify.drawing_stroke_gradient.clone(),
                 );
                 if paint_row(ui, "inspector-tool-fill", "Fill", &mut self.fill).changed() {
                     crate::authoring_modify::update_gradient_for_color_edit(
@@ -282,6 +262,156 @@ impl Editor {
                         "Position and transform"
                     };
                     inspector_section_with_open(ui, pos_title, !is_text_any, |ui| {
+                        // Row 1: W and H + Constrain proportions lock icon on one line.
+                        let link_id = egui::Id::new("properties-element-size-linked");
+                        let mut linked =
+                            ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
+                        match &mut element.kind {
+                            ElementKind::TextBox { width, height, .. }
+                            | ElementKind::Rectangle { width, height, .. }
+                            | ElementKind::Ellipse { width, height, .. }
+                            | ElementKind::Video { width, height } => {
+                                let (old_w, old_h) = (*width, *height);
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = space::S2;
+                                    let pair_width = (ui.available_width()
+                                        - crate::theme::control_h()
+                                        - space::S2)
+                                        .max(80.0);
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(pair_width, crate::theme::control_h()),
+                                        egui::Layout::top_down(egui::Align::Min),
+                                        |ui| {
+                                            for r in numeric_pair(
+                                                ui,
+                                                ["W", "H"],
+                                                [width, height],
+                                                1. ..=10000.,
+                                                1.,
+                                            ) {
+                                                changes.note(r);
+                                            }
+                                        },
+                                    );
+                                    if ui
+                                        .add(
+                                            nf::IconButton::new(
+                                                i16::LINK,
+                                                "Constrain proportions",
+                                            )
+                                            .selected(linked),
+                                        )
+                                        .clicked()
+                                    {
+                                        linked = !linked;
+                                    }
+                                });
+                                if linked && old_w > 0.0 && old_h > 0.0 {
+                                    if (*width - old_w).abs() > 1e-6 {
+                                        *height = (*width * old_h / old_w).clamp(1.0, 10000.0);
+                                    } else if (*height - old_h).abs() > 1e-6 {
+                                        *width = (*height * old_w / old_h).clamp(1.0, 10000.0);
+                                    }
+                                }
+                            }
+                            other_kind => {
+                                let (base_w, base_h) = match other_kind {
+                                    ElementKind::Instance { symbol_id, .. } => {
+                                        self.unscaled_symbol_size(ctx, symbol_id)
+                                    }
+                                    ElementKind::Bitmap { width, height, .. } => (
+                                        f64::from(*width).max(1.0),
+                                        f64::from(*height).max(1.0),
+                                    ),
+                                    ElementKind::Path { commands, .. }
+                                    | ElementKind::PaintedPath { commands, .. } => {
+                                        if let Ok(Some(b)) = neoflash_core::path_bounds(commands) {
+                                            (
+                                                (b.x_max - b.x_min).max(1.0),
+                                                (b.y_max - b.y_min).max(1.0),
+                                            )
+                                        } else {
+                                            (100.0, 100.0)
+                                        }
+                                    }
+                                    ElementKind::Text {
+                                        text, font_size, ..
+                                    } => (
+                                        (text.chars().count().max(1) as f64 * *font_size * 0.6)
+                                            .max(1.0),
+                                        (*font_size * 1.2).max(1.0),
+                                    ),
+                                    _ => (100.0, 100.0),
+                                };
+                                let mut w = (base_w * element.transform.scale_x.abs()).max(0.01);
+                                let mut h = (base_h * element.transform.scale_y.abs()).max(0.01);
+                                let (old_w, old_h) = (w, h);
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = space::S2;
+                                    let pair_width = (ui.available_width()
+                                        - crate::theme::control_h()
+                                        - space::S2)
+                                        .max(80.0);
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(pair_width, crate::theme::control_h()),
+                                        egui::Layout::top_down(egui::Align::Min),
+                                        |ui| {
+                                            for r in numeric_pair(
+                                                ui,
+                                                ["W", "H"],
+                                                [&mut w, &mut h],
+                                                0.01..=100_000.,
+                                                1.,
+                                            ) {
+                                                changes.note(r);
+                                            }
+                                        },
+                                    );
+                                    if ui
+                                        .add(
+                                            nf::IconButton::new(
+                                                i16::LINK,
+                                                "Constrain proportions",
+                                            )
+                                            .selected(linked),
+                                        )
+                                        .clicked()
+                                    {
+                                        linked = !linked;
+                                    }
+                                });
+                                let w_changed = (w - old_w).abs() > 1e-6;
+                                let h_changed = (h - old_h).abs() > 1e-6;
+                                if linked && old_w > 0.0 && old_h > 0.0 {
+                                    if w_changed {
+                                        h = (w * old_h / old_w).clamp(0.01, 100_000.0);
+                                    } else if h_changed {
+                                        w = (h * old_w / old_h).clamp(0.01, 100_000.0);
+                                    }
+                                }
+                                if w_changed || (linked && h_changed) {
+                                    let sign_x = if element.transform.scale_x < 0.0 {
+                                        -1.0
+                                    } else {
+                                        1.0
+                                    };
+                                    element.transform.scale_x =
+                                        sign_x * (w / base_w.max(1e-6)).clamp(0.0001, 1000.0);
+                                }
+                                if h_changed || (linked && w_changed) {
+                                    let sign_y = if element.transform.scale_y < 0.0 {
+                                        -1.0
+                                    } else {
+                                        1.0
+                                    };
+                                    element.transform.scale_y =
+                                        sign_y * (h / base_h.max(1e-6)).clamp(0.0001, 1000.0);
+                                }
+                            }
+                        }
+                        ui.data_mut(|d| d.insert_temp(link_id, linked));
+
+                        // Row 2: X and Y.
                         for r in numeric_pair(
                             ui,
                             ["X", "Y"],
@@ -291,118 +421,36 @@ impl Editor {
                         ) {
                             changes.note(r);
                         }
-                        if let ElementKind::TextBox { width, height, .. } = &mut element.kind {
-                            let (old_w, old_h) = (*width, *height);
-                            let link_id = egui::Id::new("properties-textbox-size-linked");
-                            let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                let pair_width =
-                                    (ui.available_width() - crate::theme::control_h() - space::S2)
-                                        .max(80.0);
-                                ui.allocate_ui_with_layout(
-                                    egui::vec2(pair_width, crate::theme::control_h()),
-                                    egui::Layout::top_down(egui::Align::Min),
-                                    |ui| {
-                                        for r in numeric_pair(
-                                            ui,
-                                            ["W", "H"],
-                                            [width, height],
-                                            1. ..=10000.,
-                                            1.,
-                                        ) {
-                                            changes.note(r);
-                                        }
-                                    },
-                                );
-                                if ui
-                                    .add(
-                                        nf::IconButton::new(i16::LINK, "Constrain text box proportions")
-                                            .selected(linked),
-                                    )
-                                    .clicked()
-                                {
-                                    linked = !linked;
-                                }
-                            });
-                            ui.data_mut(|d| d.insert_temp(link_id, linked));
-                            if linked && old_w > 0.0 && old_h > 0.0 {
-                                if (*width - old_w).abs() > 1e-6 {
-                                    *height = (*width * old_h / old_w).clamp(1.0, 10000.0);
-                                } else if (*height - old_h).abs() > 1e-6 {
-                                    *width = (*height * old_w / old_h).clamp(1.0, 10000.0);
-                                }
-                            }
-                        } else if let ElementKind::Instance { symbol_id, .. } = &element.kind {
-                            let (base_w, base_h) = self.unscaled_symbol_size(ctx, symbol_id);
-                            let mut w = (base_w * element.transform.scale_x.abs()).max(0.01);
-                            let mut h = (base_h * element.transform.scale_y.abs()).max(0.01);
-                            let (old_w, old_h) = (w, h);
-                            let link_id = egui::Id::new("properties-instance-size-linked");
-                            let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S2;
-                                let pair_width =
-                                    (ui.available_width() - crate::theme::control_h() - space::S2)
-                                        .max(80.0);
-                                ui.allocate_ui_with_layout(
-                                    egui::vec2(pair_width, crate::theme::control_h()),
-                                    egui::Layout::top_down(egui::Align::Min),
-                                    |ui| {
-                                        for r in numeric_pair(
-                                            ui,
-                                            ["W", "H"],
-                                            [&mut w, &mut h],
-                                            0.01..=100_000.,
-                                            1.,
-                                        ) {
-                                            changes.note(r);
-                                        }
-                                    },
-                                );
-                                if ui
-                                    .add(
-                                        nf::IconButton::new(i16::LINK, "Constrain instance proportions")
-                                            .selected(linked),
-                                    )
-                                    .clicked()
-                                {
-                                    linked = !linked;
-                                }
-                            });
-                            ui.data_mut(|d| d.insert_temp(link_id, linked));
-                            let w_changed = (w - old_w).abs() > 1e-6;
-                            let h_changed = (h - old_h).abs() > 1e-6;
-                            if linked && old_w > 0.0 && old_h > 0.0 {
-                                if w_changed {
-                                    h = (w * old_h / old_w).clamp(0.01, 100_000.0);
-                                } else if h_changed {
-                                    w = (h * old_w / old_h).clamp(0.01, 100_000.0);
-                                }
-                            }
-                            if w_changed || (linked && h_changed) {
-                                let sign_x = if element.transform.scale_x < 0.0 { -1.0 } else { 1.0 };
-                                element.transform.scale_x =
-                                    sign_x * (w / base_w.max(1e-6)).clamp(0.0001, 1000.0);
-                            }
-                            if h_changed || (linked && w_changed) {
-                                let sign_y = if element.transform.scale_y < 0.0 { -1.0 } else { 1.0 };
-                                element.transform.scale_y =
-                                    sign_y * (h / base_h.max(1e-6)).clamp(0.0001, 1000.0);
-                            }
-                        }
-                        for r in numeric_pair(
+
+                        // Row 3: Scale X and Scale Y in 100 % (instead of 1.0).
+                        let mut sx_pct = element.transform.scale_x * 100.0;
+                        let mut sy_pct = element.transform.scale_y * 100.0;
+                        let (old_sx, old_sy) = (sx_pct, sy_pct);
+                        let [rx, ry] = numeric_pair_with_suffix(
                             ui,
                             ["Scale X", "Scale Y"],
-                            [
-                                &mut element.transform.scale_x,
-                                &mut element.transform.scale_y,
-                            ],
-                            -1000. ..=1000.,
-                            0.01,
-                        ) {
-                            changes.note(r);
+                            [&mut sx_pct, &mut sy_pct],
+                            -100_000. ..=100_000.,
+                            1.,
+                            " %",
+                        );
+                        if rx.changed() || ry.changed() {
+                            if linked && old_sx.abs() > 1e-6 && old_sy.abs() > 1e-6 {
+                                if (sx_pct - old_sx).abs() > 1e-6 {
+                                    sy_pct =
+                                        (sx_pct * old_sy / old_sx).clamp(-100_000.0, 100_000.0);
+                                } else if (sy_pct - old_sy).abs() > 1e-6 {
+                                    sx_pct =
+                                        (sy_pct * old_sx / old_sy).clamp(-100_000.0, 100_000.0);
+                                }
+                            }
+                            element.transform.scale_x = sx_pct / 100.0;
+                            element.transform.scale_y = sy_pct / 100.0;
                         }
+                        changes.note(rx);
+                        changes.note(ry);
+
+                        // Row 4: Rotation (and Skew for instances).
                         if is_instance {
                             for r in numeric_pair(
                                 ui,
@@ -450,18 +498,14 @@ impl Editor {
                                 fill_gradient,
                                 stroke_gradient,
                                 ..
-                            } => (
-                                to_grad_swatch(fill_gradient.as_ref()),
-                                to_grad_swatch(stroke_gradient.as_ref()),
-                            ),
+                            } => (fill_gradient.clone(), stroke_gradient.clone()),
                             _ => (None, None),
                         };
                         match &mut element.kind {
-                            ElementKind::Rectangle { width, height, fill, stroke, stroke_width }
-                            | ElementKind::Ellipse { width, height, fill, stroke, stroke_width } => {
-                                set_paint_row_gradient_swatch(ctx, "shape-fill", None);
-                                set_paint_row_gradient_swatch(ctx, "shape-stroke", None);
-                                for r in numeric_pair(ui, ["W", "H"], [width, height], 1. ..=10000., 1.) { changes.note(r); }
+                            ElementKind::Rectangle { fill, stroke, stroke_width, .. }
+                            | ElementKind::Ellipse { fill, stroke, stroke_width, .. } => {
+                                set_paint_row_gradient(ctx, "shape-fill", None);
+                                set_paint_row_gradient(ctx, "shape-stroke", None);
                                 changes.note(paint_row(ui, "shape-fill", "Fill", fill));
                                 changes.note(paint_row(ui, "shape-stroke", "Stroke", stroke));
                                 changes.note(numeric_row(ui, "Stroke width", stroke_width, 0. ..=100., 0.25));
@@ -526,8 +570,7 @@ impl Editor {
                                     changes.control = Some(control);
                                 }
                             }
-                            ElementKind::Video { width, height } => {
-                                for r in numeric_pair(ui, ["Width", "Height"], [width, height], 0. ..=8192., 1.) { changes.note(r); }
+                            ElementKind::Video { .. } => {
                                 hint(ui, "Attach a NetStream from ActionScript. Playback runs in the HTML5 preview.");
                             }
                             ElementKind::Bitmap { resource_id, width, height, smoothing } => {
@@ -537,8 +580,8 @@ impl Editor {
                                 changes.note(ui.add(nf::Checkbox::new(smoothing, "Smoothing")));
                             }
                             ElementKind::Path { commands, fill_rule, fill, stroke, stroke_width } | ElementKind::PaintedPath { commands, fill_rule, fill, stroke, stroke_width, .. } => {
-                                set_paint_row_gradient_swatch(ctx, "path-fill", orig_fill_grad);
-                                set_paint_row_gradient_swatch(ctx, "path-stroke", orig_stroke_grad);
+                                set_paint_row_gradient(ctx, "path-fill", orig_fill_grad);
+                                set_paint_row_gradient(ctx, "path-stroke", orig_stroke_grad);
                                 hint(ui, &format!("{} commands", commands.len()));
                                 changes.note(paint_row(ui, "path-fill", "Fill", fill));
                                 changes.note(paint_row(ui, "path-stroke", "Stroke", stroke));

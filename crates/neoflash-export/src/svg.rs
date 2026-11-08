@@ -838,6 +838,7 @@ mod tests {
                 },
             ],
             focal_point_ratio: 0.0,
+            ..Default::default()
         };
         let mut elem = Element {
             id: new_id("grad-shape"),

@@ -2,12 +2,66 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
-
 - Complete Flash CS5 Text functionality, multi-column layout & container flow, and redesigned `Properties — Text` inspector with custom vector icons (`T-152`):
   - **Multi-column layout & container flow (`crates/neoflash-core/src/text.rs`, `crates/neoflash-editor/src/{text_boxes,stage_selection}.rs`, `web/{text,text-input}.js`):** Added `column_count` (`1..=50`), `column_gutter` (`0.0..=1000.0`, default `20.0`), `vertical_align` (`"top"`, `"center"`, `"bottom"`, `"justify"`), 4-sided container padding (`padding_left`, `padding_right`, `padding_top`, `padding_bottom`, default `2.0`), `border_width` (`0.5..=200.0`, default `1.0`), `first_line_offset_mode` (`"auto"`, `"ascent"`, `"line_height"`, `"pt"`) + `first_line_offset`, and live Stage multi-column divider guides with TLF In/Out flow ports (`paint_container_guides`).
   - **Character, Advanced Character & Paragraph layout:** Added `%` / `pt` `leading_mode`, `highlight` + `highlight_color` (`0xffff00`), `strikethrough`, `superscript`, `subscript`, `glyph_rotation` (`"auto"`, `"0"`, `"270"`), `orientation` (`"horizontal"`, `"vertical_ltr"`, `"vertical_rtl"`), `direction` (`"ltr"`, `"rtl"`), `typographic_case` (`"default"`, `"uppercase"`, `"lowercase"`, `"caps_to_small_caps"`, `"lowercase_to_small_caps"`), `digit_case`, `digit_width`, `ligatures`, `line_break`, `baseline_shift`, `locale`, paragraph `space_before` / `space_after`, `text_justify` (`"word_spacing"`, `"letter_spacing"`), and `"justify_all"` alignment.
   - **Redesigned `Properties — Text` inspector & custom vector icons (`crates/neoflash-editor/src/ui_icons.rs`, `crates/neoflash-editor/src/text_boxes.rs`, `crates/neoflash-editor/src/panels/properties.rs`):** Added 25 custom Flash CS5 vector icons (`TextPropertyGlyph`), optional color swatches with a red diagonal slash when disabled (`text_optional_color_swatch` for Highlight, Border, and Background), and collapsible `Character`, `Advanced character`, `Paragraph`, `Container and flow`, and `Options` sections.
 
+- Classic Flash 8 tool & panel mechanics: Selection same-color connected strokes, Subselection multi-anchor drag/nudge/marquee/`Alt`-tangent, Free Transform symbol registration snap, Lasso Polygon mode & Magic Wand, Pen auto-remove/convert anchor, live Rectangle arrow-key corner radius & `Alt` center-out Line, Paint Bucket gradient drag, Eraser `Selected fills` / `Inside` / `Square` tip, Info panel 9-point registration grid, and `Accessibility` closed by default (`T-153`):
+  - **Selection Tool (`V`):** Double-clicking a raw Merge stroke segment (`merge_connected_stroke_ids` in `crates/neoflash-core/src/merge_drawing.rs`) now selects all connected Merge stroke segments of the **same stroke color/gradient**, stopping at differently colored stroke segments.
+  - **Subselection Tool (`A`):** Added multi-anchor dragging (`move_selected_anchors`), `1 px` / `Shift + 10 px` arrow-key nudging (`nudge_selected_vector_points` in `crates/neoflash-editor/src/vector.rs` and `crates/neoflash-editor/src/app.rs`), marquee selection of anchor points (`subselect_marquee`), and `Alt` (`Option`)-dragging a corner anchor point (`pull_anchor_tangent`) to pull out symmetric cubic Bézier tangent handles in one Undo step.
+  - **Free Transform Tool (`Q`):** Double-clicking the transformation point (`Zone::Pivot` / `reset_transformation_point` in `crates/neoflash-editor/src/stage_selection.rs`) on a Symbol Instance snaps its default bounding-box center pivot (`None`) to its symbol registration point `Some([0.0, 0.0])`, and double-clicking again resets any custom `Some(...)` pivot back to `None`.
+  - **Lasso Tool (`L`):** Added `Polygon mode` (click-by-click straight-line polygon lasso with live rubber-band preview, closed by double-click, `Enter`, or clicking the start vertex), `Magic wand` (`magic_wand_select_at` flood-filling contiguous pixels on bitmaps orbroken-apart bitmap fills within `magic_wand_threshold` `0..=200` and slicing/selecting the contour while preserving `AuthoredBitmapFill` on all resulting fragments, or selecting matching-color vector fills), and the `Magic wand settings…` modal dialog (`Threshold: 0..=200`, `Smoothing: Pixels | Rough | Normal | Smooth`) in `crates/neoflash-editor/src/authoring_tools.rs`, `crates/neoflash-editor/src/ui_icons.rs`, and `crates/neoflash-editor/src/panels/tools.rs`.
+  - **Pen Tool (`P`):** Clicking an existing interior anchor point on a selected editable path auto-removes the anchor (`nf::PEN_REMOVE` cursor), and `Alt` (`Option`)-clicking or `Alt`-dragging an existing anchor point converts it between a sharp corner and a smooth cubic Bézier curve (`nf::PEN_CONVERT` cursor) in `crates/neoflash-editor/src/vector.rs`.
+  - **Rectangle (`R`) & Line (`N`) Tools:** Holding `↑` / `↓` arrow keys while dragging a `Rectangle` adjusts `rect_options.corner_radii` live on the Stage (`crates/neoflash-editor/src/stage_selection.rs`), and holding `Alt` (`Option`) while dragging with the `Line Tool (N)` draws the line symmetrically from the center out (`line_gesture_points` in `crates/neoflash-editor/src/authoring_tools.rs`).
+  - **Paint Bucket Tool (`K`):** Clicking and dragging across a shape (`Tool::Bucket` in `crates/neoflash-editor/src/authoring_tools.rs`) defines the center, span length, and rotation angle of a Linear or Radial gradient fill (`apply_bucket_gradient_to_element`) with a live direction-line overlay, and clicking with a Radial gradient centers the gradient at the click point when `Lock fill` is off.
+  - **Eraser Tool (`E`):** Added `EraserMode::SelectedFills` (`"Erase selected fills"`), `EraserMode::Inside` (`"Erase inside"`, erasing only the fill where the stroke started), and `EraserShape::{Round, Square}` in `crates/neoflash-editor/src/authoring_tools.rs`, `crates/neoflash-editor/src/ui_icons.rs`, and `crates/neoflash-editor/src/panels/tools.rs`.
+  - **Info Panel & Accessibility Default Visibility:** Wired the NF2 9-point (3×3) `RegistrationPicker` (`self.authoring_tools.info_anchor` and `apply_info_bounds_edit_with_anchor` in `crates/neoflash-editor/src/panels/info.rs`) so `X`, `Y`, `W`, and `H` inspect and resize relative to the chosen registration point (`TopLeft`, `Center`, `BottomRight`, etc.), and set `PanelVisibility::default().accessibility = false` in `crates/neoflash-editor/src/workspace.rs` so the `Accessibility` panel is closed by default.
+
+- Classic Flash Gradient Transform Tool (`F`) boundaries and handles, gradient stop recalculation, Fill/Stroke order
+  swap and visual Overflow dropdown in Color, shared multi-stop gradient previews, and Properties `W`/`H`+Lock, `X`/`Y`,
+  `Scale 100%` layout (`T-154`):
+  - Updated `Tool::Gradient` (`F`) in `crates/neoflash-editor/src/authoring_tools.rs` to draw classic Flash Linear and
+    Radial gradient boundaries and handles: parallel perpendicular boundary lines at `x = ±819.2` with Center circle
+    (`(0, 0)`), Width square `[→]` (`(819.2, 0)`), and Rotation circle for Linear gradients; and a 64-segment elliptical
+    boundary ring + horizontal diameter axis line with Center circle, Focal point inverted triangle `▽` + circle, Width
+    square `[→]`, proportional Radius/Size circle with inward arrow, and Rotation circle for Radial gradients.
+  - Added `GradientSpread` (`Extend`, `Reflect`, `Repeat`) and `linear_rgb: bool` to `GradientPaint`
+    (`crates/neoflash-core/src/runtime_graphics.rs`), updated `sample_at_unit` / `sample` and adaptive triangle
+    subdivision in `crates/neoflash-editor/src/vector.rs`, and replaced the disabled `Flow` icon row in `Color`
+    (`crates/neoflash-editor/src/authoring_modify.rs`) with an interactive `Overflow` dropdown featuring custom visual
+    previews (`Extend`, `Reflect`, `Repeat`) plus an active `Linear RGB` checkbox.
+  - Fixed gradient stop insertion and recalculation in `gradient_stops_bar_ui`
+    (`crates/neoflash-editor/src/authoring_modify.rs`, and removed per-frame `"color-panel-active-stroke"` overwrite in
+    `crates/neoflash-editor/src/panels/tools.rs`) so clicking either the 20px gradient bar or the 20px pointer rail
+    below it inserts a stop interpolated at that exact position and preserves `*selected_stop` across stop-ratio sorting
+    so subsequent color picks edit the newly added stop instead of the right endpoint.
+  - Swapped `Fill` and `Stroke` wells in the `Color` panel/popover so `Fill` is on the left and `Stroke` is on the right,
+    and extracted shared multi-stop gradient swatch rendering (`paint_gradient_swatch`,
+    `paint_fill_stroke_chip_gradients` in `crates/neoflash-editor/src/paint_controls.rs`) used across `Tools`, `Color`,
+    and `Properties`.
+  - Updated `Tool::Eyedropper` (`crates/neoflash-editor/src/authoring_tools.rs`) so sampling a gradient fill copies
+    `drawing_fill_gradient` and automatically enables `Lock Fill` (`brush_lock_fill = true`).
+  - Reordered `Position and size` / `Position and transform` in `Properties`
+    (`crates/neoflash-editor/src/panels/properties.rs`) so Row 1 is `W` and `H` + Constrain proportions lock icon for all
+    stage elements, Row 2 is `X` and `Y`, and Row 3 is `Scale X` and `Scale Y` displayed and edited in `100 %` (`1.0` %
+    step).
+
+- Borderless undocked floating panel windows without macOS system title bar or traffic-light buttons (`T-155`):
+  - Configured all detached floating panel viewports (`crates/neoflash-editor/src/detached.rs`) with
+    `with_decorations(false)`, `with_title_shown(false)`, `with_titlebar_shown(false)`,
+    `with_titlebar_buttons_shown(false)`, `with_close_button(false)`, `with_minimize_button(false)`, and
+    `with_maximize_button(false)`, and updated `configure_panels` (`crates/neoflash-editor/src/native_windows.rs`) so
+    non-root macOS `NSWindow`s strip `NSWindowStyleMask::Titled | Closable | Miniaturizable | FullSizeContentView`,
+    use `NSWindowStyleMask::Borderless | Resizable` with `NSWindowTitleVisibility::Hidden` and `setHasShadow(true)`,
+    and remove the macOS Close / Minimize / Zoom buttons entirely.
+  - Removed the legacy `- egui::vec2(0., 28.)` titlebar offset when tearing off panels into floating windows
+    (`finalize_panel_drag` in `crates/neoflash-editor/src/detached.rs`), excluded a dragged whole floating window from
+    self-docking (`dragged_whole_floating_window` in `detached.rs`, `dock_surface_at` in `dock_grid.rs`, and
+    `front_window_at_excluding` in `native_screens.rs`) so dragging any undocked panel by its NF2 header / `TOOLS_GRIP`
+    smoothly moves the floating window on screen while still allowing docking into the main window or another floating
+    window underneath, and added a 1px `border_subtle` outer border plus interactive edge/corner resizing
+    (`floating_window_resize_borders` in `detached.rs`).
 
 - Floating `Tools` resize dark-strip fix and left alignment, multi-selection `Break Apart` progression to shapes, and
   `No Fill` / `No Stroke` vs `Alpha = 0` multi-selection paint semantics (`T-150`):

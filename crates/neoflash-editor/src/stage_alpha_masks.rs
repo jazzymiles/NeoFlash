@@ -858,6 +858,7 @@ mod tests {
                     color: [0, 0, 0, 255],
                 },
             ],
+            ..Default::default()
         };
         let timeline = &mut editor.project.symbols[0].timeline;
         timeline.frame_count = 11;

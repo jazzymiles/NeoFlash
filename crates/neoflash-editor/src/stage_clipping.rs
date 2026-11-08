@@ -942,6 +942,7 @@ mod tests {
                 color: [20, 40, 60, alpha],
             }],
             focal_point_ratio: 0.,
+            ..Default::default()
         }
     }
 

@@ -151,8 +151,8 @@ pub use runtime_graph::{
     RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect, StageMutation, VideoState,
 };
 pub use runtime_graphics::{
-    BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientStop,
-    GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
+    BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientSpread,
+    GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
 };
 pub use scenes::{
     GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_with_ranges,

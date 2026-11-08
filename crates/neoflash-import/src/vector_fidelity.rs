@@ -811,6 +811,7 @@ fn parse_svg_defs(root: Node<'_, '_>) -> SvgDefinitions {
                             stops,
                             matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                             focal_point_ratio: 0.0,
+                            ..Default::default()
                         },
                     );
                 }

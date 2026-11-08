@@ -41,7 +41,7 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Scene panel: find, add, duplicate, delete, rename and reorder scenes
 - Working: Tool and handle cursors with click-accurate hotspots over the Stage
 - Working: NF2 selection boxes, two-tone shape-clipped hatch, transform box and path points
-- Working: Info panel: editable selection bounds, cursor position and RGBA color under pointer
+- Working: Info panel: 9-point registration grid, editable selection bounds, cursor position and RGBA color under pointer
 - Working: Stage breadcrumb Symbols & scenes popover with live search and keyboard navigation
 - Working: Movie Explorer panel: searchable scene, symbol, text, script, media and frame tree
 - Working: Find and Replace dialog (⌘F) for Text, Symbol, Video, Sound, Bitmap, Color and Font
@@ -66,7 +66,7 @@ Authoring tools: stage, vectors, text, selection and library.
 `editor-primitives` · **Closed**
 
 - Working: Draw consecutive rectangles and ovals with live oval outlines and keep the selected tool
-- Working: Parametric rectangle corner radii and oval start/end angles and inner radius
+- Working: Parametric rectangle corner radii (including live Up/Down arrow adjustment while dragging) and oval start/end angles and inner radius
 - Working: Reset primitive options or Break Apart into editable paths
 - Working: Independent fill and stroke colors with alpha retained at zero width
 - Working: Stroke width setting
@@ -85,8 +85,8 @@ Authoring tools: stage, vectors, text, selection and library.
 
 - Working: Draw open and closed paths
 - Working: Line, quadratic and cubic segments
-- Working: Move anchor points
-- Working: Move curve control handles
+- Working: Select and move single or multiple anchor points by drag, marquee or Arrow/Shift+Arrow nudging
+- Working: Move curve control handles, pull out symmetric tangents from corner anchors with Option-drag, and convert/remove anchors with Pen
 
 **Scope:** Open and closed paths; line, quadratic and cubic segments; moving anchors and control handles.
 
@@ -138,7 +138,7 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Flip and reset transform
 - Working: Skew-aware handle resizing
 - Working: Skew objects by dragging a Free Transform edge
-- Working: Custom transform pivot
+- Working: Custom transform pivot with double-click toggle between instance center and symbol registration point
 - Working: Direct skew editing of groups in the Transform panel
 - Working: Free Transform sub-modes (Rotate and Skew, Scale, Distort, Envelope), Delete Envelope and Modify ▸ Transform actions
 
@@ -220,11 +220,11 @@ Authoring tools: stage, vectors, text, selection and library.
 - Working: Line tool and vector brush with eight tip shapes
 - Working: PolyStar tool with polygon/star sides and point-size settings
 - Working: Pressure-sensitive brush
-- Working: Paint bounded planar faces formed by one or several vector boundaries
+- Working: Paint bounded planar faces with solid, radial center-on-click or click-and-drag gradient vectors
 - Working: Paint bucket gap closing
 - Working: Ink Bottle including transparent contours, plus solid-color Eyedropper
-- Working: Whole-object, fill and stroke eraser with continuous hit testing and cursor-only preview
-- Working: Select whole placements with Lasso and keep selection hatching visible
+- Working: Erase Normal, Fills, Lines, Selected Fills, Inside and Faucet modes with Round and Square tips
+- Working: Lasso freehand, Polygon mode and Magic Wand (with Threshold and Smoothing settings)
 - Working: Cut through raw Merge fills and Bézier strokes by default
 - Working: Hand, temporary Space pan and zoom
 - Working: Group/Ungroup (single, multi-object or multi-layer) and Break Apart (groups, MovieClip/Button/Graphic instances, bitmaps, primitives, paths and text) from Modify, Stage context menu or classic shortcuts

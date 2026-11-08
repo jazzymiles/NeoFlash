@@ -1113,6 +1113,7 @@ fn overshooting_tweens_clamp_alpha_dimensions_and_filters_when_converted_to_keyf
             },
         ],
         focal_point_ratio: focal,
+        ..Default::default()
     };
     let painted_box = |id: &str, alpha: f64, focal: f64| Element {
         id: id.into(),

@@ -196,6 +196,20 @@ impl Editor {
         self.project.background
     }
 
+    pub(crate) fn info_anchor_factors(point: c::RegistrationPoint) -> (f64, f64) {
+        match point {
+            c::RegistrationPoint::TopLeft => (0.0, 0.0),
+            c::RegistrationPoint::Top => (0.5, 0.0),
+            c::RegistrationPoint::TopRight => (1.0, 0.0),
+            c::RegistrationPoint::Left => (0.0, 0.5),
+            c::RegistrationPoint::Center => (0.5, 0.5),
+            c::RegistrationPoint::Right => (1.0, 0.5),
+            c::RegistrationPoint::BottomLeft => (0.0, 1.0),
+            c::RegistrationPoint::Bottom => (0.5, 1.0),
+            c::RegistrationPoint::BottomRight => (1.0, 1.0),
+        }
+    }
+
     pub(crate) fn apply_info_bounds_edit(
         &mut self,
         old_bounds: Rect,
@@ -204,10 +218,32 @@ impl Editor {
         new_w: f64,
         new_h: f64,
     ) {
-        let dx = new_x - old_bounds.min.x as f64;
-        let dy = new_y - old_bounds.min.y as f64;
+        self.apply_info_bounds_edit_with_anchor(
+            old_bounds,
+            new_x,
+            new_y,
+            new_w,
+            new_h,
+            self.authoring_tools.info_anchor,
+        );
+    }
+
+    pub(crate) fn apply_info_bounds_edit_with_anchor(
+        &mut self,
+        old_bounds: Rect,
+        new_x: f64,
+        new_y: f64,
+        new_w: f64,
+        new_h: f64,
+        anchor: c::RegistrationPoint,
+    ) {
+        let (fx, fy) = Self::info_anchor_factors(anchor);
         let old_w = old_bounds.width() as f64;
         let old_h = old_bounds.height() as f64;
+        let anchor_x = old_bounds.min.x as f64 + old_w * fx;
+        let anchor_y = old_bounds.min.y as f64 + old_h * fy;
+        let dx = new_x - anchor_x;
+        let dy = new_y - anchor_y;
         let w_changed = (new_w - old_w).abs() > 1e-3 && old_w > 1e-3;
         let h_changed = (new_h - old_h).abs() > 1e-3 && old_h > 1e-3;
         let sx = if w_changed {
@@ -228,8 +264,6 @@ impl Editor {
         if targets.is_empty() {
             return;
         }
-        let anchor_x = old_bounds.min.x as f64;
-        let anchor_y = old_bounds.min.y as f64;
         let single = targets.len() == 1;
         for (target, mut element) in targets {
             let mut resized_intrinsic = false;
@@ -246,10 +280,14 @@ impl Editor {
                     | ElementKind::Video { width, height }
                     | ElementKind::TextBox { width, height, .. } => {
                         if w_changed {
-                            *width = (new_w.max(1.0) / scx).clamp(1.0, 100_000.0);
+                            let target_w = new_w.max(1.0);
+                            *width = (target_w / scx).clamp(1.0, 100_000.0);
+                            element.transform.x -= (target_w - old_w) * fx;
                         }
                         if h_changed {
-                            *height = (new_h.max(1.0) / scy).clamp(1.0, 100_000.0);
+                            let target_h = new_h.max(1.0);
+                            *height = (target_h / scy).clamp(1.0, 100_000.0);
+                            element.transform.y -= (target_h - old_h) * fy;
                         }
                         resized_intrinsic = true;
                     }
@@ -294,12 +332,13 @@ impl Editor {
         let px_per_unit = units.pixels() as f64;
         let selection_bounds = self.selection_info_bounds(&ctx);
         let editable = selection_bounds.is_some_and(|(_, ed)| ed);
+        let (fx, fy) = Self::info_anchor_factors(self.authoring_tools.info_anchor);
         let (mut w, mut h, mut x, mut y) = match selection_bounds {
             Some((b, _)) => (
                 b.width() as f64 / px_per_unit,
                 b.height() as f64 / px_per_unit,
-                b.min.x as f64 / px_per_unit,
-                b.min.y as f64 / px_per_unit,
+                (b.min.x as f64 + b.width() as f64 * fx) / px_per_unit,
+                (b.min.y as f64 + b.height() as f64 * fy) / px_per_unit,
             ),
             None => (0.0, 0.0, 0.0, 0.0),
         };
@@ -313,52 +352,59 @@ impl Editor {
         ));
         self.property_edit_scope(scope);
 
-        let half = ((ui.available_width() - space::S2) * 0.5).max(60.0);
         let mut edited_control = None;
-        ui.add_enabled_ui_semantic(editable, |ui| {
-            ui.horizontal(|ui| {
-                let rw = ui.add(
-                    c::Field::new(&mut w, "Width")
-                        .prefix("W")
-                        .decimals(1)
-                        .range(0.1..=100_000.0)
-                        .width(half),
-                );
-                if rw.changed() {
-                    edited_control = Some((rw.id, "Resize"));
-                }
-                let rh = ui.add(
-                    c::Field::new(&mut h, "Height")
-                        .prefix("H")
-                        .decimals(1)
-                        .range(0.1..=100_000.0)
-                        .width(half),
-                );
-                if rh.changed() {
-                    edited_control = Some((rh.id, "Resize"));
-                }
+        ui.horizontal_top(|ui| {
+            ui.add(c::RegistrationPicker {
+                point: &mut self.authoring_tools.info_anchor,
             });
-            ui.horizontal(|ui| {
-                let rx = ui.add(
-                    c::Field::new(&mut x, "X")
-                        .prefix("X")
-                        .decimals(1)
-                        .range(-1_000_000.0..=1_000_000.0)
-                        .width(half),
-                );
-                if rx.changed() {
-                    edited_control = Some((rx.id, "Move"));
-                }
-                let ry = ui.add(
-                    c::Field::new(&mut y, "Y")
-                        .prefix("Y")
-                        .decimals(1)
-                        .range(-1_000_000.0..=1_000_000.0)
-                        .width(half),
-                );
-                if ry.changed() {
-                    edited_control = Some((ry.id, "Move"));
-                }
+            let half = ((ui.available_width() - space::S2) * 0.5).max(52.0);
+            ui.vertical(|ui| {
+                ui.add_enabled_ui_semantic(editable, |ui| {
+                    ui.horizontal(|ui| {
+                        let rw = ui.add(
+                            c::Field::new(&mut w, "Width")
+                                .prefix("W")
+                                .decimals(1)
+                                .range(0.1..=100_000.0)
+                                .width(half),
+                        );
+                        if rw.changed() {
+                            edited_control = Some((rw.id, "Resize"));
+                        }
+                        let rh = ui.add(
+                            c::Field::new(&mut h, "Height")
+                                .prefix("H")
+                                .decimals(1)
+                                .range(0.1..=100_000.0)
+                                .width(half),
+                        );
+                        if rh.changed() {
+                            edited_control = Some((rh.id, "Resize"));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        let rx = ui.add(
+                            c::Field::new(&mut x, "X")
+                                .prefix("X")
+                                .decimals(1)
+                                .range(-1_000_000.0..=1_000_000.0)
+                                .width(half),
+                        );
+                        if rx.changed() {
+                            edited_control = Some((rx.id, "Move"));
+                        }
+                        let ry = ui.add(
+                            c::Field::new(&mut y, "Y")
+                                .prefix("Y")
+                                .decimals(1)
+                                .range(-1_000_000.0..=1_000_000.0)
+                                .width(half),
+                        );
+                        if ry.changed() {
+                            edited_control = Some((ry.id, "Move"));
+                        }
+                    });
+                });
             });
         });
 

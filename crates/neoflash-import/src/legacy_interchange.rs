@@ -771,6 +771,7 @@ fn parse_fxg_gradient(node: Node<'_, '_>, kind: GradientKind) -> Option<Gradient
         matrix,
         stops,
         focal_point_ratio,
+        ..Default::default()
     };
     paint.validate().ok().map(|()| paint)
 }

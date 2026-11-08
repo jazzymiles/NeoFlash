@@ -47,6 +47,7 @@ fn gradient(kind: GradientKind) -> GradientPaint {
                 color: [0, 0, 255, 255],
             },
         ],
+        ..Default::default()
     }
 }
 

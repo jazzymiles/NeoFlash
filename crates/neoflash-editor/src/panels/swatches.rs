@@ -69,6 +69,7 @@ fn preset_gradients(palette: &[Color32]) -> Vec<(c::GradientSwatch, GradientPain
                     },
                 ],
                 focal_point_ratio: 0.0,
+                ..Default::default()
             };
             (swatch, paint)
         })

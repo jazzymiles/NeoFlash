@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub const PREFS_KEY: &str = "neoflash.workspace.v2";
 // Includes up to 32 complete user layouts, each with its own floating windows.
 pub const MAX_PREFS_BYTES: usize = 1024 * 1024;
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -269,7 +269,7 @@ impl Default for PanelVisibility {
             library: true,
             properties: true,
             actions: true,
-            accessibility: true,
+            accessibility: false,
             output: true,
             align: false,
             transform: false,
@@ -2948,6 +2948,9 @@ impl WorkspacePrefs {
         if saved_version < 4 {
             prefs.timeline_prefs.auto_keyframe = false;
         }
+        if saved_version < 5 {
+            prefs.panels.accessibility = false;
+        }
         prefs.version = VERSION;
         prefs.sanitize();
         prefs
@@ -3747,7 +3750,7 @@ mod tests {
             "",
             "{",
             "null",
-            r#"{"version":5,"theme":"dark"}"#,
+            r#"{"version":6,"theme":"dark"}"#,
             r#"{"theme":"system"}"#,
             r#"{"sizes":{"timeline_height":null}}"#,
         ] {

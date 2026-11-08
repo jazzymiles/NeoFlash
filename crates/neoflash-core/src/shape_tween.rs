@@ -803,6 +803,8 @@ fn lerp_gradient(a: &GradientPaint, b: &GradientPaint, t: f64) -> GradientPaint 
             })
             .collect(),
         focal_point_ratio: lerp(a.focal_point_ratio, b.focal_point_ratio, t).clamp(-1.0, 1.0),
+        spread: if t < 0.5 { a.spread } else { b.spread },
+        linear_rgb: if t < 0.5 { a.linear_rgb } else { b.linear_rgb },
     }
 }
 
@@ -1249,6 +1251,7 @@ mod tests {
                 },
             ],
             focal_point_ratio: 0.,
+            ..Default::default()
         };
         let painted = ElementKind::PaintedPath {
             commands: degenerate_box(10., 10.),

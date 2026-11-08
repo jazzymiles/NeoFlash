@@ -673,6 +673,7 @@ impl Parser<'_> {
                     matrix,
                     stops,
                     focal_point_ratio: focal,
+                    ..Default::default()
                 };
                 paint.validate().map_err(|_| {
                     ShapeError(

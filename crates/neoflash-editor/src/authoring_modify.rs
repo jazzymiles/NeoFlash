@@ -11,7 +11,7 @@ use neoflash_ui::{
     Icon, TextStyle,
     components::{
         Button, Checkbox, ColorField, ColorPicker, ColorWell, ColorWellTarget, DragField, Field,
-        GradientBar, IconButton, IconGroup, MenuItem, Segmented, Select,
+        IconButton, IconGroup, MenuItem, Segmented, Select,
         color_picker::{Hsb, hsv},
     },
     icons::{i16, i20},
@@ -3564,6 +3564,7 @@ impl Editor {
             .into_iter()
             .filter(|(t, _)| self.target_editable(t))
             .collect();
+        let mut first_updated_grad = None;
         let changes: Vec<_> = targets
             .into_iter()
             .filter_map(|(target, mut element)| {
@@ -3585,13 +3586,100 @@ impl Editor {
                     {
                         paint.stops = normalized.clone();
                         *base = normalized[0].color;
+                        if first_updated_grad.is_none() {
+                            first_updated_grad = Some(paint.clone());
+                        }
                         return Some((target, element));
                     }
                 }
                 None
             })
             .collect();
+        if let Some(updated) = first_updated_grad {
+            let (color, grad) = if stroke_well {
+                (
+                    &mut self.stroke,
+                    &mut self.authoring_modify.drawing_stroke_gradient,
+                )
+            } else {
+                (
+                    &mut self.fill,
+                    &mut self.authoring_modify.drawing_fill_gradient,
+                )
+            };
+            *color = updated.stops[0].color;
+            if grad.is_none() {
+                *grad = Some(updated);
+            }
+        }
         self.apply_modified(changes, control);
+    }
+
+    pub(crate) fn set_selection_gradient_options(
+        &mut self,
+        stroke_well: bool,
+        spread: neoflash_core::GradientSpread,
+        linear_rgb: bool,
+    ) {
+        {
+            let grad = if stroke_well {
+                &mut self.authoring_modify.drawing_stroke_gradient
+            } else {
+                &mut self.authoring_modify.drawing_fill_gradient
+            };
+            if let Some(paint) = grad {
+                paint.spread = spread;
+                paint.linear_rgb = linear_rgb;
+            }
+        }
+        if !self.authoring_modify.color_selection {
+            return;
+        }
+        let targets: Vec<_> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(t, _)| self.target_editable(t))
+            .collect();
+        let mut first_updated_grad = None;
+        let changes: Vec<_> = targets
+            .into_iter()
+            .filter_map(|(target, mut element)| {
+                if let ElementKind::PaintedPath {
+                    fill_gradient,
+                    stroke_gradient,
+                    ..
+                } = &mut element.kind
+                {
+                    let slot = if stroke_well {
+                        stroke_gradient
+                    } else {
+                        fill_gradient
+                    };
+                    if let Some(paint) = slot
+                        && (paint.spread != spread || paint.linear_rgb != linear_rgb)
+                    {
+                        paint.spread = spread;
+                        paint.linear_rgb = linear_rgb;
+                        if first_updated_grad.is_none() {
+                            first_updated_grad = Some(paint.clone());
+                        }
+                        return Some((target, element));
+                    }
+                }
+                None
+            })
+            .collect();
+        if let Some(updated) = first_updated_grad {
+            let grad = if stroke_well {
+                &mut self.authoring_modify.drawing_stroke_gradient
+            } else {
+                &mut self.authoring_modify.drawing_fill_gradient
+            };
+            if grad.is_none() {
+                *grad = Some(updated);
+            }
+        }
+        self.apply_modified(changes, None);
     }
 
     pub(crate) fn swap_active_paints(&mut self) {
@@ -3943,7 +4031,11 @@ impl Editor {
             if current_mode == PaintFillType::BitmapFill {
                 self.bitmap_fill_section_ui(ui);
             } else if let Some(mut grad) = active_grad {
-                flow_row(ui);
+                if let Some((spread, linear_rgb)) = flow_row(ui, grad.spread, grad.linear_rgb) {
+                    grad.spread = spread;
+                    grad.linear_rgb = linear_rgb;
+                    self.set_selection_gradient_options(stroke_active, spread, linear_rgb);
+                }
                 let stop_count = grad.stops.len().max(1);
                 if self.authoring_modify.selected_stop >= stop_count {
                     self.authoring_modify.selected_stop = stop_count - 1;
@@ -3970,12 +4062,8 @@ impl Editor {
                     grad.stops[self.authoring_modify.selected_stop].color = stop_color;
                     self.set_selection_gradient_stops(stroke_active, grad.stops.clone(), None);
                 }
-                if gradient_stops_bar_ui(
-                    ui,
-                    &mut grad.stops,
-                    &mut self.authoring_modify.selected_stop,
-                )
-                .is_some()
+                if gradient_stops_bar_ui(ui, &mut grad, &mut self.authoring_modify.selected_stop)
+                    .is_some()
                 {
                     self.set_selection_gradient_stops(stroke_active, grad.stops, None);
                 }
@@ -4068,7 +4156,11 @@ impl Editor {
             if current_mode == PaintFillType::BitmapFill {
                 self.bitmap_fill_section_ui(ui);
             } else if let Some(mut grad) = active_grad {
-                flow_row(ui);
+                if let Some((spread, linear_rgb)) = flow_row(ui, grad.spread, grad.linear_rgb) {
+                    grad.spread = spread;
+                    grad.linear_rgb = linear_rgb;
+                    self.set_selection_gradient_options(stroke_active, spread, linear_rgb);
+                }
                 let stop_count = grad.stops.len().max(1);
                 if self.authoring_modify.selected_stop >= stop_count {
                     self.authoring_modify.selected_stop = stop_count - 1;
@@ -4097,11 +4189,9 @@ impl Editor {
                         Some(control),
                     );
                 }
-                if let Some(control) = gradient_stops_bar_ui(
-                    ui,
-                    &mut grad.stops,
-                    &mut self.authoring_modify.selected_stop,
-                ) {
+                if let Some(control) =
+                    gradient_stops_bar_ui(ui, &mut grad, &mut self.authoring_modify.selected_stop)
+                {
                     self.set_selection_gradient_stops(stroke_active, grad.stops, Some(control));
                 }
             } else {
@@ -4466,6 +4556,7 @@ fn default_gradient_paint(
             },
         ],
         focal_point_ratio: 0.0,
+        ..Default::default()
     }
 }
 
@@ -4666,7 +4757,8 @@ enum WellAction {
     DefaultBlackWhite,
 }
 
-/// Stroke and Fill `NF2/Color Well`s plus Swap / No colour / Black and white quick actions.
+/// Fill and Stroke `NF2/Color Well`s (Fill first on the left, Stroke second on the right)
+/// plus Swap / No colour / Black and white quick actions.
 fn color_wells_and_actions(
     ui: &mut egui::Ui,
     stroke_active: &mut bool,
@@ -4689,9 +4781,33 @@ fn color_wells_and_actions(
         }
         (c != [0, 0, 0, 0]).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
     };
+    let overpaint_well_gradient =
+        |ui: &egui::Ui, well_rect: egui::Rect, grad: Option<&GradientPaint>| {
+            if let Some(g) = grad {
+                let sw = egui::Rect::from_center_size(
+                    egui::pos2(well_rect.left() + 38.0, well_rect.center().y),
+                    egui::vec2(18.0, 18.0),
+                );
+                crate::paint_controls::paint_gradient_swatch(
+                    ui.painter(),
+                    sw,
+                    g,
+                    neoflash_ui::tokens::radius::SM,
+                );
+            }
+        };
     let mut action = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
+        let fill_well = ui.add(ColorWell {
+            target: ColorWellTarget::Fill,
+            color: shown(fill, fill_grad),
+            active: !*stroke_active,
+        });
+        overpaint_well_gradient(ui, fill_well.rect, fill_grad);
+        if fill_well.clicked() {
+            *stroke_active = false;
+        }
         let stroke_well = ui.add_enabled(
             stroke_enabled,
             ColorWell {
@@ -4700,18 +4816,9 @@ fn color_wells_and_actions(
                 active: *stroke_active,
             },
         );
+        overpaint_well_gradient(ui, stroke_well.rect, stroke_grad);
         if stroke_well.clicked() {
             *stroke_active = true;
-        }
-        if ui
-            .add(ColorWell {
-                target: ColorWellTarget::Fill,
-                color: shown(fill, fill_grad),
-                active: !*stroke_active,
-            })
-            .clicked()
-        {
-            *stroke_active = false;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
@@ -4774,33 +4881,141 @@ fn fill_type_select(
     chosen
 }
 
-fn flow_row(ui: &mut egui::Ui) {
-    let nf = neoflash_ui::palette(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.label(rich("Flow", TextStyle::Body).color(nf.text_secondary));
-        ui.add_enabled_ui(false, |ui| {
-            IconGroup {
-                items: &[
-                    (i16::FLOW_EXTEND, "Extend"),
-                    (i16::FLOW_REFLECT, "Reflect"),
-                    (i16::FLOW_REPEAT, "Repeat"),
-                ],
-                selected: Some(0),
-            }
-            .show(ui);
-        })
-        .response
-        .on_disabled_hover_text(
-            "Only Extend (pad) spread and sRGB interpolation are currently supported",
+fn spread_label(spread: neoflash_core::GradientSpread) -> &'static str {
+    match spread {
+        neoflash_core::GradientSpread::Extend => "Extend",
+        neoflash_core::GradientSpread::Reflect => "Reflect",
+        neoflash_core::GradientSpread::Repeat => "Repeat",
+    }
+}
+
+/// Paints the classic Flash gradient overflow diagram (`[dark -> light | dashed boundary | extend/reflect/repeat]`).
+fn paint_overflow_preview(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    spread: neoflash_core::GradientSpread,
+) {
+    let nf = neoflash_ui::palette(painter.ctx());
+    let inner = rect.shrink(0.5);
+    if inner.width() <= 2.0 || inner.height() <= 2.0 {
+        return;
+    }
+    let dark = egui::Color32::from_rgb(38, 42, 48);
+    let light = egui::Color32::from_rgb(236, 239, 244);
+    let mid_x = inner.center().x;
+    let mut mesh = egui::Mesh::default();
+    let add_horiz_grad =
+        |mesh: &mut egui::Mesh, x0: f32, x1: f32, c0: egui::Color32, c1: egui::Color32| {
+            let base = mesh.vertices.len() as u32;
+            mesh.colored_vertex(egui::pos2(x0, inner.top()), c0);
+            mesh.colored_vertex(egui::pos2(x0, inner.bottom()), c0);
+            mesh.colored_vertex(egui::pos2(x1, inner.top()), c1);
+            mesh.colored_vertex(egui::pos2(x1, inner.bottom()), c1);
+            mesh.add_triangle(base, base + 1, base + 2);
+            mesh.add_triangle(base + 1, base + 3, base + 2);
+        };
+    add_horiz_grad(&mut mesh, inner.left(), mid_x, dark, light);
+    match spread {
+        neoflash_core::GradientSpread::Extend => {
+            add_horiz_grad(&mut mesh, mid_x, inner.right(), light, light);
+        }
+        neoflash_core::GradientSpread::Reflect => {
+            add_horiz_grad(&mut mesh, mid_x, inner.right(), light, dark);
+        }
+        neoflash_core::GradientSpread::Repeat => {
+            add_horiz_grad(&mut mesh, mid_x, inner.right(), dark, light);
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
+    // Dashed boundary line down the middle, matching classic Flash Overflow Styles preview.
+    let dash_color = egui::Color32::from_rgb(220, 75, 45);
+    let top = inner.top() + 1.0;
+    let bot = inner.bottom() - 1.0;
+    let span = (bot - top).max(1.0);
+    for seg in 0..3 {
+        let y0 = top + span * (seg as f32 * 2.0 / 5.0);
+        let y1 = top + span * ((seg as f32 * 2.0 + 1.1) / 5.0);
+        painter.line_segment(
+            [egui::pos2(mid_x, y0), egui::pos2(mid_x, y1.min(bot))],
+            egui::Stroke::new(1.0_f32, dash_color),
         );
+    }
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(2),
+        egui::Stroke::new(1.0_f32, nf.border_default),
+        egui::StrokeKind::Inside,
+    );
+}
+
+fn flow_row(
+    ui: &mut egui::Ui,
+    mut spread: neoflash_core::GradientSpread,
+    mut linear_rgb: bool,
+) -> Option<(neoflash_core::GradientSpread, bool)> {
+    let nf = neoflash_ui::palette(ui.ctx());
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(rich("Overflow", TextStyle::Body).color(nf.text_secondary));
+        let mut chosen = None;
+        let (select_resp, _) = Select::new("color-gradient-overflow", spread_label(spread))
+            .width(114.0)
+            .icon(i16::FLOW_EXTEND)
+            .show(ui, |ui| {
+                ui.set_min_width(136.0);
+                for (mode, padded_label) in [
+                    (neoflash_core::GradientSpread::Extend, "       Extend"),
+                    (neoflash_core::GradientSpread::Reflect, "       Reflect"),
+                    (neoflash_core::GradientSpread::Repeat, "       Repeat"),
+                ] {
+                    let item_resp = ui.add(MenuItem::new(padded_label).checked(spread == mode));
+                    let preview_rect = egui::Rect::from_center_size(
+                        egui::pos2(item_resp.rect.left() + 38.0, item_resp.rect.center().y),
+                        egui::vec2(22.0, 14.0),
+                    );
+                    paint_overflow_preview(ui.painter(), preview_rect, mode);
+                    if item_resp.clicked() {
+                        chosen = Some(mode);
+                        ui.close();
+                    }
+                }
+            });
+        // Overpaint the 16x16 placeholder icon slot inside the closed Select with the visual overflow preview.
+        let closed_icon_bg = if select_resp.hovered() {
+            nf.bg_hover
+        } else {
+            nf.bg_raised
+        };
+        let closed_preview = egui::Rect::from_center_size(
+            egui::pos2(
+                select_resp.rect.left() + space::S3 + 8.0,
+                select_resp.rect.center().y,
+            ),
+            egui::vec2(20.0, 13.0),
+        );
+        ui.painter().rect_filled(
+            closed_preview.expand(1.0),
+            egui::CornerRadius::ZERO,
+            closed_icon_bg,
+        );
+        paint_overflow_preview(ui.painter(), closed_preview, spread);
+        if let Some(next_spread) = chosen
+            && next_spread != spread
+        {
+            spread = next_spread;
+            changed = true;
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut linear_rgb = false;
-            ui.add_enabled(false, Checkbox::new(&mut linear_rgb, "Linear RGB"))
-                .on_disabled_hover_text(
-                    "Only Extend (pad) spread and sRGB interpolation are currently supported",
-                );
+            if ui
+                .add(Checkbox::new(&mut linear_rgb, "Linear RGB"))
+                .changed()
+            {
+                changed = true;
+            }
         });
     });
+    changed.then_some((spread, linear_rgb))
 }
 
 fn color_to_hsb(c: Color) -> Hsb {
@@ -5047,44 +5262,166 @@ fn color_mixer_ui(
 
 fn gradient_stops_bar_ui(
     ui: &mut egui::Ui,
-    stops: &mut Vec<GradientStop>,
+    grad: &mut GradientPaint,
     selected_stop: &mut usize,
 ) -> Option<egui::Id> {
-    let mut ui_stops: Vec<(f32, egui::Color32)> = stops
-        .iter()
-        .map(|s| {
-            (
-                f32::from(s.ratio) / 255.0,
-                egui::Color32::from_rgba_unmultiplied(
-                    s.color[0], s.color[1], s.color[2], s.color[3],
-                ),
-            )
-        })
-        .collect();
-    if *selected_stop >= ui_stops.len() {
-        *selected_stop = ui_stops.len().saturating_sub(1);
+    let p = neoflash_ui::palette(ui.ctx());
+    if grad.stops.is_empty() {
+        return None;
+    }
+    grad.stops.sort_by_key(|s| s.ratio);
+    if *selected_stop >= grad.stops.len() {
+        *selected_stop = grad.stops.len() - 1;
     }
     let width = ui.available_width().max(120.0);
-    let r = ui.add(GradientBar {
-        stops: &mut ui_stops,
-        selected: selected_stop,
-        width,
-    });
-    if r.changed() {
-        if ui_stops.len() > 15 {
-            let drop_at = (*selected_stop).min(ui_stops.len() - 1);
-            ui_stops.remove(drop_at);
-            *selected_stop = (*selected_stop).min(ui_stops.len() - 1);
+    let (rect, mut response) =
+        ui.allocate_exact_size(egui::vec2(width, 40.0), egui::Sense::hover());
+    let bar = egui::Rect::from_min_size(rect.min, egui::vec2(width, 20.0));
+    crate::paint_controls::paint_checkerboard(ui.painter(), bar.shrink(1.0), 4.0);
+
+    // 64-slice mesh sampled through `GradientPaint::sample_at_unit` so the bar matches
+    // sRGB / Linear RGB and multi-stop ratios accurately.
+    let inner = bar.shrink(1.0);
+    let mut mesh = egui::Mesh::default();
+    const SLICES: usize = 64;
+    for i in 0..=SLICES {
+        let u = i as f64 / SLICES as f64;
+        let x = egui::lerp(inner.left()..=inner.right(), i as f32 / SLICES as f32);
+        let [r, g, b, a] = grad.sample_at_unit(u);
+        let c = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+        mesh.colored_vertex(egui::pos2(x, inner.top()), c);
+        mesh.colored_vertex(egui::pos2(x, inner.bottom()), c);
+    }
+    for i in 0..(SLICES as u32) {
+        let b = i * 2;
+        mesh.add_triangle(b, b + 1, b + 2);
+        mesh.add_triangle(b + 1, b + 3, b + 2);
+    }
+    ui.painter().add(egui::Shape::mesh(mesh));
+    ui.painter().rect_stroke(
+        bar,
+        egui::CornerRadius::same(neoflash_ui::tokens::radius::SM as u8),
+        egui::Stroke::new(1.0_f32, p.border_default),
+        egui::StrokeKind::Inside,
+    );
+
+    let mut changed = false;
+    let mut stop_hit = false;
+    let mut remove_idx: Option<usize> = None;
+    let mut dragged_target: Option<(usize, u8, Color)> = None;
+
+    for i in 0..grad.stops.len() {
+        let stop = grad.stops[i].clone();
+        let t = f32::from(stop.ratio) / 255.0;
+        let x = bar.left() + t * bar.width();
+        let sr = egui::Rect::from_center_size(
+            egui::pos2(x, bar.bottom() + 10.0),
+            egui::vec2(12.0, 16.0),
+        );
+        let id = response.id.with(("stop", i));
+        let r = ui.interact(sr, id, egui::Sense::click_and_drag());
+        if r.clicked() || r.drag_started() || r.dragged() {
+            *selected_stop = i;
+            stop_hit = true;
         }
-        *stops = ui_stops
-            .into_iter()
-            .map(|(t, c)| GradientStop {
-                ratio: (t.clamp(0.0, 1.0) * 255.0).round() as u8,
-                color: c.to_srgba_unmultiplied(),
-            })
+        if r.dragged()
+            && let Some(pos) = r.interact_pointer_pos()
+        {
+            if (pos.y - bar.bottom()).abs() > 36.0 && grad.stops.len() > 2 {
+                remove_idx = Some(i);
+            } else {
+                let next_t = ((pos.x - bar.left()) / bar.width()).clamp(0.0, 1.0);
+                let next_ratio = (next_t * 255.0).round() as u8;
+                if next_ratio != stop.ratio {
+                    dragged_target = Some((i, next_ratio, stop.color));
+                }
+            }
+        }
+        let sel = i == *selected_stop;
+        let border = if sel {
+            p.accent_default
+        } else {
+            p.border_strong
+        };
+        let top = egui::pos2(x, bar.bottom() + 2.0);
+        let bl = egui::pos2(sr.left(), bar.bottom() + 7.0);
+        let br = egui::pos2(sr.right(), bar.bottom() + 7.0);
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![top, br, bl],
+            p.bg_raised,
+            egui::Stroke::new(if sel { 1.5_f32 } else { 1.0_f32 }, border),
+        ));
+        let body = egui::Rect::from_min_max(bl, sr.max);
+        ui.painter()
+            .rect_filled(body, egui::CornerRadius::same(2), p.bg_raised);
+        let c32 = egui::Color32::from_rgba_unmultiplied(
+            stop.color[0],
+            stop.color[1],
+            stop.color[2],
+            stop.color[3],
+        );
+        ui.painter().rect_filled(
+            egui::Rect::from_center_size(body.center(), egui::vec2(6.0, 6.0)),
+            egui::CornerRadius::same(1),
+            c32,
+        );
+        ui.painter().rect_stroke(
+            body,
+            egui::CornerRadius::same(2),
+            egui::Stroke::new(if sel { 1.5_f32 } else { 1.0_f32 }, border),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    if let Some((idx, next_ratio, color)) = dragged_target {
+        grad.stops[idx].ratio = next_ratio;
+        let mut tagged: Vec<(bool, GradientStop)> = grad
+            .stops
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, s)| (i == idx, s))
             .collect();
-        stops.sort_by_key(|s| s.ratio);
-        return Some(r.id);
+        tagged.sort_by_key(|(_, s)| s.ratio);
+        if let Some(new_sel) = tagged
+            .iter()
+            .position(|(is_dragged, s)| *is_dragged && s.color == color)
+        {
+            *selected_stop = new_sel;
+        }
+        grad.stops = tagged.into_iter().map(|(_, s)| s).collect();
+        changed = true;
+    } else if let Some(idx) = remove_idx {
+        grad.stops.remove(idx);
+        *selected_stop = (*selected_stop).min(grad.stops.len().saturating_sub(1));
+        changed = true;
+    } else {
+        // Click anywhere on the 20px gradient bar OR in the 20px pointer strip below it
+        // (outside existing stop pointers) to insert a new stop sampled at that position.
+        let add_zone = ui.interact(rect, response.id.with("bar-or-rail"), egui::Sense::click());
+        if add_zone.clicked()
+            && !stop_hit
+            && grad.stops.len() < 15
+            && let Some(pos) = add_zone.interact_pointer_pos()
+        {
+            let t = ((pos.x - bar.left()) / bar.width()).clamp(0.0, 1.0);
+            let ratio = (t * 255.0).round() as u8;
+            let color = grad.sample_at_unit(f64::from(t));
+            let mut tagged: Vec<(bool, GradientStop)> =
+                grad.stops.iter().cloned().map(|s| (false, s)).collect();
+            tagged.push((true, GradientStop { ratio, color }));
+            tagged.sort_by_key(|(_, s)| s.ratio);
+            if let Some(new_sel) = tagged.iter().position(|(is_new, _)| *is_new) {
+                *selected_stop = new_sel;
+            }
+            grad.stops = tagged.into_iter().map(|(_, s)| s).collect();
+            changed = true;
+        }
+    }
+
+    if changed {
+        response.mark_changed();
+        return Some(response.id);
     }
     None
 }
@@ -5871,5 +6208,26 @@ mod arrange_tests {
             );
             close_color_popover(&ctx);
         }
+
+        // 4. Gradient stop insertion (on bar and in pointer rail below it) selects the newly
+        // inserted middle stop (index 1, not the right endpoint index 2), and overflow modes
+        // (`Extend`, `Reflect`, `Repeat`) + `Linear RGB` recalculate accurately.
+        editor.set_selection_fill_type(false, PaintFillType::LinearGradient);
+        editor.set_selection_gradient_options(false, GradientSpread::Reflect, true);
+        {
+            let ElementKind::PaintedPath {
+                fill_gradient: Some(fg),
+                ..
+            } = &editor.selected_element().unwrap().kind
+            else {
+                panic!("expected linear gradient");
+            };
+            assert_eq!(fg.spread, GradientSpread::Reflect);
+            assert!(fg.linear_rgb);
+            // Reflect maps u = 1.25 to 0.75:
+            assert!((fg.spread.apply(1.25) - 0.75).abs() < 1e-6);
+            assert!((GradientSpread::Repeat.apply(1.25) - 0.25).abs() < 1e-6);
+        }
+        editor.project.validate().unwrap();
     }
 }

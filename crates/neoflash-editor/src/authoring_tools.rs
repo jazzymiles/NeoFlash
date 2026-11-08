@@ -28,6 +28,45 @@ pub(crate) enum EraserMode {
     Strokes,
     #[default]
     StrokeSegments,
+    SelectedFills,
+    Inside,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum EraserShape {
+    #[default]
+    Round,
+    Square,
+}
+
+impl EraserShape {
+    pub(crate) fn brush_shape(self) -> neoflash_ui::components::BrushShapeKind {
+        match self {
+            Self::Round => neoflash_ui::components::BrushShapeKind::Round,
+            Self::Square => neoflash_ui::components::BrushShapeKind::Square,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum MagicWandSmoothing {
+    Pixels,
+    Rough,
+    #[default]
+    Normal,
+    Smooth,
+}
+
+impl MagicWandSmoothing {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Pixels => "Pixels",
+            Self::Rough => "Rough",
+            Self::Normal => "Normal",
+            Self::Smooth => "Smooth",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -75,9 +114,16 @@ pub(crate) struct AuthoringToolsState {
     pub brush_search: String,
     pub eraser_size: f32,
     pub eraser_mode: EraserMode,
+    pub eraser_shape: EraserShape,
     pub gap_close: GapCloseMode,
     pub lasso_contact: bool,
     pub lasso_partial_fills: bool,
+    pub lasso_polygon_mode: bool,
+    pub lasso_polygon: Vec<Pos2>,
+    pub lasso_magic_wand: bool,
+    pub magic_wand_threshold: u8,
+    pub magic_wand_smoothing: MagicWandSmoothing,
+    pub magic_wand_dialog: Option<(u8, MagicWandSmoothing)>,
     pub zoom_out: bool,
     pub polystar_star: bool,
     pub polystar_sides: u32,
@@ -86,6 +132,7 @@ pub(crate) struct AuthoringToolsState {
     pub rect_options: RectangleOptions,
     pub oval_options: OvalOptions,
     pub transform_mode: FreeTransformMode,
+    pub info_anchor: neoflash_ui::components::RegistrationPoint,
 }
 impl Default for AuthoringToolsState {
     fn default() -> Self {
@@ -105,9 +152,16 @@ impl Default for AuthoringToolsState {
             brush_search: String::new(),
             eraser_size: 16.,
             eraser_mode: EraserMode::StrokeSegments,
+            eraser_shape: EraserShape::Round,
             gap_close: GapCloseMode::None,
             lasso_contact: true,
             lasso_partial_fills: true,
+            lasso_polygon_mode: false,
+            lasso_polygon: Vec::new(),
+            lasso_magic_wand: false,
+            magic_wand_threshold: 20,
+            magic_wand_smoothing: MagicWandSmoothing::Normal,
+            magic_wand_dialog: None,
             zoom_out: false,
             polystar_star: false,
             polystar_sides: 5,
@@ -116,6 +170,7 @@ impl Default for AuthoringToolsState {
             rect_options: RectangleOptions::default(),
             oval_options: OvalOptions::default(),
             transform_mode: FreeTransformMode::FreeTransform,
+            info_anchor: neoflash_ui::components::RegistrationPoint::TopLeft,
         }
     }
 }
@@ -123,12 +178,13 @@ impl AuthoringToolsState {
     pub fn cancel(&mut self) {
         self.gesture = None;
         self.pressure_contact = None;
+        self.lasso_polygon.clear();
         if let Some((_, size)) = self.brush_resize.take() {
             self.brush_size = size;
         }
     }
     pub fn is_drawing(&self) -> bool {
-        self.gesture.is_some()
+        self.gesture.is_some() || !self.lasso_polygon.is_empty()
     }
 }
 struct PressureContact {
@@ -142,6 +198,17 @@ fn brush_force(force: Option<f32>) -> f32 {
         .filter(|force| force.is_finite())
         .unwrap_or(1.)
         .clamp(0.1, 1.)
+}
+
+fn multiply_matrices(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
+    [
+        a[0] * b[0] + a[2] * b[1],
+        a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3],
+        a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4],
+        a[1] * b[4] + a[3] * b[5] + a[5],
+    ]
 }
 
 struct Gesture {
@@ -163,13 +230,21 @@ struct Gesture {
     eraser_meshes: Vec<(SelectionTarget, egui::Mesh)>,
     gradient: Option<GradientGesture>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GradientHandleKind {
+    Center,
+    Width,
+    Radius,
+    Rotate,
+    Focal,
+}
+
 struct GradientGesture {
     target: SelectionTarget,
     kind: ElementKind,
     matrix: [f64; 6],
     element_matrix: [f64; 6],
-    handle: bool,
-    focal_handle: bool,
+    handle_kind: GradientHandleKind,
     radial: bool,
     focal_point_ratio: f64,
 }
@@ -633,6 +708,7 @@ impl Editor {
         &mut self,
         painter: &egui::Painter,
         point: Pos2,
+        drag_end: Option<Pos2>,
         mapping: StageMapping,
     ) -> bool {
         if !self.layer_editable() {
@@ -694,7 +770,12 @@ impl Editor {
             },
             ..Element::default()
         };
-        self.apply_active_tool_paint(&mut element, false);
+        self.apply_active_tool_paint_with_bucket(
+            &mut element,
+            false,
+            Some(point),
+            drag_end.map(|end| (point, end)),
+        );
         self.transact_named("Paint Bucket face", |editor| {
             editor.ensure_key(false);
             let layer = editor.layer;
@@ -727,9 +808,22 @@ impl Editor {
         mapping: StageMapping,
         alt: bool,
     ) {
+        self.paint_tool_click_or_bucket(scene, p, point, None, mapping, alt);
+    }
+
+    fn paint_tool_click_or_bucket(
+        &mut self,
+        scene: &[DrawItem],
+        p: &egui::Painter,
+        point: Pos2,
+        drag_end: Option<Pos2>,
+        mapping: StageMapping,
+        alt: bool,
+    ) {
         let tool = self.tool;
         let Some(hit) = self.tool_paint_hit(scene, p, point, mapping, tool == Tool::Bucket) else {
-            if tool == Tool::Bucket && self.paint_bucket_planar_face_at(p, point, mapping) {
+            if tool == Tool::Bucket && self.paint_bucket_planar_face_at(p, point, drag_end, mapping)
+            {
                 return;
             }
             self.message(if tool==Tool::Bucket {"Paint Bucket fills existing closed vector shapes. Close an open path first; enter a symbol to edit its artwork."} else {"Choose vector artwork on an unlocked layer; enter a symbol to edit its artwork."});
@@ -738,21 +832,24 @@ impl Editor {
         let (fill, stroke, width) = paint_parts(&hit.kind).unwrap();
         if tool == Tool::Eyedropper {
             if hit.stroke || alt {
-                self.stroke = if let ElementKind::PaintedPath {
+                if let ElementKind::PaintedPath {
                     stroke_gradient: Some(gradient),
                     ..
                 } = &hit.kind
                 {
-                    gradient.sample(hit.local.x as f64, hit.local.y as f64)
+                    self.stroke = gradient.sample(hit.local.x as f64, hit.local.y as f64);
+                    self.authoring_modify.drawing_stroke_gradient = Some(gradient.clone());
                 } else {
-                    stroke
-                };
+                    self.stroke = stroke;
+                    self.authoring_modify.drawing_stroke_gradient = None;
+                }
                 self.stroke_width = width;
-                self.authoring_modify.drawing_stroke_gradient = None;
+            } else if let Some(gradient) = paint_gradient(&hit.kind) {
+                self.fill = gradient.sample(hit.local.x as f64, hit.local.y as f64);
+                self.authoring_modify.drawing_fill_gradient = Some(gradient.clone());
+                self.authoring_tools.brush_lock_fill = true;
             } else {
-                self.fill = paint_gradient(&hit.kind)
-                    .map(|g| g.sample(hit.local.x as f64, hit.local.y as f64))
-                    .unwrap_or(fill);
+                self.fill = fill;
                 self.authoring_modify.drawing_fill_gradient = None;
             }
             return;
@@ -844,7 +941,16 @@ impl Editor {
         {
             *dst_c = hit_c.clone();
         }
-        self.apply_active_tool_paint(&mut element, tool == Tool::Ink);
+        let local_end = drag_end.and_then(|end| inverse(hit.matrix, end));
+        self.apply_active_tool_paint_with_bucket(
+            &mut element,
+            tool == Tool::Ink,
+            (tool == Tool::Bucket).then_some(hit.local),
+            (tool == Tool::Bucket)
+                .then_some(local_end)
+                .flatten()
+                .map(|end| (hit.local, end)),
+        );
         self.change_tool_elements(vec![(hit.target.clone(), Some(element.kind))]);
         self.set_selection(vec![hit.target]);
     }
@@ -853,6 +959,16 @@ impl Editor {
     /// the established stroke-segment behavior so filters, groups and instance identity are never
     /// silently flattened.
     fn erase_stroke_parts(&mut self, gesture: &Gesture, painter: &egui::Painter) {
+        let mode = self.authoring_tools.eraser_mode;
+        let selected_ids: std::collections::HashSet<Id> = self
+            .selection
+            .targets
+            .iter()
+            .map(|t| t.element.clone())
+            .collect();
+        let inside_target_id: Option<Id> = (mode == EraserMode::Inside)
+            .then(|| gesture.targets.first().map(|t| t.element.clone()))
+            .flatten();
         let local_points: Vec<_> = gesture
             .points
             .iter()
@@ -871,6 +987,14 @@ impl Editor {
             self.presented_interactive_authored_scene(self.show_layer_masking(painter.ctx()));
         let mut changes = Vec::new();
         for target in &gesture.targets {
+            if mode == EraserMode::SelectedFills && !selected_ids.contains(&target.element) {
+                continue;
+            }
+            if mode == EraserMode::Inside
+                && inside_target_id.as_deref() != Some(target.element.as_str())
+            {
+                continue;
+            }
             let Some(draw) = authored.draws.iter().find(|draw| {
                 draw.item.instance_path.len() == 1
                     && draw.item.instance_path.first() == Some(&target.element)
@@ -896,6 +1020,14 @@ impl Editor {
             if element.merge {
                 // Raw Merge geometry is handled as one planar layer operation below, including
                 // fill subtraction and exact stroke fragments.
+                continue;
+            }
+            if matches!(mode, EraserMode::SelectedFills | EraserMode::Inside) {
+                if paint_parts(&element.kind).is_some() {
+                    let mut retained = element.clone();
+                    apply_paint(&mut retained.kind, Some([0; 4]), None);
+                    changes.push((target.clone(), vec![retained]));
+                }
                 continue;
             }
             let layer = &self.symbol().timeline.layers[index];
@@ -998,17 +1130,55 @@ impl Editor {
                 if !affected_layers.contains(&layer.id) {
                     continue;
                 }
+                let radius = f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom);
+                let tol = 0.2 / f64::from(gesture.zoom);
+                let matrix = gesture.mapping.matrix();
                 let result = crate::stage_selection::edit_ungrouped_merge_shapes(
                     layer,
                     self.frame,
                     |elements| {
-                        erase_merge_geometry_with_metric(
-                            elements,
-                            &local_points,
-                            gesture.mapping.matrix(),
-                            f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
-                            0.2 / f64::from(gesture.zoom),
-                        )
+                        if mode == EraserMode::StrokeSegments {
+                            erase_merge_geometry_with_metric(
+                                elements,
+                                &local_points,
+                                matrix,
+                                radius,
+                                tol,
+                            )
+                        } else {
+                            let mut any_changed = false;
+                            let mut next = Vec::with_capacity(elements.len());
+                            for el in std::mem::take(elements) {
+                                let eligible = is_merge_fill(&el)
+                                    && match mode {
+                                        EraserMode::SelectedFills => selected_ids.contains(&el.id),
+                                        EraserMode::Inside => {
+                                            inside_target_id.as_deref() == Some(el.id.as_str())
+                                        }
+                                        _ => true,
+                                    };
+                                if eligible {
+                                    let mut single = vec![el];
+                                    match erase_merge_geometry_with_metric(
+                                        &mut single,
+                                        &local_points,
+                                        matrix,
+                                        radius,
+                                        tol,
+                                    ) {
+                                        Ok(changed) => {
+                                            any_changed |= changed;
+                                            next.extend(single);
+                                        }
+                                        Err(err) => return Err(err),
+                                    }
+                                } else {
+                                    next.push(el);
+                                }
+                            }
+                            *elements = next;
+                            Ok(any_changed)
+                        }
                     },
                 );
                 match result {
@@ -1092,6 +1262,31 @@ impl Editor {
     /// Bucket and Ink share the same active paints as newly drawn artwork. Only
     /// the chosen well changes; the opposite paint and gradient keep their data.
     fn apply_active_tool_paint(&self, element: &mut Element, stroke_well: bool) {
+        self.apply_active_tool_paint_with_bucket(element, stroke_well, None, None);
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn apply_bucket_gradient_to_element(
+        &self,
+        element: &mut Element,
+        start: Pos2,
+        end: Option<Pos2>,
+    ) {
+        self.apply_active_tool_paint_with_bucket(
+            element,
+            false,
+            Some(start),
+            end.map(|to| (start, to)),
+        );
+    }
+
+    fn apply_active_tool_paint_with_bucket(
+        &self,
+        element: &mut Element,
+        stroke_well: bool,
+        click_local: Option<Pos2>,
+        drag_local: Option<(Pos2, Pos2)>,
+    ) {
         apply_paint(
             &mut element.kind,
             (!stroke_well).then_some(self.fill),
@@ -1112,6 +1307,33 @@ impl Editor {
             return;
         };
         gradient.matrix = crate::authoring_modify::default_gradient_matrix(&commands);
+        if !stroke_well && !self.authoring_tools.brush_lock_fill {
+            if let Some((from, to)) = drag_local
+                && (to - from).length() > 1e-3
+            {
+                if gradient.kind == GradientKind::Linear {
+                    let dx = f64::from(to.x - from.x) * 0.5 / 819.2;
+                    let dy = f64::from(to.y - from.y) * 0.5 / 819.2;
+                    gradient.matrix = [
+                        dx,
+                        dy,
+                        -dy,
+                        dx,
+                        f64::from(from.x + to.x) * 0.5,
+                        f64::from(from.y + to.y) * 0.5,
+                    ];
+                } else {
+                    let dx = f64::from(to.x - from.x) / 819.2;
+                    let dy = f64::from(to.y - from.y) / 819.2;
+                    gradient.matrix = [dx, dy, -dy, dx, f64::from(from.x), f64::from(from.y)];
+                }
+            } else if let Some(pt) = click_local
+                && gradient.kind == GradientKind::Radial
+            {
+                gradient.matrix[4] = f64::from(pt.x);
+                gradient.matrix[5] = f64::from(pt.y);
+            }
+        }
         let (mut fill_gradient, mut stroke_gradient) = match &element.kind {
             ElementKind::PaintedPath {
                 fill_gradient,
@@ -1163,6 +1385,11 @@ impl Editor {
             else {
                 continue;
             };
+            if self.authoring_tools.eraser_mode == EraserMode::SelectedFills
+                && !self.selection.targets.contains(target)
+            {
+                continue;
+            }
             let mut item = draw.item.clone();
             let vector = paint_parts(&item.kind).is_some();
             if self.authoring_tools.eraser_mode != EraserMode::Objects {
@@ -1172,7 +1399,9 @@ impl Editor {
                     continue;
                 }
                 match self.authoring_tools.eraser_mode {
-                    EraserMode::Fills => apply_paint(&mut item.kind, None, Some(([0; 4], 0.))),
+                    EraserMode::Fills | EraserMode::SelectedFills | EraserMode::Inside => {
+                        apply_paint(&mut item.kind, None, Some(([0; 4], 0.)))
+                    }
                     EraserMode::Strokes => apply_paint(&mut item.kind, Some([0; 4]), None),
                     // The default partial mode cuts through both raw Merge fills and strokes.
                     // Keep the full visible mesh so a fill-only shape becomes a gesture target.
@@ -1222,13 +1451,33 @@ impl Editor {
         scene: &[DrawItem],
     ) -> bool {
         let space = ui.input(|i| i.key_down(egui::Key::Space)) && !ui.ctx().wants_keyboard_input();
-        let owned = extended(self.tool) || space || self.authoring_tools.gesture.is_some();
+        let owned = extended(self.tool)
+            || space
+            || self.authoring_tools.gesture.is_some()
+            || !self.authoring_tools.lasso_polygon.is_empty();
         if !owned {
             return false;
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused) {
             self.authoring_tools.cancel();
             return true;
+        }
+        if self.tool == Tool::Lasso && !space && !self.authoring_tools.lasso_polygon.is_empty() {
+            let (enter, shift, alt) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::Enter),
+                    i.modifiers.shift,
+                    i.modifiers.alt,
+                )
+            });
+            let finish_alt_release = !self.authoring_tools.lasso_polygon_mode
+                && !alt
+                && self.authoring_tools.lasso_polygon.len() >= 3;
+            if enter || finish_alt_release {
+                let pts = std::mem::take(&mut self.authoring_tools.lasso_polygon);
+                self.finish_lasso_points(&pts, shift, alt, scene, p);
+                return true;
+            }
         }
         // The approved resize chord owns its whole gesture, so it cannot also lay down paint.
         if self.tool == Tool::Brush && self.authoring_tools.gesture.is_none() {
@@ -1341,7 +1590,7 @@ impl Editor {
                         if self.vector.point_drag.is_some() {
                             self.cancel_vector();
                         }
-                    } else {
+                    } else if tool != Tool::Lasso || self.authoring_tools.lasso_polygon.is_empty() {
                         // finish_edits cancels the previous draft, not this pen-down sample.
                         let contact = self.authoring_tools.pressure_contact.take();
                         self.finish_edits();
@@ -1359,7 +1608,48 @@ impl Editor {
                     } else {
                         local
                     };
-                    if matches!(tool, Tool::Bucket | Tool::Ink | Tool::Eyedropper) {
+                    if tool == Tool::Lasso {
+                        if self.authoring_tools.lasso_magic_wand {
+                            self.magic_wand_select_at(local, modifiers.shift);
+                            continue;
+                        }
+                        if self.authoring_tools.lasso_polygon_mode
+                            || modifiers.alt
+                            || !self.authoring_tools.lasso_polygon.is_empty()
+                        {
+                            let double_clicked = ui.input(|i| {
+                                i.pointer
+                                    .button_double_clicked(egui::PointerButton::Primary)
+                            });
+                            let close_to_start = self
+                                .authoring_tools
+                                .lasso_polygon
+                                .first()
+                                .is_some_and(|first| {
+                                    self.authoring_tools.lasso_polygon.len() >= 3
+                                        && mapping
+                                            .edit_to_screen(origin, self.zoom, *first)
+                                            .distance(pos)
+                                            <= 8.0
+                                });
+                            if (double_clicked && self.authoring_tools.lasso_polygon.len() >= 3)
+                                || close_to_start
+                            {
+                                let pts = std::mem::take(&mut self.authoring_tools.lasso_polygon);
+                                self.finish_lasso_points(
+                                    &pts,
+                                    modifiers.shift,
+                                    modifiers.alt,
+                                    scene,
+                                    p,
+                                );
+                            } else if self.authoring_tools.lasso_polygon.len() < 2048 {
+                                self.authoring_tools.lasso_polygon.push(local);
+                            }
+                            continue;
+                        }
+                    }
+                    if matches!(tool, Tool::Ink | Tool::Eyedropper) {
                         self.paint_tool_click(scene, p, local, mapping, modifiers.alt);
                         continue;
                     }
@@ -1368,34 +1658,16 @@ impl Editor {
                         let selected_handle = self.selected_sampled().and_then(|element| {
                             let fill = paint_gradient(&element.kind)?;
                             let matrix = transform_matrix(element.transform);
-                            let edge = affine(matrix, affine(fill.matrix, Pos2::new(819.2, 0.)));
-                            let center = affine(
+                            let handles = gradient_handle_positions(
+                                origin,
+                                self.zoom,
+                                mapping,
                                 matrix,
-                                Pos2::new(fill.matrix[4] as f32, fill.matrix[5] as f32),
+                                fill.matrix,
+                                (fill.kind == GradientKind::Radial)
+                                    .then_some(fill.focal_point_ratio),
                             );
-                            let focal = affine(
-                                matrix,
-                                affine(
-                                    fill.matrix,
-                                    Pos2::new((fill.focal_point_ratio * 819.2) as f32, 0.),
-                                ),
-                            );
-                            if mapping
-                                .edit_to_screen(origin, self.zoom, edge)
-                                .distance(pos)
-                                >= 12.
-                                && mapping
-                                    .edit_to_screen(origin, self.zoom, center)
-                                    .distance(pos)
-                                    >= 12.
-                                && (fill.kind != GradientKind::Radial
-                                    || mapping
-                                        .edit_to_screen(origin, self.zoom, focal)
-                                        .distance(pos)
-                                        >= 12.)
-                            {
-                                return None;
-                            }
+                            handles.hit(pos, modifiers.alt)?;
                             Some(PaintHit {
                                 target: self.selection.single()?.clone(),
                                 kind: element.kind,
@@ -1416,33 +1688,24 @@ impl Editor {
                         let matrix = gradient.matrix;
                         let radial = gradient.kind == GradientKind::Radial;
                         let focal_point_ratio = gradient.focal_point_ratio;
-                        let edge = affine(hit.matrix, affine(matrix, Pos2::new(819.2, 0.)));
-                        let center =
-                            affine(hit.matrix, Pos2::new(matrix[4] as f32, matrix[5] as f32));
-                        let focal = affine(
+                        let handles = gradient_handle_positions(
+                            origin,
+                            self.zoom,
+                            mapping,
                             hit.matrix,
-                            affine(matrix, Pos2::new((focal_point_ratio * 819.2) as f32, 0.)),
+                            matrix,
+                            radial.then_some(focal_point_ratio),
                         );
-                        let handle = mapping
-                            .edit_to_screen(origin, self.zoom, edge)
-                            .distance(pos)
-                            < 12.;
-                        let focal_screen = mapping.edit_to_screen(origin, self.zoom, focal);
-                        let center_screen = mapping.edit_to_screen(origin, self.zoom, center);
-                        let focal_handle = radial
-                            && !handle
-                            && focal_screen.distance(pos) < 12.
-                            && (modifiers.alt
-                                || (focal_point_ratio.abs() > 0.03
-                                    && focal_screen.distance(pos) < center_screen.distance(pos)));
+                        let handle_kind = handles
+                            .hit(pos, modifiers.alt)
+                            .unwrap_or(GradientHandleKind::Center);
                         self.set_selection(vec![hit.target.clone()]);
                         Some(GradientGesture {
                             target: hit.target,
                             kind: hit.kind,
                             matrix,
                             element_matrix: hit.matrix,
-                            handle,
-                            focal_handle,
+                            handle_kind,
                             radial,
                             focal_point_ratio,
                         })
@@ -1513,6 +1776,14 @@ impl Editor {
                 Tool::Zoom if ui.input(|i| i.modifiers.alt) || self.authoring_tools.zoom_out => {
                     nf::ZOOM_OUT
                 }
+                Tool::Gradient => self
+                    .gradient_hover_cursor(origin, mapping, pos, ui.input(|i| i.modifiers.alt))
+                    .unwrap_or_else(|| {
+                        crate::stage_cursor::tool_cursor_precise(
+                            tool,
+                            self.workspace.drawing.precise_cursors,
+                        )
+                    }),
                 _ => crate::stage_cursor::tool_cursor_precise(
                     tool,
                     self.workspace.drawing.precise_cursors,
@@ -1530,7 +1801,7 @@ impl Editor {
                 } else {
                     (
                         self.authoring_tools.eraser_size,
-                        neoflash_ui::components::BrushShapeKind::Round,
+                        self.authoring_tools.eraser_shape.brush_shape(),
                         neoflash_ui::components::BrushCursorState::Eraser,
                     )
                 };
@@ -1559,11 +1830,16 @@ impl Editor {
             return;
         };
         g.latest = pos;
+        let (mod_shift, mod_alt) = p.ctx().input(|i| (i.modifiers.shift, i.modifiers.alt));
+        g.shift = mod_shift;
+        if matches!(g.tool, Tool::Line | Tool::PolyStar | Tool::Bucket) {
+            g.alt = mod_alt;
+        }
         let mut point = g.local(pos);
         if matches!(g.tool, Tool::Line | Tool::PolyStar) && !g.shift {
             point = g.local(self.snap_screen(g.mapping, g.origin, pos));
         }
-        if matches!(g.tool, Tool::Line | Tool::PolyStar) && g.shift {
+        if matches!(g.tool, Tool::Line | Tool::PolyStar | Tool::Bucket) && g.shift {
             let vector = point - g.points[0];
             let angle = (vector.angle() / std::f32::consts::FRAC_PI_4).round()
                 * std::f32::consts::FRAC_PI_4;
@@ -1574,7 +1850,7 @@ impl Editor {
                 self.pan = g.pan + (pos - g.start);
                 p.ctx().request_repaint();
             }
-            Tool::Line | Tool::PolyStar => {
+            Tool::Line | Tool::PolyStar | Tool::Bucket => {
                 g.points.truncate(1);
                 g.points.push(point);
             }
@@ -1652,19 +1928,20 @@ impl Editor {
                 if !self.layer_editable() {
                     return;
                 }
+                let line_pts = line_gesture_points(&g);
                 let commands = if g.tool == Tool::Brush {
                     self.brush_gesture_commands(&g)
                 } else {
-                    polyline(&g.points, false)
+                    polyline(&line_pts, false)
                 };
                 if commands.len() < 2
                     || (g.tool == Tool::Line
                         && g.mapping
-                            .edit_to_screen(g.origin, g.zoom, g.points[0])
+                            .edit_to_screen(g.origin, g.zoom, line_pts[0])
                             .distance(g.mapping.edit_to_screen(
                                 g.origin,
                                 g.zoom,
-                                *g.points.last().unwrap(),
+                                *line_pts.last().unwrap(),
                             ))
                             < 0.1)
                 {
@@ -1701,9 +1978,29 @@ impl Editor {
                     Transform::default(),
                 );
             }
+            Tool::Bucket => {
+                let start = g.points[0];
+                let end = *g.points.last().unwrap_or(&start);
+                let dragged = g
+                    .mapping
+                    .edit_to_screen(g.origin, g.zoom, start)
+                    .distance(g.mapping.edit_to_screen(g.origin, g.zoom, end))
+                    >= 4.0;
+                self.paint_tool_click_or_bucket(
+                    scene,
+                    p,
+                    start,
+                    dragged.then_some(end),
+                    g.mapping,
+                    g.alt,
+                );
+            }
             Tool::Eraser => {
                 let mode = self.authoring_tools.eraser_mode;
-                if mode == EraserMode::StrokeSegments {
+                if matches!(
+                    mode,
+                    EraserMode::StrokeSegments | EraserMode::SelectedFills | EraserMode::Inside
+                ) {
                     self.erase_stroke_parts(&g, p);
                     return;
                 }
@@ -1740,58 +2037,7 @@ impl Editor {
                 self.change_tool_elements(changes);
             }
             Tool::Lasso => {
-                if g.points.len() < 3 {
-                    return;
-                }
-                if (self.authoring_tools.lasso_partial_fills || g.alt) && self.layer_editable() {
-                    let pts: Vec<[f64; 2]> = g
-                        .points
-                        .iter()
-                        .map(|pt| [f64::from(pt.x), f64::from(pt.y)])
-                        .collect();
-                    let previous = g.shift.then(|| self.selection.targets.clone());
-                    if !self.lasso_select_partial_fill(&pts).is_empty() {
-                        if let Some(mut previous) = previous {
-                            previous.extend(self.selection.targets.clone());
-                            self.set_selection(previous);
-                        }
-                        return;
-                    }
-                }
-                let eligible: HashMap<_, _> = self
-                    .editable_targets()
-                    .into_iter()
-                    .map(|t| (t.element.clone(), t))
-                    .collect();
-                let mut boxes = HashMap::<Id, Rect>::new();
-                for item in scene {
-                    if let Some(id) = item.instance_path.first()
-                        && eligible.contains_key(id)
-                    {
-                        let bounds = crate::stage::world_bounds(item, p);
-                        boxes
-                            .entry(id.clone())
-                            .and_modify(|r| *r = r.union(bounds))
-                            .or_insert(bounds);
-                    }
-                }
-                let mut targets = if g.shift {
-                    self.selection.targets.clone()
-                } else {
-                    vec![]
-                };
-                targets.extend(
-                    scene
-                        .iter()
-                        .filter_map(|item| item.instance_path.first())
-                        .filter(|id| {
-                            boxes.get(*id).is_some_and(|bounds| {
-                                lasso_rect(&g.points, *bounds, self.authoring_tools.lasso_contact)
-                            })
-                        })
-                        .filter_map(|id| eligible.get(id).cloned()),
-                );
-                self.set_selection(targets);
+                self.finish_lasso_points(&g.points, g.shift, g.alt, scene, p);
             }
             Tool::Zoom => {
                 let region = Rect::from_two_pos(g.start, g.latest);
@@ -1821,7 +2067,7 @@ impl Editor {
             }
             Tool::Gradient => {
                 if let Some(gradient) = &g.gradient {
-                    if gradient.focal_handle {
+                    if gradient.handle_kind == GradientHandleKind::Focal {
                         if let Some(focal_ratio) = gradient_focal_ratio(&g, gradient) {
                             let mut kind = gradient.kind.clone();
                             if let ElementKind::PaintedPath {
@@ -1903,6 +2149,68 @@ impl Editor {
             _ => {}
         }
     }
+
+    pub(crate) fn finish_lasso_points(
+        &mut self,
+        points: &[Pos2],
+        shift: bool,
+        alt: bool,
+        scene: &[DrawItem],
+        p: &egui::Painter,
+    ) {
+        if points.len() < 3 {
+            return;
+        }
+        if (self.authoring_tools.lasso_partial_fills || alt) && self.layer_editable() {
+            let pts: Vec<[f64; 2]> = points
+                .iter()
+                .map(|pt| [f64::from(pt.x), f64::from(pt.y)])
+                .collect();
+            let previous = shift.then(|| self.selection.targets.clone());
+            if !self.lasso_select_partial_fill(&pts).is_empty() {
+                if let Some(mut previous) = previous {
+                    previous.extend(self.selection.targets.clone());
+                    self.set_selection(previous);
+                }
+                return;
+            }
+        }
+        let eligible: HashMap<_, _> = self
+            .editable_targets()
+            .into_iter()
+            .map(|t| (t.element.clone(), t))
+            .collect();
+        let mut boxes = HashMap::<Id, Rect>::new();
+        for item in scene {
+            if let Some(id) = item.instance_path.first()
+                && eligible.contains_key(id)
+            {
+                let bounds = crate::stage::world_bounds(item, p);
+                boxes
+                    .entry(id.clone())
+                    .and_modify(|r| *r = r.union(bounds))
+                    .or_insert(bounds);
+            }
+        }
+        let mut targets = if shift {
+            self.selection.targets.clone()
+        } else {
+            vec![]
+        };
+        targets.extend(
+            scene
+                .iter()
+                .filter_map(|item| item.instance_path.first())
+                .filter(|id| {
+                    boxes.get(*id).is_some_and(|bounds| {
+                        lasso_rect(points, *bounds, self.authoring_tools.lasso_contact)
+                    })
+                })
+                .filter_map(|id| eligible.get(id).cloned()),
+        );
+        self.set_selection(targets);
+    }
+
     fn paint_authoring_gesture(
         &self,
         p: &egui::Painter,
@@ -1911,6 +2219,34 @@ impl Editor {
         view: Rect,
     ) {
         let palette = UiPalette::current(p.ctx());
+        if !self.authoring_tools.lasso_polygon.is_empty() {
+            let screen = |point: Pos2| mapping.edit_to_screen(origin, self.zoom, point);
+            let mut pts: Vec<Pos2> = self
+                .authoring_tools
+                .lasso_polygon
+                .iter()
+                .map(|pt| screen(*pt))
+                .collect();
+            if let Some(latest) = p.ctx().input(|i| i.pointer.latest_pos()) {
+                pts.push(latest);
+            }
+            if pts.len() >= 2 {
+                p.add(Shape::line(
+                    pts.clone(),
+                    Stroke::new(1.5_f32, palette.overlay),
+                ));
+            }
+            for &pt in &self.authoring_tools.lasso_polygon {
+                let s = screen(pt);
+                p.rect(
+                    Rect::from_center_size(s, Vec2::splat(5.0)),
+                    0.0,
+                    palette.handle_fill,
+                    Stroke::new(1.25_f32, palette.overlay),
+                    StrokeKind::Inside,
+                );
+            }
+        }
         if let Some(g) = &self.authoring_tools.gesture {
             let screen = |point: Pos2| g.mapping.edit_to_screen(g.origin, g.zoom, point);
             match g.tool {
@@ -1939,7 +2275,8 @@ impl Editor {
                         }
                         return;
                     }
-                    let commands = polyline(&g.points, false);
+                    let line_pts = line_gesture_points(g);
+                    let commands = polyline(&line_pts, false);
                     if self.stroke_width > 0.
                         && let Ok(geometry) = crate::vector::tessellate_cached(
                             &commands,
@@ -1963,6 +2300,30 @@ impl Editor {
                         p.add(Shape::mesh(mesh));
                     }
                 }
+                Tool::Bucket => {
+                    if g.points.len() >= 2 && self.authoring_modify.drawing_fill_gradient.is_some()
+                    {
+                        let a = screen(g.points[0]);
+                        let b = screen(*g.points.last().unwrap());
+                        if a.distance(b) >= 4.0 {
+                            p.line_segment([a, b], Stroke::new(3.0_f32, palette.overlay_halo));
+                            p.line_segment([a, b], Stroke::new(1.5_f32, palette.overlay));
+                            p.circle(
+                                a,
+                                4.5,
+                                palette.handle_fill,
+                                Stroke::new(1.5_f32, palette.overlay),
+                            );
+                            p.rect(
+                                Rect::from_center_size(b, Vec2::splat(8.0)),
+                                0.0,
+                                palette.handle_fill,
+                                Stroke::new(1.5_f32, palette.overlay),
+                                StrokeKind::Inside,
+                            );
+                        }
+                    }
+                }
                 Tool::Lasso => {
                     p.add(Shape::closed_line(
                         g.points.iter().map(|point| screen(*point)).collect(),
@@ -1982,12 +2343,13 @@ impl Editor {
                 Tool::Eraser => {}
                 Tool::Gradient => {
                     if let Some(gradient) = &g.gradient {
-                        let matrix = if gradient.focal_handle {
+                        let is_focal = gradient.handle_kind == GradientHandleKind::Focal;
+                        let matrix = if is_focal {
                             Some(gradient.matrix)
                         } else {
                             gradient_matrix(g, gradient)
                         };
-                        let focal_ratio = if gradient.focal_handle {
+                        let focal_ratio = if is_focal {
                             gradient_focal_ratio(g, gradient).unwrap_or(gradient.focal_point_ratio)
                         } else {
                             gradient.focal_point_ratio
@@ -2091,6 +2453,17 @@ impl Editor {
                 (fill.kind == GradientKind::Radial).then_some(fill.focal_point_ratio),
             );
         }
+    }
+}
+
+fn line_gesture_points(g: &Gesture) -> Vec<Pos2> {
+    if g.points.len() >= 2 && g.alt {
+        let center = g.points[0];
+        let end = *g.points.last().unwrap();
+        let delta = end - center;
+        vec![center - delta, center + delta]
+    } else {
+        g.points.clone()
     }
 }
 fn polyline(points: &[Pos2], closed: bool) -> Vec<PathCommand> {
@@ -2616,6 +2989,102 @@ fn lasso_rect(points: &[Pos2], rect: Rect, contact: bool) -> bool {
                 })
         })
 }
+struct GradientHandlePositions {
+    center: Pos2,
+    width: Pos2,
+    rotate: Pos2,
+    radius: Option<Pos2>,
+    focal: Option<(Pos2, f64)>,
+    left_line: [Pos2; 2],
+    right_line: [Pos2; 2],
+}
+
+impl GradientHandlePositions {
+    fn hit(&self, pos: Pos2, alt: bool) -> Option<GradientHandleKind> {
+        const HIT_R: f32 = 12.0;
+        if self.rotate.distance(pos) < HIT_R {
+            return Some(GradientHandleKind::Rotate);
+        }
+        if let Some(rad_pos) = self.radius
+            && rad_pos.distance(pos) < HIT_R
+        {
+            return Some(GradientHandleKind::Radius);
+        }
+        if self.width.distance(pos) < HIT_R {
+            return Some(GradientHandleKind::Width);
+        }
+        if let Some((focal_pos, focal_ratio)) = self.focal {
+            let tri_center = focal_pos + Vec2::new(0.0, -5.0);
+            let near_focal = focal_pos.distance(pos) < HIT_R || tri_center.distance(pos) < HIT_R;
+            if near_focal
+                && (alt
+                    || pos.y < self.center.y - 2.0
+                    || (focal_ratio.abs() > 0.03
+                        && focal_pos.distance(pos) < self.center.distance(pos)))
+            {
+                return Some(GradientHandleKind::Focal);
+            }
+        }
+        if self.center.distance(pos) < HIT_R {
+            return Some(GradientHandleKind::Center);
+        }
+        None
+    }
+}
+
+fn gradient_handle_positions(
+    origin: Pos2,
+    zoom: f32,
+    mapping: StageMapping,
+    element: [f64; 6],
+    gradient: [f64; 6],
+    radial_focal_ratio: Option<f64>,
+) -> GradientHandlePositions {
+    let screen =
+        |local| mapping.edit_to_screen(origin, zoom, affine(element, affine(gradient, local)));
+    let center = screen(Pos2::ZERO);
+    let left_mid = screen(Pos2::new(-819.2, 0.0));
+    let right_mid = screen(Pos2::new(819.2, 0.0));
+    let raw_perp = screen(Pos2::new(0.0, 819.2)) - center;
+    let axis = right_mid - center;
+    let perp = if raw_perp.length() >= 48.0 {
+        raw_perp
+    } else if axis.length() > 1e-3 {
+        let dir = axis.normalized();
+        Vec2::new(-dir.y, dir.x) * 64.0
+    } else {
+        Vec2::new(0.0, 64.0)
+    };
+    let left_line = [left_mid - perp, left_mid + perp];
+    let right_line = [right_mid - perp, right_mid + perp];
+    if let Some(focal_ratio) = radial_focal_ratio {
+        let theta_rad = 0.35_f32;
+        let theta_rot = 0.70_f32;
+        let radius_pos = screen(Pos2::new(819.2 * theta_rad.cos(), 819.2 * theta_rad.sin()));
+        let rotate_pos = screen(Pos2::new(819.2 * theta_rot.cos(), 819.2 * theta_rot.sin()));
+        let focal_pos = screen(Pos2::new((focal_ratio * 819.2) as f32, 0.0));
+        GradientHandlePositions {
+            center,
+            width: right_mid,
+            rotate: rotate_pos,
+            radius: Some(radius_pos),
+            focal: Some((focal_pos, focal_ratio)),
+            left_line,
+            right_line,
+        }
+    } else {
+        GradientHandlePositions {
+            center,
+            width: right_mid,
+            rotate: right_line[0],
+            radius: None,
+            focal: None,
+            left_line,
+            right_line,
+        }
+    }
+}
+
 fn gradient_focal_ratio(g: &Gesture, gradient: &GradientGesture) -> Option<f64> {
     let elem_local = inverse(gradient.element_matrix, g.local(g.latest))?;
     let grad_local = inverse(gradient.matrix, elem_local)?;
@@ -2626,33 +3095,54 @@ fn gradient_matrix(g: &Gesture, gradient: &GradientGesture) -> Option<[f64; 6]> 
     let start = inverse(gradient.element_matrix, g.local(g.start))?;
     let current = inverse(gradient.element_matrix, g.local(g.latest))?;
     let mut matrix = gradient.matrix;
-    if gradient.handle {
-        let center = Pos2::new(matrix[4] as f32, matrix[5] as f32);
-        let from = start - center;
-        let to = current - center;
-        if from.length() < 0.001 || to.length() < 0.001 {
-            return None;
+    let center = Pos2::new(matrix[4] as f32, matrix[5] as f32);
+    match gradient.handle_kind {
+        GradientHandleKind::Center => {
+            matrix[4] += (current.x - start.x) as f64;
+            matrix[5] += (current.y - start.y) as f64;
         }
-        let angle = to.angle() - from.angle();
-        let angle = if g.shift {
-            (angle / std::f32::consts::FRAC_PI_4).round() * std::f32::consts::FRAC_PI_4
-        } else {
-            angle
-        };
-        let scale = (to.length() / from.length()).clamp(0.01, 100.) as f64;
-        let (sin, cos) = (angle as f64).sin_cos();
-        for offset in [0, 2] {
-            let x = matrix[offset];
-            let y = matrix[offset + 1];
-            matrix[offset] = (x * cos - y * sin) * scale;
-            matrix[offset + 1] = (x * sin + y * cos) * scale;
+        GradientHandleKind::Width => {
+            let grad_local = inverse(gradient.matrix, current)?;
+            let scale_x = (f64::from(grad_local.x).abs() / 819.2).clamp(0.01, 100.0);
+            matrix[0] = gradient.matrix[0] * scale_x;
+            matrix[1] = gradient.matrix[1] * scale_x;
         }
-    } else {
-        matrix[4] += (current.x - start.x) as f64;
-        matrix[5] += (current.y - start.y) as f64;
+        GradientHandleKind::Radius => {
+            let from = start - center;
+            let to = current - center;
+            if from.length() < 0.001 || to.length() < 0.001 {
+                return None;
+            }
+            let scale = (to.length() / from.length()).clamp(0.01, 100.) as f64;
+            for v in &mut matrix[0..4] {
+                *v *= scale;
+            }
+        }
+        GradientHandleKind::Rotate => {
+            let from = start - center;
+            let to = current - center;
+            if from.length() < 0.001 || to.length() < 0.001 {
+                return None;
+            }
+            let angle = to.angle() - from.angle();
+            let angle = if g.shift {
+                (angle / std::f32::consts::FRAC_PI_4).round() * std::f32::consts::FRAC_PI_4
+            } else {
+                angle
+            };
+            let (sin, cos) = (angle as f64).sin_cos();
+            for offset in [0, 2] {
+                let x = gradient.matrix[offset];
+                let y = gradient.matrix[offset + 1];
+                matrix[offset] = x * cos - y * sin;
+                matrix[offset + 1] = x * sin + y * cos;
+            }
+        }
+        GradientHandleKind::Focal => {}
     }
     Some(matrix)
 }
+
 fn paint_gradient_handles(
     p: &egui::Painter,
     origin: Pos2,
@@ -2664,40 +3154,153 @@ fn paint_gradient_handles(
 ) {
     let screen =
         |local| mapping.edit_to_screen(origin, zoom, affine(element, affine(gradient, local)));
-    let center = screen(Pos2::ZERO);
-    let edge = screen(Pos2::new(819.2, 0.));
+    let handles =
+        gradient_handle_positions(origin, zoom, mapping, element, gradient, radial_focal_ratio);
     let palette = UiPalette::current(p.ctx());
-    p.line_segment([center, edge], Stroke::new(3.0_f32, palette.overlay_halo));
-    p.line_segment([center, edge], Stroke::new(1.0_f32, palette.overlay));
-    p.circle(
-        center,
-        5.,
-        palette.handle_fill,
-        Stroke::new(1.5_f32, palette.overlay),
-    );
-    if let Some(focal_ratio) = radial_focal_ratio {
-        let focal = screen(Pos2::new((focal_ratio * 819.2) as f32, 0.));
+    let halo = Stroke::new(3.0_f32, palette.overlay_halo);
+    let line = Stroke::new(1.25_f32, palette.overlay);
+    let handle_stroke = Stroke::new(1.5_f32, palette.overlay);
+
+    if radial_focal_ratio.is_some() {
+        // Radial gradient: elliptical boundary ring + horizontal diameter axis line.
+        const SEGMENTS: usize = 64;
+        let ring: Vec<Pos2> = (0..SEGMENTS)
+            .map(|i| {
+                let theta = (i as f32 / SEGMENTS as f32) * std::f32::consts::TAU;
+                screen(Pos2::new(819.2 * theta.cos(), 819.2 * theta.sin()))
+            })
+            .collect();
+        p.add(Shape::closed_line(ring.clone(), halo));
+        p.add(Shape::closed_line(ring, line));
+        let left_edge = screen(Pos2::new(-819.2, 0.0));
+        p.line_segment([left_edge, handles.width], halo);
+        p.line_segment([left_edge, handles.width], line);
+    } else {
+        // Linear gradient: two parallel perpendicular boundary lines at x = -819.2 and x = +819.2.
+        p.line_segment(handles.left_line, halo);
+        p.line_segment(handles.left_line, line);
+        p.line_segment(handles.right_line, halo);
+        p.line_segment(handles.right_line, line);
+    }
+
+    // A. Center point handle (circle with center dot).
+    p.circle(handles.center, 5.5, palette.handle_fill, handle_stroke);
+    p.circle_filled(handles.center, 1.5, palette.overlay);
+
+    // E. Focal point handle (inverted triangle `▽` on the axis line for Radial gradients).
+    if let Some((focal, _)) = handles.focal {
+        p.circle(focal, 3.5, palette.handle_fill, handle_stroke);
         let tri = vec![
-            focal + Vec2::new(0., -5.),
-            focal + Vec2::new(5., 4.),
-            focal + Vec2::new(-5., 4.),
+            focal + Vec2::new(0., -2.),
+            focal + Vec2::new(5., -10.),
+            focal + Vec2::new(-5., -10.),
         ];
         p.add(Shape::convex_polygon(
             tri,
             palette.handle_fill,
-            Stroke::new(1.5_f32, palette.overlay),
+            handle_stroke,
         ));
     }
+
+    // B. Width adjustment handle (square with `[→]` arrow).
+    let width_rect = Rect::from_center_size(handles.width, Vec2::splat(10.0));
     p.rect(
-        Rect::from_center_size(edge, Vec2::splat(9.)),
+        width_rect,
         0,
         palette.handle_fill,
-        Stroke::new(1.5_f32, palette.overlay),
+        handle_stroke,
         StrokeKind::Inside,
     );
+    let axis_vec = handles.width - handles.center;
+    let axis_dir = if axis_vec.length() > 1e-3 {
+        axis_vec.normalized()
+    } else {
+        Vec2::RIGHT
+    };
+    let axis_perp = Vec2::new(-axis_dir.y, axis_dir.x);
+    let a0 = handles.width - axis_dir * 2.8;
+    let a1 = handles.width + axis_dir * 2.8;
+    p.line_segment([a0, a1], Stroke::new(1.2_f32, palette.overlay));
+    p.line_segment(
+        [a1, a1 - axis_dir * 2.2 + axis_perp * 1.8],
+        Stroke::new(1.2_f32, palette.overlay),
+    );
+    p.line_segment(
+        [a1, a1 - axis_dir * 2.2 - axis_perp * 1.8],
+        Stroke::new(1.2_f32, palette.overlay),
+    );
+
+    // D. Size / Radius handle (Radial only: circle with inward arrow toward center).
+    if let Some(rad_pos) = handles.radius {
+        p.circle(rad_pos, 5.5, palette.handle_fill, handle_stroke);
+        let in_vec = handles.center - rad_pos;
+        let inward = if in_vec.length() > 1e-3 {
+            in_vec.normalized()
+        } else {
+            Vec2::LEFT
+        };
+        let in_perp = Vec2::new(-inward.y, inward.x);
+        let r0 = rad_pos - inward * 2.5;
+        let r1 = rad_pos + inward * 2.5;
+        p.line_segment([r0, r1], Stroke::new(1.2_f32, palette.overlay));
+        p.line_segment(
+            [r1, r1 - inward * 2.0 + in_perp * 1.6],
+            Stroke::new(1.2_f32, palette.overlay),
+        );
+        p.line_segment(
+            [r1, r1 - inward * 2.0 - in_perp * 1.6],
+            Stroke::new(1.2_f32, palette.overlay),
+        );
+    }
+
+    // C. Rotation handle (circle with curved rotation arrows).
+    p.circle(handles.rotate, 5.5, palette.handle_fill, handle_stroke);
+    for base_ang in [0.2_f32, 2.3_f32, 4.4_f32] {
+        let p0 = handles.rotate + Vec2::angled(base_ang) * 3.0;
+        let p1 = handles.rotate + Vec2::angled(base_ang + 1.1) * 3.0;
+        p.line_segment([p0, p1], Stroke::new(1.1_f32, palette.overlay));
+    }
 }
 
 impl Editor {
+    fn gradient_hover_cursor(
+        &self,
+        origin: Pos2,
+        mapping: StageMapping,
+        pos: Pos2,
+        alt: bool,
+    ) -> Option<neoflash_ui::cursors::Cursor> {
+        use neoflash_ui::cursors as nf;
+        if let Some(g) = &self.authoring_tools.gesture
+            && let Some(grad) = &g.gradient
+        {
+            return Some(match grad.handle_kind {
+                GradientHandleKind::Center => nf::MOVE,
+                GradientHandleKind::Rotate => nf::ROTATE,
+                GradientHandleKind::Focal => nf::RESIZE_H,
+                GradientHandleKind::Width => nf::RESIZE_H,
+                GradientHandleKind::Radius => nf::RESIZE_D1,
+            });
+        }
+        let element = self.selected_sampled()?;
+        let fill = paint_gradient(&element.kind)?;
+        let handles = gradient_handle_positions(
+            origin,
+            self.zoom,
+            mapping,
+            transform_matrix(element.transform),
+            fill.matrix,
+            (fill.kind == GradientKind::Radial).then_some(fill.focal_point_ratio),
+        );
+        match handles.hit(pos, alt)? {
+            GradientHandleKind::Center => Some(nf::MOVE),
+            GradientHandleKind::Rotate => Some(nf::ROTATE),
+            GradientHandleKind::Focal => Some(nf::RESIZE_H),
+            GradientHandleKind::Width => Some(nf::RESIZE_H),
+            GradientHandleKind::Radius => Some(nf::RESIZE_D1),
+        }
+    }
+
     /// Slice Merge-mode fills and strokes on the active editable layer along `points`, selecting
     /// only the enclosed fragments in one Undo step. Object Drawing and grouped artwork remain
     /// whole objects.
@@ -2727,6 +3330,26 @@ impl Editor {
             return Vec::new();
         };
         let layer_id = layer.id.clone();
+        let prior_bitmap_fills: Vec<(Id, [f64; 6], AuthoredBitmapFill)> = layer
+            .key_at(frame)
+            .map(|key| {
+                key.bitmap_fills
+                    .iter()
+                    .filter_map(|bf| {
+                        let el = key.elements.iter().find(|e| e.id == bf.element_id)?;
+                        Some((
+                            bf.element_id.clone(),
+                            multiply_matrices(transform_matrix(el.transform), bf.matrix),
+                            bf.clone(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let prior_ids: std::collections::HashSet<Id> = layer
+            .key_at(frame)
+            .map(|key| key.elements.iter().map(|e| e.id.clone()).collect())
+            .unwrap_or_default();
         let Some(selected_ids) =
             crate::stage_selection::edit_ungrouped_merge_shapes(layer, frame, |elements| {
                 lasso_split_merge_fills(elements, &lasso_cmds)
@@ -2736,6 +3359,36 @@ impl Editor {
         };
         if selected_ids.is_empty() {
             return Vec::new();
+        }
+        if !prior_bitmap_fills.is_empty()
+            && let Some(key) = layer.key_at_mut(frame)
+        {
+            let current_ids: std::collections::HashSet<Id> =
+                key.elements.iter().map(|e| e.id.clone()).collect();
+            if let Some((_, world_matrix, template_bf)) = prior_bitmap_fills
+                .iter()
+                .find(|(old_id, _, _)| !current_ids.contains(old_id))
+                .cloned()
+            {
+                let new_elem_ids: Vec<Id> = key
+                    .elements
+                    .iter()
+                    .filter(|e| {
+                        e.merge
+                            && !prior_ids.contains(&e.id)
+                            && !matches!(e.kind, ElementKind::Path { fill, .. } | ElementKind::PaintedPath { fill, .. } if fill[3] == 0)
+                    })
+                    .map(|e| e.id.clone())
+                    .collect();
+                key.bitmap_fills
+                    .retain(|bf| current_ids.contains(&bf.element_id));
+                for new_id in new_elem_ids {
+                    let mut bf = template_bf.clone();
+                    bf.element_id = new_id;
+                    bf.matrix = world_matrix;
+                    key.set_bitmap_fill(bf);
+                }
+            }
         }
         candidate.upgrade_format_for_features();
         if candidate.validate().is_err() {
@@ -2756,6 +3409,227 @@ impl Editor {
             .collect();
         self.set_selection(targets);
         selected_ids
+    }
+
+    /// Classic Flash 8 Magic Wand selection at `stage_pt`:
+    /// 1. When clicking a bitmap (`ElementKind::Bitmap` or a broken-apart Merge shape with an
+    ///    `AuthoredBitmapFill`), flood-fills contiguous pixels within `magic_wand_threshold`
+    ///    (`0..=200`), traces the contour using `magic_wand_smoothing`, and slices/selects the
+    ///    matching region in one Undo step.
+    /// 2. When clicking a solid vector fill, selects editable vector fills whose color lies within
+    ///    `magic_wand_threshold`.
+    pub fn magic_wand_select_at(&mut self, stage_pt: Pos2, shift: bool) -> Vec<Id> {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return Vec::new();
+        }
+        let threshold = self.authoring_tools.magic_wand_threshold.clamp(0, 200);
+        let smoothing = self.authoring_tools.magic_wand_smoothing;
+        let layer_idx = self.layer;
+        let frame = self.frame;
+
+        // 1. Check if `stage_pt` hits a Bitmap or a broken-apart Bitmap fill on the active layer.
+        let bitmap_hit: Option<(Id, Id, [f64; 6], bool, bool)> = {
+            let sym = self.symbol();
+            let layer = &sym.timeline.layers[layer_idx];
+            let key = layer.key_at(frame);
+            let sampled = sample_layer_at_fps(layer, frame, f64::from(self.project.fps));
+            let mut hit = None;
+            for element in sampled.iter().rev() {
+                if !element.visible {
+                    continue;
+                }
+                match &element.kind {
+                    ElementKind::Bitmap {
+                        resource_id,
+                        width,
+                        height,
+                        smoothing: bmp_smooth,
+                    } => {
+                        let elem_m = transform_matrix(element.transform);
+                        if let Some(local) = inverse(elem_m, stage_pt)
+                            && local.x >= 0.0
+                            && local.y >= 0.0
+                            && local.x < *width as f32
+                            && local.y < *height as f32
+                        {
+                            hit = Some((
+                                element.id.clone(),
+                                resource_id.clone(),
+                                elem_m,
+                                true,
+                                *bmp_smooth,
+                            ));
+                            break;
+                        }
+                    }
+                    ElementKind::Path {
+                        commands,
+                        fill_rule,
+                        fill,
+                        ..
+                    }
+                    | ElementKind::PaintedPath {
+                        commands,
+                        fill_rule,
+                        fill,
+                        ..
+                    } if fill[3] > 0 => {
+                        let Some(bf) = key.and_then(|k| {
+                            k.bitmap_fills.iter().find(|bf| bf.element_id == element.id)
+                        }) else {
+                            continue;
+                        };
+                        let elem_m = transform_matrix(element.transform);
+                        if let Some(local) = inverse(elem_m, stage_pt)
+                            && geometry_contains(commands, *fill_rule, None, local)
+                        {
+                            let world_bmp_m = multiply_matrices(elem_m, bf.matrix);
+                            hit = Some((
+                                element.id.clone(),
+                                bf.resource_id.clone(),
+                                world_bmp_m,
+                                false,
+                                bf.smoothing,
+                            ));
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            hit
+        };
+
+        if let Some((elem_id, resource_id, world_bmp_m, needs_break_apart, bmp_smoothing)) =
+            bitmap_hit
+            && let Some(bmp_pt) = inverse(world_bmp_m, stage_pt)
+            && let Some(resource) = self
+                .project
+                .resources
+                .iter()
+                .find(|r| r.id == resource_id)
+                .cloned()
+            && let Ok(decoded) = resource.decode_image()
+        {
+            let w = decoded.width as usize;
+            let h = decoded.height as usize;
+            if w > 0 && h > 0 {
+                let sx = (bmp_pt.x.floor() as isize).rem_euclid(w as isize) as usize;
+                let sy = (bmp_pt.y.floor() as isize).rem_euclid(h as isize) as usize;
+                let contour_bmp =
+                    magic_wand_bitmap_contour(&decoded.rgba, w, h, sx, sy, threshold, smoothing);
+                if contour_bmp.len() >= 3 {
+                    let stage_poly: Vec<[f64; 2]> = contour_bmp
+                        .into_iter()
+                        .map(|[bx, by]| {
+                            let p = affine(world_bmp_m, Pos2::new(bx as f32, by as f32));
+                            [f64::from(p.x), f64::from(p.y)]
+                        })
+                        .collect();
+                    if needs_break_apart {
+                        let layer_id = self.symbol().timeline.layers[layer_idx].id.clone();
+                        self.ensure_key_for(&layer_id, false);
+                        if let Some(key) =
+                            self.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame)
+                            && let Some(el) = key.elements.iter_mut().find(|e| e.id == elem_id)
+                        {
+                            el.scripts.clear();
+                            el.accessibility = None;
+                            el.transform.primitive = None;
+                            el.merge = true;
+                            el.kind = ElementKind::Path {
+                                commands: rectangle_path_commands(
+                                    decoded.width as f64,
+                                    decoded.height as f64,
+                                    RectangleOptions::default(),
+                                ),
+                                fill_rule: FillRule::NonZero,
+                                fill: [255, 255, 255, 255],
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            };
+                            key.set_bitmap_fill(AuthoredBitmapFill {
+                                element_id: elem_id.clone(),
+                                resource_id,
+                                matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                                repeat: false,
+                                smoothing: bmp_smoothing,
+                            });
+                        }
+                    }
+                    return self.lasso_select_partial_fill(&stage_poly);
+                }
+            }
+        }
+
+        // 2. Fallback for vector fills: select editable vector shapes whose fill color is within
+        // `magic_wand_threshold` of the clicked shape's fill color.
+        let sym = self.symbol();
+        let layer = &sym.timeline.layers[layer_idx];
+        let layer_id = layer.id.clone();
+        let sampled = sample_layer_at_fps(layer, frame, f64::from(self.project.fps));
+        let mut seed_color: Option<[u8; 4]> = None;
+        for element in sampled.iter().rev() {
+            if !element.visible {
+                continue;
+            }
+            let Some((commands, fill_rule, _)) = path_geometry(&element.kind) else {
+                continue;
+            };
+            let fill = match &element.kind {
+                ElementKind::Rectangle { fill, .. }
+                | ElementKind::Ellipse { fill, .. }
+                | ElementKind::Path { fill, .. }
+                | ElementKind::PaintedPath { fill, .. } => *fill,
+                _ => continue,
+            };
+            if fill[3] == 0 {
+                continue;
+            }
+            if let Some(local) = inverse(transform_matrix(element.transform), stage_pt)
+                && geometry_contains(&commands, fill_rule, None, local)
+            {
+                seed_color = Some(fill);
+                break;
+            }
+        }
+        let Some(seed) = seed_color else {
+            if !shift {
+                self.set_selection(Vec::new());
+            }
+            return Vec::new();
+        };
+        let mut matched_ids = Vec::new();
+        let mut targets = if shift {
+            self.selection.targets.clone()
+        } else {
+            Vec::new()
+        };
+        for element in &sampled {
+            if !element.visible {
+                continue;
+            }
+            let fill = match &element.kind {
+                ElementKind::Rectangle { fill, .. }
+                | ElementKind::Ellipse { fill, .. }
+                | ElementKind::Path { fill, .. }
+                | ElementKind::PaintedPath { fill, .. } => *fill,
+                _ => continue,
+            };
+            if fill[3] > 0 && color_within_threshold(fill, seed, threshold) {
+                matched_ids.push(element.id.clone());
+                let target = SelectionTarget {
+                    layer: layer_id.clone(),
+                    element: element.id.clone(),
+                };
+                if !targets.contains(&target) {
+                    targets.push(target);
+                }
+            }
+        }
+        self.set_selection(targets);
+        matched_ids
     }
 
     /// Update the radial gradient `focal_point_ratio` (`-0.98..=0.98`) on the selected gradient
@@ -2812,12 +3686,23 @@ impl Editor {
                     "eraser_mode",
                     &mut self.authoring_tools.eraser_mode,
                     &[
-                        (EraserMode::Objects, "Whole objects"),
-                        (EraserMode::Fills, "Whole fills"),
-                        (EraserMode::Strokes, "Whole strokes"),
-                        (EraserMode::StrokeSegments, "Cut strokes"),
+                        (EraserMode::StrokeSegments, "Erase normal"),
+                        (EraserMode::Fills, "Erase fills"),
+                        (EraserMode::Strokes, "Erase lines"),
+                        (EraserMode::SelectedFills, "Erase selected fills"),
+                        (EraserMode::Inside, "Erase inside"),
+                        (EraserMode::Objects, "Erase whole objects"),
                     ],
                     width,
+                );
+                nf::Segmented::show(
+                    ui,
+                    &mut self.authoring_tools.eraser_shape,
+                    &[
+                        (EraserShape::Round, "Round"),
+                        (EraserShape::Square, "Square"),
+                    ],
+                    true,
                 );
                 let mut size = f64::from(self.authoring_tools.eraser_size);
                 ui.add(
@@ -2841,6 +3726,14 @@ impl Editor {
                     EraserMode::Strokes => (
                         "Remove whole strokes · keep fills",
                         "Removes the entire stroke of touched artwork, keeping its fill intact.",
+                    ),
+                    EraserMode::SelectedFills => (
+                        "Remove selected fills · keep strokes",
+                        "Erases only currently selected fills on editable layers, leaving unselected fills and all strokes intact.",
+                    ),
+                    EraserMode::Inside => (
+                        "Remove fill where stroke began",
+                        "Erases only the single fill inside which the eraser gesture started, leaving other fills and all strokes untouched.",
                     ),
                     EraserMode::StrokeSegments => (
                         "Cut touched strokes · keep fills",
@@ -2868,6 +3761,34 @@ impl Editor {
                     "Slice Merge-mode fills along the freehand lasso contour (or hold Option while dragging) to select only the enclosed fill region.",
                     None,
                 );
+                let poly_resp = ui.add(nf::Checkbox::new(
+                    &mut self.authoring_tools.lasso_polygon_mode,
+                    "Polygon mode",
+                ));
+                if poly_resp.changed() && self.authoring_tools.lasso_polygon_mode {
+                    self.authoring_tools.lasso_magic_wand = false;
+                }
+                nf::tooltip(
+                    poly_resp,
+                    "Click to add straight-sided polygon vertices; double-click (or press Enter) to close the selection loop.",
+                    None,
+                );
+                let wand_resp = ui.add(nf::Checkbox::new(
+                    &mut self.authoring_tools.lasso_magic_wand,
+                    "Magic wand",
+                ));
+                if wand_resp.changed() && self.authoring_tools.lasso_magic_wand {
+                    self.authoring_tools.lasso_polygon_mode = false;
+                    self.authoring_tools.lasso_polygon.clear();
+                }
+                nf::tooltip(
+                    wand_resp,
+                    "Click a bitmap or fill to select contiguous pixels or fills of matching color within the Magic Wand threshold.",
+                    None,
+                );
+                if ui.add(nf::Button::ghost("Magic wand settings…")).clicked() {
+                    self.open_magic_wand_settings();
+                }
             }
             Tool::Zoom => {
                 nf::Segmented::show(
@@ -3120,6 +4041,102 @@ impl Editor {
         );
     }
 
+    /// Open the Classic Flash 8 `Magic wand settings` modal seeded from current Lasso state.
+    pub(crate) fn open_magic_wand_settings(&mut self) {
+        self.authoring_tools.magic_wand_dialog = Some((
+            self.authoring_tools.magic_wand_threshold.clamp(0, 200),
+            self.authoring_tools.magic_wand_smoothing,
+        ));
+    }
+
+    /// Render the `Magic wand settings` modal dialog (`Threshold: 0..=200`,
+    /// `Smoothing: Pixels | Rough | Normal | Smooth`) when open.
+    pub(crate) fn magic_wand_settings_modal(&mut self, ctx: &egui::Context) {
+        let Some((mut threshold, mut smoothing)) = self.authoring_tools.magic_wand_dialog else {
+            return;
+        };
+        use neoflash_ui::{
+            components as c,
+            tokens::{TextStyle, space},
+            typography::rich,
+        };
+        let mut accept = false;
+        let mut cancel = false;
+        let modal = egui::Modal::new(egui::Id::new("nf2-magic-wand-settings"))
+            .frame(c::Surface::Dialog.frame(ctx))
+            .show(ctx, |ui| {
+                ui.set_width(320.0);
+                ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
+                cancel |= c::DialogHeader {
+                    title: "Magic wand settings",
+                }
+                .show(ui);
+                let nf = neoflash_ui::palette(ui.ctx());
+                let w = ui.available_width();
+                let mut threshold_f = f64::from(threshold);
+                if ui
+                    .add(
+                        c::Field::new(&mut threshold_f, "Threshold")
+                            .prefix("Threshold")
+                            .range(0.0..=200.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(w),
+                    )
+                    .changed()
+                {
+                    threshold = (threshold_f.round() as u32).clamp(0, 200) as u8;
+                }
+                ui.label(
+                    rich("Enter a value between 0 and 200", TextStyle::Small)
+                        .color(nf.text_tertiary),
+                );
+                c::Select::options(
+                    ui,
+                    "magic-wand-smoothing",
+                    &mut smoothing,
+                    &[
+                        (MagicWandSmoothing::Pixels, "Smoothing: Pixels"),
+                        (MagicWandSmoothing::Rough, "Smoothing: Rough"),
+                        (MagicWandSmoothing::Normal, "Smoothing: Normal"),
+                        (MagicWandSmoothing::Smooth, "Smoothing: Smooth"),
+                    ],
+                    w,
+                );
+                ui.add_space(space::S2);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(c::Button::primary("OK")).clicked() {
+                        accept = true;
+                    }
+                    if ui.add(c::Button::new("Cancel")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if modal.should_close() {
+            cancel = true;
+        }
+        if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            accept = true;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if accept {
+            self.authoring_tools.magic_wand_threshold = threshold.clamp(0, 200);
+            self.authoring_tools.magic_wand_smoothing = smoothing;
+            self.authoring_tools.magic_wand_dialog = None;
+            self.authoring_tools.lasso_magic_wand = true;
+            self.authoring_tools.lasso_polygon_mode = false;
+            self.authoring_tools.lasso_polygon.clear();
+            self.set_tool(Tool::Lasso);
+        } else if cancel {
+            self.authoring_tools.magic_wand_dialog = None;
+        } else {
+            self.authoring_tools.magic_wand_dialog = Some((threshold, smoothing));
+        }
+    }
+
     /// Open the NF2 `PolyStar tool settings` modal seeded from current PolyStar tool state.
     pub(crate) fn open_polystar_settings(&mut self) {
         self.authoring_tools.polystar_dialog = Some((
@@ -3131,6 +4148,7 @@ impl Editor {
 
     /// Render the NF2 `PolyStar tool settings` modal dialog when open.
     pub(crate) fn polystar_settings_modal(&mut self, ctx: &egui::Context) {
+        self.magic_wand_settings_modal(ctx);
         let Some((mut star, mut sides, mut point_size)) = self.authoring_tools.polystar_dialog
         else {
             return;
@@ -3655,6 +4673,180 @@ fn convex_tip_hull(mut points: Vec<Pos2>) -> Vec<Pos2> {
     hull
 }
 
+fn color_within_threshold(a: [u8; 4], b: [u8; 4], threshold: u8) -> bool {
+    let dr = a[0].abs_diff(b[0]);
+    let dg = a[1].abs_diff(b[1]);
+    let db = a[2].abs_diff(b[2]);
+    let da = a[3].abs_diff(b[3]);
+    dr.max(dg).max(db).max(da) <= threshold
+}
+
+fn magic_wand_bitmap_contour(
+    rgba: &[u8],
+    w: usize,
+    h: usize,
+    sx: usize,
+    sy: usize,
+    threshold: u8,
+    smoothing: MagicWandSmoothing,
+) -> Vec<[f64; 2]> {
+    if w == 0 || h == 0 || sx >= w || sy >= h || rgba.len() < w * h * 4 {
+        return Vec::new();
+    }
+    let pixel = |x: usize, y: usize| -> [u8; 4] {
+        let idx = (y * w + x) * 4;
+        [rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]]
+    };
+    let seed = pixel(sx, sy);
+    let mut mask = vec![false; w * h];
+    let mut queue = std::collections::VecDeque::new();
+    mask[sy * w + sx] = true;
+    queue.push_back((sx, sy));
+    let mut top_left = (sx, sy);
+    while let Some((x, y)) = queue.pop_front() {
+        if (y, x) < (top_left.1, top_left.0) {
+            top_left = (x, y);
+        }
+        for (nx, ny) in [
+            (x.wrapping_sub(1), y),
+            (x + 1, y),
+            (x, y.wrapping_sub(1)),
+            (x, y + 1),
+        ] {
+            if nx < w
+                && ny < h
+                && !mask[ny * w + nx]
+                && color_within_threshold(pixel(nx, ny), seed, threshold)
+            {
+                mask[ny * w + nx] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+
+    let is_filled = |px: isize, py: isize| -> bool {
+        px >= 0
+            && py >= 0
+            && (px as usize) < w
+            && (py as usize) < h
+            && mask[(py as usize) * w + (px as usize)]
+    };
+
+    // Trace outer boundary of the 4-connected component starting at the top edge of `top_left`.
+    // Directions: 0 = East (+1, 0), 1 = South (0, +1), 2 = West (-1, 0), 3 = North (0, -1).
+    let step_delta = [(1isize, 0isize), (0, 1), (-1, 0), (0, -1)];
+    let edge_has_boundary = |vx: isize, vy: isize, d: usize| -> bool {
+        let (rx, ry, lx, ly) = match d {
+            0 => (vx, vy, vx, vy - 1),
+            1 => (vx - 1, vy, vx, vy),
+            2 => (vx - 1, vy - 1, vx - 1, vy),
+            _ => (vx, vy - 1, vx - 1, vy - 1),
+        };
+        is_filled(rx, ry) && !is_filled(lx, ly)
+    };
+
+    let start_vx = top_left.0 as isize;
+    let start_vy = top_left.1 as isize;
+    let mut vx = start_vx + 1;
+    let mut vy = start_vy;
+    let mut dir = 0usize;
+    let mut raw_vertices = vec![[start_vx as f64, start_vy as f64]];
+    let max_steps = 4 * (w * h + 2);
+    for _ in 0..max_steps {
+        if vx == start_vx && vy == start_vy {
+            break;
+        }
+        raw_vertices.push([vx as f64, vy as f64]);
+        let mut next_dir = None;
+        for cand in [(dir + 3) % 4, dir, (dir + 1) % 4, (dir + 2) % 4] {
+            if edge_has_boundary(vx, vy, cand) {
+                next_dir = Some(cand);
+                break;
+            }
+        }
+        let Some(d) = next_dir else {
+            break;
+        };
+        dir = d;
+        vx += step_delta[d].0;
+        vy += step_delta[d].1;
+    }
+
+    // Drop collinear intermediate grid points along horizontal/vertical runs.
+    let mut corners = Vec::with_capacity(raw_vertices.len());
+    let n = raw_vertices.len();
+    for i in 0..n {
+        let prev = raw_vertices[(i + n - 1) % n];
+        let curr = raw_vertices[i];
+        let next = raw_vertices[(i + 1) % n];
+        let dx1 = curr[0] - prev[0];
+        let dy1 = curr[1] - prev[1];
+        let dx2 = next[0] - curr[0];
+        let dy2 = next[1] - curr[1];
+        if (dx1 * dy2 - dy1 * dx2).abs() > 1e-6 {
+            corners.push(curr);
+        }
+    }
+    if corners.len() < 3 {
+        return raw_vertices;
+    }
+
+    match smoothing {
+        MagicWandSmoothing::Pixels => corners,
+        MagicWandSmoothing::Rough => simplify_closed_polygon_rdp(&corners, 1.4),
+        MagicWandSmoothing::Normal => {
+            let simplified = simplify_closed_polygon_rdp(&corners, 1.0);
+            chaikin_smooth_closed(&simplified, 1)
+        }
+        MagicWandSmoothing::Smooth => {
+            let simplified = simplify_closed_polygon_rdp(&corners, 1.6);
+            chaikin_smooth_closed(&simplified, 2)
+        }
+    }
+}
+
+fn simplify_closed_polygon_rdp(poly: &[[f64; 2]], tolerance: f64) -> Vec<[f64; 2]> {
+    if poly.len() <= 4 || tolerance <= 0.0 {
+        return poly.to_vec();
+    }
+    let pts: Vec<Pos2> = poly
+        .iter()
+        .chain(std::iter::once(&poly[0]))
+        .map(|&[x, y]| Pos2::new(x as f32, y as f32))
+        .collect();
+    let radii = vec![1.0_f32; pts.len()];
+    let (mut simplified, _) = simplify_round_spine(&pts, &radii, tolerance as f32, 1.0);
+    if simplified.len() > 1 && simplified.first() == simplified.last() {
+        simplified.pop();
+    }
+    if simplified.len() < 3 {
+        return poly.to_vec();
+    }
+    simplified
+        .into_iter()
+        .map(|p| [f64::from(p.x), f64::from(p.y)])
+        .collect()
+}
+
+fn chaikin_smooth_closed(poly: &[[f64; 2]], passes: usize) -> Vec<[f64; 2]> {
+    let mut current = poly.to_vec();
+    for _ in 0..passes {
+        if current.len() < 3 {
+            break;
+        }
+        let mut next = Vec::with_capacity(current.len() * 2);
+        let n = current.len();
+        for i in 0..n {
+            let a = current[i];
+            let b = current[(i + 1) % n];
+            next.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]]);
+            next.push([0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]);
+        }
+        current = next;
+    }
+    current
+}
+
 #[cfg(test)]
 mod round_brush_overlap_tests {
     use super::*;
@@ -3828,5 +5020,205 @@ mod round_brush_overlap_tests {
         // Touching is inclusive in egui::Rect::intersects and must still select the fallback.
         boxes[count - 1] = Rect::from_min_max(Pos2::new(10_000., 1.), Pos2::new(10_001., 2.));
         assert!(nonadjacent_rects_overlap(&boxes));
+    }
+
+    #[test]
+    fn classic_flash_8_tool_and_info_panel_mechanics_work() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+
+        // 1. Accessibility panel is closed by default in PanelVisibility::default().
+        assert!(
+            !crate::workspace::PanelVisibility::default().accessibility,
+            "Accessibility panel must be closed by default"
+        );
+        assert!(!editor.workspace.panels.accessibility);
+
+        // 2. Selection Tool double-click on a Merge stroke selects only connected segments of the
+        // same stroke color, stopping at segments with a different stroke color.
+        let seg_a = Element {
+            id: "seg-a".into(),
+            merge: true,
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 50.0, y: 0.0 },
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [255, 0, 0, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        };
+        let seg_b = Element {
+            id: "seg-b".into(),
+            merge: true,
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 50.0, y: 0.0 },
+                    PathCommand::LineTo { x: 50.0, y: 50.0 },
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [255, 0, 0, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        };
+        let seg_diff_color = Element {
+            id: "seg-c".into(),
+            merge: true,
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 50.0, y: 50.0 },
+                    PathCommand::LineTo { x: 100.0, y: 50.0 },
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [0, 0, 255, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        };
+        let connected = merge_connected_stroke_ids(&[seg_a, seg_b, seg_diff_color], "seg-a");
+        assert_eq!(connected, vec!["seg-a".to_owned(), "seg-b".to_owned()]);
+
+        // 3. Alt-Line draws symmetrically from the center out.
+        let mut line_g = Gesture {
+            tool: Tool::Line,
+            symbol: "root".into(),
+            frame: 0,
+            layer: layer_id.clone(),
+            origin: Pos2::ZERO,
+            zoom: 1.0,
+            mapping: StageMapping::identity(),
+            pan: Vec2::ZERO,
+            start: Pos2::new(100.0, 100.0),
+            latest: Pos2::new(130.0, 110.0),
+            points: vec![Pos2::new(100.0, 100.0), Pos2::new(130.0, 110.0)],
+            pressures: vec![1.0, 1.0],
+            shift: false,
+            alt: true,
+            targets: Vec::new(),
+            eraser_meshes: Vec::new(),
+            gradient: None,
+        };
+        assert_eq!(
+            line_gesture_points(&line_g),
+            vec![Pos2::new(70.0, 90.0), Pos2::new(130.0, 110.0)]
+        );
+        line_g.alt = false;
+        assert_eq!(
+            line_gesture_points(&line_g),
+            vec![Pos2::new(100.0, 100.0), Pos2::new(130.0, 110.0)]
+        );
+
+        // 4. Paint Bucket click-and-drag defines linear and radial gradient matrices.
+        editor.authoring_modify.drawing_fill_gradient = Some(GradientPaint {
+            kind: GradientKind::Linear,
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [255, 0, 0, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [0, 0, 255, 255],
+                },
+            ],
+            matrix: [0.1, 0.0, 0.0, 0.1, 0.0, 0.0],
+            spread: GradientSpread::Extend,
+            linear_rgb: false,
+            focal_point_ratio: 0.0,
+        });
+        editor.authoring_tools.brush_lock_fill = false;
+        let mut rect_el = Element {
+            id: "bucket-rect".into(),
+            kind: ElementKind::Path {
+                commands: rectangle_path_commands(100.0, 100.0, RectangleOptions::default()),
+                fill_rule: FillRule::NonZero,
+                fill: [255, 255, 255, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        editor.apply_bucket_gradient_to_element(
+            &mut rect_el,
+            Pos2::new(10.0, 50.0),
+            Some(Pos2::new(90.0, 50.0)),
+        );
+        let ElementKind::PaintedPath {
+            fill_gradient: Some(grad),
+            ..
+        } = &rect_el.kind
+        else {
+            panic!("expected gradient fill from bucket drag");
+        };
+        assert!((grad.matrix[4] - 50.0).abs() < 1e-3);
+        assert!((grad.matrix[5] - 50.0).abs() < 1e-3);
+
+        // 5. Eraser shape (Round vs Square) and Magic Wand smoothing labels/contours.
+        assert_eq!(MagicWandSmoothing::Pixels.label(), "Pixels");
+        assert_eq!(MagicWandSmoothing::Rough.label(), "Rough");
+        assert_eq!(MagicWandSmoothing::Normal.label(), "Normal");
+        assert_eq!(MagicWandSmoothing::Smooth.label(), "Smooth");
+        assert_eq!(
+            EraserShape::Round.brush_shape(),
+            neoflash_ui::components::BrushShapeKind::Round
+        );
+        assert_eq!(
+            EraserShape::Square.brush_shape(),
+            neoflash_ui::components::BrushShapeKind::Square
+        );
+
+        // 6. Magic Wand bitmap contour extraction + vector fill threshold selection.
+        let mut bmp_rgba = vec![0u8; 4 * 4 * 4];
+        for y in 1..3 {
+            for x in 1..3 {
+                let i = (y * 4 + x) * 4;
+                bmp_rgba[i..i + 4].copy_from_slice(&[200, 50, 50, 255]);
+            }
+        }
+        let contour =
+            magic_wand_bitmap_contour(&bmp_rgba, 4, 4, 1, 1, 10, MagicWandSmoothing::Pixels);
+        assert_eq!(contour.len(), 4);
+
+        // 7. Info panel 9-point registration anchor (`TopLeft` vs `Center` vs `BottomRight`).
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![Element {
+            id: "info-rect".into(),
+            transform: Transform {
+                x: 20.0,
+                y: 30.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 20.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }];
+        editor.set_selection(vec![SelectionTarget {
+            layer: layer_id.clone(),
+            element: "info-rect".into(),
+        }]);
+        let old_bounds = Rect::from_min_size(Pos2::new(20.0, 30.0), Vec2::new(40.0, 20.0));
+        // Resizing W from 40 -> 80 with Center anchor shifts top-left X from 20 -> 0 so center stays at 40.
+        editor.apply_info_bounds_edit_with_anchor(
+            old_bounds,
+            40.0,
+            40.0,
+            80.0,
+            20.0,
+            neoflash_ui::components::RegistrationPoint::Center,
+        );
+        let updated = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+        assert!((updated.transform.x - 0.0).abs() < 1e-3);
+        editor.project.validate().unwrap();
     }
 }

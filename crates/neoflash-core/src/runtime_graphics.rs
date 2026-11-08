@@ -8,11 +8,72 @@ use serde::{Deserialize, Serialize};
 pub const MAX_GRAPHICS_COMMANDS: usize = 100_000;
 pub const MAX_GRAPHICS_OPS: usize = 4096;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GradientKind {
+    #[default]
     Linear,
     Radial,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GradientSpread {
+    #[default]
+    Extend,
+    Reflect,
+    Repeat,
+}
+
+impl GradientSpread {
+    pub fn is_extend(&self) -> bool {
+        matches!(self, Self::Extend)
+    }
+
+    pub fn apply(self, u: f64) -> f64 {
+        if !u.is_finite() {
+            return 0.0;
+        }
+        match self {
+            Self::Extend => u.clamp(0.0, 1.0),
+            Self::Repeat => {
+                if (0.0..=1.0).contains(&u) {
+                    u
+                } else {
+                    u.rem_euclid(1.0)
+                }
+            }
+            Self::Reflect => {
+                if (0.0..=1.0).contains(&u) {
+                    u
+                } else {
+                    let period = u.rem_euclid(2.0);
+                    if period <= 1.0 { period } else { 2.0 - period }
+                }
+            }
+        }
+    }
+}
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+fn srgb_u8_to_linear(c: u8) -> f64 {
+    let s = f64::from(c) / 255.0;
+    if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb_u8(l: f64) -> u8 {
+    let l = l.clamp(0.0, 1.0);
+    let s = if l <= 0.0031308 {
+        l * 12.92
+    } else {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -24,13 +85,17 @@ pub struct GradientStop {
 
 /// Canonical gradient coordinates are ±819.2 for linear endpoints and radius
 /// 819.2 for radial paints. The matrix maps that space into local path coordinates.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GradientPaint {
     pub kind: GradientKind,
     pub matrix: [f64; 6],
     pub stops: Vec<GradientStop>,
     pub focal_point_ratio: f64,
+    #[serde(default, skip_serializing_if = "GradientSpread::is_extend")]
+    pub spread: GradientSpread,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub linear_rgb: bool,
 }
 
 impl GradientPaint {
@@ -59,18 +124,21 @@ impl GradientPaint {
         };
         spec.validate()
     }
-    /// Shared native paint sampling; the browser uses the equivalent Canvas brush.
-    pub fn sample(&self, x: f64, y: f64) -> Color {
+
+    /// Computes the raw (unclamped) gradient coordinate `u` at local point `(x, y)`,
+    /// where `0.0..=1.0` spans the canonical gradient range (`-819.2..=819.2` for linear,
+    /// `0..=819.2` from focal point to boundary for radial).
+    pub fn raw_unit_at(&self, x: f64, y: f64) -> Option<f64> {
         let [a, b, c, d, tx, ty] = self.matrix;
         let det = a * d - b * c;
         if det == 0. || self.stops.is_empty() {
-            return [0; 4];
+            return None;
         }
         let x = x - tx;
         let y = y - ty;
         let gx = (d * x - c * y) / det / 819.2;
         let gy = (-b * x + a * y) / det / 819.2;
-        let t = match self.kind {
+        let u = match self.kind {
             GradientKind::Linear => (gx + 1.) * 0.5,
             GradientKind::Radial => {
                 let f = self.focal_point_ratio;
@@ -78,17 +146,30 @@ impl GradientPaint {
                 let qa = f * f - 1.;
                 let qb = 2. * f * dx;
                 let qc = dx * dx + gy * gy;
-                if qc == 0. {
+                let r = if qc == 0. {
                     0.
                 } else if qa.abs() < 1e-12 {
                     if qb == 0. { 1. } else { -qc / qb }
                 } else {
                     (-qb - (qb * qb - 4. * qa * qc).max(0.).sqrt()) / (2. * qa)
+                };
+                if self.spread == GradientSpread::Extend {
+                    r
+                } else {
+                    r.max(0.)
                 }
             }
+        };
+        Some(u)
+    }
+
+    /// Samples the gradient stop ramp at a unit coordinate `u` (`0.0..=1.0` for the primary span),
+    /// honoring both `spread` (`Extend` / `Reflect` / `Repeat`) and `linear_rgb` interpolation.
+    pub fn sample_at_unit(&self, u: f64) -> Color {
+        if self.stops.is_empty() {
+            return [0; 4];
         }
-        .clamp(0., 1.)
-            * 255.;
+        let t = self.spread.apply(u).clamp(0., 1.) * 255.;
         let first = &self.stops[0];
         if t <= f64::from(first.ratio) {
             return first.color;
@@ -96,11 +177,37 @@ impl GradientPaint {
         for pair in self.stops.windows(2) {
             let (left, right) = (&pair[0], &pair[1]);
             if t <= f64::from(right.ratio) {
-                let span = f64::from(right.ratio - left.ratio);
+                let span = f64::from(right.ratio.saturating_sub(left.ratio));
                 if span == 0. {
                     return right.color;
                 }
                 let f = (t - f64::from(left.ratio)) / span;
+                if self.linear_rgb {
+                    return [
+                        linear_to_srgb_u8(
+                            srgb_u8_to_linear(left.color[0])
+                                + (srgb_u8_to_linear(right.color[0])
+                                    - srgb_u8_to_linear(left.color[0]))
+                                    * f,
+                        ),
+                        linear_to_srgb_u8(
+                            srgb_u8_to_linear(left.color[1])
+                                + (srgb_u8_to_linear(right.color[1])
+                                    - srgb_u8_to_linear(left.color[1]))
+                                    * f,
+                        ),
+                        linear_to_srgb_u8(
+                            srgb_u8_to_linear(left.color[2])
+                                + (srgb_u8_to_linear(right.color[2])
+                                    - srgb_u8_to_linear(left.color[2]))
+                                    * f,
+                        ),
+                        (f64::from(left.color[3])
+                            + (f64::from(right.color[3]) - f64::from(left.color[3])) * f)
+                            .round()
+                            .clamp(0., 255.) as u8,
+                    ];
+                }
                 return std::array::from_fn(|i| {
                     (f64::from(left.color[i])
                         + (f64::from(right.color[i]) - f64::from(left.color[i])) * f)
@@ -110,6 +217,14 @@ impl GradientPaint {
             }
         }
         self.stops.last().unwrap().color
+    }
+
+    /// Shared native paint sampling; the browser uses the equivalent Canvas brush.
+    pub fn sample(&self, x: f64, y: f64) -> Color {
+        let Some(u) = self.raw_unit_at(x, y) else {
+            return [0; 4];
+        };
+        self.sample_at_unit(self.spread.apply(u))
     }
 }
 
@@ -189,6 +304,8 @@ impl GradientSpec {
                     color: color(c, a),
                 })
                 .collect(),
+            spread: GradientSpread::Extend,
+            linear_rgb: false,
         }
     }
 }
@@ -1093,4 +1210,47 @@ fn round_rect(x: f64, y: f64, width: f64, height: f64, corners: [[f64; 2]; 4]) -
         },
         PathCommand::Close,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gradient_spread_and_linear_rgb_interpolation() {
+        let mut grad = GradientPaint {
+            kind: GradientKind::Linear,
+            stops: vec![
+                GradientStop {
+                    ratio: 0,
+                    color: [0, 0, 0, 255],
+                },
+                GradientStop {
+                    ratio: 255,
+                    color: [255, 255, 255, 255],
+                },
+            ],
+            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            focal_point_ratio: 0.0,
+            spread: GradientSpread::Extend,
+            linear_rgb: false,
+        };
+        assert_eq!(grad.sample_at_unit(1.5), [255, 255, 255, 255]);
+        assert_eq!(grad.sample_at_unit(-0.5), [0, 0, 0, 255]);
+
+        grad.spread = GradientSpread::Reflect;
+        assert_eq!(grad.sample_at_unit(2.0), [0, 0, 0, 255]);
+        assert_eq!(grad.sample_at_unit(1.5), grad.sample_at_unit(0.5));
+
+        grad.spread = GradientSpread::Repeat;
+        assert_eq!(grad.sample_at_unit(1.25), grad.sample_at_unit(0.25));
+
+        let srgb_mid = grad.sample_at_unit(0.5)[0];
+        grad.linear_rgb = true;
+        let linear_mid = grad.sample_at_unit(0.5)[0];
+        assert!(
+            linear_mid > srgb_mid,
+            "linear RGB midpoint ({linear_mid}) should be brighter in sRGB than sRGB midpoint ({srgb_mid})"
+        );
+    }
 }

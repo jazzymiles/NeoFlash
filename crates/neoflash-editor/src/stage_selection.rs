@@ -2670,17 +2670,29 @@ impl Editor {
         }
     }
 
-    /// Reset the Free Transform transformation point (pivot) to the selection's default centre.
+    /// Reset the Free Transform transformation point (pivot) to the selection's default centre,
+    /// or snap a symbol instance's default centre pivot to its registration point `(0, 0)`.
     pub(crate) fn reset_transformation_point(&mut self) {
         if let Some(target) = self.selection.single().cloned() {
-            if !self.target_editable(&target)
-                || self
-                    .selected_sampled()
-                    .is_none_or(|e| e.transform.pivot.is_none())
-            {
+            if !self.target_editable(&target) {
                 return;
             }
+            let Some(sampled) = self.selected_sampled() else {
+                return;
+            };
+            let is_instance = matches!(sampled.kind, ElementKind::Instance { .. });
+            if sampled.transform.pivot.is_none() && !is_instance {
+                return;
+            }
+            let next_pivot = if sampled.transform.pivot.is_some() {
+                None
+            } else {
+                Some([0.0, 0.0])
+            };
             self.transact(|s| {
+                if next_pivot.is_some() {
+                    s.project.format_version = s.project.format_version.max(7);
+                }
                 s.ensure_key_for(&target.layer, false);
                 if let Some(layer_idx) = s.target_layer_index(&target) {
                     let frame = s.frame;
@@ -2688,7 +2700,7 @@ impl Editor {
                         .key_at_mut(frame)
                         .and_then(|k| k.elements.iter_mut().find(|e| e.id == target.element))
                     {
-                        el.transform.pivot = None;
+                        el.transform.pivot = next_pivot;
                     }
                 }
             });
@@ -2807,6 +2819,26 @@ impl Editor {
                         }
                     }
                 }
+                egui::Event::Key {
+                    key: key @ (egui::Key::ArrowUp | egui::Key::ArrowDown),
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if self
+                    .shape_draft
+                    .as_ref()
+                    .is_some_and(|d| d.tool == Tool::Rectangle) =>
+                {
+                    let step = if modifiers.shift { 10.0 } else { 2.0 };
+                    let delta = if key == egui::Key::ArrowUp {
+                        step
+                    } else {
+                        -step
+                    };
+                    for r in &mut self.authoring_tools.rect_options.corner_radii {
+                        *r = (*r + delta).clamp(0.0, 200.0);
+                    }
+                }
                 _ => {}
             }
         }
@@ -2819,18 +2851,26 @@ impl Editor {
             let local_bounds = shape_draft_bounds(draft, pos, modifiers);
             let screen = |pt: Pos2| draft.scope.screen(pt);
             let palette = UiPalette::current(p.ctx());
-            // Keep the gesture overlay, but follow the same oval contour as the
-            // committed primitive (including arcs and its inner radius).
-            let oval = (draft.tool == Tool::Ellipse).then(|| {
-                oval_path_commands(
+            // Keep the gesture overlay, but follow the same oval/rounded-rectangle contour as the
+            // committed primitive (including arcs, inner radius and corner radii).
+            let contour = match draft.tool {
+                Tool::Ellipse => Some(oval_path_commands(
                     local_bounds.width() as f64,
                     local_bounds.height() as f64,
                     self.authoring_tools.oval_options,
-                )
-            });
+                )),
+                Tool::Rectangle if !self.authoring_tools.rect_options.is_default() => {
+                    Some(rectangle_path_commands(
+                        local_bounds.width() as f64,
+                        local_bounds.height() as f64,
+                        self.authoring_tools.rect_options,
+                    ))
+                }
+                _ => None,
+            };
             let max_scale = draft.scope.mapping.scale_bounds().1.max(1e-12) as f32;
             for (width, color) in [(3.0_f32, palette.overlay_halo), (1.0_f32, palette.overlay)] {
-                if let Some(commands) = &oval {
+                if let Some(commands) = &contour {
                     crate::vector::paint_path(
                         p,
                         commands,

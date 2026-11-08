@@ -1222,7 +1222,7 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
     );
     mode_card(
         ui,
-        Some(crate::ui_icons::GRADIENT_TRANSFORM_16),
+        Some(crate::ui_icons::Icon::Gradient.nf2(false)),
         "Gradient Transform Tool (F) & Color Mixer Overflow (Extend / Reflect / Repeat)",
         "Linear & Radial",
         BadgeType::Accent,

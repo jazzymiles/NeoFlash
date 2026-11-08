@@ -1206,26 +1206,42 @@ impl Editor {
     }
 
     pub(crate) fn dock_surface_at(&self, pointer: egui::Pos2) -> Option<DockViewportTarget> {
-        let candidates: Vec<_> = self
-            .detached
-            .dock_viewports
-            .iter()
-            .copied()
-            .filter(|target| {
-                target.inner.contains(pointer)
-                    && match target.surface {
-                        DockSurface::Main => true,
-                        DockSurface::Floating(id) => self.workspace.floating.iter().any(|window| {
-                            window.id == id
-                                && window
-                                    .panels()
-                                    .iter()
-                                    .any(|panel| self.workspace.is_panel_visible(*panel))
-                        }),
-                    }
-            })
-            .collect();
-        match crate::native_screens::front_window_at(pointer) {
+        let excluded_window = self.dragged_whole_floating_window();
+        let excluded_title =
+            excluded_window.and_then(|window_id| self.floating_window_title(window_id));
+        let excluded_rect = excluded_window.and_then(|window_id| {
+            self.detached
+                .dock_viewports
+                .iter()
+                .find(|target| target.surface == DockSurface::Floating(window_id))
+                .map(|target| target.inner)
+        });
+        let candidates: Vec<_> =
+            self.detached
+                .dock_viewports
+                .iter()
+                .copied()
+                .filter(|target| {
+                    target.inner.contains(pointer)
+                        && match target.surface {
+                            DockSurface::Main => true,
+                            DockSurface::Floating(id) => {
+                                excluded_window != Some(id)
+                                    && self.workspace.floating.iter().any(|window| {
+                                        window.id == id
+                                            && window.panels().iter().any(|panel| {
+                                                self.workspace.is_panel_visible(*panel)
+                                            })
+                                    })
+                            }
+                        }
+                })
+                .collect();
+        match crate::native_screens::front_window_at_excluding(
+            pointer,
+            excluded_title.as_deref(),
+            excluded_rect,
+        ) {
             Some(Some(native)) => candidates
                 .into_iter()
                 .filter(|target| {

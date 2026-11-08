@@ -3754,6 +3754,7 @@ mod tests {
                                     },
                                 ],
                                 focal_point_ratio: 0.0,
+                                ..Default::default()
                             }),
                             stroke_gradient: None,
                             stroke_width: 0.0,
@@ -4260,6 +4261,7 @@ mod tests {
                                             },
                                         ],
                                         focal_point_ratio: 0.0,
+                                        ..Default::default()
                                     }),
                                     stroke_gradient: None,
                                 },
@@ -5765,6 +5767,7 @@ mod tests {
                                             },
                                         ],
                                         focal_point_ratio: 0.0,
+                                        ..Default::default()
                                     }),
                                     stroke_gradient: None,
                                 },
@@ -6277,6 +6280,7 @@ mod tests {
                                                 },
                                             ],
                                             focal_point_ratio: 0.0,
+                                            ..Default::default()
                                         }),
                                         stroke_gradient: None,
                                     },
@@ -6359,6 +6363,7 @@ mod tests {
                                                 },
                                             ],
                                             focal_point_ratio: 0.0,
+                                            ..Default::default()
                                         }),
                                         stroke_gradient: None,
                                     },
@@ -6393,6 +6398,7 @@ mod tests {
                                                 },
                                             ],
                                             focal_point_ratio: 0.0,
+                                            ..Default::default()
                                         }),
                                         stroke_gradient: None,
                                     },
@@ -6425,6 +6431,7 @@ mod tests {
                                                 },
                                             ],
                                             focal_point_ratio: 0.0,
+                                            ..Default::default()
                                         }),
                                         stroke_gradient: None,
                                     },
@@ -6719,6 +6726,7 @@ mod tests {
                                                     },
                                                 ],
                                                 focal_point_ratio: 0.0,
+                                                ..Default::default()
                                             }),
                                             stroke_gradient: None,
                                         },
@@ -6780,6 +6788,7 @@ mod tests {
                                                     },
                                                 ],
                                                 focal_point_ratio: 0.0,
+                                                ..Default::default()
                                             }),
                                             stroke_gradient: None,
                                         },

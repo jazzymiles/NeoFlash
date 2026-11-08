@@ -24,6 +24,7 @@ pub(crate) struct DetachedState {
     checked_monitors: Option<Instant>,
     drag: Option<PanelDrag>,
     drag_preview: Option<PanelDragPreview>,
+    pub(crate) resize: Option<FloatingResize>,
     pub(crate) root_inner: Option<egui::Rect>,
     pub(crate) dock_groups: Vec<DockGroupTarget>,
     pub(crate) content_header: Option<PanelId>,
@@ -31,6 +32,18 @@ pub(crate) struct DetachedState {
     pub(crate) activation: u64,
     context_menu_open: bool,
     pub(crate) tools_desired_inner_height: Option<f32>,
+}
+
+/// Interactive edge/corner resize state for borderless floating panel windows.
+#[derive(Clone, Copy)]
+pub(crate) struct FloatingResize {
+    pub(crate) window_id: PanelId,
+    pub(crate) left: bool,
+    pub(crate) right: bool,
+    pub(crate) top: bool,
+    pub(crate) bottom: bool,
+    pub(crate) start_pointer: egui::Pos2,
+    pub(crate) start_geometry: WindowGeometry,
 }
 
 /// A header gesture keeps its source viewport until release. This avoids
@@ -43,6 +56,7 @@ struct PanelDrag {
     started: egui::Pos2,
     pointer: egui::Pos2,
     grab_offset: egui::Vec2,
+    window_grab_offset: egui::Vec2,
     moved: bool,
     released: bool,
     began: Instant,
@@ -151,10 +165,17 @@ impl Editor {
             })
         });
         if self.detached.drag.is_none()
+            && self.detached.resize.is_none()
             && let Some(pos) = press.filter(|pos| {
                 response.rect.contains(*pos)
                     && ui.clip_rect().contains(*pos)
                     && ctx.layer_id_at(*pos) == Some(ui.layer_id())
+                    && !Self::in_floating_resize_margin(
+                        ctx,
+                        source == egui::ViewportId::ROOT,
+                        panel,
+                        *pos,
+                    )
             })
         {
             let global = (inner.min + pos.to_vec2()) * zoom;
@@ -165,6 +186,7 @@ impl Editor {
                 started: global,
                 pointer: global,
                 grab_offset: (pos - response.rect.min) * zoom,
+                window_grab_offset: pos.to_vec2() * zoom,
                 moved: false,
                 released: false,
                 began: Instant::now(),
@@ -176,6 +198,54 @@ impl Editor {
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         response.clone().on_hover_cursor(egui::CursorIcon::Grab).on_hover_text("Drag to an edge, group or tab in any NeoFlash window. Drop outside a dock to detach. Escape cancels.");
+    }
+
+    /// When all visible panels of a floating window are being dragged together,
+    /// return that floating window's `PanelId` so it moves as a native window
+    /// and never self-docks into its own surface.
+    pub(crate) fn dragged_whole_floating_window(&self) -> Option<PanelId> {
+        let drag = self.detached.drag?;
+        let window = self.workspace.floating_window(drag.panel)?;
+        if drag.source != viewport(window.id) {
+            return None;
+        }
+        let visible_in_window: Vec<PanelId> = window
+            .panels()
+            .into_iter()
+            .filter(|panel| self.workspace.is_panel_visible(*panel))
+            .collect();
+        let dragged_panels: Vec<PanelId> = drag
+            .group
+            .and_then(|(surface, edge, group)| {
+                self.current_dock_group(surface, edge, group).map(|g| {
+                    g.tabs
+                        .iter()
+                        .copied()
+                        .filter(|panel| self.workspace.is_panel_visible(*panel))
+                        .collect()
+                })
+            })
+            .unwrap_or_else(|| vec![drag.panel]);
+        (visible_in_window.len() == dragged_panels.len()
+            && visible_in_window
+                .iter()
+                .all(|panel| dragged_panels.contains(panel)))
+        .then_some(window.id)
+    }
+
+    pub(crate) fn floating_window_title(&self, window_id: PanelId) -> Option<String> {
+        let window = self
+            .workspace
+            .floating
+            .iter()
+            .find(|window| window.id == window_id)?;
+        let titles = window
+            .panels()
+            .into_iter()
+            .filter(|panel| self.workspace.is_panel_visible(*panel))
+            .map(|panel| panel.title())
+            .collect::<Vec<_>>();
+        (!titles.is_empty()).then(|| format!("{} — NeoFlash", titles.join(" + ")))
     }
 
     /// Collect input from every viewport. Never infer a mouse release from
@@ -190,6 +260,24 @@ impl Editor {
             || !self.workspace.is_panel_visible(drag.panel)
             || surface_viewport(self.workspace.panel_surface(drag.panel)) != drag.source
         {
+            if drag.moved
+                && let Some(window_id) = self.dragged_whole_floating_window()
+                && let Some(saved) = self
+                    .workspace
+                    .floating
+                    .iter()
+                    .find(|w| w.id == window_id)
+                    .and_then(|w| w.geometry)
+            {
+                let zoom = ctx.zoom_factor();
+                ctx.send_viewport_cmd_to(
+                    viewport(window_id),
+                    egui::ViewportCommand::OuterPosition(egui::pos2(
+                        saved.outer_position[0] / zoom,
+                        saved.outer_position[1] / zoom,
+                    )),
+                );
+            }
             self.detached.drag = None;
             self.detached.drag_preview = None;
             return;
@@ -229,7 +317,8 @@ impl Editor {
             drag.pointer = pointer;
         }
         drag.released = released;
-        if let Some((position, down)) = crate::native_screens::pointer_state() {
+        let native_pointer = crate::native_screens::pointer_state();
+        if let Some((position, down)) = native_pointer {
             // Some backends synthesize an up event when focus/capture leaves
             // a window. A still-held native button proves that is not a drop.
             if !released || down {
@@ -248,6 +337,17 @@ impl Editor {
         }
         drag.moved |= drag.pointer.distance(drag.started) >= 8. * zoom;
         self.detached.drag = Some(drag);
+        if drag.moved
+            && !drag.released
+            && native_pointer.is_some()
+            && let Some(window_id) = self.dragged_whole_floating_window()
+        {
+            let position = drag.pointer - drag.window_grab_offset;
+            ctx.send_viewport_cmd_to(
+                viewport(window_id),
+                egui::ViewportCommand::OuterPosition(position / zoom),
+            );
+        }
         ctx.request_repaint_of(egui::ViewportId::ROOT);
         for view in &self.detached.dock_viewports {
             ctx.request_repaint_of(view.viewport);
@@ -263,6 +363,11 @@ impl Editor {
         let Some(drag) = self.detached.drag.filter(|drag| drag.released) else {
             return;
         };
+        let whole_floating = self.dragged_whole_floating_window().is_some();
+        let hit = drag
+            .moved
+            .then(|| self.dock_hit(drag.pointer, ctx.zoom_factor()))
+            .flatten();
         self.detached.drag = None;
         let preview = self.detached.drag_preview.take();
         if !drag.moved {
@@ -275,7 +380,7 @@ impl Editor {
                     .map(|g| g.tabs.clone())
             })
             .unwrap_or_else(|| vec![drag.panel]);
-        if let Some(hit) = self.dock_hit(drag.pointer, ctx.zoom_factor()) {
+        if let Some(hit) = hit {
             if drag.group.is_some() {
                 self.workspace
                     .dock_group(&panels, drag.panel, hit.destination);
@@ -297,13 +402,15 @@ impl Editor {
                 outer_position: [0., 0.],
                 inner_size: crate::workspace::default_window_size(drag.panel),
             });
-            let grab_offset = if let Some(preview) = preview {
+            let grab_offset = if whole_floating {
+                drag.window_grab_offset
+            } else if let Some(preview) = preview {
                 geometry.inner_size = preview.size.into();
                 preview.grab_offset
             } else {
                 drag.grab_offset
             };
-            let position = drag.pointer - grab_offset - egui::vec2(0., 28.);
+            let position = drag.pointer - grab_offset;
             geometry.outer_position = [position.x, position.y];
             let window = if drag.group.is_some() {
                 self.workspace.float_group(&panels, drag.panel, geometry)
@@ -457,11 +564,26 @@ impl Editor {
         else {
             return;
         };
-        let local = |rect: egui::Rect| rect.translate(-view.inner.min.to_vec2()) / view.zoom;
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new(("panel-dock-target", surface)),
         ));
+        if matches!(surface, DockSurface::Floating(id) if self.dragged_whole_floating_window() == Some(id))
+        {
+            if crate::native_screens::pointer_state().is_some()
+                && let Some(hit) = self.dock_hit(drag.pointer, view.zoom)
+            {
+                let pointer = (drag.window_grab_offset / view.zoom).to_pos2();
+                neoflash_ui::components::drag_ghost_at(
+                    &painter,
+                    ctx,
+                    pointer + egui::vec2(12., 24.),
+                    &format!("{} · {}", title(drag.panel), hit.caption),
+                );
+            }
+            return;
+        }
+        let local = |rect: egui::Rect| rect.translate(-view.inner.min.to_vec2()) / view.zoom;
         let hit = self
             .dock_hit(drag.pointer, view.zoom)
             .filter(|hit| hit.surface == surface);
@@ -484,7 +606,9 @@ impl Editor {
             .is_some_and(|under_pointer| under_pointer.surface == surface)
         {
             let pointer = (drag.pointer - view.inner.min).to_pos2() / view.zoom;
-            if let Some(preview) = &self.detached.drag_preview
+            if (self.dragged_whole_floating_window().is_none()
+                || crate::native_screens::pointer_state().is_none())
+                && let Some(preview) = &self.detached.drag_preview
                 && preview.panel == drag.panel
                 && preview.source == drag.source
             {
@@ -664,6 +788,13 @@ impl Editor {
             );
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(&title)
+                .with_decorations(false)
+                .with_title_shown(false)
+                .with_titlebar_shown(false)
+                .with_titlebar_buttons_shown(false)
+                .with_close_button(false)
+                .with_minimize_button(false)
+                .with_maximize_button(false)
                 .with_window_level(egui::WindowLevel::AlwaysOnTop)
                 .with_min_inner_size([
                     minimum[0].min(geometry.inner_size[0]) / zoom,
@@ -737,6 +868,8 @@ impl Editor {
                 }
                 if !recovering
                     && !growing
+                    && self.detached.drag.is_none()
+                    && self.detached.resize.is_none()
                     && let Some(geometry) = ctx.input(|i| {
                         let v = i.viewport();
                         if v.minimized == Some(true) {
@@ -777,6 +910,7 @@ impl Editor {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
                         .show(ctx, |ui| self.floating_dock_contents(ui, window_id));
+                    self.floating_window_resize_borders(ctx, window_id, &panels, minimum, zoom);
                     if panels.as_slice() == [PanelId::Tools]
                         && let Some(desired_h) = self.detached.tools_desired_inner_height
                     {
@@ -826,6 +960,13 @@ impl Editor {
         if self.detached.drag.is_some_and(|drag| drag.source == id) {
             self.detached.drag = None;
             self.detached.drag_preview = None;
+        }
+        if self
+            .detached
+            .resize
+            .is_some_and(|resize| resize.window_id == window_id)
+        {
+            self.detached.resize = None;
         }
         self.detached
             .dock_viewports
@@ -1045,6 +1186,205 @@ impl Editor {
         open
     }
 
+    fn in_floating_resize_margin(
+        ctx: &egui::Context,
+        is_root: bool,
+        panel: PanelId,
+        pos: egui::Pos2,
+    ) -> bool {
+        if is_root {
+            return false;
+        }
+        let rect = ctx.viewport_rect();
+        let edge = 5.0;
+        let horizontal = pos.x <= rect.left() + edge || pos.x >= rect.right() - edge;
+        let vertical = panel != PanelId::Tools
+            && (pos.y <= rect.top() + edge || pos.y >= rect.bottom() - edge);
+        horizontal || vertical
+    }
+
+    pub(crate) fn floating_window_resize_borders(
+        &mut self,
+        ctx: &egui::Context,
+        window_id: PanelId,
+        panels: &[PanelId],
+        minimum: [f32; 2],
+        zoom: f32,
+    ) {
+        let viewport_rect = ctx.viewport_rect();
+        let border_painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new(("floating-window-border", window_id)),
+        ));
+        border_painter.rect_stroke(
+            viewport_rect,
+            0.0_f32,
+            egui::Stroke::new(1.0_f32, neoflash_ui::palette(ctx).border_subtle),
+            egui::StrokeKind::Inside,
+        );
+        if self.detached.drag.is_some() {
+            return;
+        }
+        let is_tools_only = panels == [PanelId::Tools];
+        if let Some(resize) = self
+            .detached
+            .resize
+            .filter(|resize| resize.window_id == window_id)
+        {
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.workspace
+                    .remember_floating_geometry(window_id, resize.start_geometry);
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                    resize.start_geometry.outer_position[0] / zoom,
+                    resize.start_geometry.outer_position[1] / zoom,
+                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    resize.start_geometry.inner_size[0] / zoom,
+                    resize.start_geometry.inner_size[1] / zoom,
+                )));
+                self.detached.resize = None;
+                return;
+            }
+            let inner = ctx
+                .input(|i| i.viewport().inner_rect)
+                .unwrap_or(viewport_rect);
+            let (local_pointer, local_released) = ctx.input(|i| {
+                let mut ptr = i.pointer.interact_pos();
+                let mut rel = false;
+                for event in &i.events {
+                    match event {
+                        egui::Event::PointerMoved(p) => ptr = Some(*p),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            ..
+                        } => {
+                            ptr = Some(*pos);
+                            rel = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                (ptr.map(|p| (inner.min + p.to_vec2()) * zoom), rel)
+            });
+            let (pointer, down) = if let Some((pos, down)) = crate::native_screens::pointer_state()
+            {
+                (pos, down && !local_released)
+            } else {
+                (
+                    local_pointer.unwrap_or(resize.start_pointer),
+                    !local_released && ctx.input(|i| i.pointer.primary_down()),
+                )
+            };
+            let delta = pointer - resize.start_pointer;
+            let mut left_px = resize.start_geometry.outer_position[0];
+            let mut top_px = resize.start_geometry.outer_position[1];
+            let right_px = left_px + resize.start_geometry.inner_size[0];
+            let bottom_px = top_px + resize.start_geometry.inner_size[1];
+            let mut width_px = resize.start_geometry.inner_size[0];
+            let mut height_px = resize.start_geometry.inner_size[1];
+            if resize.left {
+                width_px = (right_px - (left_px + delta.x)).max(minimum[0]);
+                left_px = right_px - width_px;
+            } else if resize.right {
+                width_px = (width_px + delta.x).max(minimum[0]);
+            }
+            if !is_tools_only {
+                if resize.top {
+                    height_px = (bottom_px - (top_px + delta.y)).max(minimum[1]);
+                    top_px = bottom_px - height_px;
+                } else if resize.bottom {
+                    height_px = (height_px + delta.y).max(minimum[1]);
+                }
+            } else if let Some(desired_h) = self.detached.tools_desired_inner_height {
+                height_px = (desired_h * zoom).max(minimum[1]);
+            }
+            let geometry = WindowGeometry {
+                outer_position: [left_px, top_px],
+                inner_size: [width_px, height_px],
+            };
+            self.workspace
+                .remember_floating_geometry(window_id, geometry);
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                left_px / zoom,
+                top_px / zoom,
+            )));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                width_px / zoom,
+                height_px / zoom,
+            )));
+            ctx.set_cursor_icon(resize_cursor(
+                resize.left,
+                resize.right,
+                resize.top,
+                resize.bottom,
+            ));
+            if !down {
+                self.detached.resize = None;
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+            return;
+        }
+        let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) else {
+            return;
+        };
+        let edge = 5.0;
+        let corner = 10.0;
+        let near_l = pos.x <= viewport_rect.left() + edge;
+        let near_r = pos.x >= viewport_rect.right() - edge;
+        let near_t = !is_tools_only && pos.y <= viewport_rect.top() + edge;
+        let near_b = !is_tools_only && pos.y >= viewport_rect.bottom() - edge;
+        if !(near_l || near_r || near_t || near_b) {
+            return;
+        }
+        let left = near_l || ((near_t || near_b) && pos.x <= viewport_rect.left() + corner);
+        let right = near_r || ((near_t || near_b) && pos.x >= viewport_rect.right() - corner);
+        let top = near_t
+            || (!is_tools_only && (near_l || near_r) && pos.y <= viewport_rect.top() + corner);
+        let bottom = near_b
+            || (!is_tools_only && (near_l || near_r) && pos.y >= viewport_rect.bottom() - corner);
+        ctx.set_cursor_icon(resize_cursor(left, right, top, bottom));
+        let pressed = ctx.input(|i| {
+            i.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::PointerButton {
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        ..
+                    }
+                )
+            })
+        });
+        if pressed
+            && let Some(start_geometry) = self
+                .workspace
+                .floating
+                .iter()
+                .find(|w| w.id == window_id)
+                .and_then(|w| w.geometry)
+        {
+            let inner = ctx
+                .input(|i| i.viewport().inner_rect)
+                .unwrap_or(viewport_rect);
+            let start_pointer = crate::native_screens::pointer_state()
+                .map(|(p, _)| p)
+                .unwrap_or_else(|| (inner.min + pos.to_vec2()) * zoom);
+            self.detached.resize = Some(FloatingResize {
+                window_id,
+                left,
+                right,
+                top,
+                bottom,
+                start_pointer,
+                start_geometry,
+            });
+        }
+    }
+
     pub(crate) fn compact_floating_tools_window_bottom_up(
         &mut self,
         ctx: &egui::Context,
@@ -1064,10 +1404,12 @@ impl Editor {
         else {
             return;
         };
-        if let Some((outer, inner)) = ctx.input(|i| {
-            let v = i.viewport();
-            Some((v.outer_rect?, v.inner_rect?))
-        }) {
+        if self.detached.resize.is_none()
+            && let Some((outer, inner)) = ctx.input(|i| {
+                let v = i.viewport();
+                Some((v.outer_rect?, v.inner_rect?))
+            })
+        {
             geom.outer_position = [outer.min.x * zoom, outer.min.y * zoom];
             geom.inner_size = [inner.width() * zoom, inner.height() * zoom];
         }
@@ -1078,7 +1420,7 @@ impl Editor {
         }
         let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
             || ctx.input(|i| i.pointer.any_down());
-        if pointer_down {
+        if pointer_down && self.detached.resize.is_none() {
             // Defer sending programmatic window size/position changes while a live native window
             // resize drag is in progress so macOS AppKit and egui never desync the inner width.
             ctx.request_repaint_after(Duration::from_millis(16));
@@ -1106,6 +1448,17 @@ impl Editor {
             self.clipboard.menu_target = None;
             self.clipboard.menu_viewport = None;
         }
+    }
+}
+
+fn resize_cursor(left: bool, right: bool, top: bool, bottom: bool) -> egui::CursorIcon {
+    match (left, right, top, bottom) {
+        (true, false, true, false) | (false, true, false, true) => egui::CursorIcon::ResizeNwSe,
+        (false, true, true, false) | (true, false, false, true) => egui::CursorIcon::ResizeNeSw,
+        (true, false, false, false) | (false, true, false, false) => {
+            egui::CursorIcon::ResizeHorizontal
+        }
+        _ => egui::CursorIcon::ResizeVertical,
     }
 }
 

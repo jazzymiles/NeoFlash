@@ -164,6 +164,7 @@ fn paint(fill: &BinaryFill) -> Paint {
                 focal_point_ratio: extension
                     .as_ref()
                     .map_or(0., |e| (e.focal_point as i16) as f64 / 255.),
+                ..Default::default()
             };
             ([0, 0, 0, 255], Some(gradient), note)
         }

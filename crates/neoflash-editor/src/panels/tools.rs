@@ -554,11 +554,20 @@ impl Editor {
                     .then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
             };
         let (ctx_fill, ctx_fill_grad, ctx_stroke, ctx_stroke_grad, _) = self.contextual_paints();
+        let fill_solid = chip_color(ctx_fill, ctx_fill_grad.as_ref());
+        let stroke_solid = chip_color(ctx_stroke, ctx_stroke_grad.as_ref());
         let chip = nf::FillStrokeChip {
-            fill: chip_color(ctx_fill, ctx_fill_grad.as_ref()),
-            stroke: chip_color(ctx_stroke, ctx_stroke_grad.as_ref()),
+            fill: fill_solid,
+            stroke: stroke_solid,
         }
         .show(ui);
+        crate::paint_controls::paint_fill_stroke_chip_gradients(
+            ui,
+            chip.response.rect,
+            fill_solid,
+            ctx_fill_grad.as_ref(),
+            ctx_stroke_grad.as_ref(),
+        );
         if chip.fill_clicked {
             let next = if popover(&ctx) == Some(RailPopover::Fill) {
                 None
@@ -578,17 +587,25 @@ impl Editor {
             self.authoring_modify.color_selection = true;
             set_popover(&ctx, next);
         }
-        let stroke_well = match popover(&ctx) {
-            Some(RailPopover::Fill) => false,
-            Some(RailPopover::Stroke) => true,
-            _ => return,
-        };
-        ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke_well));
+        if !matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
+            return;
+        }
         let keep = rail_popover(ui, chip.response.rect, |ui| {
             self.color_fill_popover_contents(ui)
         });
         if !keep {
             set_popover(&ctx, None);
+        } else if let Some(active_stroke) =
+            ctx.data(|d| d.get_temp::<bool>(egui::Id::new("color-panel-active-stroke")))
+        {
+            set_popover(
+                &ctx,
+                Some(if active_stroke {
+                    RailPopover::Stroke
+                } else {
+                    RailPopover::Fill
+                }),
+            );
         }
     }
 
@@ -873,6 +890,8 @@ impl Editor {
                 (EraserMode::StrokeSegments, "Erase normal"),
                 (EraserMode::Fills, "Erase fills"),
                 (EraserMode::Strokes, "Erase lines"),
+                (EraserMode::SelectedFills, "Erase selected fills"),
+                (EraserMode::Inside, "Erase inside"),
                 (EraserMode::Objects, "Erase whole objects"),
             ] {
                 if ui
@@ -893,12 +912,16 @@ impl Editor {
     }
 
     fn eraser_size_modifier_button(&mut self, ui: &mut egui::Ui) {
+        use crate::authoring_tools::EraserShape;
         use crate::ui_icons::{ToolModifierGlyph, tool_modifier_button};
         let ctx = ui.ctx().clone();
         let open = popover(&ctx) == Some(RailPopover::EraserSize);
         let response = tool_modifier_button(
             ui,
-            ToolModifierGlyph::EraserSize(self.authoring_tools.eraser_size),
+            ToolModifierGlyph::EraserSize(
+                self.authoring_tools.eraser_size,
+                self.authoring_tools.eraser_shape,
+            ),
             open,
             true,
             "Eraser size",
@@ -909,21 +932,40 @@ impl Editor {
         if popover(&ctx) != Some(RailPopover::EraserSize) {
             return;
         }
-        let mut chosen = None;
+        let mut chosen_size = None;
+        let mut chosen_shape = None;
         let keep = rail_popover(ui, response.rect, |ui| {
             ui.set_min_width(160.);
+            for (shape, label) in [
+                (EraserShape::Round, "Round"),
+                (EraserShape::Square, "Square"),
+            ] {
+                if ui
+                    .add(
+                        nf::MenuItem::new(label)
+                            .checked(self.authoring_tools.eraser_shape == shape),
+                    )
+                    .clicked()
+                {
+                    chosen_shape = Some(shape);
+                }
+            }
+            neoflash_ui::components::menu_separator(ui);
             for preset in [4.0_f32, 8.0, 12.0, 18.0, 24.0, 36.0, 48.0] {
                 let is_cur = (self.authoring_tools.eraser_size - preset).abs() < 0.5;
                 if ui
                     .add(nf::MenuItem::new(&format!("{preset:.0} px")).checked(is_cur))
                     .clicked()
                 {
-                    chosen = Some(preset);
+                    chosen_size = Some(preset);
                 }
             }
-            chosen.is_some()
+            chosen_size.is_some() || chosen_shape.is_some()
         });
-        if let Some(size) = chosen {
+        if let Some(shape) = chosen_shape {
+            self.authoring_tools.eraser_shape = shape;
+        }
+        if let Some(size) = chosen_size {
             self.authoring_tools.eraser_size = size;
         }
         if !keep {
@@ -1191,36 +1233,90 @@ impl Editor {
                 }
             }
             Tool::Lasso => {
-                tool_grid_row(ui, cols, 2, |ui, idx| match idx {
-                    0 => {
-                        let on = self.authoring_tools.lasso_contact;
-                        if tool_modifier_button(
-                            ui,
-                            ToolModifierGlyph::TouchSelects,
-                            on,
-                            true,
-                            "Touch selects",
-                        )
-                        .clicked()
-                        {
-                            self.authoring_tools.lasso_contact = !on;
+                let items = [0_usize, 1, 2, 3, 4];
+                for row in items.chunks(cols) {
+                    tool_grid_row(ui, cols, row.len(), |ui, idx| match row[idx] {
+                        0 => {
+                            let on = self.authoring_tools.lasso_contact;
+                            if tool_modifier_button(
+                                ui,
+                                ToolModifierGlyph::TouchSelects,
+                                on,
+                                true,
+                                "Touch selects",
+                            )
+                            .clicked()
+                            {
+                                self.authoring_tools.lasso_contact = !on;
+                            }
                         }
-                    }
-                    _ => {
-                        let on = self.authoring_tools.lasso_partial_fills;
-                        if tool_modifier_button(
-                            ui,
-                            ToolModifierGlyph::SliceMergeFills,
-                            on,
-                            true,
-                            "Slice merge fills",
-                        )
-                        .clicked()
-                        {
-                            self.authoring_tools.lasso_partial_fills = !on;
+                        1 => {
+                            let on = self.authoring_tools.lasso_partial_fills;
+                            if tool_modifier_button(
+                                ui,
+                                ToolModifierGlyph::SliceMergeFills,
+                                on,
+                                true,
+                                "Slice merge fills",
+                            )
+                            .clicked()
+                            {
+                                self.authoring_tools.lasso_partial_fills = !on;
+                            }
                         }
-                    }
-                });
+                        2 => {
+                            let on = self.authoring_tools.lasso_polygon_mode;
+                            if tool_modifier_button(
+                                ui,
+                                ToolModifierGlyph::LassoPolygon,
+                                on,
+                                true,
+                                "Polygon mode",
+                            )
+                            .clicked()
+                            {
+                                self.authoring_tools.lasso_polygon_mode = !on;
+                                if self.authoring_tools.lasso_polygon_mode {
+                                    self.authoring_tools.lasso_magic_wand = false;
+                                } else {
+                                    self.authoring_tools.lasso_polygon.clear();
+                                }
+                            }
+                        }
+                        3 => {
+                            let on = self.authoring_tools.lasso_magic_wand;
+                            if tool_modifier_button(
+                                ui,
+                                ToolModifierGlyph::MagicWand,
+                                on,
+                                true,
+                                "Magic wand",
+                            )
+                            .clicked()
+                            {
+                                self.authoring_tools.lasso_magic_wand = !on;
+                                if self.authoring_tools.lasso_magic_wand {
+                                    self.authoring_tools.lasso_polygon_mode = false;
+                                    self.authoring_tools.lasso_polygon.clear();
+                                }
+                            }
+                        }
+                        _ => {
+                            let open = self.authoring_tools.magic_wand_dialog.is_some();
+                            if tool_modifier_button(
+                                ui,
+                                ToolModifierGlyph::MagicWandSettings,
+                                open,
+                                true,
+                                "Magic wand settings…",
+                            )
+                            .clicked()
+                            {
+                                self.open_magic_wand_settings();
+                            }
+                        }
+                    });
+                }
             }
             Tool::Zoom => {
                 let zoom_out = self.authoring_tools.zoom_out;

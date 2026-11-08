@@ -2,7 +2,7 @@
 //! composed from NF2 fields (`neoflash_ui::components`).
 use crate::{app::Editor, theme::LABEL_WIDTH};
 use eframe::egui::{self, Response};
-use neoflash_core::Color;
+use neoflash_core::{Color, GradientKind, GradientPaint};
 use neoflash_ui::{
     TextStyle,
     components::{DragField, TextField},
@@ -151,27 +151,45 @@ pub(crate) fn numeric_pair(
     range: RangeInclusive<f64>,
     speed: f64,
 ) -> [Response; 2] {
+    numeric_pair_with_suffix(ui, labels, values, range, speed, "")
+}
+
+pub(crate) fn numeric_pair_with_suffix(
+    ui: &mut egui::Ui,
+    labels: [&str; 2],
+    values: [&mut f64; 2],
+    range: RangeInclusive<f64>,
+    speed: f64,
+    suffix: &str,
+) -> [Response; 2] {
     let [a, b] = values;
     // Resolve property identity before choosing the responsive layout. The
     // global child scopes keep DragValue/TextEdit IDs through row wrapping.
     let ids = labels.map(|label| ui.id().with(("numeric-property", label)));
     if ui.available_width() < 2. * PAIR_FIELD_MIN + space::S2 {
-        return [
-            numeric_row(ui, labels[0], a, range.clone(), speed),
-            numeric_row(ui, labels[1], b, range, speed),
-        ];
+        let first = ui
+            .scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
+                number_field(ui, labels[0], a, range.clone(), speed, suffix, None)
+            })
+            .inner;
+        let second = ui
+            .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
+                number_field(ui, labels[1], b, range, speed, suffix, None)
+            })
+            .inner;
+        return [first, second];
     }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = space::S2;
         let width = (ui.available_width() - space::S2) / 2.;
         let first = ui
             .scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
-                number_field(ui, labels[0], a, range.clone(), speed, "", Some(width))
+                number_field(ui, labels[0], a, range.clone(), speed, suffix, Some(width))
             })
             .inner;
         let second = ui
             .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
-                number_field(ui, labels[1], b, range, speed, "", Some(width))
+                number_field(ui, labels[1], b, range, speed, suffix, Some(width))
             })
             .inner;
         [first, second]
@@ -199,19 +217,166 @@ pub(crate) fn paint_row(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Co
     color_row(ui, id, label, label, value)
 }
 
-pub(crate) fn set_paint_row_gradient_swatch(
+pub(crate) fn set_paint_row_gradient(
     ctx: &egui::Context,
     id: &str,
-    swatch: Option<neoflash_ui::components::GradientSwatch>,
+    gradient: Option<GradientPaint>,
 ) {
-    let key = egui::Id::new(("paint-row-grad-swatch", id));
+    let key = egui::Id::new(("paint-row-grad-paint", id));
     ctx.data_mut(|d| {
-        if let Some(s) = swatch {
-            d.insert_temp(key, s);
+        if let Some(g) = gradient {
+            d.insert_temp(key, g);
         } else {
-            d.remove::<neoflash_ui::components::GradientSwatch>(key);
+            d.remove::<GradientPaint>(key);
         }
     });
+}
+
+pub(crate) fn paint_checkerboard(painter: &egui::Painter, rect: egui::Rect, cell: f32) {
+    let p = nf_palette(painter.ctx());
+    painter.rect_filled(rect, egui::CornerRadius::ZERO, p.bg_raised);
+    let cols = (rect.width() / cell).ceil() as i32;
+    let rows = (rect.height() / cell).ceil() as i32;
+    let clipped = painter.with_clip_rect(rect);
+    for r in 0..rows {
+        for c in 0..cols {
+            if (r + c) % 2 == 1 {
+                let min = egui::pos2(rect.left() + c as f32 * cell, rect.top() + r as f32 * cell);
+                clipped.rect_filled(
+                    egui::Rect::from_min_size(min, egui::vec2(cell, cell)),
+                    egui::CornerRadius::ZERO,
+                    p.bg_hover,
+                );
+            }
+        }
+    }
+}
+
+/// Shared multi-stop gradient swatch renderer used across Tools (`FillStrokeChip`),
+/// Color (`ColorWell`), Properties (`color_swatch`), and Swatches.
+pub(crate) fn paint_gradient_swatch(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    gradient: &GradientPaint,
+    corner_radius: f32,
+) {
+    let inner = rect.shrink(0.5);
+    if inner.width() <= 0.0 || inner.height() <= 0.0 {
+        return;
+    }
+    if gradient.stops.iter().any(|s| s.color[3] < 255) {
+        paint_checkerboard(painter, inner, 4.0);
+    }
+    let to_c32 = |c: Color| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+    let mut mesh = egui::Mesh::default();
+    match gradient.kind {
+        GradientKind::Linear => {
+            const STEPS: usize = 20;
+            for i in 0..=STEPS {
+                let f = i as f32 / STEPS as f32;
+                let x = egui::lerp(inner.left()..=inner.right(), f);
+                let col = to_c32(gradient.sample_at_unit(f64::from(f)));
+                mesh.colored_vertex(egui::pos2(x, inner.top()), col);
+                mesh.colored_vertex(egui::pos2(x, inner.bottom()), col);
+            }
+            for i in 0..(STEPS as u32) {
+                let b = i * 2;
+                mesh.add_triangle(b, b + 1, b + 2);
+                mesh.add_triangle(b + 1, b + 3, b + 2);
+            }
+        }
+        GradientKind::Radial => {
+            const GRID: usize = 12;
+            let focal = gradient.focal_point_ratio.clamp(-0.85, 0.85);
+            for iy in 0..=GRID {
+                let fy = iy as f32 / GRID as f32;
+                let y = egui::lerp(inner.top()..=inner.bottom(), fy);
+                let gy = f64::from(fy) * 2.0 - 1.0;
+                for ix in 0..=GRID {
+                    let fx = ix as f32 / GRID as f32;
+                    let x = egui::lerp(inner.left()..=inner.right(), fx);
+                    let gx = f64::from(fx) * 2.0 - 1.0;
+                    let dx = gx - focal;
+                    let qa = focal * focal - 1.0;
+                    let qb = 2.0 * focal * dx;
+                    let qc = dx * dx + gy * gy;
+                    let u = if qc == 0.0 {
+                        0.0
+                    } else if qa.abs() < 1e-12 {
+                        if qb == 0.0 { 1.0 } else { -qc / qb }
+                    } else {
+                        (-qb - (qb * qb - 4.0 * qa * qc).max(0.0).sqrt()) / (2.0 * qa)
+                    }
+                    .clamp(0.0, 1.0);
+                    let col = to_c32(gradient.sample_at_unit(u));
+                    mesh.colored_vertex(egui::pos2(x, y), col);
+                }
+            }
+            let stride = (GRID + 1) as u32;
+            for iy in 0..(GRID as u32) {
+                for ix in 0..(GRID as u32) {
+                    let v00 = iy * stride + ix;
+                    let v10 = v00 + 1;
+                    let v01 = v00 + stride;
+                    let v11 = v01 + 1;
+                    mesh.add_triangle(v00, v01, v10);
+                    mesh.add_triangle(v10, v01, v11);
+                }
+            }
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
+    let p = nf_palette(painter.ctx());
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(corner_radius as u8),
+        egui::Stroke::new(1.0_f32, p.border_default),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// Overpaints the `front` (fill) and `back` (stroke) chips of `NF2/FillStrokeChip`
+/// using the shared `paint_gradient_swatch` renderer whenever the active fill or stroke
+/// uses a gradient.
+pub(crate) fn paint_fill_stroke_chip_gradients(
+    ui: &egui::Ui,
+    chip_rect: egui::Rect,
+    fill_solid: Option<egui::Color32>,
+    fill_gradient: Option<&GradientPaint>,
+    stroke_gradient: Option<&GradientPaint>,
+) {
+    if fill_gradient.is_none() && stroke_gradient.is_none() {
+        return;
+    }
+    let p = nf_palette(ui.ctx());
+    let r = neoflash_ui::tokens::radius::SM;
+    let back = egui::Rect::from_min_size(
+        chip_rect.min + egui::vec2(14.0, 14.0),
+        egui::vec2(20.0, 20.0),
+    );
+    let front =
+        egui::Rect::from_min_size(chip_rect.min + egui::vec2(2.0, 2.0), egui::vec2(20.0, 20.0));
+    if let Some(stroke_grad) = stroke_gradient {
+        paint_gradient_swatch(ui.painter(), back, stroke_grad, r);
+        let hole = back.shrink(4.0);
+        ui.painter()
+            .rect_filled(hole, egui::CornerRadius::same(1), p.bg_field);
+    }
+    if let Some(fill_grad) = fill_gradient {
+        paint_gradient_swatch(ui.painter(), front, fill_grad, r);
+    } else if stroke_gradient.is_some() {
+        // Re-paint front over the overlapped top-left corner of `back`.
+        match fill_solid {
+            Some(c) => neoflash_ui::components::display::paint_swatch(ui, front, c, r),
+            None => neoflash_ui::components::color::paint_none(ui, front),
+        }
+    }
+    ui.painter().rect_stroke(
+        front,
+        egui::CornerRadius::same(r as u8),
+        egui::Stroke::new(1.5_f32, p.bg_panel),
+        egui::StrokeKind::Outside,
+    );
 }
 
 /// `NF2/Color Field` layout for an unmultiplied RGBA value: swatch (opens the
@@ -270,18 +435,21 @@ pub(crate) fn color_row(
 }
 
 /// 32 px hit area with a 22 px `NF2/Swatch`; click opens the NF2 Color & Fill Type popover.
-fn color_swatch(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Color) -> Response {
+pub(crate) fn color_swatch(
+    ui: &mut egui::Ui,
+    id: &str,
+    label: &str,
+    value: &mut Color,
+) -> Response {
     // Figma `NF2/Swatch` 22 × 22 at the row's left edge; the hit area keeps the 32 pt row height.
     let (rect, mut response) = ui.allocate_exact_size(
         egui::vec2(22., crate::theme::control_h()),
         egui::Sense::click(),
     );
     let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.));
-    let grad_key = egui::Id::new(("paint-row-grad-swatch", id));
-    if let Some(grad_swatch) =
-        ui.data(|d| d.get_temp::<neoflash_ui::components::GradientSwatch>(grad_key))
-    {
-        neoflash_ui::components::swatches::paint_gradient(ui.painter(), chip, grad_swatch);
+    let grad_key = egui::Id::new(("paint-row-grad-paint", id));
+    if let Some(grad) = ui.data(|d| d.get_temp::<GradientPaint>(grad_key)) {
+        paint_gradient_swatch(ui.painter(), chip, &grad, space::S1);
     } else {
         let shown = egui::Color32::from_rgba_unmultiplied(value[0], value[1], value[2], value[3]);
         neoflash_ui::components::display::paint_swatch(ui, chip, shown, space::S1);

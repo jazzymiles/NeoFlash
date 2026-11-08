@@ -672,6 +672,7 @@ fn pencil_batched_and_separate_outside_release_produce_the_same_path() {
                     },
                 ],
                 focal_point_ratio: 0.,
+                ..Default::default()
             }),
         },
         100.,
@@ -2236,9 +2237,9 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         crate::theme::ThemeMode::Light,
     ] {
         for (mode, label) in [
-            (EraserMode::Objects, "Whole objects"),
-            (EraserMode::Fills, "Whole fills"),
-            (EraserMode::Strokes, "Whole strokes"),
+            (EraserMode::Objects, "Erase whole objects"),
+            (EraserMode::Fills, "Erase fills"),
+            (EraserMode::Strokes, "Erase lines"),
         ] {
             let (mut editor, ctx, page) = rectangle_stage();
             editor.set_theme(&ctx, theme);
@@ -2259,9 +2260,9 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
             editor.set_tool(Tool::Eraser);
             assert!(
                 editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments,
-                "cut-through is the safe default; whole-object erasing stays explicit"
+                "erase-normal is the safe default; whole-object erasing stays explicit"
             );
-            choose_option(&mut editor, &ctx, 0.03, "Cut strokes", label);
+            choose_option(&mut editor, &ctx, 0.03, "Erase normal", label);
             assert!(editor.authoring_tools.eraser_mode == mode);
             let point = page.min + egui::vec2(100., 140.);
             pen_click(&mut editor, &ctx, 0.1, point, point);
@@ -2545,6 +2546,7 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
         ],
         matrix: [0.1, 0., 0., 0.1, 80., 40.],
         focal_point_ratio: 0.,
+        ..Default::default()
     };
     editor.add_element_transformed(
         ElementKind::PaintedPath {
@@ -2843,4 +2845,117 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
     assert_eq!(editor.history.undo_len(), 1);
     editor.undo();
     assert_eq!(editor.project, before);
+}
+
+#[test]
+fn gradient_transform_handles_overflow_linear_rgb_and_eyedropper_lock_fill() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.project.format_version = 5;
+    editor.add_element(
+        ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0., y: 0. },
+                PathCommand::LineTo { x: 100., y: 0. },
+                PathCommand::LineTo { x: 100., y: 80. },
+                PathCommand::LineTo { x: 0., y: 80. },
+                PathCommand::Close,
+            ],
+            fill_rule: Default::default(),
+            fill: [0; 4],
+            stroke: [0; 4],
+            stroke_width: 0.,
+            stroke_gradient: None,
+            fill_gradient: Some(neoflash_core::GradientPaint {
+                kind: neoflash_core::GradientKind::Radial,
+                stops: vec![
+                    neoflash_core::GradientStop {
+                        ratio: 0,
+                        color: [255, 0, 0, 255],
+                    },
+                    neoflash_core::GradientStop {
+                        ratio: 255,
+                        color: [0, 0, 255, 255],
+                    },
+                ],
+                matrix: [0.08, 0.0, 0.0, 0.08, 50.0, 40.0],
+                focal_point_ratio: 0.0,
+                spread: neoflash_core::GradientSpread::Extend,
+                linear_rgb: false,
+            }),
+        },
+        100.,
+        100.,
+    );
+    editor.set_tool(Tool::Gradient);
+
+    // 1. Dragging the focal point inverted triangle `▽` above center updates focal_point_ratio on Radial gradients.
+    let center = page.min + egui::vec2(150.0, 140.0);
+    let focal_triangle = center + egui::vec2(0.0, -6.0);
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.1,
+        focal_triangle,
+        center + egui::vec2(25.0, -6.0),
+    );
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(fill),
+        ..
+    } = &editor.selected_element().unwrap().kind
+    else {
+        panic!("expected radial gradient fill");
+    };
+    assert!(
+        fill.focal_point_ratio > 0.2,
+        "focal point ratio should advance: {}",
+        fill.focal_point_ratio
+    );
+
+    // 2. Overflow (Reflect / Repeat) and Linear RGB update both selection and drawing defaults.
+    editor.set_selection_gradient_options(false, neoflash_core::GradientSpread::Reflect, true);
+    let ElementKind::PaintedPath {
+        fill_gradient: Some(fill),
+        ..
+    } = &editor.selected_element().unwrap().kind
+    else {
+        panic!("expected gradient fill");
+    };
+    assert_eq!(fill.spread, neoflash_core::GradientSpread::Reflect);
+    assert!(fill.linear_rgb);
+    assert_eq!(
+        editor
+            .authoring_modify
+            .drawing_fill_gradient
+            .as_ref()
+            .unwrap()
+            .spread,
+        neoflash_core::GradientSpread::Reflect
+    );
+    assert!(
+        editor
+            .authoring_modify
+            .drawing_fill_gradient
+            .as_ref()
+            .unwrap()
+            .linear_rgb
+    );
+    // Verify reflect & linear_rgb sampling at unit > 1.0.
+    let sampled_end = fill.sample_at_unit(1.0);
+    let sampled_reflected = fill.sample_at_unit(2.0);
+    assert_eq!(sampled_reflected, fill.sample_at_unit(0.0));
+    assert_ne!(sampled_end, sampled_reflected);
+
+    // 3. Eyedropper on a gradient-filled element copies drawing_fill_gradient and enables Lock Fill.
+    editor.authoring_modify.drawing_fill_gradient = None;
+    editor.authoring_tools.brush_lock_fill = false;
+    editor.set_tool(Tool::Eyedropper);
+    pen_click(&mut editor, &ctx, 0.2, center, center);
+    assert!(
+        editor.authoring_modify.drawing_fill_gradient.is_some(),
+        "Eyedropper should copy gradient fill"
+    );
+    assert!(
+        editor.authoring_tools.brush_lock_fill,
+        "Eyedropper on gradient fill should enable Lock Fill"
+    );
 }

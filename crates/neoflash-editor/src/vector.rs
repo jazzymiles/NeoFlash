@@ -734,6 +734,7 @@ pub(crate) struct PointDrag {
     pub began: bool,
     pub changed: bool,
     pub element: String,
+    pub pull_tangent: bool,
 }
 #[derive(Default)]
 pub(crate) struct VectorState {
@@ -741,6 +742,8 @@ pub(crate) struct VectorState {
     pub point_drag: Option<PointDrag>,
     /// Selected anchor command indices for an editable path `(element_id, command_indices)`.
     pub selected_anchors: Option<(Id, Vec<usize>)>,
+    /// Active Subselection (`Tool::Subselect`) marquee box `(press_screen, current_screen)`.
+    pub subselect_marquee: Option<(Pos2, Pos2)>,
 }
 
 pub(crate) fn handles(commands: &[PathCommand]) -> Vec<PathHandle> {
@@ -782,50 +785,81 @@ pub(crate) fn handles(commands: &[PathCommand]) -> Vec<PathHandle> {
 /// Move an anchor with its incident controls, including the duplicate endpoint of
 /// a curved closing segment. A shared quadratic control is translated only once.
 pub(crate) fn move_handle(commands: &mut [PathCommand], handle: PathHandle, to: Pos2) {
+    if handle.role == PointRole::Anchor {
+        move_selected_anchors(commands, &[handle.command], to - handle.point);
+        return;
+    }
     let delta = to - handle.point;
     let dx = delta.x as f64;
     let dy = delta.y as f64;
-    let mut anchors = vec![handle.command];
-    if handle.role == PointRole::Anchor {
-        let start = (0..=handle.command)
+    match (commands.get_mut(handle.command), handle.role) {
+        (Some(PathCommand::QuadraticTo { cx, cy, .. }), PointRole::Control1) => {
+            *cx += dx;
+            *cy += dy;
+        }
+        (Some(PathCommand::CubicTo { cx1, cy1, .. }), PointRole::Control1) => {
+            *cx1 += dx;
+            *cy1 += dy;
+        }
+        (Some(PathCommand::CubicTo { cx2, cy2, .. }), PointRole::Control2) => {
+            *cx2 += dx;
+            *cy2 += dy;
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn move_selected_anchors(
+    commands: &mut [PathCommand],
+    anchor_indices: &[usize],
+    delta: Vec2,
+) {
+    let dx = delta.x as f64;
+    let dy = delta.y as f64;
+    let all_handles = handles(commands);
+    let mut anchors: Vec<usize> = anchor_indices.to_vec();
+    for &cmd_idx in anchor_indices {
+        let Some(h) = all_handles
+            .iter()
+            .find(|h| h.command == cmd_idx && h.role == PointRole::Anchor)
+        else {
+            continue;
+        };
+        let start = (0..=cmd_idx)
             .rev()
             .find(|&i| matches!(commands.get(i), Some(PathCommand::MoveTo { .. })));
-        let close = (handle.command..commands.len())
-            .take_while(|&i| {
-                i == handle.command || !matches!(commands[i], PathCommand::MoveTo { .. })
-            })
+        let close = (cmd_idx..commands.len())
+            .take_while(|&i| i == cmd_idx || !matches!(commands[i], PathCommand::MoveTo { .. }))
             .find(|&i| matches!(commands[i], PathCommand::Close));
         if let (Some(start), Some(close)) = (start, close)
             && close > start + 1
         {
             let last = close - 1;
-            if handle.command == start || handle.command == last {
-                let other = if handle.command == start { last } else { start };
-                if handles(commands).iter().any(|h| {
-                    h.command == other
-                        && h.role == PointRole::Anchor
-                        && h.point.distance_sq(handle.point) < 1e-8
+            if cmd_idx == start || cmd_idx == last {
+                let other = if cmd_idx == start { last } else { start };
+                if all_handles.iter().any(|oh| {
+                    oh.command == other
+                        && oh.role == PointRole::Anchor
+                        && oh.point.distance_sq(h.point) < 1e-8
                 }) {
                     anchors.push(other);
                 }
             }
         }
     }
-    let mut targets = vec![(handle.command, handle.role)];
-    if handle.role == PointRole::Anchor {
-        for index in anchors {
-            targets.push((index, PointRole::Anchor));
-            match commands.get(index) {
-                Some(PathCommand::QuadraticTo { .. }) => targets.push((index, PointRole::Control1)),
-                Some(PathCommand::CubicTo { .. }) => targets.push((index, PointRole::Control2)),
-                _ => {}
-            }
-            if matches!(
-                commands.get(index + 1),
-                Some(PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. })
-            ) {
-                targets.push((index + 1, PointRole::Control1));
-            }
+    let mut targets = Vec::new();
+    for index in anchors {
+        targets.push((index, PointRole::Anchor));
+        match commands.get(index) {
+            Some(PathCommand::QuadraticTo { .. }) => targets.push((index, PointRole::Control1)),
+            Some(PathCommand::CubicTo { .. }) => targets.push((index, PointRole::Control2)),
+            _ => {}
+        }
+        if matches!(
+            commands.get(index + 1),
+            Some(PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. })
+        ) {
+            targets.push((index + 1, PointRole::Control1));
         }
     }
     let mut applied = Vec::new();
@@ -859,6 +893,176 @@ pub(crate) fn move_handle(commands: &mut [PathCommand], handle: PathHandle, to: 
             (Some(PathCommand::CubicTo { cx2, cy2, .. }), PointRole::Control2) => {
                 *cx2 += dx;
                 *cy2 += dy;
+            }
+            _ => {}
+        }
+    }
+}
+
+type AnchorIncidentSegments = ([f64; 2], Option<(usize, [f64; 2])>, Option<usize>);
+
+fn anchor_incident_segments(
+    commands: &[PathCommand],
+    anchor_cmd: usize,
+) -> Option<AnchorIncidentSegments> {
+    let anchor = anchor_endpoint(commands.get(anchor_cmd)?)?;
+    for (start, body_end, closed) in contour_ranges(commands) {
+        if anchor_cmd < start || anchor_cmd >= body_end {
+            continue;
+        }
+        let coincident_seam = closed
+            && body_end > start + 1
+            && anchor_endpoint(&commands[start])
+                .zip(anchor_endpoint(&commands[body_end - 1]))
+                .is_some_and(|(a, b)| (a[0] - b[0]).hypot(a[1] - b[1]) <= 1e-4);
+        let incoming = if anchor_cmd > start && anchor_cmd < body_end {
+            anchor_endpoint(&commands[anchor_cmd - 1]).map(|prev| (anchor_cmd, prev))
+        } else if anchor_cmd == start && coincident_seam && body_end >= start + 2 {
+            anchor_endpoint(&commands[body_end - 2]).map(|prev| (body_end - 1, prev))
+        } else {
+            None
+        };
+        let outgoing = if anchor_cmd == body_end - 1 && coincident_seam {
+            (start + 1 < body_end).then_some(start + 1)
+        } else if anchor_cmd + 1 < body_end {
+            Some(anchor_cmd + 1)
+        } else {
+            None
+        };
+        return Some((anchor, incoming, outgoing));
+    }
+    None
+}
+
+pub(crate) fn collapse_anchor_handles(
+    commands: &[PathCommand],
+    anchor_cmd: usize,
+) -> Vec<PathCommand> {
+    let mut out = commands.to_vec();
+    let Some(([ax, ay], incoming, outgoing)) = anchor_incident_segments(commands, anchor_cmd)
+    else {
+        return out;
+    };
+    if let Some((in_idx, prev_pt)) = incoming {
+        match out[in_idx] {
+            PathCommand::QuadraticTo { x, y, .. } => {
+                out[in_idx] = PathCommand::LineTo { x, y };
+            }
+            PathCommand::CubicTo { cx1, cy1, x, y, .. } => {
+                if (cx1 - prev_pt[0]).hypot(cy1 - prev_pt[1]) <= 1e-4 {
+                    out[in_idx] = PathCommand::LineTo { x, y };
+                } else {
+                    out[in_idx] = PathCommand::CubicTo {
+                        cx1,
+                        cy1,
+                        cx2: x,
+                        cy2: y,
+                        x,
+                        y,
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(out_idx) = outgoing {
+        match out[out_idx] {
+            PathCommand::QuadraticTo { x, y, .. } => {
+                out[out_idx] = PathCommand::LineTo { x, y };
+            }
+            PathCommand::CubicTo { cx2, cy2, x, y, .. } => {
+                if (cx2 - x).hypot(cy2 - y) <= 1e-4 {
+                    out[out_idx] = PathCommand::LineTo { x, y };
+                } else {
+                    out[out_idx] = PathCommand::CubicTo {
+                        cx1: ax,
+                        cy1: ay,
+                        cx2,
+                        cy2,
+                        x,
+                        y,
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+pub(crate) fn pull_anchor_tangent(commands: &mut [PathCommand], anchor_cmd: usize, tangent: Vec2) {
+    let Some(([ax, ay], incoming, outgoing)) = anchor_incident_segments(commands, anchor_cmd)
+    else {
+        return;
+    };
+    let tx = f64::from(tangent.x);
+    let ty = f64::from(tangent.y);
+    if let Some((in_idx, prev_pt)) = incoming {
+        match commands[in_idx] {
+            PathCommand::LineTo { x, y } => {
+                commands[in_idx] = PathCommand::CubicTo {
+                    cx1: prev_pt[0],
+                    cy1: prev_pt[1],
+                    cx2: ax - tx,
+                    cy2: ay - ty,
+                    x,
+                    y,
+                };
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                commands[in_idx] = PathCommand::CubicTo {
+                    cx1: cx,
+                    cy1: cy,
+                    cx2: ax - tx,
+                    cy2: ay - ty,
+                    x,
+                    y,
+                };
+            }
+            PathCommand::CubicTo { cx1, cy1, x, y, .. } => {
+                commands[in_idx] = PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2: ax - tx,
+                    cy2: ay - ty,
+                    x,
+                    y,
+                };
+            }
+            _ => {}
+        }
+    }
+    if let Some(out_idx) = outgoing {
+        match commands[out_idx] {
+            PathCommand::LineTo { x, y } => {
+                commands[out_idx] = PathCommand::CubicTo {
+                    cx1: ax + tx,
+                    cy1: ay + ty,
+                    cx2: x,
+                    cy2: y,
+                    x,
+                    y,
+                };
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                commands[out_idx] = PathCommand::CubicTo {
+                    cx1: ax + tx,
+                    cy1: ay + ty,
+                    cx2: cx,
+                    cy2: cy,
+                    x,
+                    y,
+                };
+            }
+            PathCommand::CubicTo { cx2, cy2, x, y, .. } => {
+                commands[out_idx] = PathCommand::CubicTo {
+                    cx1: ax + tx,
+                    cy1: ay + ty,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                };
             }
             _ => {}
         }
@@ -1967,11 +2171,23 @@ impl Editor {
             && self.vector.draft.is_none()
             && self.layer_editable()
             && let Some(hover_pos) = canvas_hover
-            && self
+        {
+            let alt = ui.input(|i| i.modifiers.alt);
+            if self
+                .pen_anchor_candidate(origin, mapping, hover_pos, alt)
+                .is_some()
+            {
+                self.stage_cursor = Some(if alt {
+                    neoflash_ui::cursors::PEN_CONVERT
+                } else {
+                    neoflash_ui::cursors::PEN_REMOVE
+                });
+            } else if self
                 .pen_subdivide_candidate(origin, mapping, hover_pos)
                 .is_some()
-        {
-            self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
+            {
+                self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
+            }
         }
         if matches!(self.tool, Tool::Pen | Tool::Pencil) && self.layer_editable() {
             for event in &events {
@@ -1990,7 +2206,8 @@ impl Editor {
                         self.playing = false;
                         if self.tool == Tool::Pen
                             && self.vector.draft.is_none()
-                            && self.try_pen_subdivide(origin, mapping, pos)
+                            && (self.try_pen_anchor_action(origin, mapping, pos, modifiers)
+                                || self.try_pen_subdivide(origin, mapping, pos))
                         {
                             continue;
                         }
@@ -2112,7 +2329,9 @@ impl Editor {
                 }
             }
         }
-        if self.tool == Tool::Subselect {
+        if self.tool == Tool::Subselect
+            || (self.tool == Tool::Pen && self.vector.point_drag.is_some())
+        {
             self.edit_path_points(ui, p, origin, mapping, response);
         }
         if let Some(draft) = &self.vector.draft {
@@ -2321,6 +2540,7 @@ impl Editor {
                             began: false,
                             changed: false,
                             element: element.id.clone(),
+                            pull_tangent: handle.role == PointRole::Anchor && modifiers.alt,
                         });
                     } else if (modifiers.alt || double_clicked)
                         && let Some((cmd_idx, t)) =
@@ -2340,20 +2560,63 @@ impl Editor {
                         });
                         self.vector.selected_anchors = Some((element_id, vec![inserted]));
                         return;
+                    } else if self.tool == Tool::Subselect {
+                        self.finish_edits();
+                        self.playing = false;
+                        self.vector.subselect_marquee = Some((pos, pos));
                     }
                 }
-                egui::Event::PointerMoved(pos) => self.update_path_drag(pos, origin, mapping),
+                egui::Event::PointerMoved(pos) => {
+                    if let Some((_, current)) = &mut self.vector.subselect_marquee {
+                        *current = pos;
+                    } else {
+                        self.update_path_drag(pos, origin, mapping);
+                    }
+                }
                 egui::Event::PointerButton {
                     pos,
                     button: egui::PointerButton::Primary,
                     pressed: false,
-                    ..
+                    modifiers,
                 } => {
-                    self.update_path_drag(pos, origin, mapping);
-                    self.finish_point_drag();
+                    if let Some((start, _)) = self.vector.subselect_marquee.take() {
+                        if start.distance(pos) >= 3.0 {
+                            let marquee = Rect::from_two_pos(start, pos);
+                            let mut hit_indices: Vec<usize> = handles
+                                .iter()
+                                .filter(|h| {
+                                    h.role == PointRole::Anchor && marquee.contains(screen(h.point))
+                                })
+                                .map(|h| h.command)
+                                .collect();
+                            hit_indices.sort_unstable();
+                            hit_indices.dedup();
+                            if modifiers.shift
+                                && let Some((sel_id, existing)) = &mut self.vector.selected_anchors
+                                && *sel_id == element.id
+                            {
+                                for idx in hit_indices {
+                                    if !existing.contains(&idx) {
+                                        existing.push(idx);
+                                    }
+                                }
+                            } else {
+                                self.vector.selected_anchors =
+                                    Some((element.id.clone(), hit_indices));
+                            }
+                        }
+                    } else {
+                        self.update_path_drag(pos, origin, mapping);
+                        self.finish_point_drag();
+                    }
                 }
                 _ => {}
             }
+        }
+        if let Some((start, current)) = self.vector.subselect_marquee
+            && start.distance(current) >= 3.0
+        {
+            cv::paint_marquee(p, p.ctx(), Rect::from_two_pos(start, current));
         }
     }
     fn update_path_drag(&mut self, pos: Pos2, origin: Pos2, mapping: StageMapping) {
@@ -2388,11 +2651,26 @@ impl Editor {
             return;
         };
         let mut commands = drag.original.clone();
-        move_handle(
-            &mut commands,
-            drag.handle,
-            drag.handle.point + (current - press),
-        );
+        if drag.pull_tangent && drag.handle.role == PointRole::Anchor {
+            pull_anchor_tangent(
+                &mut commands,
+                drag.handle.command,
+                current - drag.handle.point,
+            );
+        } else if drag.handle.role == PointRole::Anchor
+            && let Some((sel_id, indices)) = &self.vector.selected_anchors
+            && *sel_id == drag.element
+            && indices.len() > 1
+            && indices.contains(&drag.handle.command)
+        {
+            move_selected_anchors(&mut commands, indices, current - press);
+        } else {
+            move_handle(
+                &mut commands,
+                drag.handle,
+                drag.handle.point + (current - press),
+            );
+        }
         drag.changed = commands != drag.original;
         if drag.changed && !drag.began {
             self.history.begin(&self.project);
@@ -2407,7 +2685,7 @@ impl Editor {
         self.vector.point_drag = Some(drag);
     }
     fn point_drag_matches(&self, drag: &PointDrag) -> bool {
-        self.tool == Tool::Subselect
+        matches!(self.tool, Tool::Subselect | Tool::Pen)
             && self.symbol_id() == drag.symbol
             && self.frame == drag.frame
             && self
@@ -2468,6 +2746,200 @@ impl Editor {
             return false;
         }
         path_segment_hit_local(&commands, matrix, mapping, origin, zoom, pos).is_some()
+    }
+
+    pub(crate) fn pen_anchor_candidate(
+        &self,
+        origin: Pos2,
+        mapping: StageMapping,
+        pos: Pos2,
+        alt: bool,
+    ) -> Option<(
+        crate::selection::SelectionTarget,
+        Element,
+        Vec<PathCommand>,
+        PathHandle,
+    )> {
+        let zoom = self.zoom;
+        let try_element = |target: crate::selection::SelectionTarget, element: Element| {
+            let commands = editable_element_commands(&element)?;
+            let matrix = transform_matrix(element.transform);
+            let screen =
+                |pt: Pos2| mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pt));
+            let handle = handles(&commands)
+                .into_iter()
+                .rev()
+                .filter(|h| h.role == PointRole::Anchor && screen(h.point).distance(pos) < 8.)
+                .min_by(|a, b| {
+                    screen(a.point)
+                        .distance_sq(pos)
+                        .total_cmp(&screen(b.point).distance_sq(pos))
+                })?;
+            if !alt {
+                let remaining = delete_anchors_from_path(&commands, &[handle.command]);
+                if remaining.is_empty()
+                    || remaining == commands
+                    || validate_path_commands(&remaining).is_err()
+                {
+                    return None;
+                }
+            }
+            Some((target, element, commands, handle))
+        };
+
+        if self.selected_editable()
+            && let Some(target) = self.selection.single().cloned()
+            && let Some(element) = self.selected_sampled()
+            && let Some(found) = try_element(target, element)
+        {
+            return Some(found);
+        }
+
+        let timeline = &self.symbol().timeline;
+        for layer in timeline.layers.iter().rev() {
+            if layer.properties.role == LayerRole::Folder
+                || !layer_effectively_visible(timeline, layer)
+                || layer_effectively_locked(timeline, layer)
+            {
+                continue;
+            }
+            for element in sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps))
+                .into_iter()
+                .rev()
+            {
+                let target = crate::selection::SelectionTarget {
+                    layer: layer.id.clone(),
+                    element: element.id.clone(),
+                };
+                if let Some(found) = try_element(target, element) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn try_pen_anchor_action(
+        &mut self,
+        origin: Pos2,
+        mapping: StageMapping,
+        pos: Pos2,
+        modifiers: egui::Modifiers,
+    ) -> bool {
+        let Some((target, element, commands, handle)) =
+            self.pen_anchor_candidate(origin, mapping, pos, modifiers.alt)
+        else {
+            return false;
+        };
+        let element_id = target.element.clone();
+        self.finish_edits();
+        self.playing = false;
+        if modifiers.alt {
+            let collapsed = collapse_anchor_handles(&commands, handle.command);
+            let base_commands =
+                if collapsed != commands && validate_path_commands(&collapsed).is_ok() {
+                    let updated = collapsed.clone();
+                    let target_clone = target.clone();
+                    self.transact(|s| {
+                        s.ensure_key_for(&target_clone.layer, false);
+                        if let Some(layer_idx) = s.target_layer_index(&target_clone) {
+                            let frame = s.frame;
+                            if let Some(key) =
+                                s.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame)
+                                && let Some(el) = key
+                                    .elements
+                                    .iter_mut()
+                                    .find(|e| e.id == target_clone.element)
+                            {
+                                write_editable_element_commands(el, updated);
+                            }
+                        }
+                        s.set_selection(vec![target_clone]);
+                    });
+                    collapsed
+                } else {
+                    self.set_selection(vec![target.clone()]);
+                    commands
+                };
+            self.vector.selected_anchors = Some((element_id.clone(), vec![handle.command]));
+            self.vector.point_drag = Some(PointDrag {
+                handle,
+                original: base_commands,
+                inverse: transform_matrix(element.transform),
+                symbol: self.symbol_id().to_owned(),
+                frame: self.frame,
+                layer: target.layer,
+                origin,
+                zoom: self.zoom,
+                mapping,
+                press: pos,
+                began: false,
+                changed: false,
+                element: element_id,
+                pull_tangent: true,
+            });
+            return true;
+        }
+        let remaining = delete_anchors_from_path(&commands, &[handle.command]);
+        if remaining.is_empty()
+            || remaining == commands
+            || validate_path_commands(&remaining).is_err()
+        {
+            return false;
+        }
+        self.transact(|s| {
+            s.ensure_key_for(&target.layer, false);
+            if let Some(layer_idx) = s.target_layer_index(&target) {
+                let frame = s.frame;
+                if let Some(key) = s.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame)
+                    && let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element)
+                {
+                    write_editable_element_commands(el, remaining);
+                }
+            }
+            s.set_selection(vec![target]);
+        });
+        self.vector.selected_anchors = None;
+        true
+    }
+
+    pub(crate) fn nudge_selected_vector_points(&mut self, dx: f64, dy: f64) -> bool {
+        if self.tool != Tool::Subselect || !self.selected_editable() {
+            return false;
+        }
+        let Some(element) = self.selected_sampled() else {
+            return false;
+        };
+        let Some(mut commands) = editable_element_commands(&element) else {
+            return false;
+        };
+        let Some((selected_id, indices)) = self.vector.selected_anchors.clone() else {
+            return false;
+        };
+        if selected_id != element.id || indices.is_empty() {
+            return false;
+        }
+        let m = transform_matrix(element.transform);
+        let (Some(p0), Some(p1)) = (
+            crate::stage::inverse(m, Pos2::ZERO),
+            crate::stage::inverse(m, Pos2::new(dx as f32, dy as f32)),
+        ) else {
+            return false;
+        };
+        let local_delta = p1 - p0;
+        let before = commands.clone();
+        move_selected_anchors(&mut commands, &indices, local_delta);
+        if commands == before || validate_path_commands(&commands).is_err() {
+            return false;
+        }
+        self.playing = false;
+        self.transact(|s| {
+            s.ensure_selected_key();
+            if let Some(el) = s.selected_element_mut() {
+                write_editable_element_commands(el, commands);
+            }
+        });
+        true
     }
 
     pub(crate) fn pen_subdivide_candidate(
@@ -4088,11 +4560,55 @@ pub(crate) fn paint_gradient_path(
                     .length()
                     .max((screen(a) - screen(c)).length())
                     .max((screen(b) - screen(c)).length());
-                let refine = gradient.is_some() && (error > 2. || extent > 24.);
+                let ab = a + (b - a) * 0.5;
+                let ac = a + (c - a) * 0.5;
+                let bc = b + (c - b) * 0.5;
+                let stop_or_edge_refine = if error <= 2.
+                    && extent <= 24.
+                    && extent > 3.5
+                    && let Some(g) = gradient
+                    && (g.stops.len() > 2 || !g.spread.is_extend() || g.linear_rgb)
+                {
+                    let crosses_stop = if let (Some(ua), Some(ub), Some(uc)) = (
+                        g.raw_unit_at(a.x as f64, a.y as f64),
+                        g.raw_unit_at(b.x as f64, b.y as f64),
+                        g.raw_unit_at(c.x as f64, c.y as f64),
+                    ) {
+                        let u_min = ua.min(ub).min(uc);
+                        let u_max = ua.max(ub).max(uc);
+                        (u_min.floor() as i64 != u_max.floor() as i64)
+                            || g.stops.iter().any(|s| {
+                                let r = f64::from(s.ratio) / 255.0;
+                                r > u_min + 1e-3 && r < u_max - 1e-3
+                            })
+                    } else {
+                        false
+                    };
+                    crosses_stop || {
+                        let edge_err = [
+                            (sample(ab), colors[0], colors[1]),
+                            (sample(bc), colors[1], colors[2]),
+                            (sample(ac), colors[0], colors[2]),
+                        ]
+                        .into_iter()
+                        .map(|(m, c0, c1)| {
+                            (0..4)
+                                .map(|i| {
+                                    ((u16::from(c0[i]) + u16::from(c1[i])) as f32 * 0.5
+                                        - f32::from(m[i]))
+                                    .abs()
+                                })
+                                .fold(0f32, f32::max)
+                        })
+                        .fold(0f32, f32::max);
+                        edge_err > 2.0
+                    }
+                } else {
+                    false
+                };
+                let refine =
+                    gradient.is_some() && (error > 2. || extent > 24. || stop_or_edge_refine);
                 if refine && depth < 7 && mesh.vertices.len() + pending.len() * 3 < 150_000 {
-                    let ab = a + (b - a) * 0.5;
-                    let ac = a + (c - a) * 0.5;
-                    let bc = b + (c - b) * 0.5;
                     pending.extend([
                         ([a, ab, ac], depth + 1),
                         ([ab, b, bc], depth + 1),
@@ -4151,6 +4667,7 @@ mod tests {
                 },
             ],
             focal_point_ratio: 0.,
+            ..Default::default()
         }
     }
 

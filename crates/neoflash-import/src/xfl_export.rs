@@ -2357,6 +2357,8 @@ fn transform_gradient(grad: &GradientPaint, ct: ColorTransform) -> GradientPaint
             })
             .collect(),
         focal_point_ratio: grad.focal_point_ratio,
+        spread: grad.spread,
+        linear_rgb: grad.linear_rgb,
     }
 }
 
@@ -3074,6 +3076,8 @@ fn sanitize_gradient(grad: &GradientPaint) -> Option<GradientPaint> {
         matrix: grad.matrix,
         stops,
         focal_point_ratio: focal,
+        spread: grad.spread,
+        linear_rgb: grad.linear_rgb,
     };
     candidate.validate().is_ok().then_some(candidate)
 }

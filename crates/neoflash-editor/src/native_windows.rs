@@ -15,7 +15,7 @@ mod imp {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{
         NSApplication, NSFloatingWindowLevel, NSWindow, NSWindowCollectionBehavior,
-        NSWindowTabbingMode,
+        NSWindowStyleMask, NSWindowTabbingMode, NSWindowTitleVisibility,
     };
     use std::sync::atomic::{AtomicIsize, Ordering};
 
@@ -33,8 +33,9 @@ mod imp {
         }
     }
 
-    /// Configure detached panel windows so they stay above the main Stage window while NeoFlash
-    /// is active, hide on app deactivation, and never merge into full-screen tabs.
+    /// Configure detached panel windows so they have no native OS title bar or traffic-light
+    /// buttons, stay above the main Stage window while NeoFlash is active, hide on app
+    /// deactivation, and never merge into full-screen tabs.
     pub fn configure_panels() {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
@@ -45,6 +46,25 @@ mod imp {
         for window in windows.iter() {
             if window.windowNumber() == root {
                 continue;
+            }
+            let mask = (window.styleMask()
+                - NSWindowStyleMask::Titled
+                - NSWindowStyleMask::Closable
+                - NSWindowStyleMask::Miniaturizable
+                - NSWindowStyleMask::FullSizeContentView)
+                | NSWindowStyleMask::Borderless
+                | NSWindowStyleMask::Resizable;
+            if window.styleMask() != mask {
+                window.setStyleMask(mask);
+            }
+            if window.titleVisibility() != NSWindowTitleVisibility::Hidden {
+                window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+            }
+            if !window.titlebarAppearsTransparent() {
+                window.setTitlebarAppearsTransparent(true);
+            }
+            if !window.hasShadow() {
+                window.setHasShadow(true);
             }
             if window.tabbingMode() != NSWindowTabbingMode::Disallowed {
                 window.setTabbingMode(NSWindowTabbingMode::Disallowed);

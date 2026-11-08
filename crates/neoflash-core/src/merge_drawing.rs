@@ -3813,12 +3813,26 @@ pub fn merge_fill_adjacent_stroke_ids(elements: &[Element], fill_id: &str) -> Ve
     result
 }
 
-/// Find all Merge-mode stroke IDs on `elements` connected to `stroke_id` by shared endpoints
-/// (used when double-clicking a Merge stroke on stage).
+/// Find all Merge-mode stroke IDs on `elements` of the same stroke color/gradient connected to
+/// `stroke_id` by shared endpoints (used when double-clicking a Merge stroke on stage).
 pub fn merge_connected_stroke_ids(elements: &[Element], stroke_id: &str) -> Vec<Id> {
+    let Some(target_paint) = elements
+        .iter()
+        .find(|el| el.id == stroke_id && is_merge_stroke(el))
+        .and_then(|el| extract_stroke_paint(&el.kind))
+        .map(|sp| (sp.color, sp.gradient))
+    else {
+        return Vec::new();
+    };
     let mut strokes: Vec<(Id, Vec<[f64; 2]>)> = Vec::new();
     for el in elements {
         if !is_merge_stroke(el) {
+            continue;
+        }
+        let Some(sp) = extract_stroke_paint(&el.kind) else {
+            continue;
+        };
+        if (sp.color, sp.gradient) != target_paint {
             continue;
         }
         let Some((cmds, _)) = element_world_commands(el) else {
@@ -6220,6 +6234,7 @@ mod tests {
             kind: crate::runtime_graphics::GradientKind::Linear,
             matrix: [0.02, 0., 0., 0.02, 0., 0.],
             focal_point_ratio: 0.,
+            ..Default::default()
         };
         let source = Element {
             id: "zero-width".into(),
@@ -6496,6 +6511,7 @@ mod tests {
                 },
             ],
             focal_point_ratio: 0.0,
+            ..Default::default()
         };
         let stroke_gradient = GradientPaint {
             kind: GradientKind::Radial,
@@ -6738,6 +6754,20 @@ mod tests {
         assert_eq!(strokes.len(), 4);
         let connected = merge_connected_stroke_ids(&elements, &strokes[0].id);
         assert_eq!(connected.len(), 4);
+
+        // Intersecting lines of different colors only select connected segments of the same color:
+        let mut diff_elements = Vec::new();
+        let h_black = line_element("hb", 0.0, 50.0, 100.0, 50.0, [0, 0, 0, 255]);
+        let v_red = line_element("vr", 50.0, 0.0, 50.0, 100.0, [220, 40, 40, 255]);
+        apply_merge_shape_to_keyframe(&mut diff_elements, h_black);
+        apply_merge_shape_to_keyframe(&mut diff_elements, v_red);
+        let diff_strokes: Vec<&Element> = diff_elements
+            .iter()
+            .filter(|e| is_merge_stroke(e))
+            .collect();
+        assert_eq!(diff_strokes.len(), 4);
+        let same_color_connected = merge_connected_stroke_ids(&diff_elements, &diff_strokes[0].id);
+        assert_eq!(same_color_connected.len(), 2);
     }
 
     #[test]
@@ -6854,6 +6884,7 @@ mod tests {
                 },
             ],
             focal_point_ratio: 0.0,
+            ..Default::default()
         };
         let stroke_grad = GradientPaint {
             kind: GradientKind::Radial,

@@ -705,6 +705,7 @@ fn read_single_fill_style(
                 matrix,
                 stops,
                 focal_point_ratio: focal,
+                ..Default::default()
             };
             if paint.validate().is_ok() {
                 Some(SwfPaint::Gradient { fallback, paint })
@@ -840,12 +841,14 @@ fn read_morph_fill_style(
                 matrix: sm,
                 stops: s_stops,
                 focal_point_ratio: sfocal,
+                ..Default::default()
             };
             let ep = GradientPaint {
                 kind,
                 matrix: em,
                 stops: e_stops,
                 focal_point_ratio: efocal,
+                ..Default::default()
             };
             let s_out = if sp.validate().is_ok() {
                 SwfPaint::Gradient {

@@ -30,8 +30,18 @@ pub fn pointer_state() -> Option<(eframe::egui::Pos2, bool)> {
 /// Frontmost native content rectangle under a desktop point. `None` means the
 /// platform cannot answer; `Some(None)` means desktop or another application.
 /// This prevents a drop from going through a floating window into the root.
-#[cfg(all(target_os = "macos", not(test)))]
 pub fn front_window_at(position: eframe::egui::Pos2) -> Option<Option<eframe::egui::Rect>> {
+    front_window_at_excluding(position, None, None)
+}
+
+/// Like [`front_window_at`], but skips a floating panel window that is currently being dragged
+/// in its entirety so the receiving window underneath it can accept dock drops.
+#[cfg(all(target_os = "macos", not(test)))]
+pub fn front_window_at_excluding(
+    position: eframe::egui::Pos2,
+    excluded_title: Option<&str>,
+    excluded_rect: Option<eframe::egui::Rect>,
+) -> Option<Option<eframe::egui::Rect>> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSEvent, NSScreen, NSWindow};
     let main_thread = MainThreadMarker::new()?;
@@ -41,29 +51,55 @@ pub fn front_window_at(position: eframe::egui::Pos2) -> Option<Option<eframe::eg
     let mut cocoa_point = NSEvent::mouseLocation();
     cocoa_point.x = f64::from(position.x);
     cocoa_point.y = primary_top - f64::from(position.y);
-    let number =
-        NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(cocoa_point, 0, main_thread);
     let app = NSApplication::sharedApplication(main_thread);
-    let Some(window) = app.windowWithWindowNumber(number) else {
-        return Some(None);
-    };
-    if !window.isVisible() || window.isMiniaturized() {
-        return Some(None);
+    let mut below = 0;
+    for _ in 0..32 {
+        let number = NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(
+            cocoa_point,
+            below,
+            main_thread,
+        );
+        if number <= 0 {
+            return Some(None);
+        }
+        let Some(window) = app.windowWithWindowNumber(number) else {
+            return Some(None);
+        };
+        if !window.isVisible() || window.isMiniaturized() {
+            below = number;
+            continue;
+        }
+        let content = window.contentRectForFrameRect(window.frame());
+        let Some(area) = cocoa_work_area(
+            primary_top,
+            [content.origin.x, content.origin.y],
+            [content.size.width, content.size.height],
+        ) else {
+            return Some(None);
+        };
+        let rect = eframe::egui::Rect::from_min_size(
+            eframe::egui::pos2(area.origin[0], area.origin[1]),
+            eframe::egui::vec2(area.size[0], area.size[1]),
+        );
+        if excluded_title.is_some_and(|title| window.title().to_string() == title)
+            || excluded_rect.is_some_and(|ex| {
+                rect.min.distance(ex.min) < 12. && rect.max.distance(ex.max) < 12.
+            })
+        {
+            below = number;
+            continue;
+        }
+        return Some(Some(rect));
     }
-    let content = window.contentRectForFrameRect(window.frame());
-    let area = cocoa_work_area(
-        primary_top,
-        [content.origin.x, content.origin.y],
-        [content.size.width, content.size.height],
-    )?;
-    Some(Some(eframe::egui::Rect::from_min_size(
-        eframe::egui::pos2(area.origin[0], area.origin[1]),
-        eframe::egui::vec2(area.size[0], area.size[1]),
-    )))
+    Some(None)
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
-pub fn front_window_at(_position: eframe::egui::Pos2) -> Option<Option<eframe::egui::Rect>> {
+pub fn front_window_at_excluding(
+    _position: eframe::egui::Pos2,
+    _excluded_title: Option<&str>,
+    _excluded_rect: Option<eframe::egui::Rect>,
+) -> Option<Option<eframe::egui::Rect>> {
     None
 }
 

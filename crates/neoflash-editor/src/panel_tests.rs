@@ -2328,6 +2328,7 @@ fn swatches_panel_scans_document_paints_applies_solid_none_and_gradient_and_pers
         ],
         matrix: [80.0, 0.0, 0.0, 80.0, 40.0, 40.0],
         focal_point_ratio: 0.0,
+        ..Default::default()
     };
     let mut editor = Editor::from_project(&d.ctx, project);
     editor.add_element(
@@ -6382,6 +6383,7 @@ fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work(
                         },
                     ],
                     focal_point_ratio: 0.0,
+                    ..Default::default()
                 }),
                 stroke_gradient: None,
             };

@@ -148,7 +148,7 @@
         },
         {
           "id": "info-panel",
-          "title": "Info panel: editable selection bounds, cursor position and RGBA color under pointer",
+          "title": "Info panel: 9-point registration grid, editable selection bounds, cursor position and RGBA color under pointer",
           "status": "working"
         },
         {
@@ -281,7 +281,7 @@
         },
         {
           "id": "parametric-corners-angles",
-          "title": "Parametric rectangle corner radii and oval start/end angles and inner radius",
+          "title": "Parametric rectangle corner radii (including live Up/Down arrow adjustment while dragging) and oval start/end angles and inner radius",
           "status": "working"
         },
         {
@@ -341,12 +341,12 @@
         },
         {
           "id": "move-anchors",
-          "title": "Move anchor points",
+          "title": "Select and move single or multiple anchor points by drag, marquee or Arrow/Shift+Arrow nudging",
           "status": "working"
         },
         {
           "id": "move-handles",
-          "title": "Move curve control handles",
+          "title": "Move curve control handles, pull out symmetric tangents from corner anchors with Option-drag, and convert/remove anchors with Pen",
           "status": "working"
         }
       ],
@@ -486,7 +486,7 @@
         },
         {
           "id": "custom-pivot",
-          "title": "Custom transform pivot",
+          "title": "Custom transform pivot with double-click toggle between instance center and symbol registration point",
           "status": "working"
         },
         {
@@ -792,7 +792,7 @@
         },
         {
           "id": "paint-bucket",
-          "title": "Paint bounded planar faces formed by one or several vector boundaries",
+          "title": "Paint bounded planar faces with solid, radial center-on-click or click-and-drag gradient vectors",
           "status": "working"
         },
         {
@@ -807,12 +807,12 @@
         },
         {
           "id": "eraser",
-          "title": "Whole-object, fill and stroke eraser with continuous hit testing and cursor-only preview",
+          "title": "Erase Normal, Fills, Lines, Selected Fills, Inside and Faucet modes with Round and Square tips",
           "status": "working"
         },
         {
           "id": "lasso",
-          "title": "Select whole placements with Lasso and keep selection hatching visible",
+          "title": "Lasso freehand, Polygon mode and Magic Wand (with Threshold and Smoothing settings)",
           "status": "working"
         },
         {

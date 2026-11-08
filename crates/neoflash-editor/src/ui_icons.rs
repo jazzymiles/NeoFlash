@@ -497,9 +497,12 @@ pub(crate) enum ToolModifierGlyph {
     BrushShape(neoflash_ui::components::BrushShapeKind),
     EraserMode(crate::authoring_tools::EraserMode),
     Faucet,
-    EraserSize(f32),
+    EraserSize(f32, crate::authoring_tools::EraserShape),
     TouchSelects,
     SliceMergeFills,
+    LassoPolygon,
+    MagicWand,
+    MagicWandSettings,
 }
 
 fn paint_dropdown_corner(p: &Painter, pt: impl Fn(f32, f32) -> Pos2, color: egui::Color32) {
@@ -679,6 +682,14 @@ pub(crate) fn paint_tool_modifier_glyph(
                     p.rect_stroke(box_r, 0.0, thin, egui::StrokeKind::Inside);
                     p.line_segment([pt(3.6, 4.0), pt(11.2, 11.2)], thin);
                 }
+                E::SelectedFills => {
+                    p.rect_filled(box_r.shrink(1.5 * scale), 0.0, color.gamma_multiply(0.55));
+                    p.line_segment([pt(4.0, 7.6), pt(10.8, 7.6)], thin);
+                }
+                E::Inside => {
+                    p.rect_stroke(box_r, 0.0, thin, egui::StrokeKind::Inside);
+                    p.rect_filled(box_r.shrink(2.8 * scale), 0.0, color);
+                }
             }
             paint_dropdown_corner(p, pt, color);
         }
@@ -690,10 +701,23 @@ pub(crate) fn paint_tool_modifier_glyph(
             p.line_segment([pt(11.4, 5.6), pt(11.4, 9.2)], Stroke::new(1.8_f32, color));
             p.circle_filled(pt(11.4, 12.4), 1.5 * scale, color);
         }
-        ToolModifierGlyph::EraserSize(px) => {
+        ToolModifierGlyph::EraserSize(px, shape) => {
             let norm = ((px - 2.0) / 46.0).clamp(0.0, 1.0);
             let r = (1.6 + norm * 3.6) * scale;
-            p.circle_stroke(pt(7.6, 7.8), r, stroke);
+            let c = pt(7.6, 7.8);
+            match shape {
+                crate::authoring_tools::EraserShape::Round => {
+                    p.circle_stroke(c, r, stroke);
+                }
+                crate::authoring_tools::EraserShape::Square => {
+                    p.rect_stroke(
+                        Rect::from_center_size(c, Vec2::splat(r * 2.0)),
+                        0.0,
+                        stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
             paint_dropdown_corner(p, pt, color);
         }
         ToolModifierGlyph::TouchSelects => {
@@ -714,6 +738,60 @@ pub(crate) fn paint_tool_modifier_glyph(
                     color,
                 );
             }
+        }
+        ToolModifierGlyph::LassoPolygon => {
+            // Classic Flash Polygon Lasso modifier: angular straight-segment lasso loop.
+            let pts = [
+                pt(2.5, 11.5),
+                pt(4.5, 3.0),
+                pt(12.8, 4.2),
+                pt(13.5, 10.5),
+                pt(8.2, 13.4),
+            ];
+            for i in 0..pts.len() {
+                p.line_segment([pts[i], pts[(i + 1) % pts.len()]], stroke);
+            }
+        }
+        ToolModifierGlyph::MagicWand => {
+            // Classic Flash Magic Wand modifier: diagonal wand with sparkles at tip.
+            p.line_segment([pt(3.0, 13.0), pt(10.5, 5.5)], Stroke::new(1.6_f32, color));
+            let tip = pt(11.4, 4.6);
+            for (dx, dy) in [
+                (0.0, -2.6),
+                (0.0, 2.6),
+                (-2.6, 0.0),
+                (2.6, 0.0),
+                (-1.8, -1.8),
+                (1.8, -1.8),
+                (-1.8, 1.8),
+                (1.8, 1.8),
+            ] {
+                p.line_segment(
+                    [
+                        tip + Vec2::new(dx * 0.45, dy * 0.45) * scale,
+                        tip + Vec2::new(dx, dy) * scale,
+                    ],
+                    thin,
+                );
+            }
+        }
+        ToolModifierGlyph::MagicWandSettings => {
+            // Magic Wand + small settings gear/sliders indicator in bottom-right.
+            p.line_segment([pt(2.6, 12.6), pt(9.2, 6.0)], Stroke::new(1.5_f32, color));
+            let tip = pt(10.0, 5.2);
+            for (dx, dy) in [(0.0, -2.2), (0.0, 2.2), (-2.2, 0.0), (2.2, 0.0)] {
+                p.line_segment(
+                    [
+                        tip + Vec2::new(dx * 0.4, dy * 0.4) * scale,
+                        tip + Vec2::new(dx, dy) * scale,
+                    ],
+                    thin,
+                );
+            }
+            p.line_segment([pt(8.5, 11.2), pt(14.0, 11.2)], thin);
+            p.line_segment([pt(8.5, 13.4), pt(14.0, 13.4)], thin);
+            p.circle_filled(pt(10.5, 11.2), 1.1 * scale, color);
+            p.circle_filled(pt(12.4, 13.4), 1.1 * scale, color);
         }
     }
 }
@@ -1188,10 +1266,16 @@ mod tests {
             ToolModifierGlyph::BrushShape(neoflash_ui::components::BrushShapeKind::Round),
             ToolModifierGlyph::BrushShape(neoflash_ui::components::BrushShapeKind::Slash),
             ToolModifierGlyph::EraserMode(crate::authoring_tools::EraserMode::StrokeSegments),
+            ToolModifierGlyph::EraserMode(crate::authoring_tools::EraserMode::SelectedFills),
+            ToolModifierGlyph::EraserMode(crate::authoring_tools::EraserMode::Inside),
             ToolModifierGlyph::Faucet,
-            ToolModifierGlyph::EraserSize(16.0),
+            ToolModifierGlyph::EraserSize(16.0, crate::authoring_tools::EraserShape::Round),
+            ToolModifierGlyph::EraserSize(16.0, crate::authoring_tools::EraserShape::Square),
             ToolModifierGlyph::TouchSelects,
             ToolModifierGlyph::SliceMergeFills,
+            ToolModifierGlyph::LassoPolygon,
+            ToolModifierGlyph::MagicWand,
+            ToolModifierGlyph::MagicWandSettings,
         ] {
             let output = ctx.run(Default::default(), |ctx| {
                 let p = ctx.layer_painter(egui::LayerId::background());

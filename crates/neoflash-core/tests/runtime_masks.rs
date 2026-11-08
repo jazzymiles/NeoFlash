@@ -44,6 +44,7 @@ fn gradient(id: &str) -> Element {
                     },
                 ],
                 focal_point_ratio: 0.,
+                ..Default::default()
             }),
         },
         ..rectangle(id, 100., 100.)
