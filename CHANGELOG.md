@@ -11,6 +11,10 @@
   selected fragment. Geometry operations are budgeted and failure-atomic. Dedicated Help/Bitmap Trace context rows
   await NF2 requests R-059/R-060; fully transformed dimmed-context symbol editing remains separate architecture work.
 
+- Property-expression hardening (`T-130`): project loading now requires one complete, valid formula within bounded
+  source, token and nesting budgets. Malformed or over-budget direct evaluations fail closed to the authored base value;
+  ordinary formulas keep their existing variables, functions, defaults and deterministic behavior.
+
 - Post-delivery correctness and no-regression audit (`T-129`): made vector/evaluation identities deterministic, fixed expression timing at non-24 fps, nested accessibility playback and hidden-folder handling, multi-layer History replay, stale display-reference error typing, real and license-checked font embedding, failure-atomic video/bitmap/library/document-import mutations, atomic per-file export replacement, bounded PSD/image decoding, valid EPS-compatible AI output, hidden-guide SVG export and generated JavaScript/XML escaping. Runtime-owned `Graphics` facades now bypass repeated generic container probing while preserving synchronous calls and diagnostics. Import video no longer fabricates content for a missing file, and failed dialogs leave the document unchanged. Public capability statuses now distinguish tested engine/command APIs from complete author-facing workflows; no engine path was removed.
 
 - Asset Warp, Camera/depth/parenting/IK armatures, editable Appearance/Modifier stacks, PSD/sequence/vector/FXG/palette import workflows, Publish profiles/network simulation, extended Accessibility/ARIA, Timeline video, Debugger watches/folding/Script Assist, advanced vector/motion tools, HTML5 runtime snapshot caching and playable AS2/AS3 example games (`T-112`–`T-122`, `T-124`):

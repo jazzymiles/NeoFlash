@@ -721,17 +721,21 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     }
                 }
                 for (pei, pe) in key.property_expressions.iter().enumerate() {
-                    if pe.expression.trim().is_empty()
-                        || !pe.amplitude.is_finite()
+                    let path = format!("{kp}.property_expressions[{pei}]");
+                    if let Err(reason) =
+                        crate::motion_tools::validate_property_expression_syntax(&pe.expression)
+                    {
+                        add(
+                            path.clone(),
+                            format!("invalid property expression: {reason}"),
+                        );
+                    }
+                    if !pe.amplitude.is_finite()
                         || !pe.frequency.is_finite()
                         || !pe.decay.is_finite()
                         || !pe.phase.is_finite()
                     {
-                        add(
-                            format!("{kp}.property_expressions[{pei}]"),
-                            "property expression requires a non-empty formula and finite parameters"
-                                .into(),
-                        );
+                        add(path, "property expression parameters must be finite".into());
                     }
                 }
                 if let Some(pg) = &key.perspective_grid

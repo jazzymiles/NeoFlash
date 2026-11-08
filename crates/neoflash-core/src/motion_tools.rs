@@ -86,6 +86,10 @@ pub fn deterministic_smooth_noise(seed: u32, t: f64) -> f64 {
     v0 + (v1 - v0) * smooth
 }
 
+const MAX_PROPERTY_EXPRESSION_BYTES: usize = 4_096;
+const MAX_PROPERTY_EXPRESSION_TOKENS: usize = 512;
+const MAX_PROPERTY_EXPRESSION_DEPTH: usize = 64;
+
 #[derive(Clone, Debug)]
 enum ExprToken {
     Num(f64),
@@ -100,77 +104,107 @@ enum ExprToken {
     Comma,
 }
 
-fn tokenize_expression(src: &str) -> Vec<ExprToken> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ExprParseError(String);
+
+impl std::fmt::Display for ExprParseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+fn expression_error(message: impl Into<String>) -> ExprParseError {
+    ExprParseError(message.into())
+}
+
+fn push_expression_token(
+    tokens: &mut Vec<ExprToken>,
+    token: ExprToken,
+) -> Result<(), ExprParseError> {
+    if tokens.len() >= MAX_PROPERTY_EXPRESSION_TOKENS {
+        return Err(expression_error(format!(
+            "expression exceeds {MAX_PROPERTY_EXPRESSION_TOKENS} tokens"
+        )));
+    }
+    tokens.push(token);
+    Ok(())
+}
+
+fn tokenize_expression(src: &str) -> Result<Vec<ExprToken>, ExprParseError> {
+    if src.len() > MAX_PROPERTY_EXPRESSION_BYTES {
+        return Err(expression_error(format!(
+            "expression exceeds {MAX_PROPERTY_EXPRESSION_BYTES} UTF-8 bytes"
+        )));
+    }
+
     let mut tokens = Vec::new();
-    let mut chars = src.chars().peekable();
-    while let Some(&ch) = chars.peek() {
+    let mut chars = src.char_indices().peekable();
+    while let Some((byte, ch)) = chars.next() {
         if ch.is_ascii_whitespace() {
-            chars.next();
             continue;
         }
         match ch {
-            '+' => {
-                chars.next();
-                tokens.push(ExprToken::Plus);
-            }
-            '-' => {
-                chars.next();
-                tokens.push(ExprToken::Minus);
-            }
-            '*' => {
-                chars.next();
-                tokens.push(ExprToken::Star);
-            }
-            '/' => {
-                chars.next();
-                tokens.push(ExprToken::Slash);
-            }
-            '%' => {
-                chars.next();
-                tokens.push(ExprToken::Percent);
-            }
-            '(' => {
-                chars.next();
-                tokens.push(ExprToken::LParen);
-            }
-            ')' => {
-                chars.next();
-                tokens.push(ExprToken::RParen);
-            }
-            ',' => {
-                chars.next();
-                tokens.push(ExprToken::Comma);
-            }
+            '+' => push_expression_token(&mut tokens, ExprToken::Plus)?,
+            '-' => push_expression_token(&mut tokens, ExprToken::Minus)?,
+            '*' => push_expression_token(&mut tokens, ExprToken::Star)?,
+            '/' => push_expression_token(&mut tokens, ExprToken::Slash)?,
+            '%' => push_expression_token(&mut tokens, ExprToken::Percent)?,
+            '(' => push_expression_token(&mut tokens, ExprToken::LParen)?,
+            ')' => push_expression_token(&mut tokens, ExprToken::RParen)?,
+            ',' => push_expression_token(&mut tokens, ExprToken::Comma)?,
             c if c.is_ascii_digit() || c == '.' => {
-                let mut s = String::new();
-                while let Some(&d) = chars.peek() {
-                    if d.is_ascii_digit() || d == '.' {
-                        s.push(chars.next().unwrap());
+                let mut end = byte + c.len_utf8();
+                let mut digit_count = usize::from(c.is_ascii_digit());
+                let mut saw_dot = c == '.';
+                while let Some(&(next_byte, next)) = chars.peek() {
+                    if next.is_ascii_digit() {
+                        chars.next();
+                        digit_count += 1;
+                        end = next_byte + next.len_utf8();
+                    } else if next == '.' {
+                        if saw_dot {
+                            return Err(expression_error(format!(
+                                "invalid number at byte {next_byte}"
+                            )));
+                        }
+                        chars.next();
+                        saw_dot = true;
+                        end = next_byte + next.len_utf8();
                     } else {
                         break;
                     }
                 }
-                if let Ok(v) = s.parse::<f64>() {
-                    tokens.push(ExprToken::Num(v));
+                if digit_count == 0 {
+                    return Err(expression_error(format!("invalid number at byte {byte}")));
                 }
+                let number = src[byte..end]
+                    .parse::<f64>()
+                    .map_err(|_| expression_error(format!("invalid number at byte {byte}")))?;
+                if !number.is_finite() {
+                    return Err(expression_error(format!("invalid number at byte {byte}")));
+                }
+                push_expression_token(&mut tokens, ExprToken::Num(number))?;
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
-                let mut s = String::new();
-                while let Some(&d) = chars.peek() {
-                    if d.is_ascii_alphanumeric() || d == '_' {
-                        s.push(chars.next().unwrap());
+                let mut end = byte + c.len_utf8();
+                while let Some(&(next_byte, next)) = chars.peek() {
+                    if next.is_ascii_alphanumeric() || next == '_' {
+                        chars.next();
+                        end = next_byte + next.len_utf8();
                     } else {
                         break;
                     }
                 }
-                tokens.push(ExprToken::Ident(s));
+                push_expression_token(&mut tokens, ExprToken::Ident(src[byte..end].to_owned()))?;
             }
             _ => {
-                chars.next();
+                return Err(expression_error(format!(
+                    "unexpected character at byte {byte}"
+                )));
             }
         }
     }
-    tokens
+    Ok(tokens)
 }
 
 struct ExprEvalContext<'a> {
@@ -183,59 +217,71 @@ struct ExprEvalContext<'a> {
     mentions_value: bool,
 }
 
-struct ExprParser<'a> {
-    tokens: &'a [ExprToken],
+struct ExprParser<'tokens, 'context, 'expression> {
+    tokens: &'tokens [ExprToken],
     pos: usize,
-    ctx: &'a ExprEvalContext<'a>,
+    depth: usize,
+    ctx: Option<&'context ExprEvalContext<'expression>>,
 }
 
-impl<'a> ExprParser<'a> {
-    fn peek(&self) -> Option<&'a ExprToken> {
+impl<'tokens, 'context, 'expression> ExprParser<'tokens, 'context, 'expression> {
+    fn peek(&self) -> Option<&'tokens ExprToken> {
         self.tokens.get(self.pos)
     }
 
-    fn next(&mut self) -> Option<&'a ExprToken> {
+    fn next(&mut self) -> Option<&'tokens ExprToken> {
         let tok = self.tokens.get(self.pos)?;
         self.pos += 1;
         Some(tok)
     }
 
-    fn parse_expr(&mut self) -> f64 {
-        let mut val = self.parse_term();
+    fn parse_complete(&mut self) -> Result<f64, ExprParseError> {
+        let value = self.parse_expr()?;
+        if self.pos != self.tokens.len() {
+            return Err(expression_error(format!(
+                "unexpected trailing token at token {}",
+                self.pos + 1
+            )));
+        }
+        Ok(value)
+    }
+
+    fn parse_expr(&mut self) -> Result<f64, ExprParseError> {
+        let mut val = self.parse_term()?;
         while let Some(tok) = self.peek() {
             match tok {
                 ExprToken::Plus => {
                     self.next();
-                    val += self.parse_term();
+                    val += self.parse_term()?;
                 }
                 ExprToken::Minus => {
                     self.next();
-                    val -= self.parse_term();
+                    val -= self.parse_term()?;
                 }
                 _ => break,
             }
         }
-        val
+        Ok(val)
     }
 
-    fn parse_term(&mut self) -> f64 {
-        let mut val = self.parse_unary();
+    fn parse_term(&mut self) -> Result<f64, ExprParseError> {
+        let mut val = self.parse_unary()?;
         while let Some(tok) = self.peek() {
             match tok {
                 ExprToken::Star => {
                     self.next();
-                    val *= self.parse_unary();
+                    val *= self.parse_unary()?;
                 }
                 ExprToken::Slash => {
                     self.next();
-                    let denom = self.parse_unary();
+                    let denom = self.parse_unary()?;
                     if denom.abs() > 1e-12 {
                         val /= denom;
                     }
                 }
                 ExprToken::Percent => {
                     self.next();
-                    let denom = self.parse_unary();
+                    let denom = self.parse_unary()?;
                     if denom.abs() > 1e-12 {
                         val %= denom;
                     }
@@ -243,85 +289,131 @@ impl<'a> ExprParser<'a> {
                 _ => break,
             }
         }
-        val
+        Ok(val)
     }
 
-    fn parse_unary(&mut self) -> f64 {
-        match self.peek() {
-            Some(ExprToken::Plus) => {
-                self.next();
-                self.parse_unary()
-            }
-            Some(ExprToken::Minus) => {
-                self.next();
-                -self.parse_unary()
-            }
-            _ => self.parse_primary(),
-        }
-    }
-
-    fn parse_primary(&mut self) -> f64 {
-        let Some(tok) = self.next() else {
-            return self.ctx.base_value;
-        };
-        match tok {
-            ExprToken::Num(n) => *n,
-            ExprToken::LParen => {
-                let v = self.parse_expr();
-                if matches!(self.peek(), Some(ExprToken::RParen)) {
+    fn parse_unary(&mut self) -> Result<f64, ExprParseError> {
+        let mut negative = false;
+        loop {
+            match self.peek() {
+                Some(ExprToken::Plus) => {
                     self.next();
                 }
-                v
+                Some(ExprToken::Minus) => {
+                    self.next();
+                    negative = !negative;
+                }
+                _ => break,
             }
+        }
+        let value = self.parse_primary()?;
+        Ok(if negative { -value } else { value })
+    }
+
+    fn enter_nested(&mut self) -> Result<(), ExprParseError> {
+        if self.depth >= MAX_PROPERTY_EXPRESSION_DEPTH {
+            return Err(expression_error(format!(
+                "expression nesting exceeds {MAX_PROPERTY_EXPRESSION_DEPTH}"
+            )));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn parse_group(&mut self) -> Result<f64, ExprParseError> {
+        self.enter_nested()?;
+        let result = (|| {
+            let value = self.parse_expr()?;
+            if !matches!(self.peek(), Some(ExprToken::RParen)) {
+                return Err(expression_error("expected ')'"));
+            }
+            self.next();
+            Ok(value)
+        })();
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_call(&mut self, function: &str) -> Result<f64, ExprParseError> {
+        self.enter_nested()?;
+        let result = (|| {
+            let mut args = Vec::new();
+            if matches!(self.peek(), Some(ExprToken::RParen)) {
+                self.next();
+                return Ok(self.eval_call(function, &args));
+            }
+            if self.peek().is_none() {
+                return Err(expression_error("expected ')'"));
+            }
+
+            loop {
+                args.push(self.parse_expr()?);
+                match self.peek() {
+                    Some(ExprToken::Comma) => {
+                        self.next();
+                    }
+                    Some(ExprToken::RParen) => {
+                        self.next();
+                        break;
+                    }
+                    None => return Err(expression_error("expected ')'")),
+                    Some(_) => return Err(expression_error("expected ',' or ')'")),
+                }
+            }
+            Ok(self.eval_call(function, &args))
+        })();
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_primary(&mut self) -> Result<f64, ExprParseError> {
+        let Some(tok) = self.next() else {
+            return Err(expression_error("expected expression"));
+        };
+        match tok {
+            ExprToken::Num(number) => Ok(*number),
+            ExprToken::LParen => self.parse_group(),
             ExprToken::Ident(name) => {
                 let lower = name.to_ascii_lowercase();
                 if matches!(self.peek(), Some(ExprToken::LParen)) {
-                    self.next(); // consume '('
-                    let mut args = Vec::new();
-                    if !matches!(self.peek(), Some(ExprToken::RParen) | None) {
-                        loop {
-                            args.push(self.parse_expr());
-                            if matches!(self.peek(), Some(ExprToken::Comma)) {
-                                self.next();
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                    if matches!(self.peek(), Some(ExprToken::RParen)) {
-                        self.next();
-                    }
-                    self.eval_call(&lower, &args)
+                    self.next();
+                    self.parse_call(&lower)
                 } else {
-                    match lower.as_str() {
-                        "value" | "base" => self.ctx.base_value,
-                        "time" | "t" => self.ctx.time_sec,
-                        "frame" => self.ctx.frame as f64,
-                        "fps" => self.ctx.fps,
-                        "index" => self.ctx.index as f64,
-                        "amp" | "amplitude" => self.ctx.expr.amplitude,
-                        "freq" | "frequency" => self.ctx.expr.frequency,
-                        "decay" => self.ctx.expr.decay,
-                        "phase" => self.ctx.expr.phase,
-                        "pi" => std::f64::consts::PI,
-                        "tau" => std::f64::consts::TAU,
-                        _ => 0.0,
-                    }
+                    Ok(self.eval_identifier(&lower))
                 }
             }
+            _ => Err(expression_error("expected expression")),
+        }
+    }
+
+    fn eval_identifier(&self, identifier: &str) -> f64 {
+        let Some(ctx) = self.ctx else {
+            return 0.0;
+        };
+        match identifier {
+            "value" | "base" => ctx.base_value,
+            "time" | "t" => ctx.time_sec,
+            "frame" => ctx.frame as f64,
+            "fps" => ctx.fps,
+            "index" => ctx.index as f64,
+            "amp" | "amplitude" => ctx.expr.amplitude,
+            "freq" | "frequency" => ctx.expr.frequency,
+            "decay" => ctx.expr.decay,
+            "phase" => ctx.expr.phase,
+            "pi" => std::f64::consts::PI,
+            "tau" => std::f64::consts::TAU,
             _ => 0.0,
         }
     }
 
     fn eval_call(&self, func: &str, args: &[f64]) -> f64 {
+        let Some(ctx) = self.ctx else {
+            return 0.0;
+        };
         let a0 = args.first().copied().unwrap_or(0.0);
         let a1 = args.get(1).copied().unwrap_or(0.0);
         let a2 = args.get(2).copied().unwrap_or(0.0);
-        let seed = self
-            .ctx
-            .expr
-            .seed
-            .wrapping_add(self.ctx.index.wrapping_mul(31));
+        let seed = ctx.expr.seed.wrapping_add(ctx.index.wrapping_mul(31));
         match func {
             "sin" => a0.sin(),
             "cos" => a0.cos(),
@@ -333,96 +425,104 @@ impl<'a> ExprParser<'a> {
             "round" => a0.round(),
             "min" => a0.min(a1),
             "max" => a0.max(a1),
-            "clamp" => a0.clamp(a1, a2.max(a1)),
+            "clamp" => {
+                if [a0, a1, a2].iter().all(|value| value.is_finite()) {
+                    a0.clamp(a1, a2.max(a1))
+                } else {
+                    f64::NAN
+                }
+            }
             "noise" => deterministic_smooth_noise(seed, a0),
             "wiggle" => {
                 let freq = if args.is_empty() {
-                    self.ctx.expr.frequency
+                    ctx.expr.frequency
                 } else {
                     a0
                 };
                 let amp = if args.len() < 2 {
-                    self.ctx.expr.amplitude
-                } else {
-                    a1
-                };
-                let offset = deterministic_smooth_noise(
-                    seed,
-                    self.ctx.time_sec * freq + self.ctx.expr.phase,
-                ) * amp;
-                if self.ctx.mentions_value {
-                    offset
-                } else {
-                    self.ctx.base_value + offset
-                }
-            }
-            "spring" => {
-                let freq = if args.is_empty() {
-                    self.ctx.expr.frequency
-                } else {
-                    a0
-                };
-                let decay = if args.len() < 2 {
-                    self.ctx.expr.decay
-                } else {
-                    a1
-                };
-                let amp = args.get(2).copied().unwrap_or(self.ctx.expr.amplitude);
-                let offset = amp
-                    * (-decay.max(0.0) * self.ctx.time_sec).exp()
-                    * (self.ctx.time_sec * freq * std::f64::consts::TAU + self.ctx.expr.phase)
-                        .sin();
-                if self.ctx.mentions_value {
-                    offset
-                } else {
-                    self.ctx.base_value + offset
-                }
-            }
-            "bounce" => {
-                let amp = if args.is_empty() {
-                    self.ctx.expr.amplitude
-                } else {
-                    a0
-                };
-                let decay = if args.len() < 2 {
-                    self.ctx.expr.decay
-                } else {
-                    a1
-                };
-                let freq = args.get(2).copied().unwrap_or(self.ctx.expr.frequency);
-                let offset = amp
-                    * (-decay.max(0.0) * self.ctx.time_sec).exp()
-                    * (self.ctx.time_sec * freq * std::f64::consts::PI + self.ctx.expr.phase)
-                        .sin()
-                        .abs();
-                if self.ctx.mentions_value {
-                    offset
-                } else {
-                    self.ctx.base_value + offset
-                }
-            }
-            "saw" => {
-                let freq = if args.is_empty() {
-                    self.ctx.expr.frequency
-                } else {
-                    a0
-                };
-                let amp = if args.len() < 2 {
-                    self.ctx.expr.amplitude
+                    ctx.expr.amplitude
                 } else {
                     a1
                 };
                 let offset =
-                    ((self.ctx.time_sec * freq + self.ctx.expr.phase).fract() * 2.0 - 1.0) * amp;
-                if self.ctx.mentions_value {
+                    deterministic_smooth_noise(seed, ctx.time_sec * freq + ctx.expr.phase) * amp;
+                if ctx.mentions_value {
                     offset
                 } else {
-                    self.ctx.base_value + offset
+                    ctx.base_value + offset
+                }
+            }
+            "spring" => {
+                let freq = if args.is_empty() {
+                    ctx.expr.frequency
+                } else {
+                    a0
+                };
+                let decay = if args.len() < 2 { ctx.expr.decay } else { a1 };
+                let amp = args.get(2).copied().unwrap_or(ctx.expr.amplitude);
+                let offset = amp
+                    * (-decay.max(0.0) * ctx.time_sec).exp()
+                    * (ctx.time_sec * freq * std::f64::consts::TAU + ctx.expr.phase).sin();
+                if ctx.mentions_value {
+                    offset
+                } else {
+                    ctx.base_value + offset
+                }
+            }
+            "bounce" => {
+                let amp = if args.is_empty() {
+                    ctx.expr.amplitude
+                } else {
+                    a0
+                };
+                let decay = if args.len() < 2 { ctx.expr.decay } else { a1 };
+                let freq = args.get(2).copied().unwrap_or(ctx.expr.frequency);
+                let offset = amp
+                    * (-decay.max(0.0) * ctx.time_sec).exp()
+                    * (ctx.time_sec * freq * std::f64::consts::PI + ctx.expr.phase)
+                        .sin()
+                        .abs();
+                if ctx.mentions_value {
+                    offset
+                } else {
+                    ctx.base_value + offset
+                }
+            }
+            "saw" => {
+                let freq = if args.is_empty() {
+                    ctx.expr.frequency
+                } else {
+                    a0
+                };
+                let amp = if args.len() < 2 {
+                    ctx.expr.amplitude
+                } else {
+                    a1
+                };
+                let offset = ((ctx.time_sec * freq + ctx.expr.phase).fract() * 2.0 - 1.0) * amp;
+                if ctx.mentions_value {
+                    offset
+                } else {
+                    ctx.base_value + offset
                 }
             }
             _ => 0.0,
         }
     }
+}
+
+pub(crate) fn validate_property_expression_syntax(source: &str) -> Result<(), String> {
+    let tokens = tokenize_expression(source).map_err(|error| error.to_string())?;
+    let mut parser = ExprParser {
+        tokens: &tokens,
+        pos: 0,
+        depth: 0,
+        ctx: None,
+    };
+    parser
+        .parse_complete()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 /// Evaluate a deterministic [`PropertyExpression`] for `base_value` at `(time_sec, frame, fps, index)` (`T-121`).
@@ -437,10 +537,9 @@ pub fn evaluate_property_expression(
     if !expr.enabled || expr.expression.trim().is_empty() {
         return base_value;
     }
-    let tokens = tokenize_expression(&expr.expression);
-    if tokens.is_empty() {
+    let Ok(tokens) = tokenize_expression(&expr.expression) else {
         return base_value;
-    }
+    };
     let mentions_value = tokens.iter().any(|t| {
         matches!(
             t,
@@ -459,10 +558,13 @@ pub fn evaluate_property_expression(
     let mut parser = ExprParser {
         tokens: &tokens,
         pos: 0,
-        ctx: &ctx,
+        depth: 0,
+        ctx: Some(&ctx),
     };
-    let out = parser.parse_expr();
-    if out.is_finite() { out } else { base_value }
+    match parser.parse_complete() {
+        Ok(out) if out.is_finite() => out,
+        Ok(_) | Err(_) => base_value,
+    }
 }
 
 /// Apply all enabled [`PropertyExpression`]s on a keyframe to `transform` at `frame` (`T-121`).
@@ -960,6 +1062,173 @@ mod tests {
         // The compatibility wrapper intentionally retains its historical 24 fps clock.
         let legacy = crate::sample_layer(&project.symbols[0].timeline.layers[0], 24);
         assert!((legacy[0].transform.x - 1.0).abs() < 1e-9);
+    }
+
+    fn evaluate_source(source: &str, base_value: f64) -> f64 {
+        evaluate_property_expression(
+            &PropertyExpression {
+                expression: source.into(),
+                ..PropertyExpression::default()
+            },
+            base_value,
+            0.5,
+            12,
+            24.0,
+            3,
+        )
+    }
+
+    #[test]
+    fn property_expression_parser_preserves_ordinary_compatibility() {
+        assert_eq!(evaluate_source(".5 + 1.", 9.0), 1.5);
+        assert!((evaluate_source("--((value + sin(time * pi)))", 2.0) - 3.0).abs() < 1e-9);
+        assert_eq!(evaluate_source("unknown + mystery(1, 2, 3, 4)", 9.0), 0.0);
+        assert_eq!(evaluate_source("min(4, 2, 99)", 9.0), 2.0);
+        assert_eq!(evaluate_source("8 / 0 + 6 % 0", 9.0), 14.0);
+
+        let wiggle = PropertyExpression {
+            expression: "wiggle()".into(),
+            amplitude: 4.0,
+            frequency: 3.0,
+            seed: 17,
+            ..PropertyExpression::default()
+        };
+        let first = evaluate_property_expression(&wiggle, 20.0, 0.5, 12, 24.0, 3);
+        let second = evaluate_property_expression(&wiggle, 20.0, 0.5, 12, 24.0, 3);
+        assert_eq!(first, second);
+        assert!((first - 20.0).abs() <= 4.0);
+    }
+
+    #[test]
+    fn property_expression_parser_enforces_exact_budgets_and_full_input() {
+        let exactly_max_bytes = format!("1{}", " ".repeat(MAX_PROPERTY_EXPRESSION_BYTES - 1));
+        let over_max_bytes = format!("1{}", " ".repeat(MAX_PROPERTY_EXPRESSION_BYTES));
+        assert_eq!(exactly_max_bytes.len(), MAX_PROPERTY_EXPRESSION_BYTES);
+        assert_eq!(over_max_bytes.len(), MAX_PROPERTY_EXPRESSION_BYTES + 1);
+        assert!(validate_property_expression_syntax(&exactly_max_bytes).is_ok());
+        assert_eq!(
+            validate_property_expression_syntax(&over_max_bytes).unwrap_err(),
+            "expression exceeds 4096 UTF-8 bytes"
+        );
+        assert_eq!(evaluate_source(&exactly_max_bytes, 41.0), 1.0);
+        assert_eq!(evaluate_source(&over_max_bytes, 41.0), 41.0);
+
+        let exactly_max_tokens = format!("{}1", "+".repeat(MAX_PROPERTY_EXPRESSION_TOKENS - 1));
+        let over_max_tokens = format!("{}1", "+".repeat(MAX_PROPERTY_EXPRESSION_TOKENS));
+        assert_eq!(tokenize_expression(&exactly_max_tokens).unwrap().len(), 512);
+        assert!(validate_property_expression_syntax(&exactly_max_tokens).is_ok());
+        assert_eq!(
+            validate_property_expression_syntax(&over_max_tokens).unwrap_err(),
+            "expression exceeds 512 tokens"
+        );
+        assert_eq!(evaluate_source(&exactly_max_tokens, 41.0), 1.0);
+        assert_eq!(evaluate_source(&over_max_tokens, 41.0), 41.0);
+
+        let exactly_max_depth = format!(
+            "{}1{}",
+            "(".repeat(MAX_PROPERTY_EXPRESSION_DEPTH),
+            ")".repeat(MAX_PROPERTY_EXPRESSION_DEPTH)
+        );
+        let over_max_depth = format!(
+            "{}1{}",
+            "(".repeat(MAX_PROPERTY_EXPRESSION_DEPTH + 1),
+            ")".repeat(MAX_PROPERTY_EXPRESSION_DEPTH + 1)
+        );
+        assert!(validate_property_expression_syntax(&exactly_max_depth).is_ok());
+        assert_eq!(
+            validate_property_expression_syntax(&over_max_depth).unwrap_err(),
+            "expression nesting exceeds 64"
+        );
+        assert_eq!(evaluate_source(&exactly_max_depth, 41.0), 1.0);
+        assert_eq!(evaluate_source(&over_max_depth, 41.0), 41.0);
+
+        let huge_number = "9".repeat(400);
+        for malformed in [
+            "1 2",
+            "1+",
+            "()",
+            "sin(1",
+            "sin(1,)",
+            "1..2",
+            "value @ 1",
+            "1e3",
+            &huge_number,
+        ] {
+            assert_eq!(
+                evaluate_source(malformed, 41.0),
+                41.0,
+                "malformed source must fail closed: {malformed}"
+            );
+        }
+    }
+
+    #[test]
+    fn property_expression_non_finite_clamp_fails_closed_without_panicking() {
+        let expression = PropertyExpression {
+            expression: "clamp(value, amp, 1)".into(),
+            amplitude: f64::NAN,
+            ..PropertyExpression::default()
+        };
+        assert_eq!(
+            evaluate_property_expression(&expression, 42.0, 0.5, 12, 24.0, 0),
+            42.0
+        );
+    }
+
+    fn project_with_property_expression(expression: PropertyExpression) -> Project {
+        let mut project = Project::blank();
+        project.format_version = 9;
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .property_expressions
+            .push(expression);
+        project
+    }
+
+    #[test]
+    fn serialized_projects_validate_all_property_expression_syntax() {
+        let hostile_sources = [
+            "1+".to_owned(),
+            format!("{}1{}", "(".repeat(65), ")".repeat(65)),
+            format!("{}1", "+".repeat(512)),
+            format!("1{}", " ".repeat(4_096)),
+            "9".repeat(400),
+        ];
+        for source in hostile_sources {
+            let project = project_with_property_expression(PropertyExpression {
+                expression: source,
+                enabled: false,
+                ..PropertyExpression::default()
+            });
+            // Raw serde deliberately bypasses `Project::to_json`, which validates before encoding.
+            let raw = serde_json::to_string(&project).unwrap();
+            let error = Project::from_json(&raw).unwrap_err().to_string();
+            assert!(
+                error
+                    .contains("symbols[0].timeline.layers[0].keyframes[0].property_expressions[0]"),
+                "validation error must retain the exact expression path: {error}"
+            );
+            assert!(error.contains("invalid property expression"), "{error}");
+        }
+    }
+
+    #[test]
+    fn valid_property_expression_round_trips_and_evaluates_identically() {
+        let project = project_with_property_expression(PropertyExpression {
+            expression: "--(.5 + value * 2.) + mystery(1, 2, 3, 4)".into(),
+            ..PropertyExpression::default()
+        });
+        let original = &project.symbols[0].timeline.layers[0].keyframes[0].property_expressions[0];
+        let original_value = evaluate_property_expression(original, 7.0, 0.25, 6, 24.0, 2);
+
+        let encoded = project.to_json().unwrap();
+        let reopened = Project::from_json(&encoded).unwrap();
+        let round_tripped =
+            &reopened.symbols[0].timeline.layers[0].keyframes[0].property_expressions[0];
+        assert_eq!(round_tripped, original);
+        assert_eq!(
+            evaluate_property_expression(round_tripped, 7.0, 0.25, 6, 24.0, 2),
+            original_value
+        );
     }
 
     #[test]
