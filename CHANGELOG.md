@@ -2,6 +2,13 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+
+- Complete Flash CS5 Text functionality, multi-column layout & container flow, and redesigned `Properties — Text` inspector with custom vector icons (`T-152`):
+  - **Multi-column layout & container flow (`crates/neoflash-core/src/text.rs`, `crates/neoflash-editor/src/{text_boxes,stage_selection}.rs`, `web/{text,text-input}.js`):** Added `column_count` (`1..=50`), `column_gutter` (`0.0..=1000.0`, default `20.0`), `vertical_align` (`"top"`, `"center"`, `"bottom"`, `"justify"`), 4-sided container padding (`padding_left`, `padding_right`, `padding_top`, `padding_bottom`, default `2.0`), `border_width` (`0.5..=200.0`, default `1.0`), `first_line_offset_mode` (`"auto"`, `"ascent"`, `"line_height"`, `"pt"`) + `first_line_offset`, and live Stage multi-column divider guides with TLF In/Out flow ports (`paint_container_guides`).
+  - **Character, Advanced Character & Paragraph layout:** Added `%` / `pt` `leading_mode`, `highlight` + `highlight_color` (`0xffff00`), `strikethrough`, `superscript`, `subscript`, `glyph_rotation` (`"auto"`, `"0"`, `"270"`), `orientation` (`"horizontal"`, `"vertical_ltr"`, `"vertical_rtl"`), `direction` (`"ltr"`, `"rtl"`), `typographic_case` (`"default"`, `"uppercase"`, `"lowercase"`, `"caps_to_small_caps"`, `"lowercase_to_small_caps"`), `digit_case`, `digit_width`, `ligatures`, `line_break`, `baseline_shift`, `locale`, paragraph `space_before` / `space_after`, `text_justify` (`"word_spacing"`, `"letter_spacing"`), and `"justify_all"` alignment.
+  - **Redesigned `Properties — Text` inspector & custom vector icons (`crates/neoflash-editor/src/ui_icons.rs`, `crates/neoflash-editor/src/text_boxes.rs`, `crates/neoflash-editor/src/panels/properties.rs`):** Added 25 custom Flash CS5 vector icons (`TextPropertyGlyph`), optional color swatches with a red diagonal slash when disabled (`text_optional_color_swatch` for Highlight, Border, and Background), and collapsible `Character`, `Advanced character`, `Paragraph`, `Container and flow`, and `Options` sections.
+
+
 - Floating `Tools` resize dark-strip fix and left alignment, multi-selection `Break Apart` progression to shapes, and
   `No Fill` / `No Stroke` vs `Alpha = 0` multi-selection paint semantics (`T-150`):
   - Fixed `detached_panels` and `compact_floating_tools_window_bottom_up` in `crates/neoflash-editor/src/detached.rs`

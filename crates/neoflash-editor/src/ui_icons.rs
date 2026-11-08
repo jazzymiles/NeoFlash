@@ -755,6 +755,362 @@ pub(crate) fn tool_modifier_button(
     .inner
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextPropertyGlyph {
+    OrientationHorizontal,
+    OrientationVerticalLtr,
+    OrientationVerticalRtl,
+    Underline,
+    Strikethrough,
+    Superscript,
+    Subscript,
+    AlignLeft,
+    AlignCenter,
+    AlignRight,
+    JustifyLastLeft,
+    JustifyAll,
+    BulletList,
+    DirectionLtr,
+    DirectionRtl,
+    VerticalAlignTop,
+    VerticalAlignCenter,
+    VerticalAlignBottom,
+    VerticalAlignJustify,
+    ColumnsCount,
+    ColumnGutter,
+    BorderStroke,
+    BackgroundFill,
+}
+
+pub(crate) fn paint_text_property_glyph(
+    p: &Painter,
+    rect: Rect,
+    glyph: TextPropertyGlyph,
+    color: egui::Color32,
+) {
+    let side = rect.width().min(rect.height()).min(16.0);
+    if !side.is_finite() || side <= 0.0 {
+        return;
+    }
+    let r = Rect::from_center_size(rect.center(), Vec2::splat(side));
+    let scale = side / 16.0;
+    let pt = |x: f32, y: f32| Pos2::new(r.left() + x * scale, r.top() + y * scale);
+    let stroke = Stroke::new((1.35 * scale).max(1.0), color);
+    let thin = Stroke::new((1.1 * scale).max(0.9), color);
+    let bold = Stroke::new((1.7 * scale).max(1.2), color);
+
+    let draw_t = |p: &Painter, cx: f32, top_y: f32, bot_y: f32, half_w: f32| {
+        p.line_segment([pt(cx - half_w, top_y), pt(cx + half_w, top_y)], bold);
+        p.line_segment([pt(cx, top_y), pt(cx, bot_y)], bold);
+        // Small serifs on the T crossbar and stem foot like Flash CS5
+        p.line_segment([pt(cx - half_w, top_y), pt(cx - half_w, top_y + 1.5)], thin);
+        p.line_segment([pt(cx + half_w, top_y), pt(cx + half_w, top_y + 1.5)], thin);
+        p.line_segment([pt(cx - 1.6, bot_y), pt(cx + 1.6, bot_y)], thin);
+    };
+
+    match glyph {
+        TextPropertyGlyph::OrientationHorizontal => {
+            draw_t(p, 5.5, 3.2, 10.2, 3.2);
+            p.line_segment([pt(3.0, 12.8), pt(13.0, 12.8)], thin);
+            p.line_segment([pt(10.6, 10.8), pt(13.0, 12.8)], thin);
+            p.line_segment([pt(10.6, 14.4), pt(13.0, 12.8)], thin);
+        }
+        TextPropertyGlyph::OrientationVerticalLtr => {
+            draw_t(p, 9.8, 3.2, 10.2, 3.0);
+            p.line_segment([pt(4.0, 2.8), pt(4.0, 13.2)], thin);
+            p.line_segment([pt(2.3, 10.8), pt(4.0, 13.2)], thin);
+            p.line_segment([pt(5.7, 10.8), pt(4.0, 13.2)], thin);
+        }
+        TextPropertyGlyph::OrientationVerticalRtl => {
+            draw_t(p, 6.2, 3.2, 10.2, 3.0);
+            p.line_segment([pt(12.2, 2.8), pt(12.2, 13.2)], thin);
+            p.line_segment([pt(10.5, 10.8), pt(12.2, 13.2)], thin);
+            p.line_segment([pt(13.9, 10.8), pt(12.2, 13.2)], thin);
+        }
+        TextPropertyGlyph::Underline => {
+            draw_t(p, 8.0, 3.0, 11.2, 4.0);
+            p.line_segment([pt(3.2, 13.4), pt(12.8, 13.4)], stroke);
+        }
+        TextPropertyGlyph::Strikethrough => {
+            draw_t(p, 8.0, 3.0, 12.2, 4.0);
+            p.line_segment([pt(2.6, 7.8), pt(13.4, 7.8)], stroke);
+        }
+        TextPropertyGlyph::Superscript => {
+            draw_t(p, 6.2, 4.4, 12.6, 3.4);
+            // Superscript "1" at top-right
+            p.line_segment([pt(11.4, 3.6), pt(12.6, 2.6)], thin);
+            p.line_segment([pt(12.6, 2.6), pt(12.6, 7.4)], stroke);
+            p.line_segment([pt(11.4, 7.4), pt(13.8, 7.4)], thin);
+        }
+        TextPropertyGlyph::Subscript => {
+            draw_t(p, 6.2, 3.2, 11.4, 3.4);
+            // Subscript "1" at bottom-right
+            p.line_segment([pt(11.4, 9.6), pt(12.6, 8.6)], thin);
+            p.line_segment([pt(12.6, 8.6), pt(12.6, 13.4)], stroke);
+            p.line_segment([pt(11.4, 13.4), pt(13.8, 13.4)], thin);
+        }
+        TextPropertyGlyph::AlignLeft => {
+            for (y, w) in [(3.5, 10.5), (6.5, 7.5), (9.5, 9.5), (12.5, 6.0)] {
+                p.line_segment([pt(2.5, y), pt(2.5 + w, y)], stroke);
+            }
+        }
+        TextPropertyGlyph::AlignCenter => {
+            for (y, w) in [(3.5, 10.6), (6.5, 7.0), (9.5, 9.6), (12.5, 5.6)] {
+                let x0 = 8.0 - w * 0.5;
+                p.line_segment([pt(x0, y), pt(x0 + w, y)], stroke);
+            }
+        }
+        TextPropertyGlyph::AlignRight => {
+            for (y, w) in [(3.5, 10.5), (6.5, 7.5), (9.5, 9.5), (12.5, 6.0)] {
+                p.line_segment([pt(13.5 - w, y), pt(13.5, y)], stroke);
+            }
+        }
+        TextPropertyGlyph::JustifyLastLeft => {
+            for y in [3.5, 6.5, 9.5] {
+                p.line_segment([pt(2.5, y), pt(13.5, y)], stroke);
+            }
+            p.line_segment([pt(2.5, 12.5), pt(8.5, 12.5)], stroke);
+        }
+        TextPropertyGlyph::JustifyAll => {
+            for y in [3.5, 6.5, 9.5, 12.5] {
+                p.line_segment([pt(2.5, y), pt(13.5, y)], stroke);
+            }
+        }
+        TextPropertyGlyph::BulletList => {
+            for y in [4.0, 8.0, 12.0] {
+                p.circle_filled(pt(3.5, y), (1.1 * scale).max(1.0), color);
+                p.line_segment([pt(6.2, y), pt(13.5, y)], stroke);
+            }
+        }
+        TextPropertyGlyph::DirectionLtr => {
+            p.line_segment([pt(3.0, 4.5), pt(10.0, 4.5)], stroke);
+            p.line_segment([pt(3.0, 7.5), pt(8.5, 7.5)], stroke);
+            p.line_segment([pt(3.0, 11.8), pt(13.0, 11.8)], stroke);
+            p.line_segment([pt(10.4, 9.6), pt(13.0, 11.8)], thin);
+            p.line_segment([pt(10.4, 14.0), pt(13.0, 11.8)], thin);
+        }
+        TextPropertyGlyph::DirectionRtl => {
+            p.line_segment([pt(6.0, 4.5), pt(13.0, 4.5)], stroke);
+            p.line_segment([pt(7.5, 7.5), pt(13.0, 7.5)], stroke);
+            p.line_segment([pt(3.0, 11.8), pt(13.0, 11.8)], stroke);
+            p.line_segment([pt(5.6, 9.6), pt(3.0, 11.8)], thin);
+            p.line_segment([pt(5.6, 14.0), pt(3.0, 11.8)], thin);
+        }
+        TextPropertyGlyph::VerticalAlignTop => {
+            let box_r = Rect::from_min_max(pt(2.2, 2.2), pt(13.8, 13.8));
+            p.rect_stroke(box_r, 1.0, thin, egui::StrokeKind::Inside);
+            p.line_segment([pt(4.2, 4.8), pt(11.8, 4.8)], stroke);
+            p.line_segment([pt(4.2, 7.4), pt(9.8, 7.4)], stroke);
+        }
+        TextPropertyGlyph::VerticalAlignCenter => {
+            let box_r = Rect::from_min_max(pt(2.2, 2.2), pt(13.8, 13.8));
+            p.rect_stroke(box_r, 1.0, thin, egui::StrokeKind::Inside);
+            p.line_segment([pt(4.2, 6.7), pt(11.8, 6.7)], stroke);
+            p.line_segment([pt(4.2, 9.3), pt(9.8, 9.3)], stroke);
+        }
+        TextPropertyGlyph::VerticalAlignBottom => {
+            let box_r = Rect::from_min_max(pt(2.2, 2.2), pt(13.8, 13.8));
+            p.rect_stroke(box_r, 1.0, thin, egui::StrokeKind::Inside);
+            p.line_segment([pt(4.2, 8.6), pt(11.8, 8.6)], stroke);
+            p.line_segment([pt(4.2, 11.2), pt(9.8, 11.2)], stroke);
+        }
+        TextPropertyGlyph::VerticalAlignJustify => {
+            let box_r = Rect::from_min_max(pt(2.2, 2.2), pt(13.8, 13.8));
+            p.rect_stroke(box_r, 1.0, thin, egui::StrokeKind::Inside);
+            p.line_segment([pt(4.2, 4.8), pt(11.8, 4.8)], stroke);
+            p.line_segment([pt(4.2, 8.0), pt(11.8, 8.0)], stroke);
+            p.line_segment([pt(4.2, 11.2), pt(11.8, 11.2)], stroke);
+        }
+        TextPropertyGlyph::ColumnsCount => {
+            let c1 = Rect::from_min_max(pt(2.2, 2.6), pt(7.2, 13.4));
+            let c2 = Rect::from_min_max(pt(8.8, 2.6), pt(13.8, 13.4));
+            p.rect_stroke(c1, 0.5, thin, egui::StrokeKind::Inside);
+            p.rect_stroke(c2, 0.5, thin, egui::StrokeKind::Inside);
+        }
+        TextPropertyGlyph::ColumnGutter => {
+            let c1 = Rect::from_min_max(pt(1.8, 2.6), pt(5.4, 13.4));
+            let c2 = Rect::from_min_max(pt(10.6, 2.6), pt(14.2, 13.4));
+            p.rect_stroke(c1, 0.5, thin, egui::StrokeKind::Inside);
+            p.rect_stroke(c2, 0.5, thin, egui::StrokeKind::Inside);
+            p.line_segment([pt(6.2, 8.0), pt(9.8, 8.0)], thin);
+            p.line_segment([pt(7.4, 6.5), pt(6.2, 8.0)], thin);
+            p.line_segment([pt(7.4, 9.5), pt(6.2, 8.0)], thin);
+            p.line_segment([pt(8.6, 6.5), pt(9.8, 8.0)], thin);
+            p.line_segment([pt(8.6, 9.5), pt(9.8, 8.0)], thin);
+        }
+        TextPropertyGlyph::BorderStroke => {
+            p.line_segment([pt(4.0, 11.5), pt(11.5, 4.0)], stroke);
+            p.line_segment([pt(2.5, 13.5), pt(13.5, 13.5)], bold);
+        }
+        TextPropertyGlyph::BackgroundFill => {
+            let bucket = [pt(4.5, 7.5), pt(8.5, 3.5), pt(12.2, 7.2), pt(8.2, 11.2)];
+            for i in 0..4 {
+                p.line_segment([bucket[i], bucket[(i + 1) % 4]], thin);
+            }
+            p.circle_filled(pt(12.8, 11.5), (1.3 * scale).max(1.0), color);
+        }
+    }
+}
+
+pub(crate) fn text_property_icon_button(
+    ui: &mut egui::Ui,
+    glyph: TextPropertyGlyph,
+    selected: bool,
+    enabled: bool,
+    label: &str,
+) -> Response {
+    ui.add_enabled_ui_semantic(enabled, |ui| {
+        let p = neoflash_ui::palette(ui.ctx());
+        let side = crate::theme::control_h().min(22.0);
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+        let s = neoflash_ui::components::State::of(ui, &response);
+        let (bg, fg, border) = match (selected, s.enabled, s.hovered) {
+            (_, false, _) => (
+                egui::Color32::TRANSPARENT,
+                p.text_disabled,
+                egui::Color32::TRANSPARENT,
+            ),
+            (true, _, _) => (p.accent_subtle, p.accent_default, p.accent_default),
+            (false, _, true) => (p.bg_hover, p.text_primary, p.border_default),
+            (false, _, false) => (p.bg_panel, p.text_secondary, p.border_subtle),
+        };
+        let r = neoflash_ui::tokens::radius::SM;
+        if ui.is_rect_visible(rect) {
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(r as u8), bg);
+            if border != egui::Color32::TRANSPARENT {
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(r as u8),
+                    Stroke::new(1.0_f32, border),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            paint_text_property_glyph(ui.painter(), rect.shrink(2.0), glyph, fg);
+            if s.focused {
+                neoflash_ui::theme::focus_ring(ui, rect, r);
+            }
+        }
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, s.enabled, label);
+            info.selected = Some(selected);
+            info
+        });
+        neoflash_ui::components::tooltip(response, label, None)
+    })
+    .inner
+}
+
+pub(crate) fn text_property_badge(ui: &mut egui::Ui, glyph: TextPropertyGlyph, tooltip_text: &str) {
+    let p = neoflash_ui::palette(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        paint_text_property_glyph(ui.painter(), rect, glyph, p.text_secondary);
+    }
+    let _ = neoflash_ui::components::tooltip(response, tooltip_text, None);
+}
+
+/// Flash CS5 optional color swatch: shows the classic diagonal red slash when `enabled_flag` is
+/// `false` (clicking enables it), or shows the NF2 color swatch + a small clear-to-none slash
+/// toggle when `enabled_flag` is `true`.
+pub(crate) fn text_optional_color_swatch(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    enabled_flag: &mut bool,
+    rgb: &mut u32,
+    label: &str,
+) -> bool {
+    let mut changed = false;
+    let p = neoflash_ui::palette(ui.ctx());
+    let danger = crate::theme::UiPalette::current(ui.ctx()).error_text;
+    if !*enabled_flag {
+        let size = Vec2::new(26.0, (crate::theme::control_h() - 4.0).max(16.0));
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        if ui.is_rect_visible(rect) {
+            let r = neoflash_ui::tokens::radius::SM;
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(r as u8), p.bg_panel);
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius::same(r as u8),
+                Stroke::new(
+                    1.0_f32,
+                    if response.hovered() {
+                        p.text_secondary
+                    } else {
+                        p.border_default
+                    },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            let inner = rect.shrink(2.0);
+            ui.painter().line_segment(
+                [
+                    Pos2::new(inner.left(), inner.bottom()),
+                    Pos2::new(inner.right(), inner.top()),
+                ],
+                Stroke::new(1.5_f32, danger),
+            );
+        }
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+        });
+        let response = neoflash_ui::components::tooltip(response, label, None);
+        if response.clicked() {
+            *enabled_flag = true;
+            changed = true;
+        }
+    } else {
+        let mut rgba = [
+            ((*rgb >> 16) & 0xff) as u8,
+            ((*rgb >> 8) & 0xff) as u8,
+            (*rgb & 0xff) as u8,
+            255u8,
+        ];
+        if crate::paint_controls::color_swatch(ui, id_salt, label, &mut rgba).changed() {
+            *rgb = ((rgba[0] as u32) << 16) | ((rgba[1] as u32) << 8) | (rgba[2] as u32);
+            changed = true;
+        }
+        let clear_size = Vec2::splat(16.0);
+        let (rect, resp) = ui.allocate_exact_size(clear_size, Sense::click());
+        if ui.is_rect_visible(rect) {
+            let r = neoflash_ui::tokens::radius::SM;
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius::same(r as u8),
+                if resp.hovered() {
+                    p.bg_hover
+                } else {
+                    p.bg_panel
+                },
+            );
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius::same(r as u8),
+                Stroke::new(1.0_f32, p.border_subtle),
+                egui::StrokeKind::Inside,
+            );
+            let inner = rect.shrink(2.5);
+            ui.painter().line_segment(
+                [
+                    Pos2::new(inner.left(), inner.bottom()),
+                    Pos2::new(inner.right(), inner.top()),
+                ],
+                Stroke::new(1.4_f32, danger),
+            );
+        }
+        let clear_label = format!("Disable {label}");
+        resp.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &clear_label)
+        });
+        if neoflash_ui::components::tooltip(resp, &clear_label, None).clicked() {
+            *enabled_flag = false;
+            changed = true;
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,6 +1198,43 @@ mod tests {
                 paint_tool_modifier_glyph(&p, rect, glyph, Color32::WHITE);
             });
             assert!(!output.shapes.is_empty(), "{glyph:?} paints");
+            for shape in &output.shapes {
+                assert!(
+                    rect.expand(1.)
+                        .contains_rect(shape.shape.visual_bounding_rect())
+                );
+            }
+        }
+        for text_glyph in [
+            TextPropertyGlyph::OrientationHorizontal,
+            TextPropertyGlyph::OrientationVerticalLtr,
+            TextPropertyGlyph::OrientationVerticalRtl,
+            TextPropertyGlyph::Underline,
+            TextPropertyGlyph::Strikethrough,
+            TextPropertyGlyph::Superscript,
+            TextPropertyGlyph::Subscript,
+            TextPropertyGlyph::AlignLeft,
+            TextPropertyGlyph::AlignCenter,
+            TextPropertyGlyph::AlignRight,
+            TextPropertyGlyph::JustifyLastLeft,
+            TextPropertyGlyph::JustifyAll,
+            TextPropertyGlyph::BulletList,
+            TextPropertyGlyph::DirectionLtr,
+            TextPropertyGlyph::DirectionRtl,
+            TextPropertyGlyph::VerticalAlignTop,
+            TextPropertyGlyph::VerticalAlignCenter,
+            TextPropertyGlyph::VerticalAlignBottom,
+            TextPropertyGlyph::VerticalAlignJustify,
+            TextPropertyGlyph::ColumnsCount,
+            TextPropertyGlyph::ColumnGutter,
+            TextPropertyGlyph::BorderStroke,
+            TextPropertyGlyph::BackgroundFill,
+        ] {
+            let output = ctx.run(Default::default(), |ctx| {
+                let p = ctx.layer_painter(egui::LayerId::background());
+                paint_text_property_glyph(&p, rect, text_glyph, Color32::WHITE);
+            });
+            assert!(!output.shapes.is_empty(), "{text_glyph:?} paints");
             for shape in &output.shapes {
                 assert!(
                     rect.expand(1.)

@@ -6913,6 +6913,45 @@ fn compact_text_and_movie_clip_properties_inspectors_expose_two_column_rows_and_
         (left_rect.center().y - right_rect.center().y).abs() < 12.0,
         "Left and Right margins must be side-by-side in two columns"
     );
+    let cols_rect = named_bounds(&txt_out, "Columns").expect("Columns field");
+    let gutter_rect = named_bounds(&txt_out, "Column gutter").expect("Column gutter field");
+    assert!(
+        (cols_rect.center().y - gutter_rect.center().y).abs() < 12.0,
+        "Columns and Column gutter must be side-by-side in Container and flow"
+    );
+    for control in [
+        "Change orientation of text",
+        "Highlight color",
+        "Underline",
+        "Strikethrough",
+        "Superscript",
+        "Subscript",
+        "Align left",
+        "Align center",
+        "Align right",
+        "Justify with last line aligned left",
+        "Justify all lines",
+        "Bullet list",
+        "Left-to-right direction",
+        "Right-to-left direction",
+        "Space before",
+        "Space after",
+        "Align top",
+        "Align middle",
+        "Align bottom",
+        "Justify vertically",
+        "Padding left",
+        "Padding right",
+        "Padding top",
+        "Padding bottom",
+        "Border width",
+        "1st Line Offset: Auto",
+    ] {
+        assert!(
+            named_bounds(&txt_out, control).is_some(),
+            "Flash CS5 Text Properties control missing: {control}"
+        );
+    }
 }
 
 #[test]

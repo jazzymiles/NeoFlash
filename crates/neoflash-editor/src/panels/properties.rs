@@ -274,12 +274,14 @@ impl Editor {
                         changes.note(text_row(ui, "Name", &mut element.name));
                     }
 
-                    let pos_title = if is_instance || is_text_box {
+                    let is_text_any =
+                        is_text_box || matches!(element.kind, ElementKind::Text { .. });
+                    let pos_title = if is_instance || is_text_any {
                         "Position and size"
                     } else {
                         "Position and transform"
                     };
-                    inspector_section(ui, pos_title, |ui| {
+                    inspector_section_with_open(ui, pos_title, !is_text_any, |ui| {
                         for r in numeric_pair(
                             ui,
                             ["X", "Y"],
@@ -558,11 +560,60 @@ impl Editor {
                             }
                         }
                     });
-                    if is_text_box
-                        && let Some(control) =
+                    if is_text_box {
+                        if let Some(control) =
                             self.text_box_paragraph_and_options_ui(ui, &mut element.kind)
+                        {
+                            changes.control = Some(control);
+                        }
+                    } else if let ElementKind::Text {
+                        text,
+                        font_family,
+                        font_size,
+                        color,
+                    } = &element.kind
                     {
-                        changes.control = Some(control);
+                        let named = crate::fonts::styled_family(font_family, false, false);
+                        let family = if ctx.fonts(|fonts| fonts.families().contains(&named)) {
+                            named
+                        } else {
+                            egui::FontFamily::Proportional
+                        };
+                        let galley = ui.painter().layout_no_wrap(
+                            text.clone(),
+                            egui::FontId::new(*font_size as f32, family),
+                            egui::Color32::WHITE,
+                        );
+                        let mut temp_box = ElementKind::TextBox {
+                            text: text.clone(),
+                            width: (galley.size().x as f64 + 8.0).clamp(180.0, 1_000_000.0),
+                            height: (galley.size().y as f64 + 8.0).clamp(80.0, 1_000_000.0),
+                            format: TextFormat {
+                                font: font_family.clone(),
+                                size: *font_size,
+                                color: u32::from_be_bytes([0, color[0], color[1], color[2]]),
+                                ..Default::default()
+                            },
+                            word_wrap: true,
+                            multiline: true,
+                        };
+                        let before_temp = temp_box.clone();
+                        if let Some(control) =
+                            self.text_box_paragraph_and_options_ui(ui, &mut temp_box)
+                        {
+                            changes.control = Some(control);
+                        }
+                        if temp_box != before_temp {
+                            if let ElementKind::TextBox { width, format, .. } = &mut temp_box
+                                && format
+                                    .field_options()
+                                    .is_some_and(|o| o.column_count > 1)
+                            {
+                                *width = (*width).max(260.0);
+                            }
+                            element.transform.alpha *= color[3] as f64 / 255.0;
+                            element.kind = temp_box;
+                        }
                     }
                     if let Some(control) = self.primitive_options_properties_ui(ui, &mut element) {
                         changes.control = Some(control);
@@ -1387,11 +1438,21 @@ pub(crate) fn inspector_section<R>(
     title: &str,
     content: impl FnOnce(&mut egui::Ui) -> R,
 ) {
+    let default_open = !matches!(title, "Behavior / linkage" | "Accessibility");
+    inspector_section_with_open(ui, title, default_open, content);
+}
+
+pub(crate) fn inspector_section_with_open<R>(
+    ui: &mut egui::Ui,
+    title: &str,
+    default_open: bool,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) {
     ui.scope(|ui| {
         ui.spacing_mut().interact_size.y = crate::theme::control_h();
         SectionHeader::new(title)
-            .id_salt(("inspector-section", title))
-            .default_open(!matches!(title, "Behavior / linkage" | "Accessibility"))
+            .id_salt(("inspector-section", title, default_open))
+            .default_open(default_open)
             .show(ui, content);
     });
 }

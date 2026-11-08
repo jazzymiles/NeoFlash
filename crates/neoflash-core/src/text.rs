@@ -254,11 +254,11 @@ impl TextFormat {
         if let Some(mode) = self.align_mode()
             && !matches!(
                 mode,
-                "left" | "center" | "right" | "justify" | "start" | "end"
+                "left" | "center" | "right" | "justify" | "justify_all" | "start" | "end"
             )
         {
             return Err(error(
-                "alignMode requires left, center, right, justify, start or end",
+                "alignMode requires left, center, right, justify, justify_all, start or end",
             ));
         }
         if let Some(display) = self.display()
@@ -409,7 +409,7 @@ impl TextFormatPatch {
                     format.align = TextAlign::Right;
                     format.set_align_mode(None);
                 }
-                "justify" | "start" | "end" => {
+                "justify" | "justify_all" | "start" | "end" => {
                     format.align = if value == "end" {
                         TextAlign::Right
                     } else {
@@ -590,6 +590,85 @@ pub struct TextFieldState {
     pub html: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variable: Option<String>,
+    #[serde(default = "default_one_u32", skip_serializing_if = "is_one_u32")]
+    pub column_count: u32,
+    #[serde(
+        default = "default_gutter_f64",
+        skip_serializing_if = "is_default_gutter"
+    )]
+    pub column_gutter: f64,
+    #[serde(default = "default_top_str", skip_serializing_if = "is_top_str")]
+    pub vertical_align: String,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_left: f64,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_right: f64,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_top: f64,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_bottom: f64,
+    #[serde(default = "default_one_f64", skip_serializing_if = "is_one_f64")]
+    pub border_width: f64,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub first_line_offset_mode: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub first_line_offset: f64,
+    #[serde(default = "default_horiz_str", skip_serializing_if = "is_horiz_str")]
+    pub orientation: String,
+    #[serde(default = "default_ltr_str", skip_serializing_if = "is_ltr_str")]
+    pub direction: String,
+    #[serde(default = "default_pt_str", skip_serializing_if = "is_pt_str")]
+    pub leading_mode: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub highlight: bool,
+    #[serde(
+        default = "default_highlight_yellow",
+        skip_serializing_if = "is_highlight_yellow"
+    )]
+    pub highlight_color: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub strikethrough: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub superscript: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subscript: bool,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub glyph_rotation: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub typographic_case: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub digit_case: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub digit_width: String,
+    #[serde(default = "default_common_str", skip_serializing_if = "is_common_str")]
+    pub ligatures: String,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub line_break: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub baseline_shift: f64,
+    #[serde(
+        default = "default_locale_str",
+        skip_serializing_if = "is_default_locale_str"
+    )]
+    pub locale: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub space_before: f64,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub space_after: f64,
+    #[serde(
+        default = "default_word_spacing_str",
+        skip_serializing_if = "is_word_spacing_str"
+    )]
+    pub text_justify: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub format_runs: Vec<TextFormatRun>,
 }
@@ -625,6 +704,35 @@ impl Default for TextFieldState {
             always_show_selection: false,
             html: false,
             variable: None,
+            column_count: 1,
+            column_gutter: 20.0,
+            vertical_align: "top".into(),
+            padding_left: 2.0,
+            padding_right: 2.0,
+            padding_top: 2.0,
+            padding_bottom: 2.0,
+            border_width: 1.0,
+            first_line_offset_mode: "auto".into(),
+            first_line_offset: 0.0,
+            orientation: "horizontal".into(),
+            direction: "ltr".into(),
+            leading_mode: "pt".into(),
+            highlight: false,
+            highlight_color: 0xffff00,
+            strikethrough: false,
+            superscript: false,
+            subscript: false,
+            glyph_rotation: "auto".into(),
+            typographic_case: "default".into(),
+            digit_case: "default".into(),
+            digit_width: "default".into(),
+            ligatures: "common".into(),
+            line_break: "auto".into(),
+            baseline_shift: 0.0,
+            locale: "en_US".into(),
+            space_before: 0.0,
+            space_after: 0.0,
+            text_justify: "word_spacing".into(),
             format_runs: Vec::new(),
         }
     }
@@ -640,6 +748,130 @@ fn is_true_bool(v: &bool) -> bool {
 
 fn is_zero_u32_text(v: &u32) -> bool {
     *v == 0
+}
+
+fn default_one_u32() -> u32 {
+    1
+}
+
+fn is_one_u32(v: &u32) -> bool {
+    *v <= 1
+}
+
+fn default_gutter_f64() -> f64 {
+    20.0
+}
+
+fn is_default_gutter(v: &f64) -> bool {
+    (*v - 20.0).abs() < 1e-6
+}
+
+fn default_pad_f64() -> f64 {
+    2.0
+}
+
+fn is_default_pad(v: &f64) -> bool {
+    (*v - 2.0).abs() < 1e-6
+}
+
+fn default_one_f64() -> f64 {
+    1.0
+}
+
+fn is_one_f64(v: &f64) -> bool {
+    (*v - 1.0).abs() < 1e-6
+}
+
+fn is_zero_f64(v: &f64) -> bool {
+    v.abs() < 1e-6
+}
+
+fn default_top_str() -> String {
+    "top".into()
+}
+
+fn is_top_str(s: &str) -> bool {
+    s.is_empty() || s == "top"
+}
+
+fn default_auto_str() -> String {
+    "auto".into()
+}
+
+fn is_auto_str(s: &str) -> bool {
+    s.is_empty() || s == "auto"
+}
+
+fn default_horiz_str() -> String {
+    "horizontal".into()
+}
+
+fn is_horiz_str(s: &str) -> bool {
+    s.is_empty() || s == "horizontal"
+}
+
+fn default_ltr_str() -> String {
+    "ltr".into()
+}
+
+fn is_ltr_str(s: &str) -> bool {
+    s.is_empty() || s == "ltr"
+}
+
+fn default_pt_str() -> String {
+    "pt".into()
+}
+
+fn is_pt_str(s: &str) -> bool {
+    s.is_empty() || s == "pt"
+}
+
+fn default_default_str() -> String {
+    "default".into()
+}
+
+fn is_default_str(s: &str) -> bool {
+    s.is_empty() || s == "default"
+}
+
+fn default_common_str() -> String {
+    "common".into()
+}
+
+fn is_common_str(s: &str) -> bool {
+    s.is_empty() || s == "common"
+}
+
+fn default_locale_str() -> String {
+    "en_US".into()
+}
+
+fn is_default_locale_str(s: &str) -> bool {
+    s.is_empty() || s == "en_US"
+}
+
+fn default_word_spacing_str() -> String {
+    "word_spacing".into()
+}
+
+fn is_word_spacing_str(s: &str) -> bool {
+    s.is_empty() || s == "word_spacing"
+}
+
+fn is_normal_anti_alias(s: &str) -> bool {
+    s.is_empty() || s == "normal"
+}
+
+fn is_pixel_grid_fit(s: &str) -> bool {
+    s.is_empty() || s == "pixel"
+}
+
+fn default_highlight_yellow() -> u32 {
+    0xffff00
+}
+
+fn is_highlight_yellow(v: &u32) -> bool {
+    *v == 0xffff00
 }
 
 fn default_none_auto_size() -> String {
@@ -674,6 +906,8 @@ pub struct AuthoredTextFieldOptions {
     pub border: bool,
     #[serde(default, skip_serializing_if = "is_zero_u32_text")]
     pub border_color: u32,
+    #[serde(default = "default_one_f64", skip_serializing_if = "is_one_f64")]
+    pub border_width: f64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
     #[serde(default = "default_bg_white", skip_serializing_if = "is_bg_white")]
@@ -682,6 +916,97 @@ pub struct AuthoredTextFieldOptions {
     pub html: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub embed_fonts: bool,
+    #[serde(default = "default_one_u32", skip_serializing_if = "is_one_u32")]
+    pub column_count: u32,
+    #[serde(
+        default = "default_gutter_f64",
+        skip_serializing_if = "is_default_gutter"
+    )]
+    pub column_gutter: f64,
+    #[serde(default = "default_top_str", skip_serializing_if = "is_top_str")]
+    pub vertical_align: String,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_left: f64,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_right: f64,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_top: f64,
+    #[serde(default = "default_pad_f64", skip_serializing_if = "is_default_pad")]
+    pub padding_bottom: f64,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub first_line_offset_mode: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub first_line_offset: f64,
+    #[serde(default = "default_horiz_str", skip_serializing_if = "is_horiz_str")]
+    pub orientation: String,
+    #[serde(default = "default_ltr_str", skip_serializing_if = "is_ltr_str")]
+    pub direction: String,
+    #[serde(default = "default_pt_str", skip_serializing_if = "is_pt_str")]
+    pub leading_mode: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub highlight: bool,
+    #[serde(
+        default = "default_highlight_yellow",
+        skip_serializing_if = "is_highlight_yellow"
+    )]
+    pub highlight_color: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub strikethrough: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub superscript: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subscript: bool,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub glyph_rotation: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub typographic_case: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub digit_case: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub digit_width: String,
+    #[serde(default = "default_common_str", skip_serializing_if = "is_common_str")]
+    pub ligatures: String,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub line_break: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub baseline_shift: f64,
+    #[serde(
+        default = "default_locale_str",
+        skip_serializing_if = "is_default_locale_str"
+    )]
+    pub locale: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub space_before: f64,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub space_after: f64,
+    #[serde(
+        default = "default_word_spacing_str",
+        skip_serializing_if = "is_word_spacing_str"
+    )]
+    pub text_justify: String,
+    #[serde(
+        default = "anti_alias_default",
+        skip_serializing_if = "is_normal_anti_alias"
+    )]
+    pub anti_alias_type: String,
+    #[serde(
+        default = "grid_fit_default",
+        skip_serializing_if = "is_pixel_grid_fit"
+    )]
+    pub grid_fit_type: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub sharpness: f64,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub thickness: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub format_runs: Vec<TextFormatRun>,
 }
@@ -706,10 +1031,43 @@ impl Default for AuthoredTextFieldOptions {
             auto_size: "none".into(),
             border: false,
             border_color: 0,
+            border_width: 1.0,
             background: false,
             background_color: 0xffffff,
             html: false,
             embed_fonts: false,
+            column_count: 1,
+            column_gutter: 20.0,
+            vertical_align: "top".into(),
+            padding_left: 2.0,
+            padding_right: 2.0,
+            padding_top: 2.0,
+            padding_bottom: 2.0,
+            first_line_offset_mode: "auto".into(),
+            first_line_offset: 0.0,
+            orientation: "horizontal".into(),
+            direction: "ltr".into(),
+            leading_mode: "pt".into(),
+            highlight: false,
+            highlight_color: 0xffff00,
+            strikethrough: false,
+            superscript: false,
+            subscript: false,
+            glyph_rotation: "auto".into(),
+            typographic_case: "default".into(),
+            digit_case: "default".into(),
+            digit_width: "default".into(),
+            ligatures: "common".into(),
+            line_break: "auto".into(),
+            baseline_shift: 0.0,
+            locale: "en_US".into(),
+            space_before: 0.0,
+            space_after: 0.0,
+            text_justify: "word_spacing".into(),
+            anti_alias_type: anti_alias_default(),
+            grid_fit_type: grid_fit_default(),
+            sharpness: 0.0,
+            thickness: 0.0,
             format_runs: Vec::new(),
         }
     }
@@ -733,6 +1091,7 @@ impl AuthoredTextFieldOptions {
         };
         state.as2_viewport.border = self.border;
         state.as2_viewport.border_color = self.border_color & 0xffffff;
+        state.border_width = self.border_width.clamp(0.5, 200.0);
         state.as2_viewport.background = self.background;
         state.as2_viewport.background_color = self.background_color & 0xffffff;
         state.as2_viewport.active = self.border
@@ -741,6 +1100,94 @@ impl AuthoredTextFieldOptions {
         state.embed_fonts = self.embed_fonts;
         state.html = self.html;
         state.variable = self.variable.clone().filter(|s| !s.trim().is_empty());
+        state.column_count = self.column_count.clamp(1, 50);
+        state.column_gutter = self.column_gutter.clamp(0.0, 1000.0);
+        state.vertical_align = if self.vertical_align.is_empty() {
+            "top".into()
+        } else {
+            self.vertical_align.clone()
+        };
+        state.padding_left = self.padding_left.clamp(0.0, 1000.0);
+        state.padding_right = self.padding_right.clamp(0.0, 1000.0);
+        state.padding_top = self.padding_top.clamp(0.0, 1000.0);
+        state.padding_bottom = self.padding_bottom.clamp(0.0, 1000.0);
+        state.first_line_offset_mode = if self.first_line_offset_mode.is_empty() {
+            "auto".into()
+        } else {
+            self.first_line_offset_mode.clone()
+        };
+        state.first_line_offset = self.first_line_offset.clamp(0.0, 1000.0);
+        state.orientation = if self.orientation.is_empty() {
+            "horizontal".into()
+        } else {
+            self.orientation.clone()
+        };
+        state.direction = if self.direction.is_empty() {
+            "ltr".into()
+        } else {
+            self.direction.clone()
+        };
+        state.leading_mode = if self.leading_mode.is_empty() {
+            "pt".into()
+        } else {
+            self.leading_mode.clone()
+        };
+        state.highlight = self.highlight;
+        state.highlight_color = self.highlight_color & 0xffffff;
+        state.strikethrough = self.strikethrough;
+        state.superscript = self.superscript;
+        state.subscript = self.subscript && !self.superscript;
+        state.glyph_rotation = if self.glyph_rotation.is_empty() {
+            "auto".into()
+        } else {
+            self.glyph_rotation.clone()
+        };
+        state.typographic_case = if self.typographic_case.is_empty() {
+            "default".into()
+        } else {
+            self.typographic_case.clone()
+        };
+        state.digit_case = if self.digit_case.is_empty() {
+            "default".into()
+        } else {
+            self.digit_case.clone()
+        };
+        state.digit_width = if self.digit_width.is_empty() {
+            "default".into()
+        } else {
+            self.digit_width.clone()
+        };
+        state.ligatures = if self.ligatures.is_empty() {
+            "common".into()
+        } else {
+            self.ligatures.clone()
+        };
+        state.line_break = if self.line_break.is_empty() {
+            "auto".into()
+        } else {
+            self.line_break.clone()
+        };
+        state.baseline_shift = self.baseline_shift.clamp(-720.0, 720.0);
+        state.locale = if self.locale.is_empty() {
+            "en_US".into()
+        } else {
+            self.locale.clone()
+        };
+        state.space_before = self.space_before.clamp(0.0, 1000.0);
+        state.space_after = self.space_after.clamp(0.0, 1000.0);
+        state.text_justify = if self.text_justify.is_empty() {
+            "word_spacing".into()
+        } else {
+            self.text_justify.clone()
+        };
+        if !self.anti_alias_type.is_empty() {
+            state.anti_alias_type = self.anti_alias_type.clone();
+        }
+        if !self.grid_fit_type.is_empty() {
+            state.grid_fit_type = self.grid_fit_type.clone();
+        }
+        state.sharpness = self.sharpness.clamp(-400.0, 400.0);
+        state.thickness = self.thickness.clamp(-200.0, 200.0);
         state.format_runs = self.format_runs.clone();
         state.normalize_runs();
     }
@@ -758,10 +1205,43 @@ impl AuthoredTextFieldOptions {
             auto_size: state.as2_viewport.auto_size.clone(),
             border: state.as2_viewport.border,
             border_color: state.as2_viewport.border_color & 0xffffff,
+            border_width: state.border_width,
             background: state.as2_viewport.background,
             background_color: state.as2_viewport.background_color & 0xffffff,
             html: html || state.html,
             embed_fonts: state.embed_fonts,
+            column_count: state.column_count.max(1),
+            column_gutter: state.column_gutter,
+            vertical_align: state.vertical_align.clone(),
+            padding_left: state.padding_left,
+            padding_right: state.padding_right,
+            padding_top: state.padding_top,
+            padding_bottom: state.padding_bottom,
+            first_line_offset_mode: state.first_line_offset_mode.clone(),
+            first_line_offset: state.first_line_offset,
+            orientation: state.orientation.clone(),
+            direction: state.direction.clone(),
+            leading_mode: state.leading_mode.clone(),
+            highlight: state.highlight,
+            highlight_color: state.highlight_color & 0xffffff,
+            strikethrough: state.strikethrough,
+            superscript: state.superscript,
+            subscript: state.subscript,
+            glyph_rotation: state.glyph_rotation.clone(),
+            typographic_case: state.typographic_case.clone(),
+            digit_case: state.digit_case.clone(),
+            digit_width: state.digit_width.clone(),
+            ligatures: state.ligatures.clone(),
+            line_break: state.line_break.clone(),
+            baseline_shift: state.baseline_shift,
+            locale: state.locale.clone(),
+            space_before: state.space_before,
+            space_after: state.space_after,
+            text_justify: state.text_justify.clone(),
+            anti_alias_type: state.anti_alias_type.clone(),
+            grid_fit_type: state.grid_fit_type.clone(),
+            sharpness: state.sharpness,
+            thickness: state.thickness,
             format_runs: state.format_runs.clone(),
         }
     }
@@ -1667,6 +2147,15 @@ pub struct TextSurface {
     pub height: f64,
     pub background: Option<u32>,
     pub border: Option<u32>,
+    #[serde(default = "default_one_f64", skip_serializing_if = "is_one_f64")]
+    pub border_width: f64,
+    #[serde(default = "default_one_u32", skip_serializing_if = "is_one_u32")]
+    pub column_count: u32,
+    #[serde(
+        default = "default_gutter_f64",
+        skip_serializing_if = "is_default_gutter"
+    )]
+    pub column_gutter: f64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextRun {
@@ -1683,6 +2172,8 @@ pub struct TextLayout {
     pub text_height: f64,
     pub line_height: f64,
     pub decorations: Vec<TextDecoration>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub highlights: Vec<TextDecoration>,
     pub runs: Vec<TextRun>,
     pub bullets: Vec<[f64; 3]>,
     pub viewport: TextViewportMetrics,
@@ -1693,6 +2184,33 @@ struct Part {
     start: u32,
     end: u32,
     newline: bool,
+}
+fn apply_typographic_case(text: &str, mode: &str) -> String {
+    match mode {
+        "uppercase" | "lowercase_to_small_caps" => text
+            .chars()
+            .map(|ch| {
+                let up: String = ch.to_uppercase().collect();
+                if up.encode_utf16().count() == ch.len_utf16() {
+                    up
+                } else {
+                    ch.to_string()
+                }
+            })
+            .collect(),
+        "lowercase" => text
+            .chars()
+            .map(|ch| {
+                let lo: String = ch.to_lowercase().collect();
+                if lo.encode_utf16().count() == ch.len_utf16() {
+                    lo
+                } else {
+                    ch.to_string()
+                }
+            })
+            .collect(),
+        _ => text.to_owned(),
+    }
 }
 fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
     let mut run_boundaries = BTreeSet::new();
@@ -1708,6 +2226,8 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
                 .format_runs
                 .iter()
                 .any(|r| !r.format.tab_stops.is_empty()));
+    let break_all = matches!(field.line_break.as_str(), "all" | "any")
+        || matches!(field.orientation.as_str(), "vertical_ltr" | "vertical_rtl");
     let mut result = Vec::new();
     let mut text = String::new();
     let mut start = 0;
@@ -1727,6 +2247,9 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
             })
             .collect::<String>();
         displayed.as_str()
+    } else if !is_default_str(&field.typographic_case) {
+        displayed = apply_typographic_case(&field.text, &field.typographic_case);
+        displayed.as_str()
     } else {
         field.text.as_str()
     };
@@ -1735,7 +2258,9 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
         let is_tab = split_tabs_for_wrap && ch == '\t';
         let nextspace = ch.is_whitespace();
         let hit_boundary = !run_boundaries.is_empty() && run_boundaries.contains(&offset);
-        if !text.is_empty() && (newline || is_tab || hit_boundary || space != nextspace) {
+        if !text.is_empty()
+            && (newline || is_tab || hit_boundary || space != nextspace || break_all)
+        {
             result.push(Part {
                 text: std::mem::take(&mut text),
                 start,
@@ -1829,6 +2354,55 @@ fn align_offset(align_mode: &str, avail: f64, width: f64) -> f64 {
     }
 }
 
+fn line_advance_for(max_size: f64, leading: f64, leading_mode: &str) -> f64 {
+    if leading_mode == "percent" {
+        let pct = if leading <= 0.0 { 120.0 } else { leading };
+        (max_size * (pct / 100.0)).max(1.0)
+    } else {
+        (max_size * 1.2 + leading).max(1.0)
+    }
+}
+
+fn effective_run_format(base: &TextFormat, field: &TextFieldState) -> TextFormat {
+    let mut fmt = base.clone();
+    if field.superscript || field.subscript {
+        fmt.size = (fmt.size * 0.65).max(1.0);
+    } else if matches!(
+        field.typographic_case.as_str(),
+        "caps_to_small_caps" | "lowercase_to_small_caps"
+    ) {
+        fmt.size = (fmt.size * 0.8).max(1.0);
+    }
+    fmt
+}
+
+impl TextFieldState {
+    pub fn has_extended_layout_options(&self) -> bool {
+        self.column_count > 1
+            || !is_default_pad(&self.padding_left)
+            || !is_default_pad(&self.padding_right)
+            || !is_default_pad(&self.padding_top)
+            || !is_default_pad(&self.padding_bottom)
+            || !is_one_f64(&self.border_width)
+            || !is_top_str(&self.vertical_align)
+            || !is_auto_str(&self.first_line_offset_mode)
+            || !is_horiz_str(&self.orientation)
+            || !is_ltr_str(&self.direction)
+            || !is_pt_str(&self.leading_mode)
+            || self.highlight
+            || self.strikethrough
+            || self.superscript
+            || self.subscript
+            || !is_default_str(&self.typographic_case)
+            || !is_auto_str(&self.line_break)
+            || !is_zero_f64(&self.baseline_shift)
+            || !is_zero_f64(&self.space_before)
+            || !is_zero_f64(&self.space_after)
+            || !is_word_spacing_str(&self.text_justify)
+            || self.format.effective_align_mode() == "justify_all"
+    }
+}
+
 fn layout_multirun_text<M>(field: &TextFieldState, mut measure: M) -> Result<TextLayout, TextError>
 where
     M: FnMut(&[String], &TextFormat) -> Result<Vec<f64>, TextError>,
@@ -1854,7 +2428,8 @@ where
     let mut widths = vec![0.0_f64; parts.len()];
     if mat_runs.is_empty() {
         let strings: Vec<_> = parts.iter().map(|p| p.text.clone()).collect();
-        widths = measured(&strings, &field.format, &mut measure)?;
+        let eff_fmt = effective_run_format(&field.format, field);
+        widths = measured(&strings, &eff_fmt, &mut measure)?;
     } else {
         let mut grouped_indices: Vec<Vec<usize>> = vec![Vec::new(); mat_runs.len()];
         for (idx, part) in parts.iter().enumerate() {
@@ -1867,14 +2442,45 @@ where
                 continue;
             }
             let strings: Vec<String> = indices.iter().map(|&i| parts[i].text.clone()).collect();
-            let w = measured(&strings, &mat_runs[r_idx].format, &mut measure)?;
+            let eff_fmt = effective_run_format(&mat_runs[r_idx].format, field);
+            let w = measured(&strings, &eff_fmt, &mut measure)?;
             for (i, width) in indices.into_iter().zip(w) {
                 widths[i] = width;
             }
         }
     }
 
-    let padding = if field.box_size.is_some() { 2. } else { 0. };
+    let (pad_l, pad_r, pad_t, pad_b) = if field.box_size.is_some() {
+        (
+            field.padding_left.max(0.0),
+            field.padding_right.max(0.0),
+            field.padding_top.max(0.0),
+            field.padding_bottom.max(0.0),
+        )
+    } else {
+        (0.0, 0.0, 0.0, 0.0)
+    };
+    let cols = if field.box_size.is_some() {
+        field.column_count.clamp(1, 50)
+    } else {
+        1
+    };
+    let gutter = if cols > 1 {
+        field.column_gutter.max(0.0)
+    } else {
+        0.0
+    };
+    let is_vertical = matches!(field.orientation.as_str(), "vertical_ltr" | "vertical_rtl");
+    let col_width_opt = field.box_size.map(|b| {
+        if is_vertical {
+            (b.height - pad_t - pad_b).max(0.0)
+        } else {
+            let inner_w = (b.width - pad_l - pad_r).max(0.0);
+            let total_gutter = gutter * f64::from(cols - 1);
+            ((inner_w - total_gutter) / f64::from(cols)).max(0.0)
+        }
+    });
+
     let mut paragraph_starts = BTreeSet::from([0u32]);
     let mut offset = 0u32;
     for ch in field.text.chars() {
@@ -1886,25 +2492,22 @@ where
     let line_metrics_at = |start: u32| -> (f64, Option<f64>, &TextFormat) {
         let pfmt = fmt_at(start);
         let b_indent = if pfmt.bullet { pfmt.size } else { 0. };
-        let orig_x = padding + pfmt.left_margin + pfmt.block_indent + b_indent;
+        let rel_orig_x = pfmt.left_margin + pfmt.block_indent + b_indent;
         let p_indent = if paragraph_starts.contains(&start) {
             pfmt.indent
         } else {
             0.
         };
-        let avail = field.box_size.map(|b| {
-            (b.width
-                - 2. * padding
-                - pfmt.left_margin
-                - pfmt.right_margin
-                - pfmt.block_indent
-                - b_indent
-                - p_indent)
+        let avail = col_width_opt.map(|cw| {
+            (cw - pfmt.left_margin - pfmt.right_margin - pfmt.block_indent - b_indent - p_indent)
                 .max(0.)
         });
-        (orig_x + p_indent, avail, pfmt)
+        (rel_orig_x + p_indent, avail, pfmt)
     };
-    let wrap = field.multiline && field.word_wrap && field.box_size.is_some();
+    let wrap = field.multiline
+        && field.word_wrap
+        && field.box_size.is_some()
+        && field.line_break != "no_break";
 
     #[derive(Clone)]
     struct Seg {
@@ -1980,7 +2583,8 @@ where
             )?;
             continue;
         }
-        let pfmt = fmt_at(part.start).clone();
+        let base_pfmt = fmt_at(part.start);
+        let pfmt = effective_run_format(base_pfmt, field);
         if part.text == "\t" && !pfmt.tab_stops.is_empty() {
             let next_x = next_tab_stop(cur_line.width, &pfmt);
             cur_line.text.push('\t');
@@ -2043,8 +2647,8 @@ where
                 chunk_w += w;
                 char_off += ch.len_utf16() as u32;
                 cur_line.end = char_off;
-                cur_max_size = cur_max_size.max(pfmt.size);
-                cur_leading = cur_leading.max(pfmt.leading);
+                cur_max_size = cur_max_size.max(base_pfmt.size);
+                cur_leading = cur_leading.max(base_pfmt.leading);
             }
             if !chunk.is_empty() {
                 cur_segs.push(Seg {
@@ -2064,8 +2668,8 @@ where
             cur_line.width = rel_x + part_w;
             cur_line.text.push_str(&part.text);
             cur_line.end = part.end;
-            cur_max_size = cur_max_size.max(pfmt.size);
-            cur_leading = cur_leading.max(pfmt.leading);
+            cur_max_size = cur_max_size.max(base_pfmt.size);
+            cur_leading = cur_leading.max(base_pfmt.leading);
             cur_segs.push(Seg {
                 text: part.text.clone(),
                 fmt: pfmt,
@@ -2082,8 +2686,18 @@ where
         &mut cur_leading,
     )?;
 
-    let mut y_cursor = padding;
-    let mut text_width = 0.0_f64;
+    let first_line_top_extra = match field.first_line_offset_mode.as_str() {
+        "line_height" => built_lines
+            .first()
+            .map_or(0.0, |b| (b.max_size * 0.2).max(0.0)),
+        "pt" => field.first_line_offset.max(0.0),
+        _ => 0.0,
+    };
+    let col_top_y = pad_t + first_line_top_extra;
+    let col_avail_h_opt = field
+        .box_size
+        .map(|b| (b.height - pad_t - pad_b - first_line_top_extra).max(0.0));
+
     let line_count_usize = built_lines.len();
     let mut next_starts: Vec<Option<u32>> = built_lines
         .iter()
@@ -2092,54 +2706,195 @@ where
         .collect();
     next_starts.push(None);
 
+    // Compute natural height so multi-column containers either overflow at col_avail_h
+    // or balance lines across columns when total content height fits inside one column.
+    let natural_total_h: f64 = built_lines
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let adv = if i + 1 < line_count_usize {
+                line_advance_for(b.max_size, b.leading, &field.leading_mode)
+            } else {
+                b.line.height
+            };
+            let para_gap = if i > 0 && paragraph_starts.contains(&b.line.start) {
+                field.space_before.max(field.space_after).max(0.0)
+            } else {
+                0.0
+            };
+            adv + para_gap
+        })
+        .sum();
+    let balanced_lines_per_col = if cols > 1
+        && line_count_usize > 1
+        && col_avail_h_opt.is_some_and(|ch| natural_total_h <= ch)
+    {
+        Some(line_count_usize.div_ceil(cols as usize).max(1))
+    } else {
+        None
+    };
+
+    let mut line_col_indices = vec![0u32; line_count_usize];
+    let mut col_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut cur_col = 0u32;
+    let mut cur_col_start_idx = 0usize;
+    let mut y_in_col = 0.0_f64;
+    let mut lines_in_col = 0usize;
+    let mut text_width = 0.0_f64;
+    let mut max_col_bottom = col_top_y;
+
     for (idx, bl) in built_lines.iter_mut().enumerate() {
-        let (base_x, avail_opt, pfmt) = line_metrics_at(bl.line.start);
-        let align_mode = pfmt.effective_align_mode();
+        let (rel_base_x, avail_opt, pfmt) = line_metrics_at(bl.line.start);
+        let raw_align = pfmt.effective_align_mode();
+        let align_mode = if field.direction == "rtl" && pfmt.align_mode() == Some("start") {
+            "right"
+        } else if field.direction == "rtl" && pfmt.align_mode() == Some("end") {
+            "left"
+        } else {
+            raw_align
+        };
         let soft_wrapped = idx + 1 < line_count_usize
             && next_starts[idx].is_some_and(|ns| !paragraph_starts.contains(&ns));
-        if align_mode == "justify"
-            && soft_wrapped
-            && let Some(avail) = avail_opt
-        {
-            // Trim trailing whitespace segments for justification slack calculation.
+        let should_justify =
+            (align_mode == "justify" && soft_wrapped) || align_mode == "justify_all";
+        if should_justify && let Some(avail) = avail_opt {
             let last_non_ws = bl.segs.iter().rposition(|s| !s.text.trim().is_empty());
             if let Some(last_idx) = last_non_ws {
                 let content_w = bl.segs[last_idx].rel_x + bl.segs[last_idx].width;
-                let ws_indices: Vec<usize> = (0..last_idx)
-                    .filter(|&i| bl.segs[i].text.chars().all(char::is_whitespace))
-                    .collect();
                 let slack = (avail - content_w).max(0.0);
-                if !ws_indices.is_empty() && slack > 0.0 {
-                    let extra_per_gap = slack / ws_indices.len() as f64;
-                    let mut shift = 0.0;
-                    for (s_i, seg) in bl.segs.iter_mut().enumerate() {
-                        seg.rel_x += shift;
-                        if s_i < last_idx && seg.text.chars().all(char::is_whitespace) {
-                            seg.width += extra_per_gap;
-                            shift += extra_per_gap;
+                if slack > 0.0 {
+                    let ws_indices: Vec<usize> = (0..last_idx)
+                        .filter(|&i| bl.segs[i].text.chars().all(char::is_whitespace))
+                        .collect();
+                    if field.text_justify != "letter_spacing" && !ws_indices.is_empty() {
+                        let extra_per_gap = slack / ws_indices.len() as f64;
+                        let mut shift = 0.0;
+                        for (s_i, seg) in bl.segs.iter_mut().enumerate() {
+                            seg.rel_x += shift;
+                            if s_i < last_idx && seg.text.chars().all(char::is_whitespace) {
+                                seg.width += extra_per_gap;
+                                shift += extra_per_gap;
+                            }
                         }
+                        bl.line.width = avail;
+                    } else if last_idx > 0 {
+                        let extra_per_seg = slack / last_idx as f64;
+                        for (s_i, seg) in bl.segs.iter_mut().enumerate().take(last_idx + 1) {
+                            seg.rel_x += s_i as f64 * extra_per_seg;
+                        }
+                        bl.line.width = avail;
                     }
-                    bl.line.width = avail;
                 }
             }
         }
-        bl.line.x =
-            base_x + avail_opt.map_or(0., |avail| align_offset(align_mode, avail, bl.line.width));
-        bl.line.y = y_cursor;
-        y_cursor += bl.max_size * 1.2 + bl.leading;
+
+        let is_para_start = paragraph_starts.contains(&bl.line.start);
+        let para_gap = if lines_in_col > 0 && is_para_start {
+            field.space_before.max(field.space_after).max(0.0)
+        } else {
+            0.0
+        };
+        let need_next_col = if cur_col + 1 < cols && lines_in_col > 0 && !is_vertical {
+            if let Some(target_lines) = balanced_lines_per_col {
+                lines_in_col >= target_lines
+            } else if let Some(col_h) = col_avail_h_opt {
+                y_in_col + para_gap + bl.line.height > col_h
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if need_next_col {
+            col_ranges.push((cur_col_start_idx, idx));
+            cur_col += 1;
+            cur_col_start_idx = idx;
+            y_in_col = 0.0;
+            lines_in_col = 0;
+        } else {
+            y_in_col += para_gap;
+        }
+
+        line_col_indices[idx] = cur_col;
+        let col_w = col_width_opt.unwrap_or(0.0);
+        let col_x_origin = if cols <= 1 {
+            pad_l
+        } else if field.direction == "rtl" {
+            pad_l + f64::from(cols - 1 - cur_col) * (col_w + gutter)
+        } else {
+            pad_l + f64::from(cur_col) * (col_w + gutter)
+        };
+        let align_shift = avail_opt.map_or(0., |avail| {
+            let mode = if align_mode == "justify_all" {
+                "left"
+            } else {
+                align_mode
+            };
+            align_offset(mode, avail, bl.line.width)
+        });
+        bl.line.x = col_x_origin + rel_base_x + align_shift;
+        bl.line.y = col_top_y + y_in_col;
+        let advance = line_advance_for(bl.max_size, bl.leading, &field.leading_mode);
+        y_in_col += advance;
+        lines_in_col += 1;
+        max_col_bottom = max_col_bottom.max(bl.line.y + bl.line.height);
         text_width = text_width.max(bl.line.width);
     }
+    if cur_col_start_idx < line_count_usize {
+        col_ranges.push((cur_col_start_idx, line_count_usize));
+    }
 
-    let base_advance = field.format.size * 1.2 + field.format.leading;
+    // Apply per-column vertical alignment (Top / Center / Bottom / Justify) when box_size is set.
+    if let Some(col_avail_h) = col_avail_h_opt
+        && !is_top_str(&field.vertical_align)
+        && !is_vertical
+    {
+        for (start_idx, end_idx) in &col_ranges {
+            if start_idx >= end_idx {
+                continue;
+            }
+            let last_line = &built_lines[end_idx - 1].line;
+            let content_h = (last_line.y - col_top_y) + last_line.height;
+            let slack_v = (col_avail_h - content_h).max(0.0);
+            if slack_v <= 0.0 {
+                continue;
+            }
+            match field.vertical_align.as_str() {
+                "center" => {
+                    let shift = slack_v * 0.5;
+                    for bl in &mut built_lines[*start_idx..*end_idx] {
+                        bl.line.y += shift;
+                    }
+                }
+                "bottom" => {
+                    for bl in &mut built_lines[*start_idx..*end_idx] {
+                        bl.line.y += slack_v;
+                    }
+                }
+                "justify" if end_idx - start_idx > 1 => {
+                    let count_in_col = end_idx - start_idx;
+                    let step = slack_v / (count_in_col - 1) as f64;
+                    for (local_i, bl) in built_lines[*start_idx..*end_idx].iter_mut().enumerate() {
+                        bl.line.y += local_i as f64 * step;
+                    }
+                }
+                _ => {}
+            }
+            let new_bottom = built_lines[end_idx - 1].line.y + built_lines[end_idx - 1].line.height;
+            max_col_bottom = max_col_bottom.max(new_bottom);
+        }
+    }
+
+    let base_advance =
+        line_advance_for(field.format.size, field.format.leading, &field.leading_mode);
     let text_height = if built_lines.is_empty() {
         field.format.size * 1.2
     } else {
-        let last = built_lines.last().expect("non-empty");
-        (last.line.y - padding) + last.line.height
+        (max_col_bottom - pad_t).max(field.format.size * 1.2)
     };
     let visible_height = field
         .box_size
-        .map_or(text_height, |size| (size.height - 2. * padding).max(0.));
+        .map_or(text_height, |size| (size.height - pad_t - pad_b).max(0.));
     let visible_lines = (visible_height / base_advance.max(1.)).floor().max(1.) as u32;
     let line_count = built_lines.len() as u32;
     let maxscroll = if field.box_size.is_some() {
@@ -2169,44 +2924,121 @@ where
     } else {
         built_lines
             .get((scroll - 1) as usize)
-            .map_or(f64::from(scroll - 1) * base_advance, |b| b.line.y - padding)
+            .map_or(f64::from(scroll - 1) * base_advance, |b| b.line.y - pad_t)
     };
 
     let mut runs = Vec::new();
     let mut decorations = Vec::new();
+    let mut highlights = Vec::new();
     let mut bullets = Vec::new();
     let mut lines = Vec::with_capacity(built_lines.len());
-    for mut bl in built_lines {
-        bl.line.x -= f64::from(hscroll);
-        bl.line.y -= scroll_y;
-        let pfmt = fmt_at(bl.line.start);
-        if pfmt.bullet && paragraph_starts.contains(&bl.line.start) {
-            bullets.push([
-                bl.line.x - pfmt.size * 0.6,
-                bl.line.y + pfmt.size * 0.6,
-                (pfmt.size * 0.1).max(1.),
-            ]);
+    let sub_sup_shift = |max_size: f64| -> f64 {
+        if field.superscript {
+            -max_size * 0.35
+        } else if field.subscript {
+            max_size * 0.20
+        } else {
+            0.0
         }
-        for seg in bl.segs {
-            let sx = bl.line.x + seg.rel_x;
-            let sy = bl.line.y + (bl.max_size - seg.fmt.size).max(0.0);
-            if seg.fmt.underline && !seg.text.is_empty() {
-                decorations.push(TextDecoration {
+    };
+    let baseline_shift = -field.baseline_shift;
+
+    if is_vertical {
+        let box_w = field
+            .box_size
+            .map_or(text_width.max(field.format.size * 2.0), |b| b.width);
+        let mut x_cursor = if field.orientation == "vertical_rtl" {
+            (box_w - pad_r - field.format.size * 1.2).max(pad_l)
+        } else {
+            pad_l
+        };
+        for mut bl in built_lines {
+            let col_step = bl.max_size * 1.2 + bl.leading.max(0.0);
+            bl.line.x = x_cursor;
+            bl.line.y = col_top_y;
+            let mut char_y = col_top_y;
+            for seg in bl.segs {
+                for ch in seg.text.chars() {
+                    let s = ch.to_string();
+                    if field.highlight && !ch.is_whitespace() {
+                        highlights.push(TextDecoration {
+                            x: x_cursor,
+                            y: char_y,
+                            width: seg.fmt.size,
+                            height: seg.fmt.size * 1.1,
+                            color: Some(field.highlight_color),
+                        });
+                    }
+                    runs.push(TextRun {
+                        text: s,
+                        x: x_cursor,
+                        y: char_y + baseline_shift,
+                        format: Some(seg.fmt.clone()),
+                    });
+                    char_y += (seg.fmt.size * 1.05 + seg.fmt.letter_spacing).max(2.0);
+                }
+            }
+            bl.line.width = bl.max_size;
+            bl.line.height = (char_y - col_top_y).max(bl.max_size * 1.2);
+            lines.push(bl.line);
+            if field.orientation == "vertical_rtl" {
+                x_cursor -= col_step;
+            } else {
+                x_cursor += col_step;
+            }
+        }
+    } else {
+        for mut bl in built_lines {
+            bl.line.x -= f64::from(hscroll);
+            bl.line.y -= scroll_y;
+            let pfmt = fmt_at(bl.line.start);
+            if pfmt.bullet && paragraph_starts.contains(&bl.line.start) {
+                bullets.push([
+                    bl.line.x - pfmt.size * 0.6,
+                    bl.line.y + pfmt.size * 0.6,
+                    (pfmt.size * 0.1).max(1.),
+                ]);
+            }
+            let v_shift = sub_sup_shift(bl.max_size) + baseline_shift;
+            for seg in bl.segs {
+                let sx = bl.line.x + seg.rel_x;
+                let sy = bl.line.y + (bl.max_size - seg.fmt.size).max(0.0) + v_shift;
+                if field.highlight && !seg.text.is_empty() {
+                    highlights.push(TextDecoration {
+                        x: sx,
+                        y: bl.line.y,
+                        width: seg.width,
+                        height: bl.line.height,
+                        color: Some(field.highlight_color),
+                    });
+                }
+                if seg.fmt.underline && !seg.text.is_empty() {
+                    decorations.push(TextDecoration {
+                        x: sx,
+                        y: sy + seg.fmt.size * 1.05,
+                        width: seg.width,
+                        height: (seg.fmt.size / 16.).max(1.),
+                        color: Some(seg.fmt.color),
+                    });
+                }
+                if field.strikethrough && !seg.text.is_empty() {
+                    decorations.push(TextDecoration {
+                        x: sx,
+                        y: sy + seg.fmt.size * 0.55,
+                        width: seg.width,
+                        height: (seg.fmt.size / 16.).max(1.),
+                        color: Some(seg.fmt.color),
+                    });
+                }
+                runs.push(TextRun {
+                    text: seg.text,
                     x: sx,
-                    y: sy + seg.fmt.size * 1.05,
-                    width: seg.width,
-                    height: (seg.fmt.size / 16.).max(1.),
-                    color: Some(seg.fmt.color),
+                    y: sy,
+                    format: Some(seg.fmt),
                 });
             }
-            runs.push(TextRun {
-                text: seg.text,
-                x: sx,
-                y: sy,
-                format: Some(seg.fmt),
-            });
+            lines.push(bl.line);
         }
-        lines.push(bl.line);
     }
 
     let viewport = TextViewportMetrics {
@@ -2229,6 +3061,9 @@ where
             .as2_viewport
             .border
             .then_some(field.as2_viewport.border_color),
+        border_width: field.border_width,
+        column_count: cols,
+        column_gutter: field.column_gutter,
     };
     Ok(TextLayout {
         lines,
@@ -2236,6 +3071,7 @@ where
         text_height,
         line_height: base_advance,
         decorations,
+        highlights,
         runs,
         bullets,
         viewport,
@@ -2271,7 +3107,7 @@ where
         effective.caret = effective.caret.min(max_len);
         return layout_text(&effective, measure);
     }
-    if !field.format_runs.is_empty() {
+    if !field.format_runs.is_empty() || field.has_extended_layout_options() {
         return layout_multirun_text(field, measure);
     }
     let parts = parts(field)?;
@@ -2546,6 +3382,9 @@ where
             .as2_viewport
             .border
             .then_some(field.as2_viewport.border_color),
+        border_width: field.border_width,
+        column_count: 1,
+        column_gutter: field.column_gutter,
     };
     let runs = tab_runs
         .into_iter()
@@ -2595,6 +3434,7 @@ where
         text_height,
         line_height: advance,
         decorations,
+        highlights: vec![],
         runs,
         bullets,
         viewport,

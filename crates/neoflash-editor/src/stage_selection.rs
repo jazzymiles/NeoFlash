@@ -2293,6 +2293,12 @@ impl Editor {
                         }
                     } else {
                         cv::paint_selection_box(p, p.ctx(), rect, *kind);
+                        if *kind == cv::SelectionKind::TextDynamic
+                            && let Some(items) = items_by_root.get(id)
+                            && let Some(item) = items.first()
+                        {
+                            crate::text_boxes::paint_container_guides(p, &item.kind, rect, zoom);
+                        }
                     }
                 }
             }

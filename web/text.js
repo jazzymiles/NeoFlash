@@ -403,7 +403,7 @@
       try{
         const surface=result.surface;
         if(surface?.background!==null&&surface?.background!==undefined){context.fillStyle=`rgba(${surface.background>>>16},${surface.background>>>8&255},${surface.background&255},${field.alpha/255})`;context.fillRect(0,0,surface.width,surface.height);}
-        if(surface?.border!==null&&surface?.border!==undefined&&surface.width>0&&surface.height>0){context.strokeStyle=`rgba(${surface.border>>>16},${surface.border>>>8&255},${surface.border&255},${field.alpha/255})`;context.lineWidth=1;context.strokeRect(0.5,0.5,Math.max(0,surface.width-1),Math.max(0,surface.height-1));}
+        if(surface?.border!==null&&surface?.border!==undefined&&surface.width>0&&surface.height>0){const bw=Number(surface.border_width)||Number(field.border_width)||1;context.strokeStyle=`rgba(${surface.border>>>16},${surface.border>>>8&255},${surface.border&255},${field.alpha/255})`;context.lineWidth=bw;context.strokeRect(0.5,0.5,Math.max(0,surface.width-1),Math.max(0,surface.height-1));}
         if(field.box){context.beginPath();context.rect(0,0,field.box.width,field.box.height);context.clip();}
         const antiAlias=field.anti_alias_type||'normal';
         const gridFit=field.grid_fit_type||'pixel';
@@ -413,8 +413,10 @@
         const sharpMod=antiAlias==='advanced'?Math.max(0.35,Math.min(1,1+sharpness/1600)):1;
         const thickAlphaMod=(antiAlias==='advanced'&&thickness<0)?Math.max(0.4,1+thickness/400):1;
         const baseAlpha=Math.max(0,Math.min(1,(field.alpha/255)*sharpMod*thickAlphaMod));
+        const rgb=field.format.color;
+        for(const item of result.highlights||[]){const hc=item.color??0xffff00;context.fillStyle=`rgba(${hc>>>16},${hc>>>8&255},${hc&255},${baseAlpha})`;context.fillRect(item.x,item.y,item.width,item.height);}
         applyFont(context,field.format,false,embedOnly);context.textAlign='left';context.textBaseline='top';
-        const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${baseAlpha})`;
+        context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${baseAlpha})`;
         for(const item of result.runs?.length?result.runs:result.lines){
           const fmt=item.format||field.format;
           if(embedOnly&&registeredFonts.length>0&&!isEmbeddedFontAvailable(fmt))continue;

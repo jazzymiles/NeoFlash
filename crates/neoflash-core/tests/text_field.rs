@@ -666,6 +666,7 @@ fn authored_text_box_properties_and_html_flow_to_runtime_state_and_layout() {
         html: true,
         embed_fonts: true,
         format_runs: Vec::new(),
+        ..Default::default()
     }));
     let kind = neoflash_core::ElementKind::TextBox {
         text: "<b>Hello</b> <font color=\"#ff0000\">World</font>".into(),
@@ -710,6 +711,79 @@ fn authored_text_box_properties_and_html_flow_to_runtime_state_and_layout() {
     );
     assert_eq!(layout.surface.border, Some(0x112233));
     assert_eq!(layout.surface.background, Some(0xfefefe));
+
+    let mut roundtrip = kind.clone();
+    state.write_to_kind(&mut roundtrip);
+    let state2 = TextFieldState::from_kind(&roundtrip).unwrap();
+    assert_eq!(state2, state);
+}
+
+#[test]
+fn flash_cs5_multicolumn_container_flow_and_advanced_text_layout() {
+    let mut format = TextFormat {
+        font: "Times New Roman".into(),
+        size: 16.,
+        color: 0x123456,
+        ..Default::default()
+    };
+    format.set_field_options(Some(neoflash_core::AuthoredTextFieldOptions {
+        column_count: 2,
+        column_gutter: 20.0,
+        vertical_align: "center".into(),
+        padding_left: 10.0,
+        padding_right: 10.0,
+        padding_top: 8.0,
+        padding_bottom: 8.0,
+        border: true,
+        border_color: 0x334455,
+        border_width: 2.5,
+        first_line_offset_mode: "pt".into(),
+        first_line_offset: 6.0,
+        highlight: true,
+        highlight_color: 0xffee55,
+        strikethrough: true,
+        typographic_case: "uppercase".into(),
+        space_before: 4.0,
+        space_after: 6.0,
+        ..Default::default()
+    }));
+    let kind = neoflash_core::ElementKind::TextBox {
+        text: "Alpha one\nBeta two\nGamma three\nDelta four".into(),
+        width: 300.0,
+        height: 120.0,
+        format,
+        word_wrap: true,
+        multiline: true,
+    };
+    let state = TextFieldState::from_kind(&kind).expect("TextBox produces TextFieldState");
+    assert_eq!(state.column_count, 2);
+    assert_eq!(state.column_gutter, 20.0);
+    assert_eq!(state.vertical_align, "center");
+    assert_eq!(state.padding_left, 10.0);
+    assert_eq!(state.border_width, 2.5);
+    assert!(state.highlight);
+    assert!(state.strikethrough);
+    assert_eq!(state.typographic_case, "uppercase");
+
+    let layout = layout_text(&state, measure).expect("multi-column layout succeeds");
+    assert_eq!(layout.lines.len(), 4);
+    // Uppercase typographic case transforms line text
+    assert_eq!(layout.lines[0].text, "ALPHA ONE");
+    assert_eq!(layout.lines[2].text, "GAMMA THREE");
+    // Lines 0..2 are in column 0 (x = padding_left = 10.0); lines 2..4 are in column 1
+    // col_width = ((300 - 10 - 10) - 20) / 2 = 130 => col 1 x = 10 + 130 + 20 = 160.0
+    assert!((layout.lines[0].x - 10.0).abs() < 1e-6);
+    assert!((layout.lines[1].x - 10.0).abs() < 1e-6);
+    assert!((layout.lines[2].x - 160.0).abs() < 1e-6);
+    assert!((layout.lines[3].x - 160.0).abs() < 1e-6);
+    // Vertical alignment "center" pushes lines down below padding_top + first_line_offset (8 + 6 = 14)
+    assert!(layout.lines[0].y > 14.0);
+    // Highlight and strikethrough decorations are emitted
+    assert!(!layout.highlights.is_empty());
+    assert_eq!(layout.highlights[0].color, Some(0xffee55));
+    assert!(!layout.decorations.is_empty());
+    assert_eq!(layout.surface.column_count, 2);
+    assert_eq!(layout.surface.border_width, 2.5);
 
     let mut roundtrip = kind.clone();
     state.write_to_kind(&mut roundtrip);
