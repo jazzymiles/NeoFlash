@@ -400,6 +400,50 @@ pub enum PanelPlacement {
     Detached,
 }
 
+/// Magnetic positions for the lone floating Tools window around the Stage workspace.
+/// Side-centre anchors use the compact vertical rail; the other anchors use the
+/// horizontal tool layout. This is workspace state, never authored document data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolsStageAnchor {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    MiddleLeft,
+    MiddleRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+impl ToolsStageAnchor {
+    pub const ALL: [Self; 8] = [
+        Self::TopLeft,
+        Self::TopCenter,
+        Self::TopRight,
+        Self::MiddleLeft,
+        Self::MiddleRight,
+        Self::BottomLeft,
+        Self::BottomCenter,
+        Self::BottomRight,
+    ];
+
+    pub fn vertical(self) -> bool {
+        matches!(self, Self::MiddleLeft | Self::MiddleRight)
+    }
+
+    pub fn bottom_aligned(self) -> bool {
+        matches!(
+            self,
+            Self::BottomLeft | Self::BottomCenter | Self::BottomRight
+        )
+    }
+
+    /// Popovers should open toward the Stage, away from the closest outer edge.
+    pub fn expands_right(self) -> bool {
+        !matches!(self, Self::TopRight | Self::MiddleRight | Self::BottomRight)
+    }
+}
+
 /// A workspace is a central Stage surrounded by four independently sized
 /// areas. Each area contains split groups; each group contains ordered tabs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -723,6 +767,8 @@ pub struct FloatingDock {
     pub id: PanelId,
     pub root: Option<FloatingNode>,
     pub geometry: Option<WindowGeometry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools_anchor: Option<ToolsStageAnchor>,
     next_group: u32,
 }
 impl FloatingDock {
@@ -736,6 +782,7 @@ impl FloatingDock {
                 weight: 1.,
             })),
             geometry,
+            tools_anchor: None,
             next_group: 2,
         }
     }
@@ -1373,6 +1420,7 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Tools => [88., 160.],
         PanelId::Timeline => [320., 180.],
         PanelId::Library => [248., 300.],
+        PanelId::Properties => [320., 220.],
         PanelId::Align
         | PanelId::Transform
         | PanelId::Color
@@ -3072,6 +3120,9 @@ impl WorkspacePrefs {
                 .root
                 .take()
                 .and_then(|root| root.sanitize(&mut seen, &mut ids, &mut next, self.detached));
+            if window.panels() != [PanelId::Tools] {
+                window.tools_anchor = None;
+            }
             let minimum = ids.into_iter().max().unwrap_or(0) + 1;
             window.next_group = window.next_group.clamp(minimum, 1_000_008);
             if let Some(panel) = window.panels().first() {
@@ -3489,6 +3540,36 @@ impl WorkspacePrefs {
     pub fn floating_window(&self, panel: PanelId) -> Option<&FloatingDock> {
         self.floating.iter().find(|window| window.contains(panel))
     }
+    pub fn tools_stage_anchor(&self, panel: PanelId) -> Option<ToolsStageAnchor> {
+        self.floating_window(panel)
+            .filter(|window| window.panels() == [PanelId::Tools])
+            .and_then(|window| window.tools_anchor)
+    }
+    pub fn tools_popover_prefers_left(&self) -> bool {
+        self.tools_stage_anchor(PanelId::Tools)
+            .is_some_and(|anchor| !anchor.expands_right())
+    }
+    pub fn set_tools_stage_anchor(
+        &mut self,
+        window_id: PanelId,
+        anchor: Option<ToolsStageAnchor>,
+    ) -> bool {
+        let Some(window) = self
+            .floating
+            .iter_mut()
+            .find(|window| window.id == window_id)
+        else {
+            return false;
+        };
+        let anchor = if window.panels() == [PanelId::Tools] {
+            anchor
+        } else {
+            None
+        };
+        let changed = window.tools_anchor != anchor;
+        window.tools_anchor = anchor;
+        changed
+    }
     pub fn panel_surface(&self, panel: PanelId) -> DockSurface {
         self.floating_window(panel)
             .map_or(DockSurface::Main, |window| DockSurface::Floating(window.id))
@@ -3554,6 +3635,9 @@ impl WorkspacePrefs {
         };
         let changed = window.geometry != Some(geometry);
         window.geometry = Some(geometry);
+        if panels != [PanelId::Tools] {
+            window.tools_anchor = None;
+        }
         for panel in panels {
             self.detached.get_mut(panel).expect("known panel").geometry = Some(geometry);
         }

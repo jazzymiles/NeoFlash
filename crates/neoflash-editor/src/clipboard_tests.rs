@@ -1013,7 +1013,8 @@ fn new_stage_text_and_selected_text_accept_plain_text_paste_and_focus_editor() {
     ));
     assert_eq!(
         ctx.data(|d| d.get_temp::<bool>(egui::Id::new("properties-tool-tab"))),
-        Some(false)
+        None,
+        "the contextual inspector no longer stores a Selection/Tool tab"
     );
     assert_eq!(
         ctx.data(|d| d.get_temp::<bool>(egui::Id::new("nf2-focus-text-edit"))),

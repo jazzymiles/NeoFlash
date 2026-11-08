@@ -94,7 +94,6 @@ impl crate::app::Editor {
 
     pub(crate) fn focus_selected_text_editor(&mut self, ctx: &egui::Context) {
         ctx.data_mut(|data| {
-            data.insert_temp(egui::Id::new("properties-tool-tab"), false);
             data.insert_temp(egui::Id::new("nf2-focus-text-edit"), true);
         });
     }
@@ -107,7 +106,7 @@ impl crate::app::Editor {
         kind: &mut ElementKind,
         alpha: &mut f64,
     ) -> Option<egui::Id> {
-        use crate::paint_controls::{PropertyChanges, color_row};
+        use crate::paint_controls::{PropertyChanges, color_row, two_column_row};
         use crate::ui_icons::{
             TextPropertyGlyph, text_optional_color_swatch, text_property_icon_button,
         };
@@ -149,8 +148,6 @@ impl crate::app::Editor {
                 }
                 changes.note(response);
             });
-
-        let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
 
         // Row 1: Text field type (Static / Dynamic / Input) + Orientation icon button (Flash CS5 header).
         let before_font = format.font.clone();
@@ -276,13 +273,11 @@ impl crate::app::Editor {
         ];
         let mut enable_after_confirm = false;
         let mut open_embedding = false;
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let style_w = (ui.available_width() - 184.0).max(84.0);
+        let mut style_control = |ui: &mut egui::Ui, width: f32| {
             let mut style_changed = false;
             let (mut style_resp, _) =
                 nf::Select::new("text_box_style", style_options[current_style_idx].1)
-                    .width(style_w)
+                    .width(width)
                     .show(ui, |ui| {
                         for (idx, label, b, i) in style_options {
                             if ui
@@ -301,14 +296,18 @@ impl crate::app::Editor {
             if style_changed {
                 style_resp.mark_changed();
             }
-            changes.note(style_resp);
-
+            style_resp
+        };
+        let mut embed_controls = |ui: &mut egui::Ui,
+                                  enable_after_confirm: &mut bool,
+                                  open_embedding: &mut bool,
+                                  changes: &mut PropertyChanges| {
             let embed_response = ui.add(nf::Checkbox::new(
                 &mut field_options.embed_fonts,
                 "Embed font",
             ));
-            enable_after_confirm = embed_response.changed() && field_options.embed_fonts;
-            if enable_after_confirm {
+            *enable_after_confirm = embed_response.changed() && field_options.embed_fonts;
+            if *enable_after_confirm {
                 // Enabling is transactional with the dialog: Cancel must not leave the field in
                 // embedded-only mode without a matching embedded font resource.
                 field_options.embed_fonts = false;
@@ -318,8 +317,33 @@ impl crate::app::Editor {
             let embedding_response = ui
                 .add(nf::Button::new("Embedding…"))
                 .on_hover_text("Set font embedding options for this text field");
-            open_embedding = enable_after_confirm || embedding_response.clicked();
-        });
+            *open_embedding = *enable_after_confirm || embedding_response.clicked();
+        };
+        if ui.available_width() < 312.0 {
+            let width = ui.available_width();
+            changes.note(style_control(ui, width));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
+                embed_controls(
+                    ui,
+                    &mut enable_after_confirm,
+                    &mut open_embedding,
+                    &mut changes,
+                );
+            });
+        } else {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
+                let style_w = (ui.available_width() - 184.0).max(84.0);
+                changes.note(style_control(ui, style_w));
+                embed_controls(
+                    ui,
+                    &mut enable_after_confirm,
+                    &mut open_embedding,
+                    &mut changes,
+                );
+            });
+        }
         if open_embedding {
             let family = format.font.clone();
             let bold = format.bold;
@@ -337,32 +361,36 @@ impl crate::app::Editor {
 
         // Row 3: Size (pt) + Letter spacing (px) in 2 columns.
         let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let size_response = ui.add(
-                nf::Field::new(&mut format.size, "Size")
-                    .prefix("Size")
-                    .unit("pt")
-                    .decimals(1)
-                    .range(0.1..=10000.)
-                    .width(half),
-            );
-            let next_min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
-            if size_response.changed() && format.leading < next_min_leading {
-                format.leading = next_min_leading;
-            }
-            changes.note(size_response);
-
-            let spacing_response = ui.add(
-                nf::Field::new(&mut format.letter_spacing, "Letter spacing")
-                    .prefix("Tracking")
-                    .unit("px")
-                    .decimals(1)
-                    .range(-1000.0..=1000.0)
-                    .width(half),
-            );
-            changes.note(spacing_response);
-        });
+        let (size_response, spacing_response) = two_column_row(
+            ui,
+            80.0,
+            |ui, width| {
+                ui.add(
+                    nf::Field::new(&mut format.size, "Size")
+                        .prefix("Size")
+                        .unit("pt")
+                        .decimals(1)
+                        .range(0.1..=10000.)
+                        .width(width),
+                )
+            },
+            |ui, width| {
+                ui.add(
+                    nf::Field::new(&mut format.letter_spacing, "Letter spacing")
+                        .prefix("Tracking")
+                        .unit("px")
+                        .decimals(1)
+                        .range(-1000.0..=1000.0)
+                        .width(width),
+                )
+            },
+        );
+        let next_min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
+        if size_response.changed() && format.leading < next_min_leading {
+            format.leading = next_min_leading;
+        }
+        changes.note(size_response);
+        changes.note(spacing_response);
         let _ = min_leading;
 
         // Row 4: Color swatch/hex/alpha + Highlight optional color swatch + Auto kern on 1 compact row.
@@ -433,7 +461,7 @@ impl crate::app::Editor {
             .find(|(k, _)| *k == field_options.glyph_rotation)
             .map(|(_, l)| *l)
             .unwrap_or("Rot: Auto");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = space::S1;
             let icon_group_w = 4.0 * crate::theme::control_h().min(22.0) + 3.0 * space::S1;
             let rot_w = 78.0;
@@ -571,27 +599,30 @@ impl crate::app::Editor {
         });
 
         if current_aa_idx == 4 {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = space::S2;
-                changes.note(
+            let (sharpness, thickness) = two_column_row(
+                ui,
+                80.0,
+                |ui, width| {
                     ui.add(
                         nf::Field::new(&mut field_options.sharpness, "Sharpness")
                             .prefix("Sharpness")
                             .decimals(0)
                             .range(-400.0..=400.0)
-                            .width(half),
-                    ),
-                );
-                changes.note(
+                            .width(width),
+                    )
+                },
+                |ui, width| {
                     ui.add(
                         nf::Field::new(&mut field_options.thickness, "Thickness")
                             .prefix("Thickness")
                             .decimals(0)
                             .range(-200.0..=200.0)
-                            .width(half),
-                    ),
-                );
-            });
+                            .width(width),
+                    )
+                },
+            );
+            changes.note(sharpness);
+            changes.note(thickness);
         }
 
         // Row 6: Compact character & field toggles on 1 row (Selectable, HTML, Border).
@@ -644,7 +675,7 @@ impl crate::app::Editor {
         ui: &mut egui::Ui,
         kind: &mut ElementKind,
     ) -> Option<egui::Id> {
-        use crate::paint_controls::{PropertyChanges, text_row};
+        use crate::paint_controls::{PropertyChanges, text_row, two_column_row};
         use crate::ui_icons::{
             TextPropertyGlyph, text_optional_color_swatch, text_property_badge,
             text_property_icon_button,
@@ -664,7 +695,6 @@ impl crate::app::Editor {
             return None;
         };
         let mut changes = PropertyChanges::default();
-        let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
         let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
 
         ui.scope(|ui| {
@@ -692,60 +722,66 @@ impl crate::app::Editor {
                         ("uncommon", "Ligatures: Uncommon"),
                         ("exotic", "Ligatures: Exotic"),
                     ];
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let cur_case = case_opts
-                            .iter()
-                            .find(|(k, _)| *k == field_options.typographic_case)
-                            .map(|(_, l)| *l)
-                            .unwrap_or("Case: Default");
-                        let (mut case_resp, _) = nf::Select::new("text_box_case", cur_case)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in case_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.typographic_case == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.typographic_case = code.to_owned();
-                                        ui.close();
-                                    }
-                                }
-                            });
-                        if field_options.typographic_case != before_opts.typographic_case {
-                            case_resp.mark_changed();
-                        }
-                        changes.note(case_resp);
-
-                        let cur_lig = lig_opts
-                            .iter()
-                            .find(|(k, _)| *k == field_options.ligatures)
-                            .map(|(_, l)| *l)
-                            .unwrap_or("Ligatures: Common");
-                        let (mut lig_resp, _) = nf::Select::new("text_box_ligatures", cur_lig)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in lig_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.ligatures == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.ligatures = code.to_owned();
-                                        ui.close();
-                                    }
-                                }
-                            });
-                        if field_options.ligatures != before_opts.ligatures {
-                            lig_resp.mark_changed();
-                        }
-                        changes.note(lig_resp);
-                    });
+                    let cur_case = case_opts
+                        .iter()
+                        .find(|(k, _)| *k == field_options.typographic_case)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("Case: Default");
+                    let cur_lig = lig_opts
+                        .iter()
+                        .find(|(k, _)| *k == field_options.ligatures)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("Ligatures: Common");
+                    let (mut case_resp, mut lig_resp) =
+                        two_column_row(
+                            ui,
+                            80.0,
+                            |ui, width| {
+                                nf::Select::new("text_box_case", cur_case)
+                                    .width(width)
+                                    .show(ui, |ui| {
+                                        for (code, label) in case_opts {
+                                            if ui
+                                                .add(nf::MenuItem::new(label).checked(
+                                                    field_options.typographic_case == code,
+                                                ))
+                                                .clicked()
+                                            {
+                                                field_options.typographic_case = code.to_owned();
+                                                ui.close();
+                                            }
+                                        }
+                                    })
+                                    .0
+                            },
+                            |ui, width| {
+                                nf::Select::new("text_box_ligatures", cur_lig)
+                                    .width(width)
+                                    .show(ui, |ui| {
+                                        for (code, label) in lig_opts {
+                                            if ui
+                                                .add(
+                                                    nf::MenuItem::new(label)
+                                                        .checked(field_options.ligatures == code),
+                                                )
+                                                .clicked()
+                                            {
+                                                field_options.ligatures = code.to_owned();
+                                                ui.close();
+                                            }
+                                        }
+                                    })
+                                    .0
+                            },
+                        );
+                    if field_options.typographic_case != before_opts.typographic_case {
+                        case_resp.mark_changed();
+                    }
+                    if field_options.ligatures != before_opts.ligatures {
+                        lig_resp.mark_changed();
+                    }
+                    changes.note(case_resp);
+                    changes.note(lig_resp);
 
                     // Row 2: Digit Case + Digit Width
                     let dcase_opts = [
@@ -758,60 +794,66 @@ impl crate::app::Editor {
                         ("proportional", "Width: Proportional"),
                         ("tabular", "Width: Tabular"),
                     ];
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let cur_dc = dcase_opts
-                            .iter()
-                            .find(|(k, _)| *k == field_options.digit_case)
-                            .map(|(_, l)| *l)
-                            .unwrap_or("Digits: Default");
-                        let (mut dc_resp, _) = nf::Select::new("text_box_digit_case", cur_dc)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in dcase_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.digit_case == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.digit_case = code.to_owned();
-                                        ui.close();
+                    let cur_dc = dcase_opts
+                        .iter()
+                        .find(|(k, _)| *k == field_options.digit_case)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("Digits: Default");
+                    let cur_dw = dwidth_opts
+                        .iter()
+                        .find(|(k, _)| *k == field_options.digit_width)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("Width: Default");
+                    let (mut dc_resp, mut dw_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
+                            nf::Select::new("text_box_digit_case", cur_dc)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (code, label) in dcase_opts {
+                                        if ui
+                                            .add(
+                                                nf::MenuItem::new(label)
+                                                    .checked(field_options.digit_case == code),
+                                            )
+                                            .clicked()
+                                        {
+                                            field_options.digit_case = code.to_owned();
+                                            ui.close();
+                                        }
                                     }
-                                }
-                            });
-                        if field_options.digit_case != before_opts.digit_case {
-                            dc_resp.mark_changed();
-                        }
-                        changes.note(dc_resp);
-
-                        let cur_dw = dwidth_opts
-                            .iter()
-                            .find(|(k, _)| *k == field_options.digit_width)
-                            .map(|(_, l)| *l)
-                            .unwrap_or("Width: Default");
-                        let (mut dw_resp, _) = nf::Select::new("text_box_digit_width", cur_dw)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in dwidth_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.digit_width == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.digit_width = code.to_owned();
-                                        ui.close();
+                                })
+                                .0
+                        },
+                        |ui, width| {
+                            nf::Select::new("text_box_digit_width", cur_dw)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (code, label) in dwidth_opts {
+                                        if ui
+                                            .add(
+                                                nf::MenuItem::new(label)
+                                                    .checked(field_options.digit_width == code),
+                                            )
+                                            .clicked()
+                                        {
+                                            field_options.digit_width = code.to_owned();
+                                            ui.close();
+                                        }
                                     }
-                                }
-                            });
-                        if field_options.digit_width != before_opts.digit_width {
-                            dw_resp.mark_changed();
-                        }
-                        changes.note(dw_resp);
-                    });
+                                })
+                                .0
+                        },
+                    );
+                    if field_options.digit_case != before_opts.digit_case {
+                        dc_resp.mark_changed();
+                    }
+                    if field_options.digit_width != before_opts.digit_width {
+                        dw_resp.mark_changed();
+                    }
+                    changes.note(dc_resp);
+                    changes.note(dw_resp);
 
                     // Row 3: Line Break + Baseline Shift
                     let break_opts = [
@@ -820,45 +862,49 @@ impl crate::app::Editor {
                         ("any", "Break: Any"),
                         ("no_break", "Break: No Break"),
                     ];
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let cur_brk = break_opts
-                            .iter()
-                            .find(|(k, _)| *k == field_options.line_break)
-                            .map(|(_, l)| *l)
-                            .unwrap_or("Break: Auto");
-                        let (mut brk_resp, _) = nf::Select::new("text_box_line_break", cur_brk)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in break_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.line_break == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.line_break = code.to_owned();
-                                        ui.close();
+                    let cur_brk = break_opts
+                        .iter()
+                        .find(|(k, _)| *k == field_options.line_break)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("Break: Auto");
+                    let (mut break_resp, baseline_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
+                            nf::Select::new("text_box_line_break", cur_brk)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (code, label) in break_opts {
+                                        if ui
+                                            .add(
+                                                nf::MenuItem::new(label)
+                                                    .checked(field_options.line_break == code),
+                                            )
+                                            .clicked()
+                                        {
+                                            field_options.line_break = code.to_owned();
+                                            ui.close();
+                                        }
                                     }
-                                }
-                            });
-                        if field_options.line_break != before_opts.line_break {
-                            brk_resp.mark_changed();
-                        }
-                        changes.note(brk_resp);
-
-                        changes.note(
+                                })
+                                .0
+                        },
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.baseline_shift, "Baseline shift")
                                     .prefix("Baseline")
                                     .unit("pt")
                                     .decimals(1)
                                     .range(-720.0..=720.0)
-                                    .width(half),
-                            ),
-                        );
-                    });
+                                    .width(width),
+                            )
+                        },
+                    );
+                    if field_options.line_break != before_opts.line_break {
+                        break_resp.mark_changed();
+                    }
+                    changes.note(break_resp);
+                    changes.note(baseline_resp);
 
                     // Row 4: Locale
                     let locale_opts = [
@@ -919,7 +965,7 @@ impl crate::app::Editor {
                     } else {
                         field_options.direction.clone()
                     };
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing.x = space::S1;
                         for (mode, glyph, label) in [
                             ("left", TextPropertyGlyph::AlignLeft, "Align left"),
@@ -1011,111 +1057,133 @@ impl crate::app::Editor {
                     // Row 2: Spacing — Indent (px) + Line / Leading (pt or %) in 2 columns.
                     let is_pct_leading = field_options.leading_mode == "percent";
                     let lead_unit = if is_pct_leading { "%" } else { "pt" };
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        changes.note(
+                    let (indent_resp, (leading_resp, mut mode_resp)) = two_column_row(
+                        ui,
+                        108.0,
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut format.indent, "Indent")
                                     .prefix("Indent")
                                     .unit("px")
                                     .decimals(1)
                                     .range(-10000.0..=10000.0)
-                                    .width(half),
-                            ),
-                        );
-                        let mode_w = 48.0;
-                        let lead_w = (half - mode_w - space::S1).max(56.0);
-                        changes.note(
-                            ui.add(
-                                nf::Field::new(&mut format.leading, "Leading")
-                                    .prefix("Line")
-                                    .unit(lead_unit)
-                                    .decimals(1)
-                                    .range(min_leading..=10000.0)
-                                    .width(lead_w),
-                            ),
-                        );
-                        let (mut lm_resp, _) = nf::Select::new("text_box_leading_mode", lead_unit)
-                            .width(mode_w)
-                            .show(ui, |ui| {
-                                for (code, label) in [("pt", "pt"), ("percent", "%")] {
-                                    if ui
-                                        .add(nf::MenuItem::new(label).checked(
-                                            field_options.leading_mode == code
-                                                || (code == "pt"
-                                                    && field_options.leading_mode.is_empty()),
-                                        ))
-                                        .clicked()
-                                    {
-                                        if field_options.leading_mode != code {
-                                            if code == "percent" && format.leading == 0.0 {
-                                                format.leading = 120.0;
-                                            } else if code == "pt"
-                                                && (format.leading - 120.0).abs() < 1e-6
-                                            {
-                                                format.leading = 0.0;
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S1;
+                                let mode_w = 48.0;
+                                let lead_w = (width - mode_w - space::S1).max(56.0);
+                                let leading_resp = ui.add(
+                                    nf::Field::new(&mut format.leading, "Leading")
+                                        .prefix("Line")
+                                        .unit(lead_unit)
+                                        .decimals(1)
+                                        .range(min_leading..=10000.0)
+                                        .width(lead_w),
+                                );
+                                let (mode_resp, _) =
+                                    nf::Select::new("text_box_leading_mode", lead_unit)
+                                        .width(mode_w)
+                                        .show(ui, |ui| {
+                                            for (code, label) in [("pt", "pt"), ("percent", "%")] {
+                                                if ui
+                                                    .add(
+                                                        nf::MenuItem::new(label).checked(
+                                                            field_options.leading_mode == code
+                                                                || (code == "pt"
+                                                                    && field_options
+                                                                        .leading_mode
+                                                                        .is_empty()),
+                                                        ),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    if field_options.leading_mode != code {
+                                                        if code == "percent"
+                                                            && format.leading == 0.0
+                                                        {
+                                                            format.leading = 120.0;
+                                                        } else if code == "pt"
+                                                            && (format.leading - 120.0).abs() < 1e-6
+                                                        {
+                                                            format.leading = 0.0;
+                                                        }
+                                                        field_options.leading_mode =
+                                                            code.to_owned();
+                                                    }
+                                                    ui.close();
+                                                }
                                             }
-                                            field_options.leading_mode = code.to_owned();
-                                        }
-                                        ui.close();
-                                    }
-                                }
-                            });
-                        if field_options.leading_mode != before_opts.leading_mode {
-                            lm_resp.mark_changed();
-                        }
-                        changes.note(lm_resp);
-                    });
+                                        });
+                                (leading_resp, mode_resp)
+                            })
+                            .inner
+                        },
+                    );
+                    if field_options.leading_mode != before_opts.leading_mode {
+                        mode_resp.mark_changed();
+                    }
+                    changes.note(indent_resp);
+                    changes.note(leading_resp);
+                    changes.note(mode_resp);
 
                     // Row 3: Margins — Left (px) + Right (px) in 2 columns.
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        changes.note(
+                    let (left_resp, right_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut format.left_margin, "Left margin")
                                     .prefix("Left")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=10000.0)
-                                    .width(half),
-                            ),
-                        );
-                        changes.note(
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut format.right_margin, "Right margin")
                                     .prefix("Right")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=10000.0)
-                                    .width(half),
-                            ),
-                        );
-                    });
+                                    .width(width),
+                            )
+                        },
+                    );
+                    changes.note(left_resp);
+                    changes.note(right_resp);
 
                     // Row 4: Paragraph Space Before (pt) + Space After (pt) in 2 columns.
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        changes.note(
+                    let (before_resp, after_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.space_before, "Space before")
                                     .prefix("Before")
                                     .unit("pt")
                                     .decimals(1)
                                     .range(0.0..=720.0)
-                                    .width(half),
-                            ),
-                        );
-                        changes.note(
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.space_after, "Space after")
                                     .prefix("After")
                                     .unit("pt")
                                     .decimals(1)
                                     .range(0.0..=720.0)
-                                    .width(half),
-                            ),
-                        );
-                    });
+                                    .width(width),
+                            )
+                        },
+                    );
+                    changes.note(before_resp);
+                    changes.note(after_resp);
 
                     // Row 5: Text justify (Word spacing / Letter spacing) + Block indent (px).
                     let tj_opts = [
@@ -1127,40 +1195,44 @@ impl crate::app::Editor {
                         .find(|(k, _)| *k == field_options.text_justify)
                         .map(|(_, l)| *l)
                         .unwrap_or("Justify: Word spacing");
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let (mut tj_resp, _) = nf::Select::new("text_box_justify_rule", cur_tj)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in tj_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.text_justify == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.text_justify = code.to_owned();
-                                        ui.close();
+                    let (mut justify_resp, block_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
+                            nf::Select::new("text_box_justify_rule", cur_tj)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (code, label) in tj_opts {
+                                        if ui
+                                            .add(
+                                                nf::MenuItem::new(label)
+                                                    .checked(field_options.text_justify == code),
+                                            )
+                                            .clicked()
+                                        {
+                                            field_options.text_justify = code.to_owned();
+                                            ui.close();
+                                        }
                                     }
-                                }
-                            });
-                        if field_options.text_justify != before_opts.text_justify {
-                            tj_resp.mark_changed();
-                        }
-                        changes.note(tj_resp);
-
-                        changes.note(
+                                })
+                                .0
+                        },
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut format.block_indent, "Block indent")
                                     .prefix("Block")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=10000.0)
-                                    .width(half),
-                            ),
-                        );
-                    });
+                                    .width(width),
+                            )
+                        },
+                    );
+                    if field_options.text_justify != before_opts.text_justify {
+                        justify_resp.mark_changed();
+                    }
+                    changes.note(justify_resp);
+                    changes.note(block_resp);
 
                     if field_options != before_opts {
                         format.set_field_options(
@@ -1292,45 +1364,58 @@ impl crate::app::Editor {
 
                     // Row 3: Columns (1..=50) + Column gutter (0..=1000 px) with Flash CS5 column icons.
                     let mut cols_f64 = field_options.column_count.max(1) as f64;
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S1;
-                        text_property_badge(
-                            ui,
-                            TextPropertyGlyph::ColumnsCount,
-                            "Number of columns",
-                        );
-                        let col_field_w = (half - 20.0).max(56.0);
-                        let col_resp = ui.add(
-                            nf::Field::new(&mut cols_f64, "Columns")
-                                .prefix("Columns")
-                                .decimals(0)
-                                .range(1.0..=50.0)
-                                .width(col_field_w),
-                        );
-                        if col_resp.changed() {
-                            field_options.column_count = cols_f64.round().clamp(1.0, 50.0) as u32;
-                            if field_options.column_count > 1 {
-                                *multiline = true;
-                            }
+                    let (col_resp, gut_resp) = two_column_row(
+                        ui,
+                        96.0,
+                        |ui, width| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S1;
+                                text_property_badge(
+                                    ui,
+                                    TextPropertyGlyph::ColumnsCount,
+                                    "Number of columns",
+                                );
+                                ui.add(
+                                    nf::Field::new(&mut cols_f64, "Columns")
+                                        .prefix("Columns")
+                                        .decimals(0)
+                                        .range(1.0..=50.0)
+                                        .width((width - 20.0).max(56.0)),
+                                )
+                            })
+                            .inner
+                        },
+                        |ui, width| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S1;
+                                text_property_badge(
+                                    ui,
+                                    TextPropertyGlyph::ColumnGutter,
+                                    "Column gutter width (px)",
+                                );
+                                ui.add(
+                                    nf::Field::new(
+                                        &mut field_options.column_gutter,
+                                        "Column gutter",
+                                    )
+                                    .prefix("Gutter")
+                                    .unit("px")
+                                    .decimals(1)
+                                    .range(0.0..=1000.0)
+                                    .width((width - 20.0).max(56.0)),
+                                )
+                            })
+                            .inner
+                        },
+                    );
+                    if col_resp.changed() {
+                        field_options.column_count = cols_f64.round().clamp(1.0, 50.0) as u32;
+                        if field_options.column_count > 1 {
+                            *multiline = true;
                         }
-                        changes.note(col_resp);
-
-                        text_property_badge(
-                            ui,
-                            TextPropertyGlyph::ColumnGutter,
-                            "Column gutter width (px)",
-                        );
-                        let gut_field_w = (half - 20.0).max(56.0);
-                        let gut_resp = ui.add(
-                            nf::Field::new(&mut field_options.column_gutter, "Column gutter")
-                                .prefix("Gutter")
-                                .unit("px")
-                                .decimals(1)
-                                .range(0.0..=1000.0)
-                                .width(gut_field_w),
-                        );
-                        changes.note(gut_resp);
-                    });
+                    }
+                    changes.note(col_resp);
+                    changes.note(gut_resp);
 
                     // Row 4 & Row 5: 4-sided Padding (L, R, T, B) with Link button.
                     let pad_link_id = egui::Id::new("properties-textbox-padding-linked");
@@ -1481,17 +1566,55 @@ impl crate::app::Editor {
                         .find(|(k, _)| *k == field_options.first_line_offset_mode)
                         .map(|(_, l)| *l)
                         .unwrap_or("1st Line Offset: Auto");
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let is_fixed_pt = field_options.first_line_offset_mode == "pt";
-                        let sel_w = if is_fixed_pt {
-                            half
-                        } else {
-                            ui.available_width()
-                        };
-                        let (mut flo_resp, _) =
+                    let is_fixed_pt = field_options.first_line_offset_mode == "pt";
+                    if is_fixed_pt {
+                        let (mut mode_resp, offset_resp) = two_column_row(
+                            ui,
+                            80.0,
+                            |ui, width| {
+                                nf::Select::new("text_box_first_line_offset", cur_flo)
+                                    .width(width)
+                                    .show(ui, |ui| {
+                                        for (code, label) in flo_opts {
+                                            if ui
+                                                .add(nf::MenuItem::new(label).checked(
+                                                    field_options.first_line_offset_mode == code,
+                                                ))
+                                                .clicked()
+                                            {
+                                                field_options.first_line_offset_mode =
+                                                    code.to_owned();
+                                                ui.close();
+                                            }
+                                        }
+                                    })
+                                    .0
+                            },
+                            |ui, width| {
+                                ui.add(
+                                    nf::Field::new(
+                                        &mut field_options.first_line_offset,
+                                        "First line offset",
+                                    )
+                                    .prefix("Offset")
+                                    .unit("pt")
+                                    .decimals(1)
+                                    .range(0.0..=720.0)
+                                    .width(width),
+                                )
+                            },
+                        );
+                        if field_options.first_line_offset_mode
+                            != before_opts.first_line_offset_mode
+                        {
+                            mode_resp.mark_changed();
+                        }
+                        changes.note(mode_resp);
+                        changes.note(offset_resp);
+                    } else {
+                        let (mut mode_resp, _) =
                             nf::Select::new("text_box_first_line_offset", cur_flo)
-                                .width(sel_w)
+                                .width(ui.available_width())
                                 .show(ui, |ui| {
                                     for (code, label) in flo_opts {
                                         if ui
@@ -1508,26 +1631,10 @@ impl crate::app::Editor {
                         if field_options.first_line_offset_mode
                             != before_opts.first_line_offset_mode
                         {
-                            flo_resp.mark_changed();
+                            mode_resp.mark_changed();
                         }
-                        changes.note(flo_resp);
-
-                        if is_fixed_pt {
-                            changes.note(
-                                ui.add(
-                                    nf::Field::new(
-                                        &mut field_options.first_line_offset,
-                                        "First line offset",
-                                    )
-                                    .prefix("Offset")
-                                    .unit("pt")
-                                    .decimals(1)
-                                    .range(0.0..=720.0)
-                                    .width(half),
-                                ),
-                            );
-                        }
-                    });
+                        changes.note(mode_resp);
+                    }
 
                     if field_options != before_opts {
                         format.set_field_options(
@@ -1561,69 +1668,80 @@ impl crate::app::Editor {
                         .find(|(k, _)| *k == field_options.auto_size)
                         .map(|(_, l)| *l)
                         .unwrap_or("Auto size: None");
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let mut t_resp = ui.add(
-                            nf::TextField::new(&mut target_str, "Target")
-                                .prefix("Target")
-                                .width(half),
-                        );
-                        t_resp.id = nf::TextField::edit_id(t_resp.id);
-                        if t_resp.changed() {
-                            format.set_target_str(target_str);
-                        }
-                        changes.note(t_resp);
-
-                        let (mut as_resp, _) = nf::Select::new("text_box_auto_size", cur_as)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (code, label) in auto_size_opts {
-                                    if ui
-                                        .add(
-                                            nf::MenuItem::new(label)
-                                                .checked(field_options.auto_size == code),
-                                        )
-                                        .clicked()
-                                    {
-                                        field_options.auto_size = code.to_owned();
-                                        ui.close();
+                    let (target_resp, mut auto_size_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
+                            let mut response = ui.add(
+                                nf::TextField::new(&mut target_str, "Target")
+                                    .prefix("Target")
+                                    .width(width),
+                            );
+                            response.id = nf::TextField::edit_id(response.id);
+                            response
+                        },
+                        |ui, width| {
+                            nf::Select::new("text_box_auto_size", cur_as)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (code, label) in auto_size_opts {
+                                        if ui
+                                            .add(
+                                                nf::MenuItem::new(label)
+                                                    .checked(field_options.auto_size == code),
+                                            )
+                                            .clicked()
+                                        {
+                                            field_options.auto_size = code.to_owned();
+                                            ui.close();
+                                        }
                                     }
-                                }
-                            });
-                        if field_options.auto_size != before_opts.auto_size {
-                            as_resp.mark_changed();
-                        }
-                        changes.note(as_resp);
-                    });
+                                })
+                                .0
+                        },
+                    );
+                    if target_resp.changed() {
+                        format.set_target_str(target_str);
+                    }
+                    if field_options.auto_size != before_opts.auto_size {
+                        auto_size_resp.mark_changed();
+                    }
+                    changes.note(target_resp);
+                    changes.note(auto_size_resp);
 
                     let mut var_str = field_options.variable.clone().unwrap_or_default();
                     let mut restrict_str = field_options.restrict.clone().unwrap_or_default();
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let mut v_resp = ui.add(
-                            nf::TextField::new(&mut var_str, "Variable")
-                                .prefix("Variable")
-                                .width(half),
-                        );
-                        v_resp.id = nf::TextField::edit_id(v_resp.id);
-                        if v_resp.changed() {
-                            field_options.variable =
-                                (!var_str.trim().is_empty()).then(|| var_str.trim().to_owned());
-                        }
-                        changes.note(v_resp);
-
-                        let mut r_resp = ui.add(
-                            nf::TextField::new(&mut restrict_str, "Restrict")
-                                .prefix("Restrict")
-                                .width(half),
-                        );
-                        r_resp.id = nf::TextField::edit_id(r_resp.id);
-                        if r_resp.changed() {
-                            field_options.restrict =
-                                (!restrict_str.is_empty()).then_some(restrict_str);
-                        }
-                        changes.note(r_resp);
-                    });
+                    let (variable_resp, restrict_resp) = two_column_row(
+                        ui,
+                        80.0,
+                        |ui, width| {
+                            let mut response = ui.add(
+                                nf::TextField::new(&mut var_str, "Variable")
+                                    .prefix("Variable")
+                                    .width(width),
+                            );
+                            response.id = nf::TextField::edit_id(response.id);
+                            response
+                        },
+                        |ui, width| {
+                            let mut response = ui.add(
+                                nf::TextField::new(&mut restrict_str, "Restrict")
+                                    .prefix("Restrict")
+                                    .width(width),
+                            );
+                            response.id = nf::TextField::edit_id(response.id);
+                            response
+                        },
+                    );
+                    if variable_resp.changed() {
+                        field_options.variable =
+                            (!var_str.trim().is_empty()).then(|| var_str.trim().to_owned());
+                    }
+                    if restrict_resp.changed() {
+                        field_options.restrict = (!restrict_str.is_empty()).then_some(restrict_str);
+                    }
+                    changes.note(variable_resp);
+                    changes.note(restrict_resp);
 
                     if field_options != before_opts {
                         format.set_field_options(

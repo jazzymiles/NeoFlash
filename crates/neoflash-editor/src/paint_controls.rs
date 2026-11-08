@@ -143,6 +143,52 @@ pub(crate) fn number_field(
 /// Narrowest paired field that still shows a prefix and four digits.
 const PAIR_FIELD_MIN: f32 = 80.;
 
+/// Lay out two inspector cells on one shared grid. Every caller receives the
+/// exact cell width, so prefixes, icons and nested selectors cannot change the
+/// X position of the second column from row to row. At genuinely narrow widths
+/// the cells stack instead of clipping or shrinking below their usable size.
+pub(crate) fn two_column_row<L, R>(
+    ui: &mut egui::Ui,
+    minimum_cell_width: f32,
+    left: impl FnOnce(&mut egui::Ui, f32) -> L,
+    right: impl FnOnce(&mut egui::Ui, f32) -> R,
+) -> (L, R) {
+    let gap = space::S2;
+    let available = ui.available_width();
+    if available < minimum_cell_width * 2.0 + gap {
+        let left = left(ui, available);
+        let right = right(ui, available);
+        return (left, right);
+    }
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        let width = (ui.available_width() - gap) / 2.0;
+        let left = ui
+            .allocate_ui_with_layout(
+                egui::vec2(width, crate::theme::control_h()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(width);
+                    left(ui, width)
+                },
+            )
+            .inner;
+        let right = ui
+            .allocate_ui_with_layout(
+                egui::vec2(width, crate::theme::control_h()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(width);
+                    right(ui, width)
+                },
+            )
+            .inner;
+        (left, right)
+    })
+    .inner
+}
+
 /// Paired values use the same scrub/commit interaction as single rows.
 pub(crate) fn numeric_pair(
     ui: &mut egui::Ui,
@@ -166,35 +212,24 @@ pub(crate) fn numeric_pair_with_suffix(
     // Resolve property identity before choosing the responsive layout. The
     // global child scopes keep DragValue/TextEdit IDs through row wrapping.
     let ids = labels.map(|label| ui.id().with(("numeric-property", label)));
-    if ui.available_width() < 2. * PAIR_FIELD_MIN + space::S2 {
-        let first = ui
-            .scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
-                number_field(ui, labels[0], a, range.clone(), speed, suffix, None)
+    let first_range = range.clone();
+    let (first, second) = two_column_row(
+        ui,
+        PAIR_FIELD_MIN,
+        |ui, width| {
+            ui.scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
+                number_field(ui, labels[0], a, first_range, speed, suffix, Some(width))
             })
-            .inner;
-        let second = ui
-            .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
-                number_field(ui, labels[1], b, range, speed, suffix, None)
-            })
-            .inner;
-        return [first, second];
-    }
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
-        let width = (ui.available_width() - space::S2) / 2.;
-        let first = ui
-            .scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
-                number_field(ui, labels[0], a, range.clone(), speed, suffix, Some(width))
-            })
-            .inner;
-        let second = ui
-            .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
+            .inner
+        },
+        |ui, width| {
+            ui.scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
                 number_field(ui, labels[1], b, range, speed, suffix, Some(width))
             })
-            .inner;
-        [first, second]
-    })
-    .inner
+            .inner
+        },
+    );
+    [first, second]
 }
 
 pub(crate) fn percent_row(ui: &mut egui::Ui, label: &str, value: &mut f64) -> Response {

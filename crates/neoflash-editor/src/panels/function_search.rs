@@ -10,11 +10,15 @@ use neoflash_ui::{
 };
 
 const MAX_VISIBLE_RESULTS: usize = 24;
+const RESULTS_MAX_HEIGHT: f32 = 392.0;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FunctionSearchState {
     pub(crate) open: bool,
     pub(crate) just_opened: bool,
+    /// Native menu dismissal can reclaim focus in the opening frame. Retry for a few
+    /// frames so the first typed character always lands in the Search field.
+    pub(crate) focus_attempts: u8,
     pub(crate) query: String,
     pub(crate) active: usize,
     pub(crate) trigger_rect: Option<Rect>,
@@ -128,6 +132,7 @@ impl Editor {
             FunctionSearchState {
                 open: true,
                 just_opened: true,
+                focus_attempts: 3,
                 query: String::new(),
                 active: 0,
                 trigger_rect,
@@ -140,6 +145,7 @@ impl Editor {
         let mut state = function_search_state(ctx);
         state.open = false;
         state.just_opened = false;
+        state.focus_attempts = 0;
         store_state(ctx, state);
     }
 
@@ -178,8 +184,13 @@ impl Editor {
                         c::Search::new(&mut state.query, "Search menu items and functions")
                             .width(width),
                     );
-                    if state.just_opened {
-                        ui.memory_mut(|memory| memory.request_focus(search.id.with("edit")));
+                    let edit_id = search.id.with("edit");
+                    if ui.memory(|memory| memory.has_focus(edit_id)) {
+                        state.focus_attempts = 0;
+                    } else if state.focus_attempts > 0 {
+                        ui.memory_mut(|memory| memory.request_focus(edit_id));
+                        state.focus_attempts -= 1;
+                        ctx.request_repaint();
                     }
                     if search.changed() {
                         state.active = 0;
@@ -197,7 +208,7 @@ impl Editor {
                     c::menu_section(ui, "Menu Items");
                     egui::ScrollArea::vertical()
                         .id_salt("nf2-function-search-results")
-                        .max_height(392.0)
+                        .max_height(RESULTS_MAX_HEIGHT)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
@@ -218,6 +229,9 @@ impl Editor {
                                         .shortcut(&shortcut)
                                         .highlighted(index == state.active),
                                 );
+                                if index == state.active {
+                                    row.scroll_to_me(Some(egui::Align::Center));
+                                }
                                 if row.hovered() {
                                     state.active = index;
                                 }
@@ -262,12 +276,14 @@ impl Editor {
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
             if visible > 0 {
                 state.active = (state.active + 1) % visible;
+                ctx.request_repaint();
             }
         } else if ctx
             .input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp))
         {
             if visible > 0 {
                 state.active = (state.active + visible - 1) % visible;
+                ctx.request_repaint();
             }
         } else if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
         {
@@ -302,6 +318,7 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neoflash_core::Project;
 
     #[test]
     fn fuzzy_search_ranks_menu_paths_and_keywords_without_preferences() {
@@ -314,5 +331,82 @@ mod tests {
         let keyframes = function_search_results("keyframe");
         assert!(keyframes.contains(&CommandId::InsertKeyframe));
         assert!(keyframes.contains(&CommandId::ModifyTimelineConvertToKeyframes));
+    }
+
+    #[test]
+    fn opening_search_focuses_the_field_and_accepts_the_first_followup_text() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.open_function_search(&ctx);
+        assert_eq!(function_search_state(&ctx).focus_attempts, 3);
+
+        let input = |events| egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run(input(vec![]), |ctx| editor.function_search_popover(ctx));
+        assert!(ctx.memory(|memory| memory.focused().is_some()));
+        let _ = ctx.run(input(vec![egui::Event::Text("gradient".into())]), |ctx| {
+            editor.function_search_popover(ctx)
+        });
+        assert_eq!(function_search_state(&ctx).query, "gradient");
+        assert_eq!(function_search_state(&ctx).focus_attempts, 0);
+    }
+
+    #[test]
+    fn keyboard_navigation_scrolls_the_active_result_into_view() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        editor.open_function_search(&ctx);
+        let input = |events| egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1280.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
+        for _ in 0..20 {
+            let _ = ctx.run(
+                input(vec![egui::Event::Key {
+                    key: egui::Key::ArrowDown,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }]),
+                |ctx| editor.function_search_popover(ctx),
+            );
+        }
+        let output = ctx.run(input(Vec::new()), |ctx| editor.function_search_popover(ctx));
+        let state = function_search_state(&ctx);
+        assert_eq!(state.active, 20);
+        let active_label = results_for_context(&state.query, true)[state.active]
+            .menu_path()
+            .replace(" ▸ ", " > ");
+        let nodes = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("command search accessibility tree")
+            .nodes;
+        let bounds = |label: &str| {
+            nodes.iter().find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+        };
+        let active = bounds(&active_label).expect("active command row");
+        let visible_results_bottom = neoflash_ui::metrics::top_bar()
+            + space::S1
+            + neoflash_ui::metrics::control()
+            + neoflash_ui::metrics::menu_section()
+            + RESULTS_MAX_HEIGHT
+            + 2.0 * space::S5;
+        assert!(
+            active.y1 <= f64::from(visible_results_bottom),
+            "active keyboard result must remain inside the results viewport"
+        );
     }
 }

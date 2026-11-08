@@ -871,6 +871,23 @@ pub(crate) fn paint_text_property_glyph(
         return;
     }
     let r = Rect::from_center_size(rect.center(), Vec2::splat(side));
+    // Reuse approved NF2 optical masters whenever the requested text role already exists. Keep
+    // the local painter only for Flash text roles that do not yet have a 12/16 pt master; R-066
+    // tracks those missing masters for the design/Figma source.
+    let approved = match glyph {
+        TextPropertyGlyph::Superscript => Some(neoflash_ui::icons::i16::SUPERSCRIPT),
+        TextPropertyGlyph::Subscript => Some(neoflash_ui::icons::i16::SUBSCRIPT),
+        TextPropertyGlyph::AlignLeft => Some(neoflash_ui::icons::i16::TALIGN_LEFT),
+        TextPropertyGlyph::AlignCenter => Some(neoflash_ui::icons::i16::TALIGN_CENTER),
+        TextPropertyGlyph::AlignRight => Some(neoflash_ui::icons::i16::TALIGN_RIGHT),
+        TextPropertyGlyph::JustifyLastLeft => Some(neoflash_ui::icons::i16::TALIGN_JUSTIFY),
+        TextPropertyGlyph::BorderStroke => Some(neoflash_ui::icons::i16::TEXT_BORDER),
+        _ => None,
+    };
+    if let Some(icon) = approved {
+        neoflash_ui::icons::paint_sized(p, p.ctx(), r, icon, side, color);
+        return;
+    }
     let scale = side / 16.0;
     let pt = |x: f32, y: f32| Pos2::new(r.left() + x * scale, r.top() + y * scale);
     let stroke = Stroke::new((1.35 * scale).max(1.0), color);

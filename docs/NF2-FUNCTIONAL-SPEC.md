@@ -508,8 +508,20 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Brush uses the shared zoom-following footprint/resize cursor; Pencil retains its existing draft overlay without
   the separately illustrated smoothing-ahead preview. Still `StageOverlay`: rectangle/oval/line/polystar drafts,
   pen/pencil draft stroke, lasso, eraser size circle and the gradient tool (`paint_gradient_handles`).
+- Panel behavior: Tools uses the standard NF2 panel title/header and keeps the existing tool, paint, view and modifier
+  controls separated by dividers without redundant body captions. A lone floating Tools window can attach to eight
+  magnetic positions around the Stage workspace: side centres use the narrow vertical rail, while top/bottom centres
+  and corners use the compact horizontal layout and open inward. Dragging outside the magnetic range restores free
+  placement and ordinary docking. The Fill/Stroke block is centred with the surrounding grid. Fill/Stroke from
+  detached Tools opens and focuses the real Color panel.
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
+
+Properties is contextual: object selection takes precedence, followed by Timeline range/frame, Stage when Select is
+active with no selection, and active-tool settings otherwise. There is no separate `Selection / Tool` switch. Explicit
+entry points such as Brushes ▸ Brush options activate the matching tool and request its settings without leaking the
+override across documents or later context changes. Paired Text fields share one aligned second-column grid at the
+320-point inspector minimum and stack vertically below their usable width; size remains above position.
 
 **PR-01 · Properties — Text** — done (`text_boxes.rs`, `ui_icons.rs`, `neoflash-core/src/text.rs`, `web/text.js`, `web/text-input.js`)
 - Stage authoring: clicking with Text creates point text that grows with its content; dragging creates a fixed,
@@ -985,7 +997,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
 | Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
-| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, supports ↑/↓/↵/Esc and runs the chosen command; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
+| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts

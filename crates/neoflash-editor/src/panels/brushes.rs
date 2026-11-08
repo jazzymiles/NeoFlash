@@ -1,5 +1,9 @@
 //! Approved v2.2 Brushes and Brush/Pencil properties (R-038).
-use crate::{app::Editor, tool_preferences::PencilMode, workspace::PanelId};
+use crate::{
+    app::{Editor, Tool},
+    tool_preferences::PencilMode,
+    workspace::PanelId,
+};
 use eframe::egui::{self, Color32};
 use neoflash_ui::{
     components as nf,
@@ -67,8 +71,8 @@ impl Editor {
                 .add(nf::IconButton::new(i16::SETTINGS, "Brush options"))
                 .clicked()
             {
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(egui::Id::new("properties-tool-tab"), true));
+                self.set_tool(Tool::Brush);
+                self.request_properties_tool_context(ui.ctx());
                 self.show_panel(PanelId::Properties);
             }
         });

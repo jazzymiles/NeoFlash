@@ -1021,3 +1021,33 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   runtime hotspot regression.
 - **Proposal (optional):** metadata-only synchronization for the whole Pen family, with one 1× Stage click sample
   showing the anchor centred on the visible nib; retain every existing SVG path and cursor size.
+
+### R-066 · Owner-authorized v2.2 panel, floating-tools and Help repair batch
+- **Status:** open
+- **Requested by / for:** project owner · T-156 native UI report and six annotated screenshots (8 November 2026)
+- **Where:** Figma `BUz3pseopiuOg2Uiy3Fog7` v2.2 Interface/Panels/Components; `NF2/Panel Header`,
+  `NF2/Floating Panel Header`, Tools, Properties — Text, Timeline ruler, Help and tool/text icon masters.
+- **Need:** synchronize the owner-approved repair contract: (1) Tools uses the same title style and left inset as
+  Properties and no longer shows the redundant View/Colors/Options body captions; (2) Properties is fully contextual
+  and has no Selection/Tool segmented control; (3) floating Tools has eight magnetic workspace anchors, becomes
+  vertical at the two side-centre anchors and expands inward from each corner/edge; (4) Text Properties has one aligned
+  two-column grid, a documented 320 pt content minimum and a narrow stacked fallback; (5) Help has a stable fixed-width
+  shell, fixed close position, scrolling body and an Open in browser action; (6) Timeline frame labels are optically
+  centred on their approved major ticks instead of moving right as digit count grows; (7) Gradient Transform,
+  ToolModifierGlyph, TextPropertyGlyph and the gradient-overflow preview become approved optical masters/components.
+- **Why:** the implementation audit found hand-drawn editor-local icons and preview colours, a ruler `LEFT_TOP`
+  alignment that disagrees with the exported centred labels, and no design/model states for the requested Tools
+  anchors. Implementation can preserve and repair behaviour, but it must not invent the corresponding NF2 masters or
+  leave the live v2.2 Figma boards behind the shipped interface.
+- **Checked:** owner screenshots `21.55.51`, `21.56.47`, `22.01.34`, `22.09.53`, `22.37.54`, `22.39.16`;
+  Figma v2.2 Interface Light and v2.2 Panels; `exports/interface/light/png/editor-main.png`,
+  `exports/panels/light/png/{panel-tools-floating,panel-properties-text}.png`; current panel, ruler and icon sources.
+- **Proposal (optional):** reuse the existing Panel Header/Floating Panel Header, fields, dividers, Search and Button
+  components unchanged; add only the eight Tools anchor states, responsive Properties examples, Help shell/action and
+  missing 12/16/20 optical icon masters. Preserve every existing tool, modifier, text option and colour mode.
+- **Implementation (T-156):** contextual Properties, aligned/stacking Text rows, stable Help/browser handoff,
+  first-keystroke command search, scale-correct panel minima, larger docking acceptance, one-header floating windows,
+  detached Color routing and eight functional Tools anchors are implemented and covered without removing existing
+  controls. The design track still owns Figma synchronization, optically centred Timeline ruler labels and approved
+  masters for the remaining editor-local tool/text/gradient glyphs.
+- **Answer:**

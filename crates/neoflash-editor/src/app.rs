@@ -322,11 +322,7 @@ impl Editor {
             };
             if let Some(tool) = tool {
                 s.set_tool(tool);
-                if matches!(tool, Tool::Brush | Tool::Pencil) {
-                    cc.egui_ctx.data_mut(|data| {
-                        data.insert_temp(egui::Id::new("properties-tool-tab"), true)
-                    });
-                } else {
+                if !matches!(tool, Tool::Brush | Tool::Pencil) {
                     s.select_all();
                 }
             }

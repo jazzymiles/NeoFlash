@@ -365,6 +365,61 @@ fn narrow_tools_rail_shows_fitting_groups_then_more_and_flyouts_choose_tools() {
 }
 
 #[test]
+fn detached_tools_paint_well_reveals_and_focuses_the_real_color_panel() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Tools);
+    editor.workspace.float_panel(
+        PanelId::Tools,
+        Some(crate::workspace::WindowGeometry {
+            outer_position: [120., 100.],
+            inner_size: [crate::detached::floating_tools_width(), 520.],
+        }),
+    );
+    editor.set_panel_visible(PanelId::Color, false);
+    let render = |editor: &mut Editor, time, events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(crate::detached::floating_tools_width(), 620.),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.tools_contents(ui));
+            },
+        )
+    };
+    let first = render(&mut editor, 0.1, Vec::new());
+    let fill = named_bounds(&first, "Fill colour").expect("detached Tools fill well");
+    let clicked = render(
+        &mut editor,
+        0.2,
+        vec![
+            Event::PointerMoved(fill.center()),
+            primary_button(fill.center(), true),
+            primary_button(fill.center(), false),
+        ],
+    );
+    assert!(editor.workspace.is_panel_visible(PanelId::Color));
+    assert_eq!(
+        editor.workspace.panel_surface(PanelId::Color),
+        crate::workspace::DockSurface::Main
+    );
+    assert!(editor.authoring_modify.color_selection);
+    assert!(
+        clicked
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .is_some_and(|output| output.commands.contains(&egui::ViewportCommand::Focus))
+    );
+}
+
+#[test]
 fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
@@ -6957,6 +7012,252 @@ fn compact_text_and_movie_clip_properties_inspectors_expose_two_column_rows_and_
 }
 
 #[test]
+fn properties_context_is_automatic_without_selection_tool_toggle() {
+    use crate::app::Tool;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let render = |editor: &mut Editor, time| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 960.0))),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+
+    let stage = render(&mut editor, 0.1);
+    assert!(named_bounds(&stage, "Stage").is_some());
+    assert!(named_bounds(&stage, "Selection").is_none());
+    assert!(named_bounds(&stage, "Tool").is_none());
+
+    editor.set_tool(Tool::Rectangle);
+    let tool = render(&mut editor, 0.2);
+    assert!(named_bounds(&tool, "Tool options").is_some());
+    assert!(named_bounds(&tool, "Drawing defaults").is_some());
+    assert!(named_bounds(&tool, "Selection").is_none());
+    assert!(named_bounds(&tool, "Tool").is_none());
+
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 60.0,
+            fill: [40, 80, 160, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        20.0,
+        30.0,
+    );
+    let rectangle_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(rectangle_id);
+    let object = render(&mut editor, 0.3);
+    assert!(named_bounds(&object, "Position and transform").is_some());
+    assert!(named_bounds(&object, "Tool options").is_none());
+
+    editor.set_tool(Tool::Brush);
+    editor.request_properties_tool_context(&ctx);
+    let requested_tool = render(&mut editor, 0.31);
+    assert!(named_bounds(&requested_tool, "Brush mode").is_some());
+    editor.set_tool(Tool::Pencil);
+    let tool_changed = render(&mut editor, 0.32);
+    assert!(named_bounds(&tool_changed, "Position and transform").is_some());
+    assert!(named_bounds(&tool_changed, "Brush mode").is_none());
+
+    editor.set_tool(Tool::Brush);
+    editor.request_properties_tool_context(&ctx);
+    let mut second_document = Editor::from_project(&ctx, editor.project.clone());
+    second_document.set_tool(Tool::Select);
+    let other_session = render(&mut second_document, 0.33);
+    assert!(named_bounds(&other_session, "Stage").is_some());
+    assert!(named_bounds(&other_session, "Brush mode").is_none());
+
+    editor.clear_selection();
+    let layer = editor.symbol().timeline.layers[editor.layer].id.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer],
+        start: editor.frame,
+        end: editor.frame,
+    });
+    let frame_context = render(&mut editor, 0.4);
+    assert!(named_bounds(&frame_context, "Range / duration").is_some());
+    assert!(named_bounds(&frame_context, "Layer end").is_some());
+    assert!(named_bounds(&frame_context, "Tool options").is_none());
+}
+
+#[test]
+fn brushes_options_activates_brush_before_opening_contextual_properties() {
+    use crate::app::Tool;
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.add_element(
+        ElementKind::Rectangle {
+            width: 80.0,
+            height: 60.0,
+            fill: [40, 80, 160, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        20.0,
+        30.0,
+    );
+    let rectangle_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(rectangle_id);
+    editor.set_tool(Tool::Select);
+
+    let render_brushes = |editor: &mut Editor, time, events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 720.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.brushes_contents(ui));
+            },
+        )
+    };
+    let first = render_brushes(&mut editor, 0.1, Vec::new());
+    let options = named_bounds(&first, "Brush options").expect("Brush options button");
+    let _ = render_brushes(
+        &mut editor,
+        0.2,
+        vec![
+            Event::PointerMoved(options.center()),
+            primary_button(options.center(), true),
+            primary_button(options.center(), false),
+        ],
+    );
+
+    assert_eq!(editor.tool, Tool::Brush);
+    let properties = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 960.0))),
+            time: Some(0.3),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+        },
+    );
+    assert!(named_bounds(&properties, "Brush mode").is_some());
+    assert!(named_bounds(&properties, "Position and transform").is_none());
+}
+
+#[test]
+fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Responsive text".into(),
+            width: 240.0,
+            height: 80.0,
+            format: TextFormat {
+                font: "Inter".into(),
+                size: 20.0,
+                ..TextFormat::default()
+            },
+            word_wrap: true,
+            multiline: true,
+        },
+        20.0,
+        20.0,
+    );
+
+    let render = |editor: &mut Editor, width: f32, time| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 1800.0))),
+                time: Some(time),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+
+    let width = 320.0;
+    let output = render(&mut editor, width, 1.0);
+    let size = named_bounds(&output, "Size").expect("Size");
+    let tracking = named_bounds(&output, "Letter spacing").expect("Letter spacing");
+    assert!((size.center().y - tracking.center().y).abs() <= 1.0);
+    let second_column = ["Leading", "Right margin", "Space after"];
+    let x = named_bounds(&output, second_column[0])
+        .expect("Leading")
+        .left();
+    for label in second_column {
+        let rect = named_bounds(&output, label).unwrap_or_else(|| panic!("missing {label}"));
+        assert!(
+            (rect.left() - x).abs() <= 1.0,
+            "second-column fields drift at {width} pt: {rect:?} vs x={x}"
+        );
+        assert!(
+            rect.right() <= width + 0.5,
+            "{label} clips at {width} pt: {rect:?}"
+        );
+    }
+    let gutter = named_bounds(&output, "Column gutter").expect("Column gutter field");
+    assert!(gutter.right() <= width + 0.5, "gutter clips at {width} pt");
+
+    let narrow = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 160.0))),
+            time: Some(5.0),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::paint_controls::two_column_row(
+                    ui,
+                    80.0,
+                    |ui, width| {
+                        ui.add_sized(
+                            [width, 32.0],
+                            neoflash_ui::components::Button::new("First field"),
+                        )
+                    },
+                    |ui, width| {
+                        ui.add_sized(
+                            [width, 32.0],
+                            neoflash_ui::components::Button::new("Second field"),
+                        )
+                    },
+                );
+            });
+        },
+    );
+    let first = named_bounds(&narrow, "First field").expect("First field");
+    let second = named_bounds(&narrow, "Second field").expect("Second field");
+    assert!(second.top() >= first.bottom());
+    assert!(first.right() <= 160.5 && second.right() <= 160.5);
+}
+
+#[test]
 fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     use crate::app::Tool;
     use neoflash_core::model::{ElementKind, FillRule, PathCommand};
@@ -7004,6 +7305,12 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     let snap_rect = named_bounds(&out_2col, "Snap to objects").expect("Snap to objects modifier");
     let smooth_rect = named_bounds(&out_2col, "Smooth").expect("Smooth modifier");
     let straighten_rect = named_bounds(&out_2col, "Straighten").expect("Straighten modifier");
+    let default_colors = named_bounds(&out_2col, "Black and white").expect("default paint colors");
+    let swap_colors = named_bounds(&out_2col, "Swap colors").expect("swap paint colors");
+    assert!(
+        ((default_colors.left() + swap_colors.right()) * 0.5 - 46.0).abs() < 1.0,
+        "the middle paint block is centred in the 76 pt Tools body"
+    );
     assert!(
         snap_rect.bottom() <= smooth_rect.top() + 2.0,
         "Snap to objects is on Row 1 above Smooth/Straighten in 2-column mode"

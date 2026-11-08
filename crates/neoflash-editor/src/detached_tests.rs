@@ -2,7 +2,7 @@
 //! OS move/resize and native clipboard acceptance remain live native checks.
 use crate::{
     app::{BottomTab, Editor},
-    workspace::{DockSurface, PanelId, PanelPlacement},
+    workspace::{DockEdge, DockSurface, PanelId, PanelPlacement, ToolsStageAnchor, WindowGeometry},
 };
 use eframe::egui;
 use neoflash_core::Project;
@@ -673,4 +673,617 @@ fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_f
         .expect("Align resized geometry");
     assert_eq!(resized.outer_position, [350., 240.]);
     assert_eq!(resized.inner_size, [300., 270.]);
+}
+
+#[test]
+fn floating_minima_scale_once_and_dock_edges_have_a_larger_invisible_halo() {
+    assert_eq!(
+        crate::detached::scaled_size([320., 220.], 1.0),
+        [320., 220.]
+    );
+    assert_eq!(
+        crate::detached::scaled_size([320., 220.], 1.25),
+        [400., 275.]
+    );
+    assert_eq!(
+        crate::detached::scaled_size([320., 220.], 1.5),
+        [480., 330.]
+    );
+
+    let root = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000., 800.));
+    let pointer = egui::pos2(500., 70.);
+    let visible = crate::dock_grid::edge_targets(root, 1.0)
+        .into_iter()
+        .find(|(edge, _)| *edge == DockEdge::Top)
+        .unwrap()
+        .1;
+    let acceptance = crate::dock_grid::edge_acceptance_targets(root, 1.0)
+        .into_iter()
+        .find(|(edge, _)| *edge == DockEdge::Top)
+        .unwrap()
+        .1;
+    assert!(
+        !visible.contains(pointer),
+        "the approved overlay stays unchanged"
+    );
+    assert!(
+        acceptance.contains(pointer),
+        "the invisible return-to-dock halo is deliberately easier to hit"
+    );
+}
+
+#[test]
+fn tools_snap_to_all_eight_stage_anchors_reflow_and_roundtrip() {
+    for zoom in [1.0_f32, 1.25, 1.5] {
+        let stage =
+            egui::Rect::from_min_size(egui::pos2(100., 80.) * zoom, egui::vec2(1200., 760.) * zoom);
+        for anchor in ToolsStageAnchor::ALL {
+            let logical_width = if anchor.vertical() {
+                crate::detached::floating_tools_width()
+            } else {
+                (2. * neoflash_ui::metrics::tools_two_columns())
+                    .max(crate::detached::floating_tools_width())
+            };
+            let target = crate::detached::apply_tools_stage_anchor(
+                anchor,
+                stage,
+                WindowGeometry {
+                    outer_position: [0., 0.],
+                    // Simulate geometry saved at a different scale; the anchor owns width.
+                    inner_size: [logical_width, 240. * zoom],
+                },
+                zoom,
+            );
+            assert_eq!(target.inner_size[0], logical_width * zoom);
+            let near = WindowGeometry {
+                outer_position: [target.outer_position[0] + 4., target.outer_position[1] + 4.],
+                inner_size: target.inner_size,
+            };
+            let (snapped, geometry) =
+                crate::detached::snap_tools_stage_anchor(stage, near, zoom).unwrap();
+            assert_eq!(snapped, anchor);
+            assert_eq!(geometry.inner_size[0], logical_width * zoom);
+            assert_eq!(
+                geometry,
+                crate::detached::apply_tools_stage_anchor(anchor, stage, geometry, zoom)
+            );
+        }
+    }
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Tools);
+    let window = editor.workspace.float_panel(
+        PanelId::Tools,
+        Some(WindowGeometry {
+            outer_position: [100., 100.],
+            inner_size: [320., 240.],
+        }),
+    );
+    assert!(
+        editor
+            .workspace
+            .set_tools_stage_anchor(window, Some(ToolsStageAnchor::BottomRight))
+    );
+    let saved = serde_json::to_string(&editor.workspace).unwrap();
+    let restored: crate::workspace::WorkspacePrefs = serde_json::from_str(&saved).unwrap();
+    assert_eq!(
+        restored.tools_stage_anchor(PanelId::Tools),
+        Some(ToolsStageAnchor::BottomRight)
+    );
+    assert!(restored.tools_popover_prefers_left());
+
+    let render_tools = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400., 720.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.tools_contents(ui));
+            },
+        )
+    };
+    editor
+        .workspace
+        .set_tools_stage_anchor(window, Some(ToolsStageAnchor::MiddleLeft));
+    let _ = render_tools(&mut editor);
+    assert_eq!(
+        editor.detached.tools_desired_inner_height, None,
+        "side-centre anchors must use the one-column vertical rail"
+    );
+    editor
+        .workspace
+        .set_tools_stage_anchor(window, Some(ToolsStageAnchor::TopLeft));
+    let _ = render_tools(&mut editor);
+    assert!(
+        editor.detached.tools_desired_inner_height.is_some(),
+        "corner anchors keep the responsive horizontal/multi-column layout"
+    );
+}
+
+#[test]
+fn native_borderless_header_exposes_a_working_close_control() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Align);
+    editor.set_panel_placement(&ctx, PanelId::Align, PanelPlacement::Detached);
+    let mut open = true;
+    let mut render = |events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(360., 260.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                    .show(ctx, |ui| {
+                        open = editor.native_floating_panel(
+                            ui,
+                            PanelId::Align,
+                            &[PanelId::Align],
+                            [248., 190.],
+                            1.0,
+                        );
+                    });
+            },
+        )
+    };
+    let first = render(vec![]);
+    let nodes = &first
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes;
+    let title_nodes: Vec<_> = nodes
+        .iter()
+        .filter_map(|(_, node)| {
+            (node.label() == Some("Align"))
+                .then(|| node.bounds())
+                .flatten()
+        })
+        .collect();
+    assert_eq!(
+        title_nodes.len(),
+        1,
+        "a one-group native window must have one title/tab header, not nested duplicate chrome"
+    );
+    assert!(
+        title_nodes[0].y1 <= f64::from(neoflash_ui::metrics::panel_tab() + 1.),
+        "the only title stays inside the locked floating header"
+    );
+    let close = first
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find_map(|(_, node)| {
+            (node.label() == Some("Close panel"))
+                .then(|| node.bounds())
+                .flatten()
+                .map(|rect| {
+                    egui::pos2(
+                        ((rect.x0 + rect.x1) * 0.5) as f32,
+                        ((rect.y0 + rect.y1) * 0.5) as f32,
+                    )
+                })
+        })
+        .expect("locked NF2 floating header must expose Close panel");
+    render(vec![
+        egui::Event::PointerMoved(close),
+        crate::tests::primary_button(close, true),
+    ]);
+    render(vec![crate::tests::primary_button(close, false)]);
+    drop(render);
+    assert!(!open);
+}
+
+#[test]
+fn collapsed_native_header_retires_the_expanded_body_dock_targets() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Align);
+    editor.set_panel_placement(&ctx, PanelId::Align, PanelPlacement::Detached);
+    let render = |editor: &mut Editor, events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(360., 260.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                    .show(ctx, |ui| {
+                        let _ = editor.native_floating_panel(
+                            ui,
+                            PanelId::Align,
+                            &[PanelId::Align],
+                            [248., 190.],
+                            1.0,
+                        );
+                    });
+            },
+        )
+    };
+    let expanded = render(&mut editor, Vec::new());
+    let surface = DockSurface::Floating(PanelId::Align);
+    let old_body = editor
+        .detached
+        .dock_viewports
+        .iter()
+        .find(|target| target.surface == surface)
+        .expect("expanded floating viewport target")
+        .content
+        .center();
+    assert!(
+        editor
+            .detached
+            .dock_groups
+            .iter()
+            .any(|target| target.surface == surface)
+    );
+    let collapse = expanded
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find_map(|(_, node)| {
+            (node.label() == Some("Collapse panel"))
+                .then(|| node.bounds())
+                .flatten()
+                .map(|rect| {
+                    egui::pos2(
+                        ((rect.x0 + rect.x1) * 0.5) as f32,
+                        ((rect.y0 + rect.y1) * 0.5) as f32,
+                    )
+                })
+        })
+        .expect("Collapse panel button");
+    let _ = render(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(collapse),
+            crate::tests::primary_button(collapse, true),
+            crate::tests::primary_button(collapse, false),
+        ],
+    );
+    let _ = render(&mut editor, Vec::new());
+    assert!(
+        editor
+            .detached
+            .dock_viewports
+            .iter()
+            .all(|target| target.surface != surface)
+    );
+    assert!(
+        editor
+            .detached
+            .dock_groups
+            .iter()
+            .all(|target| target.surface != surface)
+    );
+    assert_ne!(
+        editor
+            .dock_surface_at(old_body)
+            .map(|target| target.surface),
+        Some(surface),
+        "the former body must not remain an invisible docking surface"
+    );
+}
+
+#[test]
+fn floating_tools_header_fits_its_title_and_window_actions() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Tools);
+    editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
+    let width = crate::detached::floating_tools_width();
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, 260.),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                .show(ctx, |ui| {
+                    let _ = editor.native_floating_panel(
+                        ui,
+                        PanelId::Tools,
+                        &[PanelId::Tools],
+                        [width, 160.],
+                        1.0,
+                    );
+                });
+        },
+    );
+    let nodes = &output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .expect("floating Tools accessibility tree")
+        .nodes;
+    let bounds = |label: &str| {
+        nodes.iter().find_map(|(_, node)| {
+            (node.label() == Some(label))
+                .then(|| node.bounds())
+                .flatten()
+        })
+    };
+    let tools = bounds("Tools").expect("Tools tab");
+    let menu = bounds("Panel menu").expect("floating menu");
+    for label in ["Tools", "Panel menu", "Collapse panel", "Close panel"] {
+        let rect = bounds(label).unwrap_or_else(|| panic!("missing {label}"));
+        assert!(rect.x0 >= -0.5 && rect.x1 <= f64::from(width + 0.5));
+        assert!(rect.y1 <= f64::from(neoflash_ui::metrics::panel_tab() + 0.5));
+    }
+    assert!(
+        tools.x1 <= menu.x0,
+        "Tools title must not overlap window actions"
+    );
+}
+
+#[test]
+fn single_group_native_header_keeps_overflow_tabs_panel_commands_and_tab_targets() {
+    fn render(
+        editor: &mut Editor,
+        ctx: &egui::Context,
+        window: PanelId,
+        panels: &[PanelId],
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(520., 360.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                    .show(ctx, |ui| {
+                        let _ = editor.native_floating_panel(ui, window, panels, [320., 220.], 1.0);
+                    });
+            },
+        )
+    }
+    fn center(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+                    .map(|rect| {
+                        egui::pos2(
+                            ((rect.x0 + rect.x1) * 0.5) as f32,
+                            ((rect.y0 + rect.y1) * 0.5) as f32,
+                        )
+                    })
+            })
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let panels = [
+        PanelId::Align,
+        PanelId::Transform,
+        PanelId::Color,
+        PanelId::Info,
+        PanelId::Filters,
+    ];
+    for panel in panels {
+        editor.show_panel(panel);
+    }
+    let window = editor.workspace.float_group(
+        &panels,
+        PanelId::Align,
+        WindowGeometry {
+            outer_position: [120., 100.],
+            inner_size: [520., 360.],
+        },
+    );
+    let first = render(&mut editor, &ctx, window, &panels, Vec::new());
+    let target = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|target| target.surface == DockSurface::Floating(window))
+        .expect("single floating group target");
+    assert_eq!(
+        target.tabs.len(),
+        3,
+        "visible native tabs remain individual targets"
+    );
+    let overflow = panels
+        .into_iter()
+        .find(|panel| !target.tabs.iter().any(|(tab, _)| tab == panel))
+        .expect("fourth/fifth tab is available through overflow");
+
+    let menu = center(&first, "Panel menu").expect("Panel menu button");
+    let _ = render(
+        &mut editor,
+        &ctx,
+        window,
+        &panels,
+        vec![
+            egui::Event::PointerMoved(menu),
+            crate::tests::primary_button(menu, true),
+            crate::tests::primary_button(menu, false),
+        ],
+    );
+    let mut opened = render(&mut editor, &ctx, window, &panels, Vec::new());
+    if center(&opened, overflow.title()).is_none() {
+        opened = render(&mut editor, &ctx, window, &panels, Vec::new());
+    }
+    assert!(center(&opened, "Dock Left").is_some());
+    assert!(center(&opened, "Hide").is_some());
+    let overflow_row = center(&opened, overflow.title()).expect("overflow panel menu row");
+    let _ = render(
+        &mut editor,
+        &ctx,
+        window,
+        &panels,
+        vec![
+            egui::Event::PointerMoved(overflow_row),
+            crate::tests::primary_button(overflow_row, true),
+            crate::tests::primary_button(overflow_row, false),
+        ],
+    );
+    let active = editor
+        .workspace
+        .floating
+        .iter()
+        .find(|floating| floating.id == window)
+        .and_then(|floating| match floating.root.as_ref()? {
+            crate::workspace::FloatingNode::Group(group) => Some(group.active),
+            crate::workspace::FloatingNode::Split { .. } => None,
+        });
+    assert_eq!(active, Some(overflow));
+}
+
+#[test]
+fn single_group_floating_header_limits_tabs_to_its_real_minimum_width() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let panels = [
+        PanelId::Align,
+        PanelId::Transform,
+        PanelId::Color,
+        PanelId::Info,
+        PanelId::Filters,
+    ];
+    for panel in panels {
+        editor.show_panel(panel);
+    }
+    let minimum = crate::workspace::minimum_window_size(PanelId::Filters)[0];
+    let window = editor.workspace.float_group(
+        &panels,
+        PanelId::Align,
+        WindowGeometry {
+            outer_position: [120., 100.],
+            inner_size: [minimum, 300.],
+        },
+    );
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(minimum, 300.),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                .show(ctx, |ui| {
+                    let _ = editor.native_floating_panel(ui, window, &panels, [minimum, 260.], 1.0);
+                });
+        },
+    );
+    let target = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|target| target.surface == DockSurface::Floating(window))
+        .expect("minimum-width single group target");
+    assert!(
+        (1..3).contains(&target.tabs.len()),
+        "minimum width shows only the tabs that fit; remaining tabs stay in overflow"
+    );
+    assert!(
+        target
+            .tabs
+            .iter()
+            .any(|(panel, _)| *panel == PanelId::Align)
+    );
+    let nodes = &output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .expect("minimum-width header accessibility tree")
+        .nodes;
+    let bounds = |label: &str| {
+        nodes.iter().find_map(|(_, node)| {
+            (node.label() == Some(label))
+                .then(|| node.bounds())
+                .flatten()
+        })
+    };
+    let menu = bounds("Panel menu").expect("Panel menu");
+    for label in ["Panel menu", "Collapse panel", "Close panel"] {
+        let rect = bounds(label).unwrap();
+        assert!(rect.x0 >= 0.0 && rect.x1 <= f64::from(minimum));
+    }
+    assert!(
+        target.tabs.last().unwrap().1.right() <= menu.x0 as f32,
+        "visible tabs must stop before the fixed window actions"
+    );
+}
+
+#[test]
+fn focusing_a_revealed_panel_targets_its_docked_or_detached_surface() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Color);
+    let docked = ctx.run(egui::RawInput::default(), |ctx| {
+        editor.focus_dock_panel(ctx, PanelId::Color);
+    });
+    assert!(
+        docked
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .is_some_and(|output| output.commands.contains(&egui::ViewportCommand::Focus))
+    );
+
+    editor.set_panel_placement(&ctx, PanelId::Color, PanelPlacement::Detached);
+    let detached_id = egui::ViewportId::from_hash_of(PanelId::Color.viewport_key().unwrap());
+    let mut input = egui::RawInput::default();
+    input.viewports.insert(
+        detached_id,
+        egui::ViewportInfo {
+            parent: Some(egui::ViewportId::ROOT),
+            ..Default::default()
+        },
+    );
+    let _ = ctx.run(input, |ctx| {
+        editor.focus_dock_panel(ctx, PanelId::Color);
+    });
+    assert_eq!(
+        editor.workspace.panel_surface(PanelId::Color),
+        DockSurface::Floating(PanelId::Color)
+    );
+    assert_eq!(editor.detached.focus, Some(PanelId::Color));
 }

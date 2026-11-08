@@ -1,6 +1,6 @@
-//! Contextual authoring inspector (NF2 `Properties`): Selection / Tool segmented
-//! control, a type header for the selected object and collapsible sections built
-//! from NF2 fields. Shared field controls live in paint_controls.
+//! Contextual authoring inspector (NF2 `Properties`): the selected object,
+//! Timeline range, Stage or active authoring tool chooses the inspector body.
+//! Shared field controls live in paint_controls.
 use crate::theme::DesignUi as _;
 use crate::{
     app::{Editor, Tool},
@@ -10,13 +10,72 @@ use eframe::egui;
 use neoflash_core::*;
 use neoflash_ui::{
     TextStyle,
-    components::{self as nf, Badge, BadgeType, MenuItem, SectionHeader, Segmented, TypeHeader},
+    components::{self as nf, Badge, BadgeType, MenuItem, SectionHeader, TypeHeader},
     icons::i16,
     tokens::space,
     typography::rich,
 };
 
+#[derive(Clone, Debug, PartialEq)]
+struct PropertiesToolContextStamp {
+    selection: crate::selection::Selection,
+    frame_range: Option<FrameRange>,
+    symbol: Id,
+    layer: usize,
+    frame: u32,
+    tool: Tool,
+}
+
+const PROPERTIES_TOOL_CONTEXT_ID: &str = "properties-context-tool-request";
+
 impl Editor {
+    fn properties_tool_context_id(&self) -> egui::Id {
+        egui::Id::new((PROPERTIES_TOOL_CONTEXT_ID, self.clipboard.session.clone()))
+    }
+
+    fn properties_tool_context_stamp(&self) -> PropertiesToolContextStamp {
+        PropertiesToolContextStamp {
+            selection: self.selection.clone(),
+            frame_range: self.selected_frame_range().and_then(|_| self.frame_range()),
+            symbol: self.symbol_id().to_owned(),
+            layer: self.layer,
+            frame: self.frame,
+            tool: self.tool,
+        }
+    }
+
+    /// Explicitly show active-tool settings (for example Brushes ▸ Brush
+    /// options) without reviving a permanent Selection/Tool mode. The request
+    /// remains valid only while the authored selection and Timeline target are
+    /// unchanged; selecting another object/frame or Stage context restores the
+    /// automatic inspector source.
+    pub(crate) fn request_properties_tool_context(&self, ctx: &egui::Context) {
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                self.properties_tool_context_id(),
+                self.properties_tool_context_stamp(),
+            );
+        });
+    }
+
+    pub(crate) fn clear_properties_tool_context(&self, ctx: &egui::Context) {
+        ctx.data_mut(|data| {
+            data.remove::<PropertiesToolContextStamp>(self.properties_tool_context_id());
+        });
+    }
+
+    fn properties_tool_context_requested(&self, ctx: &egui::Context) -> bool {
+        let id = self.properties_tool_context_id();
+        let requested = ctx.data(|data| data.get_temp::<PropertiesToolContextStamp>(id));
+        let valid = requested
+            .as_ref()
+            .is_some_and(|stamp| stamp == &self.properties_tool_context_stamp());
+        if requested.is_some() && !valid {
+            self.clear_properties_tool_context(ctx);
+        }
+        valid
+    }
+
     pub(crate) fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.properties_contents(ui, ctx);
         self.show_active_color_popover(ui);
@@ -29,16 +88,14 @@ impl Editor {
         };
         // Figma inspector body: V gap 12 between all rows.
         ui.spacing_mut().item_spacing.y = space::S3;
-        let tab_id = egui::Id::new("properties-tool-tab");
-        let mut tool_tab = ctx.data(|data| data.get_temp::<bool>(tab_id).unwrap_or(false));
-        Segmented::show(
-            ui,
-            &mut tool_tab,
-            &[(false, "Selection"), (true, "Tool")],
-            false,
-        );
-        ctx.data_mut(|data| data.insert_temp(tab_id, tool_tab));
-        if tool_tab {
+        // Context is automatic: authored selection and Timeline ranges always
+        // win, an empty Select-tool click means the Stage, and any other active
+        // tool exposes its options/defaults. This preserves the full former
+        // Tool branch without making the user keep a manual mode in sync.
+        let frame_context = self.selected_frame_range().is_some();
+        let tool_context = self.properties_tool_context_requested(ctx)
+            || (self.selection.is_empty() && !frame_context && !matches!(self.tool, Tool::Select));
+        if tool_context {
             self.finish_property_edit();
             match self.tool {
                 Tool::Brush => {

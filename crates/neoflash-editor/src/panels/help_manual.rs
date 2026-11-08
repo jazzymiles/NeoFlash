@@ -30,8 +30,10 @@ use neoflash_ui::{
     tokens::{radius, space},
     typography::{font, rich},
 };
+use std::{fmt::Write as _, path::PathBuf};
 
 const DIALOG_WIDTH: f32 = 920.0;
+const DIALOG_HEIGHT: f32 = 760.0;
 const SIDEBAR_WIDTH: f32 = 212.0;
 
 #[derive(Clone, Debug, Default)]
@@ -148,6 +150,126 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 10] = [
     },
 ];
 
+/// Portable text edition used by the browser handoff. The in-app manual remains the
+/// illustrated edition; these points mirror its complete chapter scope without depending
+/// on a second, separately maintained product-help document.
+const HELP_BROWSER_TOPICS: [&[&str]; 10] = [
+    &[
+        "Use the Stage for authored content and the Pasteboard for temporary off-stage artwork; rulers, guides and the document grid share one snapping priority.",
+        "The Hand and Zoom tools, Focus Mode, Fit Stage and percentage controls change only the view and never mutate authored geometry.",
+        "Ruler guides can be dragged from either ruler, moved on the Pasteboard, locked, hidden or removed by dropping them back on a ruler.",
+        "Object, pixel, grid, guide and alignment snapping can be combined; visible snap rings identify the winning target.",
+    ],
+    &[
+        "Merge Drawing lets fills and strokes cut, join and reshape each other; Object Drawing keeps every stroke or fill isolated until Break Apart.",
+        "Primitive rectangles and ovals retain editable corner, radius and inner-radius controls, while ordinary shapes expose raw anchors and Bézier handles.",
+        "Group, Break Apart, Union, Intersect, Punch and Crop preserve the distinction between editable objects and destructive Merge geometry.",
+        "The J shortcut toggles Object Drawing for supported drawing tools without changing existing artwork.",
+    ],
+    &[
+        "Selection (V) selects objects and Merge regions; Subselection (A) edits anchors, handles and multiple selected points.",
+        "Free Transform (Q) supports scale, rotate/skew, distort and envelope modes plus an editable transformation point.",
+        "Lasso (L) supports freehand, polygon and Magic Wand selection with smoothing and threshold settings.",
+        "Arrow keys nudge selected objects or anchors by one pixel, and Shift increases the step to ten pixels.",
+    ],
+    &[
+        "Pen (P) changes its pointer state for starting, continuing, closing, adding, deleting and converting anchors.",
+        "Alt/Option converts corner and smooth points, while dragging creates or adjusts symmetric and independent tangent handles.",
+        "Line (N), Rectangle (R), Oval (O), PolyStar and Pencil (Y) share snapping and Object Drawing behavior but retain their own live modifiers.",
+        "Pencil modes Straighten, Smooth and Ink choose how aggressively the captured stroke is simplified.",
+    ],
+    &[
+        "Brush (B) supports normal, fill, behind, selection and inside paint modes together with pressure, tilt, size, shape and Lock Fill.",
+        "Paint Bucket (K) closes configurable gaps, applies solid or gradient fills and can drag a gradient direction directly on the Stage.",
+        "Gradient Transform (F) edits linear and radial boundaries, width, radius, rotation, centre and focal point handles.",
+        "Eraser (E) includes normal, fills, lines, selected fills, inside and whole-object modes plus round or square tips and Faucet behavior.",
+    ],
+    &[
+        "MovieClip symbols run independent timelines; Graphic symbols can loop, play once or display a single frame; Buttons use Up, Over, Down and Hit states.",
+        "Edit in Place preserves the parent-stage context while symbol isolation edits only the selected symbol definition.",
+        "9-slice scaling protects corners and edges, while alpha, tint, brightness and advanced colour effects remain instance properties.",
+        "The Library supports folders, shared libraries, duplicate/swap/update workflows and stable symbol identity.",
+    ],
+    &[
+        "Frames, keyframes, blank keyframes and selected spans are edited independently from layer properties and visibility controls.",
+        "Normal, Guide, Guided, Mask, Masked and Folder layers retain their role when reordered or nested.",
+        "Onion Skin and Edit Multiple Frames expose neighbouring poses without making authored evaluation stateful.",
+        "Scenes are authored separately but play and publish as one ordered main timeline.",
+    ],
+    &[
+        "Motion Tween stores keyed X, Y, Scale, Rotation, Skew, Alpha and Colour tracks; the Motion Editor adjusts curves and easing.",
+        "Classic Tween interpolates matching object poses and can follow a motion guide with Orient to Path.",
+        "Shape Tween morphs compatible shapes and uses shape hints to control correspondence.",
+        "IK bones, bindings, pins and spring controls build editable armatures without replacing the original artwork.",
+    ],
+    &[
+        "Seven live filters and fourteen blend modes remain editable and are evaluated by the editor and published runtime.",
+        "Static, Dynamic and Input text support embedded fonts, paragraph and character controls, multi-column flow and authored links.",
+        "Frame sounds use Event, Start, Stop or Stream synchronization, looping and editable stereo envelopes.",
+        "Video and audio resources remain document resources; scrubbing is silent unless audible scrubbing is explicitly enabled.",
+    ],
+    &[
+        "Frame and object scripts may use ActionScript 2, ActionScript 3, JavaScript or TypeScript, with Actions, Code Snippets, compiler diagnostics and debugger panels.",
+        "Import accepts legacy FLA, XFL, SWF, PSD/PSB, AI, SVG, PDF, media, swatches and image sequences with explicit diagnostics for approximations.",
+        "Publish targets include HTML5 plus WebAssembly, sprite sheets, animated SVG, Lottie, audio and video.",
+        "Core shortcuts include F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions and Shift-F12 for Publish.",
+    ],
+];
+
+fn escape_html(value: &str, output: &mut String) {
+    for ch in value.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            '\'' => output.push_str("&#39;"),
+            _ => output.push(ch),
+        }
+    }
+}
+
+fn help_browser_html() -> String {
+    let mut html = String::from(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"color-scheme\" content=\"light dark\"><title>NeoFlash Help &amp; Reference</title></head><body><header><h1>NeoFlash Help &amp; Reference</h1><p>Portable text edition of the illustrated in-app manual.</p></header><nav aria-label=\"Chapters\"><ol>",
+    );
+    for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
+        let _ = write!(html, "<li><a href=\"#chapter-{}\">", index + 1);
+        escape_html(chapter.title, &mut html);
+        html.push_str("</a></li>");
+    }
+    html.push_str("</ol></nav><main>");
+    for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
+        let _ = write!(html, "<section id=\"chapter-{}\"><h2>", index + 1);
+        escape_html(chapter.title, &mut html);
+        html.push_str("</h2><p>");
+        escape_html(chapter.subtitle, &mut html);
+        html.push_str("</p><ul>");
+        for topic in HELP_BROWSER_TOPICS[index] {
+            html.push_str("<li>");
+            escape_html(topic, &mut html);
+            html.push_str("</li>");
+        }
+        html.push_str("</ul><p><strong>Search terms:</strong> ");
+        escape_html(chapter.keywords, &mut html);
+        html.push_str("</p></section>");
+    }
+    html.push_str("</main></body></html>");
+    html
+}
+
+fn write_help_browser_document() -> Result<PathBuf, String> {
+    let directory = std::env::temp_dir()
+        .join("neoflash-help")
+        .join(std::process::id().to_string());
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Cannot create the browser Help folder: {error}"))?;
+    let path = directory.join("help-reference.html");
+    std::fs::write(&path, help_browser_html())
+        .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
+    Ok(path)
+}
+
 impl crate::app::Editor {
     pub(crate) fn help_manual_dialog(&mut self, ctx: &egui::Context) {
         let mut state = ctx.data(|d| {
@@ -161,6 +283,12 @@ impl crate::app::Editor {
         let p = neoflash_ui::palette(ctx);
         let mut should_close = false;
         let mut open_cmd_search = false;
+        let mut open_in_browser = false;
+        let available = ctx.content_rect().size() - vec2(2.0 * space::S5, 2.0 * space::S5);
+        // Never demand more than the current logical viewport. This matters at the supported
+        // 1.25×/1.5× UI scales where a 1024×720 native window exposes fewer logical points.
+        let dialog_width = DIALOG_WIDTH.min(available.x.max(1.0));
+        let dialog_height = DIALOG_HEIGHT.min(available.y.max(1.0));
         let modal_id = egui::Id::new("neoflash-help-manual-modal");
         let modal = egui::Modal::new(modal_id)
             .area(
@@ -170,51 +298,40 @@ impl crate::app::Editor {
             .frame(Surface::Dialog.frame(ctx))
             .backdrop_color(p.overlay)
             .show(ctx, |ui| {
-                ui.set_width(DIALOG_WIDTH);
+                // Declare both dimensions before the first child is laid out. This keeps the
+                // modal, its close button and the article viewport stationary while search
+                // results or chapters change.
+                ui.set_min_width(dialog_width);
+                ui.set_max_width(dialog_width);
+                ui.set_min_height(dialog_height);
+                ui.set_max_height(dialog_height);
                 let top = ui.cursor().min;
                 should_close |= DialogHeader {
                     title: "NeoFlash Help & Reference — Tools, Modes & Capabilities",
                 }
                 .show(ui);
                 ui.painter().hline(
-                    top.x..=top.x + DIALOG_WIDTH,
+                    top.x..=top.x + dialog_width,
                     top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     Stroke::new(1.0_f32, p.border_subtle),
                 );
-                let q = state.query.trim().to_ascii_lowercase();
-                if !q.is_empty() {
-                    let cur = &HELP_CHAPTERS[state.page];
-                    let cur_matches = cur.title.to_ascii_lowercase().contains(&q)
-                        || cur.subtitle.to_ascii_lowercase().contains(&q)
-                        || cur.keywords.contains(&q);
-                    if !cur_matches
-                        && let Some((first_idx, _)) =
-                            HELP_CHAPTERS.iter().enumerate().find(|(_, ch)| {
-                                ch.title.to_ascii_lowercase().contains(&q)
-                                    || ch.subtitle.to_ascii_lowercase().contains(&q)
-                                    || ch.keywords.contains(&q)
-                            })
-                    {
-                        state.page = first_idx;
-                        state.diagram_tab = 0;
-                    }
-                }
                 let chapter_badge =
                     format!("Chapter {} of {}", state.page + 1, HELP_CHAPTERS.len());
                 egui::Frame::new()
                     .inner_margin(egui::Margin::same(space::S5 as i8))
                     .show(ui, |ui| {
-                        ui.set_width(DIALOG_WIDTH - 2.0 * space::S5);
+                        ui.set_width(dialog_width - 2.0 * space::S5);
                         ui.spacing_mut().item_spacing = vec2(space::S2, space::S2);
 
                         // Top filter bar: Search + chapter counter badge + Prev/Next chapter buttons
                         ui.horizontal(|ui| {
+                            let search_width = (ui.available_width() - 350.0).clamp(120.0, 340.0);
                             ui.add(
                                 Search::new(
                                     &mut state.query,
                                     "Filter topics, tools, modes or shortcuts…",
                                 )
-                                .width(340.0),
+                                .width(search_width),
                             );
                             if !state.query.is_empty() && ui.add(Button::ghost("Clear")).clicked() {
                                 state.query.clear();
@@ -248,23 +365,35 @@ impl crate::app::Editor {
                         divider(ui, false);
 
                         let footer_h = neoflash_ui::metrics::control() + 2.0 * space::S3;
-                        let body_height = (ctx.content_rect().height()
-                            - 2.0 * space::S5
+                        let body_height = (dialog_height
                             - neoflash_ui::metrics::dialog_header()
                             - neoflash_ui::metrics::control()
-                            - 3.0 * space::S5
+                            - 4.0 * space::S5
                             - footer_h)
-                            .clamp(280.0, 620.0);
+                            .max(1.0);
 
                         let q = state.query.trim().to_ascii_lowercase();
                         ui.horizontal_top(|ui| {
                             // Left Chapter Sidebar
-                            ui.allocate_ui_with_layout(
+                            let sidebar_rect = Rect::from_min_size(
+                                ui.next_widget_position(),
                                 vec2(SIDEBAR_WIDTH, body_height),
-                                egui::Layout::top_down(egui::Align::Min),
-                                |ui| {
-                                    ui.set_width(SIDEBAR_WIDTH);
-                                    ui.spacing_mut().item_spacing.y = 2.0;
+                            );
+                            let mut sidebar = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .id_salt("help-manual-sidebar")
+                                    .max_rect(sidebar_rect)
+                                    .layout(egui::Layout::top_down(egui::Align::Min)),
+                            );
+                            sidebar.set_clip_rect(ui.clip_rect().intersect(sidebar_rect));
+                            sidebar.spacing_mut().item_spacing.y = 2.0;
+                            egui::ScrollArea::vertical()
+                                .id_salt("help-manual-sidebar-scroll")
+                                .max_height(body_height)
+                                .auto_shrink([false, false])
+                                .themed()
+                                .show(&mut sidebar, |ui| {
+                                    ui.set_min_width(SIDEBAR_WIDTH);
                                     for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
                                         let matches_q = q.is_empty()
                                             || ch.title.to_ascii_lowercase().contains(&q)
@@ -283,30 +412,38 @@ impl crate::app::Editor {
                                             state.diagram_tab = 0;
                                         }
                                     }
-                                },
-                            );
+                                });
+                            ui.advance_cursor_after_rect(sidebar_rect);
 
                             ui.add_space(space::S4);
 
-                            // Right Scrollable Illustrated Article Area
+                            // Right Scrollable Illustrated Article Area. A fixed child prevents
+                            // long chapter rows from changing the modal width.
                             let content_w =
-                                (DIALOG_WIDTH - 2.0 * space::S5 - SIDEBAR_WIDTH - space::S4)
-                                    .max(320.0);
-                            ui.allocate_ui_with_layout(
+                                (dialog_width - 2.0 * space::S5 - SIDEBAR_WIDTH - space::S4)
+                                    .max(1.0);
+                            let content_rect = Rect::from_min_size(
+                                ui.next_widget_position(),
                                 vec2(content_w, body_height),
-                                egui::Layout::top_down(egui::Align::Min),
-                                |ui| {
-                                    egui::ScrollArea::vertical()
-                                        .id_salt(("help-manual-scroll", state.page))
-                                        .max_height(body_height)
-                                        .auto_shrink([false, false])
-                                        .themed()
-                                        .show(ui, |ui| {
-                                            ui.set_width(content_w - space::S3);
-                                            render_chapter(ui, &mut state);
-                                        });
-                                },
                             );
+                            let mut content = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .id_salt("help-manual-content")
+                                    .max_rect(content_rect)
+                                    .layout(egui::Layout::top_down(egui::Align::Min)),
+                            );
+                            content.set_clip_rect(ui.clip_rect().intersect(content_rect));
+                            egui::ScrollArea::vertical()
+                                .id_salt(("help-manual-scroll", state.page))
+                                .max_height(body_height)
+                                .auto_shrink([false, false])
+                                .themed()
+                                .show(&mut content, |ui| {
+                                    ui.set_min_width(content_w - space::S3);
+                                    ui.set_max_width(content_w - space::S3);
+                                    render_chapter(ui, &mut state);
+                                });
+                            ui.advance_cursor_after_rect(content_rect);
                         });
                     });
 
@@ -327,6 +464,9 @@ impl crate::app::Editor {
                         });
                     },
                     |ui| {
+                        if ui.add(Button::new("Open in browser")).clicked() {
+                            open_in_browser = true;
+                        }
                         if ui.add(Button::new("Command Search (F1)")).clicked() {
                             should_close = true;
                             open_cmd_search = true;
@@ -342,6 +482,18 @@ impl crate::app::Editor {
             state.open = false;
         }
         ctx.data_mut(|d| d.insert_temp(state_id(), state));
+        if open_in_browser {
+            match write_help_browser_document().and_then(|path| {
+                std::process::Command::new("open")
+                    .arg(&path)
+                    .spawn()
+                    .map(|_| path)
+                    .map_err(|error| format!("Cannot open Help in the browser: {error}"))
+            }) {
+                Ok(path) => self.message(format!("Opened Help in browser: {}", path.display())),
+                Err(error) => self.notify_with_output(c::ToastType::Error, error),
+            }
+        }
         if open_cmd_search {
             self.open_function_search(ctx);
         }
@@ -1951,7 +2103,8 @@ mod tests {
             }
         }
 
-        // Verify search query filtering and auto-switching to matching chapter.
+        // Filtering never moves the article underneath the reader. The user selects a
+        // matching chapter explicitly from the stable sidebar.
         ctx.data_mut(|d| {
             let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
             s.page = 0;
@@ -1965,10 +2118,171 @@ mod tests {
                 .map(|s| s.page)
                 .unwrap_or(0)
         });
-        assert_eq!(HELP_CHAPTERS[matched_page].title, "8. Tweens, Motion & IK");
+        assert_eq!(HELP_CHAPTERS[matched_page].title, "1. Workspace & Stage");
 
         close_help_manual(&ctx);
         assert!(!is_help_manual_open(&ctx));
         assert_eq!(before, serde_json::to_value(&editor.project).unwrap());
+    }
+
+    #[test]
+    fn browser_help_is_a_complete_escaped_text_edition() {
+        let html = help_browser_html();
+        assert!(html.starts_with("<!doctype html>"));
+        assert!(html.contains("NeoFlash Help &amp; Reference"));
+        for (chapter, topics) in HELP_CHAPTERS.iter().zip(HELP_BROWSER_TOPICS) {
+            let mut escaped_title = String::new();
+            escape_html(chapter.title, &mut escaped_title);
+            assert!(html.contains(&escaped_title));
+            for topic in topics {
+                let mut escaped_topic = String::new();
+                escape_html(topic, &mut escaped_topic);
+                assert!(html.contains(&escaped_topic));
+            }
+        }
+        assert!(html.contains("HTML5 plus WebAssembly"));
+        assert!(!html.contains("<script"));
+    }
+
+    #[test]
+    fn help_modal_bounds_stay_fixed_across_search_and_chapters() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        let input = || egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 900.0))),
+            ..Default::default()
+        };
+        let render = |editor: &mut Editor, ctx: &egui::Context| {
+            let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+            let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+            ctx.memory(|memory| {
+                memory
+                    .area_rect(egui::Id::new("neoflash-help-manual-modal"))
+                    .expect("Help modal area")
+            })
+        };
+
+        open_help_manual(&ctx);
+        let initial = render(&mut editor, &ctx);
+        ctx.data_mut(|data| {
+            let state = data.get_temp_mut_or_default::<HelpManualState>(state_id());
+            state.query = "armature".into();
+        });
+        let filtered = render(&mut editor, &ctx);
+        set_help_manual_page(&ctx, HELP_CHAPTERS.len() - 1);
+        let last_chapter = render(&mut editor, &ctx);
+
+        assert_eq!(initial, filtered);
+        assert_eq!(initial, last_chapter);
+    }
+
+    #[test]
+    fn help_modal_fits_the_minimum_window_at_supported_ui_scales() {
+        for zoom in [1.0_f32, 1.25, 1.5] {
+            let ctx = egui::Context::default();
+            ctx.set_zoom_factor(zoom);
+            // RawInput is expressed in native viewport points. `zoom_factor` then reduces
+            // the logical content rectangle available to widgets, matching a scaled app.
+            let screen = Rect::from_min_size(Pos2::ZERO, vec2(1024.0, 720.0));
+            let input = || egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            // In the real app scale is established before Help opens. Prime a frame so the
+            // synthetic context has the same viewport transform before modal geometry is saved.
+            let _ = ctx.run(input(), |_| {});
+            let mut editor = Editor::from_project(&ctx, Project::demo());
+            open_help_manual(&ctx);
+            let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+            let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+            let bounds = ctx.memory(|memory| {
+                memory
+                    .area_rect(egui::Id::new("neoflash-help-manual-modal"))
+                    .expect("Help modal area")
+            });
+            assert!(
+                screen.contains_rect(bounds),
+                "Help must fit 1024×720 at {zoom}×: {bounds:?} within {screen:?}"
+            );
+
+            ctx.data_mut(|data| {
+                let state = data.get_temp_mut_or_default::<HelpManualState>(state_id());
+                state.query = "publish".into();
+                state.page = HELP_CHAPTERS.len() - 1;
+            });
+            let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+            let after = ctx.memory(|memory| {
+                memory
+                    .area_rect(egui::Id::new("neoflash-help-manual-modal"))
+                    .expect("Help modal area after search")
+            });
+            assert_eq!(
+                bounds, after,
+                "search/chapter must not move Help at {zoom}×"
+            );
+        }
+    }
+
+    #[test]
+    fn help_controls_do_not_overlap_at_minimum_window_and_high_scale() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.set_zoom_factor(1.5);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1024.0, 720.0));
+        let input = || egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let _ = ctx.run(input(), |_| {});
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        open_help_manual(&ctx);
+        ctx.data_mut(|data| {
+            let state = data.get_temp_mut_or_default::<HelpManualState>(state_id());
+            state.query = "publish".into();
+            state.page = 4;
+        });
+        let _ = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+        let output = ctx.run(input(), |ctx| editor.help_manual_dialog(ctx));
+        let nodes = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("Help accessibility tree")
+            .nodes;
+        let bounds = |label: &str| {
+            nodes
+                .iter()
+                .filter_map(|(_, node)| {
+                    (node.label() == Some(label))
+                        .then(|| node.bounds())
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        };
+        let search = bounds("Filter topics, tools, modes or shortcuts…")[0];
+        let clear = bounds("Clear")[0];
+        let previous = bounds("Previous")[0];
+        let next = bounds("Next topic")[0];
+        let command = bounds("Command Search (F1)")[0];
+        let browser = bounds("Open in browser")[0];
+        let footer_close = bounds("Close")
+            .into_iter()
+            .find(|rect| rect.y0 > 600.0)
+            .expect("footer Close");
+        for rect in [
+            search,
+            clear,
+            previous,
+            next,
+            footer_close,
+            command,
+            browser,
+        ] {
+            assert!(rect.x0 >= 0.0 && rect.x1 <= 1024.0);
+            assert!(rect.y0 >= 0.0 && rect.y1 <= 720.0);
+        }
+        assert!(search.x1 <= clear.x0);
+        assert!(previous.x1 <= next.x0);
+        assert!(footer_close.x1 <= command.x0 && command.x1 <= browser.x0);
     }
 }

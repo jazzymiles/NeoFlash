@@ -2,8 +2,8 @@
 //!
 //! The layout follows the available width, not a setting:
 //!
-//! * **2 Columns** (base layout, docked default 80 pt and floating): every tool visible, sections
-//!   Tools · View · Colors · Options.
+//! * **2 Columns** (base layout, docked default 80 pt and floating): every tool visible; dividers
+//!   separate tools, view commands, colours and contextual modifiers without redundant captions.
 //! * **1 Column** (panel narrower than two tool buttons): related tools share one `NF2/Tool Button`
 //!   with a flyout (corner-mark click, right-click, long-press or → opens the group), groups separated by
 //!   `NF2/Divider`s. As many groups as fit are shown; a trailing "…" button lists the rest. Paint
@@ -18,8 +18,7 @@ use crate::{ui_icons::Icon, workspace::PanelId};
 use eframe::egui::{self, Key, Rect, Vec2};
 use neoflash_ui::components::{self as nf, menu::menu_style};
 use neoflash_ui::icons::i20;
-use neoflash_ui::tokens::{TextStyle, space};
-use neoflash_ui::typography::rich;
+use neoflash_ui::tokens::space;
 
 /// Gap between tool buttons (`NF2/Tools Panel` tool grid gap).
 const TOOL_GAP: f32 = space::S1 / 2.0;
@@ -145,6 +144,10 @@ fn popover_id() -> egui::Id {
     egui::Id::new("nf2-tools-popover")
 }
 
+fn popover_side_id() -> egui::Id {
+    popover_id().with("prefer-left")
+}
+
 pub(crate) fn tool_columns_for_width(available_width: f32) -> usize {
     let side = neoflash_ui::metrics::tool_button();
     ((available_width + TOOL_GAP) / (side + TOOL_GAP))
@@ -154,6 +157,15 @@ pub(crate) fn tool_columns_for_width(available_width: f32) -> usize {
 
 impl Editor {
     pub(crate) fn tools_contents(&mut self, ui: &mut egui::Ui) {
+        let stage_anchor = self.workspace.tools_stage_anchor(PanelId::Tools);
+        let prefer_left = stage_anchor.map(|_| self.workspace.tools_popover_prefers_left());
+        ui.ctx().data_mut(|data| {
+            if let Some(prefer_left) = prefer_left {
+                data.insert_temp(popover_side_id(), prefer_left);
+            } else {
+                data.remove::<bool>(popover_side_id());
+            }
+        });
         let id = (
             "neoflash-panel-content",
             PanelId::Tools,
@@ -161,7 +173,11 @@ impl Editor {
         );
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
-            let cols = tool_columns_for_width(ui.available_width());
+            let cols = if stage_anchor.is_some_and(|anchor| anchor.vertical()) {
+                1
+            } else {
+                tool_columns_for_width(ui.available_width())
+            };
             if cols >= 2 {
                 let panel_top = ui.cursor().top().max(0.0);
                 let mut content_h = 0.0_f32;
@@ -175,10 +191,8 @@ impl Editor {
                         ui.vertical(|ui| {
                             self.tool_grid(ui, cols);
                             nf::divider(ui, false);
-                            section_caption(ui, "Colors");
                             self.colors_section(ui, cols);
                             nf::divider(ui, false);
-                            section_caption(ui, "Options");
                             self.tool_modifiers_ui(ui, cols);
                         });
                         content_h = (ui.cursor().top() - inner_top).max(0.0);
@@ -366,7 +380,6 @@ impl Editor {
     }
 
     fn tool_grid(&mut self, ui: &mut egui::Ui, cols: usize) {
-        section_caption(ui, "Tools");
         let tools: Vec<_> = self
             .tool_groups()
             .into_iter()
@@ -379,7 +392,6 @@ impl Editor {
             });
         }
         nf::divider(ui, false);
-        section_caption(ui, "View");
         let view: Vec<_> = self
             .tool_groups()
             .into_iter()
@@ -416,23 +428,19 @@ impl Editor {
     }
 
     fn colors_section(&mut self, ui: &mut egui::Ui, cols: usize) {
+        let chip_w = 36.0;
+        let actions_w = 2.0 * COLOR_ACTION + TOOL_GAP;
         if cols >= 3 {
-            let chip_w = 36.0;
-            let actions_w = 2.0 * COLOR_ACTION + TOOL_GAP;
             let row_w = chip_w + space::S2 + actions_w;
             let row_h = 36.0_f32.max(COLOR_ACTION);
-            ui.allocate_ui_with_layout(
-                Vec2::new(row_w, row_h),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    self.fill_stroke_chip(ui);
-                    self.color_actions(ui);
-                },
-            );
+            centered_tools_row(ui, row_w, row_h, |ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
+                self.fill_stroke_chip(ui);
+                self.color_actions(ui);
+            });
         } else {
-            self.fill_stroke_chip(ui);
-            self.color_actions(ui);
+            centered_tools_row(ui, chip_w, 36.0, |ui| self.fill_stroke_chip(ui));
+            centered_tools_row(ui, actions_w, COLOR_ACTION, |ui| self.color_actions(ui));
         }
     }
 
@@ -568,6 +576,7 @@ impl Editor {
             ctx_fill_grad.as_ref(),
             ctx_stroke_grad.as_ref(),
         );
+        let tools_detached = !self.workspace.is_panel_docked(PanelId::Tools);
         if chip.fill_clicked {
             let next = if popover(&ctx) == Some(RailPopover::Fill) {
                 None
@@ -576,6 +585,12 @@ impl Editor {
             };
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), false));
             self.authoring_modify.color_selection = true;
+            if tools_detached {
+                set_popover(&ctx, None);
+                self.show_panel(PanelId::Color);
+                self.focus_dock_panel(&ctx, PanelId::Color);
+                return;
+            }
             set_popover(&ctx, next);
         } else if chip.stroke_clicked {
             let next = if popover(&ctx) == Some(RailPopover::Stroke) {
@@ -585,7 +600,21 @@ impl Editor {
             };
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), true));
             self.authoring_modify.color_selection = true;
+            if tools_detached {
+                set_popover(&ctx, None);
+                self.show_panel(PanelId::Color);
+                self.focus_dock_panel(&ctx, PanelId::Color);
+                return;
+            }
             set_popover(&ctx, next);
+        } else if tools_detached {
+            // Native child viewports clip egui popovers to their own bounds. Never carry an
+            // inline colour picker into a detached Tools window; the next click opens the real
+            // Color panel with the same target instead.
+            if matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
+                set_popover(&ctx, None);
+            }
+            return;
         }
         if !matches!(popover(&ctx), Some(RailPopover::Fill | RailPopover::Stroke)) {
             return;
@@ -1506,12 +1535,27 @@ fn tool_grid_row(
     }
 }
 
-/// Section caption of the 2 Columns layout (Tools · View · Colors · Options).
-fn section_caption(ui: &mut egui::Ui, label: &str) {
-    let p = neoflash_ui::palette(ui.ctx());
-    ui.add_space(space::S1);
-    ui.label(rich(label, TextStyle::Overline).color(p.text_secondary));
-    ui.add_space(space::S1);
+fn centered_tools_row<R>(
+    ui: &mut egui::Ui,
+    content_width: f32,
+    height: f32,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let (row, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(content_width), height),
+        egui::Sense::hover(),
+    );
+    let content_rect = Rect::from_center_size(
+        row.center(),
+        Vec2::new(content_width.min(row.width()), height),
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(content_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        content,
+    )
+    .inner
 }
 
 fn long_press(ui: &egui::Ui, response: &egui::Response) -> bool {
@@ -1535,8 +1579,10 @@ fn long_press(ui: &egui::Ui, response: &egui::Response) -> bool {
 /// `true`, Esc, or a press outside the popover, its anchor and any nested popup.
 fn rail_popover(ui: &egui::Ui, anchor: Rect, content: impl FnOnce(&mut egui::Ui) -> bool) -> bool {
     let ctx = ui.ctx().clone();
-    let on_right = anchor.center().x > ctx.content_rect().center().x;
-    let (primary, alt) = if on_right {
+    let open_left = ctx
+        .data(|data| data.get_temp::<bool>(popover_side_id()))
+        .unwrap_or_else(|| anchor.center().x > ctx.content_rect().center().x);
+    let (primary, alt) = if open_left {
         (egui::RectAlign::LEFT_START, egui::RectAlign::LEFT_END)
     } else {
         (egui::RectAlign::RIGHT_START, egui::RectAlign::RIGHT_END)

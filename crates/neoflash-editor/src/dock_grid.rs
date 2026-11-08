@@ -12,8 +12,6 @@ use eframe::egui;
 
 const SPLITTER: f32 = 6.;
 const AREA_GRIP: f32 = 6.;
-/// Drag strip above the docked tools rail (the rail itself has no header in NF2).
-const TOOLS_GRIP: f32 = 14.;
 const MIN_STAGE_HEIGHT: f32 = 240.;
 const MIN_STAGE_WIDTH: f32 = 320.;
 
@@ -100,6 +98,35 @@ pub(crate) fn edge_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rec
     ]
 }
 
+/// Pointer-only hit testing needs a more forgiving inward halo than the visible
+/// NF2 target. The returned rectangles are never painted.
+pub(crate) fn edge_acceptance_targets(root: egui::Rect, zoom: f32) -> [(DockEdge, egui::Rect); 4] {
+    let x = (root.width() * 0.095)
+        .clamp(72. * zoom, 132. * zoom)
+        .min(root.width() * 0.30);
+    let y = (root.height() * 0.095)
+        .clamp(60. * zoom, 112. * zoom)
+        .min(root.height() * 0.30);
+    [
+        (
+            DockEdge::Top,
+            egui::Rect::from_min_max(root.min, egui::pos2(root.right(), root.top() + y)),
+        ),
+        (
+            DockEdge::Bottom,
+            egui::Rect::from_min_max(egui::pos2(root.left(), root.bottom() - y), root.max),
+        ),
+        (
+            DockEdge::Left,
+            egui::Rect::from_min_max(root.min, egui::pos2(root.left() + x, root.bottom())),
+        ),
+        (
+            DockEdge::Right,
+            egui::Rect::from_min_max(egui::pos2(root.right() - x, root.top()), root.max),
+        ),
+    ]
+}
+
 impl Editor {
     pub(crate) fn dock_grid(&mut self, ctx: &egui::Context) {
         let mut content = ctx.viewport_rect();
@@ -147,19 +174,46 @@ impl Editor {
         let tools_only = groups.len() == 1 && groups[0].tabs == [PanelId::Tools];
         let available = ctx.available_rect();
         let (minimum, maximum) = if edge.vertical() {
+            let active_minimum = |group: &DockGroup| {
+                group
+                    .tabs
+                    .iter()
+                    .copied()
+                    .find(|panel| *panel == group.active && self.workspace.is_panel_visible(*panel))
+                    .or_else(|| {
+                        group
+                            .tabs
+                            .iter()
+                            .copied()
+                            .find(|panel| self.workspace.is_panel_visible(*panel))
+                    })
+                    .map(|panel| crate::workspace::minimum_window_size(panel)[0])
+            };
+            let content_min = groups
+                .iter()
+                .filter_map(&active_minimum)
+                .fold(0.0_f32, f32::max);
             let min = if tools_only {
                 crate::theme::tools_w()
                     + AREA_GRIP
                     + if available.height() < 472. { 12. } else { 0. }
             } else {
-                248.
+                content_min.max(248.) + AREA_GRIP
             };
             let reserve = if edge == DockEdge::Left && self.dock_edge_visible(DockEdge::Right) {
-                self.workspace
+                let right_min = self
+                    .workspace
                     .dock
                     .right
-                    .size
-                    .clamp(248., (available.width() - MIN_STAGE_WIDTH - min).max(248.))
+                    .groups
+                    .iter()
+                    .filter_map(active_minimum)
+                    .fold(248.0_f32, f32::max)
+                    + AREA_GRIP;
+                self.workspace.dock.right.size.clamp(
+                    right_min,
+                    (available.width() - MIN_STAGE_WIDTH - min).max(right_min),
+                )
             } else {
                 0.
             };
@@ -560,13 +614,10 @@ impl Editor {
         };
         // NF2: horizontal docks use `Dock Tab` (40, icon + label); side columns use `Panel Tab` (36).
         // Side column with one panel = `Panel Header` (40, Title text, ghost ⋯); several panels =
-        // `Panel Tab`s (36). The docked tools rail only gets a slim drag strip, like the Figma rail.
+        // `Panel Tab`s (36). Tools uses the same title treatment and inset as Properties.
         let wide = matches!(edge, DockEdge::Top | DockEdge::Bottom);
         let single = !wide && group.tabs.len() == 1;
-        let tools_only = group.tabs == [PanelId::Tools];
-        let header_h = if tools_only {
-            TOOLS_GRIP
-        } else if wide {
+        let header_h = if wide {
             neoflash_ui::metrics::dock_tab()
         } else if single {
             neoflash_ui::metrics::panel_header()
@@ -653,7 +704,16 @@ impl Editor {
                                 .size()
                                 .x
                             });
-                            let pad = if wide { 16. } else { 12. };
+                            // A single side panel is the locked Panel Header treatment: its
+                            // text begins 12 pt from the panel edge (8 pt strip inset + 4 pt),
+                            // matching Properties and leaving the menu reachable at its minimum.
+                            let pad = if wide {
+                                16.
+                            } else if single {
+                                4.
+                            } else {
+                                12.
+                            };
                             let icon_w = if wide { 16. + 8. } else { 0. };
                             let (tab_rect, response) = ui.allocate_exact_size(
                                 egui::vec2(label_w + icon_w + 2. * pad, header_h),
@@ -688,16 +748,14 @@ impl Editor {
                                     );
                                     x += icon_w;
                                 }
-                                if !tools_only {
-                                    ui.painter().text(
-                                        egui::pos2(x, tab_rect.center().y),
-                                        egui::Align2::LEFT_CENTER,
-                                        panel.title(),
-                                        neoflash_ui::typography::font(style),
-                                        fg,
-                                    );
-                                }
-                                if active && !single && !tools_only {
+                                ui.painter().text(
+                                    egui::pos2(x, tab_rect.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    panel.title(),
+                                    neoflash_ui::typography::font(style),
+                                    fg,
+                                );
+                                if active && !single {
                                     // Keep the marker inside the tab's clip rect, not below it.
                                     ui.painter().rect_filled(
                                         egui::Rect::from_min_max(
@@ -801,20 +859,11 @@ impl Editor {
                 );
             }
         }
-        if tools_only {
-            neoflash_ui::icons::paint(
-                parent.painter(),
-                &ctx,
-                egui::Rect::from_center_size(header.center(), egui::vec2(16., 16.)),
-                neoflash_ui::icons::i16::GRIP_H,
-                nf.text_tertiary,
-            );
-        }
         self.panel_group_drag_handle(&grip_ui, group.active, (surface, edge, group.id), &response);
         response
             .on_hover_text("Drag panel group")
             .context_menu(|ui| self.dock_header_menu(ui, group.active, surface, &clipboard_target));
-        let menu_side = if tools_only { 0. } else { 28. };
+        let menu_side = 28.;
         let menu_rect = egui::Rect::from_center_size(
             egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
             egui::vec2(menu_side, menu_side.min(header.height())),
@@ -828,40 +877,36 @@ impl Editor {
         if self.has_modal_dialog() {
             menu_ui.disable_semantic();
         }
-        if !tools_only {
-            let more = menu_ui.add(
-                neoflash_ui::components::IconButton::new(
-                    neoflash_ui::icons::i16::MORE,
-                    "Panel commands and tabs",
-                )
-                .side(menu_side),
-            );
-            neoflash_ui::components::popup_below(&more, 240., |ui| {
-                crate::ui_icons::menu_contents(ui, 240., |ui| {
-                    if group.tabs.len() > 1 {
-                        neoflash_ui::components::menu_section(ui, "Panels in this group");
-                        for panel in &group.tabs {
-                            let mut active = group.active == *panel;
-                            if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
-                                .clicked()
-                            {
-                                self.show_panel(*panel);
-                                ui.close();
-                            }
+        let more = menu_ui.add(
+            neoflash_ui::components::IconButton::new(
+                neoflash_ui::icons::i16::MORE,
+                "Panel commands and tabs",
+            )
+            .side(menu_side),
+        );
+        neoflash_ui::components::popup_below(&more, 240., |ui| {
+            crate::ui_icons::menu_contents(ui, 240., |ui| {
+                if group.tabs.len() > 1 {
+                    neoflash_ui::components::menu_section(ui, "Panels in this group");
+                    for panel in &group.tabs {
+                        let mut active = group.active == *panel;
+                        if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
+                            .clicked()
+                        {
+                            self.show_panel(*panel);
+                            ui.close();
                         }
-                        ui.separator();
                     }
-                    self.dock_header_commands(ui, group.active, surface, &clipboard_target)
-                })
-            });
-        }
-        if !tools_only {
-            parent.painter().hline(
-                header.x_range(),
-                header.bottom() - 0.5,
-                egui::Stroke::new(1.0_f32, nf.border_subtle),
-            );
-        }
+                    ui.separator();
+                }
+                self.dock_header_commands(ui, group.active, surface, &clipboard_target)
+            })
+        });
+        parent.painter().hline(
+            header.x_range(),
+            header.bottom() - 0.5,
+            egui::Stroke::new(1.0_f32, nf.border_subtle),
+        );
         if preview_grab.is_none() {
             self.detached.dock_groups.push(target);
             if let Some((floating_group, size, grab_offset)) =
@@ -999,6 +1044,61 @@ impl Editor {
             .and_then(|w| w.root.clone());
         if let Some(root) = root {
             self.floating_node_contents(ui, window, &root, ui.max_rect(), &mut Vec::new());
+        }
+    }
+
+    /// A one-group native window uses the locked `FloatingPanelHeader` as its only
+    /// chrome. Render just the selected panel body here while retaining the same
+    /// dock/drop target and active-tab semantics.
+    pub(crate) fn floating_single_group_body_contents(
+        &mut self,
+        ui: &mut egui::Ui,
+        window: PanelId,
+        group: &DockGroup,
+        header: egui::Rect,
+        header_tabs: &[(PanelId, egui::Rect)],
+    ) {
+        let surface = DockSurface::Floating(window);
+        let full = egui::Rect::from_min_max(header.min, ui.max_rect().max);
+        self.register_dock_viewport(ui.ctx(), surface, full);
+        self.detached.dock_groups.retain(|g| g.surface != surface);
+        let mut visible = group.clone();
+        visible
+            .tabs
+            .retain(|panel| self.workspace.is_panel_visible(*panel));
+        if visible.tabs.is_empty() {
+            return;
+        }
+        if !visible.tabs.contains(&visible.active) {
+            visible.active = visible.tabs[0];
+        }
+        let ctx = ui.ctx().clone();
+        let zoom = ctx.zoom_factor();
+        let inner = ctx
+            .input(|input| input.viewport().inner_rect)
+            .unwrap_or_else(|| ctx.viewport_rect());
+        let global = |rect: egui::Rect| rect.translate(inner.min.to_vec2()) * zoom;
+        self.detached.dock_groups.push(DockGroupTarget {
+            surface,
+            edge: DockEdge::Left,
+            group: visible.id,
+            rect: global(full),
+            header: global(header),
+            tabs: header_tabs
+                .iter()
+                .map(|(panel, rect)| (*panel, global(*rect)))
+                .collect(),
+        });
+        let body = ui.max_rect().shrink(visible.active.body_padding());
+        if body.is_positive() {
+            let mut content = ui.new_child(
+                egui::UiBuilder::new()
+                    .id(("floating-single-body", window, visible.id, visible.active))
+                    .max_rect(body),
+            );
+            content.set_clip_rect(ui.clip_rect().intersect(body));
+            content.set_min_size(body.size());
+            self.dock_panel_contents(&mut content, visible.active);
         }
     }
 
@@ -1176,7 +1276,7 @@ impl Editor {
         }
     }
 
-    fn dock_header_menu(
+    pub(crate) fn dock_header_menu(
         &mut self,
         ui: &mut egui::Ui,
         panel: PanelId,
@@ -1188,7 +1288,7 @@ impl Editor {
         });
     }
 
-    fn dock_header_commands(
+    pub(crate) fn dock_header_commands(
         &mut self,
         ui: &mut egui::Ui,
         panel: PanelId,
@@ -1338,23 +1438,38 @@ impl Editor {
                 caption: "Place tab".into(),
             });
         }
-        for (edge, rect) in edge_targets(view.content, view.zoom) {
-            if rect.contains(pointer) {
-                let destination = match view.surface {
-                    DockSurface::Main => DockDestination::Edge(edge),
-                    DockSurface::Floating(window) => DockDestination::FloatingSplit {
-                        window,
-                        group: None,
-                        edge,
-                    },
+        let closest_edge = edge_acceptance_targets(view.content, view.zoom)
+            .into_iter()
+            .filter(|(_, rect)| rect.contains(pointer))
+            .min_by(|(a, _), (b, _)| {
+                let distance = |edge| match edge {
+                    DockEdge::Top => pointer.y - view.content.top(),
+                    DockEdge::Bottom => view.content.bottom() - pointer.y,
+                    DockEdge::Left => pointer.x - view.content.left(),
+                    DockEdge::Right => view.content.right() - pointer.x,
                 };
-                return Some(DockHit {
-                    surface: view.surface,
-                    destination,
-                    rect,
-                    caption: format!("Dock {}", edge.title()),
-                });
-            }
+                distance(*a).total_cmp(&distance(*b))
+            })
+            .map(|(edge, _)| edge);
+        if let Some(edge) = closest_edge {
+            let rect = edge_targets(view.content, view.zoom)
+                .into_iter()
+                .find_map(|(candidate, rect)| (candidate == edge).then_some(rect))
+                .expect("all dock edges have a visible target");
+            let destination = match view.surface {
+                DockSurface::Main => DockDestination::Edge(edge),
+                DockSurface::Floating(window) => DockDestination::FloatingSplit {
+                    window,
+                    group: None,
+                    edge,
+                },
+            };
+            return Some(DockHit {
+                surface: view.surface,
+                destination,
+                rect,
+                caption: format!("Dock {}", edge.title()),
+            });
         }
         let target = groups.iter().find(|g| g.rect.contains(pointer))?;
         let split = match view.surface {
