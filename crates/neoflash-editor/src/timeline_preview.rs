@@ -102,7 +102,7 @@ impl Editor {
                     .is_some_and(|id| ids.contains(&id))
             });
         }
-        let bounds = if context && self.editing.len() == 1 {
+        let bounds = if context && self.editing_scene() {
             Rect::from_min_size(
                 egui::Pos2::ZERO,
                 egui::vec2(self.project.width as f32, self.project.height as f32),
@@ -141,8 +141,7 @@ impl Editor {
             let zoom = (rect.width() / bounds.width()).min(rect.height() / bounds.height());
             let origin = rect.center() - bounds.center().to_vec2() * zoom;
             let clipped = painter.with_clip_rect(painter.clip_rect().intersect(rect));
-            if self.workspace.timeline.preview == FramePreview::InContext && self.editing.len() == 1
-            {
+            if self.workspace.timeline.preview == FramePreview::InContext && self.editing_scene() {
                 let [r, g, b, a] = self.project.background;
                 clipped.rect_filled(
                     Rect::from_min_size(origin, bounds.size() * zoom),

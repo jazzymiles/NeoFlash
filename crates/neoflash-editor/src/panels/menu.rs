@@ -282,9 +282,9 @@ impl Editor {
 
     /// Edit ▸ Edit symbols (⌘E): enter the selected symbol, or return to the scene.
     pub(crate) fn toggle_edit_symbols(&mut self) {
-        if let Some(id) = self.selected_instance_symbol() {
-            self.enter_symbol(id);
-        } else if self.editing.len() > 1 {
+        if self.selected_instance_symbol().is_some() {
+            self.enter_selected_symbol_in_place();
+        } else if !self.editing_scene() {
             self.leave_to_level(0);
         }
     }
@@ -640,7 +640,7 @@ impl Editor {
             let instance = self.selected_instance_symbol();
             if menu_item_enabled(
                 ui,
-                instance.is_some() || self.editing.len() > 1,
+                instance.is_some() || !self.editing_scene(),
                 "Edit symbols",
                 &self.sc(C::EditSymbols),
             )
@@ -649,13 +649,15 @@ impl Editor {
                 self.toggle_edit_symbols();
                 ui.close();
             }
-            for label in ["Edit selected", "Edit in place"] {
-                if menu_item_enabled(ui, instance.is_some(), label, "").clicked() {
-                    if let Some(id) = instance.clone() {
-                        self.enter_symbol(id);
-                    }
-                    ui.close();
+            if menu_item_enabled(ui, instance.is_some(), "Edit selected", "").clicked() {
+                if let Some(id) = instance.clone() {
+                    self.enter_symbol_isolated(id);
                 }
+                ui.close();
+            }
+            if menu_item_enabled(ui, instance.is_some(), "Edit in place", "").clicked() {
+                self.enter_selected_symbol_in_place();
+                ui.close();
             }
             nf::menu_separator(ui);
         });

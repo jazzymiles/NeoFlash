@@ -2,6 +2,16 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Affine Edit in Place (`T-133`): double-click and contextual Edit in place now enter the exact selected instance,
+  keep its rotated/scaled/skewed parent chain dimmed, and share one invertible mapping across rendering, picking,
+  selection, transforms, drawing/paint tools, drops, snapping and motion overlays. Nested sessions preserve and restore
+  frames (including paused independent clips), layers, selection, viewport, ruler zero, frame range and Timeline focus;
+  Library/Movie Explorer/Find/Actions definition routes remain clean isolated editing. Screen-sized creation/hit
+  thresholds, planar Bucket gaps and partial Merge erasing remain exact under anisotropic transforms. Singular,
+  non-finite and 9-slice placements refuse safely. Local guides and grid remain exact for axis-preserving and
+  quarter-turn mappings; rulers use local values only when both mapped axes run in the painter's positive direction
+  and otherwise fall back to the screen ruler. Signed/reflected and oblique authoring chrome awaits NF2 request R-063.
+
 - Live classic-authoring repairs (`T-132`): F1 and Timeline Help now open the searchable command catalogue; Stage
   right-click selects its target under every active tool; explicit Finder and Library drops keep the requested Stage
   coordinate. Text click creates point text while drag creates a fixed wrapping box, and Break Apart reaches editable
@@ -9,7 +19,7 @@
   Paint Bucket fills bounded faces formed by several contours, Ink Bottle can stroke transparent contours, and the
   default Eraser, Lasso and marquee cut/select partial raw Merge fills and Bézier strokes so Backspace removes only the
   selected fragment. Geometry operations are budgeted and failure-atomic. Dedicated Help/Bitmap Trace context rows
-  await NF2 requests R-059/R-060; fully transformed dimmed-context symbol editing remains separate architecture work.
+  await NF2 requests R-059/R-060.
 
 - Property-expression hardening (`T-130`): project loading now requires one complete, valid formula within bounded
   source, token and nesting budgets. Malformed or over-budget direct evaluations fail closed to the authored base value;

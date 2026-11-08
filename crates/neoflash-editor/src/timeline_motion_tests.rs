@@ -2,6 +2,7 @@
 //! the Timeline Preview frame view.
 use crate::app::Editor;
 use crate::selection::SelectionTarget;
+use crate::tests::primary_button;
 use crate::workspace::FramePreview;
 use eframe::egui;
 use neoflash_core::*;
@@ -126,6 +127,16 @@ fn position(editor: &Editor, layer: usize, id: &str, frame: u32) -> (f64, f64) {
     (element.transform.x, element.transform.y)
 }
 
+fn authored_position(editor: &Editor, layer: usize, id: &str, frame: u32) -> (f64, f64) {
+    let element = editor.symbol().timeline.layers[layer]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == frame)
+        .and_then(|key| key.elements.iter().find(|element| element.id == id))
+        .unwrap_or_else(|| panic!("authored {id} at frame {frame}"));
+    (element.transform.x, element.transform.y)
+}
+
 #[test]
 fn paste_motion_reproduces_the_animation_on_another_instance() {
     let mut editor = motion_editor();
@@ -234,6 +245,52 @@ fn dragging_a_motion_path_point_keys_x_and_y_with_one_undo() {
     // Outside the motion span (or without a selection) there is no path.
     editor.clear_selection();
     assert!(editor.motion_path().is_none());
+}
+
+#[test]
+fn transformed_motion_path_drag_inverse_maps_the_pointer() {
+    let mut editor = motion_editor();
+    editor.zoom = 1.0;
+    editor.frame = 15;
+    select(&mut editor, "moving", "star");
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new([1.2, 0.4, -0.3, 0.9, 50., 20.]).unwrap();
+    let origin = egui::pos2(100., 100.);
+    let screen = |point: egui::Pos2| mapping.edit_to_screen(origin, editor.zoom, point);
+    let from = screen(egui::pos2(100., 30.));
+    let to = screen(egui::pos2(125., 65.));
+    let ctx = egui::Context::default();
+    let mut frame = |time: f64, events: Vec<egui::Event>| {
+        let _ = ctx.run(
+            egui::RawInput {
+                time: Some(time),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800., 600.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.motion_path_input(ui, ui.max_rect(), origin, mapping);
+                });
+            },
+        );
+    };
+    frame(
+        0.0,
+        vec![egui::Event::PointerMoved(from), primary_button(from, true)],
+    );
+    frame(0.02, vec![egui::Event::PointerMoved(to)]);
+    frame(0.04, vec![primary_button(to, false)]);
+
+    let (x, y) = position(&editor, 0, "star", 10);
+    assert!(
+        (x - 125.).abs() < 1e-4 && (y - 65.).abs() < 1e-4,
+        "({x}, {y})"
+    );
+    assert!(editor.timeline_motion.drag.is_none());
 }
 
 #[test]
@@ -407,7 +464,11 @@ fn show_motion_path_and_frame_dots_preferences_control_stage_overlay_without_his
         ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 if paint {
-                    editor.paint_motion_path(ui.painter(), egui::pos2(20.0, 20.0));
+                    editor.paint_motion_path(
+                        ui.painter(),
+                        egui::pos2(20.0, 20.0),
+                        crate::stage_mapping::StageMapping::identity(),
+                    );
                 }
             });
         })
@@ -519,6 +580,65 @@ fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
     editor.undo();
     editor.undo();
     assert_eq!(editor.project, before_snap);
+}
+
+#[test]
+fn motion_guide_drag_snap_threshold_is_measured_in_affine_screen_space() {
+    let mut editor = motion_editor();
+    editor.add_motion_guide();
+    editor.project.symbols[0].timeline.layers[1].keyframes = vec![key(
+        0,
+        vec![Element {
+            id: "guide-line-screen-distance".into(),
+            name: "guide-line-screen-distance".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 0.0, y: 20.0 },
+                    PathCommand::LineTo { x: 200.0, y: 20.0 },
+                ],
+                fill_rule: Default::default(),
+                fill: [0, 0, 0, 0],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            ..Element::default()
+        }],
+    )];
+    editor.layer = 0;
+    editor.frame = 5;
+    let span = editor.motion_tween_span().unwrap();
+    editor.set_motion_snap_to_guide(&span, true);
+    select(&mut editor, "moving", "star");
+
+    // Only 0.2 local units from the guide, but 20 screen points after the captured Y stretch:
+    // the key must remain unsnapped.
+    let stretched = crate::stage_mapping::StageMapping::try_new([1., 0., 0., 10., 0., 0.]).unwrap();
+    editor.zoom = 10.;
+    assert!(
+        editor.begin_motion_key_drag_in_stage_context(10, [100., 20.], stretched, editor.zoom,)
+    );
+    editor.drag_motion_key_to([130., 20.2]);
+    editor.finish_motion_key_drag();
+    let unsnapped = authored_position(&editor, 0, "star", 10);
+    assert!((unsnapped.0 - 130.).abs() < 1e-9, "{unsnapped:?}");
+    assert!((unsnapped.1 - 20.2).abs() < 1e-9, "{unsnapped:?}");
+    editor.undo();
+
+    // Twenty local units become ten screen points after the captured Y compression, so the same
+    // 12-point threshold must attract the key to the guide.
+    let compressed = crate::stage_mapping::StageMapping::try_new([1., 0., 0., 2., 0., 0.]).unwrap();
+    editor.zoom = 0.25;
+    assert!(editor.begin_motion_key_drag_in_stage_context(
+        10,
+        [100., 20.],
+        compressed,
+        editor.zoom,
+    ));
+    editor.drag_motion_key_to([130., 40.]);
+    editor.finish_motion_key_drag();
+    assert_eq!(authored_position(&editor, 0, "star", 10), (130., 20.));
+    editor.project.validate().unwrap();
 }
 
 fn sampled_element(timeline: &Timeline, layer: usize, id: &str, frame: u32) -> Element {

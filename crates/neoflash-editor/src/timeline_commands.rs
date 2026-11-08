@@ -595,15 +595,55 @@ impl Editor {
     /// soloed (`R-045`). Non-soloed layers are hidden (`visible = false`) on the copy while
     /// ancestor folders and referenced masks/guides of soloed layers retain their visibility.
     pub(crate) fn project_for_stage_eval(&self) -> std::borrow::Cow<'_, Project> {
-        let solo = self.active_solo_layer_ids();
+        self.project_for_symbol_stage_eval(self.symbol_id())
+    }
+
+    /// The same transient solo projection for a frozen parent timeline while a
+    /// nested symbol is active. Solo state is keyed by symbol, not by the current
+    /// breadcrumb level, so parent context must not accidentally use the child's set.
+    pub(crate) fn project_for_symbol_stage_eval(
+        &self,
+        symbol_id: &str,
+    ) -> std::borrow::Cow<'_, Project> {
+        let Some(symbol) = self.project.symbol(symbol_id) else {
+            return std::borrow::Cow::Borrowed(&self.project);
+        };
+        let timeline = &symbol.timeline;
+        let solo: std::collections::BTreeSet<Id> = self
+            .solo_layers
+            .get(symbol_id)
+            .into_iter()
+            .flatten()
+            .filter(|id| timeline.layers.iter().any(|layer| &layer.id == *id))
+            .cloned()
+            .collect();
         if solo.is_empty() {
             return std::borrow::Cow::Borrowed(&self.project);
         }
-        let timeline = &self.symbol().timeline;
+        let effectively_soloed = |layer_id: &str| {
+            let mut seen = std::collections::HashSet::from([layer_id]);
+            let mut current = timeline.layers.iter().find(|layer| layer.id == layer_id);
+            while let Some(layer) = current {
+                if solo.contains(&layer.id) {
+                    return true;
+                }
+                let Some(parent_id) = layer.properties.parent.as_deref() else {
+                    break;
+                };
+                if !seen.insert(parent_id) {
+                    break;
+                }
+                current = timeline
+                    .layers
+                    .iter()
+                    .find(|candidate| candidate.id == parent_id);
+            }
+            false
+        };
         let mut soloed_ids = std::collections::HashSet::new();
         let mut needed_ids = std::collections::HashSet::new();
         for layer in &timeline.layers {
-            if self.is_layer_id_effectively_soloed(&layer.id) {
+            if effectively_soloed(&layer.id) {
                 soloed_ids.insert(layer.id.clone());
                 if let Some(mask_id) = &layer.properties.mask {
                     needed_ids.insert(mask_id.clone());
@@ -626,7 +666,7 @@ impl Editor {
             }
         }
         let mut copy = self.project.clone();
-        if let Some(sym) = copy.symbol_mut(self.symbol_id()) {
+        if let Some(sym) = copy.symbol_mut(symbol_id) {
             for layer in &mut sym.timeline.layers {
                 if !soloed_ids.contains(&layer.id) && !needed_ids.contains(&layer.id) {
                     layer.visible = false;
@@ -654,9 +694,10 @@ impl Editor {
 
     /// The scene being edited (the bottom of the edit path).
     pub(crate) fn current_scene(&self) -> &str {
-        self.editing
+        self.edit_session
+            .levels
             .first()
-            .map_or(self.project.root.as_str(), String::as_str)
+            .map_or(self.project.root.as_str(), |level| level.symbol.as_str())
     }
 
     /// Leave symbol editing and show scene `id` at its first frame.
@@ -664,13 +705,7 @@ impl Editor {
         if !self.project.is_scene(id) {
             return;
         }
-        self.finish_edits();
-        self.timeline_key_drag = None;
-        self.editing = vec![id.to_owned()];
-        self.reset_authored_preview();
-        self.frame = 0;
-        self.layer = 0;
-        self.clear_selection();
+        self.reset_symbol_edit_session(id.to_owned());
     }
 
     /// Insert ▸ Scene and Scene select ▸ New scene: append "Scene n" and switch to it. One Undo step.
@@ -753,7 +788,7 @@ impl Editor {
         let last = self.symbol().timeline.frame_count.saturating_sub(1);
         let wrapped = self.frame < before;
         let at_end = before == last && (wrapped || last == 0);
-        if self.editing.len() == 1 && self.timeline_edit.play_all_scenes && at_end {
+        if self.editing_scene() && self.timeline_edit.play_all_scenes && at_end {
             let scenes = self.project.scene_ids();
             let index = scenes.iter().position(|id| id == self.current_scene());
             let next = index.and_then(|i| scenes.get(i + 1)).cloned();
@@ -772,7 +807,7 @@ impl Editor {
         }
         // Leave the last frame visible for its tick before advancing to another scene.
         // Loop off stops only when the final scene (or the current scene in single-scene mode) ends.
-        let has_next_scene = self.editing.len() == 1
+        let has_next_scene = self.editing_scene()
             && self.timeline_edit.play_all_scenes
             && self
                 .project

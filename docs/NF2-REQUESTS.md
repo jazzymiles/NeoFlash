@@ -955,3 +955,26 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Checked:** `editor-editing-symbol-in-place` / Stage toolbar references, current Pen hint and vector gesture tests.
 - **Proposal (optional):** primary hint `Finish path · Esc` with secondary tooltip listing close-first-anchor and
   Command-click; retain a separate explicit Cancel action if the design needs one.
+
+### R-063 · Affine Edit-in-Place grid, guides, rulers and Brush cursor
+- **Status:** open
+- **Requested by / for:** implementation boundary · T-133 affine in-context symbol editing
+- **Where:** locked `NF2/Stage Grid`, `NF2/Guide`, `NF2/Stage Ruler` and `NF2/Brush Cursor`; editor mapping in
+  `stage_view.rs` and `authoring_tools.rs`.
+- **Need:** define how local authoring axes are shown when an edited symbol instance is rotated to an arbitrary angle,
+  skewed, reflected or non-uniformly scaled. The current locked Guide and Ruler components express only screen-
+  horizontal/vertical lines and a positive one-dimensional scale, while the Brush cursor is circular. Specify whether
+  guides/grid follow the oblique local axes or remain screen-aligned with projected coordinates; how reflected ruler
+  labels run; guide hit/cursor states; and whether the Brush cursor becomes the transformed ellipse matching the
+  committed local brush footprint.
+- **Why:** T-133 keeps all document mutations affine-exact. Axis-preserving and quarter-turn mappings can reuse the
+  existing Guide/Grid components (including swapped axes), but the locked Ruler accepts only a positive scalar: local
+  labels are therefore used only when both mapped axes increase screen-right/down, while reversed/reflected and
+  quarter-turn directions fall back to the screen ruler. Drawing ordinary horizontal chrome for an oblique local axis
+  or a circle for an elliptical brush would misrepresent the result. Until this state is approved, arbitrary-oblique
+  local grid/guide paint and snap are withheld and artwork tools remain functional.
+- **Checked:** `editor-editing-symbol-in-place`, current Stage grid/guide/ruler exports and component APIs,
+  `docs/NF2-RULERS-GUIDES-GRID.md`, T-133 affine mapping and screen-metric gesture tests.
+- **Proposal (optional):** add context-axis variants that retain existing colors, weights and selected/locked states:
+  two oblique ruler axes anchored at the instance registration point, oblique full-canvas guides/grid, and an affine
+  outline Brush cursor with the existing size label and focus/hit target. Keep screen-space click tolerances unchanged.

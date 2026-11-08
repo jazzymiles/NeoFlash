@@ -4,6 +4,7 @@ use crate::{
     app::{Editor, Tool},
     selection::SelectionTarget,
     stage::{affine, inverse},
+    stage_mapping::StageMapping,
     theme::UiPalette,
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
@@ -138,6 +139,7 @@ struct Gesture {
     layer: Id,
     origin: Pos2,
     zoom: f32,
+    mapping: StageMapping,
     pan: Vec2,
     start: Pos2,
     latest: Pos2,
@@ -161,8 +163,24 @@ struct GradientGesture {
 }
 impl Gesture {
     fn local(&self, point: Pos2) -> Pos2 {
-        Pos2::ZERO + (point - self.origin) / self.zoom
+        self.mapping.screen_to_edit(self.origin, self.zoom, point)
     }
+}
+const POLYSTAR_MIN_DRAG_PX: f32 = 2.0;
+fn polystar_drag_is_large_enough(
+    mapping: StageMapping,
+    origin: Pos2,
+    zoom: f32,
+    center: Pos2,
+    outer: Pos2,
+) -> bool {
+    mapping
+        .edit_to_screen(origin, zoom, center)
+        .distance(mapping.edit_to_screen(origin, zoom, outer))
+        > POLYSTAR_MIN_DRAG_PX
+}
+fn local_position_tolerance(mapping: StageMapping, zoom: f32, screen_tolerance: f32) -> f32 {
+    screen_tolerance / (zoom.max(0.1) * mapping.scale_bounds().1.max(1e-6) as f32)
 }
 fn extended(tool: Tool) -> bool {
     matches!(
@@ -362,6 +380,108 @@ fn geometry_contains(
         (a >= -0.001 && b >= -0.001 && c >= -0.001) || (a <= 0.001 && b <= 0.001 && c <= 0.001)
     })
 }
+
+fn transformed_geometry_contains(
+    commands: &[PathCommand],
+    rule: FillRule,
+    width: f64,
+    local_to_metric: [f64; 6],
+    point: Pos2,
+) -> bool {
+    if width <= 0. {
+        return false;
+    }
+    let Ok(mesh) = crate::vector::tessellate(commands, rule, Some(width), 0.2) else {
+        return false;
+    };
+    mesh.indices.as_chunks::<3>().0.iter().any(|indices| {
+        let triangle = indices.map(|index| {
+            affine(
+                local_to_metric,
+                Pos2::new(
+                    mesh.vertices[index as usize].x,
+                    mesh.vertices[index as usize].y,
+                ),
+            )
+        });
+        let cross = |a: usize, b: usize| {
+            (triangle[b].x - triangle[a].x) * (point.y - triangle[a].y)
+                - (triangle[b].y - triangle[a].y) * (point.x - triangle[a].x)
+        };
+        let (a, b, c) = (cross(0, 1), cross(1, 2), cross(2, 0));
+        (a >= -0.001 && b >= -0.001 && c >= -0.001) || (a <= 0.001 && b <= 0.001 && c <= 0.001)
+    })
+}
+
+fn point_segment_distance(point: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let edge = b - a;
+    let t = if edge.length_sq() > 0. {
+        ((point - a).dot(edge) / edge.length_sq()).clamp(0., 1.)
+    } else {
+        0.
+    };
+    point.distance(a + edge * t)
+}
+
+/// Test the actual transformed stroke plus a constant 2.5 px centreline slop. Unlike a scalar
+/// inverse scale, this stays local to the pointer under arbitrary affine edit-in-place mapping.
+fn contour_hit_in_screen_metric(
+    commands: &[PathCommand],
+    rule: FillRule,
+    width: f64,
+    local_to_stage: [f64; 6],
+    point_stage: Pos2,
+    zoom: f32,
+) -> bool {
+    if transformed_geometry_contains(commands, rule, width, local_to_stage, point_stage) {
+        return true;
+    }
+    let Ok(metric) = StageMapping::try_new(local_to_stage) else {
+        return false;
+    };
+    let flatten_tolerance =
+        (0.25 / (f64::from(zoom) * metric.scale_bounds().1.max(1e-6))).clamp(1e-5, 1.0);
+    let Ok(contours) = flatten_path(
+        commands,
+        FlattenOptions {
+            tolerance: flatten_tolerance,
+            ..FlattenOptions::default()
+        },
+    ) else {
+        return false;
+    };
+    let tolerance = 2.5 / zoom.max(1e-6);
+    contours.iter().any(|contour| {
+        contour.points.windows(2).any(|edge| {
+            point_segment_distance(
+                point_stage,
+                affine(
+                    local_to_stage,
+                    Pos2::new(edge[0][0] as f32, edge[0][1] as f32),
+                ),
+                affine(
+                    local_to_stage,
+                    Pos2::new(edge[1][0] as f32, edge[1][1] as f32),
+                ),
+            ) <= tolerance
+        }) || (contour.closed
+            && contour.points.len() > 1
+            && point_segment_distance(
+                point_stage,
+                affine(
+                    local_to_stage,
+                    Pos2::new(
+                        contour.points.last().unwrap()[0] as f32,
+                        contour.points.last().unwrap()[1] as f32,
+                    ),
+                ),
+                affine(
+                    local_to_stage,
+                    Pos2::new(contour.points[0][0] as f32, contour.points[0][1] as f32),
+                ),
+            ) <= tolerance)
+    })
+}
 struct PaintHit {
     target: SelectionTarget,
     kind: ElementKind,
@@ -376,6 +496,7 @@ impl Editor {
         scene: &[DrawItem],
         p: &egui::Painter,
         point: Pos2,
+        mapping: StageMapping,
         closed_only: bool,
     ) -> Option<PaintHit> {
         let eligible: HashMap<_, _> = self
@@ -400,15 +521,18 @@ impl Editor {
             let local = inverse(item.transform, point)?;
             let (commands, rule, closed) = path_geometry(&item.kind)?;
             let (_, stroke, width) = paint_parts(&item.kind)?;
-            let contour_hit = geometry_contains(
+            let metric = mapping.map_matrix(item.transform);
+            let contour_hit = contour_hit_in_screen_metric(
                 &commands,
                 rule,
-                Some(width.max(5. / self.zoom as f64)),
-                local,
+                width,
+                metric,
+                mapping.edit_to_stage_pos(point),
+                self.zoom,
             );
             let outline = (stroke[3] > 0 && width > 0. && contour_hit)
                 || (self.tool == Tool::Ink && contour_hit);
-            let mut metric = item.transform;
+            let mut metric = metric;
             for value in &mut metric {
                 *value *= f64::from(self.zoom);
             }
@@ -493,7 +617,12 @@ impl Editor {
         self.normalize_targets();
     }
 
-    fn paint_bucket_planar_face_at(&mut self, painter: &egui::Painter, point: Pos2) -> bool {
+    fn paint_bucket_planar_face_at(
+        &mut self,
+        painter: &egui::Painter,
+        point: Pos2,
+        mapping: StageMapping,
+    ) -> bool {
         if !self.layer_editable() {
             return false;
         }
@@ -517,10 +646,15 @@ impl Editor {
         ) {
             return false;
         }
-        let commands = match paint_bucket_planar_face(
+        let mut screen_metric = mapping.matrix();
+        for value in &mut screen_metric {
+            *value *= f64::from(self.zoom);
+        }
+        let commands = match paint_bucket_planar_face_in_metric(
             &elements,
             [f64::from(point.x), f64::from(point.y)],
-            self.authoring_tools.gap_close.max_gap_px() / f64::from(self.zoom),
+            screen_metric,
+            self.authoring_tools.gap_close.max_gap_px(),
         ) {
             Ok(Some(commands)) => commands,
             Ok(None) => return false,
@@ -573,10 +707,17 @@ impl Editor {
         true
     }
 
-    fn paint_tool_click(&mut self, scene: &[DrawItem], p: &egui::Painter, point: Pos2, alt: bool) {
+    fn paint_tool_click(
+        &mut self,
+        scene: &[DrawItem],
+        p: &egui::Painter,
+        point: Pos2,
+        mapping: StageMapping,
+        alt: bool,
+    ) {
         let tool = self.tool;
-        let Some(hit) = self.tool_paint_hit(scene, p, point, tool == Tool::Bucket) else {
-            if tool == Tool::Bucket && self.paint_bucket_planar_face_at(p, point) {
+        let Some(hit) = self.tool_paint_hit(scene, p, point, mapping, tool == Tool::Bucket) else {
+            if tool == Tool::Bucket && self.paint_bucket_planar_face_at(p, point, mapping) {
                 return;
             }
             self.message(if tool==Tool::Bucket {"Paint Bucket fills existing closed vector shapes. Close an open path first; enter a symbol to edit its artwork."} else {"Choose vector artwork on an unlocked layer; enter a symbol to edit its artwork."});
@@ -700,10 +841,14 @@ impl Editor {
     /// the established stroke-segment behavior so filters, groups and instance identity are never
     /// silently flattened.
     fn erase_stroke_parts(&mut self, gesture: &Gesture, painter: &egui::Painter) {
-        let points: Vec<_> = gesture
+        let local_points: Vec<_> = gesture
             .points
             .iter()
             .map(|p| [f64::from(p.x), f64::from(p.y)])
+            .collect();
+        let points: Vec<_> = local_points
+            .iter()
+            .map(|point| gesture.mapping.edit_to_stage_point(*point))
             .collect();
         let affected_layers: std::collections::HashSet<_> = gesture
             .targets
@@ -762,7 +907,7 @@ impl Editor {
                 // Hit testing sees the presented pose, including motion guides
                 // and Orient to path. Cut in that same space without baking the
                 // presentation transform into the authored span key.
-                draw.item.transform,
+                gesture.mapping.map_matrix(draw.item.transform),
                 &points,
                 f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
                 0.2 / f64::from(gesture.zoom),
@@ -845,9 +990,10 @@ impl Editor {
                     layer,
                     self.frame,
                     |elements| {
-                        erase_merge_geometry_with_sweep(
+                        erase_merge_geometry_with_metric(
                             elements,
-                            &points,
+                            &local_points,
+                            gesture.mapping.matrix(),
                             f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
                             0.2 / f64::from(gesture.zoom),
                         )
@@ -984,13 +1130,16 @@ impl Editor {
     fn eraser_meshes(
         &self,
         p: &egui::Painter,
+        mapping: StageMapping,
     ) -> Result<Vec<(SelectionTarget, egui::Mesh)>, String> {
         let eligible: HashMap<_, _> = self
             .editable_targets()
             .into_iter()
             .map(|target| (target.element.clone(), target))
             .collect();
-        let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
+        let authored = mapping.map_scene(
+            &self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx())),
+        );
         let clips = crate::stage_clipping::ClipMeshes::new(&authored.clips, Pos2::ZERO, 1.)?;
         let mut meshes = Vec::new();
         for draw in &authored.draws {
@@ -1056,7 +1205,7 @@ impl Editor {
         ui: &egui::Ui,
         p: &egui::Painter,
         origin: Pos2,
-        _page: Rect,
+        mapping: StageMapping,
         view: Rect,
         scene: &[DrawItem],
     ) -> bool {
@@ -1081,13 +1230,17 @@ impl Editor {
             }
             if let Some((start, size)) = self.authoring_tools.brush_resize {
                 if let Some(pos) = pointer.interact_pos() {
-                    self.authoring_tools.brush_size =
-                        (size + (pos.x - start.x) / self.zoom.max(0.001)).clamp(1., 200.);
+                    self.authoring_tools.brush_size = (size
+                        + (pos.x - start.x)
+                            / (self.zoom.max(0.001) * mapping.scale_bounds().1.max(1e-6) as f32))
+                        .clamp(1., 200.);
                     neoflash_ui::components::brush_cursor(
                         p,
                         pos,
                         self.authoring_tools.brush_shape,
-                        self.authoring_tools.brush_size * self.zoom,
+                        self.authoring_tools.brush_size
+                            * self.zoom
+                            * mapping.scale_bounds().1 as f32,
                         neoflash_ui::components::BrushCursorState::Resize,
                         Some(&format!("{} px", self.authoring_tools.brush_size.round())),
                     );
@@ -1101,7 +1254,8 @@ impl Editor {
         let stale = self.authoring_tools.gesture.as_ref().is_some_and(|g| {
             g.symbol != self.symbol_id()
                 || g.frame != self.frame
-                || (g.tool != Tool::Hand && (g.origin != origin || g.zoom != self.zoom))
+                || (g.tool != Tool::Hand
+                    && (g.origin != origin || g.zoom != self.zoom || g.mapping != mapping))
         });
         if stale {
             self.authoring_tools.cancel();
@@ -1182,15 +1336,19 @@ impl Editor {
                         self.authoring_tools.pressure_contact = contact;
                     }
                     self.playing = false;
-                    let local = Pos2::ZERO + (pos - origin) / self.zoom;
+                    let local = mapping.screen_to_edit(origin, self.zoom, pos);
                     // Line ends and PolyStar centres snap to guides, objects, grid and pixels (ST-04).
                     let local = if matches!(tool, Tool::Line | Tool::PolyStar) {
-                        Pos2::ZERO + (self.snap_screen(origin, pos) - origin) / self.zoom
+                        mapping.screen_to_edit(
+                            origin,
+                            self.zoom,
+                            self.snap_screen(mapping, origin, pos),
+                        )
                     } else {
                         local
                     };
                     if matches!(tool, Tool::Bucket | Tool::Ink | Tool::Eyedropper) {
-                        self.paint_tool_click(scene, p, local, modifiers.alt);
+                        self.paint_tool_click(scene, p, local, mapping, modifiers.alt);
                         continue;
                     }
                     let gradient = if tool == Tool::Gradient {
@@ -1210,10 +1368,19 @@ impl Editor {
                                     Pos2::new((fill.focal_point_ratio * 819.2) as f32, 0.),
                                 ),
                             );
-                            if (origin + edge.to_vec2() * self.zoom).distance(pos) >= 12.
-                                && (origin + center.to_vec2() * self.zoom).distance(pos) >= 12.
+                            if mapping
+                                .edit_to_screen(origin, self.zoom, edge)
+                                .distance(pos)
+                                >= 12.
+                                && mapping
+                                    .edit_to_screen(origin, self.zoom, center)
+                                    .distance(pos)
+                                    >= 12.
                                 && (fill.kind != GradientKind::Radial
-                                    || (origin + focal.to_vec2() * self.zoom).distance(pos) >= 12.)
+                                    || mapping
+                                        .edit_to_screen(origin, self.zoom, focal)
+                                        .distance(pos)
+                                        >= 12.)
                             {
                                 return None;
                             }
@@ -1225,8 +1392,8 @@ impl Editor {
                                 matrix,
                             })
                         });
-                        let Some(hit) =
-                            selected_handle.or_else(|| self.tool_paint_hit(scene, p, local, true))
+                        let Some(hit) = selected_handle
+                            .or_else(|| self.tool_paint_hit(scene, p, local, mapping, true))
                         else {
                             continue;
                         };
@@ -1244,9 +1411,12 @@ impl Editor {
                             hit.matrix,
                             affine(matrix, Pos2::new((focal_point_ratio * 819.2) as f32, 0.)),
                         );
-                        let handle = (origin + edge.to_vec2() * self.zoom).distance(pos) < 12.;
-                        let focal_screen = origin + focal.to_vec2() * self.zoom;
-                        let center_screen = origin + center.to_vec2() * self.zoom;
+                        let handle = mapping
+                            .edit_to_screen(origin, self.zoom, edge)
+                            .distance(pos)
+                            < 12.;
+                        let focal_screen = mapping.edit_to_screen(origin, self.zoom, focal);
+                        let center_screen = mapping.edit_to_screen(origin, self.zoom, center);
                         let focal_handle = radial
                             && !handle
                             && focal_screen.distance(pos) < 12.
@@ -1268,7 +1438,7 @@ impl Editor {
                         None
                     };
                     let eraser_meshes = if tool == Tool::Eraser {
-                        match self.eraser_meshes(p) {
+                        match self.eraser_meshes(p, mapping) {
                             Ok(meshes) => meshes,
                             Err(error) => {
                                 self.message(error);
@@ -1285,6 +1455,7 @@ impl Editor {
                         layer: self.symbol().timeline.layers[self.layer].id.clone(),
                         origin,
                         zoom: self.zoom,
+                        mapping,
                         pan: self.pan,
                         start: pos,
                         latest: pos,
@@ -1319,7 +1490,7 @@ impl Editor {
                 _ => {}
             }
         }
-        self.paint_authoring_gesture(p, origin, view, scene);
+        self.paint_authoring_gesture(p, origin, mapping, view, scene);
         if let Some(pos) = ui.input(|i| i.pointer.latest_pos())
             && view.contains(pos)
         {
@@ -1338,7 +1509,9 @@ impl Editor {
             if matches!(tool, Tool::Brush | Tool::Eraser) {
                 let (size, shape, state) = if tool == Tool::Brush {
                     (
-                        self.authoring_tools.brush_size * self.zoom,
+                        self.authoring_tools.brush_size
+                            * self.zoom
+                            * mapping.scale_bounds().1 as f32,
                         self.authoring_tools.brush_shape,
                         neoflash_ui::components::BrushCursorState::Idle,
                     )
@@ -1376,7 +1549,7 @@ impl Editor {
         g.latest = pos;
         let mut point = g.local(pos);
         if matches!(g.tool, Tool::Line | Tool::PolyStar) && !g.shift {
-            point = g.local(self.snap_screen(g.origin, pos));
+            point = g.local(self.snap_screen(g.mapping, g.origin, pos));
         }
         if matches!(g.tool, Tool::Line | Tool::PolyStar) && g.shift {
             let vector = point - g.points[0];
@@ -1394,10 +1567,12 @@ impl Editor {
                 g.points.push(point);
             }
             Tool::Brush | Tool::Lasso => {
-                if g.points
-                    .last()
-                    .is_none_or(|last| last.distance(point) * g.zoom >= 1.5)
-                {
+                if g.points.last().is_none_or(|last| {
+                    g.mapping
+                        .edit_to_screen(g.origin, g.zoom, *last)
+                        .distance(pos)
+                        >= 1.5
+                }) {
                     if g.points.len() >= 2048 {
                         self.message("Gesture exceeds 2048 points and was cancelled. Draw a shorter stroke or loop.");
                         return;
@@ -1423,9 +1598,11 @@ impl Editor {
             Tool::Eraser => {
                 let radius = self.authoring_tools.eraser_size / 2. / g.zoom;
                 let previous = *g.points.last().unwrap_or(&point);
+                let previous_metric = g.mapping.edit_to_stage_pos(previous);
+                let point_metric = g.mapping.edit_to_stage_pos(point);
                 for (target, mesh) in &g.eraser_meshes {
                     if !g.targets.contains(target)
-                        && swept_disk_hits_mesh(mesh, previous, point, radius)
+                        && swept_disk_hits_mesh(mesh, previous_metric, point_metric, radius)
                     {
                         g.targets.push(target.clone());
                     }
@@ -1470,7 +1647,14 @@ impl Editor {
                 };
                 if commands.len() < 2
                     || (g.tool == Tool::Line
-                        && g.points[0].distance(*g.points.last().unwrap()) < 0.1)
+                        && g.mapping
+                            .edit_to_screen(g.origin, g.zoom, g.points[0])
+                            .distance(g.mapping.edit_to_screen(
+                                g.origin,
+                                g.zoom,
+                                *g.points.last().unwrap(),
+                            ))
+                            < 0.1)
                 {
                     return;
                 }
@@ -1668,7 +1852,13 @@ impl Editor {
                 let outer = [g.points[1].x as f64, g.points[1].y as f64];
                 let (dx, dy) = (outer[0] - center[0], outer[1] - center[1]);
                 let radius = dx.hypot(dy);
-                if radius <= (2.0 / g.zoom as f64).max(0.5) {
+                if !polystar_drag_is_large_enough(
+                    g.mapping,
+                    g.origin,
+                    g.zoom,
+                    g.points[0],
+                    g.points[1],
+                ) {
                     return;
                 }
                 let angle = dy.atan2(dx);
@@ -1705,12 +1895,13 @@ impl Editor {
         &self,
         p: &egui::Painter,
         origin: Pos2,
+        mapping: StageMapping,
         view: Rect,
         scene: &[DrawItem],
     ) {
         let palette = UiPalette::current(p.ctx());
         if let Some(g) = &self.authoring_tools.gesture {
-            let screen = |point: Pos2| g.origin + point.to_vec2() * g.zoom;
+            let screen = |point: Pos2| g.mapping.edit_to_screen(g.origin, g.zoom, point);
             match g.tool {
                 Tool::Line | Tool::Brush => {
                     if g.tool == Tool::Brush {
@@ -1737,27 +1928,28 @@ impl Editor {
                         }
                         return;
                     }
-                    let color = if g.tool == Tool::Brush {
-                        self.fill
-                    } else {
-                        self.stroke
-                    };
-                    let width = if g.tool == Tool::Brush {
-                        self.authoring_tools.brush_size * g.zoom
-                    } else {
-                        self.stroke_width as f32 * g.zoom
-                    };
-                    let stroke = Stroke::new(
-                        width.max(1.),
-                        Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]),
-                    );
-                    if g.points.len() == 1 {
-                        p.circle_filled(screen(g.points[0]), width / 2., stroke.color);
-                    } else {
-                        p.add(Shape::line(
-                            g.points.iter().map(|point| screen(*point)).collect(),
-                            stroke,
-                        ));
+                    let commands = polyline(&g.points, false);
+                    if self.stroke_width > 0.
+                        && let Ok(geometry) = crate::vector::tessellate_cached(
+                            &commands,
+                            FillRule::NonZero,
+                            Some(self.stroke_width),
+                            0.2,
+                        )
+                    {
+                        let mut mesh = egui::Mesh::default();
+                        mesh.vertices.reserve(geometry.vertices.len());
+                        let color = Color32::from_rgba_unmultiplied(
+                            self.stroke[0],
+                            self.stroke[1],
+                            self.stroke[2],
+                            self.stroke[3],
+                        );
+                        for point in &geometry.vertices {
+                            mesh.colored_vertex(screen(Pos2::new(point.x, point.y)), color);
+                        }
+                        mesh.indices.clone_from(&geometry.indices);
+                        p.add(Shape::mesh(mesh));
                     }
                 }
                 Tool::Lasso => {
@@ -1781,8 +1973,11 @@ impl Editor {
                             .first()
                             .is_some_and(|id| g.targets.iter().any(|target| &target.element == id))
                         {
-                            let bounds = crate::stage::world_bounds(item, p);
-                            let bounds = Rect::from_min_max(screen(bounds.min), screen(bounds.max));
+                            let mut mapped = item.clone();
+                            mapped.transform = g.mapping.map_matrix(mapped.transform);
+                            let bounds = crate::stage::world_bounds(&mapped, p);
+                            let bounds = StageMapping::identity()
+                                .map_rect_to_screen(g.origin, g.zoom, bounds);
                             p.rect_stroke(
                                 bounds,
                                 0,
@@ -1809,6 +2004,7 @@ impl Editor {
                                 p,
                                 g.origin,
                                 g.zoom,
+                                g.mapping,
                                 gradient.element_matrix,
                                 matrix,
                                 gradient.radial.then_some(focal_ratio),
@@ -1821,7 +2017,13 @@ impl Editor {
                     let outer = [g.points[1].x as f64, g.points[1].y as f64];
                     let (dx, dy) = (outer[0] - center[0], outer[1] - center[1]);
                     let radius = dx.hypot(dy);
-                    if radius > 0.5 {
+                    if polystar_drag_is_large_enough(
+                        g.mapping,
+                        g.origin,
+                        g.zoom,
+                        g.points[0],
+                        g.points[1],
+                    ) {
                         let (commands, origin_xy) = polystar_path_commands(
                             center,
                             radius,
@@ -1830,36 +2032,53 @@ impl Editor {
                             self.authoring_tools.polystar_star,
                             self.authoring_tools.polystar_point_size,
                         );
-                        let pts: Vec<Pos2> = commands
-                            .iter()
-                            .filter_map(|cmd| match *cmd {
-                                PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
-                                    Some(screen(Pos2::new(
-                                        (origin_xy[0] + x) as f32,
-                                        (origin_xy[1] + y) as f32,
-                                    )))
-                                }
-                                _ => None,
-                            })
-                            .collect();
-                        if pts.len() >= 3 {
-                            let stroke_color = if self.stroke[3] > 0 {
-                                Color32::from_rgba_unmultiplied(
-                                    self.stroke[0],
-                                    self.stroke[1],
-                                    self.stroke[2],
-                                    self.stroke[3],
-                                )
-                            } else {
-                                palette.overlay
-                            };
-                            p.add(Shape::closed_line(
-                                pts,
-                                Stroke::new(
-                                    (self.stroke_width as f32 * g.zoom).max(1.5),
+                        let stroke_color = Color32::from_rgba_unmultiplied(
+                            self.stroke[0],
+                            self.stroke[1],
+                            self.stroke[2],
+                            self.stroke[3],
+                        );
+                        if self.stroke[3] > 0
+                            && self.stroke_width > 0.
+                            && let Ok(geometry) = crate::vector::tessellate_cached(
+                                &commands,
+                                FillRule::NonZero,
+                                Some(self.stroke_width),
+                                0.2,
+                            )
+                        {
+                            let mut mesh = egui::Mesh::default();
+                            mesh.vertices.reserve(geometry.vertices.len());
+                            for point in &geometry.vertices {
+                                mesh.colored_vertex(
+                                    screen(Pos2::new(
+                                        (origin_xy[0] + f64::from(point.x)) as f32,
+                                        (origin_xy[1] + f64::from(point.y)) as f32,
+                                    )),
                                     stroke_color,
-                                ),
-                            ));
+                                );
+                            }
+                            mesh.indices.clone_from(&geometry.indices);
+                            p.add(Shape::mesh(mesh));
+                        } else {
+                            let pts: Vec<Pos2> = commands
+                                .iter()
+                                .filter_map(|cmd| match *cmd {
+                                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                                        Some(screen(Pos2::new(
+                                            (origin_xy[0] + x) as f32,
+                                            (origin_xy[1] + y) as f32,
+                                        )))
+                                    }
+                                    _ => None,
+                                })
+                                .collect();
+                            if pts.len() >= 3 {
+                                p.add(Shape::closed_line(
+                                    pts,
+                                    Stroke::new(1.5_f32, palette.overlay),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1873,6 +2092,7 @@ impl Editor {
                 p,
                 origin,
                 self.zoom,
+                mapping,
                 transform_matrix(element.transform),
                 fill.matrix,
                 (fill.kind == GradientKind::Radial).then_some(fill.focal_point_ratio),
@@ -1957,9 +2177,12 @@ fn simplify_round_spine(
 ) -> (Vec<Pos2>, Vec<f32>) {
     let mut dedup_pts: Vec<Pos2> = Vec::with_capacity(points.len());
     let mut dedup_rad: Vec<f32> = Vec::with_capacity(points.len());
+    // Preserve the established 0.2-local-unit cap while allowing an affine screen tolerance to
+    // make de-duplication stricter for visibly separated samples.
+    let dedup_tolerance_sq = pos_tol.clamp(1e-4, 0.2).powi(2);
     for (&pt, &r) in points.iter().zip(radii.iter()) {
         if let Some(last_pt) = dedup_pts.last().copied()
-            && pt.distance_sq(last_pt) < 0.04
+            && pt.distance_sq(last_pt) < dedup_tolerance_sq
         {
             if let Some(last_r) = dedup_rad.last_mut() {
                 *last_r = last_r.max(r);
@@ -2143,14 +2366,31 @@ fn nonadjacent_rects_overlap(boxes: &[Rect]) -> bool {
     false
 }
 
+#[cfg(test)]
 fn round_brush_envelope(points: &[Pos2], pressures: &[f32], width: f32) -> Vec<PathCommand> {
-    round_brush_envelope_with_overlap_check(points, pressures, width, nonadjacent_rects_overlap)
+    round_brush_envelope_with_position_tolerance(points, pressures, width, 0.22)
+}
+
+fn round_brush_envelope_with_position_tolerance(
+    points: &[Pos2],
+    pressures: &[f32],
+    width: f32,
+    position_tolerance: f32,
+) -> Vec<PathCommand> {
+    round_brush_envelope_with_overlap_check(
+        points,
+        pressures,
+        width,
+        position_tolerance,
+        nonadjacent_rects_overlap,
+    )
 }
 
 fn round_brush_envelope_with_overlap_check(
     points: &[Pos2],
     pressures: &[f32],
     width: f32,
+    position_tolerance: f32,
     overlaps: fn(&[Rect]) -> bool,
 ) -> Vec<PathCommand> {
     if points.is_empty() || !width.is_finite() || width <= 0. {
@@ -2164,7 +2404,12 @@ fn round_brush_envelope_with_overlap_check(
     } else {
         vec![width * 0.5; points.len()]
     };
-    let (pts, radii) = simplify_round_spine(points, &raw_radii, 0.22, (width * 0.015).max(0.08));
+    let (pts, radii) = simplify_round_spine(
+        points,
+        &raw_radii,
+        position_tolerance,
+        (width * 0.015).max(0.08),
+    );
     if pts.len() == 1 {
         let r = radii[0];
         return polyline(
@@ -2419,11 +2664,13 @@ fn paint_gradient_handles(
     p: &egui::Painter,
     origin: Pos2,
     zoom: f32,
+    mapping: StageMapping,
     element: [f64; 6],
     gradient: [f64; 6],
     radial_focal_ratio: Option<f64>,
 ) {
-    let screen = |local| origin + affine(element, affine(gradient, local)).to_vec2() * zoom;
+    let screen =
+        |local| mapping.edit_to_screen(origin, zoom, affine(element, affine(gradient, local)));
     let center = screen(Pos2::ZERO);
     let edge = screen(Pos2::new(819.2, 0.));
     let palette = UiPalette::current(p.ctx());
@@ -3194,29 +3441,47 @@ impl Editor {
             vec![1.; points.len()]
         };
         if smoothing > 0. && points.len() > 3 && pressure.len() == points.len() {
-            let pos_tol = (0.15 + smoothing * 0.65) / gesture.zoom.max(0.1);
+            let pos_tol =
+                local_position_tolerance(gesture.mapping, gesture.zoom, 0.15 + smoothing * 0.65);
             (points, pressure) = simplify_round_spine(&points, &pressure, pos_tol, 0.025);
         }
-        shaped_brush_outline(
+        shaped_brush_outline_with_position_tolerance(
             &points,
             &pressure,
             self.authoring_tools.brush_size,
             self.authoring_tools.brush_shape,
+            local_position_tolerance(gesture.mapping, gesture.zoom, 0.22),
         )
     }
 }
 
 /// Sweep the exact same convex tip used by the shared cursor. Adjacent hulls overlap, so
 /// nonzero fill produces a continuous stroke even at corners and with stationary pressure.
+#[cfg(test)]
 pub(crate) fn shaped_brush_outline(
     points: &[Pos2],
     pressures: &[f32],
     size: f32,
     shape: neoflash_ui::components::BrushShapeKind,
 ) -> Vec<PathCommand> {
+    shaped_brush_outline_with_position_tolerance(points, pressures, size, shape, 0.22)
+}
+
+fn shaped_brush_outline_with_position_tolerance(
+    points: &[Pos2],
+    pressures: &[f32],
+    size: f32,
+    shape: neoflash_ui::components::BrushShapeKind,
+    position_tolerance: f32,
+) -> Vec<PathCommand> {
     use neoflash_ui::components::BrushShapeKind;
     if shape == BrushShapeKind::Round {
-        return round_brush_envelope(points, pressures, size);
+        return round_brush_envelope_with_position_tolerance(
+            points,
+            pressures,
+            size,
+            position_tolerance,
+        );
     }
     if points.is_empty() || !size.is_finite() || size <= 0. {
         return vec![];
@@ -3224,7 +3489,7 @@ pub(crate) fn shaped_brush_outline(
     let raw_forces: Vec<f32> = (0..points.len())
         .map(|i| brush_force(pressures.get(i).copied()))
         .collect();
-    let (pts, forces) = simplify_round_spine(points, &raw_forces, 0.22, 0.02);
+    let (pts, forces) = simplify_round_spine(points, &raw_forces, position_tolerance, 0.02);
     let tips: Vec<_> = pts
         .iter()
         .enumerate()
@@ -3289,6 +3554,68 @@ mod round_brush_overlap_tests {
         *state ^= *state >> 7;
         *state ^= *state << 17;
         (*state as u32) as f32 / u32::MAX as f32
+    }
+
+    #[test]
+    fn contour_hit_slop_stays_constant_in_screen_space_under_anisotropic_mapping() {
+        let commands = vec![
+            PathCommand::MoveTo { x: 0., y: 0. },
+            PathCommand::LineTo { x: 0., y: 100. },
+        ];
+        let mapping = [100., 0., 0., 1., 0., 0.];
+        assert!(contour_hit_in_screen_metric(
+            &commands,
+            FillRule::NonZero,
+            0.,
+            mapping,
+            Pos2::new(2., 50.),
+            1.,
+        ));
+        assert!(!contour_hit_in_screen_metric(
+            &commands,
+            FillRule::NonZero,
+            0.,
+            mapping,
+            Pos2::new(100., 50.),
+            1.,
+        ));
+    }
+
+    #[test]
+    fn polystar_preview_and_commit_share_the_screen_space_creation_threshold() {
+        let mapping = StageMapping::try_new([100., 0., 0., 1., 40., -20.]).unwrap();
+        let origin = Pos2::new(80., 120.);
+        let center = Pos2::new(1., 1.);
+        assert!(!polystar_drag_is_large_enough(
+            mapping,
+            origin,
+            1.,
+            center,
+            Pos2::new(1.02, 1.),
+        ));
+        assert!(polystar_drag_is_large_enough(
+            mapping,
+            origin,
+            1.,
+            center,
+            Pos2::new(1.021, 1.),
+        ));
+    }
+
+    #[test]
+    fn brush_spine_simplification_preserves_screen_visible_affine_zigzags() {
+        let mapping = StageMapping::try_new([100., 0., 0., 1., 0., 0.]).unwrap();
+        let tolerance = local_position_tolerance(mapping, 1., 0.8);
+        let points = [Pos2::new(0., 0.), Pos2::new(0.1, 0.1), Pos2::new(0., 0.2)];
+        let (simplified, _) = simplify_round_spine(&points, &[1.; 3], tolerance, 0.025);
+        assert_eq!(simplified, points);
+        assert!(
+            mapping
+                .edit_to_stage_pos(points[1])
+                .distance(mapping.edit_to_stage_pos(Pos2::new(0., 0.1)))
+                > 0.8,
+            "the retained local bend must be visibly larger than the screen-space tolerance"
+        );
     }
 
     #[test]
@@ -3359,12 +3686,14 @@ mod round_brush_overlap_tests {
                 &points,
                 &pressures,
                 width,
+                0.22,
                 nonadjacent_rects_overlap,
             );
             let previous = round_brush_envelope_with_overlap_check(
                 &points,
                 &pressures,
                 width,
+                0.22,
                 nonadjacent_rects_overlap_bruteforce,
             );
             assert_eq!(indexed, previous, "round Brush case {case}");

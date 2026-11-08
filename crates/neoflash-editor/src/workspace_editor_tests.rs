@@ -736,6 +736,18 @@ fn explicit_graphic_and_library_drops_keep_the_requested_center_while_auto_place
 }
 
 #[test]
+fn transformed_stage_drop_uses_the_exact_inverse_pointer_position() {
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new([1.5, 0.75, -0.4, 0.9, 120.0, -35.0]).unwrap();
+    let origin = egui::pos2(80.0, 140.0);
+    let local = egui::pos2(-32.5, 47.25);
+    let screen = mapping.edit_to_screen(origin, 1.75, local);
+    let actual = crate::graphic_import::mapped_drop_point(mapping, origin, 1.75, screen);
+    assert!((actual[0] - f64::from(local.x)).abs() < 1e-4);
+    assert!((actual[1] - f64::from(local.y)).abs() < 1e-4);
+}
+
+#[test]
 fn f9_reveals_hidden_actions_even_while_a_text_field_has_focus() {
     let ctx = egui::Context::default();
     let mut project = Project::blank();

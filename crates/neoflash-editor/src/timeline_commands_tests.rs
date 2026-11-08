@@ -715,22 +715,56 @@ fn symbols_popover_filters_large_library_navigates_scenes_and_in_place_stack() {
     assert_eq!(editor.editing, vec![scene_2.clone(), "sym_001".into()]);
     assert_eq!(popover_state(&ctx).recent_symbols[0], "sym_001");
 
-    // Option+Enter (`in_place = true`) pushes onto the breadcrumb stack without cycles.
+    // Option+Enter refuses to invent a placement when the library symbol is not on this frame.
     editor.open_symbols_popover(&ctx, None);
+    editor.activate_symbols_popover_target(&ctx, PopoverTarget::Symbol("sym_005".into()), true);
+    assert_eq!(editor.editing, vec![scene_2.clone(), "sym_001".into()]);
+    assert!(editor.status.contains("visible instance"));
+
+    // With several placements, an explicit selected instance is required and its
+    // exact layer/element identity is recorded.
+    editor.add_element(
+        ElementKind::Instance {
+            symbol_id: "sym_002".into(),
+            playback: InstancePlayback::Independent,
+        },
+        10.,
+        20.,
+    );
+    editor.add_element(
+        ElementKind::Instance {
+            symbol_id: "sym_002".into(),
+            playback: InstancePlayback::Independent,
+        },
+        30.,
+        40.,
+    );
+    let exact = editor.selection.single().unwrap().clone();
+    editor.clear_selection();
     editor.activate_symbols_popover_target(&ctx, PopoverTarget::Symbol("sym_002".into()), true);
     assert_eq!(
         editor.editing,
-        vec![scene_2.clone(), "sym_001".into(), "sym_002".into()]
-    );
-    editor.activate_symbols_popover_target(&ctx, PopoverTarget::Symbol("sym_001".into()), true);
-    assert_eq!(
-        editor.editing,
         vec![scene_2.clone(), "sym_001".into()],
-        "re-entering an ancestor truncates instead of forming a breadcrumb cycle"
+        "ambiguous placements must not pick the first instance"
     );
+    assert!(editor.status.contains("several visible placements"));
+    editor.set_selection(vec![exact.clone()]);
+    editor.activate_symbols_popover_target(&ctx, PopoverTarget::Symbol("sym_002".into()), true);
+    assert!(matches!(
+        &editor.edit_session.levels[2].entry,
+        crate::symbol_edit::SymbolEditEntry::InPlace { target, .. } if target == &exact
+    ));
 
-    // Push > 4 editing levels to exercise both `breadcrumb_overflow` and `symbols_popover` rendering.
-    for id in ["sym_002", "sym_003", "sym_004"] {
+    // Concrete nested placements build >4 breadcrumb levels and exercise overflow rendering.
+    for id in ["sym_003", "sym_004"] {
+        editor.add_element(
+            ElementKind::Instance {
+                symbol_id: id.into(),
+                playback: InstancePlayback::Independent,
+            },
+            5.,
+            6.,
+        );
         editor.activate_symbols_popover_target(&ctx, PopoverTarget::Symbol(id.into()), true);
     }
     assert_eq!(editor.editing.len(), 5);

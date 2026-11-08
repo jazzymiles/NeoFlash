@@ -281,7 +281,7 @@ impl Editor {
             editor.project = project;
             editor.library_selected = Some(id.clone());
         });
-        self.enter_symbol(id);
+        self.enter_symbol_isolated(id);
         self.message(format!(
             "Created {} ‘{}’. Edit its artwork around the registration point.",
             kind_name(draft.kind),

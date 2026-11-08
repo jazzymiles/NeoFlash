@@ -94,10 +94,10 @@ impl Editor {
         state
             .recent_symbols
             .retain(|id| !self.project.is_scene(id) && self.project.symbol(id).is_some());
-        for id in self.editing.iter().skip(1) {
+        for id in self.edit_path().skip(1) {
             if !self.project.is_scene(id) && self.project.symbol(id).is_some() {
                 state.recent_symbols.retain(|existing| existing != id);
-                state.recent_symbols.insert(0, id.clone());
+                state.recent_symbols.insert(0, id.to_owned());
             }
         }
         state.recent_symbols.truncate(MAX_RECENT_SYMBOLS);
@@ -157,7 +157,7 @@ impl Editor {
     ) -> SymbolsPopoverModel {
         let scenes = self.scene_list();
         let current_scene = self.current_scene();
-        let editing_scene_root = self.editing.len() == 1;
+        let editing_scene_root = self.editing_scene();
 
         let mut non_scene: Vec<_> = self
             .project
@@ -336,9 +336,8 @@ impl Editor {
         SymbolsPopoverModel { sections }
     }
 
-    /// Edit a library symbol from the popover: `in_place = false` (`↵`) opens `[current_scene, id]`;
-    /// `in_place = true` (`⌥↵`) pushes onto the current editing stack (or truncates to it if already
-    /// present so recursive breadcrumb loops cannot form).
+    /// Edit a library symbol from the popover. `↵` opens a clean isolated
+    /// definition; `⌥↵` requires one exact current-frame placement.
     pub(crate) fn edit_symbol_from_popover(
         &mut self,
         ctx: &egui::Context,
@@ -350,25 +349,12 @@ impl Editor {
         }
         self.record_recent_symbol(ctx, id);
         if in_place {
-            if self.editing.last().map(String::as_str) == Some(id) {
-                return;
-            }
-            if let Some(level) = self.editing.iter().position(|entry| entry == id) {
-                self.leave_to_level(level);
-            } else {
-                self.enter_symbol(id.to_owned());
-            }
+            self.enter_symbol_in_place_by_id(id);
         } else {
-            self.finish_edits();
-            self.timeline_key_drag = None;
-            let scene = self.current_scene().to_owned();
-            self.editing = vec![scene, id.to_owned()];
-            self.reset_authored_preview();
-            self.frame = 0;
-            self.layer = 0;
-            self.clear_selection();
-            self.playing = false;
-            self.pan = Vec2::ZERO;
+            if !self.editing_scene() {
+                self.leave_to_level(0);
+            }
+            self.enter_symbol_isolated(id.to_owned());
         }
     }
 

@@ -12,7 +12,8 @@
 use crate::authoring_geometry::erase_path_stroke;
 use crate::evaluate::{affine_multiply, transform_matrix};
 use crate::geometry::{
-    FlattenOptions, GeometryError, MAX_PATH_COMMANDS, flatten_path, validate_path_commands,
+    FlattenOptions, GeometryError, MAX_PATH_COMMANDS, flatten_path, invert_affine_matrix,
+    validate_path_commands,
 };
 use crate::model::{Color, Element, ElementKind, FillRule, Id, PathCommand, Transform, new_id};
 use crate::runtime_graphics::GradientPaint;
@@ -4352,12 +4353,26 @@ pub fn paint_bucket_planar_face(
     seed: [f64; 2],
     gap_tolerance: f64,
 ) -> Result<Option<Vec<PathCommand>>, GeometryError> {
+    paint_bucket_planar_face_in_metric(elements, seed, [1., 0., 0., 1., 0., 0.], gap_tolerance)
+}
+
+/// Extract the planar face containing `seed`, measuring endpoint gaps after `local_to_metric`.
+/// This keeps a pixel-sized gap setting exact through rotated, skewed and non-uniformly scaled
+/// edit-in-place contexts while returning geometry in authored coordinates.
+pub fn paint_bucket_planar_face_in_metric(
+    elements: &[Element],
+    seed: [f64; 2],
+    local_to_metric: [f64; 6],
+    gap_tolerance: f64,
+) -> Result<Option<Vec<PathCommand>>, GeometryError> {
     if seed.iter().any(|value| !value.is_finite())
+        || local_to_metric.iter().any(|value| !value.is_finite())
+        || invert_affine_matrix(local_to_metric).is_none()
         || !gap_tolerance.is_finite()
         || gap_tolerance < 0.0
     {
         return Err(invalid_merge_geometry(
-            "paint bucket seed and gap tolerance must be finite, and the tolerance nonnegative",
+            "paint bucket seed and metric must be finite and invertible, and the gap tolerance nonnegative",
         ));
     }
     let mut raw_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
@@ -4400,6 +4415,10 @@ pub fn paint_bucket_planar_face(
             endpoints.push(a);
             endpoints.push(b);
         }
+        let metric_endpoints: Vec<_> = endpoints
+            .iter()
+            .map(|point| transform_point(local_to_metric, point[0], point[1]))
+            .collect();
         let endpoint_checks = endpoints
             .len()
             .checked_mul(endpoints.len())
@@ -4411,14 +4430,19 @@ pub fn paint_bucket_planar_face(
         let mut bridges = Vec::new();
         for i in 0..endpoints.len() {
             let p = endpoints[i];
-            let deg = endpoints.iter().filter(|&&q| dist_sq(p, q) <= 1e-4).count();
+            let metric_p = metric_endpoints[i];
+            let deg = metric_endpoints
+                .iter()
+                .filter(|&&q| dist_sq(metric_p, q) <= 1e-4)
+                .count();
             if deg == 1 {
                 let mut best: Option<([f64; 2], f64)> = None;
                 for (j, &q) in endpoints.iter().enumerate() {
                     if i == j || (i / 2) == (j / 2) {
                         continue;
                     }
-                    let d = (p[0] - q[0]).hypot(p[1] - q[1]);
+                    let metric_q = metric_endpoints[j];
+                    let d = (metric_p[0] - metric_q[0]).hypot(metric_p[1] - metric_q[1]);
                     if d > 1e-4 && d <= tol && best.is_none_or(|(_, bd)| d < bd) {
                         best = Some((q, d));
                     }
@@ -4464,22 +4488,26 @@ pub fn paint_bucket_planar_face(
         }
     }
 
-    // Snap vertices within 0.05 px and build directed half-edges.
+    // Snap vertices within 0.05 metric px and build directed half-edges. The planar graph remains
+    // in authored coordinates, but its topology must not close a visibly large gap merely because
+    // an in-place parent stretches the authored coordinate system.
     const SNAP: f64 = 0.05;
     let mut vertices: Vec<[f64; 2]> = Vec::new();
+    let mut metric_vertices: Vec<[f64; 2]> = Vec::new();
     let inv_cell = 1.0 / (SNAP * 2.0);
     let mut vertex_grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
         std::collections::HashMap::with_capacity(n.saturating_mul(2));
     let mut find_or_insert = |pt: [f64; 2]| -> usize {
-        let gx = (pt[0] * inv_cell).floor() as i64;
-        let gy = (pt[1] * inv_cell).floor() as i64;
+        let metric_pt = transform_point(local_to_metric, pt[0], pt[1]);
+        let gx = (metric_pt[0] * inv_cell).floor() as i64;
+        let gy = (metric_pt[1] * inv_cell).floor() as i64;
         let mut best = None;
         for dy in -1..=1 {
             for dx in -1..=1 {
                 if let Some(bucket) = vertex_grid.get(&(gx + dx, gy + dy)) {
                     for &idx in bucket {
                         if best.is_none_or(|previous| idx < previous)
-                            && dist_sq(vertices[idx], pt) <= SNAP * SNAP
+                            && dist_sq(metric_vertices[idx], metric_pt) <= SNAP * SNAP
                         {
                             best = Some(idx);
                         }
@@ -4492,6 +4520,7 @@ pub fn paint_bucket_planar_face(
         } else {
             let idx = vertices.len();
             vertices.push(pt);
+            metric_vertices.push(metric_pt);
             vertex_grid.entry((gx, gy)).or_default().push(idx);
             idx
         }
@@ -5336,7 +5365,50 @@ pub fn erase_merge_geometry_with_sweep(
     radius: f64,
     tolerance: f64,
 ) -> Result<bool, GeometryError> {
-    let cutter_rings = eraser_cutter_rings(eraser_points, radius, tolerance)?;
+    erase_merge_geometry_with_metric(
+        elements,
+        eraser_points,
+        [1., 0., 0., 1., 0., 0.],
+        radius,
+        tolerance,
+    )
+}
+
+/// Cut raw Merge geometry with a round eraser measured after `local_to_metric`, retaining the
+/// result in authored coordinates. A circular screen brush becomes its inverse affine
+/// ellipse/capsule under edit-in-place instead of an over-large local circle.
+pub fn erase_merge_geometry_with_metric(
+    elements: &mut Vec<Element>,
+    eraser_points: &[[f64; 2]],
+    local_to_metric: [f64; 6],
+    radius: f64,
+    tolerance: f64,
+) -> Result<bool, GeometryError> {
+    if local_to_metric.iter().any(|value| !value.is_finite()) {
+        return Err(invalid_merge_geometry(
+            "eraser metric must be finite and invertible",
+        ));
+    }
+    let metric_to_local = invert_affine_matrix(local_to_metric)
+        .ok_or_else(|| invalid_merge_geometry("eraser metric must be finite and invertible"))?;
+    let metric_points: Vec<_> = eraser_points
+        .iter()
+        .map(|point| transform_point(local_to_metric, point[0], point[1]))
+        .collect();
+    let mut cutter_rings = eraser_cutter_rings(&metric_points, radius, tolerance)?;
+    for point in cutter_rings.iter_mut().flatten() {
+        *point = transform_point(metric_to_local, point[0], point[1]);
+    }
+    if cutter_rings
+        .iter()
+        .flatten()
+        .flatten()
+        .any(|value| !value.is_finite() || value.abs() > 1e9)
+    {
+        return Err(invalid_merge_geometry(
+            "inverse-mapped eraser sweep exceeds coordinate limits",
+        ));
+    }
     if cutter_rings.is_empty() {
         return Ok(false);
     }
@@ -5354,7 +5426,7 @@ pub fn erase_merge_geometry_with_sweep(
             next_elements.push(existing.clone());
             continue;
         };
-        if !bounds_overlap(existing_bounds, cutter_bounds, radius + SNAP_EPS) {
+        if !bounds_overlap(existing_bounds, cutter_bounds, SNAP_EPS) {
             next_elements.push(existing.clone());
             continue;
         }
@@ -5411,8 +5483,8 @@ pub fn erase_merge_geometry_with_sweep(
 
         let result = erase_path_stroke(
             &commands,
-            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-            eraser_points,
+            local_to_metric,
+            &metric_points,
             radius,
             tolerance,
         )?;
@@ -5628,6 +5700,56 @@ mod tests {
             paint_bucket_planar_face(&lines, [25.0, 25.0], f64::NAN),
             Err(GeometryError::InvalidPath(_))
         ));
+    }
+
+    #[test]
+    fn planar_bucket_measures_gap_close_in_the_supplied_affine_metric() {
+        let almost_closed = vec![
+            line_element("top", 0.0, 0.0, 48.0, 0.0, [0, 0, 0, 255]),
+            line_element("right", 50.0, 0.0, 50.0, 50.0, [0, 0, 0, 255]),
+            line_element("bottom", 50.0, 50.0, 0.0, 50.0, [0, 0, 0, 255]),
+            line_element("left", 0.0, 50.0, 0.0, 0.0, [0, 0, 0, 255]),
+        ];
+        assert!(
+            paint_bucket_planar_face_in_metric(
+                &almost_closed,
+                [25.0, 25.0],
+                [10.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                6.0,
+            )
+            .unwrap()
+            .is_none(),
+            "a 20-pixel visual gap must not close"
+        );
+        assert!(
+            paint_bucket_planar_face_in_metric(
+                &almost_closed,
+                [25.0, 25.0],
+                [0.1, 0.0, 0.0, 1.0, 0.0, 0.0],
+                6.0,
+            )
+            .unwrap()
+            .is_some(),
+            "a compressed 0.2-pixel visual gap should close"
+        );
+
+        let visually_open = vec![
+            line_element("top", 0.0, 0.0, 49.98, 0.0, [0, 0, 0, 255]),
+            line_element("right", 50.0, 0.0, 50.0, 50.0, [0, 0, 0, 255]),
+            line_element("bottom", 50.0, 50.0, 0.0, 50.0, [0, 0, 0, 255]),
+            line_element("left", 0.0, 50.0, 0.0, 0.0, [0, 0, 0, 255]),
+        ];
+        assert!(
+            paint_bucket_planar_face_in_metric(
+                &visually_open,
+                [25.0, 25.0],
+                [1_000.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                6.0,
+            )
+            .unwrap()
+            .is_none(),
+            "the planar vertex snap must not close a 20-pixel visual gap"
+        );
     }
 
     #[test]
@@ -5958,6 +6080,48 @@ mod tests {
                 }
             )
         }));
+    }
+
+    #[test]
+    fn swept_merge_eraser_keeps_a_round_radius_in_an_affine_metric() {
+        let mut elements = vec![rect_element(
+            "metric-fill",
+            0.0,
+            0.0,
+            100.0,
+            100.0,
+            [70, 120, 200, 255],
+            [0; 4],
+            0.0,
+        )];
+        assert!(
+            erase_merge_geometry_with_metric(
+                &mut elements,
+                &[[50.0, 50.0]],
+                [100.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                10.0,
+                0.2,
+            )
+            .expect("valid affine-metric erase")
+        );
+        assert!(
+            elements
+                .iter()
+                .any(|element| fill_contains(element, [50.5, 50.0])),
+            "50 screen pixels along stretched X must remain"
+        );
+        assert!(
+            !elements
+                .iter()
+                .any(|element| fill_contains(element, [50.05, 50.0])),
+            "five screen pixels along stretched X must erase"
+        );
+        assert!(
+            !elements
+                .iter()
+                .any(|element| fill_contains(element, [50.0, 59.0])),
+            "nine screen pixels along Y must erase"
+        );
     }
 
     #[test]

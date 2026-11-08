@@ -4,7 +4,7 @@ use neoflash_core::{
     AuthoredDraw, AuthoredPlayback, AuthoredScene, ElementKind, Id, Project, SoundCommand,
     evaluate_scene, evaluate_scene_with_buttons, path_commands_fingerprint,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) struct AuthoringPreview {
@@ -108,6 +108,23 @@ impl Editor {
             self.authored_scene_from_preview(self.valid_authored_preview(), show_masking);
         prepare_stage_path_fingerprints(&mut scene);
         scene
+    }
+
+    /// Frame currently presented for one top-level instance in the active
+    /// authoring preview. A paused independent MovieClip can differ from the
+    /// static frame derived from its parent's playhead.
+    pub(crate) fn presented_instance_frame(&self, element: &Id) -> Option<u32> {
+        self.valid_authored_preview()?
+            .playback
+            .clip_frame(std::slice::from_ref(element))
+    }
+
+    /// Frames of the whole paused preview tree, relative to the active symbol.
+    /// An empty map means static authored evaluation is sufficient.
+    pub(crate) fn presented_clip_frames(&self) -> HashMap<Vec<Id>, u32> {
+        self.valid_authored_preview()
+            .map(|preview| preview.playback.clip_frames())
+            .unwrap_or_default()
     }
 
     /// When `Edit multiple frames` is active, merge placements that exist only on other keyframes

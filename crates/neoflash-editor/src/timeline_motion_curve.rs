@@ -1,5 +1,5 @@
 //! Editable Bézier motion paths. Geometry is document data; pointer drafts are session state.
-use crate::app::Editor;
+use crate::{app::Editor, stage_mapping::StageMapping};
 use eframe::egui::{self, Pos2, Rect};
 use neoflash_core::*;
 use neoflash_ui::components::canvas::{self as cv, MotionHandleState};
@@ -17,6 +17,8 @@ pub(crate) struct CurveDrag {
     target: CurveTarget,
     press: [f64; 2],
     path: Vec<PathCommand>,
+    /// Mapping captured by the stage pointer phase; direct command tests leave it unset.
+    mapping: Option<StageMapping>,
     began: bool,
 }
 #[derive(Clone)]
@@ -506,16 +508,24 @@ impl Editor {
         }
         result
     }
-    pub(crate) fn paint_motion_handles(&self, painter: &egui::Painter, origin: Pos2) {
+    pub(crate) fn paint_motion_handles(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
         let Some(curve) = self.editable_motion_curve() else {
             return;
         };
         let screen = |p: [f64; 2]| {
-            origin
-                + egui::vec2(
+            mapping.edit_to_screen(
+                origin,
+                self.zoom,
+                Pos2::new(
                     (p[0] + curve.offset[0]) as f32,
                     (p[1] + curve.offset[1]) as f32,
-                ) * self.zoom
+                ),
+            )
         };
         for (target, anchor, at) in self.shown_handles(&curve) {
             let state = if self
@@ -553,6 +563,7 @@ impl Editor {
             target,
             press,
             path: curve.path,
+            mapping: None,
             began: false,
         });
         true
@@ -694,8 +705,23 @@ impl Editor {
             }
         });
     }
-    pub(crate) fn motion_curve_input(&mut self, ui: &egui::Ui, canvas: Rect, origin: Pos2) {
+    pub(crate) fn motion_curve_input(
+        &mut self,
+        ui: &egui::Ui,
+        canvas: Rect,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
         self.timeline_motion.curve_hover = None;
+        if self
+            .timeline_motion
+            .curve_drag
+            .as_ref()
+            .and_then(|drag| drag.mapping)
+            .is_some_and(|captured| captured != mapping)
+        {
+            self.cancel_motion_drags();
+        }
         if !self.motion_paths_interactive() {
             if self.timeline_motion.curve_drag.is_some() {
                 self.cancel_motion_drags();
@@ -710,17 +736,18 @@ impl Editor {
         };
         let zoom = self.zoom;
         let screen = |p: [f64; 2]| {
-            origin
-                + egui::vec2(
+            mapping.edit_to_screen(
+                origin,
+                zoom,
+                Pos2::new(
                     (p[0] + curve.offset[0]) as f32,
                     (p[1] + curve.offset[1]) as f32,
-                ) * zoom
+                ),
+            )
         };
         let local = |p: Pos2| {
-            [
-                ((p.x - origin.x) / zoom) as f64,
-                ((p.y - origin.y) / zoom) as f64,
-            ]
+            let point = mapping.screen_to_edit(origin, zoom, p);
+            [f64::from(point.x), f64::from(point.y)]
         };
         let handles = self.shown_handles(&curve);
         let anchor_hit = |pos: Pos2| {
@@ -748,7 +775,7 @@ impl Editor {
                                     let at = local(pos);
                                     let at = [at[0] - curve.offset[0], at[1] - curve.offset[1]];
                                     let near = path.point_at(path.nearest(at));
-                                    (near[0] - at[0]).hypot(near[1] - at[1]) * zoom as f64 <= 4.5
+                                    screen(near).distance(pos) <= 4.5
                                 })
                         })
                         .map(CurveTarget::Segment)
@@ -778,6 +805,7 @@ impl Editor {
                     } else if let Some(target) = hit(pos)
                         && self.begin_motion_curve_drag(target, local(pos))
                     {
+                        self.timeline_motion.curve_drag.as_mut().unwrap().mapping = Some(mapping);
                         taken = Some(pos);
                     } else if let Some(index) = anchor_hit(pos) {
                         self.timeline_motion.curve_selected = Some(index);

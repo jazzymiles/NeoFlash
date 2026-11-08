@@ -13,6 +13,39 @@ fn commands(editor: &Editor) -> Vec<PathCommand> {
     commands.clone()
 }
 
+#[test]
+fn transformed_path_hit_uses_the_composed_screen_mapping() {
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new([0.8, 1.1, -0.6, 1.4, 75., -20.]).unwrap();
+    let element = [1.25, 0.2, 0.1, 0.9, 30., 40.];
+    let commands = vec![
+        PathCommand::MoveTo { x: 0., y: 0. },
+        PathCommand::LineTo { x: 100., y: 0. },
+    ];
+    let origin = egui::pos2(120., 80.);
+    let zoom = 1.7;
+    let on_line = mapping.edit_to_screen(
+        origin,
+        zoom,
+        crate::stage::affine(element, egui::pos2(50., 0.)),
+    );
+    assert!(
+        crate::vector::path_segment_hit_local(&commands, element, mapping, origin, zoom, on_line,)
+            .is_some()
+    );
+    assert!(
+        crate::vector::path_segment_hit_local(
+            &commands,
+            element,
+            mapping,
+            origin,
+            zoom,
+            on_line + egui::vec2(30., 30.),
+        )
+        .is_none()
+    );
+}
+
 fn changed_layout_frame(
     editor: &mut Editor,
     ctx: &egui::Context,

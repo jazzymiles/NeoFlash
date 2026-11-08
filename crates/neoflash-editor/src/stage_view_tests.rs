@@ -435,6 +435,60 @@ fn drawing_and_moving_snap_to_grid_and_guides() {
 }
 
 #[test]
+fn affine_context_keeps_pixel_snap_exact_and_suppresses_axis_only_targets() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.zoom = 1.25;
+    editor.stage_view.prefs.guides_show = true;
+    editor.stage_view.prefs.guides_snap = true;
+    editor.stage_view.prefs.grid_snap = true;
+    editor.stage_view.prefs.objects_snap = false;
+    editor.stage_view.prefs.pixels_snap = true;
+    editor.add_guide(GuideAxis::Vertical, 10.);
+
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new([2.0, 0.5, -0.25, 1.5, 40.0, -20.0]).unwrap();
+    let snapper = editor
+        .snapper_for(mapping)
+        .expect("pixel snapping remains available in an affine context");
+    assert!(snapper.guides_x.is_empty() && snapper.guides_y.is_empty());
+    assert!(snapper.grid.is_none());
+    assert!(snapper.pixel_tolerance.is_some());
+
+    let origin = Pos2::new(100., 200.);
+    let pointer = mapping.edit_to_screen(origin, editor.zoom, Pos2::new(10.2, 19.8));
+    let snapped = editor.snap_screen(mapping, origin, pointer);
+    let local = mapping.screen_to_edit(origin, editor.zoom, snapped);
+    assert!(
+        (local.x - 10.).abs() < 1e-4,
+        "unexpected local x: {}",
+        local.x
+    );
+    assert!(
+        (local.y - 20.).abs() < 1e-4,
+        "unexpected local y: {}",
+        local.y
+    );
+
+    // A quarter-turn still maps authored axes onto screen axes. Guides and grid remain usable,
+    // with their screen orientation swapped instead of being discarded as oblique geometry.
+    editor.add_guide(GuideAxis::Horizontal, 20.);
+    let quarter_turn =
+        crate::stage_mapping::StageMapping::try_new([0.0, 2.0, -3.0, 0.0, 40.0, -20.0]).unwrap();
+    let snapper = editor
+        .snapper_for(quarter_turn)
+        .expect("axis-swapped mapping keeps guide and grid targets");
+    assert_eq!(snapper.guides_x, vec![10.]);
+    assert_eq!(snapper.guides_y, vec![20.]);
+    assert!(snapper.grid.is_some());
+    let pointer = quarter_turn.edit_to_screen(origin, editor.zoom, Pos2::new(10.2, 19.8));
+    let snapped = editor.snap_screen(quarter_turn, origin, pointer);
+    let local = quarter_turn.screen_to_edit(origin, editor.zoom, snapped);
+    assert!((local.x - 10.).abs() < 1e-4);
+    assert!((local.y - 20.).abs() < 1e-4);
+}
+
+#[test]
 fn view_menu_and_zoom_control_share_the_toggles() {
     use crate::tests::primary_button as press;
     let ctx = egui::Context::default();

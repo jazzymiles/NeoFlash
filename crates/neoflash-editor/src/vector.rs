@@ -1,6 +1,9 @@
 //! Vector geometry rendering and direct authoring. Draft gestures are not document state.
-use crate::app::{Editor, Tool};
 use crate::theme::UiPalette;
+use crate::{
+    app::{Editor, Tool},
+    stage_mapping::StageMapping,
+};
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, Vec2};
 use lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
@@ -538,6 +541,7 @@ pub(crate) struct PathDraft {
     /// several phases and views; an individual pointer drag may not.
     pub pointer_origin: Pos2,
     pub pointer_zoom: f32,
+    pub pointer_mapping: StageMapping,
 }
 fn smooth_pencil_tangents(anchors: &mut [Anchor]) {
     let points: Vec<_> = anchors.iter().map(|a| a.point).collect();
@@ -623,6 +627,7 @@ pub(crate) struct PointDrag {
     pub layer: String,
     pub origin: Pos2,
     pub zoom: f32,
+    pub mapping: StageMapping,
     pub press: Pos2,
     pub began: bool,
     pub changed: bool,
@@ -1141,6 +1146,54 @@ fn map_commands_inverse(commands: &[PathCommand], m: [f64; 6]) -> Option<Vec<Pat
     Some(out)
 }
 
+fn map_commands_forward(commands: &[PathCommand], matrix: [f64; 6]) -> Vec<PathCommand> {
+    let map = |x: f64, y: f64| {
+        (
+            matrix[0] * x + matrix[2] * y + matrix[4],
+            matrix[1] * x + matrix[3] * y + matrix[5],
+        )
+    };
+    commands
+        .iter()
+        .map(|command| match *command {
+            PathCommand::MoveTo { x, y } => {
+                let (x, y) = map(x, y);
+                PathCommand::MoveTo { x, y }
+            }
+            PathCommand::LineTo { x, y } => {
+                let (x, y) = map(x, y);
+                PathCommand::LineTo { x, y }
+            }
+            PathCommand::QuadraticTo { cx, cy, x, y } => {
+                let (cx, cy) = map(cx, cy);
+                let (x, y) = map(x, y);
+                PathCommand::QuadraticTo { cx, cy, x, y }
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                let (cx1, cy1) = map(cx1, cy1);
+                let (cx2, cy2) = map(cx2, cy2);
+                let (x, y) = map(x, y);
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                }
+            }
+            PathCommand::Close => PathCommand::Close,
+        })
+        .collect()
+}
+
 fn set_contour_start(commands: &mut [PathCommand], pt: (f64, f64)) {
     if let Some(PathCommand::MoveTo { x, y }) = commands.first_mut() {
         *x = pt.0;
@@ -1509,7 +1562,11 @@ impl Editor {
             self.message("Cannot finish path: its original layer/frame is no longer editable. Draft cancelled.");
             return;
         };
-        let zoom = draft.pointer_zoom.max(1e-3);
+        // Recognition/smoothing tolerances are screen-point preferences. Under a
+        // non-uniform parent transform, use the largest scale so accepted local
+        // distances never exceed the requested screen tolerance.
+        let zoom =
+            (draft.pointer_zoom as f64 * draft.pointer_mapping.scale_bounds().1).max(1e-3) as f32;
         let mut drawing = self.workspace.drawing.clone();
         if draft.pencil {
             use crate::{tool_preferences::PencilMode, workspace::Tolerance};
@@ -1612,22 +1669,6 @@ impl Editor {
             return;
         }
 
-        let restore = (draft.symbol != self.symbol_id()
-            || draft.frame != self.frame
-            || target_layer != self.layer)
-            .then(|| {
-                (
-                    self.editing.clone(),
-                    self.frame,
-                    self.layer,
-                    self.selection.clone(),
-                )
-            });
-        if restore.is_some() {
-            self.editing = vec![draft.symbol.clone()];
-            self.frame = draft.frame;
-            self.layer = target_layer;
-        }
         if let Some(shape) = recognised_shape {
             let (kind, x, y, msg) = match shape {
                 RecognisedShape::Rectangle {
@@ -1665,95 +1706,108 @@ impl Editor {
                     "Oval recognised.",
                 ),
             };
-            self.add_element(kind, x, y);
-            if let Some((editing, frame, layer, selected)) = restore {
-                self.editing = editing;
-                self.frame = frame;
-                self.layer = layer;
-                self.selection = selected;
+            if draft.symbol == self.symbol_id()
+                && draft.frame == self.frame
+                && target_layer == self.layer
+            {
+                self.add_element(kind, x, y);
+            } else {
+                self.with_temporary_symbol_target(
+                    draft.symbol.clone(),
+                    draft.frame,
+                    target_layer,
+                    |editor| editor.add_element(kind, x, y),
+                );
             }
             self.message(msg);
             return;
         }
 
-        // 4. Preferences ▸ Drawing ▸ Connect lines (snap / join open path endpoints on same layer).
-        let mut joined = None;
-        if !effective_closed && let Some(tol) = connect_tol {
-            let start_pt = draft.anchors[0].point;
-            let end_pt = draft.anchors[draft.anchors.len() - 1].point;
-            let start_match = self.find_nearest_open_endpoint(start_pt, tol);
-            let end_match = self.find_nearest_open_endpoint(end_pt, tol).filter(|e| {
-                start_match
-                    .as_ref()
-                    .is_none_or(|s| s.element_id != e.element_id || s.side != e.side)
-            });
-            if let Some(ref s) = start_match
-                && (draft.anchors.len() > 2 || s.world_point.distance(end_pt) > 1e-3)
-            {
-                draft.anchors[0].point = s.world_point;
-            }
-            if let Some(ref e) = end_match {
-                let current_start = draft.anchors[0].point;
-                if (draft.anchors.len() > 2 || e.world_point.distance(current_start) > 1e-3)
-                    && let Some(last) = draft.anchors.last_mut()
+        let draft_symbol = draft.symbol.clone();
+        let draft_frame = draft.frame;
+        let live_target = draft_symbol == self.symbol_id()
+            && draft_frame == self.frame
+            && target_layer == self.layer;
+        let mut finish = |editor: &mut Editor| {
+            // 4. Preferences ▸ Drawing ▸ Connect lines (snap / join open path endpoints on
+            // the original layer even if the playhead or edit session has since moved).
+            let mut joined = None;
+            if !effective_closed && let Some(tol) = connect_tol {
+                let start_pt = draft.anchors[0].point;
+                let end_pt = draft.anchors[draft.anchors.len() - 1].point;
+                let start_match = editor.find_nearest_open_endpoint(start_pt, tol);
+                let end_match = editor.find_nearest_open_endpoint(end_pt, tol).filter(|e| {
+                    start_match
+                        .as_ref()
+                        .is_none_or(|s| s.element_id != e.element_id || s.side != e.side)
+                });
+                if let Some(ref s) = start_match
+                    && (draft.anchors.len() > 2 || s.world_point.distance(end_pt) > 1e-3)
                 {
-                    last.point = e.world_point;
+                    draft.anchors[0].point = s.world_point;
                 }
-            }
-            if drawing.object_drawing {
-                let world_cmds = draft.commands(false);
-                joined = self.build_joined_open_path(
-                    &world_cmds,
-                    start_match.as_ref(),
-                    end_match.as_ref(),
-                );
-            }
-        }
-
-        let final_closed = if let Some((target_id, merged_commands, closed_loop)) = joined {
-            let join_fill = self.fill;
-            self.transact_named("Path", |s| {
-                s.ensure_key(false);
-                let layer = s.layer;
-                let frame = s.frame;
-                if let Some(el) = s.symbol_mut().timeline.layers[layer]
-                    .key_at_mut(frame)
-                    .and_then(|k| k.elements.iter_mut().find(|e| e.id == target_id))
-                    && let ElementKind::Path { commands, fill, .. } = &mut el.kind
-                {
-                    *commands = merged_commands.clone();
-                    if closed_loop {
-                        *fill = join_fill;
+                if let Some(ref e) = end_match {
+                    let current_start = draft.anchors[0].point;
+                    if (draft.anchors.len() > 2 || e.world_point.distance(current_start) > 1e-3)
+                        && let Some(last) = draft.anchors.last_mut()
+                    {
+                        last.point = e.world_point;
                     }
                 }
-                s.select_single_id(target_id.clone());
-            });
-            closed_loop
-        } else {
-            let commands = draft.commands(effective_closed);
-            self.add_element(
-                ElementKind::Path {
-                    commands,
-                    fill_rule: FillRule::NonZero,
-                    fill: if effective_closed {
-                        self.fill
-                    } else {
-                        [0, 0, 0, 0]
+                if drawing.object_drawing {
+                    let world_cmds = draft.commands(false);
+                    joined = editor.build_joined_open_path(
+                        &world_cmds,
+                        start_match.as_ref(),
+                        end_match.as_ref(),
+                    );
+                }
+            }
+
+            if let Some((target_id, merged_commands, closed_loop)) = joined {
+                let join_fill = editor.fill;
+                editor.transact_named("Path", |s| {
+                    s.ensure_key(false);
+                    let layer = s.layer;
+                    let frame = s.frame;
+                    if let Some(el) = s.symbol_mut().timeline.layers[layer]
+                        .key_at_mut(frame)
+                        .and_then(|k| k.elements.iter_mut().find(|e| e.id == target_id))
+                        && let ElementKind::Path { commands, fill, .. } = &mut el.kind
+                    {
+                        *commands = merged_commands.clone();
+                        if closed_loop {
+                            *fill = join_fill;
+                        }
+                    }
+                    s.select_single_id(target_id.clone());
+                });
+                closed_loop
+            } else {
+                let commands = draft.commands(effective_closed);
+                editor.add_element(
+                    ElementKind::Path {
+                        commands,
+                        fill_rule: FillRule::NonZero,
+                        fill: if effective_closed {
+                            editor.fill
+                        } else {
+                            [0, 0, 0, 0]
+                        },
+                        stroke: editor.stroke,
+                        stroke_width: editor.stroke_width,
                     },
-                    stroke: self.stroke,
-                    stroke_width: self.stroke_width,
-                },
-                0.,
-                0.,
-            );
-            effective_closed
+                    0.,
+                    0.,
+                );
+                effective_closed
+            }
         };
-        if let Some((editing, frame, layer, selected)) = restore {
-            self.editing = editing;
-            self.frame = frame;
-            self.layer = layer;
-            self.selection = selected;
-        }
+        let final_closed = if live_target {
+            finish(self)
+        } else {
+            self.with_temporary_symbol_target(draft_symbol, draft_frame, target_layer, finish)
+        };
         self.message(if final_closed {
             "Closed vector path created."
         } else {
@@ -1766,20 +1820,26 @@ impl Editor {
         ui: &egui::Ui,
         p: &egui::Painter,
         origin: Pos2,
+        mapping: StageMapping,
         _page: Rect,
         response: &egui::Response,
     ) {
         let zoom = self.zoom;
-        let local = |pos: Pos2| Pos2::ZERO + (pos - origin) / zoom;
-        let screen = |pos: Pos2| origin + pos.to_vec2() * zoom;
+        let local = |pos: Pos2| mapping.screen_to_edit(origin, zoom, pos);
+        let screen = |pos: Pos2| mapping.edit_to_screen(origin, zoom, pos);
         if self.vector.point_drag.as_ref().is_some_and(|d| {
-            !self.point_drag_matches(d) || d.origin != origin || d.zoom != self.zoom
+            !self.point_drag_matches(d)
+                || d.origin != origin
+                || d.zoom != self.zoom
+                || d.mapping != mapping
         }) {
             self.cancel_vector();
         }
         if self.vector.draft.as_ref().is_some_and(|draft| {
             (draft.dragging || draft.closing)
-                && (draft.pointer_origin != origin || draft.pointer_zoom != zoom)
+                && (draft.pointer_origin != origin
+                    || draft.pointer_zoom != zoom
+                    || draft.pointer_mapping != mapping)
         }) {
             self.end_vector_pointer_phase();
         }
@@ -1805,7 +1865,9 @@ impl Editor {
             && self.vector.draft.is_none()
             && self.layer_editable()
             && let Some(hover_pos) = canvas_hover
-            && self.pen_subdivide_candidate(origin, hover_pos).is_some()
+            && self
+                .pen_subdivide_candidate(origin, mapping, hover_pos)
+                .is_some()
         {
             self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
         }
@@ -1826,13 +1888,13 @@ impl Editor {
                         self.playing = false;
                         if self.tool == Tool::Pen
                             && self.vector.draft.is_none()
-                            && self.try_pen_subdivide(origin, pos)
+                            && self.try_pen_subdivide(origin, mapping, pos)
                         {
                             continue;
                         }
                         // Pen anchors snap to guides and grid (ST-04); pencil strokes are freehand.
                         let position = if self.tool == Tool::Pen {
-                            local(self.snap_screen(origin, pos))
+                            local(self.snap_screen(mapping, origin, pos))
                         } else {
                             local(pos)
                         };
@@ -1874,9 +1936,11 @@ impl Editor {
                             layer_id,
                             pointer_origin: origin,
                             pointer_zoom: zoom,
+                            pointer_mapping: mapping,
                         });
                         draft.pointer_origin = origin;
                         draft.pointer_zoom = zoom;
+                        draft.pointer_mapping = mapping;
                         draft.anchors.push(Anchor {
                             point: position,
                             tangent: Vec2::ZERO,
@@ -1895,7 +1959,7 @@ impl Editor {
                                     && draft
                                         .anchors
                                         .last()
-                                        .is_some_and(|a| a.point.distance(local(pos)) * zoom >= 1.5)
+                                        .is_some_and(|a| screen(a.point).distance(pos) >= 1.5)
                                 {
                                     draft.anchors.push(Anchor {
                                         point: local(pos),
@@ -1947,7 +2011,7 @@ impl Editor {
             }
         }
         if self.tool == Tool::Subselect {
-            self.edit_path_points(ui, p, origin, response);
+            self.edit_path_points(ui, p, origin, mapping, response);
         }
         if let Some(draft) = &self.vector.draft {
             let blue = UiPalette::current(p.ctx()).overlay;
@@ -1958,7 +2022,7 @@ impl Editor {
                     rule: FillRule::NonZero,
                     fill: Color32::TRANSPARENT,
                     stroke: blue,
-                    width: 1.5 / zoom as f64,
+                    width: 1.5 / (zoom as f64 * mapping.scale_bounds().1.max(1e-6)),
                     tolerance: 0.2,
                     fingerprint: None,
                 },
@@ -2015,6 +2079,7 @@ impl Editor {
         ui: &egui::Ui,
         p: &egui::Painter,
         origin: Pos2,
+        mapping: StageMapping,
         response: &egui::Response,
     ) {
         let Some(element) = self.selected_sampled() else {
@@ -2027,7 +2092,8 @@ impl Editor {
         };
         let matrix = transform_matrix(element.transform);
         let zoom = self.zoom;
-        let screen = |pos: Pos2| origin + crate::stage::affine(matrix, pos).to_vec2() * zoom;
+        let screen =
+            |pos: Pos2| mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pos));
         let handles = handles(commands);
         // `NF2/Bezier Handle` from each anchor to its control points, then `NF2/Anchor Point`s.
         let mut previous = Pos2::ZERO;
@@ -2096,7 +2162,7 @@ impl Editor {
             self.stage_cursor = Some(neoflash_ui::cursors::SUBSELECT_POINT);
         } else if alt_hover
             && let Some(hover_pos) = hover
-            && path_segment_hit_local(commands, matrix, origin, zoom, hover_pos).is_some()
+            && path_segment_hit_local(commands, matrix, mapping, origin, zoom, hover_pos).is_some()
         {
             self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
         }
@@ -2150,6 +2216,7 @@ impl Editor {
                             layer: self.selection.single().unwrap().layer.clone(),
                             origin,
                             zoom,
+                            mapping,
                             press: pos,
                             began: false,
                             changed: false,
@@ -2157,7 +2224,7 @@ impl Editor {
                         });
                     } else if (modifiers.alt || double_clicked)
                         && let Some((cmd_idx, t)) =
-                            path_segment_hit_local(commands, matrix, origin, zoom, pos)
+                            path_segment_hit_local(commands, matrix, mapping, origin, zoom, pos)
                         && let Some((new_commands, inserted)) =
                             subdivide_path_at(commands, cmd_idx, t)
                         && validate_path_commands(&new_commands).is_ok()
@@ -2187,25 +2254,29 @@ impl Editor {
                         return;
                     }
                 }
-                egui::Event::PointerMoved(pos) => self.update_path_drag(pos, origin),
+                egui::Event::PointerMoved(pos) => self.update_path_drag(pos, origin, mapping),
                 egui::Event::PointerButton {
                     pos,
                     button: egui::PointerButton::Primary,
                     pressed: false,
                     ..
                 } => {
-                    self.update_path_drag(pos, origin);
+                    self.update_path_drag(pos, origin, mapping);
                     self.finish_point_drag();
                 }
                 _ => {}
             }
         }
     }
-    fn update_path_drag(&mut self, pos: Pos2, origin: Pos2) {
+    fn update_path_drag(&mut self, pos: Pos2, origin: Pos2, mapping: StageMapping) {
         let Some(mut drag) = self.vector.point_drag.take() else {
             return;
         };
-        if !self.point_drag_matches(&drag) || drag.origin != origin || drag.zoom != self.zoom {
+        if !self.point_drag_matches(&drag)
+            || drag.origin != origin
+            || drag.zoom != self.zoom
+            || drag.mapping != mapping
+        {
             if drag.began {
                 self.history.cancel(&mut self.project);
             }
@@ -2217,9 +2288,12 @@ impl Editor {
         }
         // The dragged anchor or control point snaps to guides and grid (ST-04).
         let anchor = crate::stage::affine(drag.inverse, drag.handle.point);
-        let pos = self.snap_drag(drag.origin, drag.press, pos, anchor);
+        let pos = self.snap_drag(drag.mapping, drag.origin, drag.press, pos, anchor);
         let local = |point| {
-            crate::stage::inverse(drag.inverse, Pos2::ZERO + (point - drag.origin) / drag.zoom)
+            crate::stage::inverse(
+                drag.inverse,
+                drag.mapping.screen_to_edit(drag.origin, drag.zoom, point),
+            )
         };
         let (Some(current), Some(press)) = (local(pos), local(drag.press)) else {
             self.vector.point_drag = Some(drag);
@@ -2291,7 +2365,12 @@ impl Editor {
         }
     }
 
-    pub(crate) fn on_selected_path_segment(&self, origin: Pos2, pos: Pos2) -> bool {
+    pub(crate) fn on_selected_path_segment(
+        &self,
+        origin: Pos2,
+        mapping: StageMapping,
+        pos: Pos2,
+    ) -> bool {
         if !self.selected_editable() {
             return false;
         }
@@ -2305,19 +2384,21 @@ impl Editor {
         };
         let matrix = transform_matrix(element.transform);
         let zoom = self.zoom;
-        let screen = |pt: Pos2| origin + crate::stage::affine(matrix, pt).to_vec2() * zoom;
+        let screen =
+            |pt: Pos2| mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pt));
         if handles(commands)
             .iter()
             .any(|h| screen(h.point).distance(pos) < 8.)
         {
             return false;
         }
-        path_segment_hit_local(commands, matrix, origin, zoom, pos).is_some()
+        path_segment_hit_local(commands, matrix, mapping, origin, zoom, pos).is_some()
     }
 
     pub(crate) fn pen_subdivide_candidate(
         &self,
         origin: Pos2,
+        mapping: StageMapping,
         pos: Pos2,
     ) -> Option<(crate::selection::SelectionTarget, Vec<PathCommand>, usize)> {
         let zoom = self.zoom;
@@ -2331,14 +2412,17 @@ impl Editor {
                     return None;
                 };
                 let matrix = transform_matrix(element.transform);
-                let screen = |pt: Pos2| origin + crate::stage::affine(matrix, pt).to_vec2() * zoom;
+                let screen = |pt: Pos2| {
+                    mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pt))
+                };
                 if handles(commands)
                     .iter()
                     .any(|h| h.role == PointRole::Anchor && screen(h.point).distance(pos) < 8.)
                 {
                     return None;
                 }
-                let (cmd_idx, t) = path_segment_hit_local(commands, matrix, origin, zoom, pos)?;
+                let (cmd_idx, t) =
+                    path_segment_hit_local(commands, matrix, mapping, origin, zoom, pos)?;
                 let (new_commands, inserted) = subdivide_path_at(commands, cmd_idx, t)?;
                 validate_path_commands(&new_commands).ok()?;
                 Some((target, new_commands, inserted))
@@ -2376,8 +2460,14 @@ impl Editor {
         None
     }
 
-    pub(crate) fn try_pen_subdivide(&mut self, origin: Pos2, pos: Pos2) -> bool {
-        let Some((target, new_commands, inserted)) = self.pen_subdivide_candidate(origin, pos)
+    pub(crate) fn try_pen_subdivide(
+        &mut self,
+        origin: Pos2,
+        mapping: StageMapping,
+        pos: Pos2,
+    ) -> bool {
+        let Some((target, new_commands, inserted)) =
+            self.pen_subdivide_candidate(origin, mapping, pos)
         else {
             return false;
         };
@@ -2478,22 +2568,22 @@ impl Editor {
     }
 }
 
-fn path_segment_hit_local(
+pub(crate) fn path_segment_hit_local(
     commands: &[PathCommand],
     matrix: [f64; 6],
+    mapping: StageMapping,
     origin: Pos2,
     zoom: f32,
     pos: Pos2,
 ) -> Option<(usize, f64)> {
     let stage_pt = Pos2::ZERO + (pos - origin) / zoom.max(1e-3);
-    let local = crate::stage::inverse(matrix, stage_pt)?;
-    let scale = matrix[0]
-        .hypot(matrix[1])
-        .max(matrix[2].hypot(matrix[3]))
-        .max(1e-3);
-    let tolerance = 7.0 / (scale * f64::from(zoom.max(1e-3)));
-    let (cmd_idx, t, _closest, dist) =
-        nearest_path_segment(commands, [f64::from(local.x), f64::from(local.y)])?;
+    let composite = mapping.map_matrix(matrix);
+    let stage_commands = map_commands_forward(commands, composite);
+    let tolerance = 7.0 / f64::from(zoom.max(1e-3));
+    let (cmd_idx, t, _closest, dist) = nearest_path_segment(
+        &stage_commands,
+        [f64::from(stage_pt.x), f64::from(stage_pt.y)],
+    )?;
     (dist <= tolerance).then_some((cmd_idx, t))
 }
 

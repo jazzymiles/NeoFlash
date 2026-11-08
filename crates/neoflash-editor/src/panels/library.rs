@@ -796,7 +796,9 @@ impl Editor {
                     self.library_selected = Some(id);
                     self.library_panel.selected_folder = folder;
                 }
-                Action::EditSymbol(id) => self.enter_symbol(id),
+                Action::EditSymbol(id) => {
+                    self.enter_symbol_isolated(id);
+                }
                 Action::RenameSymbol(id) => self.start_library_edit(EditTarget::Symbol(id), ""),
                 Action::DuplicateSymbol(id) => {
                     self.duplicate_symbol(&id);
@@ -905,7 +907,7 @@ impl Editor {
                 self.message(error);
             }
             if ui.add(nf::MenuItem::new("Edit symbol")).clicked() {
-                self.enter_symbol(symbol.id.clone());
+                self.enter_symbol_isolated(symbol.id.clone());
             }
             if ui.add(nf::MenuItem::new("Duplicate symbol")).clicked() {
                 self.duplicate_symbol(&symbol.id);

@@ -2,11 +2,120 @@
 mod alpha_masks;
 
 use crate::app::{Editor, Tool};
+use crate::stage_mapping::StageMapping;
+use crate::symbol_edit::SymbolEditEntry;
 use crate::theme::UiPalette;
 use eframe::egui::{
     self, Color32, FontFamily, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2,
 };
 use neoflash_core::*;
+use serde::Deserialize;
+use std::collections::HashSet;
+
+#[derive(Clone, Default)]
+struct SymbolContextClips {
+    ids: Vec<String>,
+    clips: Vec<RuntimeClip>,
+}
+
+impl SymbolContextClips {
+    fn attach(&self, scene: &mut AuthoredScene, group_suffix: &str) {
+        if self.ids.is_empty() {
+            return;
+        }
+        for clip in &self.clips {
+            if !scene.clips.iter().any(|existing| existing.id == clip.id) {
+                scene.clips.push(clip.clone());
+            }
+        }
+        for draw in &mut scene.draws {
+            for id in &self.ids {
+                if !draw.clip_ids.contains(id) {
+                    draw.clip_ids.push(id.clone());
+                }
+            }
+        }
+
+        // Alpha/luminance masks must apply after the edited instance has composited its own
+        // children. Wrap existing root groups instead of multiplying mask coverage per draw.
+        if self
+            .clips
+            .iter()
+            .any(|clip| clip.alpha_components.is_some() || clip.invert)
+        {
+            let group_id = format!("@symbol-edit-context:{group_suffix}");
+            for group in &mut scene.mask_groups {
+                if group.parent_id.is_none() {
+                    group.parent_id = Some(group_id.clone());
+                }
+            }
+            for draw in &mut scene.draws {
+                if draw.mask_group.is_none() {
+                    draw.mask_group = Some(group_id.clone());
+                }
+            }
+            scene.mask_groups.push(AuthoredMaskGroup {
+                id: group_id,
+                parent_id: None,
+                clip_ids: self.ids.clone(),
+                blend_mode: BlendMode::Normal,
+            });
+        }
+    }
+
+    fn extend_from_branch(
+        &mut self,
+        scene: &AuthoredScene,
+        placement: &str,
+        branch_ids: impl Iterator<Item = String>,
+    ) {
+        let mut needed: HashSet<String> = branch_ids
+            .filter(|id| !clip_is_inside_placement(id, placement))
+            .collect();
+        loop {
+            let before = needed.len();
+            let mut dependencies = Vec::new();
+            for clip in scene.clips.iter().filter(|clip| needed.contains(&clip.id)) {
+                dependencies.extend(
+                    clip.components
+                        .iter()
+                        .flat_map(|component| component.clip_ids.iter().cloned()),
+                );
+                dependencies.extend(
+                    clip.alpha_components
+                        .iter()
+                        .flatten()
+                        .flat_map(|component| component.clip_ids.iter().cloned()),
+                );
+            }
+            needed.extend(dependencies);
+            if needed.len() == before {
+                break;
+            }
+        }
+        for id in needed {
+            if !self.ids.contains(&id) {
+                self.ids.push(id.clone());
+            }
+            if let Some(clip) = scene.clips.iter().find(|clip| clip.id == id)
+                && !self.clips.iter().any(|existing| existing.id == id)
+            {
+                self.clips.push(clip.clone());
+            }
+        }
+    }
+}
+
+fn clip_is_inside_placement(id: &str, placement: &str) -> bool {
+    let Some(start) = id.find('[') else {
+        return false;
+    };
+    let mut deserializer = serde_json::Deserializer::from_str(&id[start..]);
+    Vec::<Id>::deserialize(&mut deserializer)
+        .ok()
+        .and_then(|path| path.into_iter().next())
+        .is_some_and(|first| first == placement)
+}
 
 pub(crate) fn affine(m: [f64; 6], p: Pos2) -> Pos2 {
     Pos2::new(
@@ -594,45 +703,78 @@ impl Editor {
                         }
                     }
                 }
-                let nested = self.editing.len() > 1;
+                let isolated = self.edit_context_is_isolated();
                 let page = Rect::from_center_size(rect.center() + self.pan, size * self.zoom);
-                let origin = if nested { page.center() } else { page.min };
-                self.stage_view_input(ui, rect, origin);
-                self.shape_hint_input(ui, rect, page, origin);
-                self.motion_curve_input(ui, rect, origin);
-                self.motion_path_input(ui, rect, origin);
-                self.stage_file_drop(ui, rect, origin);
-                self.stage_library_drop(ui, rect, origin);
+                let origin = if isolated { page.center() } else { page.min };
+                let mapping = match self.edit_local_to_context_matrix() {
+                    Ok(matrix) => match StageMapping::try_new(matrix) {
+                        Ok(mapping) => mapping,
+                        Err(error) => {
+                            self.message(format!(
+                                "In-place symbol context became invalid: {error}. Returned to the nearest valid level."
+                            ));
+                            self.normalize_symbol_edit_session();
+                            StageMapping::identity()
+                        }
+                    },
+                    Err(error) => {
+                        self.message(error.message());
+                        self.normalize_symbol_edit_session();
+                        StageMapping::identity()
+                    }
+                };
+                self.stage_view_input(ui, rect, mapping, origin);
+                self.shape_hint_input(ui, rect, page, origin, mapping);
+                self.motion_curve_input(ui, rect, origin, mapping);
+                self.motion_path_input(ui, rect, origin, mapping);
+                self.stage_file_drop(ui, rect, origin, mapping);
+                self.stage_library_drop(ui, rect, origin, mapping);
                 let visible_page = page.intersect(rect);
                 let center = if visible_page.is_positive() {
                     visible_page.center()
                 } else {
                     page.center()
                 };
+                let paste_center = mapping.screen_to_edit(origin, self.zoom, center);
                 self.remember_paste_view([
-                    (center.x - origin.x) as f64 / self.zoom as f64,
-                    (center.y - origin.y) as f64 / self.zoom as f64,
+                    f64::from(paste_center.x),
+                    f64::from(paste_center.y),
                 ]);
                 let p = ui.painter_at(rect);
                 p.rect_filled(page.translate(Vec2::new(3., 4.)), 0, palette.stage_shadow);
                 p.rect_filled(page, 0, color(self.project.background, 1., None));
                 if !self.stage_view.prefs.grid_over_objects {
-                    self.paint_stage_grid(&p, page, origin);
+                    self.paint_stage_grid(&p, page, mapping, origin);
                 }
                 let content = p.with_clip_rect(rect);
-                if nested {
+                if self.edit_depth() > 1 {
+                    let registration = mapping.edit_to_screen(origin, self.zoom, Pos2::ZERO);
                     content.line_segment(
-                        [origin - Vec2::new(8., 0.), origin + Vec2::new(8., 0.)],
+                        [
+                            registration - Vec2::new(8., 0.),
+                            registration + Vec2::new(8., 0.),
+                        ],
                         Stroke::new(1.0_f32, palette.origin_cross),
                     );
                     content.line_segment(
-                        [origin - Vec2::new(0., 8.), origin + Vec2::new(0., 8.)],
+                        [
+                            registration - Vec2::new(0., 8.),
+                            registration + Vec2::new(0., 8.),
+                        ],
                         Stroke::new(1.0_f32, palette.origin_cross),
                     );
                 }
                 let id = self.symbol_id().to_owned();
-                let simple_button_consumed = self.update_simple_buttons_stage(ui, &p, rect, origin);
+                let simple_button_consumed =
+                    self.update_simple_buttons_stage(ui, &p, rect, mapping, origin);
                 let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
+                let symbol_context_clips = self.paint_symbol_edit_context(
+                    &content,
+                    origin,
+                    self.show_layer_masking(ctx),
+                );
+                let mut displayed_scene = mapping.map_scene(&authored_scene);
+                symbol_context_clips.attach(&mut displayed_scene, "active");
                 // Edit multiple frames shows every keyframe in the onion range opaque.
                 let multiple = self.timeline_edit.edit_multiple;
                 if self.onion || multiple {
@@ -679,7 +821,7 @@ impl Editor {
                     if outlines {
                         self.paint_authored_scene(
                             &content,
-                            &authored_scene,
+                            &displayed_scene,
                             DrawStyle {
                                 origin,
                                 zoom: self.zoom,
@@ -690,11 +832,12 @@ impl Editor {
                             },
                         );
                     } else if backdrop_len > 0 {
-                        let backdrop_scene = AuthoredScene {
+                        let mut backdrop_scene = mapping.map_scene(&AuthoredScene {
                             draws: authored_scene.draws[..backdrop_len].to_vec(),
                             clips: authored_scene.clips.clone(),
                             mask_groups: authored_scene.mask_groups.clone(),
-                        };
+                        });
+                        symbol_context_clips.attach(&mut backdrop_scene, "onion-backdrop");
                         self.paint_authored_scene(
                             &content,
                             &backdrop_scene,
@@ -733,6 +876,8 @@ impl Editor {
                         } else {
                             Some(palette.onion_after)
                         };
+                        let mut ghost = mapping.map_scene(&ghost);
+                        symbol_context_clips.attach(&mut ghost, &format!("onion-{frame}"));
                         self.paint_authored_scene(
                             &content,
                             &ghost,
@@ -756,6 +901,8 @@ impl Editor {
                         } else {
                             authored_scene.clone()
                         };
+                        let mut fg_scene = mapping.map_scene(&fg_scene);
+                        symbol_context_clips.attach(&mut fg_scene, "onion-foreground");
                         self.paint_authored_scene(
                             &content,
                             &fg_scene,
@@ -772,7 +919,7 @@ impl Editor {
                 } else {
                     self.paint_authored_scene(
                         &content,
-                        &authored_scene,
+                        &displayed_scene,
                         DrawStyle {
                             origin,
                             zoom: self.zoom,
@@ -794,7 +941,7 @@ impl Editor {
                     self.message(warning);
                 }
                 if self.stage_view.prefs.grid_over_objects {
-                    self.paint_stage_grid(&p, page, origin);
+                    self.paint_stage_grid(&p, page, mapping, origin);
                 }
                 p.rect_stroke(
                     page,
@@ -802,20 +949,20 @@ impl Editor {
                     Stroke::new(1.0_f32, palette.stage_border),
                     StrokeKind::Outside,
                 );
-                self.paint_motion_path(&p, origin);
-                self.paint_shape_hints(&p, origin);
-                self.paint_stage_guides(&p, rect, origin);
+                self.paint_motion_path(&p, origin, mapping);
+                self.paint_shape_hints(&p, origin, mapping);
+                self.paint_stage_guides(&p, rect, mapping, origin);
                 if !simple_button_consumed {
                     let extended_tool =
-                        self.authoring_tool_stage(ui, &p, origin, page, rect, &scene);
+                        self.authoring_tool_stage(ui, &p, origin, mapping, rect, &scene);
                     if self.tool == Tool::Lasso {
                         // Lasso owns its input, but its completed selection still needs the
                         // shared selection chrome. This path paints only for non-arrow tools.
-                        self.selection_stage(ui, &p, origin, rect, &scene, &response);
+                        self.selection_stage(ui, &p, mapping, origin, &scene, &response);
                     }
                     if !extended_tool {
                         let zoom = self.zoom;
-                        let to_local = |pos: Pos2| (pos - origin) / zoom;
+                        let to_local = |pos: Pos2| mapping.screen_to_edit(origin, zoom, pos);
                         let on_path_handle = self.tool == Tool::Subselect
                             && (self.selected_sampled().is_some_and(|e| {
                                 if let ElementKind::Path { commands, .. }
@@ -824,7 +971,12 @@ impl Editor {
                                     let matrix = transform_matrix(e.transform);
                                     response.interact_pointer_pos().is_some_and(|pos| {
                                         crate::vector::handles(commands).iter().any(|h| {
-                                            (origin + affine(matrix, h.point).to_vec2() * zoom)
+                                            mapping
+                                                .edit_to_screen(
+                                                    origin,
+                                                    zoom,
+                                                    affine(matrix, h.point),
+                                                )
                                                 .distance(pos)
                                                 < 8.
                                         })
@@ -846,7 +998,7 @@ impl Editor {
                                     })
                             }) || response.double_clicked())
                                 && response.interact_pointer_pos().is_some_and(|pos| {
-                                    self.on_selected_path_segment(origin, pos)
+                                    self.on_selected_path_segment(origin, mapping, pos)
                                 })));
                         let clicked = response.clicked() && !self.stage_view.guide_pointer;
                         if clicked
@@ -856,29 +1008,29 @@ impl Editor {
                             && let Some(pos) = response.interact_pointer_pos()
                         {
                             if let Some(target) =
-                                self.pick_placement(&scene, &p, Pos2::ZERO + to_local(pos))
+                                self.pick_placement(&scene, &p, to_local(pos), mapping)
                             {
                                 self.set_selection(vec![target]);
                             } else {
                                 self.clear_selection();
                             }
                         }
-                        self.selection_stage(ui, &p, origin, rect, &scene, &response);
-                        self.shape_stage(ui, &p, origin, page, rect);
+                        self.selection_stage(ui, &p, mapping, origin, &scene, &response);
+                        self.shape_stage(ui, &p, mapping, origin, page, rect);
                         if clicked
                             && self.tool == Tool::Text
                             && let Some(pos) = response.interact_pointer_pos()
                             && rect.contains(pos)
                         {
                             let local = to_local(pos);
-                            self.create_stage_text(ctx, Pos2::ZERO + local, None);
+                            self.create_stage_text(ctx, local, None);
                         }
-                        self.vector_stage(ui, &content, origin, page, &response);
+                        self.vector_stage(ui, &content, origin, mapping, page, &response);
                     }
                 }
                 self.paint_snap_ring(&p);
-                self.stage_context_menu(&response, &scene, &p, origin);
-                self.stage_rulers(ctx, rect, origin);
+                self.stage_context_menu(&response, &scene, &p, mapping, origin);
+                self.stage_rulers(ctx, rect, mapping, origin);
                 if let Some(bar) = edit_bar {
                     self.stage_edit_bar(ui, bar);
                 }
@@ -893,12 +1045,17 @@ impl Editor {
         response: &egui::Response,
         scene: &[DrawItem],
         p: &egui::Painter,
+        mapping: StageMapping,
         origin: Pos2,
     ) {
         if response.secondary_clicked()
             && let Some(pos) = response.interact_pointer_pos()
-            && let Some(target) =
-                self.pick_placement(scene, p, Pos2::ZERO + (pos - origin) / self.zoom)
+            && let Some(target) = self.pick_placement(
+                scene,
+                p,
+                mapping.screen_to_edit(origin, self.zoom, pos),
+                mapping,
+            )
             && !self.selection.targets.contains(&target)
         {
             self.finish_edits();
@@ -945,9 +1102,7 @@ impl Editor {
         }
         let instance = self.selected_instance_symbol();
         if menu_item_enabled(ui, instance.is_some(), "Edit in place", "").clicked() {
-            if let Some(id) = instance.clone() {
-                self.enter_symbol(id);
-            }
+            self.enter_selected_symbol_in_place();
             ui.close();
         }
         Self::unavailable_item(ui, "Edit in new window", "");
@@ -1054,6 +1209,7 @@ impl Editor {
         ui: &egui::Ui,
         painter: &egui::Painter,
         rect: Rect,
+        mapping: StageMapping,
         origin: Pos2,
     ) -> bool {
         if !self.enable_simple_buttons
@@ -1072,7 +1228,7 @@ impl Editor {
         });
         let hit = if over_canvas {
             let pos = pointer_pos.unwrap();
-            let stage_pt = Pos2::ZERO + (pos - origin) / self.zoom.max(0.01);
+            let stage_pt = mapping.screen_to_edit(origin, self.zoom.max(0.01), pos);
             self.hit_test_simple_button(painter, stage_pt)
         } else {
             None
@@ -1122,6 +1278,103 @@ impl Editor {
             )
         });
     }
+    /// Paint the frozen parent timelines behind an active in-place edit. Each parent omits only
+    /// the exact placement being edited, so duplicate instances of the same symbol remain visible.
+    /// These scenes are presentation-only and never enter picking or tool input.
+    fn paint_symbol_edit_context(
+        &mut self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        show_masking: bool,
+    ) -> SymbolContextClips {
+        if !self.editing_in_place() {
+            return SymbolContextClips::default();
+        }
+        let Ok(matrices) = self.resolved_edit_matrices() else {
+            return SymbolContextClips::default();
+        };
+        let start = self.edit_context_start();
+        let parents: Vec<_> = self
+            .edit_session
+            .levels
+            .iter()
+            .enumerate()
+            .skip(start + 1)
+            .filter_map(|(child_index, level)| {
+                let SymbolEditEntry::InPlace {
+                    parent_symbol,
+                    parent_frame,
+                    parent_clip_frames,
+                    target,
+                } = &level.entry
+                else {
+                    return None;
+                };
+                Some((
+                    child_index - 1,
+                    parent_symbol.clone(),
+                    *parent_frame,
+                    parent_clip_frames.clone(),
+                    target.clone(),
+                ))
+            })
+            .collect();
+        let mut inherited = SymbolContextClips::default();
+        for (parent_index, parent_symbol, parent_frame, clip_frames, target) in parents {
+            let Ok(mapping) = StageMapping::try_new(matrices[parent_index]) else {
+                continue;
+            };
+            let placement = &target.element;
+            let (mut scene, mut branch_clip_ids) = {
+                let project = self.project_for_symbol_stage_eval(&parent_symbol);
+                evaluate_scene_with_frozen_clips(
+                    &project,
+                    &parent_symbol,
+                    parent_frame,
+                    &clip_frames,
+                    std::slice::from_ref(placement),
+                    true,
+                    show_masking,
+                )
+            };
+            // Preserve relationships present on rendered descendants too; the
+            // structural list above is what keeps an empty current branch clipped.
+            branch_clip_ids.extend(
+                scene
+                    .draws
+                    .iter()
+                    .filter(|draw| draw.item.instance_path.first() == Some(placement))
+                    .flat_map(|draw| draw.clip_ids.iter().cloned()),
+            );
+            let mapped_full = mapping.map_scene(&scene);
+            scene.draws.retain(|draw| {
+                draw.item
+                    .instance_path
+                    .first()
+                    .is_none_or(|id| id != placement)
+            });
+            crate::preview::prepare_stage_path_fingerprints(&mut scene);
+            let mut scene = mapping.map_scene(&scene);
+            inherited.attach(&mut scene, &format!("parent-{parent_index}"));
+            inherited.extend_from_branch(&mapped_full, placement, branch_clip_ids.into_iter());
+            self.paint_authored_scene(
+                painter,
+                &scene,
+                DrawStyle {
+                    origin,
+                    zoom: self.zoom,
+                    // Locked `editor-editing-symbol-in-place` reference wraps the parent
+                    // artwork in `opacity="0.75"`; keep the implementation on that exact state.
+                    opacity: 0.75,
+                    tint: None,
+                    outlines: false,
+                    bitmap_texture: None,
+                },
+            );
+        }
+        inherited
+    }
+
     fn paint_authored_scene(
         &mut self,
         painter: &egui::Painter,
@@ -1303,4 +1556,81 @@ pub(crate) fn onion_ghost_opacity(falloff_percent: f32, distance: u32, range_len
     }
     let t = (f64::from(d - 1) / f64::from(range_len - 1)).clamp(0.0, 1.0);
     near + (far - near) * t
+}
+
+#[cfg(test)]
+mod symbol_context_tests {
+    use super::*;
+
+    fn draw(id: &str, group: Option<&str>) -> AuthoredDraw {
+        AuthoredDraw {
+            item: DrawItem {
+                element_id: id.into(),
+                name: String::new(),
+                instance_path: vec![id.into()],
+                layer_id: "layer".into(),
+                transform: [1., 0., 0., 1., 0., 0.],
+                alpha: 1.,
+                color_transform: ColorTransform::default(),
+                path_fingerprint: None,
+                kind: ElementKind::Rectangle {
+                    width: 10.,
+                    height: 10.,
+                    fill: [0, 0, 0, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.,
+                },
+            },
+            clip_ids: vec![],
+            outline_color: None,
+            mask_group: group.map(str::to_owned),
+            blend_mode: BlendMode::Normal,
+        }
+    }
+
+    #[test]
+    fn inherited_inverted_clip_wraps_the_composited_child_once() {
+        let inherited = SymbolContextClips {
+            ids: vec!["inverted-parent".into()],
+            clips: vec![RuntimeClip {
+                id: "inverted-parent".into(),
+                components: vec![],
+                alpha_components: None,
+                invert: true,
+            }],
+        };
+        let mut scene = AuthoredScene {
+            draws: vec![draw("plain", None), draw("grouped", Some("inner"))],
+            clips: vec![],
+            mask_groups: vec![AuthoredMaskGroup {
+                id: "inner".into(),
+                parent_id: None,
+                clip_ids: vec![],
+                blend_mode: BlendMode::Normal,
+            }],
+        };
+
+        inherited.attach(&mut scene, "test");
+
+        let wrapper = scene
+            .mask_groups
+            .iter()
+            .find(|group| group.id == "@symbol-edit-context:test")
+            .expect("inverted clips need the same composite wrapper as alpha masks");
+        assert_eq!(wrapper.clip_ids, ["inverted-parent"]);
+        assert_eq!(
+            scene.draws[0].mask_group.as_deref(),
+            Some(wrapper.id.as_str())
+        );
+        assert_eq!(
+            scene.mask_groups[0].parent_id.as_deref(),
+            Some(wrapper.id.as_str())
+        );
+        assert!(
+            scene
+                .draws
+                .iter()
+                .all(|draw| { draw.clip_ids.iter().any(|id| id == "inverted-parent") })
+        );
+    }
 }

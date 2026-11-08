@@ -13,18 +13,20 @@ pub(crate) struct Snapper {
     pub guides_x: Vec<f64>,
     /// y of visible horizontal guides.
     pub guides_y: Vec<f64>,
-    /// Guide tolerance in stage units.
-    pub guide_tolerance: f64,
+    /// Guide tolerance in timeline units for the x/y axes.  The Stage converts the
+    /// screen-point tolerance through its current affine mapping before constructing
+    /// the snapper, so non-uniformly scaled and skewed symbol contexts remain exact.
+    pub guide_tolerance: [f64; 2],
     /// x of unselected object edges and centres on the current frame.
     pub objects_x: Vec<f64>,
     /// y of unselected object edges and centres on the current frame.
     pub objects_y: Vec<f64>,
-    /// Object snap tolerance in stage units.
-    pub object_tolerance: f64,
-    /// Grid spacing (x, y) and tolerance in stage units, when grid snapping is on.
-    pub grid: Option<([f64; 2], f64)>,
-    /// Pixel snap tolerance in stage units (capped at `<= 0.5`), when pixel snapping is on.
-    pub pixel_tolerance: Option<f64>,
+    /// Object snap tolerance in timeline units for the x/y axes.
+    pub object_tolerance: [f64; 2],
+    /// Grid spacing (x, y) and per-axis tolerance in timeline units, when enabled.
+    pub grid: Option<([f64; 2], [f64; 2])>,
+    /// Per-axis pixel snap tolerance in timeline units (capped at `<= 0.5`).
+    pub pixel_tolerance: Option<[f64; 2]>,
 }
 
 /// Outcome of snapping one point.
@@ -66,27 +68,27 @@ impl Snapper {
                 .filter(|d| d.is_finite() && d.abs() <= tol)
                 .min_by(|a, b| a.abs().total_cmp(&b.abs()))
         };
-        if let Some(d) = nearest(guides, self.guide_tolerance) {
+        if let Some(d) = nearest(guides, self.guide_tolerance[axis]) {
             return Some((0, d));
         }
-        if let Some(d) = nearest(objects, self.object_tolerance) {
+        if let Some(d) = nearest(objects, self.object_tolerance[axis]) {
             return Some((1, d));
         }
         if let Some((spacing, tolerance)) = self.grid {
             let s = spacing[axis];
             if s.is_finite() && s > 0.0 {
                 let d = (value / s).round() * s - value;
-                if d.is_finite() && d.abs() <= tolerance {
+                if d.is_finite() && d.abs() <= tolerance[axis] {
                     return Some((2, d));
                 }
             }
         }
         if let Some(pixel_tol) = self.pixel_tolerance
-            && pixel_tol.is_finite()
-            && pixel_tol >= 0.0
+            && pixel_tol[axis].is_finite()
+            && pixel_tol[axis] >= 0.0
         {
             let d = value.round() - value;
-            if d.is_finite() && d.abs() <= pixel_tol {
+            if d.is_finite() && d.abs() <= pixel_tol[axis] {
                 return Some((3, d));
             }
         }
@@ -147,8 +149,8 @@ mod tests {
         Snapper {
             guides_x: vec![105.0],
             guides_y: vec![-30.0],
-            guide_tolerance: 8.0,
-            grid: Some(([20.0, 10.0], 4.0)),
+            guide_tolerance: [8.0; 2],
+            grid: Some(([20.0, 10.0], [4.0; 2])),
             ..Default::default()
         }
     }
@@ -156,7 +158,7 @@ mod tests {
     #[test]
     fn grid_snaps_within_tolerance_per_axis() {
         let s = Snapper {
-            grid: Some(([20.0, 20.0], 4.0)),
+            grid: Some(([20.0, 20.0], [4.0; 2])),
             ..Default::default()
         };
         assert_eq!(
@@ -188,7 +190,7 @@ mod tests {
         // 8 screen points at 200 % = 4 stage px; at 25 % = 32 stage px.
         let at = |zoom: f64| Snapper {
             guides_x: vec![100.0],
-            guide_tolerance: 8.0 / zoom,
+            guide_tolerance: [8.0 / zoom; 2],
             ..Default::default()
         };
         assert_eq!(at(2.0).snap_x(110.0), None);
@@ -201,7 +203,7 @@ mod tests {
         let s = Snapper {
             guides_x: vec![200.0],
             guides_y: vec![],
-            guide_tolerance: 6.0,
+            guide_tolerance: [6.0; 2],
             ..Default::default()
         };
         // Left 150, centre 175, right 197: the right edge is 3 from the guide.
@@ -214,12 +216,12 @@ mod tests {
         // already on a lower-priority target. Each axis still chooses independently.
         let mut s = Snapper {
             guides_x: vec![205.0],
-            guide_tolerance: 8.0,
+            guide_tolerance: [8.0; 2],
             objects_x: vec![201.0],
             objects_y: vec![205.0],
-            object_tolerance: 8.0,
-            grid: Some(([20.0, 20.0], 8.0)),
-            pixel_tolerance: Some(0.5),
+            object_tolerance: [8.0; 2],
+            grid: Some(([20.0, 20.0], [8.0; 2])),
+            pixel_tolerance: Some([0.5; 2]),
             ..Default::default()
         };
         let candidates = [160.0, 181.0, 201.0];
@@ -243,7 +245,7 @@ mod tests {
     #[test]
     fn degenerate_grid_never_snaps() {
         let s = Snapper {
-            grid: Some(([0.0, f64::NAN], 10.0)),
+            grid: Some(([0.0, f64::NAN], [10.0; 2])),
             ..Default::default()
         };
         assert!(!s.point([3.0, 3.0]).any());

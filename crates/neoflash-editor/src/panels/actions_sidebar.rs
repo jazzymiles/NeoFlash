@@ -459,14 +459,20 @@ impl Editor {
     pub(crate) fn open_script_location(&mut self, location: ScriptLocation) {
         self.finish_edits();
         let enter = |editor: &mut Editor, symbol: &str, frame: u32| {
-            if editor.symbol_id() != symbol {
-                if editor.project.is_scene(symbol) {
-                    editor.switch_scene(symbol);
-                } else {
-                    editor.leave_to_level(0);
-                    if symbol != editor.project.root {
-                        editor.enter_symbol(symbol.to_owned());
-                    }
+            if editor.symbol_id() == symbol {
+                if editor.editing_in_place() {
+                    editor.enter_symbol_isolated(symbol.to_owned());
+                }
+                editor.set_playing(false);
+                editor.frame = frame;
+                return;
+            }
+            if editor.project.is_scene(symbol) {
+                editor.switch_scene(symbol);
+            } else {
+                editor.leave_to_level(0);
+                if symbol != editor.project.root {
+                    editor.enter_symbol_isolated(symbol.to_owned());
                 }
             }
             editor.set_playing(false);

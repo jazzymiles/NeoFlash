@@ -41,11 +41,13 @@ mod sources;
 mod stage;
 mod stage_clipping;
 mod stage_cursor;
+mod stage_mapping;
 mod stage_primitives;
 mod stage_selection;
 mod stage_view;
 mod svg_graphics;
 mod symbol_dialog;
+mod symbol_edit;
 mod tablet_input;
 mod text_boxes;
 mod theme;
@@ -75,6 +77,8 @@ mod panel_tests;
 mod selection_tests;
 #[cfg(test)]
 mod stage_view_tests;
+#[cfg(test)]
+mod symbol_edit_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

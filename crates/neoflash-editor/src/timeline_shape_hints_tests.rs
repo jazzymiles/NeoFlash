@@ -285,3 +285,76 @@ fn shape_hints_respect_transformed_geometry_creation_limit_and_endpoint_scope() 
     assert!(editor.shape_hint_markers().is_empty());
     assert!(!editor.can_remove_shape_hints());
 }
+
+#[test]
+fn transformed_shape_hint_overlay_and_drag_share_the_same_mapping() {
+    let (mut editor, ctx, _) = fixture();
+    editor.zoom = 1.0;
+    editor.add_shape_hint();
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new([1.1, 0.35, -0.25, 0.8, 60., 25.]).unwrap();
+    let origin = egui::pos2(90., 70.);
+    let marker = editor.shape_hint_markers()[0].position;
+    let from = mapping.edit_to_screen(
+        origin,
+        editor.zoom,
+        Pos2::new(marker[0] as f32, marker[1] as f32),
+    );
+    let target = [50., 60.];
+    let to = mapping.edit_to_screen(
+        origin,
+        editor.zoom,
+        Pos2::new(target[0] as f32, target[1] as f32),
+    );
+
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                egui::vec2(900., 700.),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.paint_shape_hints(ui.painter(), origin, mapping);
+            });
+        },
+    );
+    assert!(output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Circle(circle) if circle.center.distance(from) < 1e-3)
+    }));
+
+    let mut frame = |time: f64, events: Vec<Event>| {
+        let _ = ctx.run(
+            egui::RawInput {
+                time: Some(time),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    Pos2::ZERO,
+                    egui::vec2(900., 700.),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let canvas = ui.max_rect();
+                    editor.shape_hint_input(ui, canvas, canvas, origin, mapping);
+                });
+            },
+        );
+    };
+    frame(
+        0.1,
+        vec![Event::PointerMoved(from), primary_button(from, true)],
+    );
+    frame(0.12, vec![Event::PointerMoved(to)]);
+    frame(0.14, vec![primary_button(to, false)]);
+
+    let stored = editor.symbol().timeline.layers[0].keyframes[0].shape_hints[0].start_uv;
+    assert!(
+        stored[0].abs() < 1e-6 && stored[1].abs() < 1e-6,
+        "{stored:?}"
+    );
+    assert!(editor.timeline_shape_hints.drag.is_none());
+}

@@ -48,6 +48,9 @@ pub struct Editor {
     /// Session-only identity of an imported source; independent of its converted Save As path.
     pub(crate) import_source: Option<PathBuf>,
     pub saved_project: Option<Project>,
+    pub(crate) edit_session: crate::symbol_edit::SymbolEditSession,
+    /// Compatibility mirror for code being migrated to `edit_session`. Never infer
+    /// isolated/in-place semantics from its length.
     pub editing: Vec<String>,
     pub frame: u32,
     pub layer: usize,
@@ -426,6 +429,7 @@ impl Editor {
         let root = project.root.clone();
         let mut s = Self {
             project, history: History::new(150), path: None, import_source: None, saved_project,
+            edit_session: crate::symbol_edit::SymbolEditSession::for_scene(root.clone(), 0.75, Vec2::ZERO),
             editing: vec![root.clone()], frame: 0, layer: 0, selection: crate::selection::Selection { symbol: root, targets: vec![] }, object_gesture: None, stage_cursor: None, shown_stage_cursor: None, tool: Tool::Select,
             playing: false, authored_preview: None, last_tick: Instant::now(), accumulator: 0.,
             onion: false, onion_outlines: false, onion_before: 3, onion_after: 3,
@@ -617,9 +621,8 @@ impl Editor {
         self.reset_workspace_layout_state(ctx);
     }
     pub fn symbol_id(&self) -> &str {
-        self.editing
-            .last()
-            .map(String::as_str)
+        self.edit_session
+            .current_symbol()
             .unwrap_or(&self.project.root)
     }
     pub fn symbol(&self) -> &Symbol {
@@ -689,11 +692,8 @@ impl Editor {
         self.commit_history();
     }
     pub fn normalize_selection(&mut self) {
+        self.normalize_symbol_edit_session();
         self.cancel_stale_selection_gesture();
-        self.editing.retain(|id| self.project.symbol(id).is_some());
-        if self.editing.is_empty() {
-            self.editing.push(self.project.root.clone());
-        }
         if self.symbol().timeline.layers.is_empty() {
             self.symbol_mut().timeline.layers.push(Layer {
                 properties: Default::default(),
@@ -905,19 +905,9 @@ impl Editor {
     pub fn convert_to_symbol(&mut self) {
         self.begin_symbol_conversion();
     }
+    #[cfg(test)]
     pub fn enter_symbol(&mut self, id: String) {
-        self.finish_edits();
-        self.timeline_key_drag = None;
-        if self.project.symbol(&id).is_none() {
-            return;
-        }
-        self.clear_simple_button_state();
-        self.editing.push(id);
-        self.frame = 0;
-        self.layer = 0;
-        self.clear_selection();
-        self.playing = false;
-        self.pan = Vec2::ZERO;
+        self.enter_symbol_isolated(id);
     }
     pub fn load_project_fonts(&mut self, ctx: &egui::Context) {
         let families: Vec<(String, bool, bool)> = self
@@ -1103,7 +1093,14 @@ impl Editor {
                 self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
-                self.editing = vec![self.project.root.clone()];
+                let root = self.project.root.clone();
+                self.edit_session = crate::symbol_edit::SymbolEditSession::for_scene(
+                    root.clone(),
+                    self.zoom,
+                    self.pan,
+                );
+                self.editing = vec![root];
+                self.stage_view.zero = [0., 0.];
                 self.frame = 0;
                 self.layer = 0;
                 self.clear_selection();

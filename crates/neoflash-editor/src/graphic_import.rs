@@ -2,6 +2,7 @@
 use crate::{
     app::{Editor, reaches},
     selection::{Selection, SelectionTarget},
+    stage_mapping::StageMapping,
 };
 use eframe::egui::{self, Pos2, Rect};
 use neoflash_core::*;
@@ -16,6 +17,18 @@ pub(crate) struct PreparedGraphic {
     pub notice: Option<String>,
 }
 
+/// Convert a native Stage drop into the edited symbol's local coordinates.
+/// Kept pure so rotated/skewed placement math is covered without a platform drag source.
+pub(crate) fn mapped_drop_point(
+    mapping: StageMapping,
+    origin: Pos2,
+    zoom: f32,
+    position: Pos2,
+) -> [f64; 2] {
+    let position = mapping.screen_to_edit(origin, zoom, position);
+    [f64::from(position.x), f64::from(position.y)]
+}
+
 impl Editor {
     pub(crate) fn import_graphics_dialog(&mut self) {
         if let Some(paths) = rfd::FileDialog::new()
@@ -27,7 +40,13 @@ impl Editor {
         }
     }
 
-    pub(crate) fn stage_file_drop(&mut self, ui: &egui::Ui, area: Rect, origin: Pos2) {
+    pub(crate) fn stage_file_drop(
+        &mut self,
+        ui: &egui::Ui,
+        area: Rect,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
         let ctx = ui.ctx();
         let (hovering, mut pointer, dropped) = ctx.input(|input| {
             (
@@ -88,16 +107,19 @@ impl Editor {
             self.message("This drop has no local file path. Save the image first, then drag that file onto the Stage.");
             return;
         };
-        let point = [
-            (position.x - origin.x) as f64 / self.zoom as f64,
-            (position.y - origin.y) as f64 / self.zoom as f64,
-        ];
+        let point = mapped_drop_point(mapping, origin, self.zoom, position);
         if let Err(error) = self.import_graphics_paths(&paths, Some(point)) {
             self.message(format!("Graphic import failed: {error}"));
         }
     }
 
-    pub(crate) fn stage_library_drop(&mut self, ui: &egui::Ui, area: Rect, origin: Pos2) {
+    pub(crate) fn stage_library_drop(
+        &mut self,
+        ui: &egui::Ui,
+        area: Rect,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
         if self.library_panel.drag.is_none() {
             return;
         }
@@ -135,7 +157,7 @@ impl Editor {
                         .map(|s| s.name.clone())
                         .unwrap_or_else(|| sym_id.clone());
                     let swap_target = alt
-                        .then(|| self.stage_swap_target_info(ui, area, origin, &sym_id))
+                        .then(|| self.stage_swap_target_info(ui, area, origin, mapping, &sym_id))
                         .flatten();
                     if let Some((_, target_rect)) = &swap_target
                         && target_rect.is_finite()
@@ -199,10 +221,7 @@ impl Editor {
             self.swap_layer_or_selected_symbol(self.layer, id);
             return;
         }
-        let point = Some([
-            (position.x - origin.x) as f64 / self.zoom as f64,
-            (position.y - origin.y) as f64 / self.zoom as f64,
-        ]);
+        let point = Some(mapped_drop_point(mapping, origin, self.zoom, position));
         let result = match payload {
             crate::library::LibraryDrag::Symbol(id) => self.place_library_symbol(ctx, &id, point),
             crate::library::LibraryDrag::Resource(id) => self.place_graphic_resource(&id, point),
@@ -218,6 +237,7 @@ impl Editor {
         ui: &egui::Ui,
         area: Rect,
         origin: Pos2,
+        mapping: StageMapping,
         new_symbol_id: &str,
     ) -> Option<(String, Rect)> {
         let mut target_el_id: Option<Id> = None;
@@ -268,17 +288,19 @@ impl Editor {
         if let Some(el_id) = target_el_id {
             let painter = ui.painter_at(area);
             let scene = self.presented_authored_scene(self.show_layer_masking(ui.ctx()));
-            let stage_bounds = scene
+            let context_bounds = scene
                 .draws
                 .iter()
                 .filter(|d| d.item.instance_path.first() == Some(&el_id))
                 .fold(Rect::NOTHING, |acc, d| {
-                    acc.union(crate::stage::world_bounds(&d.item, &painter))
+                    acc.union(crate::stage_selection::mapped_world_bounds(
+                        &d.item, &painter, mapping,
+                    ))
                 });
-            if stage_bounds.is_finite() && stage_bounds.is_positive() {
+            if context_bounds.is_finite() && context_bounds.is_positive() {
                 screen_rect = Rect::from_min_max(
-                    origin + stage_bounds.min.to_vec2() * self.zoom,
-                    origin + stage_bounds.max.to_vec2() * self.zoom,
+                    origin + context_bounds.min.to_vec2() * self.zoom,
+                    origin + context_bounds.max.to_vec2() * self.zoom,
                 );
             }
         }
@@ -347,7 +369,7 @@ impl Editor {
         let mut placed = Vec::with_capacity(graphics.len());
         let mut notices = Vec::new();
         let mut last_symbol = None;
-        let exact_position = point.is_some();
+        let exact_position = point.is_some() || self.editing_in_place();
         let at = point.unwrap_or_else(|| self.paste_center());
         for (index, mut graphic) in graphics.into_iter().enumerate() {
             merge_graphic_resources(&mut candidate, &mut graphic)?;
@@ -366,7 +388,7 @@ impl Editor {
                 .min(candidate.height as f64 * 0.8 / graphic.height)
                 .min(1.);
             let half = [graphic.width * scale / 2., graphic.height * scale / 2.];
-            let page_min = if self.editing.len() > 1 {
+            let page_min = if self.edit_context_is_isolated() {
                 [
                     -(candidate.width as f64) / 2.,
                     -(candidate.height as f64) / 2.,
@@ -470,7 +492,7 @@ impl Editor {
             .fold(Rect::NOTHING, |rect, draw| {
                 rect.union(crate::stage::world_bounds(&draw.item, &painter))
             });
-        let exact_position = point.is_some();
+        let exact_position = point.is_some() || self.editing_in_place();
         let mut at = point.unwrap_or_else(|| self.paste_center());
         let center = if bounds.is_finite() {
             bounds.center()
@@ -478,7 +500,7 @@ impl Editor {
             Pos2::ZERO
         };
         let page_size = [self.project.width as f64, self.project.height as f64];
-        let page_min = if self.editing.len() > 1 {
+        let page_min = if self.edit_context_is_isolated() {
             [-page_size[0] / 2., -page_size[1] / 2.]
         } else {
             [0., 0.]

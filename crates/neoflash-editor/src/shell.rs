@@ -116,7 +116,7 @@ impl Editor {
     /// over the Stage, or inside the edit bar when the Stage toolbar is docked; R-053).
     pub(crate) fn stage_breadcrumb_row(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.x = 0.;
-        let path = self.editing.clone();
+        let path: Vec<String> = self.edit_path().map(str::to_owned).collect();
         let visible_indices: Vec<usize> = if path.len() > 4 {
             vec![0, path.len() - 2, path.len() - 1]
         } else {
@@ -430,14 +430,7 @@ impl Editor {
 
     /// Return to editing level `index` of the symbol path (0 = scene).
     pub(crate) fn leave_to_level(&mut self, index: usize) {
-        self.finish_edits();
-        self.timeline_key_drag = None;
-        self.clear_simple_button_state();
-        self.editing.truncate(index + 1);
-        self.reset_authored_preview();
-        self.frame = 0;
-        self.layer = 0;
-        self.clear_selection();
+        self.leave_symbol_to_level(index);
     }
 
     /// Fit the stage in the canvas (zoom 0 = recompute fit on the next frame).

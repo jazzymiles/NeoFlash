@@ -274,7 +274,15 @@ fn conversion_preserves_appearance_identity_and_scripts_on_the_new_instance() {
     editor.undo();
     assert_eq!(editor.project, before);
     assert_eq!(editor.symbol_id(), editor.project.root);
-    assert!(editor.selection.is_empty());
+    assert_eq!(
+        editor
+            .selection
+            .single()
+            .map(|target| target.element.as_str()),
+        Some(expected.id.as_str()),
+        "invalidating the nested symbol restores and normalizes the saved parent selection"
+    );
+    assert!(editor.selected_element().is_some());
 
     // The same conversion transaction handles a chosen registration point and
     // runtime identifier without changing a transformed object's visible pose.
@@ -1386,7 +1394,12 @@ fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or
     let painter = ctx.layer_painter(egui::LayerId::background());
     assert_eq!(
         editor
-            .pick_placement(&scene, &painter, egui::pos2(55., 25.))
+            .pick_placement(
+                &scene,
+                &painter,
+                egui::pos2(55., 25.),
+                crate::stage_mapping::StageMapping::identity(),
+            )
             .map(|target| target.element),
         Some("preview-instance".into()),
         "picking respects the animated mask retained by pause"

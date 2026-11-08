@@ -1,6 +1,6 @@
 //! Shape-tween correspondence markers. The document keeps the existing normalized hint pair;
 //! only visibility and the active pointer gesture live in the editor.
-use crate::app::Editor;
+use crate::{app::Editor, stage_mapping::StageMapping};
 use eframe::egui::{self, Pos2, Rect};
 use neoflash_core::*;
 use neoflash_ui::components::canvas::{self as cv, ShapeHintState};
@@ -31,6 +31,8 @@ pub(crate) struct ShapeHintDrag {
     end: bool,
     began: bool,
     press: Option<[f64; 2]>,
+    /// Mapping captured by the stage pointer phase; direct command tests leave it unset.
+    mapping: Option<StageMapping>,
     geometry: HintGeometry,
 }
 
@@ -249,6 +251,7 @@ impl Editor {
             end: at_end,
             began: false,
             press: None,
+            mapping: None,
             geometry,
         };
         self.finish_edits();
@@ -341,15 +344,24 @@ impl Editor {
         canvas: Rect,
         page: Rect,
         origin: Pos2,
+        mapping: StageMapping,
     ) {
+        if self
+            .timeline_shape_hints
+            .drag
+            .as_ref()
+            .and_then(|drag| drag.mapping)
+            .is_some_and(|captured| captured != mapping)
+        {
+            self.cancel_shape_hint_drag();
+        }
         let zoom = self.zoom;
         let local = |p: Pos2| {
-            [
-                (p.x - origin.x) as f64 / zoom as f64,
-                (p.y - origin.y) as f64 / zoom as f64,
-            ]
+            let point = mapping.screen_to_edit(origin, zoom, p);
+            [f64::from(point.x), f64::from(point.y)]
         };
-        let screen = |p: [f64; 2]| origin + egui::vec2(p[0] as f32, p[1] as f32) * zoom;
+        let screen =
+            |p: [f64; 2]| mapping.edit_to_screen(origin, zoom, Pos2::new(p[0] as f32, p[1] as f32));
         let markers = self.shape_hint_markers();
         let hit = |pos| {
             markers
@@ -376,7 +388,9 @@ impl Editor {
                     if let Some(label) = hit(pos)
                         && self.begin_shape_hint_drag(label)
                     {
-                        self.timeline_shape_hints.drag.as_mut().unwrap().press = Some(local(pos));
+                        let drag = self.timeline_shape_hints.drag.as_mut().unwrap();
+                        drag.press = Some(local(pos));
+                        drag.mapping = Some(mapping);
                         consumed = true;
                         self.stage_view.guide_pointer = true;
                     }
@@ -435,10 +449,18 @@ impl Editor {
             })
             .and_then(hit);
     }
-    pub(crate) fn paint_shape_hints(&self, painter: &egui::Painter, origin: Pos2) {
+    pub(crate) fn paint_shape_hints(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
         for hint in self.shape_hint_markers() {
-            let at =
-                origin + egui::vec2(hint.position[0] as f32, hint.position[1] as f32) * self.zoom;
+            let at = mapping.edit_to_screen(
+                origin,
+                self.zoom,
+                Pos2::new(hint.position[0] as f32, hint.position[1] as f32),
+            );
             cv::paint_shape_hint(painter, painter.ctx(), at, hint.label, hint.state);
         }
     }

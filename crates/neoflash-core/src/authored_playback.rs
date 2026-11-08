@@ -1,6 +1,7 @@
 //! Stateful authoring transport using the shared timeline clocks. The wrapper
 //! deliberately exposes neither script dispatch nor mutable runtime objects.
 use crate::{AuthoredScene, Id, Player, Project, SymbolKind};
+use std::collections::HashMap;
 
 /// Independent MovieClips advance even when their parent has only one frame.
 /// Pausing means retaining this value without calling `tick`; recreating it after
@@ -68,6 +69,18 @@ impl AuthoredPlayback {
 
     pub fn frame(&self) -> u32 {
         self.player.frame()
+    }
+
+    /// Current authored frame of one placed clip in this preview. This keeps
+    /// editor navigation aligned with independent clips after playback pauses.
+    pub fn clip_frame(&self, path: &[Id]) -> Option<u32> {
+        self.player.clip_frame(path)
+    }
+
+    /// Frozen frames for the whole currently materialized clip tree. Paths are
+    /// relative to this preview's source root, matching authored evaluation.
+    pub fn clip_frames(&self) -> HashMap<Vec<Id>, u32> {
+        self.player.clip_frames()
     }
 
     /// Timeline sound commands for the editor's audio preview (see `SoundCommand`).

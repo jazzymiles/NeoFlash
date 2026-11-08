@@ -725,14 +725,18 @@ pub(crate) fn build_movie_explorer_rows(editor: &Editor) -> Vec<MovieRow> {
 impl Editor {
     pub(crate) fn enter_explorer_timeline(&mut self, symbol_id: &str) {
         self.finish_edits();
-        if self.symbol_id() != symbol_id {
-            if self.project.is_scene(symbol_id) {
-                self.switch_scene(symbol_id);
-            } else {
-                self.leave_to_level(0);
-                if symbol_id != self.project.root {
-                    self.enter_symbol(symbol_id.to_owned());
-                }
+        if self.symbol_id() == symbol_id {
+            if self.editing_in_place() {
+                self.enter_symbol_isolated(symbol_id.to_owned());
+            }
+            return;
+        }
+        if self.project.is_scene(symbol_id) {
+            self.switch_scene(symbol_id);
+        } else {
+            self.leave_to_level(0);
+            if symbol_id != self.project.root {
+                self.enter_symbol_isolated(symbol_id.to_owned());
             }
         }
     }
@@ -790,7 +794,7 @@ impl Editor {
                     && let Some(inst_sym) = instance_symbol
                     && self.project.symbol(inst_sym).is_some()
                 {
-                    self.enter_symbol(inst_sym.clone());
+                    self.enter_selected_symbol_in_place();
                 }
             }
             MovieTarget::Script(loc) => {

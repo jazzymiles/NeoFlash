@@ -1030,6 +1030,16 @@ impl Player {
             .map(|n| n.frame)
     }
 
+    /// Snapshot every currently materialized symbol placement frame. Authoring
+    /// navigation uses this immutable map to keep a paused parent tree frozen
+    /// while re-evaluating its live document after entering a child symbol.
+    pub(crate) fn clip_frames(&self) -> HashMap<Vec<Id>, u32> {
+        self.previous
+            .iter()
+            .filter_map(|(path, node)| node.symbol_id.as_ref().map(|_| (path.clone(), node.frame)))
+            .collect()
+    }
+
     pub fn clip_frame_count(&self, project: &Project, path: &[Id]) -> Option<u32> {
         let id = self.previous.get(path)?.symbol_id.as_ref()?;
         Some(project.symbol(id)?.timeline.frame_count)

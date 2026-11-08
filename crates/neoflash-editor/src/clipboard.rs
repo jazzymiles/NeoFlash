@@ -42,6 +42,7 @@ pub(crate) enum ClipboardCommand {
 #[derive(Clone)]
 struct Scope {
     session: String,
+    edit_revision: u64,
     symbol: Id,
     layer: Id,
     frame: u32,
@@ -50,6 +51,7 @@ impl Scope {
     fn new(editor: &Editor) -> Self {
         Self {
             session: editor.clipboard.session.clone(),
+            edit_revision: editor.edit_session.revision,
             symbol: editor.symbol_id().to_owned(),
             layer: editor.symbol().timeline.layers[editor.layer].id.clone(),
             frame: editor.frame,
@@ -57,6 +59,7 @@ impl Scope {
     }
     fn matches(&self, editor: &Editor) -> bool {
         self.session == editor.clipboard.session
+            && self.edit_revision == editor.edit_session.revision
             && self.symbol == editor.symbol_id()
             && self.frame == editor.frame
             && editor
@@ -118,7 +121,7 @@ pub(crate) struct ClipboardState {
     pub(crate) menu_viewport: Option<egui::ViewportId>,
     pub(crate) menu_target: Option<ClipboardTarget>,
     pending: Option<Request>,
-    view: Option<(Id, [f64; 2])>,
+    view: Option<(Id, u64, [f64; 2])>,
 }
 impl Default for ClipboardState {
     fn default() -> Self {
@@ -160,17 +163,23 @@ impl Editor {
     }
     pub(crate) fn remember_paste_view(&mut self, center: [f64; 2]) {
         if center.iter().all(|value| value.is_finite()) {
-            self.clipboard.view = Some((self.symbol_id().to_owned(), center));
+            self.clipboard.view = Some((
+                self.symbol_id().to_owned(),
+                self.edit_session.revision,
+                center,
+            ));
         }
     }
     pub(crate) fn paste_center(&self) -> [f64; 2] {
         self.clipboard
             .view
             .as_ref()
-            .filter(|(symbol, _)| symbol == self.symbol_id())
-            .map(|(_, center)| *center)
+            .filter(|(symbol, revision, _)| {
+                symbol == self.symbol_id() && *revision == self.edit_session.revision
+            })
+            .map(|(_, _, center)| *center)
             .unwrap_or_else(|| {
-                if self.editing.len() > 1 {
+                if !self.editing_scene() {
                     [0., 0.]
                 } else {
                     [

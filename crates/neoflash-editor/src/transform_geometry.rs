@@ -5,7 +5,7 @@
 //! existing affine pose without changing its skew. Edge skew (`skew_many`) is the one gesture
 //! that shears in stage space and decomposes the result into scale, rotation and skew.
 
-use neoflash_core::{Transform, transform_matrix};
+use neoflash_core::{Transform, affine_multiply, invert_affine_matrix, transform_matrix};
 
 pub(crate) type Point = [f64; 2];
 const EPSILON: f64 = 1e-12;
@@ -368,22 +368,43 @@ pub(crate) fn rotate_single_about_by(
 /// Uniform scale of multiple placement origins and scales about a shared pivot.
 /// A negative factor preserves every placement's reflection parity while
 /// flipping both of its scale signs. No rotation decomposition or shear occurs.
+#[cfg(test)]
 pub(crate) fn uniform_scale_many(
     initial: &[Transform],
     pivot: Point,
     press: Point,
     current: Point,
 ) -> Option<Vec<Transform>> {
+    let factor = uniform_scale_factor(pivot, press, current)?;
+    uniform_scale_many_by(initial, pivot, factor)
+}
+
+/// Signed uniform scale implied by a pointer ray in one coordinate space.
+/// Callers whose chrome lives in a mapped parent context compute the factor in
+/// that context, then apply it about the inverse-mapped pivot with
+/// [`uniform_scale_many_by`].
+pub(crate) fn uniform_scale_factor(pivot: Point, press: Point, current: Point) -> Option<f64> {
+    projected_ratio(subtract(press, pivot), subtract(current, pivot))
+}
+
+/// Apply an already-resolved uniform scale in the edited timeline's space.
+/// A scalar scale commutes with every affine parent linear transform; only the
+/// pivot needs to be inverse-mapped by the caller.
+pub(crate) fn uniform_scale_many_by(
+    initial: &[Transform],
+    pivot: Point,
+    factor: f64,
+) -> Option<Vec<Transform>> {
     if initial.is_empty()
         || !finite_point(pivot)
+        || !factor.is_finite()
         || initial
             .iter()
             .any(|t| !valid_transform(*t) || !nonsingular(*t))
     {
         return None;
     }
-    let factor = projected_ratio(subtract(press, pivot), subtract(current, pivot))?;
-    if press == current {
+    if factor == 1.0 {
         return Some(initial.to_vec());
     }
     initial
@@ -442,42 +463,56 @@ pub(crate) fn rotate_many_by(
         .collect()
 }
 
-/// Free Transform edge drag: shear every placement in stage space. `horizontal` drags a top or
-/// bottom edge sideways (x shear), otherwise a left or right edge vertically (y shear). The line at
-/// `anchor` (stage y for x shear, stage x for y shear) stays fixed; the dragged `edge` moves by
-/// `displacement`. The sheared matrix is decomposed into scale, rotation and the single skew angle,
-/// with rotation and skew unwrapped to the turn nearest the original so tweens keep their direction.
-pub(crate) fn skew_many(
+/// Free Transform edge drag whose screen-axis box lives in an affine parent
+/// context. The context-space shear is conjugated back into the edited
+/// timeline before it is applied to each authored placement. The sheared
+/// matrix is decomposed with rotation/skew kept on the turn nearest the source.
+pub(crate) fn skew_many_in_context(
     initial: &[Transform],
+    edit_to_context: [f64; 6],
     horizontal: bool,
     edge: f64,
     anchor: f64,
     displacement: f64,
 ) -> Option<Vec<Transform>> {
+    let shear = shear_matrix(horizontal, edge, anchor, displacement)?;
+    let context_to_edit = invert_affine_matrix(edit_to_context)?;
+    let edit_shear = affine_multiply(affine_multiply(context_to_edit, shear), edit_to_context);
+    transform_many_by_affine(initial, edit_shear)
+}
+
+fn shear_matrix(horizontal: bool, edge: f64, anchor: f64, displacement: f64) -> Option<[f64; 6]> {
     let span = edge - anchor;
+    if !span.is_finite() || span.abs() <= EPSILON || !displacement.is_finite() {
+        return None;
+    }
+    if displacement == 0.0 {
+        return Some([1., 0., 0., 1., 0., 0.]);
+    }
+    let k = displacement / span;
+    Some(if horizontal {
+        [1.0, 0.0, k, 1.0, -k * anchor, 0.0]
+    } else {
+        [1.0, k, 0.0, 1.0, 0.0, -k * anchor]
+    })
+}
+
+fn transform_many_by_affine(initial: &[Transform], affine: [f64; 6]) -> Option<Vec<Transform>> {
     if initial.is_empty()
-        || !span.is_finite()
-        || span.abs() <= EPSILON
-        || !displacement.is_finite()
+        || affine.iter().any(|value| !value.is_finite())
         || initial
             .iter()
             .any(|t| !valid_transform(*t) || !nonsingular(*t))
     {
         return None;
     }
-    if displacement == 0.0 {
+    if affine == [1., 0., 0., 1., 0., 0.] {
         return Some(initial.to_vec());
     }
-    let k = displacement / span;
-    let shear = if horizontal {
-        [1.0, 0.0, k, 1.0, -k * anchor, 0.0]
-    } else {
-        [1.0, k, 0.0, 1.0, 0.0, -k * anchor]
-    };
     initial
         .iter()
         .map(|&t| {
-            let matrix = neoflash_core::affine_multiply(shear, transform_matrix(t));
+            let matrix = affine_multiply(affine, transform_matrix(t));
             let decomposed = Transform::from_matrix(matrix)?;
             let mut result = Transform {
                 alpha: t.alpha,

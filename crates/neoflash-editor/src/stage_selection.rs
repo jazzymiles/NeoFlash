@@ -2,9 +2,10 @@ use crate::theme::UiPalette;
 use crate::{
     app::{Editor, Tool},
     selection::{Selection, SelectionTarget},
+    stage_mapping::StageMapping,
     transform_geometry as geometry,
 };
-use eframe::egui::{self, Pos2, Rect, Stroke, StrokeKind};
+use eframe::egui::{self, Pos2, Rect, Stroke};
 use neoflash_core::*;
 use neoflash_ui::components::canvas as cv;
 use neoflash_ui::cursors::{self as nf, Cursor};
@@ -16,24 +17,27 @@ struct Scope {
     frame: u32,
     origin: Pos2,
     zoom: f32,
+    mapping: StageMapping,
 }
 impl Scope {
-    fn new(editor: &Editor, origin: Pos2) -> Self {
+    fn new(editor: &Editor, mapping: StageMapping, origin: Pos2) -> Self {
         Self {
             symbol: editor.symbol_id().to_owned(),
             frame: editor.frame,
             origin,
             zoom: editor.zoom,
+            mapping,
         }
     }
     fn matches(&self, editor: &Editor) -> bool {
         self.symbol == editor.symbol_id() && self.frame == editor.frame
     }
     fn local(&self, point: Pos2) -> geometry::Point {
-        [
-            (point.x - self.origin.x) as f64 / self.zoom as f64,
-            (point.y - self.origin.y) as f64 / self.zoom as f64,
-        ]
+        let point = self.mapping.screen_to_edit(self.origin, self.zoom, point);
+        [f64::from(point.x), f64::from(point.y)]
+    }
+    fn screen(&self, point: Pos2) -> Pos2 {
+        self.mapping.edit_to_screen(self.origin, self.zoom, point)
     }
 }
 
@@ -48,8 +52,8 @@ enum GestureKind {
         handle: geometry::ResizeHandle,
     },
     Scale {
-        pivot: geometry::Point,
-        center: geometry::Point,
+        context_pivot: geometry::Point,
+        context_center: geometry::Point,
     },
     Rotate {
         single: bool,
@@ -57,7 +61,8 @@ enum GestureKind {
         local_bounds: Option<geometry::Bounds>,
     },
     /// Free Transform edge drag: shear along the edge (`horizontal` = top/bottom edge, x shear)
-    /// about the opposite edge, or about the transformation point with ⌥. Stage coordinates on the shear's axis.
+    /// about the opposite edge, or about the transformation point with ⌥. Coordinates are in
+    /// the mapped parent context because the visible transform box is screen-axis aligned there.
     Skew {
         horizontal: bool,
         edge: f64,
@@ -130,11 +135,16 @@ pub(crate) struct ShapeDraft {
 struct SelectionGeometry {
     local: Option<geometry::Bounds>,
     initial: Option<Transform>,
+    /// Axis-aligned bounds in the edited timeline's coordinates. Gestures and document mutations
+    /// stay in this space.
     world: Rect,
+    /// Axis-aligned bounds after composing the active in-place mapping into every draw transform.
+    /// Screen-axis chrome uses this instead of transforming an already axis-aligned `world` box.
+    context_world: Rect,
     world_pivot: geometry::Point,
     resizable: bool,
-    /// Stage bounds, NF2 selection-box kind, and whether the placement is an ungrouped Merge shape.
-    boxes: Vec<(Id, Rect, cv::SelectionKind, bool)>,
+    /// Local/context bounds, NF2 selection-box kind, and whether this is an ungrouped Merge shape.
+    boxes: Vec<(Id, Rect, Rect, cv::SelectionKind, bool)>,
 }
 
 /// `NF2/Selection Box` kind for a placement: symbols show their registration and transformation
@@ -191,6 +201,37 @@ fn transformed_rect(rect: Rect, m: [f64; 6]) -> Rect {
     result
 }
 
+/// Bounds of one draw after the edit-to-context transform is composed into the draw itself.
+/// Mapping a precomputed AABB is not equivalent when the two transforms rotate/skew in opposite
+/// directions, so all screen-axis bounds go through this helper.
+pub(crate) fn mapped_world_bounds(
+    item: &DrawItem,
+    painter: &egui::Painter,
+    mapping: StageMapping,
+) -> Rect {
+    let mut mapped = item.clone();
+    mapped.transform = mapping.map_matrix(mapped.transform);
+    crate::stage::world_bounds(&mapped, painter)
+}
+
+fn context_rect_to_screen(rect: Rect, origin: Pos2, zoom: f32) -> Rect {
+    Rect::from_min_max(
+        origin + rect.min.to_vec2() * zoom,
+        origin + rect.max.to_vec2() * zoom,
+    )
+}
+
+/// Screen lengths of the authored rectangle's two local edge vectors. An AABB
+/// of an oblique zero-width rectangle can have two non-zero dimensions, so
+/// creation thresholds must measure the edges themselves.
+fn mapped_local_edge_screen_lengths(bounds: Rect, mapping: StageMapping, zoom: f32) -> [f32; 2] {
+    let [a, b, c, d, _, _] = mapping.matrix();
+    [
+        bounds.width().abs() * a.hypot(b) as f32 * zoom.abs(),
+        bounds.height().abs() * c.hypot(d) as f32 * zoom.abs(),
+    ]
+}
+
 /// Groups are independent drawing objects even when their members retain raw Merge geometry.
 /// Temporarily exclude those members from planar edits, preserving their flags and stack order.
 pub(crate) fn edit_ungrouped_merge_shapes<R>(
@@ -226,8 +267,19 @@ impl Editor {
         scene: &[DrawItem],
         painter: &egui::Painter,
     ) -> Option<Rect> {
-        self.selection_geometry(scene, painter)
+        self.selection_geometry(scene, painter, StageMapping::identity())
             .map(|geometry| geometry.world)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn selection_context_bounds(
+        &self,
+        scene: &[DrawItem],
+        painter: &egui::Painter,
+        mapping: StageMapping,
+    ) -> Option<Rect> {
+        self.selection_geometry(scene, painter, mapping)
+            .map(|geometry| geometry.context_world)
     }
     pub(crate) fn finish_selection_gesture(&mut self) {
         if let Some(gesture) = self.object_gesture.take()
@@ -448,6 +500,7 @@ impl Editor {
         &self,
         scene: &[DrawItem],
         p: &egui::Painter,
+        mapping: StageMapping,
     ) -> Option<SelectionGeometry> {
         if self.selection.is_empty() {
             return None;
@@ -462,8 +515,9 @@ impl Editor {
             .map(|target| &target.element)
             .collect();
         let mut world = Rect::NOTHING;
+        let mut context_world = Rect::NOTHING;
         let mut local = Rect::NOTHING;
-        let mut per_target: Vec<(&Id, Rect)> = Vec::with_capacity(selected.len());
+        let mut per_target: Vec<(&Id, Rect, Rect)> = Vec::with_capacity(selected.len());
         let mut per_target_idx: HashMap<&Id, usize> = HashMap::with_capacity(selected.len());
         for item in scene {
             let Some(id) = item.instance_path.first() else {
@@ -474,12 +528,15 @@ impl Editor {
             };
             let rect = crate::stage::local_bounds(item, p);
             let item_world = transformed_rect(rect, item.transform);
+            let item_context = mapped_world_bounds(item, p, mapping);
             world = world.union(item_world);
+            context_world = context_world.union(item_context);
             if let Some(&idx) = per_target_idx.get(id) {
                 per_target[idx].1 = per_target[idx].1.union(item_world);
+                per_target[idx].2 = per_target[idx].2.union(item_context);
             } else {
                 per_target_idx.insert(id, per_target.len());
-                per_target.push((id, item_world));
+                per_target.push((id, item_world, item_context));
             }
             if let Some(matrix) = inverse {
                 local = local.union(transformed_rect(
@@ -488,7 +545,7 @@ impl Editor {
                 ));
             }
         }
-        if !world.is_finite() {
+        if !world.is_finite() || !context_world.is_finite() {
             return None;
         }
         let local = local.is_finite().then(|| bounds(local));
@@ -549,13 +606,13 @@ impl Editor {
         }
         let boxes = per_target
             .into_iter()
-            .filter(|(_, rect)| rect.is_finite())
-            .map(|(id, rect)| {
+            .filter(|(_, local, context)| local.is_finite() && context.is_finite())
+            .map(|(id, local, context)| {
                 let (kind, is_merge) = kinds
                     .get(id)
                     .copied()
                     .unwrap_or((cv::SelectionKind::Group, false));
-                (id.clone(), rect, kind, is_merge)
+                (id.clone(), local, context, kind, is_merge)
             })
             .collect();
         let world_pivot = if let (Some(local), Some(initial)) = (local, initial) {
@@ -572,6 +629,7 @@ impl Editor {
             local,
             initial,
             world,
+            context_world,
             world_pivot,
             resizable,
             boxes,
@@ -582,6 +640,7 @@ impl Editor {
         scene: &[DrawItem],
         p: &egui::Painter,
         point: Pos2,
+        mapping: StageMapping,
     ) -> Option<SelectionTarget> {
         let eligible: HashMap<_, _> = self
             .editable_targets()
@@ -592,8 +651,11 @@ impl Editor {
         let pick_with_slop = |slop: f32| {
             scene.iter().rev().find_map(|item| {
                 let target = eligible.get(item.instance_path.first()?)?;
+                let mut mapped = item.clone();
+                mapped.transform = mapping.map_matrix(mapped.transform);
+                let context_point = mapping.edit_to_stage_pos(point);
                 (authored.contains_point(&item.instance_path, [point.x as f64, point.y as f64])
-                    && crate::stage::hit_item_with_slop(item, p, point, self.zoom, slop))
+                    && crate::stage::hit_item_with_slop(&mapped, p, context_point, self.zoom, slop))
                 .then(|| target.clone())
             })
         };
@@ -631,10 +693,7 @@ impl Editor {
         p.ctx()
             .data_mut(|d| d.remove::<(f64, Pos2)>(egui::Id::new("nf2-pivot-click")));
         if matches!(gesture.kind, GestureKind::Marquee) {
-            let marquee = Rect::from_two_pos(
-                position(gesture.scope.local(gesture.press)),
-                position(current),
-            );
+            let marquee = Rect::from_two_pos(gesture.press, pos);
             let mut targets = if gesture.shift {
                 gesture.original_selection.targets.clone()
             } else {
@@ -654,7 +713,11 @@ impl Editor {
                 let Some(target) = eligible.get(id) else {
                     continue;
                 };
-                let rect = crate::stage::world_bounds(item, p);
+                let rect = context_rect_to_screen(
+                    mapped_world_bounds(item, p, gesture.scope.mapping),
+                    gesture.scope.origin,
+                    gesture.scope.zoom,
+                );
                 if let Some(&index) = indices.get(id) {
                     candidates[index].1 = candidates[index].1.union(rect);
                 } else {
@@ -684,6 +747,7 @@ impl Editor {
         let origin = gesture.scope.origin;
         let current = match gesture.kind {
             GestureKind::Pivot { initial_world } => gesture.scope.local(self.snap_drag(
+                gesture.scope.mapping,
                 origin,
                 gesture.press,
                 pos,
@@ -694,11 +758,19 @@ impl Editor {
                     originals[0],
                     handle.point(bounds),
                 ));
+                gesture.scope.local(self.snap_drag(
+                    gesture.scope.mapping,
+                    origin,
+                    gesture.press,
+                    pos,
+                    anchor,
+                ))
+            }
+            GestureKind::Scale { .. } => {
                 gesture
                     .scope
-                    .local(self.snap_drag(origin, gesture.press, pos, anchor))
+                    .local(self.snap_screen(gesture.scope.mapping, origin, pos))
             }
-            GestureKind::Scale { .. } => gesture.scope.local(self.snap_screen(origin, pos)),
             _ => current,
         };
         let (transforms, other_transforms) = match gesture.kind {
@@ -715,10 +787,17 @@ impl Editor {
                     }
                 }
                 let bounds = *gesture.snap_bounds.get_or_insert_with(|| {
-                    self.selection_geometry(scene, p)
+                    self.selection_geometry(scene, p, gesture.scope.mapping)
                         .map_or(Rect::NOTHING, |g| g.world)
                 });
-                delta = self.snap_move(origin, bounds, position(press), delta, lock);
+                delta = self.snap_move(
+                    gesture.scope.mapping,
+                    origin,
+                    bounds,
+                    position(press),
+                    delta,
+                    lock,
+                );
                 if let Some(gp) = gesture.initial_group_pivot {
                     self.authoring_modify.group_pivot = Some((
                         self.selection.targets.clone(),
@@ -818,13 +897,28 @@ impl Editor {
                 };
                 (main, others)
             }
-            GestureKind::Scale { pivot, center } => {
-                let anchor = if modifiers.alt { center } else { pivot };
-                let main = geometry::uniform_scale_many(&originals, anchor, press, current);
+            GestureKind::Scale {
+                context_pivot,
+                context_center,
+            } => {
+                let context_anchor = if modifiers.alt {
+                    context_center
+                } else {
+                    context_pivot
+                };
+                let context_press = gesture.scope.mapping.edit_to_stage_point(press);
+                let context_current = gesture.scope.mapping.edit_to_stage_point(current);
+                let factor =
+                    geometry::uniform_scale_factor(context_anchor, context_press, context_current);
+                let anchor = gesture.scope.mapping.stage_to_edit_point(context_anchor);
+                let main = factor
+                    .and_then(|factor| geometry::uniform_scale_many_by(&originals, anchor, factor));
                 let others = if other_originals.is_empty() {
                     None
                 } else {
-                    geometry::uniform_scale_many(&other_originals, anchor, press, current)
+                    factor.and_then(|factor| {
+                        geometry::uniform_scale_many_by(&other_originals, anchor, factor)
+                    })
                 };
                 (main, others)
             }
@@ -890,12 +984,28 @@ impl Editor {
             } => {
                 let axis = if horizontal { 0 } else { 1 };
                 let anchor = if modifiers.alt { center } else { opposite };
-                let delta = current[axis] - press[axis];
-                let main = geometry::skew_many(&originals, horizontal, edge, anchor, delta);
+                let context_press = gesture.scope.mapping.edit_to_stage_point(press);
+                let context_current = gesture.scope.mapping.edit_to_stage_point(current);
+                let delta = context_current[axis] - context_press[axis];
+                let main = geometry::skew_many_in_context(
+                    &originals,
+                    gesture.scope.mapping.matrix(),
+                    horizontal,
+                    edge,
+                    anchor,
+                    delta,
+                );
                 let others = if other_originals.is_empty() {
                     None
                 } else {
-                    geometry::skew_many(&other_originals, horizontal, edge, anchor, delta)
+                    geometry::skew_many_in_context(
+                        &other_originals,
+                        gesture.scope.mapping.matrix(),
+                        horizontal,
+                        edge,
+                        anchor,
+                        delta,
+                    )
                 };
                 (main, others)
             }
@@ -1125,28 +1235,33 @@ impl Editor {
         if !gesture.moved || !matches!(gesture.kind, GestureKind::Marquee) {
             return;
         }
-        let from = position(gesture.scope.local(gesture.press));
-        let to = position(gesture.scope.local(gesture.latest));
-        let rect = Rect::from_two_pos(from, to);
-        if rect.width() <= 0.5 || rect.height() <= 0.5 {
+        let screen_rect = Rect::from_two_pos(gesture.press, gesture.latest);
+        if screen_rect.width() <= 0.5 || screen_rect.height() <= 0.5 {
             return;
         }
+        let corners = [
+            screen_rect.left_top(),
+            screen_rect.right_top(),
+            screen_rect.right_bottom(),
+            screen_rect.left_bottom(),
+        ]
+        .map(|point| gesture.scope.local(point));
         let polygon = vec![
             PathCommand::MoveTo {
-                x: f64::from(rect.min.x),
-                y: f64::from(rect.min.y),
+                x: corners[0][0],
+                y: corners[0][1],
             },
             PathCommand::LineTo {
-                x: f64::from(rect.max.x),
-                y: f64::from(rect.min.y),
+                x: corners[1][0],
+                y: corners[1][1],
             },
             PathCommand::LineTo {
-                x: f64::from(rect.max.x),
-                y: f64::from(rect.max.y),
+                x: corners[2][0],
+                y: corners[2][1],
             },
             PathCommand::LineTo {
-                x: f64::from(rect.min.x),
-                y: f64::from(rect.max.y),
+                x: corners[3][0],
+                y: corners[3][1],
             },
             PathCommand::Close,
         ];
@@ -1205,23 +1320,22 @@ impl Editor {
         &mut self,
         ui: &egui::Ui,
         p: &egui::Painter,
+        mapping: StageMapping,
         origin: Pos2,
-        rect: Rect,
         scene: &[DrawItem],
         response: &egui::Response,
     ) {
+        let rect = response.rect;
         self.cancel_stale_selection_gesture();
-        if self
-            .object_gesture
-            .as_ref()
-            .is_some_and(|g| g.scope.origin != origin || g.scope.zoom != self.zoom)
-        {
+        if self.object_gesture.as_ref().is_some_and(|g| {
+            g.scope.origin != origin || g.scope.zoom != self.zoom || g.scope.mapping != mapping
+        }) {
             self.cancel_selection_gesture();
         }
         self.normalize_targets();
         let zoom = self.zoom;
-        let screen = |point: Pos2| origin + point.to_vec2() * zoom;
-        let geometry = self.selection_geometry(scene, p);
+        let screen = |point: Pos2| mapping.edit_to_screen(origin, zoom, point);
+        let geometry = self.selection_geometry(scene, p, mapping);
         // Free Transform zones, first match wins: handles, then skew edges, then rotate corners.
         let mut zones: Vec<(Zone, GestureKind, Cursor)> = Vec::new();
         let mut transform_frame = None;
@@ -1230,7 +1344,7 @@ impl Editor {
             if self.tool == Tool::Transform {
                 // `NF2/Transform Box` (Scale mode) on the selection's stage bounds, also for
                 // rotated objects (the box itself is never rotated).
-                let frame = Rect::from_min_max(screen(g.world.min), screen(g.world.max));
+                let frame = context_rect_to_screen(g.context_world, origin, zoom);
                 transform_frame = Some(frame);
                 let rects = cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
                 let pivot_world = g.world_pivot;
@@ -1250,7 +1364,7 @@ impl Editor {
                         nf::MOVE,
                     ));
                 }
-                let world = bounds(g.world);
+                let context_world = bounds(g.context_world);
                 use geometry::ResizeHandle as H;
                 // `paint_transform_box` order: corners clockwise from top-left, then edges T R B L.
                 const BOX: [H; 8] = [
@@ -1286,8 +1400,8 @@ impl Editor {
                             }
                         } else {
                             GestureKind::Scale {
-                                pivot: box_handle.opposite().point(world),
-                                center: pivot_world,
+                                context_pivot: box_handle.opposite().point(context_world),
+                                context_center: mapping.edit_to_stage_point(pivot_world),
                             }
                         };
                         let cursor =
@@ -1305,15 +1419,16 @@ impl Editor {
                     ));
                 }
                 let [nw, ne, se, sw, n, e, s, w] = rects.map(|r| r.center());
+                let context_pivot = mapping.edit_to_stage_point(pivot_world);
                 let edges = [
-                    (nw, n, true, world.min[1], world.max[1]),
-                    (n, ne, true, world.min[1], world.max[1]),
-                    (sw, s, true, world.max[1], world.min[1]),
-                    (s, se, true, world.max[1], world.min[1]),
-                    (nw, w, false, world.min[0], world.max[0]),
-                    (w, sw, false, world.min[0], world.max[0]),
-                    (ne, e, false, world.max[0], world.min[0]),
-                    (e, se, false, world.max[0], world.min[0]),
+                    (nw, n, true, context_world.min[1], context_world.max[1]),
+                    (n, ne, true, context_world.min[1], context_world.max[1]),
+                    (sw, s, true, context_world.max[1], context_world.min[1]),
+                    (s, se, true, context_world.max[1], context_world.min[1]),
+                    (nw, w, false, context_world.min[0], context_world.max[0]),
+                    (w, sw, false, context_world.min[0], context_world.max[0]),
+                    (ne, e, false, context_world.max[0], context_world.min[0]),
+                    (e, se, false, context_world.max[0], context_world.min[0]),
                 ];
                 for (from, to, horizontal, edge, opposite) in edges {
                     // Leave room around the handles; tiny boxes have no skew zone.
@@ -1325,7 +1440,7 @@ impl Editor {
                         horizontal,
                         edge,
                         opposite,
-                        center: pivot_world[if horizontal { 1 } else { 0 }],
+                        center: context_pivot[if horizontal { 1 } else { 0 }],
                     };
                     let cursor = if horizontal { nf::SKEW_H } else { nf::SKEW_V };
                     zones.push((Zone::Edge(from + gap, to - gap), kind, cursor));
@@ -1341,7 +1456,7 @@ impl Editor {
                 }
             } else {
                 // `NF2/Selection Box` around Object-mode placements; hatch mesh over Merge shapes.
-                let any_merge = g.boxes.iter().any(|(_, _, _, merge)| *merge);
+                let any_merge = g.boxes.iter().any(|(_, _, _, _, merge)| *merge);
                 let has_mask_layers = any_merge
                     && self.show_layer_masking(p.ctx())
                     && self.project.symbols.iter().any(|s| {
@@ -1353,7 +1468,8 @@ impl Editor {
                 let authored = has_mask_layers.then(|| {
                     self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()))
                 });
-                let masks = authored
+                let mapped_authored = authored.as_ref().map(|scene| mapping.map_scene(scene));
+                let masks = mapped_authored
                     .as_ref()
                     .filter(|scene| !scene.clips.is_empty())
                     .map(|scene| crate::stage_clipping::ClipMeshes::new(&scene.clips, origin, zoom))
@@ -1366,7 +1482,7 @@ impl Editor {
                         }
                     }
                 }
-                let clips_by_path: HashMap<&[Id], &[Id]> = authored
+                let clips_by_path: HashMap<&[Id], &[Id]> = mapped_authored
                     .as_ref()
                     .filter(|scene| !scene.clips.is_empty())
                     .map(|scene| {
@@ -1379,8 +1495,8 @@ impl Editor {
                             .collect()
                     })
                     .unwrap_or_default();
-                for (id, rect, kind, is_merge) in &g.boxes {
-                    let rect = Rect::from_min_max(screen(rect.min), screen(rect.max));
+                for (id, _, context_rect, kind, is_merge) in &g.boxes {
+                    let rect = context_rect_to_screen(*context_rect, origin, zoom);
                     if *is_merge {
                         let masks = match &masks {
                             Ok(masks) => masks.as_ref(),
@@ -1393,13 +1509,15 @@ impl Editor {
                         };
                         if let Some(items) = items_by_root.get(id) {
                             for item in items {
+                                let mut mapped_item = (*item).clone();
+                                mapped_item.transform = mapping.map_matrix(mapped_item.transform);
                                 let clip_ids = clips_by_path
                                     .get(item.instance_path.as_slice())
                                     .copied()
                                     .unwrap_or(&[]);
                                 if let Err(error) = crate::stage_clipping::paint_shape_selection(
                                     p,
-                                    item,
+                                    &mapped_item,
                                     origin,
                                     zoom,
                                     rect,
@@ -1427,14 +1545,14 @@ impl Editor {
         if let Some(pos) = ui.input(|input| input.pointer.hover_pos())
             && rect.contains(pos)
         {
-            let local = Pos2::ZERO + (pos - origin) / self.zoom;
+            let local = mapping.screen_to_edit(origin, self.zoom, pos);
             self.stage_cursor = Some(if let Some(gesture) = &self.object_gesture {
                 gesture.cursor
             } else if let Some((_, _, cursor)) = zones.iter().find(|(zone, ..)| zone.contains(pos))
             {
                 *cursor
             } else if transform_frame.is_some_and(|frame| frame.contains(pos))
-                || self.pick_placement(scene, p, local).is_some()
+                || self.pick_placement(scene, p, local, mapping).is_some()
             {
                 move_cursor
             } else {
@@ -1458,7 +1576,7 @@ impl Editor {
                     self.finish_edits();
                     self.playing = false;
                     let original_selection = self.selection.clone();
-                    let local = Pos2::ZERO + (pos - origin) / self.zoom;
+                    let local = mapping.screen_to_edit(origin, self.zoom, pos);
                     let zone = zones
                         .iter()
                         .find(|(zone, ..)| zone.contains(pos))
@@ -1481,7 +1599,7 @@ impl Editor {
                         ui.ctx()
                             .data_mut(|d| d.insert_temp(pivot_click_id, (now, pos)));
                     }
-                    let hit = self.pick_placement(scene, p, local);
+                    let hit = self.pick_placement(scene, p, local, mapping);
                     // Preferences ▸ Shift-select off: clicking an object adds it without ⇧.
                     let additive =
                         modifiers.shift || (!self.workspace.shift_select && hit.is_some());
@@ -1563,7 +1681,7 @@ impl Editor {
                         .filter(|(t, _)| *t == self.selection.targets)
                         .map(|(_, gp)| *gp);
                     self.object_gesture = Some(SelectionGesture {
-                        scope: Scope::new(self, origin),
+                        scope: Scope::new(self, mapping, origin),
                         kind,
                         press: pos,
                         latest: pos,
@@ -1648,12 +1766,11 @@ impl Editor {
         }
         if self.tool == Tool::Select && response.double_clicked() && !self.stage_view.guide_pointer
         {
-            if let Some(Element {
-                kind: ElementKind::Instance { symbol_id, .. },
-                ..
-            }) = self.selected_element().cloned()
+            if self
+                .selected_element()
+                .is_some_and(|element| matches!(element.kind, ElementKind::Instance { .. }))
             {
-                self.enter_symbol(symbol_id);
+                self.enter_selected_symbol_in_place();
             } else if self.selected_element().is_some_and(|e| {
                 matches!(
                     e.kind,
@@ -1738,6 +1855,7 @@ impl Editor {
         &mut self,
         ui: &egui::Ui,
         p: &egui::Painter,
+        mapping: StageMapping,
         origin: Pos2,
         _page: Rect,
         rect: Rect,
@@ -1746,6 +1864,7 @@ impl Editor {
             !draft.scope.matches(self)
                 || draft.scope.origin != origin
                 || draft.scope.zoom != self.zoom
+                || draft.scope.mapping != mapping
                 || draft.tool != self.tool
                 || self
                     .symbol()
@@ -1774,9 +1893,9 @@ impl Editor {
                 {
                     self.finish_edits();
                     self.playing = false;
-                    let start = self.snap_screen(origin, pos);
+                    let start = self.snap_screen(mapping, origin, pos);
                     self.shape_draft = Some(ShapeDraft {
-                        scope: Scope::new(self, origin),
+                        scope: Scope::new(self, mapping, origin),
                         layer: self.symbol().timeline.layers[self.layer].id.clone(),
                         tool: self.tool,
                         start,
@@ -1789,9 +1908,14 @@ impl Editor {
                     modifiers,
                 } => {
                     if let Some(draft) = self.shape_draft.take() {
-                        let pos = self.snap_screen(origin, pos);
+                        let pos = self.snap_screen(mapping, origin, pos);
                         let bounds = shape_draft_bounds(&draft, pos, modifiers);
-                        if bounds.width() > 2. && bounds.height() > 2. {
+                        let screen_edges = mapped_local_edge_screen_lengths(
+                            bounds,
+                            draft.scope.mapping,
+                            draft.scope.zoom,
+                        );
+                        if screen_edges[0] > 2. && screen_edges[1] > 2. {
                             if draft.tool == Tool::Text {
                                 self.create_stage_text(ui.ctx(), bounds.min, Some(bounds));
                                 continue;
@@ -1837,14 +1961,12 @@ impl Editor {
         }
         if self.shape_draft.is_some()
             && let Some(pos) = ui.input(|input| input.pointer.latest_pos())
-            && let pos = self.snap_screen(origin, pos)
+            && let pos = self.snap_screen(mapping, origin, pos)
             && let Some(draft) = &self.shape_draft
         {
             let modifiers = ui.input(|input| input.modifiers);
             let local_bounds = shape_draft_bounds(draft, pos, modifiers);
-            let screen = |pt: Pos2| draft.scope.origin + pt.to_vec2() * draft.scope.zoom;
-            let preview_rect =
-                Rect::from_min_max(screen(local_bounds.min), screen(local_bounds.max));
+            let screen = |pt: Pos2| draft.scope.screen(pt);
             let palette = UiPalette::current(p.ctx());
             // Keep the gesture overlay, but follow the same oval contour as the
             // committed primitive (including arcs and its inner radius).
@@ -1855,6 +1977,7 @@ impl Editor {
                     self.authoring_tools.oval_options,
                 )
             });
+            let max_scale = draft.scope.mapping.scale_bounds().1.max(1e-12) as f32;
             for (width, color) in [(3.0_f32, palette.overlay_halo), (1.0_f32, palette.overlay)] {
                 if let Some(commands) = &oval {
                     crate::vector::paint_path(
@@ -1864,19 +1987,27 @@ impl Editor {
                             rule: FillRule::NonZero,
                             fill: egui::Color32::TRANSPARENT,
                             stroke: color,
-                            width: (width / draft.scope.zoom) as f64,
-                            tolerance: 0.25 / draft.scope.zoom,
+                            width: (width / (draft.scope.zoom * max_scale)) as f64,
+                            tolerance: 0.25 / (draft.scope.zoom * max_scale),
                             fingerprint: None,
                         },
-                        |point| preview_rect.min + point.to_vec2() * draft.scope.zoom,
+                        |point| screen(local_bounds.min + point.to_vec2()),
                     );
                 } else {
-                    p.rect_stroke(
-                        preview_rect,
-                        0.,
-                        Stroke::new(width, color),
-                        StrokeKind::Inside,
-                    );
+                    let corners = [
+                        local_bounds.left_top(),
+                        local_bounds.right_top(),
+                        local_bounds.right_bottom(),
+                        local_bounds.left_bottom(),
+                    ]
+                    .map(screen);
+                    for edge in corners
+                        .into_iter()
+                        .zip(corners.into_iter().cycle().skip(1))
+                        .take(4)
+                    {
+                        p.line_segment([edge.0, edge.1], Stroke::new(width, color));
+                    }
                 }
             }
         }

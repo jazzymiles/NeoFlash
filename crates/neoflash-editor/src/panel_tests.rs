@@ -2592,7 +2592,7 @@ fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_
     );
     assert!(!d.editor.can_swap_instance_symbol(&sym_a));
     assert!(!d.editor.swap_instance_symbol(&sym_a));
-    d.editor.editing.truncate(1);
+    d.editor.leave_to_level(0);
 
     // On root, select the Hero instance and swap it to Badge (MovieClip -> Graphic).
     d.editor.select_single_id(placed_id.clone());
@@ -2630,7 +2630,7 @@ fn document_settings_and_library_symbol_commands_commit_atomically_and_preserve_
     // Delete symbol refuses root/scene symbols, exits active editing breadcrumb, removes instances, and undoes.
     let root_id = d.editor.project.root.clone();
     assert!(!d.editor.delete_symbol(&root_id));
-    d.editor.editing.push(sym_a.clone());
+    d.editor.enter_symbol_isolated(sym_a.clone());
     let before_delete = d.editor.project.clone();
     assert!(d.editor.delete_symbol(&sym_a));
     assert_eq!(d.editor.editing, vec![root_id]);

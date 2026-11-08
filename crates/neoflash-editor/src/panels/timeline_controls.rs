@@ -950,7 +950,7 @@ impl Editor {
     fn scene_menu_items(&mut self, ui: &mut egui::Ui) {
         let scenes = self.scene_list();
         let current = self.current_scene().to_owned();
-        let at_scene = self.editing.len() <= 1;
+        let at_scene = self.editing_scene();
         let mut chosen = None;
         let mut create = false;
         for (id, scene) in &scenes {

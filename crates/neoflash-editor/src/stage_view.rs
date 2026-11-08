@@ -14,6 +14,7 @@
 //! `NF2/Guide`, `NF2/Stage Grid`, `NF2/Snap Ring`) and `view_settings` (`NF2/View Settings`).
 use crate::app::{Editor, Tool};
 use crate::snapping::Snapper;
+use crate::stage_mapping::StageMapping;
 use eframe::egui::{self, Pos2, Rect, Sense, Vec2};
 use neoflash_core::{Guide, GuideAxis, Id};
 use neoflash_ui::components::canvas::{self as cv, GuideState, Orientation, RulerLayout};
@@ -329,21 +330,81 @@ fn orientation(axis: GuideAxis) -> Orientation {
     }
 }
 
-/// Screen coordinate of a timeline position along a guide's axis (y for horizontal guides).
-fn guide_screen(axis: GuideAxis, position: f64, origin: Pos2, zoom: f32) -> f32 {
-    match axis {
-        GuideAxis::Horizontal => origin.y + position as f32 * zoom,
-        GuideAxis::Vertical => origin.x + position as f32 * zoom,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AxisMapping {
+    Direct,
+    Swapped,
+}
+
+fn axis_mapping(mapping: StageMapping) -> Option<AxisMapping> {
+    let [a, b, c, d, _, _] = mapping.matrix();
+    if b.abs() <= 1e-9 && c.abs() <= 1e-9 {
+        Some(AxisMapping::Direct)
+    } else if a.abs() <= 1e-9 && d.abs() <= 1e-9 {
+        Some(AxisMapping::Swapped)
+    } else {
+        None
     }
 }
 
-/// Timeline position under `pointer` along a guide's axis.
-fn guide_position(axis: GuideAxis, pointer: Pos2, origin: Pos2, zoom: f32) -> f64 {
-    let zoom = zoom.max(1e-3) as f64;
-    match axis {
-        GuideAxis::Horizontal => (pointer.y - origin.y) as f64 / zoom,
-        GuideAxis::Vertical => (pointer.x - origin.x) as f64 / zoom,
+/// The locked ruler painter accepts only a positive one-dimensional scale.  Keep local ruler
+/// labels only when both mapped axes increase in the painter's positive screen direction; a
+/// quarter turn or reflection with a reversed axis uses the ordinary screen ruler until R-063
+/// defines signed/oblique labels. Guides and grid continue to use [`axis_mapping`] independently.
+fn ruler_axis_mapping(mapping: StageMapping) -> Option<AxisMapping> {
+    let kind = axis_mapping(mapping)?;
+    let [a, b, c, d, _, _] = mapping.matrix();
+    match kind {
+        AxisMapping::Direct if a > 1e-9 && d > 1e-9 => Some(kind),
+        AxisMapping::Swapped if c > 1e-9 && b > 1e-9 => Some(kind),
+        _ => None,
     }
+}
+
+fn screen_orientation(axis: GuideAxis, mapping: StageMapping) -> Option<Orientation> {
+    match axis_mapping(mapping)? {
+        AxisMapping::Direct => Some(orientation(axis)),
+        AxisMapping::Swapped => Some(orientation(match axis {
+            GuideAxis::Horizontal => GuideAxis::Vertical,
+            GuideAxis::Vertical => GuideAxis::Horizontal,
+        })),
+    }
+}
+
+/// Screen coordinate of an axis-aligned mapped guide. The locked NF2 Guide painter has no
+/// oblique state, so rotated/skewed local guides are withheld instead of being drawn incorrectly.
+fn guide_screen(
+    axis: GuideAxis,
+    position: f64,
+    mapping: StageMapping,
+    origin: Pos2,
+    zoom: f32,
+) -> Option<f32> {
+    let screen_orientation = screen_orientation(axis, mapping)?;
+    let point = match axis {
+        GuideAxis::Horizontal => Pos2::new(0., position as f32),
+        GuideAxis::Vertical => Pos2::new(position as f32, 0.),
+    };
+    let screen = mapping.edit_to_screen(origin, zoom, point);
+    Some(match screen_orientation {
+        Orientation::Horizontal => screen.y,
+        Orientation::Vertical => screen.x,
+    })
+}
+
+/// Timeline position under `pointer` along a guide's authored axis.
+fn guide_position(
+    axis: GuideAxis,
+    pointer: Pos2,
+    mapping: StageMapping,
+    origin: Pos2,
+    zoom: f32,
+) -> f64 {
+    let local = mapping.screen_to_edit(origin, zoom.max(1e-3), pointer);
+    f64::from(match axis {
+        GuideAxis::Horizontal => local.y,
+        GuideAxis::Vertical => local.x,
+    })
 }
 
 impl Editor {
@@ -369,20 +430,35 @@ impl Editor {
     }
 
     /// Snap targets for the current zoom, or `None` when no snapping is on (or `⌘` suspends it).
+    #[cfg(test)]
     pub(crate) fn snapper(&self) -> Option<Snapper> {
+        self.snapper_for(StageMapping::identity())
+    }
+
+    pub(crate) fn snapper_for(&self, mapping: StageMapping) -> Option<Snapper> {
         if self.stage_view.command_suspend {
             return None;
         }
         let v = &self.stage_view.prefs;
         let zoom = self.zoom.max(1e-3) as f64;
-        let normal_tol = SnapAccuracy::Normal.screen_tolerance() as f64 / zoom;
-        let object_tol = f64::from(self.workspace.drawing.snap_tolerance.clamp(1.0, 32.0)) / zoom;
+        let [a, b, c, d, _, _] = mapping.matrix();
+        let axis_scale = [a.hypot(b).max(1e-12), c.hypot(d).max(1e-12)];
+        let tolerance = |screen: f64| {
+            [
+                screen / (zoom * axis_scale[0]),
+                screen / (zoom * axis_scale[1]),
+            ]
+        };
+        let normal_tol = tolerance(SnapAccuracy::Normal.screen_tolerance() as f64);
+        let object_tol = tolerance(f64::from(
+            self.workspace.drawing.snap_tolerance.clamp(1.0, 32.0),
+        ));
         let mut snapper = Snapper {
-            guide_tolerance: v.guide_accuracy.screen_tolerance() as f64 / zoom,
+            guide_tolerance: tolerance(v.guide_accuracy.screen_tolerance() as f64),
             object_tolerance: object_tol,
             ..Default::default()
         };
-        if v.guides_show && v.guides_snap {
+        if axis_mapping(mapping).is_some() && v.guides_show && v.guides_snap {
             for g in self.guides() {
                 match g.axis {
                     GuideAxis::Horizontal => snapper.guides_y.push(g.position),
@@ -393,14 +469,14 @@ impl Editor {
         if v.objects_snap {
             self.collect_object_snap_lines(&mut snapper.objects_x, &mut snapper.objects_y);
         }
-        if v.grid_snap {
+        if axis_mapping(mapping).is_some() && v.grid_snap {
             snapper.grid = Some((
                 v.grid_spacing,
-                v.grid_accuracy.screen_tolerance() as f64 / zoom,
+                tolerance(v.grid_accuracy.screen_tolerance() as f64),
             ));
         }
         if v.pixels_snap {
-            snapper.pixel_tolerance = Some(normal_tol.min(0.5));
+            snapper.pixel_tolerance = Some(normal_tol.map(|value| value.min(0.5)));
         }
         (!snapper.is_empty()).then_some(snapper)
     }
@@ -497,37 +573,50 @@ impl Editor {
     /// Snap a point dragged from `press` to `pos` (screen) whose stage position at the press was
     /// `anchor`. Returns the pointer position that puts the anchor on the snapped line(s) and shows
     /// the snap ring there. Without snapping returns `pos` unchanged.
-    pub(crate) fn snap_drag(&mut self, origin: Pos2, press: Pos2, pos: Pos2, anchor: Pos2) -> Pos2 {
-        let Some(snapper) = self.snapper() else {
+    pub(crate) fn snap_drag(
+        &mut self,
+        mapping: StageMapping,
+        origin: Pos2,
+        press: Pos2,
+        pos: Pos2,
+        anchor: Pos2,
+    ) -> Pos2 {
+        let Some(snapper) = self.snapper_for(mapping) else {
             self.stage_view.snap_ring = None;
             return pos;
         };
         let zoom = self.zoom.max(1e-3);
-        let moving = anchor + (pos - press) / zoom;
+        let press_local = mapping.screen_to_edit(origin, zoom, press);
+        let current_local = mapping.screen_to_edit(origin, zoom, pos);
+        let moving = anchor + (current_local - press_local);
         let snapped = snapper.point([moving.x as f64, moving.y as f64]);
         let target = Pos2::new(snapped.point[0] as f32, snapped.point[1] as f32);
-        let adjusted = pos + (target - moving) * zoom;
-        self.stage_view.snap_ring = Some((origin + target.to_vec2() * zoom, snapped.any()));
+        let adjusted = pos
+            + (mapping.edit_to_screen(origin, zoom, target)
+                - mapping.edit_to_screen(origin, zoom, moving));
+        self.stage_view.snap_ring =
+            Some((mapping.edit_to_screen(origin, zoom, target), snapped.any()));
         adjusted
     }
 
     /// Snap a pointer position itself (drawing tools: shape corners, line ends, pen anchors).
-    pub(crate) fn snap_screen(&mut self, origin: Pos2, pos: Pos2) -> Pos2 {
-        let anchor = Pos2::ZERO + (pos - origin) / self.zoom.max(1e-3);
-        self.snap_drag(origin, pos, pos, anchor)
+    pub(crate) fn snap_screen(&mut self, mapping: StageMapping, origin: Pos2, pos: Pos2) -> Pos2 {
+        let anchor = mapping.screen_to_edit(origin, self.zoom.max(1e-3), pos);
+        self.snap_drag(mapping, origin, pos, pos, anchor)
     }
 
     /// Snap a moving selection: `bounds` (stage) at the press, pointer moved by `delta` (stage).
     /// Returns the corrected delta; the ring sits on the snapped edge (or the grabbed point).
     pub(crate) fn snap_move(
         &mut self,
+        mapping: StageMapping,
         origin: Pos2,
         bounds: Rect,
         grab: Pos2,
         delta: [f64; 2],
         lock: [bool; 2],
     ) -> [f64; 2] {
-        let Some(snapper) = self.snapper().filter(|_| bounds.is_finite()) else {
+        let Some(snapper) = self.snapper_for(mapping).filter(|_| bounds.is_finite()) else {
             self.stage_view.snap_ring = None;
             return delta;
         };
@@ -547,7 +636,7 @@ impl Editor {
             snapped[1].map_or(grabbed.y, |i| (ys[i] + offset[1]) as f32),
         );
         self.stage_view.snap_ring = Some((
-            origin + ring.to_vec2() * self.zoom,
+            mapping.edit_to_screen(origin, self.zoom, ring),
             snapped.iter().any(Option::is_some),
         ));
         result
@@ -649,14 +738,27 @@ impl Editor {
     }
 
     /// Guide position for a pointer: whole pixels, or the nearest grid line when snapping to grid.
-    fn dragged_guide_position(&self, axis: GuideAxis, pointer: Pos2, origin: Pos2) -> f64 {
-        let raw = guide_position(axis, pointer, origin, self.zoom);
+    fn dragged_guide_position(
+        &self,
+        axis: GuideAxis,
+        pointer: Pos2,
+        mapping: StageMapping,
+        origin: Pos2,
+    ) -> f64 {
+        let raw = guide_position(axis, pointer, mapping, origin, self.zoom);
         let v = &self.stage_view.prefs;
         if v.grid_snap {
             let grid = Snapper {
                 grid: Some((
                     v.grid_spacing,
-                    v.grid_accuracy.screen_tolerance() as f64 / self.zoom.max(1e-3) as f64,
+                    [
+                        v.grid_accuracy.screen_tolerance() as f64
+                            / (self.zoom.max(1e-3) as f64
+                                * mapping.matrix()[0].hypot(mapping.matrix()[1]).max(1e-12)),
+                        v.grid_accuracy.screen_tolerance() as f64
+                            / (self.zoom.max(1e-3) as f64
+                                * mapping.matrix()[2].hypot(mapping.matrix()[3]).max(1e-12)),
+                    ],
                 )),
                 ..Default::default()
             };
@@ -671,11 +773,17 @@ impl Editor {
         raw.round().clamp(-Guide::MAX_POSITION, Guide::MAX_POSITION)
     }
 
-    fn update_guide_drag(&mut self, pointer: Pos2, canvas: Rect, origin: Pos2) {
+    fn update_guide_drag(
+        &mut self,
+        pointer: Pos2,
+        canvas: Rect,
+        mapping: StageMapping,
+        origin: Pos2,
+    ) {
         let Some(mut drag) = self.stage_view.drag.take() else {
             return;
         };
-        let position = self.dragged_guide_position(drag.axis, pointer, origin);
+        let position = self.dragged_guide_position(drag.axis, pointer, mapping, origin);
         let layout = RulerLayout::new(canvas);
         drag.remove =
             !canvas.contains(pointer) || (self.stage_view.prefs.rulers && layout.contains(pointer));
@@ -697,7 +805,13 @@ impl Editor {
 
     /// Before the stage tools run: keep guide/corner drags going, and take presses on guides out of
     /// the frame's events so tools do not also start a gesture there.
-    pub(crate) fn stage_view_input(&mut self, ui: &egui::Ui, canvas: Rect, origin: Pos2) {
+    pub(crate) fn stage_view_input(
+        &mut self,
+        ui: &egui::Ui,
+        canvas: Rect,
+        mapping: StageMapping,
+        origin: Pos2,
+    ) {
         self.stage_view.command_suspend = ui.input(|i| i.modifiers.command);
         if self
             .stage_view
@@ -740,12 +854,12 @@ impl Editor {
                 {
                     let hit = if interactive {
                         self.guides().iter().enumerate().rev().find_map(|(i, g)| {
-                            cv::guide_hit(
-                                orientation(g.axis),
-                                guide_screen(g.axis, g.position, origin, zoom),
-                                pos,
-                            )
-                            .then_some((i, *g))
+                            guide_screen(g.axis, g.position, mapping, origin, zoom)
+                                .is_some_and(|screen| {
+                                    screen_orientation(g.axis, mapping)
+                                        .is_some_and(|axis| cv::guide_hit(axis, screen, pos))
+                                })
+                                .then_some((i, *g))
                         })
                     } else {
                         None
@@ -768,7 +882,7 @@ impl Editor {
                     }
                 }
                 egui::Event::PointerMoved(pos) if self.stage_view.drag.is_some() => {
-                    self.update_guide_drag(pos, canvas, origin);
+                    self.update_guide_drag(pos, canvas, mapping, origin);
                 }
                 egui::Event::PointerButton {
                     pos,
@@ -776,7 +890,7 @@ impl Editor {
                     pressed: false,
                     ..
                 } if self.stage_view.drag.is_some() => {
-                    self.update_guide_drag(pos, canvas, origin);
+                    self.update_guide_drag(pos, canvas, mapping, origin);
                     self.finish_guide_drag();
                 }
                 _ => {}
@@ -796,10 +910,11 @@ impl Editor {
             interactive
                 .then(|| {
                     self.guides().iter().find(|g| {
-                        cv::guide_hit(
-                            orientation(g.axis),
-                            guide_screen(g.axis, g.position, origin, zoom),
-                            pos,
+                        guide_screen(g.axis, g.position, mapping, origin, zoom).is_some_and(
+                            |screen| {
+                                screen_orientation(g.axis, mapping)
+                                    .is_some_and(|axis| cv::guide_hit(axis, screen, pos))
+                            },
                         )
                     })
                 })
@@ -807,10 +922,12 @@ impl Editor {
                 .map(|g| g.axis)
         });
         if let Some(axis) = axis {
-            ui.ctx().set_cursor_icon(match axis {
-                GuideAxis::Horizontal => egui::CursorIcon::ResizeVertical,
-                GuideAxis::Vertical => egui::CursorIcon::ResizeHorizontal,
-            });
+            ui.ctx()
+                .set_cursor_icon(match screen_orientation(axis, mapping) {
+                    Some(Orientation::Horizontal) => egui::CursorIcon::ResizeVertical,
+                    Some(Orientation::Vertical) => egui::CursorIcon::ResizeHorizontal,
+                    None => return,
+                });
         }
         if !self.snapping_gesture() {
             self.stage_view.snap_ring = None;
@@ -821,8 +938,17 @@ impl Editor {
 
     /// `NF2/Stage Grid` over the stage page, aligned to the timeline origin (scene top-left or the
     /// symbol registration point); every 5th line from the origin is stronger.
-    pub(crate) fn paint_stage_grid(&self, painter: &egui::Painter, page: Rect, origin: Pos2) {
+    pub(crate) fn paint_stage_grid(
+        &self,
+        painter: &egui::Painter,
+        page: Rect,
+        mapping: StageMapping,
+        origin: Pos2,
+    ) {
         let v = &self.stage_view.prefs;
+        let Some(axis_mapping) = axis_mapping(mapping) else {
+            return;
+        };
         if !v.grid_show {
             return;
         }
@@ -837,13 +963,24 @@ impl Editor {
         } else {
             v.grid_color(neoflash_ui::palette(painter.ctx()))
         };
+        let [a, b, c, d, _, _] = mapping.matrix();
+        let spacing = match axis_mapping {
+            AxisMapping::Direct => Vec2::new(
+                v.grid_spacing[0] as f32 * a.abs() as f32,
+                v.grid_spacing[1] as f32 * d.abs() as f32,
+            ),
+            AxisMapping::Swapped => Vec2::new(
+                v.grid_spacing[1] as f32 * c.abs() as f32,
+                v.grid_spacing[0] as f32 * b.abs() as f32,
+            ),
+        };
         cv::paint_stage_grid_with_options(
             painter,
             page,
             cv::StageGridOptions {
-                origin,
+                origin: mapping.edit_to_screen(origin, self.zoom, Pos2::ZERO),
                 zoom: self.zoom,
-                spacing: Vec2::new(v.grid_spacing[0] as f32, v.grid_spacing[1] as f32),
+                spacing,
                 color: grid_color,
                 adaptive: dynamic,
             },
@@ -851,7 +988,13 @@ impl Editor {
     }
 
     /// `NF2/Guide` lines of the current timeline (and a guide being dragged out of a ruler).
-    pub(crate) fn paint_stage_guides(&self, painter: &egui::Painter, canvas: Rect, origin: Pos2) {
+    pub(crate) fn paint_stage_guides(
+        &self,
+        painter: &egui::Painter,
+        canvas: Rect,
+        mapping: StageMapping,
+        origin: Pos2,
+    ) {
         let v = &self.stage_view.prefs;
         let drag = self.stage_view.drag.as_ref();
         let ctx = painter.ctx();
@@ -869,12 +1012,18 @@ impl Editor {
                 } else {
                     GuideState::Default
                 };
-                let o = orientation(g.axis);
+                let Some(o) = screen_orientation(g.axis, mapping) else {
+                    continue;
+                };
+                let Some(screen) = guide_screen(g.axis, g.position, mapping, origin, self.zoom)
+                else {
+                    continue;
+                };
                 cv::paint_guide(
                     painter,
                     ctx,
                     o,
-                    guide_screen(g.axis, g.position, origin, self.zoom).round() + 0.5,
+                    screen.round() + 0.5,
                     cv::guide_extent(canvas, o, v.rulers),
                     state,
                     custom,
@@ -882,12 +1031,17 @@ impl Editor {
             }
         }
         if let Some(d) = drag.filter(|d| d.index.is_none() && !d.remove) {
-            let o = orientation(d.axis);
+            let Some(o) = screen_orientation(d.axis, mapping) else {
+                return;
+            };
+            let Some(screen) = guide_screen(d.axis, d.position, mapping, origin, self.zoom) else {
+                return;
+            };
             cv::paint_guide(
                 painter,
                 ctx,
                 o,
-                guide_screen(d.axis, d.position, origin, self.zoom).round() + 0.5,
+                screen.round() + 0.5,
                 cv::guide_extent(canvas, o, v.rulers),
                 GuideState::Selected,
                 custom,
@@ -906,20 +1060,52 @@ impl Editor {
 
     /// Rulers and corner: their own layer above the stage. Dragging out of a ruler creates a guide,
     /// the corner moves the zero point (double-click resets it).
-    pub(crate) fn stage_rulers(&mut self, ctx: &egui::Context, canvas: Rect, origin: Pos2) {
+    pub(crate) fn stage_rulers(
+        &mut self,
+        ctx: &egui::Context,
+        canvas: Rect,
+        mapping: StageMapping,
+        origin: Pos2,
+    ) {
         if !self.stage_view.prefs.rulers || canvas.width() < 60. || canvas.height() < 60. {
             self.stage_view.zero_drag = false;
             return;
         }
         let layout = RulerLayout::new(canvas);
         let zoom = self.zoom;
+        let guide_axis_kind = axis_mapping(mapping);
+        let mapped_guides = guide_axis_kind.is_some();
+        let mapped_axis_kind = ruler_axis_mapping(mapping);
+        let mapped_rulers = mapped_axis_kind.is_some();
+        let [a, b, c, d, _, _] = mapping.matrix();
+        let registration = if mapped_rulers {
+            mapping.edit_to_screen(origin, zoom, Pos2::ZERO)
+        } else {
+            origin
+        };
+        let (horizontal_zoom, vertical_zoom) = match mapped_axis_kind {
+            Some(AxisMapping::Direct) => (zoom * a.abs() as f32, zoom * d.abs() as f32),
+            Some(AxisMapping::Swapped) => (zoom * c.abs() as f32, zoom * b.abs() as f32),
+            None => (zoom, zoom),
+        };
+        let zero = if mapped_rulers {
+            mapping.edit_to_screen(
+                origin,
+                zoom,
+                Pos2::new(
+                    self.stage_view.zero[0] as f32,
+                    self.stage_view.zero[1] as f32,
+                ),
+            )
+        } else {
+            Pos2::new(
+                registration.x + self.stage_view.zero[0] as f32 * horizontal_zoom,
+                registration.y + self.stage_view.zero[1] as f32 * vertical_zoom,
+            )
+        };
         let v = self.stage_view.prefs.clone();
         let unit = v.units.pixels();
         let every = (!v.labels_auto).then_some(v.label_every as f32 / unit);
-        let zero = Pos2::new(
-            origin.x + self.stage_view.zero[0] as f32 * zoom,
-            origin.y + self.stage_view.zero[1] as f32 * zoom,
-        );
         let strip = |id: &str, rect: Rect, paint: &dyn Fn(&egui::Painter, Rect)| {
             egui::Area::new(egui::Id::new(id))
                 .order(egui::Order::Middle)
@@ -940,29 +1126,40 @@ impl Editor {
                 r,
                 Orientation::Horizontal,
                 zero.x,
-                zoom,
+                horizontal_zoom,
                 unit,
                 every,
             )
         });
         let vertical = strip("stage-ruler-vertical", layout.vertical, &|p, r| {
-            cv::paint_stage_ruler_units(p, ctx, r, Orientation::Vertical, zero.y, zoom, unit, every)
+            cv::paint_stage_ruler_units(
+                p,
+                ctx,
+                r,
+                Orientation::Vertical,
+                zero.y,
+                vertical_zoom,
+                unit,
+                every,
+            )
         });
         let corner = strip("stage-ruler-corner", layout.corner, &|p, r| {
             cv::paint_ruler_corner(p, ctx, r)
         });
-        for (response, axis) in [
-            (&horizontal, GuideAxis::Horizontal),
-            (&vertical, GuideAxis::Vertical),
-        ] {
-            if response.drag_started() && self.stage_view.drag.is_none() {
+        let (horizontal_guide, vertical_guide) = match guide_axis_kind {
+            Some(AxisMapping::Direct) => (GuideAxis::Horizontal, GuideAxis::Vertical),
+            Some(AxisMapping::Swapped) => (GuideAxis::Vertical, GuideAxis::Horizontal),
+            None => (GuideAxis::Horizontal, GuideAxis::Vertical),
+        };
+        for (response, axis) in [(&horizontal, horizontal_guide), (&vertical, vertical_guide)] {
+            if response.drag_started() && self.stage_view.drag.is_none() && mapped_guides {
                 self.finish_edits();
                 let pointer = response.interact_pointer_pos().unwrap_or(canvas.center());
                 self.stage_view.drag = Some(GuideDrag {
                     symbol: self.symbol_id().to_owned(),
                     axis,
                     index: None,
-                    position: self.dragged_guide_position(axis, pointer, origin),
+                    position: self.dragged_guide_position(axis, pointer, mapping, origin),
                     remove: true,
                     began: false,
                 });
@@ -977,10 +1174,15 @@ impl Editor {
         }
         if self.stage_view.zero_drag {
             if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
-                self.stage_view.zero = [
-                    ((pos.x - origin.x) / zoom.max(1e-3)).round() as f64,
-                    ((pos.y - origin.y) / zoom.max(1e-3)).round() as f64,
-                ];
+                self.stage_view.zero = if mapped_rulers {
+                    let local = mapping.screen_to_edit(origin, zoom, pos);
+                    [f64::from(local.x.round()), f64::from(local.y.round())]
+                } else {
+                    [
+                        ((pos.x - origin.x) / zoom.max(1e-3)).round() as f64,
+                        ((pos.y - origin.y) / zoom.max(1e-3)).round() as f64,
+                    ]
+                };
             }
             if !ctx.input(|i| i.pointer.primary_down()) {
                 self.stage_view.zero_drag = false;
@@ -1073,5 +1275,41 @@ impl Editor {
         {
             self.cancel_guide_drag();
         }
+    }
+}
+
+#[cfg(test)]
+mod affine_ruler_tests {
+    use super::*;
+
+    fn mapping(matrix: [f64; 6]) -> StageMapping {
+        StageMapping::try_new(matrix).unwrap()
+    }
+
+    #[test]
+    fn signed_or_oblique_axes_fall_back_instead_of_reversing_ruler_labels() {
+        assert_eq!(
+            ruler_axis_mapping(mapping([2., 0., 0., 3., 0., 0.])),
+            Some(AxisMapping::Direct)
+        );
+        assert_eq!(
+            ruler_axis_mapping(mapping([0., 2., 3., 0., 0., 0.])),
+            Some(AxisMapping::Swapped)
+        );
+        assert_eq!(
+            ruler_axis_mapping(mapping([0., 2., -3., 0., 0., 0.])),
+            None,
+            "a quarter turn reverses one local ruler axis"
+        );
+        assert_eq!(
+            ruler_axis_mapping(mapping([-2., 0., 0., 3., 0., 0.])),
+            None,
+            "a reflection must not paint increasing labels backwards"
+        );
+        assert_eq!(
+            ruler_axis_mapping(mapping([1., 0.25, 0., 1., 0., 0.])),
+            None,
+            "oblique axes need the R-063 ruler state"
+        );
     }
 }

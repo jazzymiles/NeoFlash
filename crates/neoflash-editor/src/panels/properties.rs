@@ -98,7 +98,7 @@ impl Editor {
         ui.push_id(scope, |ui| {
             if let Some(mut element) = object {
                 let original = element.clone();
-                let mut edit_symbol = None;
+                let mut edit_symbol = false;
                 let mut convert_text = false;
                 let (icon, title, subtitle) = self.object_header(&element);
                 ui.add(TypeHeader { icon, title: &title, subtitle: &subtitle });
@@ -216,7 +216,7 @@ impl Editor {
                                     if let Some(value) = value { property_row(ui, label, |ui| { ui.add(egui::Label::new(rich(value, TextStyle::Mono).color(neoflash_ui::palette(ctx).text_primary)).truncate()).on_hover_text(value); }); }
                                 }
                             }
-                            if ui.add(nf::Button::new("Edit symbol")).clicked() { edit_symbol = Some(symbol_id.clone()); }
+                            if ui.add(nf::Button::new("Edit symbol")).clicked() { edit_symbol = true; }
                         }
                         let obj_act_sc = self.tooltip_sc(crate::commands::CommandId::WindowActions);
                         let mut obj_act_btn = nf::Button::new("Object actions…");
@@ -261,7 +261,7 @@ impl Editor {
                         current.kind = element.kind;
                     }
                 }
-                if let Some(id) = edit_symbol { self.enter_symbol(id); }
+                if edit_symbol { self.enter_selected_symbol_in_place(); }
             } else {
                 let mut document = self.project.clone();
                 let symbol_id = self.symbol_id().to_owned();

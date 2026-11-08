@@ -253,8 +253,11 @@ Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Un
 Control ▸ Go to end / step, Window ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
 Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
 keyframes and Select all frames work. Stage `Swap symbol…` / `Duplicate symbol…` work and right-click selects the
-target under every active tool. Open: Properties `Swap…` picker (R-012), true `Edit in new window`, dimmed affine
-in-context symbol editing and Bitmap Trace/broader object rows (R-060). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
+  target under every active tool. Affine in-context symbol editing now targets one exact placement, dims the frozen
+  parent chain, inverse-maps authoring gestures/drops and restores the nested session view; isolated definition editing
+  remains available. Non-affine 9-slice instances refuse safely, while arbitrary oblique guide/grid/ruler chrome waits
+  for R-063. Open: Properties `Swap…` picker (R-012), true `Edit in new window` and Bitmap Trace/broader object rows
+  (R-060). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
 Hide panels and Enable simple buttons are implemented; current working/unavailable boundaries are in
 `NF2-FUNCTIONAL-SPEC.md` §11. Real-input menu tests exercise toggles in both directions without document changes.
 - UI: `panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus (`panels/timeline.rs`,

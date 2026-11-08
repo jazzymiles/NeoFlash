@@ -423,15 +423,6 @@ impl Editor {
             s.project.symbols.retain(|symbol| symbol.id != symbol_id);
         });
 
-        if let Some(pos) = self.editing.iter().position(|id| id == symbol_id) {
-            self.editing.truncate(pos);
-            if self.editing.is_empty() {
-                self.editing.push(self.project.root.clone());
-            }
-            self.frame = 0;
-            self.layer = 0;
-            self.clear_selection();
-        }
         if self.library_selected.as_deref() == Some(symbol_id) {
             self.library_selected = None;
         }

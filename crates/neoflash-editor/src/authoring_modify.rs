@@ -5,6 +5,7 @@ use crate::{
     app::Editor,
     paint_controls::{number_field, numeric_row, paint_row},
     selection::SelectionTarget,
+    stage_mapping::StageMapping,
     workspace::PanelId,
 };
 use eframe::egui::{self, Pos2, Rect, Vec2};
@@ -76,6 +77,7 @@ struct Placement {
     target: SelectionTarget,
     element: Element,
     bounds: Rect,
+    context_bounds: Rect,
 }
 
 /// An authoring group is one layout object, even though runtime placements
@@ -83,6 +85,7 @@ struct Placement {
 struct LayoutUnit {
     members: Vec<Placement>,
     bounds: Rect,
+    context_bounds: Rect,
 }
 
 #[derive(Clone, Copy)]
@@ -201,17 +204,36 @@ fn unique_distributed_layer_name(base: &str, used_names: &mut HashSet<String>) -
 }
 
 impl Editor {
+    fn modify_stage_mapping(&self) -> Option<StageMapping> {
+        if self.editing_in_place() {
+            self.edit_local_to_context_matrix()
+                .ok()
+                .and_then(|matrix| StageMapping::try_new(matrix).ok())
+        } else {
+            Some(StageMapping::identity())
+        }
+    }
+
     fn modify_placements(&self, ctx: &egui::Context) -> Vec<Placement> {
+        let Some(mapping) = self.modify_stage_mapping() else {
+            return vec![];
+        };
         let painter = ctx.layer_painter(egui::LayerId::background());
-        let mut bounds = HashMap::<String, Rect>::new();
+        let mut bounds = HashMap::<String, (Rect, Rect)>::new();
         for draw in evaluate(&self.project, self.symbol_id(), self.frame) {
             if let Some(id) = draw.instance_path.first() {
                 let rect = crate::stage::world_bounds(&draw, &painter);
-                if rect.is_finite() {
+                let mut mapped = draw.clone();
+                mapped.transform = mapping.map_matrix(mapped.transform);
+                let context_rect = crate::stage::world_bounds(&mapped, &painter);
+                if rect.is_finite() && context_rect.is_finite() {
                     bounds
                         .entry(id.clone())
-                        .and_modify(|b| *b = b.union(rect))
-                        .or_insert(rect);
+                        .and_modify(|(local, context)| {
+                            *local = local.union(rect);
+                            *context = context.union(context_rect);
+                        })
+                        .or_insert((rect, context_rect));
                 }
             }
         }
@@ -219,16 +241,18 @@ impl Editor {
             .into_iter()
             .filter(|(target, _)| self.target_editable(target))
             .map(|(target, element)| {
-                let bounds = bounds.remove(&element.id).unwrap_or_else(|| {
-                    Rect::from_min_size(
-                        Pos2::new(element.transform.x as f32, element.transform.y as f32),
-                        Vec2::ZERO,
+                let fallback = Pos2::new(element.transform.x as f32, element.transform.y as f32);
+                let (bounds, context_bounds) = bounds.remove(&element.id).unwrap_or_else(|| {
+                    (
+                        Rect::from_min_size(fallback, Vec2::ZERO),
+                        Rect::from_min_size(mapping.edit_to_stage_pos(fallback), Vec2::ZERO),
                     )
                 });
                 Placement {
                     target,
                     element,
                     bounds,
+                    context_bounds,
                 }
             })
             .collect()
@@ -268,6 +292,8 @@ impl Editor {
                 .map(|group| (placement.target.layer.clone(), group.id.clone()));
             if let Some(index) = group.as_ref().and_then(|group| groups.get(group)).copied() {
                 units[index].bounds = units[index].bounds.union(placement.bounds);
+                units[index].context_bounds =
+                    units[index].context_bounds.union(placement.context_bounds);
                 units[index].members.push(placement);
             } else {
                 if let Some(group) = group {
@@ -275,6 +301,7 @@ impl Editor {
                 }
                 units.push(LayoutUnit {
                     bounds: placement.bounds,
+                    context_bounds: placement.context_bounds,
                     members: vec![placement],
                 });
             }
@@ -413,7 +440,7 @@ impl Editor {
     fn modify_reference(&self, units: &[LayoutUnit]) -> Rect {
         if self.authoring_modify.to_stage {
             let size = Vec2::new(self.project.width as f32, self.project.height as f32);
-            if self.editing.len() > 1 {
+            if self.edit_context_is_isolated() {
                 Rect::from_center_size(Pos2::ZERO, size)
             } else {
                 Rect::from_min_size(Pos2::ZERO, size)
@@ -433,10 +460,25 @@ impl Editor {
         }
         let reference = self.modify_reference(&units);
         let at = edge_at(reference, axis, edge);
-        let changes = units
-            .into_iter()
-            .flat_map(|unit| translated_unit(unit, axis, |bounds| at - edge_at(bounds, axis, edge)))
-            .collect();
+        let changes = if self.authoring_modify.to_stage {
+            let Some(mapping) = self.modify_stage_mapping() else {
+                return;
+            };
+            units
+                .into_iter()
+                .flat_map(|unit| {
+                    let offset = at - edge_at(unit.context_bounds, axis, edge);
+                    translated_unit_context(unit, mapping, axis, offset)
+                })
+                .collect()
+        } else {
+            units
+                .into_iter()
+                .flat_map(|unit| {
+                    translated_unit(unit, axis, |bounds| at - edge_at(bounds, axis, edge))
+                })
+                .collect()
+        };
         self.apply_modified(changes, None);
     }
 
@@ -445,32 +487,50 @@ impl Editor {
         if units.len() < 3 {
             return;
         }
+        let to_stage = self.authoring_modify.to_stage;
         units.sort_by(|a, b| {
-            edge_at(a.bounds, axis, edge).total_cmp(&edge_at(b.bounds, axis, edge))
+            let a = if to_stage { a.context_bounds } else { a.bounds };
+            let b = if to_stage { b.context_bounds } else { b.bounds };
+            edge_at(a, axis, edge).total_cmp(&edge_at(b, axis, edge))
         });
         let reference = self.modify_reference(&units);
-        let first = if self.authoring_modify.to_stage {
+        let first = if to_stage {
             let item = &units[0];
-            reference.min[axis] as f64 + edge as f64 * extent(item.bounds, axis) / 2.
+            reference.min[axis] as f64 + edge as f64 * extent(item.context_bounds, axis) / 2.
         } else {
             edge_at(units[0].bounds, axis, edge)
         };
-        let last = if self.authoring_modify.to_stage {
+        let last = if to_stage {
             let item = units.last().unwrap();
-            reference.max[axis] as f64 - (2 - edge) as f64 * extent(item.bounds, axis) / 2.
+            reference.max[axis] as f64 - (2 - edge) as f64 * extent(item.context_bounds, axis) / 2.
         } else {
             edge_at(units.last().unwrap().bounds, axis, edge)
         };
         let step = (last - first) / (units.len() - 1) as f64;
-        let changes = units
-            .into_iter()
-            .enumerate()
-            .flat_map(|(index, unit)| {
-                translated_unit(unit, axis, |bounds| {
-                    first + step * index as f64 - edge_at(bounds, axis, edge)
+        let changes = if to_stage {
+            let Some(mapping) = self.modify_stage_mapping() else {
+                return;
+            };
+            units
+                .into_iter()
+                .enumerate()
+                .flat_map(|(index, unit)| {
+                    let offset =
+                        first + step * index as f64 - edge_at(unit.context_bounds, axis, edge);
+                    translated_unit_context(unit, mapping, axis, offset)
                 })
-            })
-            .collect();
+                .collect()
+        } else {
+            units
+                .into_iter()
+                .enumerate()
+                .flat_map(|(index, unit)| {
+                    translated_unit(unit, axis, |bounds| {
+                        first + step * index as f64 - edge_at(bounds, axis, edge)
+                    })
+                })
+                .collect()
+        };
         self.apply_modified(changes, None);
     }
 
@@ -481,31 +541,64 @@ impl Editor {
         if units.len() < 2 {
             return;
         }
-        units.sort_by(|a, b| a.bounds.min[axis].total_cmp(&b.bounds.min[axis]));
+        let to_stage = self.authoring_modify.to_stage;
+        units.sort_by(|a, b| {
+            let a = if to_stage { a.context_bounds } else { a.bounds };
+            let b = if to_stage { b.context_bounds } else { b.bounds };
+            a.min[axis].total_cmp(&b.min[axis])
+        });
         let reference = self.modify_reference(&units);
         let gap = gap.unwrap_or_else(|| {
-            (extent(reference, axis) - units.iter().map(|p| extent(p.bounds, axis)).sum::<f64>())
+            (extent(reference, axis)
+                - units
+                    .iter()
+                    .map(|unit| {
+                        extent(
+                            if to_stage {
+                                unit.context_bounds
+                            } else {
+                                unit.bounds
+                            },
+                            axis,
+                        )
+                    })
+                    .sum::<f64>())
                 / (units.len() - 1) as f64
         });
-        let mut at = if self.authoring_modify.to_stage {
+        let mut at = if to_stage {
             reference.min[axis] as f64
         } else {
             units[0].bounds.min[axis] as f64
         };
-        let changes = units
-            .into_iter()
-            .flat_map(|unit| {
-                let offset = at - unit.bounds.min[axis] as f64;
-                at += extent(unit.bounds, axis) + gap;
-                translated_unit(unit, axis, |_| offset)
-            })
-            .collect();
+        let changes = if to_stage {
+            let Some(mapping) = self.modify_stage_mapping() else {
+                return;
+            };
+            units
+                .into_iter()
+                .flat_map(|unit| {
+                    let offset = at - unit.context_bounds.min[axis] as f64;
+                    at += extent(unit.context_bounds, axis) + gap;
+                    translated_unit_context(unit, mapping, axis, offset)
+                })
+                .collect()
+        } else {
+            units
+                .into_iter()
+                .flat_map(|unit| {
+                    let offset = at - unit.bounds.min[axis] as f64;
+                    at += extent(unit.bounds, axis) + gap;
+                    translated_unit(unit, axis, |_| offset)
+                })
+                .collect()
+        };
         self.apply_modified(changes, None);
     }
 
     pub(crate) fn match_selection_size(&mut self, ctx: &egui::Context, axis: usize) {
         let units = self.modify_layout_units(ctx);
-        let size = if self.authoring_modify.to_stage {
+        let to_stage = self.authoring_modify.to_stage;
+        let size = if to_stage {
             extent(self.modify_reference(&units), axis)
         } else {
             units
@@ -516,15 +609,41 @@ impl Editor {
         if size <= 0. {
             return;
         }
+        let mapping = if to_stage {
+            let Some(mapping) = self.modify_stage_mapping() else {
+                return;
+            };
+            Some(mapping)
+        } else {
+            None
+        };
         let mut changes = Vec::new();
         for unit in units {
-            let old = extent(unit.bounds, axis);
+            let old = extent(
+                if to_stage {
+                    unit.context_bounds
+                } else {
+                    unit.bounds
+                },
+                axis,
+            );
             if old <= 1e-9 {
                 continue;
             }
             let mut scale = [1., 1.];
             scale[axis] = size / old;
-            let matrix = around(unit.bounds.min, [scale[0], 0., 0., scale[1], 0., 0.]);
+            let matrix = if let Some(mapping) = mapping {
+                let context = around(
+                    unit.context_bounds.min,
+                    [scale[0], 0., 0., scale[1], 0., 0.],
+                );
+                let Some(inverse) = invert_affine_matrix(mapping.matrix()) else {
+                    return;
+                };
+                affine_multiply(inverse, affine_multiply(context, mapping.matrix()))
+            } else {
+                around(unit.bounds.min, [scale[0], 0., 0., scale[1], 0., 0.])
+            };
             let Some(members) = transformed(&unit.members, matrix) else {
                 self.message("This size exceeds transform limits.");
                 return;
@@ -3882,6 +4001,26 @@ fn translated_unit(
         .into_iter()
         .map(|mut item| {
             translate(&mut item.element.transform, axis, offset);
+            (item.target, item.element)
+        })
+        .collect()
+}
+fn translated_unit_context(
+    unit: LayoutUnit,
+    mapping: StageMapping,
+    axis: usize,
+    amount: f64,
+) -> Vec<(SelectionTarget, Element)> {
+    let mut context_delta = [0., 0.];
+    context_delta[axis] = amount;
+    let origin = mapping.stage_to_edit_point([0., 0.]);
+    let endpoint = mapping.stage_to_edit_point(context_delta);
+    let local_delta = [endpoint[0] - origin[0], endpoint[1] - origin[1]];
+    unit.members
+        .into_iter()
+        .map(|mut item| {
+            item.element.transform.x += local_delta[0];
+            item.element.transform.y += local_delta[1];
             (item.target, item.element)
         })
         .collect()

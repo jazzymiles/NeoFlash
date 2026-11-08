@@ -436,6 +436,47 @@ pub fn evaluate_scene(
     )
 }
 
+/// Re-evaluate a live authored timeline while retaining the frame of every
+/// materialized independent clip from a paused preview. The returned clip IDs
+/// are the masks structurally targeting `target_root`, even when that branch
+/// currently has no drawable children (for example an empty frame with onion
+/// ghosts on neighbouring frames).
+pub fn evaluate_scene_with_frozen_clips(
+    project: &Project,
+    symbol: &str,
+    frame: u32,
+    clip_frames: &HashMap<Vec<Id>, u32>,
+    target_root: &[Id],
+    include_guides: bool,
+    show_masking: bool,
+) -> (AuthoredScene, Vec<String>) {
+    let evaluation = crate::evaluate::snapshot_mode(
+        project,
+        symbol,
+        frame,
+        &|path| clip_frames.get(path).copied(),
+        &|_| None,
+        include_guides,
+    );
+    let mut target_clip_ids = Vec::new();
+    if show_masking {
+        for plan in &evaluation.masks {
+            for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
+                if roots.iter().any(|root| root.as_slice() == target_root) {
+                    let id = target_clip_id(&plan.id, plan.target_groups.len(), index);
+                    if !target_clip_ids.contains(&id) {
+                        target_clip_ids.push(id);
+                    }
+                }
+            }
+        }
+    }
+    (
+        scene_from_evaluation(project, evaluation, show_masking, Some(symbol)),
+        target_clip_ids,
+    )
+}
+
 pub fn evaluate_scene_with_buttons(
     project: &Project,
     symbol: &str,

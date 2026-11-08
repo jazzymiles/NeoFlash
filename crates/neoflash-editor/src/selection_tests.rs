@@ -2851,7 +2851,14 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| {
                     let response = ui.allocate_rect(view, egui::Sense::click_and_drag());
-                    editor.selection_stage(ui, ui.painter(), origin, view, &scene, &response);
+                    editor.selection_stage(
+                        ui,
+                        ui.painter(),
+                        crate::stage_mapping::StageMapping::identity(),
+                        origin,
+                        &scene,
+                        &response,
+                    );
                 });
         },
     );
@@ -3005,8 +3012,8 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
     }
     editor.project.validate().unwrap();
 
-    // Enter through the existing in-place navigation callback; the nested Stage uses the
-    // registration point as its origin, rather than the root page's top-left corner.
+    // Enter through the in-place navigation callback. The child stays under the exact affine
+    // placement instead of jumping to the old isolated registration-point view.
     editor.onion = false;
     let mut child = editor.symbol().clone();
     child.id = "hatch-child".into();
@@ -3015,34 +3022,475 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
     let mut nested = object("nested-raw-fill", -60., -30.);
     nested.merge = true;
     child.timeline.layers = vec![layer("nested-layer", vec![nested], false)];
-    let mut placement = object("hatch-instance", 200., 240.);
+    let placement_transform = Transform {
+        x: 200.,
+        y: 240.,
+        scale_x: 1.4,
+        scale_y: 0.8,
+        rotation: 23.,
+        skew: -11.,
+        ..Default::default()
+    };
+    let mut placement = object("hatch-instance", 0., 0.);
+    placement.transform = placement_transform;
     placement.kind = ElementKind::Instance {
         symbol_id: child.id.clone(),
         playback: InstancePlayback::Independent,
     };
     editor.symbol_mut().timeline.layers = vec![layer("instance-layer", vec![placement], false)];
     editor.project.symbols.push(child);
+    editor.project.format_version = editor.project.format_version.max(5);
     editor.project.validate().unwrap();
     let before_nested = editor.project.clone();
     editor.edit_symbol_from_popover(&ctx, "hatch-child", true);
-    assert_eq!(editor.editing.len(), 2);
+    assert_eq!(editor.edit_depth(), 2);
+    assert!(editor.editing_in_place());
     assert_eq!(editor.symbol_id(), "hatch-child");
     editor.select_single_id("nested-raw-fill".into());
     let out = stage_input_frame(&mut editor, &ctx, 8., vec![]);
     let meshes = meshes_from(&ctx, out);
-    let nested_bounds = Rect::from_min_max(
-        page.center() + egui::vec2(-60., -30.),
-        page.center() + egui::vec2(0., 10.),
-    )
-    .expand(0.01);
+    let nested_bounds =
+        crate::stage_mapping::StageMapping::try_new(transform_matrix(placement_transform))
+            .unwrap()
+            .map_rect_to_screen(
+                page.min,
+                editor.zoom,
+                Rect::from_min_max(egui::pos2(-60., -30.), egui::pos2(0., 10.)),
+            )
+            .expand(0.01);
     assert!(
         hatch_vertices(&meshes)
             .iter()
             .all(|vertex| nested_bounds.contains(vertex.pos)),
-        "in-place symbol hatching must use the nested registration-point origin"
+        "in-place symbol hatching must follow the selected instance's complete affine transform"
     );
     assert_eq!(editor.project, before_nested);
     assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn affine_in_place_selection_moves_child_locally_and_parent_stays_noninteractive() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    let mut child = editor.symbol().clone();
+    child.id = "affine-edit-child".into();
+    child.name = "Affine edit child".into();
+    child.timeline.frame_count = 1;
+    child.timeline.layers = vec![layer(
+        "affine-child-layer",
+        vec![object("affine-child-shape", 10., 20.)],
+        false,
+    )];
+
+    let placement_transform = Transform {
+        x: 250.,
+        y: 180.,
+        scale_x: 1.5,
+        scale_y: 0.7,
+        rotation: 31.,
+        skew: -14.,
+        ..Default::default()
+    };
+    let mut placement = object("affine-instance", 0., 0.);
+    placement.transform = placement_transform;
+    placement.kind = ElementKind::Instance {
+        symbol_id: child.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    let mut parent_only = object("parent-only", 650., 100.);
+    if let ElementKind::Rectangle { fill, .. } = &mut parent_only.kind {
+        *fill = [217, 83, 41, 255];
+    }
+    editor.symbol_mut().timeline.layers = vec![layer(
+        "affine-parent-layer",
+        vec![placement, parent_only],
+        false,
+    )];
+    editor.project.symbols.push(child);
+    editor.project.format_version = editor.project.format_version.max(5);
+    editor.project.validate().unwrap();
+    editor.set_selection(vec![editor.target_for_id("affine-instance").unwrap()]);
+    assert!(editor.enter_selected_symbol_in_place());
+    editor.tool = Tool::Select;
+    editor.history.clear();
+
+    let painted = stage_input_frame(&mut editor, &ctx, 19., vec![]);
+    let painted: Vec<_> = ctx
+        .tessellate(painted.shapes, painted.pixels_per_point)
+        .into_iter()
+        .filter_map(|primitive| match primitive.primitive {
+            egui::epaint::Primitive::Mesh(mesh) => Some(mesh),
+            _ => None,
+        })
+        .collect();
+    let parent_bounds =
+        Rect::from_min_size(page.min + egui::vec2(650., 100.), egui::vec2(60., 40.)).expand(0.01);
+    assert!(
+        painted
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .any(|vertex| parent_bounds.contains(vertex.pos)
+                && (190..=192).contains(&vertex.color.a())),
+        "parent-only artwork must be visibly dimmed while the active child stays separate"
+    );
+
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new(transform_matrix(placement_transform)).unwrap();
+    // The visible parent sibling is context only: clicking it cannot select or mutate it.
+    let before_parent_click = editor.project.clone();
+    let parent_screen = page.min + egui::vec2(680., 120.);
+    input(
+        &mut editor,
+        &ctx,
+        20.,
+        vec![
+            Event::PointerMoved(parent_screen),
+            primary_button(parent_screen, true),
+            primary_button(parent_screen, false),
+        ],
+        Modifiers::NONE,
+    );
+    assert!(editor.selection.is_empty());
+    assert_eq!(editor.project, before_parent_click);
+
+    editor.workspace.drawing.click_accuracy = crate::workspace::Tolerance::CanBeDistant;
+    let [a, b, ..] = mapping.matrix();
+    let local_per_screen_point = 1. / (a.hypot(b) as f32 * editor.zoom);
+    let edge = Pos2::new(70., 40.);
+    let near = mapping.edit_to_screen(
+        page.min,
+        editor.zoom,
+        edge + egui::vec2(6. * local_per_screen_point, 0.),
+    );
+    drag(&mut editor, &ctx, 20.2, near, near, true, Modifiers::NONE);
+    assert_eq!(ids(&editor), ["affine-child-shape"]);
+    editor.clear_selection();
+    let far = mapping.edit_to_screen(
+        page.min,
+        editor.zoom,
+        edge + egui::vec2(10. * local_per_screen_point, 0.),
+    );
+    drag(&mut editor, &ctx, 20.4, far, far, true, Modifiers::NONE);
+    assert!(
+        editor.selection.is_empty(),
+        "click accuracy must remain an eight-screen-point tolerance after affine mapping"
+    );
+
+    let local_start = egui::pos2(40., 40.);
+    let local_end = local_start + egui::vec2(15., -10.);
+    let start = mapping.edit_to_screen(page.min, editor.zoom, local_start);
+    let end = mapping.edit_to_screen(page.min, editor.zoom, local_end);
+    let before_move = editor.project.clone();
+    drag(&mut editor, &ctx, 21., start, end, false, Modifiers::NONE);
+    assert_eq!(ids(&editor), ["affine-child-shape"]);
+    let moved = sampled(&editor, "affine-child-shape");
+    assert!(
+        (moved.transform.x - 25.).abs() < 1e-4,
+        "unexpected local x: {}",
+        moved.transform.x
+    );
+    assert!(
+        (moved.transform.y - 10.).abs() < 1e-4,
+        "unexpected local y: {}",
+        moved.transform.y
+    );
+    assert!(editor.history.can_undo());
+    editor.undo();
+    assert_eq!(editor.project, before_move);
+
+    editor.authoring_modify.to_stage = true;
+    editor.align_selection(&ctx, 0, 0);
+    let aligned = sampled(&editor, "affine-child-shape");
+    let local_bounds = Rect::from_min_size(
+        Pos2::new(aligned.transform.x as f32, aligned.transform.y as f32),
+        egui::vec2(60., 40.),
+    );
+    let context_bounds = mapping.map_rect(local_bounds);
+    assert!(
+        context_bounds.left().abs() < 1e-3,
+        "Align Left to Stage must move along the context X axis: {context_bounds:?}"
+    );
+    assert!(
+        aligned.transform.x != 10. && aligned.transform.y != 20.,
+        "an oblique parent requires a two-axis local correction"
+    );
+    editor.undo();
+    assert_eq!(editor.project, before_move);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn selection_chrome_composes_affine_mapping_before_taking_axis_aligned_bounds() {
+    let (mut editor, ctx, _) = rectangle_stage();
+    let mut element = object("bounds-cancel-affine", 135., 90.);
+    element.transform.scale_x = 1.7;
+    element.transform.scale_y = 0.6;
+    element.transform.rotation = 37.;
+    element.transform.skew = -19.;
+    editor.symbol_mut().timeline.layers = vec![layer("bounds-cancel-layer", vec![element], false)];
+    select(&mut editor, &["bounds-cancel-affine"]);
+
+    let scene = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+    let painter = ctx.debug_painter();
+    let mapping = crate::stage_mapping::StageMapping::try_new(
+        invert_affine_matrix(scene[0].transform).unwrap(),
+    )
+    .unwrap();
+    let exact = editor
+        .selection_context_bounds(&scene, &painter, mapping)
+        .unwrap();
+    assert!((exact.min.x - 0.).abs() < 1e-3, "{exact:?}");
+    assert!((exact.min.y - 0.).abs() < 1e-3, "{exact:?}");
+    assert!((exact.width() - 60.).abs() < 1e-3, "{exact:?}");
+    assert!((exact.height() - 40.).abs() < 1e-3, "{exact:?}");
+
+    let local_aabb = crate::stage::world_bounds(&scene[0], &painter);
+    let aabb_of_aabb = mapping.map_rect(local_aabb);
+    assert!(
+        aabb_of_aabb.width() > exact.width() + 20. || aabb_of_aabb.height() > exact.height() + 20.,
+        "the fixture must distinguish transform-then-bounds from AABB-of-AABB: {aabb_of_aabb:?} vs {exact:?}"
+    );
+}
+
+#[test]
+fn affine_transform_box_uses_context_opposite_corner_and_context_skew_axes() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    let mut child = editor.symbol().clone();
+    child.id = "context-transform-child".into();
+    child.name = "Context transform child".into();
+    child.timeline.frame_count = 1;
+    child.timeline.layers = vec![layer(
+        "context-transform-layer",
+        vec![
+            object("context-transform-a", 0., 0.),
+            object("context-transform-b", 100., 100.),
+        ],
+        false,
+    )];
+
+    let placement_transform = Transform {
+        x: 500.,
+        y: 200.,
+        scale_x: 1.5,
+        scale_y: 0.75,
+        rotation: 90.,
+        ..Default::default()
+    };
+    let mut placement = object("context-transform-instance", 0., 0.);
+    placement.transform = placement_transform;
+    placement.kind = ElementKind::Instance {
+        symbol_id: child.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    editor.symbol_mut().timeline.layers =
+        vec![layer("context-transform-parent", vec![placement], false)];
+    editor.project.symbols.push(child);
+    editor.project.format_version = editor.project.format_version.max(5);
+    editor.project.validate().unwrap();
+    editor.set_selection(vec![
+        editor.target_for_id("context-transform-instance").unwrap(),
+    ]);
+    assert!(editor.enter_selected_symbol_in_place());
+    select(&mut editor, &["context-transform-a", "context-transform-b"]);
+    editor.set_tool(Tool::Transform);
+    editor.history.clear();
+
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new(transform_matrix(placement_transform)).unwrap();
+    let context_bounds = |editor: &Editor| {
+        let scene = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+        editor
+            .selection_context_bounds(&scene, &ctx.debug_painter(), mapping)
+            .unwrap()
+    };
+    let before = editor.project.clone();
+    let initial = context_bounds(&editor);
+    stage_input_frame(&mut editor, &ctx, 23., vec![]);
+
+    // The north-west screen handle is the inverse-mapped south-west local corner after this
+    // quarter turn. Scaling must keep the screen-opposite south-east corner fixed.
+    let fixed = page.min + initial.right_bottom().to_vec2() * editor.zoom;
+    let start = page.min + initial.left_top().to_vec2() * editor.zoom;
+    let end = fixed + (start - fixed) * 1.25;
+    drag(&mut editor, &ctx, 23.2, start, end, false, Modifiers::NONE);
+    let scaled = context_bounds(&editor);
+    assert!(scaled.right_bottom().distance(initial.right_bottom()) < 1e-3);
+    let expected_min = initial.right_bottom() + (initial.min - initial.right_bottom()) * 1.25;
+    assert!(scaled.min.distance(expected_min) < 1e-3, "{scaled:?}");
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // A top screen edge drag is an X shear in the parent context, not an X shear in the
+    // quarter-turned child's edit axes. Verify the complete conjugated affine matrices.
+    stage_input_frame(&mut editor, &ctx, 24., vec![]);
+    let original_transforms: Vec<_> = ["context-transform-a", "context-transform-b"]
+        .map(|id| sampled(&editor, id).transform)
+        .into_iter()
+        .collect();
+    let start_context = Pos2::new(initial.left() + initial.width() * 0.25, initial.top());
+    let start = page.min + start_context.to_vec2() * editor.zoom;
+    let displacement = 30.;
+    let end = start + egui::vec2(displacement * editor.zoom, 0.);
+    drag(&mut editor, &ctx, 24.2, start, end, false, Modifiers::NONE);
+    let edge = f64::from(initial.top());
+    let anchor = f64::from(initial.bottom());
+    let k = f64::from(displacement) / (edge - anchor);
+    let shear = [1., 0., k, 1., -k * anchor, 0.];
+    for (id, original) in ["context-transform-a", "context-transform-b"]
+        .into_iter()
+        .zip(original_transforms)
+    {
+        let expected = affine_multiply(
+            shear,
+            affine_multiply(mapping.matrix(), transform_matrix(original)),
+        );
+        let actual = affine_multiply(
+            mapping.matrix(),
+            transform_matrix(sampled(&editor, id).transform),
+        );
+        for (actual, expected) in actual.into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-7, "{actual} != {expected}");
+        }
+    }
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn affine_in_place_shape_creation_uses_screen_size_not_tiny_local_bounds() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    let mut child = editor.symbol().clone();
+    child.id = "scaled-drawing-child".into();
+    child.name = "Scaled drawing child".into();
+    child.timeline.frame_count = 1;
+    child.timeline.layers = vec![layer("scaled-drawing-layer", vec![], false)];
+
+    let placement_transform = Transform {
+        x: 50.,
+        y: 50.,
+        scale_x: 100.,
+        scale_y: 1.,
+        ..Default::default()
+    };
+    let mut placement = object("scaled-drawing-instance", 0., 0.);
+    placement.transform = placement_transform;
+    placement.kind = ElementKind::Instance {
+        symbol_id: child.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    editor.symbol_mut().timeline.layers =
+        vec![layer("scaled-drawing-parent", vec![placement], false)];
+    editor.project.symbols.push(child);
+    editor.project.validate().unwrap();
+    editor.set_selection(vec![
+        editor.target_for_id("scaled-drawing-instance").unwrap(),
+    ]);
+    assert!(editor.enter_selected_symbol_in_place());
+    editor.set_tool(Tool::Rectangle);
+
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new(transform_matrix(placement_transform)).unwrap();
+    let start = mapping.edit_to_screen(page.min, editor.zoom, Pos2::new(1., 1.));
+    let end = mapping.edit_to_screen(page.min, editor.zoom, Pos2::new(2., 21.));
+    drag(&mut editor, &ctx, 22., start, end, false, Modifiers::NONE);
+
+    let created = editor
+        .selected_element()
+        .expect("a 100 by 20 screen-point drag creates artwork");
+    let ElementKind::Rectangle { width, height, .. } = created.kind else {
+        panic!("expected a rectangle")
+    };
+    assert!((width - 1.).abs() < 1e-6, "unexpected local width: {width}");
+    assert!(
+        (height - 20.).abs() < 1e-6,
+        "unexpected local height: {height}"
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn oblique_shape_and_text_drags_require_both_mapped_local_edges_to_exceed_minimum() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    let mut child = editor.symbol().clone();
+    child.id = "oblique-minimum-child".into();
+    child.name = "Oblique minimum child".into();
+    child.timeline.frame_count = 1;
+    child.timeline.layers = vec![layer("oblique-minimum-layer", vec![], false)];
+
+    let placement_transform = Transform {
+        x: 320.,
+        y: 100.,
+        scale_x: 1.25,
+        scale_y: 0.8,
+        rotation: 45.,
+        skew: 18.,
+        ..Default::default()
+    };
+    let mut placement = object("oblique-minimum-instance", 0., 0.);
+    placement.transform = placement_transform;
+    placement.kind = ElementKind::Instance {
+        symbol_id: child.id.clone(),
+        playback: InstancePlayback::Independent,
+    };
+    editor.symbol_mut().timeline.layers =
+        vec![layer("oblique-minimum-parent", vec![placement], false)];
+    editor.project.symbols.push(child);
+    editor.project.format_version = editor.project.format_version.max(5);
+    editor.project.validate().unwrap();
+    editor.set_selection(vec![
+        editor.target_for_id("oblique-minimum-instance").unwrap(),
+    ]);
+    assert!(editor.enter_selected_symbol_in_place());
+    let mapping =
+        crate::stage_mapping::StageMapping::try_new(transform_matrix(placement_transform)).unwrap();
+
+    editor.set_tool(Tool::Rectangle);
+    let zero_width_start = Pos2::new(20., 20.);
+    let zero_width_end = Pos2::new(20., 80.);
+    let zoom = editor.zoom;
+    let zero_width_start = mapping.edit_to_screen(page.min, zoom, zero_width_start);
+    let zero_width_end = mapping.edit_to_screen(page.min, zoom, zero_width_end);
+    drag(
+        &mut editor,
+        &ctx,
+        25.,
+        zero_width_start,
+        zero_width_end,
+        false,
+        Modifiers::NONE,
+    );
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty(),
+        "an oblique zero-width local drag must not pass via its non-zero screen AABB"
+    );
+
+    editor.set_tool(Tool::Text);
+    let [a, b, ..] = mapping.matrix();
+    let narrow_width = 1.5 / (a.hypot(b) * f64::from(editor.zoom));
+    let narrow_start = Pos2::new(40., 20.);
+    let narrow_end = Pos2::new(40. + narrow_width as f32, 80.);
+    let narrow_start = mapping.edit_to_screen(page.min, zoom, narrow_start);
+    let narrow_end = mapping.edit_to_screen(page.min, zoom, narrow_end);
+    drag(
+        &mut editor,
+        &ctx,
+        25.4,
+        narrow_start,
+        narrow_end,
+        false,
+        Modifiers::NONE,
+    );
+    assert!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty(),
+        "a long oblique text drag with a 1.5-point local edge must not create a text box"
+    );
+    assert_eq!(editor.history.undo_len(), 0);
+    editor.project.validate().unwrap();
 }
 
 #[test]

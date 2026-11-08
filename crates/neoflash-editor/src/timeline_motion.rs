@@ -1,7 +1,10 @@
 //! Motion on the stage and between objects: the motion tween path of the selected instance with
 //! draggable key points (`NF2/Motion Path`, R-005), and Copy motion / Paste motion (frame menu).
 //! Every document change is one Undo step through `Editor::commit_history`.
-use crate::app::{Editor, Tool};
+use crate::{
+    app::{Editor, Tool},
+    stage_mapping::StageMapping,
+};
 use eframe::egui::{self, Pos2, Rect};
 use neoflash_core::*;
 use neoflash_ui::components::canvas::{self as cv, MotionKeyState};
@@ -79,6 +82,9 @@ pub(crate) struct MotionKeyDrag {
     /// Key position before the drag and pointer press, in timeline coordinates.
     start: [f64; 2],
     press: [f64; 2],
+    /// View transform captured by the stage pointer phase; direct command calls leave it unset.
+    mapping: Option<StageMapping>,
+    zoom: Option<f32>,
     pub(crate) began: bool,
 }
 
@@ -741,7 +747,29 @@ impl Editor {
     }
 
     /// Start dragging the key point at `frame` of the selected object's motion path.
+    #[cfg(test)]
     pub(crate) fn begin_motion_key_drag(&mut self, frame: u32, press: [f64; 2]) -> bool {
+        self.begin_motion_key_drag_with_context(frame, press, None, None)
+    }
+
+    /// Start a stage pointer drag and capture the exact view transform used to interpret it.
+    pub(crate) fn begin_motion_key_drag_in_stage_context(
+        &mut self,
+        frame: u32,
+        press: [f64; 2],
+        mapping: StageMapping,
+        zoom: f32,
+    ) -> bool {
+        self.begin_motion_key_drag_with_context(frame, press, Some(mapping), Some(zoom))
+    }
+
+    fn begin_motion_key_drag_with_context(
+        &mut self,
+        frame: u32,
+        press: [f64; 2],
+        mapping: Option<StageMapping>,
+        zoom: Option<f32>,
+    ) -> bool {
         if !self.workspace.timeline.show_motion_path {
             return false;
         }
@@ -760,6 +788,8 @@ impl Editor {
             frame,
             start,
             press,
+            mapping,
+            zoom,
             began: false,
         });
         true
@@ -792,7 +822,14 @@ impl Editor {
                 && let Some(path) = guide_polyline(guide, start.frame)
             {
                 let snapped = path.point_at(path.nearest(to));
-                if (snapped[0] - to[0]).hypot(snapped[1] - to[1]) <= 12.0 {
+                let distance = if let (Some(mapping), Some(zoom)) = (drag.mapping, drag.zoom) {
+                    let at = mapping.edit_to_stage_point(to);
+                    let snapped_at = mapping.edit_to_stage_point(snapped);
+                    (snapped_at[0] - at[0]).hypot(snapped_at[1] - at[1]) * f64::from(zoom.abs())
+                } else {
+                    (snapped[0] - to[0]).hypot(snapped[1] - to[1])
+                };
+                if distance <= 12.0 {
                     to = snapped;
                 }
             }
@@ -846,15 +883,28 @@ impl Editor {
 
     /// Stage input for motion path key points. Runs before the stage tools read the press; a press
     /// on a key point is consumed and suppresses the stage click handlers like a guide press.
-    pub(crate) fn motion_path_input(&mut self, ui: &egui::Ui, canvas: Rect, origin: Pos2) {
+    pub(crate) fn motion_path_input(
+        &mut self,
+        ui: &egui::Ui,
+        canvas: Rect,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
+        if self.timeline_motion.drag.as_ref().is_some_and(|drag| {
+            drag.mapping.is_some_and(|captured| captured != mapping)
+                || drag
+                    .zoom
+                    .is_some_and(|captured| captured.to_bits() != self.zoom.to_bits())
+        }) {
+            self.cancel_motion_drags();
+        }
         let zoom = self.zoom;
         let to_local = |pos: Pos2| {
-            [
-                ((pos.x - origin.x) / zoom) as f64,
-                ((pos.y - origin.y) / zoom) as f64,
-            ]
+            let point = mapping.screen_to_edit(origin, zoom, pos);
+            [f64::from(point.x), f64::from(point.y)]
         };
-        let screen = |p: [f64; 2]| origin + egui::vec2(p[0] as f32, p[1] as f32) * zoom;
+        let screen =
+            |p: [f64; 2]| mapping.edit_to_screen(origin, zoom, Pos2::new(p[0] as f32, p[1] as f32));
         let path = self
             .motion_paths_interactive()
             .then(|| self.motion_path())
@@ -887,7 +937,12 @@ impl Editor {
                         .is_none_or(|layer| layer == ui.layer_id()) =>
                 {
                     if let Some(frame) = hit(pos)
-                        && self.begin_motion_key_drag(frame, to_local(pos))
+                        && self.begin_motion_key_drag_in_stage_context(
+                            frame,
+                            to_local(pos),
+                            mapping,
+                            zoom,
+                        )
                     {
                         taken = Some(pos);
                         self.stage_view.guide_pointer = true;
@@ -923,7 +978,12 @@ impl Editor {
     }
 
     /// `NF2/Motion Path` for the selected motion-tweened object, in screen points.
-    pub(crate) fn paint_motion_path(&self, painter: &egui::Painter, origin: Pos2) {
+    pub(crate) fn paint_motion_path(
+        &self,
+        painter: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+    ) {
         if !self.workspace.timeline.show_motion_path {
             return;
         }
@@ -931,7 +991,8 @@ impl Editor {
             return;
         };
         let zoom = self.zoom;
-        let screen = |p: [f64; 2]| origin + egui::vec2(p[0] as f32, p[1] as f32) * zoom;
+        let screen =
+            |p: [f64; 2]| mapping.edit_to_screen(origin, zoom, Pos2::new(p[0] as f32, p[1] as f32));
         let frames: Vec<Pos2> = path.frames.iter().map(|p| screen(*p)).collect();
         if self.workspace.timeline.show_motion_frame_dots {
             cv::paint_motion_path(painter, painter.ctx(), &frames);
@@ -942,7 +1003,7 @@ impl Editor {
                 egui::Stroke::new(1.0_f32, nf.guide),
             ));
         }
-        self.paint_motion_handles(painter, origin);
+        self.paint_motion_handles(painter, origin, mapping);
         let dragged = self.timeline_motion.drag.as_ref().map(|d| d.frame);
         for (frame, at) in &path.keys {
             let state = if dragged == Some(*frame) {

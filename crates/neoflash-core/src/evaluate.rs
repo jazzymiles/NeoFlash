@@ -1649,6 +1649,126 @@ pub(crate) fn instance_frame_from_age(
     }
 }
 
+/// Evaluated pose of one exact symbol placement in its owner's timeline.
+///
+/// Authoring features that need the placement's coordinate space must use this
+/// result instead of the serialized `Element::transform`: tweening, motion
+/// guides, element parenting and the timeline camera can all change the matrix
+/// displayed at a particular frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluatedInstancePose {
+    pub symbol_id: Id,
+    pub frame: u32,
+    pub matrix: [f64; 6],
+    /// Nine-slice scaling deforms the child non-linearly at this placement, so
+    /// one affine matrix cannot describe an in-context child editing space.
+    pub nonlinear_scale9: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstancePoseError {
+    OwnerSymbolMissing,
+    FrameOutOfRange,
+    LayerMissing,
+    PlacementMissing,
+    PlacementIsNotInstance,
+    ChildSymbolMissing,
+    PlacementNotEvaluated,
+    AmbiguousPlacement,
+    NonFiniteMatrix,
+    SingularMatrix,
+}
+
+impl std::fmt::Display for InstancePoseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::OwnerSymbolMissing => "the owner symbol does not exist",
+            Self::FrameOutOfRange => "the saved parent frame no longer exists",
+            Self::LayerMissing => "the saved parent layer no longer exists",
+            Self::PlacementMissing => "the saved symbol placement no longer exists",
+            Self::PlacementIsNotInstance => "the saved placement is no longer a symbol instance",
+            Self::ChildSymbolMissing => "the placed child symbol no longer exists",
+            Self::PlacementNotEvaluated => {
+                "the saved symbol placement is not active in the parent timeline"
+            }
+            Self::AmbiguousPlacement => {
+                "the placement identity is ambiguous in the parent timeline"
+            }
+            Self::NonFiniteMatrix => "the evaluated symbol placement matrix is not finite",
+            Self::SingularMatrix => "the evaluated symbol placement matrix is not invertible",
+        })
+    }
+}
+
+impl std::error::Error for InstancePoseError {}
+
+/// Resolve one placement by its exact layer and element identity at an exact
+/// parent frame. The returned matrix is in the owner symbol's timeline space.
+pub fn evaluate_instance_pose(
+    project: &Project,
+    owner_symbol_id: &str,
+    frame: u32,
+    layer_id: &str,
+    element_id: &str,
+) -> Result<EvaluatedInstancePose, InstancePoseError> {
+    let owner = project
+        .symbol(owner_symbol_id)
+        .ok_or(InstancePoseError::OwnerSymbolMissing)?;
+    if frame >= owner.timeline.frame_count {
+        return Err(InstancePoseError::FrameOutOfRange);
+    }
+    let layer = owner
+        .timeline
+        .layers
+        .iter()
+        .find(|layer| layer.id == layer_id)
+        .ok_or(InstancePoseError::LayerMissing)?;
+    let sampled = sample_layer_in_at_fps(&owner.timeline, layer, frame, f64::from(project.fps))
+        .into_iter()
+        .find(|element| element.id == element_id)
+        .ok_or(InstancePoseError::PlacementMissing)?;
+    let ElementKind::Instance { symbol_id, .. } = &sampled.kind else {
+        return Err(InstancePoseError::PlacementIsNotInstance);
+    };
+    let child = project
+        .symbol(symbol_id)
+        .ok_or(InstancePoseError::ChildSymbolMissing)?;
+    let nonlinear_scale9 = sampled
+        .scale9_grid()
+        .or_else(|| child.scale9_grid())
+        .is_some()
+        && ((sampled.transform.scale_x.abs() - 1.0).abs() > 1e-6
+            || (sampled.transform.scale_y.abs() - 1.0).abs() > 1e-6);
+
+    let mut matches = snapshot_mode(project, owner_symbol_id, frame, &|_| None, &|_| None, true)
+        .nodes
+        .into_iter()
+        .filter(|node| {
+            node.path.len() == 1
+                && node.path[0] == element_id
+                && node.symbol_id.as_deref() == Some(symbol_id.as_str())
+        });
+    let node = matches
+        .next()
+        .ok_or(InstancePoseError::PlacementNotEvaluated)?;
+    if matches.next().is_some() {
+        return Err(InstancePoseError::AmbiguousPlacement);
+    }
+    if node.world.iter().any(|value| !value.is_finite()) {
+        return Err(InstancePoseError::NonFiniteMatrix);
+    }
+    let determinant = node.world[0] * node.world[3] - node.world[1] * node.world[2];
+    if !determinant.is_finite() || determinant.abs() < 1e-12 {
+        return Err(InstancePoseError::SingularMatrix);
+    }
+    Ok(EvaluatedInstancePose {
+        symbol_id: symbol_id.clone(),
+        frame: node.frame,
+        matrix: node.world,
+        nonlinear_scale9,
+    })
+}
+
 pub fn evaluate(project: &Project, symbol_id: &str, frame: u32) -> Vec<DrawItem> {
     snapshot_mode(project, symbol_id, frame, &|_| None, &|_| None, true).items
 }

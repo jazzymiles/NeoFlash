@@ -34,6 +34,7 @@ document_state! { project, path, undo_levels, recovery, saved_project, root;
     path: Option<PathBuf> = path,
     import_source: Option<PathBuf> = None,
     saved_project: Option<Project> = saved_project,
+    edit_session: crate::symbol_edit::SymbolEditSession = crate::symbol_edit::SymbolEditSession::for_scene(root.clone(), 0.75, Vec2::ZERO),
     editing: Vec<String> = vec![root.clone()],
     frame: u32 = 0,
     layer: usize = 0,
