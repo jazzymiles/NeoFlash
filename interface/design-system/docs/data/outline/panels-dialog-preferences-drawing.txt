@@ -1,6 +1,6 @@
-F Dialog / Preferences — Drawing 920×625 [V gap 0]
+F Dialog / Preferences — Drawing 920×623 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×498 [H gap 0]
+  F Main 918×496 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,17 +11,17 @@ F Dialog / Preferences — Drawing 920×625 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×498 [V gap 16]
+    F Content 698×496 [V gap 16]
       F Default mode 650×56 [V gap 10]
         T "Default mode"
         F Row 650×34 [H gap 8]
           T "New shapes"
-          F Segments 233×34 [H gap 2]
+          F Segments 203×34 [H gap 2]
             I NF2/Segment {Label=Merge drawing, Selected=False} 96×28 "Merge drawing"
             I NF2/Segment {Label=Object drawing, Selected=True} 99×28 "Object drawing"
-      F Pen tool 650×42 [V gap 10]
+      F Pen tool 650×40 [V gap 10]
         T "Pen tool"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Show pen preview, On=True} 134×18 "Show pen preview"
           I NF2/Switch {Label=Show solid points, On=False} 130×18 "Show solid points"
           I NF2/Switch {Label=Precise cursors, On=False} 119×18 "Precise cursors"

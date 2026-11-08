@@ -1,13 +1,13 @@
-F Dialogs — Export 880×3446 [V gap 32]
-  F Dialog / Export image — PSD 760×585 [V gap 0]
+F Dialogs — Export 880×3422 [V gap 32]
+  F Dialog / Export image — PSD 760×579 [V gap 0]
     I NF2/Dialog Header 758×60 "Export image"
-    F Main 758×458 [H gap 24]
+    F Main 758×452 [H gap 24]
       F Left 300×209 [V gap 8]
         F Preview 300×188
         T "Frame 30 of 120 · 960 × 600"
-      F Options 386×442 [V gap 12]
+      F Options 386×436 [V gap 12]
         F Row 386×34 [H gap 8]
-          F Segments 248×34 [H gap 2]
+          F Segments 230×34 [H gap 2]
             I NF2/Segment {Label=PNG, Selected=False} 46×28 "PNG"
             I NF2/Segment {Label=SVG, Selected=False} 45×28 "SVG"
             I NF2/Segment {Label=PSD, Selected=True} 47×28 "PSD"
@@ -41,15 +41,15 @@ F Dialogs — Export 880×3446 [V gap 32]
       F Spacer 427×2
       I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
       I NF2/Button {Icon=true, Label=Export PSD, Type=Primary, State=Default} 108×32 "Export PSD"
-  F Dialog / Export image — SVG 760×573 [V gap 0]
+  F Dialog / Export image — SVG 760×567 [V gap 0]
     I NF2/Dialog Header 758×60 "Export image"
-    F Main 758×446 [H gap 24]
+    F Main 758×440 [H gap 24]
       F Left 300×209 [V gap 8]
         F Preview 300×188
         T "Frame 30 of 120 · 960 × 600"
-      F Options 386×430 [V gap 12]
+      F Options 386×424 [V gap 12]
         F Row 386×34 [H gap 8]
-          F Segments 248×34 [H gap 2]
+          F Segments 230×34 [H gap 2]
             I NF2/Segment {Label=PNG, Selected=False} 46×28 "PNG"
             I NF2/Segment {Label=SVG, Selected=True} 47×28 "SVG"
             I NF2/Segment {Label=PSD, Selected=False} 45×28 "PSD"
@@ -84,15 +84,15 @@ F Dialogs — Export 880×3446 [V gap 32]
       F Spacer 428×2
       I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
       I NF2/Button {Icon=true, Label=Export SVG, Type=Primary, State=Default} 109×32 "Export SVG"
-  F Dialog / Export image — AI 760×553 [V gap 0]
+  F Dialog / Export image — AI 760×549 [V gap 0]
     I NF2/Dialog Header 758×60 "Export image"
-    F Main 758×426 [H gap 24]
+    F Main 758×422 [H gap 24]
       F Left 300×209 [V gap 8]
         F Preview 300×188
         T "Frame 30 of 120 · 960 × 600"
-      F Options 386×410 [V gap 12]
+      F Options 386×406 [V gap 12]
         F Row 386×34 [H gap 8]
-          F Segments 248×34 [H gap 2]
+          F Segments 230×34 [H gap 2]
             I NF2/Segment {Label=PNG, Selected=False} 46×28 "PNG"
             I NF2/Segment {Label=SVG, Selected=False} 45×28 "SVG"
             I NF2/Segment {Label=PSD, Selected=False} 45×28 "PSD"
@@ -124,16 +124,16 @@ F Dialogs — Export 880×3446 [V gap 32]
       F Spacer 437×2
       I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
       I NF2/Button {Icon=true, Label=Export AI, Type=Primary, State=Default} 97×32 "Export AI"
-  F Dialog / Export video 840×533 [V gap 0]
+  F Dialog / Export video 840×531 [V gap 0]
     I NF2/Dialog Header 838×60 "Export video"
-    F Main 838×406 [H gap 24]
-      F Left 300×245 [V gap 8]
+    F Main 838×404 [H gap 24]
+      F Left 300×242 [V gap 8]
         F Preview 300×188
         I NF2/Progress {Mode=Determinate} 300×25 "Exporting frames 72 / 120" "60 %"
         T "Preview while rendering · ⏸ to pause"
-      F Options 466×390 [V gap 12]
+      F Options 466×388 [V gap 12]
         F Row 466×34 [H gap 8]
-          F Segments 302×34 [H gap 2]
+          F Segments 275×34 [H gap 2]
             I NF2/Segment {Label=MP4, Selected=True} 48×28 "MP4"
             I NF2/Segment {Label=WebM, Selected=False} 55×28 "WebM"
             I NF2/Segment {Label=MOV, Selected=False} 48×28 "MOV"
@@ -177,7 +177,7 @@ F Dialogs — Export 880×3446 [V gap 32]
     F Main 638×306 [H gap 24]
       F Options 590×290 [V gap 12]
         F Row 590×34 [H gap 8]
-          F Segments 218×34 [H gap 2]
+          F Segments 200×34 [H gap 2]
             I NF2/Segment {Label=WAV, Selected=False} 47×28 "WAV"
             I NF2/Segment {Label=MP3, Selected=True} 48×28 "MP3"
             I NF2/Segment {Label=OGG, Selected=False} 47×28 "OGG"
@@ -203,9 +203,9 @@ F Dialogs — Export 880×3446 [V gap 32]
       F Spacer 246×2
       I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
       I NF2/Button {Icon=true, Label=Export, Type=Primary, State=Default} 83×32 "Export"
-  F Dialog / Import PSD to library 880×609 [V gap 0]
+  F Dialog / Import PSD to library 880×603 [V gap 0]
     I NF2/Dialog Header 878×60 "Import "Poster.psd" to library"
-    F Main 878×482 [H gap 24]
+    F Main 878×476 [H gap 24]
       F Layers 380×321 [V gap 8]
         T "Layers to import"
         F List 380×260 [V gap 0]
@@ -242,7 +242,7 @@ F Dialogs — Export 880×3446 [V gap 32]
         F Row 380×32 [H gap 8]
           I NF2/Button {Icon=false, Label=Merge layers, Type=Secondary, State=Default} 94×32 "Merge layers"
           I NF2/Button {Icon=false, Label=Select all, Type=Ghost, State=Default} 72×32 "Select all"
-      F Options 426×466 [V gap 12]
+      F Options 426×460 [V gap 12]
         T "Options for "Mark""
         T "Import this layer as"
         I NF2/Radio {Label=Bitmap with editable layer styles, Selected=False} 177×16 "Bitmap with editable layer styles"

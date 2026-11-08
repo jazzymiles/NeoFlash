@@ -1,4 +1,4 @@
-F Motion — panels 1120×1120 [V gap 32]
+F Motion — panels 1120×1112 [V gap 32]
   F Panel / Motion editor 1120×520
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 1120×36 "Motion editor" "Timeline" "Panel"
     F Frame 1120×28
@@ -100,9 +100,9 @@ F Motion — panels 1120×1120 [V gap 32]
       I NF2/Slider {Value=50} 120×20
       I NF2/Stepper Field {Prefix=Frames, Label=60, State=Default} 120×28 "Frames" "60"
       T "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames"
-  F Panel / Properties — Motion tween 320×568 [V gap 0]
+  F Panel / Properties — Motion tween 320×560 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
-    F Body 318×530 [V gap 10]
+    F Body 318×522 [V gap 10]
       F Row 294×48 [H gap 8]
         F Type icon 48×48 [H gap 0]
           I NF2 Icon/16/tween-motion 16×16
@@ -117,7 +117,7 @@ F Motion — panels 1120×1120 [V gap 32]
       F Row 294×32 [H gap 8]
         I NF2/Stepper Field {Prefix=Rotate, Label=1 ×, State=Default} 140×32 "Rotate" "1 ×"
         I NF2/Select {Label=Direction: CW, State=Default} 146×32 "Direction: CW"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2/Checkbox {Label=Orient to path, Checked=True} 99×18 "Orient to path"
       I NF2/Section Header {Label=Path, State=Expanded} 294×32 "Path"
       F Row 294×32 [H gap 8]
@@ -126,11 +126,11 @@ F Motion — panels 1120×1120 [V gap 32]
       F Row 294×32 [H gap 8]
         I NF2/Stepper Field {Prefix=W, Label=220.0, State=Default} 140×32 "W" "220.0"
         I NF2/Stepper Field {Prefix=H, Label=120.0, State=Default} 140×32 "H" "120.0"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2/Checkbox {Label=Show path, Checked=True} 82×18 "Show path"
         I NF2/Checkbox {Label=Show frame dots, Checked=True} 115×18 "Show frame dots"
       I NF2/Section Header {Label=Options, State=Expanded} 294×32 "Options"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2/Checkbox {Label=Sync graphic symbols, Checked=True} 141×18 "Sync graphic symbols"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2/Checkbox {Label=Snap to motion guide, Checked=False} 137×18 "Snap to motion guide"

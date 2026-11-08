@@ -1,6 +1,6 @@
-F Dialog / Preferences — Code editor 920×759 [V gap 0]
+F Dialog / Preferences — Code editor 920×757 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×632 [H gap 0]
+  F Main 918×630 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=True} 196×32 "Code editor"
@@ -11,16 +11,16 @@ F Dialog / Preferences — Code editor 920×759 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×632 [V gap 16]
+    F Content 698×630 [V gap 16]
       F Font 650×54 [V gap 10]
         T "Font"
         F Row 650×32 [H gap 8]
           I NF2/Select {Label=Roboto Mono, State=Default} 260×32 "Roboto Mono"
           I NF2/Stepper Field {Prefix=Size, Label=13 px, State=Default} 120×32 "Size" "13 px"
           I NF2/Stepper Field {Prefix=Line, Label=1.6, State=Default} 110×32 "Line" "1.6"
-      F Editing 650×114 [V gap 10]
+      F Editing 650×112 [V gap 10]
         T "Editing"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Line numbers, On=True} 109×18 "Line numbers"
           I NF2/Switch {Label=Word wrap, On=False} 95×18 "Word wrap"
           I NF2/Switch {Label=Auto-close brackets, On=True} 143×18 "Auto-close brackets"

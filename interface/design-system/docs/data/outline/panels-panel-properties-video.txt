@@ -1,6 +1,6 @@
-F Panel / Properties — Video 320×777 [V gap 0]
+F Panel / Properties — Video 320×775 [V gap 0]
   I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 318×36 "Properties" "Cue points" "Panel"
-  F Body 318×739 [V gap 10]
+  F Body 318×737 [V gap 10]
     F Video preview 294×166
       F Transport 296×32 [H gap 6]
         I NF2 Icon/16/play 16×16
@@ -20,7 +20,7 @@ F Panel / Properties — Video 320×777 [V gap 0]
     I NF2/Section Header {Label=Playback, State=Expanded} 294×32 "Playback"
     F Row 294×32 [H gap 8]
       I NF2/Select {Label=Deployment: Embedded, State=Default} 294×32 "Deployment: Embedded"
-    F Row 294×20 [H gap 8]
+    F Row 294×18 [H gap 8]
       I NF2/Switch {Label=Autoplay, On=True} 84×18 "Autoplay"
       I NF2/Switch {Label=Loop, On=False} 65×18 "Loop"
       I NF2/Switch {Label=Muted, On=False} 72×18 "Muted"

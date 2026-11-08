@@ -1,4 +1,4 @@
-F Dialogs — sound & stroke 680×1152 [V gap 32]
+F Dialogs — sound & stroke 680×1150 [V gap 32]
   F Dialog / Edit envelope 680×410 [V gap 0]
     I NF2/Dialog Header 678×60 "Edit envelope"
     F Body 678×348 [V gap 12]
@@ -41,9 +41,9 @@ F Dialogs — sound & stroke 680×1152 [V gap 32]
         F Spacer 70×2
         I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
         I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"
-  F Dialog / Sound properties 520×364 [V gap 0]
+  F Dialog / Sound properties 520×362 [V gap 0]
     I NF2/Dialog Header 518×60 "Sound properties"
-    F Body 518×302 [V gap 12]
+    F Body 518×300 [V gap 12]
       F Row 470×65 [H gap 8]
         I NF2/TL Span {Type=Sound} 120×64
         F Info 320×65 [V gap 4]

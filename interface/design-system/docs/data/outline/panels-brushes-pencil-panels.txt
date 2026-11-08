@@ -1,4 +1,4 @@
-F Brushes & pencil — panels 760×2446 [V gap 40]
+F Brushes & pencil — panels 760×2442 [V gap 40]
   F Panel / Brushes 320×650 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Brushes" "Panel" "Panel"
     F Body 318×612 [V gap 12]
@@ -29,9 +29,9 @@ F Brushes & pencil — panels 760×2446 [V gap 40]
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
         F Spacer 192×1 [H gap 0]
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-  F Panel / Properties — Brush tool 320×648 [V gap 0]
+  F Panel / Properties — Brush tool 320×644 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
-    F Body 318×610 [V gap 12]
+    F Body 318×606 [V gap 12]
       F Row 294×36 [H gap 10]
         F Type icon 36×36 [H gap 0]
           I NF2 Icon/20/tool-brush 20×20
@@ -66,10 +66,10 @@ F Brushes & pencil — panels 760×2446 [V gap 40]
           I NF2/Slider {Value=50} 140×20
           I NF2/Field {Show prefix=false, Prefix=, Label=50, State=Default} 83×32 "50"
       I NF2/Section Header {Label=Pen pressure and tilt, State=Expanded} 294×32 "Pen pressure and tilt"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2 Icon/16/pressure 16×16
         I NF2/Switch {Label=Pressure controls size, On=True} 153×18 "Pressure controls size"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2 Icon/16/tilt 16×16
         I NF2/Switch {Label=Tilt controls angle, On=False} 131×18 "Tilt controls angle"
       I NF2/Section Header {Label=Fill, State=Expanded} 294×32 "Fill"

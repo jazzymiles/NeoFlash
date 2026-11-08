@@ -221,7 +221,7 @@ Frame `NF2 / Editor — Main`, 1920 × 1080. Regions (top to bottom, left to rig
 
 | Region | Size | Content |
 |---|---|---|
-| Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Modify · Insert · Control · Window (ghost buttons, open as dropdowns, §8); centred project title "Ideas in motion" + `Badge` "Unsaved" (warning); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). |
+| Top bar | 1920 × 48 | `NF2/Logo` + "NeoFlash"; menu bar File · Edit · View · Insert · Modify · Control · Document · Window · Help (ghost buttons, open as dropdowns, §8); centred project title "Ideas in motion" + `Badge` "Unsaved" (warning); right: workspace `Select` "Classic workspace", **Test Movie** (secondary button with play icon), **Publish** (primary button with upload icon). |
 | Tools rail | 56 × 588 | `NF2/Tools Panel` Layout=1 Column. Tool groups split by dividers, flyout corner on grouped tools (long-press opens the group menu built from `NF2/Tool Flyout Item`; all groups and their shortcuts are on the board “Tools — flyout groups”, §6; the rail is edited in “Customize tools panel”, §9), fill/stroke chip, swap/default colours, snap toggle at the bottom. |
 | Canvas | 1544 × 588 | Pasteboard `bg/canvas`; stage 960 × 600 shown at 75 % (720 × 452) with `NF2/Stage Grid`; horizontal + vertical `NF2/Stage Ruler` (20 px) and `NF2/Ruler Corner`; `NF2/Guide` lines; breadcrumb (floating, top-left, 34 px); stage-size badge (top-right); `NF2/Zoom Control` floating bottom-centre (hand, −, 75 %, +, fit, rulers, guides, grid, snap to guides, view settings ⚙). |
 | Inspector | 320 × 588 | **Properties** (`Panel Header`, `Segmented Control` Selection / Tool; sections Stage: Name, W × H with link, Background swatch + hex + α; Playback: FPS, Frames; Publish: target badge "HTML5 · Rust / WebAssembly" + "Publish settings…") and **Library** (search, tree). Content changes with the selection (see §6 Properties variants). |
@@ -380,6 +380,11 @@ Main menu items are `NF2/Menu Bar Item` (Default / Open); dropdowns are `bg/rais
 (Default / Hover / Checked / Disabled, `Shortcut` text, `Submenu` boolean), `NF2/Menu Section` captions and
 `NF2/Menu Separator`. Shortcuts are shown for macOS (⌘ ⌥ ⇧); Windows uses Ctrl / Alt / Shift.
 
+`Document` sits directly before `Window`: Document settings… (`⌘J`, including Stage Background), the open-document
+list, Next / Previous and Close / Close other documents / Close all. `Window` keeps window/workspace operations at
+top level and groups all authoring-panel visibility rows under `Window ▸ Panels`. `Help` starts with
+`Search functions…` (`F1`), which opens the existing searchable command catalogue and focuses `Search commands`.
+
 {{GEN:menus}}
 
 ![Menus](../exports/panels/dark/boards/png/menus.png)
@@ -492,7 +497,7 @@ design-system/
     interface/{dark,light}/{png,svg}/
     panels/{dark,light}/{png,svg}/     ← one file per panel / dialog / menu / flyout
     panels/{dark,light}/boards/       ← multi-panel boards as laid out in Figma
-    icons/{16,20}/*.svg               ← every NF2 icon
+    icons/{12,16,20}/*.svg            ← every NF2 optical icon master
     cursors/*.svg                     ← every NF2 cursor
   tools/
     export-plugin/                   ← Figma dev plugin: exports + dump + outlines

@@ -205,7 +205,7 @@ def gen_icons(fmt, lang, out_dir):
         short = ', '.join(n.replace('NF2 Icon/', '') for n in hit)
         rows.append([en if lang == 'en' else ru, len(hit), short if fmt == 'md' else f'<span class="mono-small">{esc(short)}</span>'])
     total = f'{len(names)} icons' if lang == 'en' else f'Всего иконок: {len(names)}'
-    return (f'**{total}** (16 px and 20 px).\n\n' if fmt == 'md' else f'<p><b>{total}</b> (16 и 20 px).</p>' if lang == 'ru' else f'<p><b>{total}</b> (16 and 20 px).</p>') + \
+    return (f'**{total}** (12, 16 and 20 px optical masters).\n\n' if fmt == 'md' else f'<p><b>{total}</b> (оптические мастера 12, 16 и 20 px).</p>' if lang == 'ru' else f'<p><b>{total}</b> (12, 16 and 20 px optical masters).</p>') + \
         table([t['group'], '#', t['icons']], rows, fmt, 'small')
 
 

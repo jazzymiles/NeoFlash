@@ -1,7 +1,7 @@
-F Drawing tools — panels 2 320×1600 [V gap 32]
-  F Panel / Properties — Deco tool 320×436 [V gap 0]
+F Drawing tools — panels 2 320×1590 [V gap 32]
+  F Panel / Properties — Deco tool 320×434 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
-    F Body 318×398 [V gap 10]
+    F Body 318×396 [V gap 10]
       F Row 294×48 [H gap 8]
         F Type icon 48×48 [H gap 0]
           I NF2 Icon/20/tool-deco 20×20
@@ -27,9 +27,9 @@ F Drawing tools — panels 2 320×1600 [V gap 32]
         I NF2/Stepper Field {Prefix=Segment, Label=6 px, State=Default} 142×32 "Segment" "6 px"
         I NF2/Stepper Field {Prefix=Step, Label=1 f, State=Default} 144×32 "Step" "1 f"
       I NF2/Checkbox {Label=Animate pattern (one keyframe per step), Checked=True} 238×18 "Animate pattern (one keyframe per step)"
-  F Panel / Properties — Spray brush 320×454 [V gap 0]
+  F Panel / Properties — Spray brush 320×448 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
-    F Body 318×416 [V gap 10]
+    F Body 318×410 [V gap 10]
       F Row 294×48 [H gap 8]
         F Type icon 48×48 [H gap 0]
           I NF2 Icon/20/tool-spray 20×20
@@ -45,7 +45,7 @@ F Drawing tools — panels 2 320×1600 [V gap 32]
         I NF2/Stepper Field {Prefix=W, Label=100 %, State=Default} 142×32 "W" "100 %"
         I NF2/Stepper Field {Prefix=H, Label=100 %, State=Default} 144×32 "H" "100 %"
       I NF2/Checkbox {Label=Random scaling, Checked=True} 109×18 "Random scaling"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2/Checkbox {Label=Rotate symbol, Checked=True} 101×18 "Rotate symbol"
         I NF2/Checkbox {Label=Random rotation, Checked=True} 112×18 "Random rotation"
       I NF2/Section Header {Label=Brush, State=Expanded} 294×32 "Brush"
@@ -54,9 +54,9 @@ F Drawing tools — panels 2 320×1600 [V gap 32]
         I NF2/Stepper Field {Prefix=Height, Label=24 px, State=Default} 144×32 "Height" "24 px"
       F Row 294×32 [H gap 8]
         I NF2/Stepper Field {Prefix=Angle, Label=0°, State=Default} 144×32 "Angle" "0°"
-  F Panel / Properties — IK bone 320×646 [V gap 0]
+  F Panel / Properties — IK bone 320×644 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
-    F Body 318×608 [V gap 10]
+    F Body 318×606 [V gap 10]
       F Row 294×48 [H gap 8]
         F Type icon 48×48 [H gap 0]
           I NF2 Icon/16/armature 16×16
@@ -75,7 +75,7 @@ F Drawing tools — panels 2 320×1600 [V gap 32]
         I NF2/Field {Show prefix=true, Prefix=Length, Label=96 px, State=Default} 140×32 "Length" "96 px"
         I NF2/Field {Show prefix=true, Prefix=Angle, Label=−32°, State=Default} 140×32 "Angle" "−32°"
       I NF2/Section Header {Label=Joint: rotation, State=Expanded} 294×32 "Joint: rotation"
-      F Row 294×20 [H gap 8]
+      F Row 294×18 [H gap 8]
         I NF2/Switch {Label=Enable, On=True} 74×18 "Enable"
         I NF2/Switch {Label=Constrain, On=True} 89×18 "Constrain"
       F Row 294×32 [H gap 8]

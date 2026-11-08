@@ -1,4 +1,4 @@
-F Panels — more 2 560×967 [V gap 32]
+F Panels — more 2 560×961 [V gap 32]
   F Panel / Output 560×188 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 558×36 "Output" "Compiler errors" "Panel"
     F Body 558×150 [V gap 8]
@@ -42,9 +42,9 @@ F Panels — more 2 560×967 [V gap 32]
           T "1090: Migration issue — frameRate is read-only at runtime."
           T "Scene 1 · layer "orbit" · frame 1 · Line 4"
         I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-  F Panel / Accessibility 300×298 [V gap 0]
+  F Panel / Accessibility 300×292 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 298×36 "Accessibility" "Panel" "Panel"
-    F Body 298×260 [V gap 8]
+    F Body 298×254 [V gap 8]
       I NF2/Switch {Label=Make object accessible, On=True} 160×18 "Make object accessible"
       I NF2/Switch {Label=Make child objects accessible, On=True} 194×18 "Make child objects accessible"
       I NF2/Switch {Label=Auto label, On=False} 91×18 "Auto label"

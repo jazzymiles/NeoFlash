@@ -1,4 +1,4 @@
-F Document — dialogs 640×1422 [V gap 32]
+F Document — dialogs 640×1418 [V gap 32]
   F Dialog / Document settings 520×418 [V gap 0]
     I NF2/Dialog Header 518×60 "Document settings"
     F Body 518×356 [V gap 12]
@@ -33,11 +33,11 @@ F Document — dialogs 640×1422 [V gap 32]
         F Spacer 250×2
         I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
         I NF2/Button {Icon=false, Label=OK, Type=Primary, State=Default} 40×32 "OK"
-  F Dialog / Find and replace 640×510 [V gap 0]
+  F Dialog / Find and replace 640×506 [V gap 0]
     I NF2/Dialog Header 638×60 "Find and replace"
-    F Body 638×448 [V gap 12]
+    F Body 638×444 [V gap 12]
       F Row 590×34 [H gap 8]
-        F Segments 433×34 [H gap 2]
+        F Segments 392×34 [H gap 2]
           I NF2/Segment {Label=Text, Selected=True} 47×28 "Text"
           I NF2/Segment {Label=Font, Selected=False} 46×28 "Font"
           I NF2/Segment {Label=Colour, Selected=False} 56×28 "Colour"
@@ -50,12 +50,12 @@ F Document — dialogs 640×1422 [V gap 32]
         I NF2/Select {Label=Scene: All scenes, State=Default} 200×32 "Scene: All scenes"
       I NF2/Field {Show prefix=true, Prefix=Find, Label=orbit_mc, State=Focus} 590×32 "Find" "orbit_mc"
       I NF2/Field {Show prefix=true, Prefix=Replace, Label=orbitClip, State=Default} 590×32 "Replace" "orbitClip"
-      F Row 590×20 [H gap 8]
+      F Row 590×18 [H gap 8]
         I NF2/Checkbox {Label=Whole word, Checked=True} 88×18 "Whole word"
         I NF2/Checkbox {Label=Match case, Checked=False} 87×18 "Match case"
         I NF2/Checkbox {Label=Regular expression, Checked=False} 125×18 "Regular expression"
         I NF2/Checkbox {Label=Live edit, Checked=False} 71×18 "Live edit"
-      F Row 590×20 [H gap 8]
+      F Row 590×18 [H gap 8]
         I NF2/Checkbox {Label=Text field contents, Checked=True} 123×18 "Text field contents"
         I NF2/Checkbox {Label=Frames / layers / scenes, Checked=True} 153×18 "Frames / layers / scenes"
         I NF2/Checkbox {Label=ActionScript, Checked=True} 90×18 "ActionScript"

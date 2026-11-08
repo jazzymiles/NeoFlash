@@ -1,6 +1,6 @@
-F Dialog / Preferences — Timeline 920×600 [V gap 0]
+F Dialog / Preferences — Timeline 920×592 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×473 [H gap 0]
+  F Main 918×465 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,21 +11,21 @@ F Dialog / Preferences — Timeline 920×600 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×473 [V gap 16]
-      F Selection & view 650×144 [V gap 10]
+    F Content 698×465 [V gap 16]
+      F Selection & view 650×138 [V gap 10]
         T "Selection & view"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           T "Selection"
           I NF2/Switch {Label=Span-based selection, On=True} 152×18 "Span-based selection"
         F Row 650×32 [H gap 8]
           T "Default frame view"
           I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
           I NF2/Select {Label=Row: Normal, State=Default} 160×32 "Row: Normal"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           T "Ruler"
           I NF2/Switch {Label=Show seconds, On=True} 114×18 "Show seconds"
           I NF2/Switch {Label=Snap playhead to keyframes, On=False} 186×18 "Snap playhead to keyframes"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           T "Scenes"
           I NF2/Switch {Label=Named anchor on each scene, On=False} 193×18 "Named anchor on each scene"
       F Onion skin defaults 650×112 [V gap 10]
@@ -44,9 +44,9 @@ F Dialog / Preferences — Timeline 920×600 [V gap 0]
           T "Opacity falloff"
           I NF2/Slider {Value=50} 200×20
           T "70 → 15 %"
-      F Animation 650×126 [V gap 10]
+      F Animation 650×124 [V gap 10]
         T "Animation"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           T "Auto keyframe"
           I NF2/Switch {Label=Create keyframe on transform, On=True} 194×18 "Create keyframe on transform"
         F Row 650×32 [H gap 8]

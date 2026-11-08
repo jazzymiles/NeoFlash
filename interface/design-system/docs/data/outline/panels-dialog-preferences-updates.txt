@@ -1,6 +1,6 @@
-F Dialog / Preferences — Updates 920×472 [V gap 0]
+F Dialog / Preferences — Updates 920×466 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×345 [H gap 0]
+  F Main 918×339 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,8 +11,8 @@ F Dialog / Preferences — Updates 920×472 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=True} 196×32 "Updates"
-    F Content 698×345 [V gap 16]
-      F Version 650×128 [V gap 10]
+    F Content 698×339 [V gap 16]
+      F Version 650×126 [V gap 10]
         T "Version"
         F Row 650×32 [H gap 8]
           T "NeoFlash 2.0.0 · build 412 · up to date"
@@ -20,17 +20,17 @@ F Dialog / Preferences — Updates 920×472 [V gap 0]
           I NF2/Button {Icon=false, Label=Release notes, Type=Ghost, State=Default} 98×32 "Release notes"
         F Row 650×34 [H gap 8]
           T "Channel"
-          F Segments 122×34 [H gap 2]
+          F Segments 111×34 [H gap 2]
             I NF2/Segment {Label=Stable, Selected=True} 57×28 "Stable"
             I NF2/Segment {Label=Beta, Selected=False} 46×28 "Beta"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Check for updates automatically, On=True} 207×18 "Check for updates automatically"
           I NF2/Switch {Label=Download in background, On=True} 167×18 "Download in background"
-      F Privacy 650×72 [V gap 10]
+      F Privacy 650×68 [V gap 10]
         T "Privacy"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Send anonymous usage statistics, On=False} 213×18 "Send anonymous usage statistics"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Send crash reports, On=True} 138×18 "Send crash reports"
       F Extensions 650×54 [V gap 10]
         T "Extensions"

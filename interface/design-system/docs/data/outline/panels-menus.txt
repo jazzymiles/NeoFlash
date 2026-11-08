@@ -1,12 +1,13 @@
-F Menus — Dark 1438×2046 [V gap 24]
+F Menus — Dark 1438×2592 [V gap 24]
   T "Main menu — dropdowns with shortcuts (⌘ macOS / Ctrl on Windows)"
-  F Menu bar 475×40 [H gap 2]
+  F Menu bar 508×40 [H gap 2]
     I NF2/Menu Bar Item {Label=File, State=Default} 39×28 "File"
     I NF2/Menu Bar Item {Label=Edit, State=Open} 41×28 "Edit"
     I NF2/Menu Bar Item {Label=View, State=Default} 46×28 "View"
     I NF2/Menu Bar Item {Label=Insert, State=Default} 51×28 "Insert"
     I NF2/Menu Bar Item {Label=Modify, State=Default} 57×28 "Modify"
     I NF2/Menu Bar Item {Label=Control, State=Default} 59×28 "Control"
+    I NF2/Menu Bar Item {Label=Document, State=Default} 75×28 "Document"
     I NF2/Menu Bar Item {Label=Window, State=Default} 63×28 "Window"
     I NF2/Menu Bar Item {Label=Help, State=Default} 45×28 "Help"
   F Row 1358×579 [H gap 24]
@@ -83,7 +84,7 @@ F Menus — Dark 1438×2046 [V gap 24]
       I NF2/Menu Item {Submenu=false, Shortcut=⇧⌥F12, Label=Publish, State=Default} 252×28 "Publish" "⇧⌥F12"
       I NF2/Menu Separator 252×9
       I NF2/Menu Item {Submenu=false, Shortcut=⌘P, Label=Print…, State=Default} 252×28 "Print…" "⌘P"
-  F Row 1120×560 [H gap 24]
+  F Row 834×373 [H gap 24]
     F Menu / Insert 262×354 [V gap 0]
       I NF2/Menu Item {Submenu=false, Shortcut=⌘F8, Label=New symbol…, State=Default} 252×28 "New symbol…" "⌘F8"
       I NF2/Menu Separator 252×9
@@ -100,8 +101,7 @@ F Menus — Dark 1438×2046 [V gap 24]
       I NF2/Menu Item {Submenu=false, Shortcut= , Label=Motion tween, State=Default} 252×28 "Motion tween" " "
       I NF2/Menu Separator 252×9
       I NF2/Menu Item {Submenu=false, Shortcut= , Label=Scene, State=Default} 252×28 "Scene" " "
-    F Menu / Modify 262×401 [V gap 0]
-      I NF2/Menu Item {Submenu=false, Shortcut=⌘J, Label=Document…, State=Default} 252×28 "Document…" "⌘J"
+    F Menu / Modify 262×373 [V gap 0]
       I NF2/Menu Item {Submenu=false, Shortcut=F8, Label=Convert to symbol…, State=Default} 252×28 "Convert to symbol…" "F8"
       I NF2/Menu Item {Submenu=false, Shortcut=⌘B, Label=Break apart, State=Default} 252×28 "Break apart" "⌘B"
       I NF2/Menu Separator 252×9
@@ -132,8 +132,37 @@ F Menus — Dark 1438×2046 [V gap 24]
       I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘M, Label=Mute sounds, State=Default} 252×28 "Mute sounds" "⌥⌘M"
       I NF2/Menu Separator 252×9
       I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘B, Label=Enable simple buttons, State=Default} 252×28 "Enable simple buttons" "⌥⌘B"
-    F Menu / Window 262×560 [V gap 0]
-      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘K, Label=Duplicate window, State=Default} 252×28 "Duplicate window" "⌥⌘K"
+  F Row 1120×709 [H gap 24]
+    F Menu / Document 262×285 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘J, Label=Document settings…, State=Default} 252×28 "Document settings…" "⌘J"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Section {Label=Open documents} 252×24 "Open documents"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Ideas in motion, State=Checked} 252×28 "Ideas in motion" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Character study, State=Default} 252×28 "Character study" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌃⇥, Label=Next document, State=Default} 252×28 "Next document" "⌃⇥"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌃⇧⇥, Label=Previous document, State=Default} 252×28 "Previous document" "⌃⇧⇥"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌘W, Label=Close, State=Default} 252×28 "Close" "⌘W"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Close other documents, State=Default} 252×28 "Close other documents" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘W, Label=Close all, State=Default} 252×28 "Close all" "⌥⌘W"
+    F Menu / Window 262×345 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘K, Label=Duplicate window, State=Disabled} 252×28 "Duplicate window" "⌥⌘K"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Customize tools…, State=Default} 252×28 "Customize tools…" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Panels, State=Hover} 252×28 "Panels" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘F3, Label=Inspector priority, State=Default} 252×28 "Inspector priority" "⌥⌘F3"
+      I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘L, Label=Library priority, State=Default} 252×28 "Library priority" "⌥⌘L"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Workspaces, State=Default} 252×28 "Workspaces" " "
+      I NF2/Menu Item {Submenu=false, Shortcut=F4, Label=Hide panels, State=Default} 252×28 "Hide panels" "F4"
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Detach panel, State=Default} 252×28 "Detach panel" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Dock panel, State=Default} 252×28 "Dock panel" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Appearance, State=Default} 252×28 "Appearance" " "
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Density, State=Default} 252×28 "Density" " "
+    F Menu / Window ▸ Panels 262×709 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Brushes, State=Default} 252×28 "Brushes" " "
       I NF2/Menu Separator 252×9
       I NF2/Menu Item {Submenu=false, Shortcut=⌥⌘T, Label=Timeline, State=Checked} 252×28 "Timeline" "⌥⌘T"
       I NF2/Menu Item {Submenu=false, Shortcut=⌘F2, Label=Tools, State=Checked} 252×28 "Tools" "⌘F2"
@@ -152,8 +181,19 @@ F Menus — Dark 1438×2046 [V gap 24]
       I NF2/Menu Item {Submenu=false, Shortcut=⌥F2, Label=Compiler errors, State=Default} 252×28 "Compiler errors" "⌥F2"
       I NF2/Menu Item {Submenu=false, Shortcut=⇧F11, Label=Accessibility, State=Default} 252×28 "Accessibility" "⇧F11"
       I NF2/Menu Separator 252×9
-      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Workspaces, State=Default} 252×28 "Workspaces" " "
-      I NF2/Menu Item {Submenu=false, Shortcut=F4, Label=Hide panels, State=Default} 252×28 "Hide panels" "F4"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Motion editor, State=Default} 252×28 "Motion editor" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Debugger, State=Default} 252×28 "Debugger" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Project, State=Default} 252×28 "Project" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Code snippets, State=Default} 252×28 "Code snippets" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Movie Explorer, State=Default} 252×28 "Movie Explorer" " "
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Filters, State=Default} 252×28 "Filters" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=true, Shortcut= , Label=Planned panels, State=Default} 252×28 "Planned panels" " "
+    F Menu / Help 262×103 [V gap 0]
+      I NF2/Menu Item {Submenu=false, Shortcut=F1, Label=Search functions…, State=Default} 252×28 "Search functions…" "F1"
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=Open example, State=Default} 252×28 "Open example" " "
+      I NF2/Menu Separator 252×9
+      I NF2/Menu Item {Submenu=false, Shortcut= , Label=About NeoFlash, State=Default} 252×28 "About NeoFlash" " "
   F Context menus 834×671 [H gap 24]
     F Menu / Frame (right-click) 262×671 [V gap 0]
       I NF2/Menu Item {Submenu=false, Shortcut= , Label=Create motion tween, State=Default} 252×28 "Create motion tween" " "

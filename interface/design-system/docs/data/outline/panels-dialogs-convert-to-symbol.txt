@@ -1,4 +1,4 @@
-F Dialogs — Convert to Symbol 560×1511 [V gap 32]
+F Dialogs — Convert to Symbol 560×1503 [V gap 32]
   F Dialog / Convert to Symbol 560×313 [V gap 0]
     I NF2/Dialog Header 558×60 "Convert to Symbol"
     F Body 558×251 [V gap 14]
@@ -49,9 +49,9 @@ F Dialogs — Convert to Symbol 560×1511 [V gap 32]
       I NF2/Menu Item {Submenu=false, Shortcut=own timeline, Label=Movie clip, State=Checked} 260×28 "Movie clip" "own timeline"
       I NF2/Menu Item {Submenu=false, Shortcut=up · over · down · hit, Label=Button, State=Hover} 260×28 "Button" "up · over · down · hit"
       I NF2/Menu Item {Submenu=false, Shortcut=synced to parent, Label=Graphic, State=Default} 260×28 "Graphic" "synced to parent"
-  F Dialog / Convert to Symbol — Advanced 560×821 [V gap 0]
+  F Dialog / Convert to Symbol — Advanced 560×813 [V gap 0]
     I NF2/Dialog Header 558×60 "Convert to Symbol"
-    F Body 558×759 [V gap 14]
+    F Body 558×751 [V gap 14]
       F Name 510×49 [V gap 4]
         T "Name"
         I NF2/Field {Show prefix=false, Prefix=W, Label=Badge symbol, State=Focus} 510×32 "W" "Badge symbol"
@@ -69,11 +69,11 @@ F Dialogs — Convert to Symbol 560×1511 [V gap 32]
             T "Centre"
       T "Movie clips have their own timeline and can be scripted."
       I NF2/Section Header {Label=Advanced, State=Expanded} 510×32 "Advanced"
-      F Advanced 510×494 [V gap 12]
+      F Advanced 510×486 [V gap 12]
         I NF2/Switch {Label=Enable guides for 9-slice scaling, On=False} 207×18 "Enable guides for 9-slice scaling"
-        F ActionScript linkage 510×186 [V gap 8]
+        F ActionScript linkage 510×184 [V gap 8]
           T "ActionScript linkage"
-          F Row 484×20 [H gap 8]
+          F Row 484×18 [H gap 8]
             I NF2/Checkbox {Label=Export for ActionScript, Checked=True} 145×18 "Export for ActionScript"
             I NF2/Checkbox {Label=Export in frame 1, Checked=True} 114×18 "Export in frame 1"
           F Row 484×32 [H gap 8]
@@ -86,14 +86,14 @@ F Dialogs — Convert to Symbol 560×1511 [V gap 32]
             I NF2/Field {Show prefix=true, Prefix=Base, Label=flash.display.MovieClip, State=Default} 404×32 "Base" "flash.display.MovieClip"
             I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
             I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-        F Runtime shared library 510×106 [V gap 8]
+        F Runtime shared library 510×104 [V gap 8]
           T "Runtime shared library"
-          F Row 484×20 [H gap 8]
+          F Row 484×18 [H gap 8]
             I NF2/Checkbox {Label=Export for runtime sharing, Checked=False} 162×18 "Export for runtime sharing"
             I NF2/Checkbox {Label=Import for runtime sharing, Checked=False} 162×18 "Import for runtime sharing"
           F Row 484×32 [H gap 8]
             I NF2/Field {Prefix=URL, Show prefix=true, Label=shared/ui.swf, State=Disabled} 484×32 "URL" "shared/ui.swf"
-        F Authortime sharing 510×146 [V gap 8]
+        F Authortime sharing 510×144 [V gap 8]
           T "Authortime sharing"
           F Row 484×32 [H gap 8]
             I NF2/Button {Icon=false, Label=Source file…, Type=Secondary, State=Default} 91×32 "Source file…"
@@ -101,7 +101,7 @@ F Dialogs — Convert to Symbol 560×1511 [V gap 32]
           F Row 484×32 [H gap 8]
             I NF2/Button {Icon=false, Label=Symbol…, Type=Secondary, State=Default} 75×32 "Symbol…"
             T "Symbol: —"
-          F Row 484×20 [H gap 8]
+          F Row 484×18 [H gap 8]
             I NF2/Checkbox {Label=Update automatically, Checked=False} 137×18 "Update automatically"
       F Footer 510×32 [H gap 8]
         I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"

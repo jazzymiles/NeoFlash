@@ -48,7 +48,7 @@ of truth for visuals. Code never copies a hex value or a size from a screenshot:
 10. **Engine boundary.** `neoflash-ui` does not depend on `neoflash-core`, `-script`, `-export` or `-import`. Panels
     read and write documents only through editor methods. A control whose feature the engine lacks is disabled with
     the tooltip "Not available yet"; a panel the engine cannot back is a read-only *planned preview*
-    (Window ▸ Planned panels). Never a working-looking fake.
+    (Window ▸ Panels ▸ Planned panels). Never a working-looking fake.
 
 ## Architecture
 
@@ -115,21 +115,22 @@ crates/neoflash-editor
 | `envelope.rs` | Sound envelope lanes and anchor points (Edit envelope) |
 | `canvas.rs` | Stage Ruler, Ruler Corner, Guide, Stage Grid, Selection Box, Transform Box, Anchor Point, Bezier Handle, Marquee, Shape Selection (two-tone hatch), Gradient Transform, Snap Ring, Motion Path, Motion Path Handle, Shape Hint |
 
-### Additions after the v2.2 export
+### Additions after the original v2.2 baseline
 
-The v2.2 export in `interface/design-system/` (2026-11-02) does not yet contain these. They live in Figma on the shelf
-"Timeline & canvas answers (R-006…R-010) · selection contrast" (page `v2 · System & Components`, node `116:797`) and
-in `neoflash-ui`. They appear in the generated reference with the next export.
+The live Figma file and generated `interface/design-system/` reference were synchronized on 2026-11-08. This table
+records decisions added after the original v2.2 baseline; the named shelves/components remain the implementation
+contract together with the exported outlines.
 
 | Component | Rule |
 | --- | --- |
 | `NF2/Shape Selection` (changed) | Two-tone 45° hatch: 1 pt white at 90 % plus 1 pt black at 75 %, 1.5 pt apart, repeating every 4 pt (both measured horizontally; ≈ 1.06 pt and 2.83 pt perpendicular to the stripes; R-058, was 8 pt). It does not follow the theme. On any fill, the better of the two lines reaches at least 3.8:1 (the v2.2 single grey hatch reached 1.5:1 on blue artwork in Dark and 1.1:1 in Light). |
-| Figma file structure v2.2 (T-123, 2026-11-07) | Live pages are `v2.2 · System & Components`, `v2.2 · Panels`, `v2.2 · Interface — Dark` / `— Light` (the former v2 pages renamed, so node IDs and the export manifest stay valid). `v2 · … (archive)` pages are full clones kept for comparison; they reference the live components and styles. New boards `v2.2 · Timeline density, type & selection (T-101)` on `v2.2 · Panels`: Dark `211:28634`, Light `212:29343`. Re-export before relying on `exports/` or `docs/data/` for these changes. |
+| Figma file structure v2.2 (T-123, 2026-11-07) | Live pages are `v2.2 · System & Components`, `v2.2 · Panels`, `v2.2 · Interface — Dark` / `— Light` (the former v2 pages renamed, so node IDs and the export manifest stay valid). `v2 · … (archive)` pages are full clones kept for comparison; they reference the live components and styles. New boards `v2.2 · Timeline density, type & selection (T-101)` on `v2.2 · Panels`: Dark `211:28634`, Light `212:29343`. The owner export and generated data are synchronized through 2026-11-08. |
 | Optical icon masters 12 / 16 / 20 (changed, owner decision 2026-11-07) | Every icon grid has its own master in `exports/icons/{12,16,20}` and in Figma (`NF2 Icon/12/*` on the new shelf "Icons · 12 px", page `v2.2 · System & Components`). 12 and 16 px: 1 pt strokes whose straight edges sit on half pixels, fill edges on whole pixels (a fill edge may sit on a stroke axis it touches). 20 px: 1.5 pt strokes on .25 / .75, fill edges on half points. Hinting is TrueType-style per axis: knots are straight edges and the extremes of curves, one map per icon, so parts stay aligned; a dot or circle drawn on a stroke axis stays centred on it (the dot of an "i", a slider knob) and keeps its round shape. `icons::paint_sized` and `Icon::at` draw an icon asked for at 12, 16 or 20 pt from that grid's master instead of scaling it: 12 pt in Short / Compact layer rows and fields, 16 pt tool icons in Classic Flash density (R-056). |
 | Color panel and Preferences composition (changed, owner decision 2026-11-07) | Color is compact by default: a leading › / ⌄ icon button and the `NF2/Color Field` (hex · alpha) stay on top in both states, recent colours follow as `NF2/Swatch` cells; the SV field, hue / alpha strips, RGB / HSB and channel fields open below on demand (workspace preference). Preferences is 720 pt wide with a 160 pt category list and 120 pt labels; type sizes unchanged (R-055). |
 | Side-dock priority and splitter (changed, owner decision 2026-11-07) | Stacked side-dock groups have Inspector priority (Properties 68 %, Library 32 %; the new default, was 83 / 17) or Library priority (the reverse); minimums stay Library 100 pt, others 120 pt. Switch with Window ▸ Inspector / Library priority (⌥⌘F3 / ⌥⌘L) or a double-click on the splitter. `NF2/Splitter` always shows its 24 × 3 grip in `border/strong`, accent while hovered or dragged (R-054). |
 | Stage toolbar states (new, owner decision 2026-11-07) | `NF2/Zoom Control` has three states: Floating (bottom centre), Collapsed (a pill with ‹ and the zoom percentage at the bottom-right corner that expands in place on hover and collapses 1 s after the pointer leaves) and Edit bar (a `control + 8` pt strip above the Stage, `bg/panel` with a `border/subtle` bottom line: breadcrumb left; stage size, hand, zoom, fit, rulers / guides / grid / snap and ⚙ right; the canvas shrinks, nothing covers artwork). Floating states hide while a drag that started on the canvas is in progress. Switch: View ▸ Stage toolbar or right-click the toolbar; Comfortable and Compact default to Collapsed, Classic Flash to Edit bar (R-053). |
 | Density profiles (new, owner decision 2026-11-07) | Comfortable / Compact / Classic Flash change chrome sizes only: top bar 48/40/32, dock tabs and panel headers 40/32/28, section headers 32/28/24, fields and buttons 32/28/24, rows 28/24/20, tool buttons 32/28/24 (tool icons 20/20/16), Tools rail 56/48/40, Timeline controls 44/40/32, frame ruler and layers header 32/26/22, default layer rows 28/22/16, layer column 372/332/292 (with Mode and Solo), Inspector 320/288/256, status bar 24/22/20, minimum target 32/28/24. `neoflash_ui::metrics` keeps the Comfortable constants and exposes density functions (`control()`, `row()` …). Switch: Preferences ▸ General ▸ Density (live preview) and Window ▸ Density; stored in workspace preferences, default Comfortable (R-051). |
+| Main menu composition (changed, owner decision 2026-11-08) | Order: File · Edit · View · Insert · Modify · Control · **Document** · Window · Help. Document contains Document settings… (`⌘J`, including Background), the open-document list, Next / Previous and Close / Close other documents / Close all. Every authoring-panel visibility row is under Window ▸ Panels; Workspaces, Hide panels, Inspector / Library priority, detach/dock, Appearance and Density stay at Window top level. The first Help row is Search functions… (`F1`), opening the existing catalogue with Search commands focused (R-059, R-064). |
 | Type scale B (changed, owner decision 2026-11-07) | Professional-tool scale, one table in `tokens.json` / `typography.css`: Heading 14/20, Dialog Title 14/20, Title 12/16 (600; panel titles such as Properties, Color, Library), Dialog Body 12/16, Body 11/14, Body Strong 11/14, Small 10/13, Small Strong 10/13, new Caption 10/12, Overline 10/12, Mono 11/14, Mono Small 10/12 (was 20/18/16/14/13/13/12/12/–/11/12/11). Row, control and panel heights are unchanged; density profiles are R-051. Authored stage text and the user-set code editor font are not UI type. |
 | `NF2/Icon Button` Type=Primary (changed) | Square like every icon button (radius md), `accent/default` fill; the round shape is retired. The Timeline Play is Primary **SM 32 pt** inside the 2 pt transport group (R-052, 2026-11-07). |
 | `NF2/TL Layer` heights (changed) | Three presets: Normal 28 pt with `NF2/Body`, Short 22 pt with `NF2/Small`, Compact 16 pt with the new `NF2/Caption`; Short and Compact use 12 pt icons; toggle columns stay 20 pt (R-052). |
@@ -165,13 +166,13 @@ Shared pieces of the 5 November 2026 answers (R-022, R-032, R-033, R-035, R-036,
 | `library.rs` | Library | `panels/*/png/panels-more.png` |
 | `actions.rs` | Actions, Output, bottom-panel dispatch | `interface/*/png/editor-actions-tab.png`, `panels/*/png/panel-actions-floating.png`, `panels-more-2.png` |
 | `accessibility.rs` | Accessibility | `panels/*/png/panels-more-2.png` |
-| `planned.rs`, `planned_panels.rs`, `planned_motion.rs`, `planned_dialogs.rs` | 39 read-only planned previews (panels, dialogs, a Test Movie window, the Symbols & scenes popover), opened from their menu items / buttons and from Window ▸ Planned panels | the remaining `panels/*/png/*.png` |
+| `planned.rs`, `planned_panels.rs`, `planned_motion.rs`, `planned_dialogs.rs` | 39 read-only planned previews (panels, dialogs, a Test Movie window, the Symbols & scenes popover), opened from their menu items / buttons and from Window ▸ Panels ▸ Planned panels | the remaining `panels/*/png/*.png` |
 | `../authoring_modify.rs` | Align, Transform, Color panel bodies | `panel-align.png`, `panel-transform.png`, `panel-color-*.png` |
 | `../symbol_dialog.rs`, `../app.rs` (`draw_dialogs`) | Convert to Symbol, Unsaved changes, About | `interface/*/png/editor-*-dialog.png` |
 
 ### Workspace templates
 
-Window ▸ Workspace and the top-bar select switch between **Classic** (NF2 default), **Animator** (tall timeline,
+Window ▸ Workspaces and the top-bar select switch between **Classic** (NF2 default), **Animator** (tall timeline,
 Transform beside Properties), **Designer** (Color, Align, Transform open), **Developer** (tall Actions with Output) and
 **Essentials** (one-column tools, compact dock). Templates replace the layout and close floating panel windows; theme,
 document and history are untouched. "Reset … workspace" re-applies the current template.

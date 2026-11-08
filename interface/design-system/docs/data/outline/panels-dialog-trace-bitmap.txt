@@ -1,7 +1,7 @@
-F Bitmap — dialogs 680×676 [V gap 40]
-  F Dialog / Trace bitmap 680×676 [V gap 0]
+F Bitmap — dialogs 680×670 [V gap 40]
+  F Dialog / Trace bitmap 680×670 [V gap 0]
     I NF2/Dialog Header 678×60 "Trace bitmap"
-    F Body 678×550 [H gap 24]
+    F Body 678×544 [H gap 24]
       F Preview 240×293 [V gap 8]
         F Split preview 240×240
           F Traced 120×240
@@ -9,7 +9,7 @@ F Bitmap — dialogs 680×676 [V gap 40]
           T "Bitmap"
           T "Traced"
         T "texture.png · 512 × 512 → 1 284 paths, 30 colours"
-      F Options 366×538 [V gap 10]
+      F Options 366×532 [V gap 10]
         F Preset 366×32 [H gap 10]
           T "Preset"
           I NF2/Select {Label=[Default], State=Default} 284×32 "[Default]"
@@ -60,16 +60,16 @@ F Bitmap — dialogs 680×676 [V gap 40]
           T "Method"
           I NF2/Radio {Label=Abutting, Selected=False} 64×16 "Abutting"
           I NF2/Radio {Label=Overlapping, Selected=True} 81×16 "Overlapping"
-        F Create 366×20 [H gap 10]
+        F Create 366×18 [H gap 10]
           T "Create"
           I NF2/Checkbox {Label=Fills, Checked=True} 47×18 "Fills"
           I NF2/Checkbox {Label=Strokes, Checked=False} 66×18 "Strokes"
         F Stroke 366×32 [H gap 10]
           T "Stroke"
           I NF2/Field {Prefix=, Show prefix=false, Label=10 pt, State=Disabled} 120×32 "10 pt"
-        F Options 366×48 [H gap 10]
+        F Options 366×44 [H gap 10]
           T "Options"
-          F Checks 150×48 [V gap 8]
+          F Checks 131×44 [V gap 8]
             I NF2/Checkbox {Label=Snap curves to lines, Checked=False} 131×18 "Snap curves to lines"
             I NF2/Checkbox {Label=Ignore white, Checked=False} 91×18 "Ignore white"
     F Footer 678×64 [H gap 8]

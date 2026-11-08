@@ -98,7 +98,7 @@
 <!-- 3 -->
 <h1><span class="num">3</span>Icons, cursors, states</h1>
 <h2>Icons</h2>
-<p>Monochrome stroke icons on two grids: <b>16 px</b> for the interface and <b>20 px</b> for tools. Icons have no colour of their own — each instance is recoloured by token (secondary text by default, primary on hover, accent when active). The <i>Icons</i> page in Figma shows every icon with where it is used; unused icons are listed separately as candidates for cleanup.</p>
+<p>Monochrome stroke icons use optical masters on three grids: <b>12 px</b> for dense chrome, <b>16 px</b> for the standard interface and <b>20 px</b> for tools. Icons have no colour of their own — each instance is recoloured by token (secondary text by default, primary on hover, accent when active). The <i>Icons</i> page in Figma shows every icon with where it is used; unused icons are listed separately as candidates for cleanup.</p>
 {{GEN:icons}}
 {{GEN:img:docs/illustrations/icons-page-tools-section.png|Icons page — tools section with “Used in”}}
 
@@ -122,7 +122,7 @@
 <table>
 <thead><tr><th>Region</th><th>Size</th><th>Content</th></tr></thead>
 <tbody>
-<tr><td>Top bar</td><td>1920 × 48</td><td>Logo, main menu (File · Edit · View · Modify · Insert · Control · Window), project title with Unsaved badge in the centre, workspace selector, <b>Test Movie</b> (secondary), <b>Publish</b> (primary).</td></tr>
+<tr><td>Top bar</td><td>1920 × 48</td><td>Logo, main menu (File · Edit · View · Insert · Modify · Control · Document · Window · Help), project title with Unsaved badge in the centre, workspace selector, <b>Test Movie</b> (secondary), <b>Publish</b> (primary).</td></tr>
 <tr><td>Tools rail</td><td>56 × 588</td><td>Tools panel, one column: tool groups behind flyouts, fill / stroke chip, default / swap colours, snap.</td></tr>
 <tr><td>Canvas</td><td>1544 × 588</td><td>Pasteboard, stage 960 × 600 at 75 %, stage grid, rulers 20 px with the corner origin, guides, breadcrumb (top-left), stage size badge (top-right), floating zoom control (hand, −, 75 %, +, fit, rulers, guides, grid, snap, view settings ⚙).</td></tr>
 <tr><td>Inspector</td><td>320 × 588</td><td>Properties (Selection / Tool; Stage name, size, background, FPS, frames, publish target) and Library.</td></tr>
@@ -231,7 +231,7 @@
   exports/
     interface/{dark,light}/{png,svg}
     panels/{dark,light}/{png,svg}
-    icons/{16,20}/ · cursors/
+    icons/{12,16,20}/ · cursors/
   tools/                            export plugin, receiver, build scripts</div>
 {{GEN:exports}}
 <h2>Updating</h2>

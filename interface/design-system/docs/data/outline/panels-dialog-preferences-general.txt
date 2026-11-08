@@ -1,6 +1,6 @@
-F Dialog / Preferences — General 920×638 [V gap 0]
+F Dialog / Preferences — General 920×634 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×511 [H gap 0]
+  F Main 918×507 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=True} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,7 +11,7 @@ F Dialog / Preferences — General 920×638 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×511 [V gap 16]
+    F Content 698×507 [V gap 16]
       F Interface 650×168 [V gap 10]
         T "Interface"
         F Row 650×34 [H gap 8]
@@ -31,7 +31,7 @@ F Dialog / Preferences — General 920×638 [V gap 0]
         F Row 650×32 [H gap 8]
           T "Language"
           I NF2/Select {Label=English, State=Default} 200×32 "English"
-      F Workspace 650×168 [V gap 10]
+      F Workspace 650×166 [V gap 10]
         T "Workspace"
         F Row 650×32 [H gap 8]
           T "On launch"
@@ -43,12 +43,12 @@ F Dialog / Preferences — General 920×638 [V gap 0]
           T "Autosave"
           I NF2/Switch {Label=Every, On=True} 68×18 "Every"
           I NF2/Stepper Field {Prefix=Min, Label=5, State=Default} 100×32 "Min" "5"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           T "Tooltips"
           I NF2/Switch {Label=Show tooltips with shortcuts, On=True} 187×18 "Show tooltips with shortcuts"
-      F Selection 650×84 [V gap 10]
+      F Selection 650×82 [V gap 10]
         T "Selection"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           T "Shift-select"
           I NF2/Switch {Label=Add with ⇧ (otherwise click adds), On=True} 217×18 "Add with ⇧ (otherwise click adds)"
         F Row 650×32 [H gap 8]

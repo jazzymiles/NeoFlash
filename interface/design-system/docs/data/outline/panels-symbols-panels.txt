@@ -1,4 +1,4 @@
-F Symbols — panels 440×927 [V gap 32]
+F Symbols — panels 440×923 [V gap 32]
   F Panel / Properties — Graphic 320×529 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=false} 318×36 "Properties" "Panel" "Panel"
     F Body 318×491 [V gap 10]
@@ -31,12 +31,12 @@ F Symbols — panels 440×927 [V gap 32]
         F Frame 36×36
         F Frame 36×36
       T "Click a thumbnail to set the first frame"
-  F Dialog / Layer properties 440×366 [V gap 0]
+  F Dialog / Layer properties 440×362 [V gap 0]
     I NF2/Dialog Header 438×60 "Layer properties"
-    F Body 438×304 [V gap 12]
+    F Body 438×300 [V gap 12]
       F Row 390×32 [H gap 8]
         I NF2/Field {Show prefix=true, Prefix=Name, Label=hand, State=Focus} 390×32 "Name" "hand"
-      F Row 390×20 [H gap 8]
+      F Row 390×18 [H gap 8]
         I NF2/Switch {Label=Visible, On=True} 73×18 "Visible"
         I NF2/Switch {Label=Locked, On=False} 76×18 "Locked"
       T "Type"
@@ -49,7 +49,7 @@ F Symbols — panels 440×927 [V gap 32]
         I NF2/Radio {Label=Folder, Selected=False} 52×16 "Folder"
         I NF2/Radio {Label=Armature, Selected=False} 67×16 "Armature"
       T "Outline"
-      F Row 390×20 [H gap 8]
+      F Row 390×18 [H gap 8]
         T "Colour"
         I NF2/Swatch Cell {Selected=True} 18×18
         I NF2/Checkbox {Label=View layer as outlines, Checked=False} 139×18 "View layer as outlines"

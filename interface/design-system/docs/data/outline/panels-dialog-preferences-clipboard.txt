@@ -11,8 +11,8 @@ F Dialog / Preferences — Clipboard 920×435 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×270 [V gap 16]
-      F Copying 650×126 [V gap 10]
+    F Content 698×266 [V gap 16]
+      F Copying 650×124 [V gap 10]
         T "Copying"
         F Row 650×32 [H gap 8]
           T "Bitmaps"
@@ -20,17 +20,17 @@ F Dialog / Preferences — Clipboard 920×435 [V gap 0]
         F Row 650×32 [H gap 8]
           T "Gradient quality"
           I NF2/Select {Label=Normal, State=Default} 160×32 "Normal"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Copy as SVG to other apps, On=True} 179×18 "Copy as SVG to other apps"
           I NF2/Switch {Label=Keep layer names, On=True} 130×18 "Keep layer names"
-      F Pasting 650×86 [V gap 10]
+      F Pasting 650×84 [V gap 10]
         T "Pasting"
         F Row 650×34 [H gap 8]
           T "Default paste"
-          F Segments 154×34 [H gap 2]
+          F Segments 139×34 [H gap 2]
             I NF2/Segment {Label=In centre, Selected=True} 69×28 "In centre"
             I NF2/Segment {Label=In place, Selected=False} 62×28 "In place"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Import vector paste as editable paths, On=True} 233×18 "Import vector paste as editable paths"
           I NF2/Switch {Label=Ask before pasting large bitmaps, On=True} 210×18 "Ask before pasting large bitmaps"
   F Row 918×65 [H gap 8]

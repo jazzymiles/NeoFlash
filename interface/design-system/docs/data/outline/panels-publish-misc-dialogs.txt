@@ -1,4 +1,4 @@
-F Publish & misc — dialogs 1000×2130 [V gap 32]
+F Publish & misc — dialogs 1000×2118 [V gap 32]
   F Panel / Color — Bitmap fill 280×466 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 278×36 "Color" "Swatches" "Panel"
     F Body 278×428 [V gap 12]
@@ -20,7 +20,7 @@ F Publish & misc — dialogs 1000×2130 [V gap 32]
         F Frame 58×58
         F Frame 58×58
         F Frame 58×58
-      F Row 187×32 [H gap 8]
+      F Row 179×32 [H gap 8]
         I NF2/Button {Icon=true, Label=Import…, Type=Secondary, State=Default} 94×32 "Import…"
         I NF2/Icon Button {Type=Selected, Size=SM, State=Default} 32×32
         T "Lock fill"
@@ -30,32 +30,32 @@ F Publish & misc — dialogs 1000×2130 [V gap 32]
         F Row 254×32 [H gap 8]
           I NF2/Field {Show prefix=true, Prefix=Width, Label=1.0 px, State=Default} 122×32 "Width" "1.0 px"
           I NF2/Select {Label=Solid, State=Default} 124×32 "Solid"
-  F Dialog / Publish settings 900×527 [V gap 0]
+  F Dialog / Publish settings 900×521 [V gap 0]
     I NF2/Dialog Header 898×60 "Publish settings"
-    F Main 898×400 [H gap 24]
-      F Targets 260×202 [V gap 2]
+    F Main 898×394 [H gap 24]
+      F Targets 260×192 [V gap 2]
         I NF2/Select {Label=Profile: Default, State=Default} 260×32 "Profile: Default"
-        F Target 260×32 [H gap 8]
+        F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=True} 26×18 " "
           I NF2 Icon/16/globe 16×16
           T "HTML5 · Rust / WebAssembly"
-        F Target 260×32 [H gap 8]
+        F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=False} 26×18 " "
           I NF2 Icon/16/desktop 16×16
           T "Desktop app (macOS / Windows)"
-        F Target 260×32 [H gap 8]
+        F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=False} 26×18 " "
           I NF2 Icon/16/video 16×16
           T "Video (MP4)"
-        F Target 260×32 [H gap 8]
+        F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=True} 26×18 " "
           I NF2 Icon/16/grid 16×16
           T "Image sequence / sprite sheet"
-        F Target 260×32 [H gap 8]
+        F Target 260×30 [H gap 8]
           I NF2/Checkbox {Label= , Checked=False} 26×18 " "
           I NF2 Icon/16/code 16×16
           T "SVG animation"
-      F Settings 566×384 [V gap 12]
+      F Settings 566×378 [V gap 12]
         T "HTML5 · Rust / WebAssembly"
         T "Output"
         F Row 566×32 [H gap 8]
@@ -68,7 +68,7 @@ F Publish & misc — dialogs 1000×2130 [V gap 32]
         F Row 566×32 [H gap 8]
           I NF2/Select {Label=WASM: optimised (−O3), State=Default} 220×32 "WASM: optimised (−O3)"
           I NF2/Select {Label=Scale: Fit, keep ratio, State=Default} 200×32 "Scale: Fit, keep ratio"
-        F Row 566×20 [H gap 8]
+        F Row 566×18 [H gap 8]
           I NF2/Checkbox {Label=Loop, Checked=True} 53×18 "Loop"
           I NF2/Checkbox {Label=Autoplay, Checked=True} 72×18 "Autoplay"
           I NF2/Checkbox {Label=Preloader, Checked=True} 76×18 "Preloader"
@@ -79,11 +79,11 @@ F Publish & misc — dialogs 1000×2130 [V gap 32]
           I NF2/Slider {Value=50} 160×20
           T "80"
           I NF2/Select {Label=Audio: MP3 128 kbps, State=Default} 180×32 "Audio: MP3 128 kbps"
-        F Row 566×20 [H gap 8]
+        F Row 566×18 [H gap 8]
           I NF2/Checkbox {Label=Sprite sheets for bitmaps, Checked=True} 157×18 "Sprite sheets for bitmaps"
           I NF2/Checkbox {Label=Embed fonts (subset), Checked=True} 138×18 "Embed fonts (subset)"
         T "Scripts"
-        F Row 566×20 [H gap 8]
+        F Row 566×18 [H gap 8]
           I NF2/Switch {Label=Strict mode, On=True} 99×18 "Strict mode"
           I NF2/Switch {Label=Include trace(), On=False} 114×18 "Include trace()"
           I NF2/Switch {Label=Minify, On=True} 70×18 "Minify"
@@ -93,9 +93,9 @@ F Publish & misc — dialogs 1000×2130 [V gap 32]
       I NF2/Button {Icon=false, Label=Cancel, Type=Secondary, State=Default} 63×32 "Cancel"
       I NF2/Button {Icon=false, Label=OK, Type=Secondary, State=Default} 42×32 "OK"
       I NF2/Button {Icon=true, Label=Publish, Type=Primary, State=Default} 87×32 "Publish"
-  F Dialog / Font embedding 760×419 [V gap 0]
+  F Dialog / Font embedding 760×413 [V gap 0]
     I NF2/Dialog Header 758×60 "Font embedding"
-    F Main 758×292 [H gap 24]
+    F Main 758×286 [H gap 24]
       F Fonts 220×134 [V gap 2]
         I NF2/Tree Item {Label=Inter Regular, Type=Symbol, Selected=True} 220×32 "Inter Regular"
         I NF2/Tree Item {Label=Inter Semi Bold, Type=Symbol, Selected=False} 220×32 "Inter Semi Bold"
@@ -103,14 +103,14 @@ F Publish & misc — dialogs 1000×2130 [V gap 32]
         F Row 220×32 [H gap 8]
           I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
           I NF2/Icon Button {Type=Ghost, Size=SM, State=Default} 32×32
-      F Options 466×276 [V gap 12]
+      F Options 466×270 [V gap 12]
         F Row 466×32 [H gap 8]
           I NF2/Field {Show prefix=true, Prefix=Name, Label=Inter Regular, State=Default} 220×32 "Name" "Inter Regular"
           I NF2/Select {Label=Family: Inter, State=Default} 200×32 "Family: Inter"
         F Row 466×32 [H gap 8]
           I NF2/Select {Label=Style: Regular, State=Default} 220×32 "Style: Regular"
         T "Character ranges"
-        F Ranges 466×76 [H gap 16]
+        F Ranges 466×70 [H gap 16]
           I NF2/Checkbox {Label=Uppercase [A–Z] (27), Checked=True} 138×18 "Uppercase [A–Z] (27)"
           I NF2/Checkbox {Label=Lowercase [a–z] (27), Checked=True} 135×18 "Lowercase [a–z] (27)"
           I NF2/Checkbox {Label=Numerals [0–9] (11), Checked=True} 127×18 "Numerals [0–9] (11)"

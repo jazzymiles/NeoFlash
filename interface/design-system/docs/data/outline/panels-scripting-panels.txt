@@ -1,5 +1,5 @@
-F Scripting — panels 960×977 [V gap 32]
-  F Panel / Debugger 960×327 [V gap 0]
+F Scripting — panels 960×971 [V gap 32]
+  F Panel / Debugger 960×321 [V gap 0]
     I NF2/Floating Panel Header {Tab 3=false, Tab 2=true} 958×36 "Debugger" "Output" "Panel"
     F Toolbar 958×44 [H gap 2]
       I NF2/Icon Button {Type=Primary, Size=SM, State=Default} 32×32
@@ -11,7 +11,7 @@ F Scripting — panels 960×977 [V gap 32]
       I NF2/Button {Icon=false, Label=Remove all breakpoints, Type=Ghost, State=Default} 147×32 "Remove all breakpoints"
       F Spacer 341×2
       I NF2/Badge {Label=Paused · orbit : Frame 1 · line 18 (breakpoint), Type=Warning} 240×22 "Paused · orbit : Frame 1 · line 18 (breakpoint)"
-    F Main 958×245 [H gap 0]
+    F Main 958×239 [H gap 0]
       F Call stack 240×139 [V gap 0]
         F Title 239×26 [H gap 6]
           T "Call stack"
@@ -37,22 +37,22 @@ F Scripting — panels 960×977 [V gap 32]
         I NF2/Table Row {Value=2.5  (changed), Property=    speed, Kind=Selected} 377×28 "    speed" "2.5  (changed)"
         I NF2/Table Row {Value=XML (14 nodes), Property=▸ orbitXML, Kind=Row} 377×28 "▸ orbitXML" "XML (14 nodes)"
         I NF2/Table Row {Value=1, Property=  frame, Kind=Row} 377×28 "  frame" "1"
-      F Watch 340×245 [V gap 0]
+      F Watch 340×239 [V gap 0]
         F Title 339×26 [H gap 6]
           T "Watch"
         I NF2/Table Row {Value=Value, Property=Expression, Kind=Header} 339×28 "Expression" "Value"
         I NF2/Table Row {Value=Error: null reference, Property=orbit_mc.rotation, Kind=Row} 339×28 "orbit_mc.rotation" "Error: null reference"
         I NF2/Table Row {Value=0.75, Property=animator.time, Kind=Row} 339×28 "animator.time" "0.75"
         I NF2/Table Row {Value=, Property=+ add expression, Kind=Row} 339×28 "+ add expression"
-        F Breakpoints 339×106 [V gap 4]
+        F Breakpoints 339×100 [V gap 4]
           T "Breakpoints"
-          F Row 188×20 [H gap 8]
+          F Row 167×18 [H gap 8]
             I NF2 Icon/16/breakpoint 16×16
             I NF2/Checkbox {Label=orbit : Frame 1 · line 18, Checked=True} 143×18 "orbit : Frame 1 · line 18"
-          F Row 151×20 [H gap 8]
+          F Row 135×18 [H gap 8]
             I NF2 Icon/16/breakpoint 16×16
             I NF2/Checkbox {Label=Orbit.as · line 42, Checked=True} 111×18 "Orbit.as · line 42"
-          F Row 141×20 [H gap 8]
+          F Row 127×18 [H gap 8]
             I NF2 Icon/16/breakpoint 16×16
             I NF2/Checkbox {Label=Main.as · line 7, Checked=False} 103×18 "Main.as · line 7"
   F Scripting — panels 2 672×618 [H gap 32]

@@ -1,6 +1,6 @@
-F Dialog / Preferences — Text 920×437 [V gap 0]
+F Dialog / Preferences — Text 920×435 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×310 [H gap 0]
+  F Main 918×308 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,7 +11,7 @@ F Dialog / Preferences — Text 920×437 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=False} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×310 [V gap 16]
+    F Content 698×306 [V gap 16]
       F Defaults 650×138 [V gap 10]
         T "Defaults"
         F Row 650×32 [H gap 8]
@@ -24,12 +24,12 @@ F Dialog / Preferences — Text 920×437 [V gap 0]
         F Row 650×32 [H gap 8]
           T "Font substitution"
           I NF2/Select {Label=Show warning, State=Default} 220×32 "Show warning"
-      F Behaviour 650×114 [V gap 10]
+      F Behaviour 650×110 [V gap 10]
         T "Behaviour"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Embed used glyphs automatically, On=True} 213×18 "Embed used glyphs automatically"
           I NF2/Switch {Label=Spell check, On=True} 98×18 "Spell check"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Vertical text: right-to-left flow, On=False} 193×18 "Vertical text: right-to-left flow"
           I NF2/Switch {Label=No kerning for vertical, On=True} 154×18 "No kerning for vertical"
         F Row 650×32 [H gap 8]

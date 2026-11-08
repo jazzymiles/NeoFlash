@@ -1,6 +1,6 @@
-F Dialog / Preferences — Publish 920×512 [V gap 0]
+F Dialog / Preferences — Publish 920×508 [V gap 0]
   I NF2/Dialog Header 918×60 "Preferences"
-  F Main 918×385 [H gap 0]
+  F Main 918×381 [H gap 0]
     F Categories 220×308 [V gap 2]
       I NF2/Tree Item {Label=General, Type=Symbol, Selected=False} 196×32 "General"
       I NF2/Tree Item {Label=Code editor, Type=Symbol, Selected=False} 196×32 "Code editor"
@@ -11,8 +11,8 @@ F Dialog / Preferences — Publish 920×512 [V gap 0]
       I NF2/Tree Item {Label=Shortcuts, Type=Symbol, Selected=False} 196×32 "Shortcuts"
       I NF2/Tree Item {Label=Publish, Type=Symbol, Selected=True} 196×32 "Publish"
       I NF2/Tree Item {Label=Updates, Type=Symbol, Selected=False} 196×32 "Updates"
-    F Content 698×385 [V gap 16]
-      F Target 650×126 [V gap 10]
+    F Content 698×381 [V gap 16]
+      F Target 650×124 [V gap 10]
         T "Target"
         F Row 650×32 [H gap 8]
           T "Default target"
@@ -21,7 +21,7 @@ F Dialog / Preferences — Publish 920×512 [V gap 0]
           T "Output folder"
           I NF2/Field {Show prefix=false, Prefix=W, Label=~/Projects/ideas/publish, State=Default} 240×32 "W" "~/Projects/ideas/publish"
           I NF2/Button {Icon=false, Label=Browse…, Type=Secondary, State=Default} 75×32 "Browse…"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Checkbox {Label=HTML wrapper, Checked=True} 104×18 "HTML wrapper"
           I NF2/Checkbox {Label=Assets folder, Checked=True} 95×18 "Assets folder"
           I NF2/Checkbox {Label=Source maps, Checked=False} 94×18 "Source maps"
@@ -37,9 +37,9 @@ F Dialog / Preferences — Publish 920×512 [V gap 0]
         F Row 650×32 [H gap 8]
           T "Acceleration"
           I NF2/Select {Label=GPU (WebGL), State=Default} 180×32 "GPU (WebGL)"
-      F Scripts 650×42 [V gap 10]
+      F Scripts 650×40 [V gap 10]
         T "Scripts"
-        F Row 650×20 [H gap 8]
+        F Row 650×18 [H gap 8]
           I NF2/Switch {Label=Strict mode, On=True} 99×18 "Strict mode"
           I NF2/Switch {Label=Treat warnings as errors, On=False} 165×18 "Treat warnings as errors"
           I NF2/Switch {Label=Publish on save, On=False} 119×18 "Publish on save"

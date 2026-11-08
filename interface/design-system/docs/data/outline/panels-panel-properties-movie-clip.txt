@@ -1,6 +1,6 @@
-F Panel / Properties — Movie clip 320×592 [V gap 0]
+F Panel / Properties — Movie clip 320×590 [V gap 0]
   I NF2/Floating Panel Header {Tab 3=true, Tab 2=true} 318×36 "Properties" "Filters" "Parameters"
-  F Body 318×554 [V gap 10]
+  F Body 318×552 [V gap 10]
     F Row 294×48 [H gap 8]
       F Type icon 48×48 [H gap 0]
         I NF2 Icon/16/movieclip 16×16
@@ -23,7 +23,7 @@ F Panel / Properties — Movie clip 320×592 [V gap 0]
       I NF2/Field {Show prefix=true, Prefix=α, Label=60 %, State=Default} 144×32 "α" "60 %"
     I NF2/Slider {Value=50} 294×20
     I NF2/Section Header {Label=Display, State=Expanded} 294×32 "Display"
-    F Row 294×20 [H gap 8]
+    F Row 294×18 [H gap 8]
       I NF2/Switch {Label=Visible, On=True} 73×18 "Visible"
       I NF2/Checkbox {Label=Cache as bitmap, Checked=False} 114×18 "Cache as bitmap"
     F Row 294×32 [H gap 8]

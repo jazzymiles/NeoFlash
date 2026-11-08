@@ -895,7 +895,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   cache tests pass; the design lock is re-pinned. Native 1×/2× Stage acceptance over real artwork remains pending.
 
 ### R-059 · Help ▸ Search functions entry point
-- **Status:** answered (owner decision 2026-11-08; implemented, Figma sync pending)
+- **Status:** answered (owner decision 2026-11-08; implemented and synchronized to Figma/NF2)
 - **Requested by / for:** project owner · T-132 live authoring report
 - **Where:** main `Help` menu in `crates/neoflash-editor/src/panels/menu.rs`; existing searchable command catalogue in
   `panels/preferences.rs::prefs_shortcuts` (`R-046`).
@@ -912,7 +912,8 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Answer (T-134, 2026-11-08):** Owner explicitly authorized implementation from the existing NF2 components without
   waiting for the design-track handoff. The proposal is adopted exactly: `Search functions…` is the first Help row,
   shows `F1`, clears prior filters and focuses the existing `Search commands` field. Global F1 and Timeline Help share
-  the same path. The design track will synchronize the Figma/menu reference after the functional delivery.
+  the same path. T-135 synchronized the Dark/Light Menus boards and every v2.2 editor top bar, exported the outlines
+  and reference data, regenerated the design reference, and re-pinned the design lock.
 
 ### R-060 · Bitmap Trace and object actions in Stage / Library context menus
 - **Status:** open
@@ -984,7 +985,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   outline Brush cursor with the existing size label and focus/hit target. Keep screen-space click tolerances unchanged.
 
 ### R-064 · Compact Document and Window menu grouping
-- **Status:** answered (owner decision 2026-11-08; implemented, Figma sync pending)
+- **Status:** answered (owner decision 2026-11-08; implemented and synchronized to Figma/NF2)
 - **Requested by / for:** project owner · T-134 live authoring repair
 - **Where:** main menu bar and menu popovers in `crates/neoflash-editor/src/panels/menu.rs`; command paths in
   `commands.rs`; existing NF2 Menu / Menu item / separator components.
@@ -996,5 +997,7 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Answer (T-134, 2026-11-08):** Owner explicitly approved a top-level `Document` immediately before `Window` and
   allowed implementation without waiting for the design-track handoff. `Document` contains `Document settings…` and
   open-document navigation/list. All panel visibility rows, including Brushes and planned panels, move under
-  `Window ▸ Panels`; workspace, placement, appearance, density and Hide panels stay directly under Window. Existing
-  NF2 menu components and spacing are unchanged. The design track will synchronize Figma/menu references afterward.
+  `Window ▸ Panels`; Workspaces, Hide panels, Inspector / Library priority, detach/dock, Appearance and Density stay
+  directly under Window. `Document` then lists open documents, Next / Previous and Close / Close other documents /
+  Close all. Existing NF2 menu components and spacing are unchanged. T-135 synchronized this exact composition to
+  both Menus boards and all v2.2 editor top bars, then exported the outlines/reference data and re-pinned the lock.
