@@ -5,8 +5,8 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without touching the project (and stops any active audition), while `OK` / `Enter` commits name
 //! and audio byte replacements in a single Undo step (`"Sound properties"`).
+use super::dialog_helpers::group;
 use super::planned::caption;
-use super::planned_dialogs::group;
 use crate::app::Editor;
 use crate::timeline_sound::decode_unit;
 use eframe::egui;

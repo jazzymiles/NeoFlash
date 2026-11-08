@@ -2,8 +2,8 @@
 //! `W3.1` / `W3.2`; reference `dialogs-export.png`), opened from `File ▸ Export ▸ Export image…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Export image`.
 
+use super::dialog_helpers::{group, preview_box};
 use super::planned::{FooterClick, caption, footer_clicked};
-use super::planned_dialogs::{group, preview_box};
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_export::{

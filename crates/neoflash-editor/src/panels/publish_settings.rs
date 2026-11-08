@@ -1,6 +1,6 @@
 //! Publish settings (DL-03 / R-032). The draft and estimate share one PublishPrefs snapshot.
+use super::dialog_helpers::group;
 use super::planned::{body_text, caption, check, select, slider, switch};
-use super::planned_dialogs::group;
 use crate::{
     app::Editor,
     publish_controller::EstimateState,

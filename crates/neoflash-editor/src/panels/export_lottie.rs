@@ -4,8 +4,8 @@
 //! Opened by `File ▸ Export ▸ Export Lottie…` (`⌥⇧⌘L`, [`crate::commands::CommandId::FileExportLottie`])
 //! and by `Library ▸ Export symbol as Lottie…` (which preselects that symbol as `Source` and turns
 //! `Background colour layer` off).
+use super::dialog_helpers::{group, preview_box};
 use super::planned::caption;
-use super::planned_dialogs::{group, preview_box};
 use crate::app::Editor;
 use crate::workspace::PanelId;
 use eframe::egui;

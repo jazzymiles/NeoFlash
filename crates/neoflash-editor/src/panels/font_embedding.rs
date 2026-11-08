@@ -2,7 +2,7 @@
 //! `W3.8`; reference `publish-misc-dialogs.png`), opened from `Library menu ▸ Font embedding…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Font embedding`.
 
-use super::planned_dialogs::group;
+use super::dialog_helpers::group;
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::{ResourceUnit, new_id};

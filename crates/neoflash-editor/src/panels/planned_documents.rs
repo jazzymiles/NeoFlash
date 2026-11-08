@@ -3,8 +3,8 @@
 //! embedding and the Test Movie window (`publish-misc-dialogs.png`), Find and replace and Movie Explorer
 //! (`document-dialogs.png`), Symbols & scenes popover (`interface/*/png/editor-editing-symbol-in-place.png`).
 //! Fixed sample values; sample artwork / document colours are HSV data, never UI tokens.
+use super::dialog_helpers::group;
 use super::planned::{caption, check, mono, select, stepper, switch, text};
-use super::planned_dialogs::group;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;

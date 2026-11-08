@@ -4,8 +4,8 @@
 //! Opened by `File ▸ Export ▸ Export video…` ([`crate::commands::CommandId::FileExportVideo`])
 //! and by `Library ▸ Export symbol as video…`.
 
+use super::dialog_helpers::group;
 use super::planned::caption;
-use super::planned_dialogs::group;
 use crate::app::Editor;
 use crate::workspace::PanelId;
 use eframe::egui;

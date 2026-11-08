@@ -5,8 +5,8 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without writing any file, while `Export` / `Enter` prompts for an output `.wav`/`.mp3`/`.ogg`/`.aac`
 //! path (or writes directly in headless tests via [`Editor::confirm_export_audio_to_path`]).
+use super::dialog_helpers::group;
 use super::planned::{FooterClick, footer_clicked};
-use super::planned_dialogs::group;
 use crate::app::Editor;
 use eframe::egui;
 use neoflash_core::{Id, LayerRole};

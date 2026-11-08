@@ -2,8 +2,8 @@
 //! `W3.5`; reference `dialog-import-video.png`), opened from `File ▸ Import ▸ Import video…`
 //! and `Window ▸ Panels ▸ Planned panels ▸ Import video`.
 
+use super::dialog_helpers::{group, preview_box};
 use super::planned::{FooterClick, caption, footer_clicked};
-use super::planned_dialogs::{group, preview_box};
 use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::{

@@ -44,6 +44,7 @@ pub(crate) mod actions_sidebar;
 pub(crate) mod code_snippets;
 pub(crate) mod compiler_errors;
 mod debugger;
+mod dialog_helpers;
 pub(crate) mod document_settings;
 pub(crate) mod ease;
 pub(crate) mod edit_envelope;

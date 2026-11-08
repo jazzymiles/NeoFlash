@@ -5,7 +5,7 @@
 //! Edits live on a draft in `egui::Context` temp memory until confirmed: `Cancel` / `Esc` discards
 //! without touching the project, while `OK` / `Enter` commits document layer properties in a single
 //! Undo step (`"Layer properties"`) and updates timeline row-height preferences.
-use super::planned_dialogs::group;
+use super::dialog_helpers::group;
 use crate::app::Editor;
 use crate::workspace::FramePreview;
 use eframe::egui::{self, Color32};
