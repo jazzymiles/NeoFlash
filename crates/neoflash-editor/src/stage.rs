@@ -871,53 +871,7 @@ impl Editor {
                             && rect.contains(pos)
                         {
                             let local = to_local(pos);
-                            // Preferences ▸ Text ▸ Default font and size.
-                            let preferred = self.workspace.text_font.clone();
-                            let font = if !preferred.is_empty()
-                                && self.fonts.families.contains(&preferred)
-                            {
-                                preferred
-                            } else if self.fonts.families.iter().any(|s| s == "Arial") {
-                                "Arial".to_owned()
-                            } else {
-                                "Helvetica".to_owned()
-                            };
-                            let size = self.workspace.text_size;
-                            let _ = self.fonts.load(ctx, &font);
-                            self.add_element_transformed(
-                                ElementKind::TextBox {
-                                    text: "Your text".into(),
-                                    width: 240.,
-                                    height: 100.,
-                                    format: TextFormat {
-                                        font,
-                                        size,
-                                        color: u32::from_be_bytes([
-                                            0,
-                                            self.fill[0],
-                                            self.fill[1],
-                                            self.fill[2],
-                                        ]),
-                                        ..Default::default()
-                                    },
-                                    multiline: true,
-                                    word_wrap: true,
-                                },
-                                Transform {
-                                    x: local.x as f64,
-                                    y: local.y as f64,
-                                    alpha: self.fill[3] as f64 / 255.,
-                                    ..Default::default()
-                                },
-                            );
-                            if self.selected_element().is_some_and(|e| {
-                                matches!(
-                                    e.kind,
-                                    ElementKind::Text { .. } | ElementKind::TextBox { .. }
-                                )
-                            }) {
-                                self.focus_selected_text_editor(ctx);
-                            }
+                            self.create_stage_text(ctx, Pos2::ZERO + local, None);
                         }
                         self.vector_stage(ui, &content, origin, page, &response);
                     }
@@ -942,7 +896,6 @@ impl Editor {
         origin: Pos2,
     ) {
         if response.secondary_clicked()
-            && matches!(self.tool, Tool::Select | Tool::Transform | Tool::Subselect)
             && let Some(pos) = response.interact_pointer_pos()
             && let Some(target) =
                 self.pick_placement(scene, p, Pos2::ZERO + (pos - origin) / self.zoom)

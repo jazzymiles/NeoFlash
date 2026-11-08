@@ -32,6 +32,7 @@ const MAX_TESS_CACHE_ELEMENTS: usize = 32_000_000;
 const MAX_BOUNDS_CACHE_ENTRIES: usize = 65_536;
 const MAX_SCREEN_MESH_CACHE_ENTRIES: usize = 32_768;
 const MAX_SCREEN_MESH_CACHE_ELEMENTS: usize = 4_000_000;
+const PEN_CLOSE_RADIUS: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct VectorPaintVisibility {
@@ -1230,13 +1231,20 @@ impl Editor {
     /// samples already collected in the old view. A later move/release cannot
     /// append geometry until a new primary press starts another phase.
     pub(crate) fn end_vector_pointer_phase(&mut self) {
+        let finish_pen_close = self
+            .vector
+            .draft
+            .as_ref()
+            .is_some_and(|draft| !draft.pencil && draft.closing && draft.anchors.len() >= 2);
         let finish_pencil = self.vector.draft.as_mut().is_some_and(|draft| {
             let active = draft.dragging || draft.closing;
             draft.dragging = false;
             draft.closing = false;
             draft.pencil && active
         });
-        if finish_pencil {
+        if finish_pen_close {
+            self.finish_path(true);
+        } else if finish_pencil {
             self.finish_path(false);
         }
     }
@@ -1299,6 +1307,17 @@ impl Editor {
         self.last_tick = std::time::Instant::now();
     }
     pub(crate) fn set_tool(&mut self, tool: Tool) {
+        if tool == self.tool
+            && tool == Tool::Pen
+            && self
+                .vector
+                .draft
+                .as_ref()
+                .is_some_and(|draft| draft.anchors.len() >= 2)
+        {
+            self.finish_path(false);
+            return;
+        }
         if tool != self.tool {
             self.finish_edits();
             self.timeline_key_drag = None;
@@ -1797,7 +1816,7 @@ impl Editor {
                         pos,
                         button: egui::PointerButton::Primary,
                         pressed: true,
-                        ..
+                        modifiers,
                     } if response.rect.contains(pos)
                         && ui
                             .ctx()
@@ -1817,6 +1836,30 @@ impl Editor {
                         } else {
                             local(pos)
                         };
+                        let closes = self.tool == Tool::Pen
+                            && self.vector.draft.as_ref().is_some_and(|draft| {
+                                draft.anchors.len() >= 2
+                                    && draft.anchors.first().is_some_and(|first| {
+                                        screen(first.point).distance(pos) < PEN_CLOSE_RADIUS
+                                    })
+                            });
+                        if closes {
+                            // Commit on press: a lost native release or viewport transition must
+                            // not turn an explicit close click into another open anchor.
+                            self.finish_path(true);
+                            continue;
+                        }
+                        if self.tool == Tool::Pen
+                            && (modifiers.command || modifiers.ctrl)
+                            && self
+                                .vector
+                                .draft
+                                .as_ref()
+                                .is_some_and(|draft| draft.anchors.len() >= 2)
+                        {
+                            self.finish_path(false);
+                            continue;
+                        }
                         let symbol = self.symbol_id().to_owned();
                         let layer_id = self.symbol().timeline.layers[self.layer].id.clone();
                         let draft = self.vector.draft.get_or_insert_with(|| PathDraft {
@@ -1834,18 +1877,11 @@ impl Editor {
                         });
                         draft.pointer_origin = origin;
                         draft.pointer_zoom = zoom;
-                        if !draft.pencil
-                            && draft.anchors.len() >= 2
-                            && screen(draft.anchors[0].point).distance(pos) < 8.
-                        {
-                            draft.closing = true;
-                        } else {
-                            draft.anchors.push(Anchor {
-                                point: position,
-                                tangent: Vec2::ZERO,
-                            });
-                            draft.dragging = true;
-                        }
+                        draft.anchors.push(Anchor {
+                            point: position,
+                            tangent: Vec2::ZERO,
+                        });
+                        draft.dragging = true;
                     }
                     egui::Event::PointerMoved(pos) => {
                         if let Some(draft) = &mut self.vector.draft
@@ -1934,7 +1970,7 @@ impl Editor {
             let closes = |at: Pos2| {
                 !draft.pencil
                     && draft.anchors.len() >= 2
-                    && hover.is_some_and(|pos| at.distance(pos) < 8.)
+                    && hover.is_some_and(|pos| at.distance(pos) < PEN_CLOSE_RADIUS)
             };
             if !draft.pencil {
                 let last = draft.anchors.len().saturating_sub(1);

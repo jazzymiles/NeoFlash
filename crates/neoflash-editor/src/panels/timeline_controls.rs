@@ -10,7 +10,6 @@
 //! scenes, loop and edit multiple frames run the commands in `timeline_commands.rs`. When the bar is
 //! narrower than its content, controls hide by the owner-approved priority in [`CONTROLS`] and appear
 //! at the top of the More menu; nothing is clipped or scrolled out of sight.
-use super::menu::NOT_AVAILABLE;
 use crate::app::*;
 use crate::workspace::{DockDestination, DockEdge, FramePreview, PanelId, PanelPlacement};
 use eframe::egui::{self, Sense, Stroke, Vec2};
@@ -1365,8 +1364,10 @@ impl Editor {
             ui.close();
         }
         nf::menu_separator(ui);
-        ui.add_enabled(false, MenuItem::new("Help").shortcut("F1"))
-            .on_disabled_hover_text(NOT_AVAILABLE);
+        if ui.add(MenuItem::new("Help").shortcut("F1")).clicked() {
+            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
+            ui.close();
+        }
         if ui.add(MenuItem::new("Close panel")).clicked() {
             self.set_panel_visible(PanelId::Timeline, false);
             ui.close();

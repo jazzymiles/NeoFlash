@@ -893,3 +893,65 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   artwork in both themes. Colours, 1 pt line weights and the 1.5 pt pair offset are unchanged.
   `SHAPE_SELECTION_PERIOD` is 4.0; the editor's bounded hatch phase follows it. Contrast, clipping/hole/stroke and
   cache tests pass; the design lock is re-pinned. Native 1×/2× Stage acceptance over real artwork remains pending.
+
+### R-059 · Help ▸ Search functions entry point
+- **Status:** open
+- **Requested by / for:** project owner · T-132 live authoring report
+- **Where:** main `Help` menu in `crates/neoflash-editor/src/panels/menu.rs`; existing searchable command catalogue in
+  `panels/preferences.rs::prefs_shortcuts` (`R-046`).
+- **Need:** an approved `Search functions…` Help-menu row (label, order, shortcut and whether it opens a dedicated
+  command palette or the existing searchable Shortcuts catalogue with its search field focused). The existing
+  Timeline `Help` / `F1` row now opens that catalogue, and global `F1` does the same; the requested discoverable main
+  Help entry cannot be added until its menu composition is approved.
+- **Why:** the owner needs feature discovery by function name from Help, not only shortcut editing or prior knowledge
+  of `F1`.
+- **Checked:** `panels-menus.txt`, `interface-editor-main.txt`, `R-046`, current Help menu (`Open example`, `About
+  NeoFlash`) and Timeline menu (`Help`, `F1`).
+- **Proposal (optional):** first Help row `Search functions…` with `F1`, opening `PAGE_SHORTCUTS`, clearing the current
+  filter only when explicitly requested and focusing `Search commands`; keep `Open example`, separator and About.
+
+### R-060 · Bitmap Trace and object actions in Stage / Library context menus
+- **Status:** open
+- **Requested by / for:** project owner · T-132 live authoring report
+- **Where:** Stage-object context menu (`stage.rs::stage_object_commands`) and image-resource context menu
+  (`resources.rs`); existing Trace dialog/controller in `bitmap_trace.rs` and `R-022`.
+- **Need:** approved rows, grouping, labels and states for contextual bitmap operations, at minimum `Trace bitmap…`
+  on a selected Stage bitmap and on an image in `Library ▸ Resource files`. Confirm whether other common rows
+  (`Bitmap properties…`, `Break apart`, `Duplicate`, `Clear`) join the Stage menu and where they sit relative to the
+  locked symbol rows. For a Library resource with no placement, confirm that Trace creates a new editable Graphic
+  symbol while leaving the source bitmap resource unchanged.
+- **Why:** the Trace engine and dialog work from `Modify ▸ Bitmap`, but the owner expects the object-local command on
+  right-click, especially directly in the Library list. Adding rows independently would change locked menu
+  composition.
+- **Checked:** `panels-menus.txt` Stage-object outline, `panels-dialog-trace-bitmap.txt`, `R-022`, current Stage and
+  resource context menus, `bitmap_trace.rs::{can_trace_bitmap,open_trace_bitmap,commit_bitmap_trace}`.
+- **Proposal (optional):** Stage bitmap group: `Trace bitmap…`, `Bitmap properties…`, `Break apart`; resource image
+  group: `Trace bitmap…`, `Bitmap properties…`. Direct-resource Trace creates one new Graphic symbol beside the
+  resource, selects it in Library and commits one Undo without placing or mutating Stage artwork.
+
+### R-061 · Default Eraser “cut portions” mode label and description
+- **Status:** open
+- **Requested by / for:** project owner · T-132 live authoring report
+- **Where:** existing Eraser mode Select and helper copy in `authoring_tools.rs`; `R-034` currently specifies
+  `Cut strokes` / “fills stay intact”.
+- **Need:** an approved replacement label and helper text for the now-primary partial eraser behavior, which cuts the
+  swept disk through raw Merge fills and strokes. Whole objects, whole fills and whole strokes remain explicit
+  optional modes. Confirm whether the existing eraser icon remains valid.
+- **Why:** keeping the old `Cut strokes` wording would falsely describe the implemented default and conceal fill
+  cutting; changing locked labels without the design track is forbidden.
+- **Checked:** `R-034`, Eraser Tool options outline/export and current `EraserMode` menu/help copy.
+- **Proposal (optional):** first/default row `Erase portions`; helper `Cut through Merge fills and strokes along the
+  eraser path. Grouped and Object Drawing artwork stays whole.` Keep the three existing Whole modes below it.
+
+### R-062 · Pen path completion hint after Escape behavior repair
+- **Status:** open
+- **Requested by / for:** project owner · T-132 live authoring report
+- **Where:** Pen drafting action/hint in the Stage toolbar and status help; current copy describes `Esc` as Cancel.
+- **Need:** approved hint copy for the classic Pen lifecycle: click the first anchor to close, `Esc` finishes the
+  current open path and leaves Pen active for a new path, Command-click finishes open, and choosing Pen again also
+  finishes. A truly short/invalid draft may still be cancelled.
+- **Why:** the repaired behavior prevents Escape from deleting a valid contour, but the locked hint must not continue
+  promising `Cancel · Esc`.
+- **Checked:** `editor-editing-symbol-in-place` / Stage toolbar references, current Pen hint and vector gesture tests.
+- **Proposal (optional):** primary hint `Finish path · Esc` with secondary tooltip listing close-first-anchor and
+  Command-click; retain a separate explicit Cancel action if the design needs one.

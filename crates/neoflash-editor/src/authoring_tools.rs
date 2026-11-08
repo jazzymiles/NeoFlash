@@ -12,10 +12,10 @@ use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum EraserMode {
-    #[default]
     Objects,
     Fills,
     Strokes,
+    #[default]
     StrokeSegments,
 }
 
@@ -92,10 +92,10 @@ impl Default for AuthoringToolsState {
             brush_resize: None,
             brush_search: String::new(),
             eraser_size: 16.,
-            eraser_mode: EraserMode::Objects,
+            eraser_mode: EraserMode::StrokeSegments,
             gap_close: GapCloseMode::None,
             lasso_contact: true,
-            lasso_partial_fills: false,
+            lasso_partial_fills: true,
             zoom_out: false,
             polystar_star: false,
             polystar_sides: 5,
@@ -400,14 +400,14 @@ impl Editor {
             let local = inverse(item.transform, point)?;
             let (commands, rule, closed) = path_geometry(&item.kind)?;
             let (_, stroke, width) = paint_parts(&item.kind)?;
-            let outline = stroke[3] > 0
-                && width > 0.
-                && geometry_contains(
-                    &commands,
-                    rule,
-                    Some(width.max(5. / self.zoom as f64)),
-                    local,
-                );
+            let contour_hit = geometry_contains(
+                &commands,
+                rule,
+                Some(width.max(5. / self.zoom as f64)),
+                local,
+            );
+            let outline = (stroke[3] > 0 && width > 0. && contour_hit)
+                || (self.tool == Tool::Ink && contour_hit);
             let mut metric = item.transform;
             for value in &mut metric {
                 *value *= f64::from(self.zoom);
@@ -492,9 +492,93 @@ impl Editor {
         });
         self.normalize_targets();
     }
+
+    fn paint_bucket_planar_face_at(&mut self, painter: &egui::Painter, point: Pos2) -> bool {
+        if !self.layer_editable() {
+            return false;
+        }
+        let layer = &self.symbol().timeline.layers[self.layer];
+        let elements = sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps));
+        let boundary_ids: std::collections::HashSet<_> =
+            elements.iter().map(|element| element.id.as_str()).collect();
+        let authored =
+            self.presented_interactive_authored_scene(self.show_layer_masking(painter.ctx()));
+        if let Some(masked_boundary) = authored.draws.iter().find(|draw| {
+            draw.item.instance_path.len() == 1
+                && draw
+                    .item
+                    .instance_path
+                    .first()
+                    .is_some_and(|id| boundary_ids.contains(id.as_str()))
+                && !draw.clip_ids.is_empty()
+        }) && !authored.contains_point(
+            &masked_boundary.item.instance_path,
+            [f64::from(point.x), f64::from(point.y)],
+        ) {
+            return false;
+        }
+        let commands = match paint_bucket_planar_face(
+            &elements,
+            [f64::from(point.x), f64::from(point.y)],
+            self.authoring_tools.gap_close.max_gap_px() / f64::from(self.zoom),
+        ) {
+            Ok(Some(commands)) => commands,
+            Ok(None) => return false,
+            Err(error) => {
+                self.notify(
+                    neoflash_ui::components::ToastType::Warning,
+                    format!(
+                        "Paint Bucket stopped before editing: {error}. Simplify the active layer or isolate a smaller region."
+                    ),
+                );
+                return true;
+            }
+        };
+        let id = new_id("object");
+        let mut element = Element {
+            id: id.clone(),
+            name: format!("fill_{}", id.rsplit('-').next().unwrap_or("1")),
+            merge: true,
+            kind: ElementKind::Path {
+                commands,
+                fill_rule: FillRule::NonZero,
+                fill: self.fill,
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        self.apply_active_tool_paint(&mut element, false);
+        self.transact_named("Paint Bucket face", |editor| {
+            editor.ensure_key(false);
+            let layer = editor.layer;
+            let frame = editor.frame;
+            let created = crate::stage_selection::edit_ungrouped_merge_shapes(
+                &mut editor.symbol_mut().timeline.layers[layer],
+                frame,
+                |elements| apply_merge_shape_to_keyframe(elements, element),
+            )
+            .unwrap_or_default();
+            let layer_id = editor.symbol().timeline.layers[layer].id.clone();
+            editor.set_selection(
+                created
+                    .into_iter()
+                    .map(|element| SelectionTarget {
+                        layer: layer_id.clone(),
+                        element,
+                    })
+                    .collect(),
+            );
+        });
+        true
+    }
+
     fn paint_tool_click(&mut self, scene: &[DrawItem], p: &egui::Painter, point: Pos2, alt: bool) {
         let tool = self.tool;
         let Some(hit) = self.tool_paint_hit(scene, p, point, tool == Tool::Bucket) else {
+            if tool == Tool::Bucket && self.paint_bucket_planar_face_at(p, point) {
+                return;
+            }
             self.message(if tool==Tool::Bucket {"Paint Bucket fills existing closed vector shapes. Close an open path first; enter a symbol to edit its artwork."} else {"Choose vector artwork on an unlocked layer; enter a symbol to edit its artwork."});
             return;
         };
@@ -535,6 +619,59 @@ impl Editor {
                 kind: hit.kind.clone(),
                 ..Default::default()
             });
+        if tool == Tool::Ink
+            && is_merge_fill(&element)
+            && self.grouped_targets(&hit.target).len() == 1
+            && let Some((commands, fill_rule)) = element.to_path_commands()
+        {
+            let id = new_id("object");
+            let mut outline = Element {
+                id: id.clone(),
+                name: format!("stroke_{}", id.rsplit('-').next().unwrap_or("1")),
+                transform: element.transform,
+                merge: true,
+                visible: element.visible,
+                kind: ElementKind::Path {
+                    commands,
+                    fill_rule,
+                    fill: [0; 4],
+                    stroke: self.stroke,
+                    stroke_width: self.stroke_width,
+                },
+                ..Element::default()
+            };
+            self.apply_active_tool_paint(&mut outline, true);
+            let layer_id = hit.target.layer.clone();
+            self.transact_named("Ink Bottle contour", |editor| {
+                editor.ensure_key_for(&layer_id, false);
+                let Some(index) = editor
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .position(|layer| layer.id == layer_id)
+                else {
+                    return;
+                };
+                let frame = editor.frame;
+                let created = crate::stage_selection::edit_ungrouped_merge_shapes(
+                    &mut editor.symbol_mut().timeline.layers[index],
+                    frame,
+                    |elements| apply_merge_shape_to_keyframe(elements, outline),
+                )
+                .unwrap_or_default();
+                editor.set_selection(
+                    created
+                        .into_iter()
+                        .map(|element| SelectionTarget {
+                            layer: layer_id.clone(),
+                            element,
+                        })
+                        .collect(),
+                );
+            });
+            return;
+        }
         if tool == Tool::Bucket
             && let (
                 ElementKind::Path {
@@ -559,13 +696,19 @@ impl Editor {
         self.set_selection(vec![hit.target]);
     }
 
-    /// The fill keeps its original contour; only the stroke receives cut commands.
-    /// New stroke fragments share one element and preserve gradient/affine appearance.
+    /// Cut through raw Merge fills and strokes with the swept eraser. Object Drawing paths retain
+    /// the established stroke-segment behavior so filters, groups and instance identity are never
+    /// silently flattened.
     fn erase_stroke_parts(&mut self, gesture: &Gesture, painter: &egui::Painter) {
         let points: Vec<_> = gesture
             .points
             .iter()
             .map(|p| [f64::from(p.x), f64::from(p.y)])
+            .collect();
+        let affected_layers: std::collections::HashSet<_> = gesture
+            .targets
+            .iter()
+            .map(|target| target.layer.clone())
             .collect();
         let authored =
             self.presented_interactive_authored_scene(self.show_layer_masking(painter.ctx()));
@@ -593,6 +736,11 @@ impl Editor {
             .find(|element| element.id == target.element) else {
                 continue;
             };
+            if element.merge {
+                // Raw Merge geometry is handled as one planar layer operation below, including
+                // fill subtraction and exact stroke fragments.
+                continue;
+            }
             let layer = &self.symbol().timeline.layers[index];
             if layer.properties.motion_guide.is_some()
                 && !layer.keyframes.iter().any(|key| key.frame == self.frame)
@@ -684,11 +832,47 @@ impl Editor {
             }
             changes.push((target.clone(), replacements));
         }
-        if changes.is_empty() {
+        let mut candidate = self.project.clone();
+        let mut merge_changed = false;
+        let mut merge_error = None;
+        let symbol_id = self.symbol_id().to_owned();
+        if let Some(symbol) = candidate.symbol_mut(&symbol_id) {
+            for layer in &mut symbol.timeline.layers {
+                if !affected_layers.contains(&layer.id) {
+                    continue;
+                }
+                let result = crate::stage_selection::edit_ungrouped_merge_shapes(
+                    layer,
+                    self.frame,
+                    |elements| {
+                        erase_merge_geometry_with_sweep(
+                            elements,
+                            &points,
+                            f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
+                            0.2 / f64::from(gesture.zoom),
+                        )
+                    },
+                );
+                match result {
+                    Some(Ok(changed)) => merge_changed |= changed,
+                    Some(Err(error)) => {
+                        merge_error = Some(error.to_string());
+                        break;
+                    }
+                    None => {}
+                }
+            }
+        }
+        if let Some(error) = merge_error {
+            self.notify(neoflash_ui::components::ToastType::Warning, error);
+            return;
+        }
+        if changes.is_empty() && !merge_changed {
             return;
         }
         self.transact(|editor| {
             let before = editor.project.clone();
+            editor.project = candidate;
             for (target, mut replacements) in changes {
                 if !editor.target_editable(&target) {
                     continue;
@@ -828,9 +1012,10 @@ impl Editor {
                 }
                 match self.authoring_tools.eraser_mode {
                     EraserMode::Fills => apply_paint(&mut item.kind, None, Some(([0; 4], 0.))),
-                    EraserMode::Strokes | EraserMode::StrokeSegments => {
-                        apply_paint(&mut item.kind, Some([0; 4]), None)
-                    }
+                    EraserMode::Strokes => apply_paint(&mut item.kind, Some([0; 4]), None),
+                    // The default partial mode cuts through both raw Merge fills and strokes.
+                    // Keep the full visible mesh so a fill-only shape becomes a gesture target.
+                    EraserMode::StrokeSegments => {}
                     EraserMode::Objects => {}
                 }
             }
@@ -1368,7 +1553,12 @@ impl Editor {
                         .iter()
                         .map(|pt| [f64::from(pt.x), f64::from(pt.y)])
                         .collect();
+                    let previous = g.shift.then(|| self.selection.targets.clone());
                     if !self.lasso_select_partial_fill(&pts).is_empty() {
+                        if let Some(mut previous) = previous {
+                            previous.extend(self.selection.targets.clone());
+                            self.set_selection(previous);
+                        }
                         return;
                     }
                 }
@@ -2268,9 +2458,9 @@ fn paint_gradient_handles(
 }
 
 impl Editor {
-    /// Slice Merge-mode fills on the active editable layer along `points` (`T-128`,
-    /// `editor-advanced-drawing :: lasso-partial-fills`), selecting the enclosed fill piece(s)
-    /// in one `"Lasso split fill"` Undo step.
+    /// Slice Merge-mode fills and strokes on the active editable layer along `points`, selecting
+    /// only the enclosed fragments in one Undo step. Object Drawing and grouped artwork remain
+    /// whole objects.
     pub fn lasso_select_partial_fill(&mut self, points: &[[f64; 2]]) -> Vec<Id> {
         self.finish_edits();
         if points.len() < 3 || !self.layer_editable() {
@@ -2312,7 +2502,7 @@ impl Editor {
             return Vec::new();
         }
         if candidate != self.project {
-            self.transact_named("Lasso split fill", |s| {
+            self.transact_named("Lasso split geometry", |s| {
                 s.project = candidate;
             });
         }

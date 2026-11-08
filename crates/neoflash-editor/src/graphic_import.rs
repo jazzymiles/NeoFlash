@@ -347,6 +347,7 @@ impl Editor {
         let mut placed = Vec::with_capacity(graphics.len());
         let mut notices = Vec::new();
         let mut last_symbol = None;
+        let exact_position = point.is_some();
         let at = point.unwrap_or_else(|| self.paste_center());
         for (index, mut graphic) in graphics.into_iter().enumerate() {
             merge_graphic_resources(&mut candidate, &mut graphic)?;
@@ -373,16 +374,23 @@ impl Editor {
             } else {
                 [0., 0.]
             };
-            let center = [
-                (at[0] + index as f64 * 16.).clamp(
-                    page_min[0] + half[0],
-                    page_min[0] + candidate.width as f64 - half[0],
-                ),
-                (at[1] + index as f64 * 16.).clamp(
-                    page_min[1] + half[1],
-                    page_min[1] + candidate.height as f64 - half[1],
-                ),
-            ];
+            let requested = [at[0] + index as f64 * 16., at[1] + index as f64 * 16.];
+            // A native/Library drop is an explicit authored coordinate. Pasteboard artwork is
+            // valid, so never move it merely to keep the complete bounds inside the page.
+            let center = if exact_position {
+                requested
+            } else {
+                [
+                    requested[0].clamp(
+                        page_min[0] + half[0],
+                        page_min[0] + candidate.width as f64 - half[0],
+                    ),
+                    requested[1].clamp(
+                        page_min[1] + half[1],
+                        page_min[1] + candidate.height as f64 - half[1],
+                    ),
+                ]
+            };
             placed.push(Element {
                 id: new_id("object"),
                 name: name.clone(),
@@ -462,6 +470,7 @@ impl Editor {
             .fold(Rect::NOTHING, |rect, draw| {
                 rect.union(crate::stage::world_bounds(&draw.item, &painter))
             });
+        let exact_position = point.is_some();
         let mut at = point.unwrap_or_else(|| self.paste_center());
         let center = if bounds.is_finite() {
             bounds.center()
@@ -479,12 +488,14 @@ impl Editor {
         } else {
             [0., 0.]
         };
-        for axis in 0..2 {
-            let inset = half[axis].min(page_size[axis] / 2.);
-            at[axis] = at[axis].clamp(
-                page_min[axis] + inset,
-                page_min[axis] + page_size[axis] - inset,
-            );
+        if !exact_position {
+            for axis in 0..2 {
+                let inset = half[axis].min(page_size[axis] / 2.);
+                at[axis] = at[axis].clamp(
+                    page_min[axis] + inset,
+                    page_min[axis] + page_size[axis] - inset,
+                );
+            }
         }
         let element = Element {
             id: new_id("object"),

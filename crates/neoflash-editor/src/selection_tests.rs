@@ -415,6 +415,186 @@ fn marquee_requires_full_bounds_and_shift_marquee_adds_to_the_initial_selection(
 }
 
 #[test]
+fn marquee_and_default_lasso_split_merge_fill_and_bezier_stroke_before_deletion() {
+    let raw_path = |id: &str, commands: Vec<PathCommand>, fill, stroke, stroke_width| Element {
+        id: id.into(),
+        name: id.into(),
+        merge: true,
+        kind: ElementKind::Path {
+            commands,
+            fill_rule: FillRule::NonZero,
+            fill,
+            stroke,
+            stroke_width,
+        },
+        ..Element::default()
+    };
+    let raw_elements = || {
+        vec![
+            raw_path(
+                "raw-fill",
+                vec![
+                    PathCommand::MoveTo { x: 100., y: 100. },
+                    PathCommand::LineTo { x: 220., y: 100. },
+                    PathCommand::LineTo { x: 220., y: 200. },
+                    PathCommand::LineTo { x: 100., y: 200. },
+                    PathCommand::Close,
+                ],
+                [40, 100, 180, 255],
+                [0; 4],
+                0.,
+            ),
+            raw_path(
+                "raw-curve",
+                vec![
+                    PathCommand::MoveTo { x: 100., y: 250. },
+                    PathCommand::CubicTo {
+                        cx1: 130.,
+                        cy1: 225.,
+                        cx2: 190.,
+                        cy2: 275.,
+                        x: 220.,
+                        y: 250.,
+                    },
+                ],
+                [0; 4],
+                [20, 30, 40, 255],
+                4.,
+            ),
+        ]
+    };
+    let contains = |element: &Element, point: [f64; 2], fill: bool| {
+        let (commands, rule) = element_world_commands(element).unwrap();
+        let width = match element.kind {
+            ElementKind::Path { stroke_width, .. }
+            | ElementKind::PaintedPath { stroke_width, .. } => stroke_width,
+            _ => 0.0,
+        };
+        hit_test_path(
+            &commands,
+            rule,
+            point,
+            fill,
+            width,
+            FlattenOptions::default(),
+        )
+        .unwrap()
+    };
+
+    // A Select-tool marquee cuts both raw topology classes and selects just the pieces inside.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.symbol_mut().timeline.layers = vec![layer("merge-layer", raw_elements(), false)];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.project.validate().unwrap();
+    editor.history.clear();
+    let before = editor.project.clone();
+    editor.set_tool(Tool::Select);
+    drag(
+        &mut editor,
+        &ctx,
+        1.,
+        page.min + egui::vec2(135., 80.),
+        page.min + egui::vec2(185., 290.),
+        false,
+        Modifiers::NONE,
+    );
+    assert!(editor.selection.targets.len() >= 2);
+    assert_eq!(editor.history.undo_len(), 1);
+    assert_ne!(editor.project, before);
+    let split = editor.project.clone();
+    editor.delete_selected();
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    let fill_at = |point| {
+        elements
+            .iter()
+            .filter(|element| is_merge_fill(element))
+            .any(|element| contains(element, point, true))
+    };
+    let stroke_at = |point| {
+        elements
+            .iter()
+            .filter(|element| is_merge_stroke(element))
+            .any(|element| contains(element, point, false))
+    };
+    assert!(fill_at([115., 150.]) && fill_at([205., 150.]));
+    assert!(
+        !fill_at([160., 150.]),
+        "Backspace removes only the marquee fill fragment"
+    );
+    assert!(elements.iter().any(is_merge_stroke));
+    assert!(
+        !stroke_at([160., 250.]),
+        "Backspace removes only the marquee curve segment"
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, split);
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Lasso uses the same partial-shape semantics by default, and Shift preserves the previous
+    // object selection while adding the enclosed raw fragments.
+    let (mut editor, ctx, page) = rectangle_stage();
+    let mut elements = raw_elements();
+    elements.push(object("prior", 400., 120.));
+    editor.symbol_mut().timeline.layers = vec![layer("merge-layer", elements, false)];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.project.validate().unwrap();
+    editor.history.clear();
+    editor.select_single_id("prior".into());
+    let before = editor.project.clone();
+    editor.set_tool(Tool::Lasso);
+    assert!(editor.authoring_tools.lasso_partial_fills);
+    let polygon = [
+        (135., 80.),
+        (185., 80.),
+        (185., 290.),
+        (135., 290.),
+        (135., 80.),
+    ]
+    .map(|(x, y)| page.min + egui::vec2(x, y));
+    input(
+        &mut editor,
+        &ctx,
+        2.,
+        vec![
+            Event::PointerMoved(polygon[0]),
+            button(polygon[0], true, Modifiers::SHIFT),
+        ],
+        Modifiers::SHIFT,
+    );
+    for (index, point) in polygon.into_iter().enumerate().skip(1) {
+        input(
+            &mut editor,
+            &ctx,
+            2. + index as f64 * 0.1,
+            vec![Event::PointerMoved(point)],
+            Modifiers::SHIFT,
+        );
+    }
+    input(
+        &mut editor,
+        &ctx,
+        3.,
+        vec![button(polygon[0], false, Modifiers::SHIFT)],
+        Modifiers::SHIFT,
+    );
+    assert!(
+        editor
+            .selection
+            .targets
+            .iter()
+            .any(|target| target.element == "prior")
+    );
+    assert!(editor.selection.targets.len() >= 3);
+    assert_eq!(editor.history.undo_len(), 1);
+    assert_ne!(editor.project, before);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
 fn fast_and_sequential_move_both_apply_release_position_outside_the_canvas() {
     for batched in [false, true] {
         let (mut editor, ctx, page) = fixture(5);
@@ -1692,11 +1872,46 @@ fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters()
     // 2. TextBox Break Apart splits visible characters with horizontal & line offsets.
     editor.layer = 1;
     let tb_id = new_id("object");
-    let format = TextFormat {
+    let mut format = TextFormat {
+        font: "Helvetica".into(),
         size: 24.0,
+        color: 0x112233,
         letter_spacing: 2.0,
         ..TextFormat::default()
     };
+    let mut large_green = format.clone();
+    large_green.size = 32.0;
+    large_green.bold = true;
+    large_green.color = 0x55aa33;
+    let mut small_blue = format.clone();
+    small_blue.size = 18.0;
+    small_blue.italic = true;
+    small_blue.color = 0x3355aa;
+    format.set_field_options(Some(AuthoredTextFieldOptions {
+        format_runs: vec![
+            TextFormatRun {
+                start: 0,
+                end: 2,
+                format: format.clone(),
+            },
+            TextFormatRun {
+                start: 2,
+                end: 3,
+                format: large_green,
+            },
+            TextFormatRun {
+                start: 3,
+                end: 4,
+                format: format.clone(),
+            },
+            TextFormatRun {
+                start: 4,
+                end: 5,
+                format: small_blue,
+            },
+        ],
+        ..AuthoredTextFieldOptions::default()
+    }));
     editor.symbol_mut().timeline.layers[1].keyframes[0]
         .elements
         .push(Element {
@@ -1740,17 +1955,69 @@ fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters()
         .collect();
     assert_eq!(chars, ["A", "B", "C"]);
     assert!((letters[0].transform.x - 50.0).abs() < 1e-6);
-    assert!((letters[0].transform.y - 80.0).abs() < 1e-6);
+    assert!((letters[1].transform.y - 80.0).abs() < 1e-6);
     assert!(
         letters[1].transform.x > letters[0].transform.x + 10.0,
         "B must be shifted right past A and space"
     );
-    assert!((letters[1].transform.y - letters[0].transform.y).abs() < 1e-6);
+    assert!(
+        letters[1].transform.y < letters[0].transform.y,
+        "the larger B run must retain its baseline-adjusted placement"
+    );
     assert!((letters[2].transform.x - 50.0).abs() < 1e-6);
     assert!(
         letters[2].transform.y > letters[0].transform.y + 20.0,
         "C on line 2 must be shifted down by line advance"
     );
+    let letter_formats: Vec<_> = letters
+        .iter()
+        .filter_map(|element| match &element.kind {
+            ElementKind::TextBox { format, .. } => {
+                Some((format.size, format.color, format.bold, format.italic))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        letter_formats,
+        vec![
+            (24.0, 0x112233, false, false),
+            (32.0, 0x55aa33, true, false),
+            (18.0, 0x3355aa, false, true),
+        ],
+        "Break Apart must preserve every rich-text character format"
+    );
+    let split_text = editor.project.clone();
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    let outlined_letters: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, element)| element)
+        .collect();
+    assert_eq!(outlined_letters.len(), 3);
+    assert!(outlined_letters.iter().all(|element| element.merge));
+    let outline_fills: Vec<_> = outlined_letters
+        .iter()
+        .filter_map(|element| match element.kind {
+            ElementKind::Path { fill, .. } => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        outline_fills,
+        vec![
+            [0x11, 0x22, 0x33, 255],
+            [0x55, 0xaa, 0x33, 255],
+            [0x33, 0x55, 0xaa, 255],
+        ],
+        "the outline stage must keep rich-text paints separate"
+    );
+    assert!(outlined_letters.iter().any(|element| {
+        matches!(&element.kind, ElementKind::Path { commands, .. } if commands.iter().any(|command| matches!(command, PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. })))
+    }), "the second Break Apart must use real font curves, not rectangular placeholder glyphs");
+    editor.undo();
+    assert_eq!(editor.project, split_text);
     editor.undo();
     assert_eq!(editor.project, before_text_break);
 
@@ -1786,8 +2053,119 @@ fn break_apart_unpacks_groups_first_and_splits_text_into_positioned_characters()
     assert_eq!(pt_letters.len(), 3);
     assert!(pt_letters[0].transform.x < pt_letters[1].transform.x);
     assert!(pt_letters[1].transform.x < pt_letters[2].transform.x);
+    let split_point_text = editor.project.clone();
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+    let point_outlines: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, element)| element)
+        .collect();
+    assert_eq!(point_outlines.len(), 3);
+    assert!(point_outlines.iter().all(|element| element.merge));
+    assert!(point_outlines.iter().all(|element| matches!(
+        element.kind,
+        ElementKind::Path {
+            fill: [255, 255, 255, 255],
+            stroke: [0, 0, 0, 0],
+            ..
+        }
+    )));
+    assert!(point_outlines.iter().any(|element| {
+        matches!(&element.kind, ElementKind::Path { commands, .. } if commands.iter().any(|command| matches!(command, PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. })))
+    }));
+    editor.undo();
+    assert_eq!(editor.project, split_point_text);
     editor.undo();
     assert_eq!(editor.project, before_pt);
+}
+
+#[test]
+fn break_apart_single_character_text_goes_directly_to_exact_font_outlines() {
+    let (mut editor, _ctx, _page) = fixture(0);
+    editor.layer = 1;
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .clear();
+
+    let cases = [
+        Element {
+            id: "single-point-text".into(),
+            transform: Transform {
+                x: 30.0,
+                y: 40.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Text {
+                text: "S".into(),
+                font_family: "Helvetica".into(),
+                font_size: 36.0,
+                color: [20, 80, 160, 192],
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "single-area-text".into(),
+            transform: Transform {
+                x: 100.0,
+                y: 140.0,
+                alpha: 0.5,
+                ..Transform::default()
+            },
+            kind: ElementKind::TextBox {
+                text: "S".into(),
+                width: 100.0,
+                height: 60.0,
+                format: TextFormat {
+                    font: "Helvetica".into(),
+                    size: 36.0,
+                    color: 0xc83250,
+                    ..TextFormat::default()
+                },
+                multiline: false,
+                word_wrap: false,
+            },
+            ..Element::default()
+        },
+    ];
+    editor.symbol_mut().timeline.layers[1].keyframes[0]
+        .elements
+        .extend(cases);
+    let before = editor.project.clone();
+    select(&mut editor, &["single-point-text", "single-area-text"]);
+    editor.break_apart_selection();
+    editor.project.validate().unwrap();
+
+    let outlines: Vec<Element> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, element)| element)
+        .collect();
+    assert_eq!(outlines.len(), 2);
+    assert!(outlines.iter().all(|element| element.merge));
+    assert!(outlines.iter().all(|element| {
+        matches!(&element.kind, ElementKind::Path { commands, .. }
+            if commands.len() > 8
+                && commands.iter().any(|command| matches!(command, PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. })))
+    }));
+    assert!(matches!(
+        outlines[0].kind,
+        ElementKind::Path {
+            fill: [20, 80, 160, 192],
+            ..
+        }
+    ));
+    assert!(matches!(
+        outlines[1].kind,
+        ElementKind::Path {
+            fill: [200, 50, 80, 255],
+            ..
+        }
+    ));
+    assert_eq!(outlines[1].transform.alpha, 0.5);
+
+    editor.undo();
+    assert_eq!(editor.project, before);
 }
 
 #[test]
@@ -2496,8 +2874,8 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
         );
     }
 
-    // Lasso contact with only half of a Merge fill selects the existing whole element.
-    // This is the implemented whole-object path, not partial-fill topology selection.
+    // Turning off partial geometry preserves the explicit whole-object Lasso option used by this
+    // hatch rendering check. The default split-and-select behavior is covered above.
     let (mut editor, ctx, page) = rectangle_stage();
     editor.set_theme(&ctx, theme);
     let mut selected = object("lasso-raw-fill", 100., 100.);
@@ -2512,6 +2890,7 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
     editor.symbol_mut().timeline.layers = vec![layer("lasso-layer", vec![selected], false)];
     editor.project.format_version = editor.project.format_version.max(7);
     editor.tool = Tool::Lasso;
+    editor.authoring_tools.lasso_partial_fills = false;
     editor.clear_selection();
     editor.history.clear();
     editor.project.validate().unwrap();
@@ -2576,7 +2955,7 @@ fn merge_selection_hatch_paths_in_theme(theme: crate::theme::ThemeMode) {
     );
     assert!(
         !editor.history.can_undo(),
-        "selection alone creates no content Undo"
+        "whole-object selection alone creates no content Undo"
     );
 
     // Both sides of the current frame remain ghosts; only current-frame artwork gets the

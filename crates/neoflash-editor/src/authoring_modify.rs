@@ -909,7 +909,7 @@ impl Editor {
         let mut replacements = Vec::new();
         let mut expanded_instance = false;
         let mut uses_skew = false;
-        let mut single_char_skipped = false;
+        let mut empty_text_skipped = false;
         for (target, instance) in selected {
             if !self.target_editable(&target) {
                 self.message("This layer is locked or hidden.");
@@ -1011,46 +1011,72 @@ impl Editor {
                     }
                     let total_chars = text.chars().count();
                     let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
-                    if total_chars <= 1 || visible_chars == 0 {
-                        single_char_skipped = true;
-                        continue;
-                    }
                     let Some(field) = TextFieldState::from_kind(&instance.kind) else {
                         self.message("Break Apart could not read text box parameters.");
                         return;
                     };
-                    let char_boxes = match layout_char_boxes(&field, |strings, fmt| {
-                        Ok(strings
-                            .iter()
-                            .map(|s| {
-                                self.fonts
-                                    .measure_width(&fmt.font, fmt.bold, fmt.italic, fmt.size, s)
-                            })
-                            .collect())
-                    }) {
-                        Ok(boxes) => boxes,
+                    if visible_chars == 0 {
+                        empty_text_skipped = true;
+                        continue;
+                    }
+                    if total_chars <= 1 {
+                        let commands = match self.fonts.field_outline_commands(&field) {
+                            Ok(commands) if !commands.is_empty() => commands,
+                            Ok(_) => {
+                                self.message("Text has no visible glyph outlines.");
+                                return;
+                            }
+                            Err(err) => {
+                                self.message(format!("Break Apart could not outline text: {err}"));
+                                return;
+                            }
+                        };
+                        let format =
+                            field.format_at_utf16(0, field.text.encode_utf16().count() as u32);
+                        let mut broken = instance.clone();
+                        broken.transform.primitive = None;
+                        broken.merge = true;
+                        broken.kind = ElementKind::Path {
+                            commands,
+                            fill_rule: FillRule::NonZero,
+                            fill: [
+                                ((format.color >> 16) & 0xff) as u8,
+                                ((format.color >> 8) & 0xff) as u8,
+                                (format.color & 0xff) as u8,
+                                field.alpha,
+                            ],
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        };
+                        replacements.push((target, vec![broken]));
+                        continue;
+                    }
+                    let placements = match self.fonts.field_character_placements(&field) {
+                        Ok(placements) => placements,
                         Err(err) => {
                             self.message(format!("Break Apart text layout failed: {err}"));
                             return;
                         }
                     };
-                    let mut char_format = field.format.clone();
-                    char_format.align = TextAlign::Left;
-                    char_format.left_margin = 0.0;
-                    char_format.right_margin = 0.0;
-                    char_format.indent = 0.0;
-                    char_format.block_indent = 0.0;
-                    char_format.letter_spacing = 0.0;
-                    char_format.bullet = false;
-                    char_format.tab_stops.clear();
                     let parent = instance.transform;
                     let parent_matrix = transform_matrix(parent);
                     let mut children = Vec::with_capacity(visible_chars);
-                    for (idx, (ch, cbox)) in char_boxes
+                    for (idx, placement) in placements
                         .into_iter()
-                        .filter(|(ch, _)| !ch.is_whitespace())
+                        .filter(|placement| !placement.ch.is_whitespace())
                         .enumerate()
                     {
+                        let ch = placement.ch;
+                        let cbox = placement.bounds;
+                        let mut char_format = placement.format;
+                        char_format.align = TextAlign::Left;
+                        char_format.left_margin = 0.0;
+                        char_format.right_margin = 0.0;
+                        char_format.indent = 0.0;
+                        char_format.block_indent = 0.0;
+                        char_format.letter_spacing = 0.0;
+                        char_format.bullet = false;
+                        char_format.tab_stops.clear();
                         let local = Transform {
                             x: cbox.x - 2.0,
                             y: cbox.y - 2.0,
@@ -1086,7 +1112,7 @@ impl Editor {
                                 text: ch.to_string(),
                                 width,
                                 height,
-                                format: char_format.clone(),
+                                format: char_format,
                                 word_wrap: false,
                                 multiline: false,
                             },
@@ -1113,8 +1139,37 @@ impl Editor {
                     }
                     let total_chars = text.chars().count();
                     let visible_chars = text.chars().filter(|ch| !ch.is_whitespace()).count();
-                    if total_chars <= 1 || visible_chars == 0 {
-                        single_char_skipped = true;
+                    if visible_chars == 0 {
+                        empty_text_skipped = true;
+                        continue;
+                    }
+                    if total_chars <= 1 {
+                        let Some(field) = TextFieldState::from_kind(&instance.kind) else {
+                            self.message("Break Apart could not read text parameters.");
+                            return;
+                        };
+                        let commands = match self.fonts.field_outline_commands(&field) {
+                            Ok(commands) if !commands.is_empty() => commands,
+                            Ok(_) => {
+                                self.message("Text has no visible glyph outlines.");
+                                return;
+                            }
+                            Err(err) => {
+                                self.message(format!("Break Apart could not outline text: {err}"));
+                                return;
+                            }
+                        };
+                        let mut broken = instance.clone();
+                        broken.transform.primitive = None;
+                        broken.merge = true;
+                        broken.kind = ElementKind::Path {
+                            commands,
+                            fill_rule: FillRule::NonZero,
+                            fill: *color,
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        };
+                        replacements.push((target, vec![broken]));
                         continue;
                     }
                     let parent = instance.transform;
@@ -1198,8 +1253,8 @@ impl Editor {
             }
         }
         if replacements.is_empty() {
-            if single_char_skipped {
-                self.message("Single-character text blocks are already split into characters; glyph-to-path outline conversion is not available yet.");
+            if empty_text_skipped {
+                self.message("Text contains no visible glyphs to break apart.");
             }
             return;
         }

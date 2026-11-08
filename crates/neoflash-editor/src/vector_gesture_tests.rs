@@ -98,7 +98,7 @@ fn drawing_tools_remain_active_for_consecutive_gestures_until_explicit_switch() 
             assert!(match tool {
                 Tool::Rectangle => matches!(selected.kind, ElementKind::Rectangle { .. }),
                 Tool::Ellipse => matches!(selected.kind, ElementKind::Ellipse { .. }),
-                Tool::Text => matches!(selected.kind, ElementKind::TextBox { .. }),
+                Tool::Text => matches!(selected.kind, ElementKind::Text { .. }),
                 _ => matches!(selected.kind, ElementKind::Path { .. }),
             });
             editor.project.validate().unwrap();
@@ -161,6 +161,167 @@ fn drawing_tools_remain_active_for_consecutive_gestures_until_explicit_switch() 
         assert_eq!(editor.project, before);
         assert!(!editor.history.can_undo());
     }
+}
+
+#[test]
+fn text_click_creates_point_text_and_drag_creates_a_bounded_text_box() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_tool(Tool::Text);
+    for step in 1..4 {
+        stage_input_frame(&mut editor, &ctx, step as f64 * 0.01, vec![]);
+    }
+    let before = editor.project.clone();
+    let click = page.min + egui::vec2(120., 90.);
+
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.1,
+        vec![
+            egui::Event::PointerMoved(click),
+            primary_button(click, true),
+        ],
+    );
+    stage_input_frame(&mut editor, &ctx, 0.2, vec![primary_button(click, false)]);
+    let point_text = editor
+        .selected_element()
+        .expect("point text stays selected");
+    assert!(matches!(
+        &point_text.kind,
+        ElementKind::Text { text, .. } if text == "Your text"
+    ));
+    assert_eq!(
+        (point_text.transform.x, point_text.transform.y),
+        (120., 90.)
+    );
+    assert_eq!(editor.tool, Tool::Text);
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, before);
+    let start = page.min + egui::vec2(80., 70.);
+    let end = page.min + egui::vec2(260., 150.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![
+            egui::Event::PointerMoved(start),
+            primary_button(start, true),
+            egui::Event::PointerMoved(end),
+            primary_button(end, false),
+        ],
+    );
+    let area_text = editor.selected_element().expect("area text stays selected");
+    match &area_text.kind {
+        ElementKind::TextBox {
+            text,
+            width,
+            height,
+            multiline,
+            word_wrap,
+            ..
+        } => {
+            assert_eq!(text, "Your text");
+            assert_eq!((*width, *height), (180., 80.));
+            assert!(*multiline);
+            assert!(*word_wrap);
+        }
+        other => panic!("expected TextBox, got {other:?}"),
+    }
+    assert_eq!((area_text.transform.x, area_text.transform.y), (80., 70.));
+    assert_eq!(editor.tool, Tool::Text);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
+fn pen_close_press_commits_before_release_and_escape_finishes_the_next_open_path() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.set_tool(Tool::Pen);
+    let before = editor.project.clone();
+    let a = page.min + egui::vec2(100., 100.);
+    let b = page.min + egui::vec2(240., 110.);
+    let c = page.min + egui::vec2(170., 230.);
+    pen_click(&mut editor, &ctx, 0.1, a, a);
+    pen_click(&mut editor, &ctx, 0.2, b, b);
+    pen_click(&mut editor, &ctx, 0.3, c, c);
+
+    // A click just outside the visible Close cursor radius must add an anchor, not close via
+    // snapping or a larger hidden hit target.
+    let outside_close = a + egui::vec2(9., 0.);
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.35,
+        vec![egui::Event::PointerMoved(outside_close)],
+    );
+    assert_ne!(
+        editor.shown_stage_cursor.map(|cursor| cursor.name),
+        Some(neoflash_ui::cursors::PEN_CLOSE.name)
+    );
+    pen_click(&mut editor, &ctx, 0.36, outside_close, outside_close);
+    assert_eq!(editor.vector.draft.as_ref().unwrap().anchors.len(), 4);
+
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![egui::Event::PointerMoved(a), primary_button(a, true)],
+    );
+    assert!(
+        editor.vector.draft.is_none(),
+        "a close click commits on press even if native release is lost"
+    );
+    assert!(matches!(commands(&editor).last(), Some(PathCommand::Close)));
+    let after_closed = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 0.5, vec![primary_button(a, false)]);
+    assert_eq!(editor.project, after_closed);
+
+    let d = page.min + egui::vec2(340., 130.);
+    let e = page.min + egui::vec2(430., 230.);
+    pen_click(&mut editor, &ctx, 0.6, d, d);
+    pen_click(&mut editor, &ctx, 0.7, e, e);
+    assert_eq!(editor.vector.draft.as_ref().unwrap().anchors.len(), 2);
+    let escape = egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: Some(egui::Key::Escape),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280., 900.),
+            )),
+            time: Some(0.8),
+            events: vec![escape],
+            ..Default::default()
+        },
+        |ctx| editor.shortcuts(ctx),
+    );
+    assert!(editor.vector.draft.is_none());
+    assert_eq!(editor.tool, Tool::Pen);
+    assert!(!matches!(
+        commands(&editor).last(),
+        Some(PathCommand::Close)
+    ));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .len(),
+        2
+    );
+    editor.project.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(editor.project, after_closed);
+    editor.undo();
+    assert_eq!(editor.project, before);
 }
 
 #[test]
@@ -432,6 +593,7 @@ fn pencil_batched_and_separate_outside_release_produce_the_same_path() {
     editor.undo();
     assert_eq!(editor.project, original);
     assert!(!editor.history.can_undo());
+    editor.authoring_tools.eraser_mode = crate::authoring_tools::EraserMode::Objects;
     editor.set_tool(Tool::Eraser);
     pen_click(&mut editor, &ctx, 0.4, point, point);
     assert!(
@@ -1307,7 +1469,225 @@ fn paint_tools_share_drawing_gradients_and_sampled_solid_colors() {
 }
 
 #[test]
+fn merge_bucket_ink_and_default_eraser_use_planar_geometry_in_one_undo_step() {
+    use crate::authoring_tools::{EraserMode, GapCloseMode};
+    use neoflash_core::{
+        Element, FillRule, FlattenOptions, History, Transform, element_world_commands,
+        hit_test_path, is_merge_fill, is_merge_stroke,
+    };
+
+    let path = |id: &str, commands: Vec<PathCommand>, fill, stroke, stroke_width| Element {
+        id: id.into(),
+        name: id.into(),
+        merge: true,
+        kind: ElementKind::Path {
+            commands,
+            fill_rule: FillRule::NonZero,
+            fill,
+            stroke,
+            stroke_width,
+        },
+        transform: Transform::default(),
+        ..Element::default()
+    };
+    let contains = |element: &Element, point: [f64; 2], fill: bool| {
+        let (commands, rule) = element_world_commands(element).unwrap();
+        let width = match element.kind {
+            ElementKind::Path { stroke_width, .. }
+            | ElementKind::PaintedPath { stroke_width, .. } => stroke_width,
+            _ => 0.0,
+        };
+        hit_test_path(
+            &commands,
+            rule,
+            point,
+            fill,
+            width,
+            FlattenOptions::default(),
+        )
+        .unwrap()
+    };
+
+    // Four independent strokes, including a small endpoint gap, define one face. Clicking empty
+    // interior space must create the fill rather than requiring one pre-existing closed object.
+    let (mut editor, ctx, page) = rectangle_stage();
+    let outline = [20, 30, 40, 255];
+    editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![
+        path(
+            "top-left",
+            vec![
+                PathCommand::MoveTo { x: 100., y: 100. },
+                PathCommand::LineTo { x: 148., y: 100. },
+            ],
+            [0; 4],
+            outline,
+            2.,
+        ),
+        path(
+            "top-right",
+            vec![
+                PathCommand::MoveTo { x: 152., y: 100. },
+                PathCommand::LineTo { x: 220., y: 100. },
+                PathCommand::LineTo { x: 220., y: 200. },
+            ],
+            [0; 4],
+            outline,
+            2.,
+        ),
+        path(
+            "bottom",
+            vec![
+                PathCommand::MoveTo { x: 220., y: 200. },
+                PathCommand::LineTo { x: 100., y: 200. },
+                PathCommand::LineTo { x: 100., y: 100. },
+            ],
+            [0; 4],
+            outline,
+            2.,
+        ),
+    ];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    let before_bucket = editor.project.clone();
+    editor.fill = [35, 190, 105, 255];
+    editor.authoring_tools.gap_close = GapCloseMode::Small;
+    editor.set_tool(Tool::Bucket);
+    let centre = page.min + egui::vec2(160., 150.);
+    pen_click(&mut editor, &ctx, 1., centre, centre);
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert!(
+        elements
+            .iter()
+            .filter(|element| is_merge_fill(element))
+            .any(|element| contains(element, [160., 150.], true)),
+        "Bucket must create the planar face bounded by multiple strokes"
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_bucket);
+
+    // Ink Bottle may target the contour of a fill that has no current stroke. It authors a raw
+    // Merge stroke and leaves the existing fill intact.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![path(
+        "ink-fill",
+        vec![
+            PathCommand::MoveTo { x: 100., y: 100. },
+            PathCommand::LineTo { x: 220., y: 100. },
+            PathCommand::LineTo { x: 220., y: 200. },
+            PathCommand::LineTo { x: 100., y: 200. },
+            PathCommand::Close,
+        ],
+        [70, 110, 190, 255],
+        [0; 4],
+        0.,
+    )];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    let before_ink = editor.project.clone();
+    editor.stroke = [230, 45, 140, 255];
+    editor.stroke_width = 5.;
+    editor.set_tool(Tool::Ink);
+    let edge = page.min + egui::vec2(100., 150.);
+    pen_click(&mut editor, &ctx, 2., edge, edge);
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert!(elements.iter().any(is_merge_fill));
+    assert!(
+        elements
+            .iter()
+            .filter(|element| is_merge_stroke(element))
+            .any(|element| contains(element, [100., 150.], false)),
+        "Ink Bottle must outline a raw fill even when its previous stroke was transparent"
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_ink);
+
+    // The default Eraser cuts through raw fills and strokes; full-object removal remains a
+    // separate selector mode covered by the existing option test below.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![
+        path(
+            "erase-fill",
+            vec![
+                PathCommand::MoveTo { x: 100., y: 100. },
+                PathCommand::LineTo { x: 220., y: 100. },
+                PathCommand::LineTo { x: 220., y: 200. },
+                PathCommand::LineTo { x: 100., y: 200. },
+                PathCommand::Close,
+            ],
+            [70, 110, 190, 255],
+            [0; 4],
+            0.,
+        ),
+        path(
+            "erase-stroke",
+            vec![
+                PathCommand::MoveTo { x: 100., y: 250. },
+                PathCommand::CubicTo {
+                    cx1: 130.,
+                    cy1: 225.,
+                    cx2: 190.,
+                    cy2: 275.,
+                    x: 220.,
+                    y: 250.,
+                },
+            ],
+            [0; 4],
+            outline,
+            4.,
+        ),
+    ];
+    editor.project.format_version = editor.project.format_version.max(7);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+    let before_erase = editor.project.clone();
+    assert!(editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments);
+    editor.authoring_tools.eraser_size = 18.;
+    editor.set_tool(Tool::Eraser);
+    pen_click(
+        &mut editor,
+        &ctx,
+        3.,
+        page.min + egui::vec2(160., 80.),
+        page.min + egui::vec2(160., 280.),
+    );
+    let elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    let fill_at = |point| {
+        elements
+            .iter()
+            .filter(|element| is_merge_fill(element))
+            .any(|element| contains(element, point, true))
+    };
+    let stroke_at = |point| {
+        elements
+            .iter()
+            .filter(|element| is_merge_stroke(element))
+            .any(|element| contains(element, point, false))
+    };
+    assert!(fill_at([120., 150.]) && fill_at([200., 150.]));
+    assert!(
+        !fill_at([160., 150.]),
+        "eraser must cut a channel through the fill"
+    );
+    assert!(stroke_at([101., 250.]) && stroke_at([219., 250.]));
+    assert!(
+        !stroke_at([160., 250.]),
+        "eraser must cut the curved stroke segment"
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_erase);
+}
+
+#[test]
 fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
+    use crate::authoring_tools::EraserMode;
     use neoflash_core::{Element, FillRule, History, Keyframe, Layer, LayerRole, Transform};
     let rectangle = |width, height| ElementKind::Rectangle {
         width,
@@ -1319,6 +1699,7 @@ fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
     // A small shape wholly inside the eraser circle, away from its axes.
     let (mut editor, ctx, page) = rectangle_stage();
     editor.workspace.drawing.object_drawing = true;
+    editor.authoring_tools.eraser_mode = EraserMode::Objects;
     editor.add_element(rectangle(8., 8.), 235., 235.);
     editor.history = History::default();
     let before = editor.project.clone();
@@ -1339,6 +1720,7 @@ fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
     // Sparse pointer events must still hit a thin transformed stroke between them.
     let (mut editor, ctx, page) = rectangle_stage();
     editor.workspace.drawing.object_drawing = true;
+    editor.authoring_tools.eraser_mode = EraserMode::Objects;
     editor.add_element_transformed(
         ElementKind::Path {
             commands: vec![
@@ -1390,6 +1772,7 @@ fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
     // Empty space in a vector hole is not an eraser target.
     let (mut editor, ctx, page) = rectangle_stage();
     editor.workspace.drawing.object_drawing = true;
+    editor.authoring_tools.eraser_mode = EraserMode::Objects;
     let mut commands = Vec::new();
     for (low, high) in [(0., 100.), (25., 75.)] {
         commands.extend([
@@ -1431,6 +1814,7 @@ fn eraser_sweeps_actual_geometry_respects_holes_masks_and_locked_layers() {
     // Artwork outside a locked mask remains untouched; visible artwork erases.
     let (mut editor, ctx, page) = rectangle_stage();
     editor.workspace.drawing.object_drawing = true;
+    editor.authoring_tools.eraser_mode = EraserMode::Objects;
     editor.add_element(rectangle(200., 100.), 100., 100.);
     let mut mask = Layer {
         id: "eraser-mask".into(),
@@ -1807,8 +2191,10 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
             editor.history = History::default();
             let before = editor.project.clone();
             editor.set_tool(Tool::Eraser);
-            choose_option(&mut editor, &ctx, 0.01, "Whole objects", "Cut strokes");
-            assert!(editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments);
+            assert!(
+                editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments,
+                "cut-through is the safe default; whole-object erasing stays explicit"
+            );
             choose_option(&mut editor, &ctx, 0.03, "Cut strokes", label);
             assert!(editor.authoring_tools.eraser_mode == mode);
             let point = page.min + egui::vec2(100., 140.);
@@ -2055,7 +2441,6 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
     assert_eq!(editor.project, before, "gap closing respects the mask");
     assert!(!editor.history.can_undo());
     editor.set_tool(Tool::Eraser);
-    choose_option(&mut editor, &ctx, 0.21, "Whole objects", "Cut strokes");
     assert!(editor.authoring_tools.eraser_mode == EraserMode::StrokeSegments);
     editor.authoring_tools.eraser_size = 10.;
     let visible_stroke = page.min + egui::vec2(110., 100.);

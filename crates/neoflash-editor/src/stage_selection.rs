@@ -1118,6 +1118,89 @@ impl Editor {
         self.object_gesture = Some(gesture);
     }
 
+    /// Classic Merge Drawing marquee semantics: crossing a raw fill or stroke cuts at the
+    /// marquee boundary and selects only the enclosed fragments. Object Drawing placements and
+    /// authored groups remain whole objects.
+    fn split_marquee_merge_geometry(&mut self, gesture: &SelectionGesture) {
+        if !gesture.moved || !matches!(gesture.kind, GestureKind::Marquee) {
+            return;
+        }
+        let from = position(gesture.scope.local(gesture.press));
+        let to = position(gesture.scope.local(gesture.latest));
+        let rect = Rect::from_two_pos(from, to);
+        if rect.width() <= 0.5 || rect.height() <= 0.5 {
+            return;
+        }
+        let polygon = vec![
+            PathCommand::MoveTo {
+                x: f64::from(rect.min.x),
+                y: f64::from(rect.min.y),
+            },
+            PathCommand::LineTo {
+                x: f64::from(rect.max.x),
+                y: f64::from(rect.min.y),
+            },
+            PathCommand::LineTo {
+                x: f64::from(rect.max.x),
+                y: f64::from(rect.max.y),
+            },
+            PathCommand::LineTo {
+                x: f64::from(rect.min.x),
+                y: f64::from(rect.max.y),
+            },
+            PathCommand::Close,
+        ];
+        let editable_layers: HashSet<_> = self
+            .editable_targets()
+            .into_iter()
+            .map(|target| target.layer)
+            .collect();
+        let mut candidate = self.project.clone();
+        let symbol_id = self.symbol_id().to_owned();
+        let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
+            return;
+        };
+        let mut selected = Vec::new();
+        for layer in &mut symbol.timeline.layers {
+            if !editable_layers.contains(&layer.id) {
+                continue;
+            }
+            let layer_id = layer.id.clone();
+            let result = edit_ungrouped_merge_shapes(layer, self.frame, |elements| {
+                split_merge_geometry_by_polygon(elements, &polygon)
+            });
+            match result {
+                Some(Ok(ids)) => selected.extend(ids.into_iter().map(|element| SelectionTarget {
+                    layer: layer_id.clone(),
+                    element,
+                })),
+                Some(Err(error)) => {
+                    self.message(format!("Marquee could not split drawing geometry: {error}"));
+                    return;
+                }
+                None => {}
+            }
+        }
+        if selected.is_empty() {
+            return;
+        }
+        candidate.upgrade_format_for_features();
+        if let Err(error) = candidate.validate() {
+            self.message(format!(
+                "Marquee could not preserve valid drawing geometry: {error}"
+            ));
+            return;
+        }
+        let mut targets = self.selection.targets.clone();
+        targets.extend(selected);
+        if candidate != self.project {
+            self.transact_named("Marquee split geometry", |editor| {
+                editor.project = candidate;
+            });
+        }
+        self.set_selection(targets);
+    }
+
     pub(crate) fn selection_stage(
         &mut self,
         ui: &egui::Ui,
@@ -1529,6 +1612,16 @@ impl Editor {
                         }
                         self.set_selection(targets);
                     }
+                    if let Some(gesture) = self
+                        .object_gesture
+                        .as_ref()
+                        .filter(|gesture| {
+                            gesture.moved && matches!(gesture.kind, GestureKind::Marquee)
+                        })
+                        .cloned()
+                    {
+                        self.split_marquee_merge_geometry(&gesture);
+                    }
                     self.finish_selection_gesture();
                 }
                 egui::Event::PointerGone if !ui.input(|i| i.pointer.primary_down()) => {
@@ -1671,7 +1764,7 @@ impl Editor {
                     button: egui::PointerButton::Primary,
                     pressed: true,
                     ..
-                } if matches!(self.tool, Tool::Rectangle | Tool::Ellipse)
+                } if matches!(self.tool, Tool::Rectangle | Tool::Ellipse | Tool::Text)
                     && rect.contains(pos)
                     && self.layer_editable()
                     && ui
@@ -1699,6 +1792,10 @@ impl Editor {
                         let pos = self.snap_screen(origin, pos);
                         let bounds = shape_draft_bounds(&draft, pos, modifiers);
                         if bounds.width() > 2. && bounds.height() > 2. {
+                            if draft.tool == Tool::Text {
+                                self.create_stage_text(ui.ctx(), bounds.min, Some(bounds));
+                                continue;
+                            }
                             let mut transform = Transform {
                                 x: bounds.min.x as f64,
                                 y: bounds.min.y as f64,

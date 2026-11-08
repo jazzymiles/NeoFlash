@@ -1675,6 +1675,11 @@ impl Editor {
                 self.delete_selected();
             }
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                let finish_open_pen = self
+                    .vector
+                    .draft
+                    .as_ref()
+                    .is_some_and(|draft| !draft.pencil && draft.anchors.len() >= 2);
                 let captured = self.object_gesture.is_some()
                     || self.timeline_motion.drag.is_some()
                     || self.timeline_motion.curve_drag.is_some()
@@ -1683,7 +1688,13 @@ impl Editor {
                     || self.shape_draft.is_some()
                     || self.vector.point_drag.is_some()
                     || self.vector.draft.is_some();
-                self.cancel_edits();
+                if finish_open_pen {
+                    // Escape ends the current open contour and leaves Pen active, so the next
+                    // click begins a second path instead of silently losing the first one.
+                    self.finish_path(false);
+                } else {
+                    self.cancel_edits();
+                }
                 if !captured {
                     self.clear_selection();
                 }
@@ -2025,12 +2036,12 @@ impl Editor {
         if ctx.input_mut(|i| i.consume_key(shift | cmd, Key::H)) {
             self.add_shape_hint();
         }
-        for (m, key) in [
-            (cmd, Key::P),
-            (cmd | shift, Key::W),
-            (alt | cmd, Key::K),
-            (none, Key::F1),
-        ] {
+        if ctx.input_mut(|input| input.consume_key(none, Key::F1)) {
+            // The existing Keyboard Shortcuts page is also the command/function catalogue: it
+            // searches every registered action by name, menu path and shortcut.
+            self.open_preferences(crate::panels::preferences::PAGE_SHORTCUTS);
+        }
+        for (m, key) in [(cmd, Key::P), (cmd | shift, Key::W), (alt | cmd, Key::K)] {
             ctx.input_mut(|i| {
                 let held = i.modifiers;
                 if modifiers_match(held, m) {

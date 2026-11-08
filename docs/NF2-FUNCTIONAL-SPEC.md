@@ -49,7 +49,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TL-09 | Frame view ▸ Short rows | Frame view menu | done | UI-only | P1 |
 | TL-10 | Frame view ▸ Preview | Frame view menu | done | editor | P3 |
 | TL-11 | Frame view ▸ Snap playhead to keyframes | Frame view menu | done | UI-only | P1 |
-| TL-12 | Frame view ▸ Placement, Preview in context, Help, Close | Frame view menu | partial | UI-only | P3 |
+| TL-12 | Frame view ▸ Placement, Preview in context, Help, Close | Frame view menu | done | UI-only | P3 |
 | TL-13 | Layer types Sound / Video / Armature / Motion guide rows | Timeline layers | partial | yes | P2–P3 |
 | TL-14 | Button symbol state labels Up/Over/Down/Hit | Timeline | verify | editor | P2 |
 | TO-01 | Rectangle / Oval primitive tools | Tools | done (options on Rectangle/Oval + Properties) | yes | P2 |
@@ -253,13 +253,14 @@ groups.
 - Data: workspace pref. Depends on: UI-only.
 - Acceptance: scrub lands exactly on keyframes when on; free scrubbing when off.
 
-**TL-12 · Frame view ▸ Placement / Preview in context / Help / Close panel** — partial
-- Done: Placement Bottom/Top/Left/Right/Floating, Close panel, Preview in context (TL-10). Not yet: Help (F1).
+**TL-12 · Frame view ▸ Placement / Preview in context / Help / Close panel** — done
+- Done: Placement Bottom/Top/Left/Right/Floating, Close panel, Preview in context (TL-10), and Help (F1), which
+  opens Preferences ▸ Shortcuts as the searchable command/function catalogue.
 - Purpose (§5.4): move the Timeline to Bottom / Top / Left / Right / Floating; Help (F1); Close panel.
 - Behaviour: Placement items call the existing dock/detach commands (`set_panel_placement`); Close hides the panel.
-- Data: workspace layout. Depends on: UI-only. Missing menu rows require a design check that the existing menu
-  composition may grow (**request** if the rows must be added).
-- Acceptance: each placement docks the timeline accordingly and is restorable.
+- Data: workspace layout. Depends on: UI-only.
+- Acceptance: each placement docks the timeline accordingly and is restorable; Help and global F1 open the
+  searchable catalogue (`panel_tests::preferences_dialog_previews_saves_cancels_and_resets`).
 
 **TL-13 · Layer types Sound / Video / Armature / Motion guide** — `panels/timeline.rs` `layer_kind` · partial
 - Done: Motion guide; Sound (a layer whose keys hold frame sounds and no artwork). Not yet: Video, Armature.
@@ -348,9 +349,14 @@ the document. The separate Bitmap properties dialog remains unavailable.
   brush size and whole-object/fill/stroke eraser modes. Merge separates fill/stroke, merges or subtracts overlapping
   fills and splits at actual fill/stroke intersections; internal tessellation edges are not cuts. Grouped Merge
   elements remain isolated from raw drawing and drop-time remerging. Transformed gradients keep their appearance.
-- Bucket and Ink Bottle apply the active solid or gradient paint; Eyedropper replaces the selected well with the
-  sampled solid color. Properties RGB edits replace a gradient; alpha-only edits retain stops and update their alpha.
-- Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks.
+- Bucket applies the active solid or gradient paint to an existing shape or to a bounded planar face assembled from
+  several vector contours; Gap size closes eligible contour gaps in screen units. Ink Bottle can add the active stroke
+  to a transparent contour; Eyedropper replaces the selected well with the sampled solid color. Properties RGB edits
+  replace a gradient; alpha-only edits retain stops and update their alpha.
+- Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks. Its default
+  mode cuts through raw Merge fills and Bézier strokes; whole-object/fill/stroke modes remain explicit choices.
+- Pen closes only inside the displayed first-anchor Close zone. Escape commits a valid open contour and keeps Pen
+  active, so the next click begins a second path instead of losing the first one.
 - Brush: Round, Flat and Chisel presets; eight tip shapes; Size 1–200 px in document units; smoothing; pressure size
   control; Lock fill for gradient placement. The shared cursor follows zoom and ⌥⌘-drag resizes the brush. Existing
   artwork is unchanged. Pressure-bearing touch and macOS tablet-point samples drive 10–100% width when enabled;
@@ -358,9 +364,15 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Pencil: independent Straighten, Smooth and Ink modes, with per-tool smoothing strength based on Drawing
   preferences. Smooth produces editable cubic curves; Ink preserves the sampled path without recognition/smoothing.
   Stroke-width presets include 0.25 and 0.5 px; the field and preset list preserve fractional values.
-- Remaining: tilt, brush modes beyond Paint normal, custom/artistic/pattern brushes,
-  advanced Pencil stroke styles/caps/joins/hinting/scaling and predictive smoothing-ahead feedback.
-- Available R-034 controls: Bucket Gap size (None/Small/Medium/Large: 0/6/14/28 screen px) and Eraser Cut strokes; per-contour gap closing in screen units; swept partial-stroke clipping with original fill/gradient/group preservation. Touched curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused. Guided/oriented cuts use the displayed pose, retain the destination key transform and refuse automatic guided-key insertion if it would move the artwork. Partial-fill erasing is not implemented. A refused cut cancels the entire gesture without mutation or Undo; reasons appear as Warning notifications and in status/Output.
+- Remaining: artistic/pattern brushes, advanced Pencil stroke styles/caps/joins/hinting/scaling and predictive
+  smoothing-ahead feedback.
+- Available R-034 controls: Bucket Gap size (None/Small/Medium/Large: 0/6/14/28 screen px) and Eraser modes; per-contour
+  gap closing in screen units; swept partial clipping with original identity on the retained piece. Default fill+stroke
+  cut-through is limited to raw Merge geometry; Object Drawing retains conservative stroke-segment behavior. Touched
+  curves are approximated at 0.2 screen points; masked and combined fill/stroke effects are explicitly refused.
+  Guided/oriented cuts use the displayed pose, retain the destination key transform and refuse automatic guided-key
+  insertion if it would move the artwork. A refused cut cancels the entire gesture without mutation or Undo; reasons
+  appear as Warning notifications and in status/Output.
 - Acceptance: `selection_tests.rs`, `vector_gesture_tests.rs` and core Merge tests cover drawing, paint application,
   actual intersections, group isolation and Undo. `tool_workflow_tests.rs` covers eight pressure footprints,
   document-unit size across zooms, Pencil modes, sticky tools, one Undo and global Customize draft/apply/cancel.
@@ -470,7 +482,9 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Done: Raw Merge selections clip the existing NF2 hatch to the actual fill/stroke silhouette and authored masks,
   preserving holes and empty bounding-box areas. The two-tone hatch is theme-independent and remains visible with
   Lasso active, in nested symbol editing and over onion-skin previews; ghosts themselves are not selected. Lasso
-  currently selects whole placements by contact/enclosure, without partial-fill cutting. Selection and Subselection draw `NF2/Selection Box` per other selected placement (Symbol for instances, Static text
+  defaults to cutting and selecting only the enclosed raw Merge fill/stroke fragments. A rectangular marquee applies
+  the same split, so Backspace removes only the selected segment; Shift preserves the prior selection. Object Drawing
+  placements and authoring groups remain whole. Selection and Subselection draw `NF2/Selection Box` per other selected placement (Symbol for instances, Static text
   for point text, Dynamic text for text boxes, Group otherwise); Free Transform draws `NF2/Transform Box` (Scale mode)
   on the selection's axis-aligned stage bounds, also for rotated objects, with Flash zones and a draggable
   `NF2/Transformation Point` (`Transform.pivot` in format 7 for single placements + transient group pivot; rotation and
@@ -492,6 +506,10 @@ the document. The separate Bitmap properties dialog remains unavailable.
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 
 **PR-01 · Properties — Text** — partial (`TextBox` font/size/colour/leading/alignment/wrap work)
+- Stage authoring: clicking with Text creates point text that grows with its content; dragging creates a fixed,
+  multiline wrapping TextBox. Break Apart splits multi-character text into positioned characters and a subsequent
+  Break Apart converts a character to editable contours from its installed font; single-character text converts
+  directly. Conversion is atomic and preserves supported per-character formatting rather than synthesising boxes.
 - Missing NF2 controls: text type Static / Dynamic / Input; orientation; Embed…; tracking (letter spacing); Auto
   kern; anti-alias (readability / animation / device); selectable; render as HTML; border; superscript / subscript;
   paragraph indent / margins (fields exist in `TextFormat` — verify editor exposure); behaviour single line /
@@ -533,7 +551,7 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
   an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
 
-**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library `Swap symbol` and AE-style `⌥`-drag replacement with `NF2/Drag Ghost` and `Selection Box` (`Symbol`) / timeline row highlight work per `R-041`; Properties `Swap…` picker and Stage context menu `Swap symbol…` requested as R-012)
+**PR-06 · Movie clip — Swap…, Parameters tab** — partial (Library and Stage context `Swap symbol…` plus AE-style `⌥`-drag replacement work; Properties `Swap…` picker remains pending)
 - Done: selecting an instance on Stage (or selecting a layer with a symbol instance) and choosing `Swap symbol` on a
   Library symbol (row context menu or ⋯ menu), or holding `⌥` (`Alt`) while dragging a symbol from Library onto the Stage
   (`NF2/Drag Ghost` `Replace “<old>” with “<new>”` + `Selection Box` (`Symbol`), or `Place “<new>”` without `⌥`) or
@@ -541,7 +559,7 @@ the document. The separate Bitmap properties dialog remains unavailable.
   of “<layer>”`), replaces `ElementKind::Instance.symbol_id` across the layer/instance while preserving
   transform, instance name, scripts, filters, blend mode, accessibility and compatible playback settings
   (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo).
-- Swap…: Properties `Swap…` button + picker dialog/popover and stage context menu `Swap symbol…` wait for R-012.
+- Swap…: Stage context `Swap symbol…` works; the Properties `Swap…` button + picker dialog/popover still waits for R-012.
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
@@ -631,6 +649,8 @@ the document. The separate Bitmap properties dialog remains unavailable.
   items (**NEW** with DL-11). Multiple documents are available through the document tabs below the main menu and Window document list;
   the Library currently follows the active document. Its independent document picker and pin remain unavailable.
 - Depends on: editor. Acceptance: an imported PNG appears in the Library tree and can be dragged to the stage.
+- Placement: an explicit Finder or Library drop keeps the exact pointer coordinate, including pasteboard positions;
+  automatic placement without a pointer remains fitted to the page.
 
 ## 7. Actions and code editor (`panels/actions.rs` `CODE_TOOLS`, `sources.rs`)
 
@@ -787,7 +807,8 @@ All values are editor preferences (eframe storage, like `WorkspacePrefs`), never
 persists; Cancel discards; Reset restores defaults for the current page only.
 
 Done (`panels/preferences.rs`, modal like Document settings; Edit ▸ Preferences… ⌘U, Edit ▸ Keyboard shortcuts…
-opens the Shortcuts page): edits live on a draft; the theme previews live and Cancel / Esc / ✕ restores it; Save /
+opens the Shortcuts page): edits live on a draft; global F1 and Timeline Frame view ▸ Help also open Shortcuts as a
+searchable command/function catalogue; the theme previews live and Cancel / Esc / ✕ restores it; Save /
 Enter applies and persists; Reset to defaults resets the active page's group. Wired across all 8 working pages:
 - **General:** Theme Dark / Light, UI scale (80–150 %, egui zoom), On launch (`New document` / `Last document` /
   `Example`, plus `File ▸ Open recent` up to 10 existing files), Undo levels (10–1000, history capacity), Autosave
@@ -933,7 +954,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Modify | Document settings, Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup and Bitmap ▸ Trace bitmap | Other Bitmap operations and Symbol submenu remain unavailable; shape hints need a shape-tween endpoint |
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Window | Real authoring panels including Brushes, built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, document list and Next/Previous document, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
-| Help | Open example, About NeoFlash | Documentation/F1 target is unresolved |
+| Help | Open example, About NeoFlash; F1 opens the searchable command/function catalogue | A dedicated Search functions row awaits R-059 |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts
@@ -959,4 +980,4 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
 | Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
-| Stage object | Edit in new window, Swap symbol… and Duplicate symbol… remain disabled. Working: Edit in place, Create motion tween, Show in library, Distribute to layers ⇧⌘D | PR-06, LI-01 |
+| Stage object | Working under every active tool: Edit in place (isolated symbol view), Swap symbol…, Duplicate symbol…, Create motion tween, Show in library, Distribute to layers ⇧⌘D. Edit in new window stays disabled; Bitmap Trace and broader object-action rows await R-060. The requested dimmed affine parent context is not yet implemented. | PR-06, LI-01, R-060 |

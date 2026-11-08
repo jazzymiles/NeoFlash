@@ -632,6 +632,110 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
 }
 
 #[test]
+fn explicit_graphic_and_library_drops_keep_the_requested_center_while_auto_placement_clamps() {
+    use neoflash_core::{Element, ElementKind, InstancePlayback, SymbolKind, Transform, new_id};
+    use std::io::Cursor;
+
+    let ctx = egui::Context::default();
+    let image = image::RgbaImage::from_pixel(24, 20, image::Rgba([30, 90, 160, 255]));
+    let mut bytes = Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    let resource = neoflash_core::ResourceUnit::from_bytes(
+        new_id("bitmap"),
+        "drop.png",
+        "image/png",
+        bytes.get_ref(),
+    )
+    .unwrap();
+    let resource_id = resource.id.clone();
+    let mut graphics = Editor::from_project(&ctx, Project::blank());
+    graphics.add_resource_units(vec![resource]).unwrap();
+    graphics.history.clear();
+    let resource_only = graphics.project.clone();
+
+    graphics
+        .place_graphic_resource(&resource_id, Some([-20., -15.]))
+        .unwrap();
+    let dropped = graphics
+        .selected_element()
+        .expect("explicit graphic drop stays selected");
+    assert!(matches!(dropped.kind, ElementKind::Instance { .. }));
+    assert_eq!((dropped.transform.x, dropped.transform.y), (-32., -25.));
+    graphics.project.validate().unwrap();
+    graphics.undo();
+    assert_eq!(graphics.project, resource_only);
+
+    graphics.remember_paste_view([-100., -100.]);
+    graphics.place_graphic_resource(&resource_id, None).unwrap();
+    let automatic = graphics
+        .selected_element()
+        .expect("automatic graphic placement stays selected");
+    assert_eq!((automatic.transform.x, automatic.transform.y), (0., 0.));
+    graphics.undo();
+    assert_eq!(graphics.project, resource_only);
+
+    let mut project = Project::blank();
+    let mut source = project.symbols[0].clone();
+    source.id = new_id("symbol");
+    source.name = "Drop target".into();
+    source.kind = SymbolKind::Graphic;
+    source.timeline.layers[0].id = new_id("layer");
+    source.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: new_id("object"),
+        name: "Artwork".into(),
+        transform: Transform {
+            x: 10.,
+            y: 20.,
+            ..Default::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 100.,
+            height: 40.,
+            fill: [40, 120, 210, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        ..Default::default()
+    }];
+    let source_id = source.id.clone();
+    project.symbols.push(source);
+    project.validate().unwrap();
+    let mut library = Editor::from_project(&ctx, project);
+    library.history.clear();
+    let before_library = library.project.clone();
+
+    library
+        .place_library_symbol(&ctx, &source_id, Some([-30., -40.]))
+        .unwrap();
+    let dropped = library
+        .selected_element()
+        .expect("explicit Library drop stays selected");
+    assert!(matches!(
+        &dropped.kind,
+        ElementKind::Instance {
+            symbol_id,
+            playback: InstancePlayback::Loop,
+        } if symbol_id == &source_id
+    ));
+    // The source bounds are x=10..110, y=20..60, so its local centre is (60, 40).
+    assert_eq!((dropped.transform.x, dropped.transform.y), (-90., -80.));
+    library.project.validate().unwrap();
+    library.undo();
+    assert_eq!(library.project, before_library);
+
+    library.remember_paste_view([-100., -100.]);
+    library
+        .place_library_symbol(&ctx, &source_id, None)
+        .unwrap();
+    let automatic = library
+        .selected_element()
+        .expect("automatic Library placement stays selected");
+    assert_eq!((automatic.transform.x, automatic.transform.y), (-10., -20.));
+    library.undo();
+    assert_eq!(library.project, before_library);
+}
+
+#[test]
 fn f9_reveals_hidden_actions_even_while_a_text_field_has_focus() {
     let ctx = egui::Context::default();
     let mut project = Project::blank();

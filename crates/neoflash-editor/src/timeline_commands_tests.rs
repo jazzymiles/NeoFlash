@@ -2321,7 +2321,9 @@ fn t104_t105_curve_split_planar_bucket_brush_modes_and_variable_width() {
         mk_line("s3", 50.0, 50.0, 0.0, 50.0),
         mk_line("s4", 0.0, 50.0, 0.0, 0.0),
     ];
-    let face = paint_bucket_planar_face(&lines, [25.0, 25.0], 2.0).expect("planar bucket face");
+    let face = paint_bucket_planar_face(&lines, [25.0, 25.0], 2.0)
+        .expect("bounded planar bucket")
+        .expect("planar bucket face");
     assert!(face.len() >= 4);
 
     // Brush PaintBehind inserts behind existing elements.
@@ -2392,17 +2394,6 @@ fn t106_t107_rich_text_html_outlines_bitmap_properties_and_scale9() {
     assert!(html_out.contains("<b>Hello</b>"));
 
     editor
-        .apply_selected_text_format_range(
-            0,
-            5,
-            TextFormatPatch {
-                underline: Some(true),
-                ..TextFormatPatch::default()
-            },
-        )
-        .expect("format range");
-
-    editor
         .set_selected_text_field_options(AuthoredTextFieldOptions {
             max_chars: 32,
             border: true,
@@ -2410,10 +2401,60 @@ fn t106_t107_rich_text_html_outlines_bitmap_properties_and_scale9() {
         })
         .expect("field options");
 
+    editor
+        .apply_selected_text_format_range(
+            0,
+            5,
+            TextFormatPatch {
+                size: Some(32.0),
+                color: Some(0xff0000),
+                underline: Some(true),
+                ..TextFormatPatch::default()
+            },
+        )
+        .expect("format range");
+
     let cmds = editor
         .convert_selected_text_to_outlines()
         .expect("convert to outlines");
     assert!(cmds > 0);
+    let outlined: Vec<_> = editor
+        .sampled_targets()
+        .into_iter()
+        .map(|(_, element)| element)
+        .collect();
+    assert_eq!(
+        outlined
+            .iter()
+            .filter_map(|element| match &element.kind {
+                ElementKind::Path { commands, .. } => Some(commands.len()),
+                _ => None,
+            })
+            .sum::<usize>(),
+        cmds
+    );
+    assert!(
+        outlined.iter().all(|element| matches!(
+            &element.kind,
+            ElementKind::Path { commands, .. }
+                if commands.iter().any(|command| matches!(
+                    command,
+                    PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. }
+                ))
+        )),
+        "outline conversion must retain curves from every selected font instead of synthetic boxes"
+    );
+    let fills: Vec<_> = outlined
+        .iter()
+        .filter_map(|element| match element.kind {
+            ElementKind::Path { fill, .. } => Some(fill),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        fills.contains(&[255, 0, 0, 255]) && fills.contains(&[0, 0, 0, 255]),
+        "mixed rich-text colors must remain separate editable paths"
+    );
     editor.project.validate().unwrap();
     editor.undo();
     editor.undo();

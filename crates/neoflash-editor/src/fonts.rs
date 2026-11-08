@@ -4,6 +4,9 @@ use font_kit::{
     properties::{Properties, Style, Weight},
     source::SystemSource,
 };
+use neoflash_core::{
+    PathCommand, TextCharBox, TextFieldState, TextFormat, TextLayout, layout_text,
+};
 use std::collections::HashSet;
 
 const BUNDLED_INTER_REGULAR: &[u8] =
@@ -12,6 +15,19 @@ const BUNDLED_INTER_SEMIBOLD: &[u8] =
     include_bytes!("../../neoflash-ui/assets/fonts/Inter-SemiBold.ttf");
 const BUNDLED_ROBOTO_MONO: &[u8] =
     include_bytes!("../../neoflash-ui/assets/fonts/RobotoMono-Regular.ttf");
+
+#[derive(Clone)]
+pub(crate) struct TextCharacterPlacement {
+    pub ch: char,
+    pub bounds: TextCharBox,
+    pub format: TextFormat,
+}
+
+#[derive(Clone)]
+pub(crate) struct TextOutlineFragment {
+    pub commands: Vec<PathCommand>,
+    pub fill: [u8; 4],
+}
 
 pub struct Fonts {
     pub families: Vec<String>,
@@ -227,6 +243,305 @@ impl Fonts {
         self.char_x_offsets(family, bold, italic, size, text)
             .last()
             .map_or(0.0, |(_, x, w)| (x + w).max(0.0))
+    }
+
+    /// Extract the exact renderer glyph outlines for editable Break Apart shapes. Unlike the
+    /// portable fallback metrics, this follows the selected system face, style and per-character
+    /// fallback font and supports TrueType and CFF/composite outlines through `ab_glyph`.
+    pub(crate) fn text_outline_commands(
+        &mut self,
+        family: &str,
+        bold: bool,
+        italic: bool,
+        size: f64,
+        text: &str,
+    ) -> Result<Vec<PathCommand>, String> {
+        use ab_glyph::{Font, OutlineCurve, PxScale, ScaleFont};
+
+        if !size.is_finite() || size <= 0.0 {
+            return Err("Text outline size must be positive and finite.".into());
+        }
+        let keys = self.ensure_font_data(family, bold, italic);
+        let fonts: Vec<ab_glyph::FontRef<'_>> = keys
+            .iter()
+            .filter_map(|key| self.definitions.font_data.get(key))
+            .filter_map(|data| {
+                ab_glyph::FontRef::try_from_slice_and_index(&data.font, data.index).ok()
+            })
+            .collect();
+        if fonts.is_empty() {
+            return Err(format!(
+                "Font '{family}' is unavailable, so its editable outlines cannot be created."
+            ));
+        }
+
+        let mut commands = Vec::new();
+        for (line_index, line) in text.split('\n').enumerate() {
+            let mut cursor_x = 0.0_f64;
+            let mut previous: Option<(usize, ab_glyph::GlyphId)> = None;
+            for ch in line.chars().filter(|ch| *ch != '\r') {
+                if ch == '\t' {
+                    cursor_x += size * 2.0;
+                    previous = None;
+                    continue;
+                }
+                let Some((font_index, glyph_id)) =
+                    fonts.iter().enumerate().find_map(|(i, font)| {
+                        let id = font.glyph_id(ch);
+                        (id.0 != 0).then_some((i, id))
+                    })
+                else {
+                    if ch.is_whitespace() {
+                        cursor_x += size * 0.33;
+                        previous = None;
+                        continue;
+                    }
+                    return Err(format!(
+                        "No installed fallback font contains glyph U+{:04X}.",
+                        ch as u32
+                    ));
+                };
+                let font = &fonts[font_index];
+                let px_scale = match font.units_per_em() {
+                    Some(units) if units > 0.0 => {
+                        PxScale::from(size as f32 * font.height_unscaled() / units)
+                    }
+                    _ => PxScale::from(size as f32),
+                };
+                let scaled = font.as_scaled(px_scale);
+                if let Some((previous_font, previous_id)) = previous
+                    && previous_font == font_index
+                {
+                    cursor_x += f64::from(scaled.kern(previous_id, glyph_id));
+                }
+                let baseline = line_index as f64 * size * 1.2 + f64::from(scaled.ascent());
+                if let Some(outline) = font.outline(glyph_id) {
+                    let factor_x = f64::from(scaled.h_scale_factor());
+                    let factor_y = f64::from(scaled.v_scale_factor());
+                    let point = |point: ab_glyph::Point| {
+                        [
+                            cursor_x + f64::from(point.x) * factor_x,
+                            baseline - f64::from(point.y) * factor_y,
+                        ]
+                    };
+                    let mut contour_end: Option<[f64; 2]> = None;
+                    for curve in outline.curves {
+                        let (start, command, end) = match curve {
+                            OutlineCurve::Line(a, b) => {
+                                let (a, b) = (point(a), point(b));
+                                (a, PathCommand::LineTo { x: b[0], y: b[1] }, b)
+                            }
+                            OutlineCurve::Quad(a, control, b) => {
+                                let (a, control, b) = (point(a), point(control), point(b));
+                                (
+                                    a,
+                                    PathCommand::QuadraticTo {
+                                        cx: control[0],
+                                        cy: control[1],
+                                        x: b[0],
+                                        y: b[1],
+                                    },
+                                    b,
+                                )
+                            }
+                            OutlineCurve::Cubic(a, c1, c2, b) => {
+                                let (a, c1, c2, b) = (point(a), point(c1), point(c2), point(b));
+                                (
+                                    a,
+                                    PathCommand::CubicTo {
+                                        cx1: c1[0],
+                                        cy1: c1[1],
+                                        cx2: c2[0],
+                                        cy2: c2[1],
+                                        x: b[0],
+                                        y: b[1],
+                                    },
+                                    b,
+                                )
+                            }
+                        };
+                        let continues = contour_end.is_some_and(|last| {
+                            (last[0] - start[0]).hypot(last[1] - start[1]) <= 1e-5
+                        });
+                        if !continues {
+                            if contour_end.is_some() {
+                                commands.push(PathCommand::Close);
+                            }
+                            commands.push(PathCommand::MoveTo {
+                                x: start[0],
+                                y: start[1],
+                            });
+                        }
+                        commands.push(command);
+                        contour_end = Some(end);
+                    }
+                    if contour_end.is_some() {
+                        commands.push(PathCommand::Close);
+                    }
+                } else if !ch.is_whitespace() {
+                    return Err(format!(
+                        "Glyph U+{:04X} has no editable vector outline in the selected font.",
+                        ch as u32
+                    ));
+                }
+                cursor_x += f64::from(scaled.h_advance(glyph_id));
+                previous = Some((font_index, glyph_id));
+            }
+        }
+        if commands.is_empty() && text.chars().any(|ch| !ch.is_whitespace()) {
+            return Err("Text has no editable vector outlines.".into());
+        }
+        Ok(commands)
+    }
+
+    fn field_layout(&mut self, field: &TextFieldState) -> Result<TextLayout, String> {
+        layout_text(field, |strings, format| {
+            Ok(strings
+                .iter()
+                .map(|text| {
+                    self.measure_width(&format.font, format.bold, format.italic, format.size, text)
+                })
+                .collect())
+        })
+        .map_err(|err| err.to_string())
+    }
+
+    /// Lay out every authored character with the exact font, size and face selected by its rich-
+    /// text run. The returned positions are the same run positions consumed by the native text
+    /// painter, including wrapping, alignment and mixed-size baseline adjustment.
+    pub(crate) fn field_character_placements(
+        &mut self,
+        field: &TextFieldState,
+    ) -> Result<Vec<TextCharacterPlacement>, String> {
+        let layout = self.field_layout(field)?;
+        let positioned_runs: Vec<_> = if layout.runs.is_empty() {
+            layout
+                .lines
+                .into_iter()
+                .map(|line| (line.text, line.x, line.y, field.format.clone()))
+                .collect()
+        } else {
+            layout
+                .runs
+                .into_iter()
+                .map(|run| {
+                    (
+                        run.text,
+                        run.x,
+                        run.y,
+                        run.format.unwrap_or_else(|| field.format.clone()),
+                    )
+                })
+                .collect()
+        };
+        let mut placements = Vec::new();
+        for (text, run_x, run_y, format) in positioned_runs {
+            for (index, (ch, x, advance)) in self
+                .char_x_offsets(&format.font, format.bold, format.italic, format.size, &text)
+                .into_iter()
+                .enumerate()
+            {
+                placements.push(TextCharacterPlacement {
+                    ch,
+                    bounds: TextCharBox {
+                        x: run_x + x + index as f64 * format.letter_spacing,
+                        y: run_y,
+                        width: advance.max(0.0),
+                        height: (format.size * 1.2).max(0.0),
+                    },
+                    format: format.clone(),
+                });
+            }
+        }
+        Ok(placements)
+    }
+
+    /// Create exact editable contours without collapsing rich-text paints. Each fragment is one
+    /// visible character with its authored colour; callers may combine adjacent equal-paint
+    /// fragments, but must not merge different paints into one Path.
+    pub(crate) fn field_outline_fragments(
+        &mut self,
+        field: &TextFieldState,
+    ) -> Result<Vec<TextOutlineFragment>, String> {
+        let mut fragments = Vec::new();
+        for placement in self.field_character_placements(field)? {
+            if placement.ch.is_whitespace() {
+                continue;
+            }
+            let format = placement.format;
+            let commands = self
+                .text_outline_commands(
+                    &format.font,
+                    format.bold,
+                    format.italic,
+                    format.size,
+                    &placement.ch.to_string(),
+                )?
+                .into_iter()
+                .map(|command| {
+                    translate_path_command(command, placement.bounds.x, placement.bounds.y)
+                })
+                .collect();
+            fragments.push(TextOutlineFragment {
+                commands,
+                fill: [
+                    ((format.color >> 16) & 0xff) as u8,
+                    ((format.color >> 8) & 0xff) as u8,
+                    (format.color & 0xff) as u8,
+                    field.alpha,
+                ],
+            });
+        }
+        if fragments.is_empty() && field.text.chars().any(|ch| !ch.is_whitespace()) {
+            return Err("Text has no editable vector outlines.".into());
+        }
+        Ok(fragments)
+    }
+
+    pub(crate) fn field_outline_commands(
+        &mut self,
+        field: &TextFieldState,
+    ) -> Result<Vec<PathCommand>, String> {
+        Ok(self
+            .field_outline_fragments(field)?
+            .into_iter()
+            .flat_map(|fragment| fragment.commands)
+            .collect())
+    }
+}
+
+fn translate_path_command(command: PathCommand, dx: f64, dy: f64) -> PathCommand {
+    match command {
+        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+            x: x + dx,
+            y: y + dy,
+        },
+        PathCommand::LineTo { x, y } => PathCommand::LineTo {
+            x: x + dx,
+            y: y + dy,
+        },
+        PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
+            cx: cx + dx,
+            cy: cy + dy,
+            x: x + dx,
+            y: y + dy,
+        },
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => PathCommand::CubicTo {
+            cx1: cx1 + dx,
+            cy1: cy1 + dy,
+            cx2: cx2 + dx,
+            cy2: cy2 + dy,
+            x: x + dx,
+            y: y + dy,
+        },
+        PathCommand::Close => PathCommand::Close,
     }
 }
 

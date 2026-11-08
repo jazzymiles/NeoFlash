@@ -1558,10 +1558,11 @@ fn stage_context_menu_follows_design() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.set_tool(crate::app::Tool::Bucket);
     let size = Vec2::new(1920., 1080.);
     frame(&mut editor, &ctx, size, 0.1, vec![]);
-    // A point on the canvas (between the tools rail and the inspector, above the timeline).
-    let at = Pos2::new(760., 300.);
+    // The centre of the demo's main Orbit instance, mapped through the live Stage view.
+    let at = editor.stage_view.origin + egui::vec2(748. * editor.zoom, 288. * editor.zoom);
     let secondary = |pressed| Event::PointerButton {
         pos: at,
         button: egui::PointerButton::Secondary,
@@ -1571,10 +1572,22 @@ fn stage_context_menu_follows_design() {
     frame(&mut editor, &ctx, size, 0.2, vec![Event::PointerMoved(at)]);
     frame(&mut editor, &ctx, size, 0.3, vec![secondary(true)]);
     frame(&mut editor, &ctx, size, 0.4, vec![secondary(false)]);
+    assert!(
+        !editor.selection.is_empty(),
+        "right-click selects the object even while a paint tool is active"
+    );
+    assert!(
+        editor.selected_instance_symbol().is_some(),
+        "the fixture point targets a symbol instance"
+    );
     let out = frame(&mut editor, &ctx, size, 0.5, vec![]);
     for row in [
         "Paste in place (⇧⌘V)",
         "Convert to symbol… (F8)",
+        "Edit in place",
+        "Edit in new window",
+        "Swap symbol…",
+        "Duplicate symbol…",
         "Create motion tween",
         "Distribute to layers (⇧⌘D)",
         "Show in library",
@@ -1651,6 +1664,53 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
     assert!(d.editor.preferences.is_none(), "Esc cancels");
     d.click("Edit");
     d.click("Keyboard shortcuts… (⌥⇧⌘K)");
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(PAGE_SHORTCUTS)
+    );
+    d.click("Cancel");
+
+    // F1 and Timeline ▸ Frame view ▸ Help share the searchable command catalogue.
+    d.step(vec![Event::Key {
+        key: egui::Key::F1,
+        physical_key: Some(egui::Key::F1),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert_eq!(
+        d.editor.preferences.as_ref().map(|p| p.page),
+        Some(PAGE_SHORTCUTS)
+    );
+    d.click("Search commands");
+    d.step(vec![Event::Text("keyframe".into())]);
+    d.settle();
+    assert!(d.find("Convert to keyframes").is_some());
+    d.click("Cancel");
+    d.click("Frame view options");
+    let timeline_help = d
+        .out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter_map(|(_, node)| {
+            (node.label() == Some("Help"))
+                .then(|| node.bounds())
+                .flatten()
+        })
+        .max_by(|a, b| a.y0.total_cmp(&b.y0))
+        .expect("Timeline Frame view menu exposes Help");
+    d.press(
+        Pos2::new(
+            ((timeline_help.x0 + timeline_help.x1) / 2.) as f32,
+            ((timeline_help.y0 + timeline_help.y1) / 2.) as f32,
+        ),
+        egui::PointerButton::Primary,
+    );
     assert_eq!(
         d.editor.preferences.as_ref().map(|p| p.page),
         Some(PAGE_SHORTCUTS)
@@ -2647,7 +2707,7 @@ fn preference_defaults_reach_tweens_text_and_paste() {
     d.settle();
     d.press(Pos2::new(800., 400.), egui::PointerButton::Primary);
     let text_size = d.editor.selected_element().and_then(|e| match &e.kind {
-        ElementKind::TextBox { format, .. } => Some(format.size),
+        ElementKind::Text { font_size, .. } => Some(*font_size),
         _ => None,
     });
     assert_eq!(text_size, Some(48.));
@@ -6128,7 +6188,7 @@ fn t128_planned_features_brush_modes_lasso_focal_library_autosize_swatches_work(
         !inside_ids.is_empty(),
         "lasso should slice and select inside fill piece"
     );
-    assert_eq!(editor.history.undo_label(), Some("Lasso split fill"));
+    assert_eq!(editor.history.undo_label(), Some("Lasso split geometry"));
     editor
         .project
         .validate()

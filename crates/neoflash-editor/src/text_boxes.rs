@@ -25,6 +25,73 @@ struct LayoutCache {
 const CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 impl crate::app::Editor {
+    /// Create authored text from the Stage Text tool. A click creates point text whose width follows
+    /// its content; a drag creates a fixed, wrapping text box. Both paths share the workspace font
+    /// defaults and enter the existing Properties text editor immediately.
+    pub(crate) fn create_stage_text(
+        &mut self,
+        ctx: &egui::Context,
+        position: Pos2,
+        bounds: Option<Rect>,
+    ) {
+        let preferred = self.workspace.text_font.clone();
+        let font = if !preferred.is_empty() && self.fonts.families.contains(&preferred) {
+            preferred
+        } else if self.fonts.families.iter().any(|family| family == "Arial") {
+            "Arial".to_owned()
+        } else {
+            "Helvetica".to_owned()
+        };
+        let size = self.workspace.text_size;
+        let _ = self.fonts.load(ctx, &font);
+        let (kind, transform) = if let Some(bounds) = bounds {
+            (
+                ElementKind::TextBox {
+                    text: "Your text".into(),
+                    width: f64::from(bounds.width()),
+                    height: f64::from(bounds.height()),
+                    format: TextFormat {
+                        font,
+                        size,
+                        color: u32::from_be_bytes([0, self.fill[0], self.fill[1], self.fill[2]]),
+                        ..Default::default()
+                    },
+                    multiline: true,
+                    word_wrap: true,
+                },
+                neoflash_core::Transform {
+                    x: f64::from(bounds.min.x),
+                    y: f64::from(bounds.min.y),
+                    alpha: f64::from(self.fill[3]) / 255.,
+                    ..Default::default()
+                },
+            )
+        } else {
+            (
+                ElementKind::Text {
+                    text: "Your text".into(),
+                    font_family: font,
+                    font_size: size,
+                    color: self.fill,
+                },
+                neoflash_core::Transform {
+                    x: f64::from(position.x),
+                    y: f64::from(position.y),
+                    ..Default::default()
+                },
+            )
+        };
+        self.add_element_transformed(kind, transform);
+        if self.selected_element().is_some_and(|element| {
+            matches!(
+                element.kind,
+                ElementKind::Text { .. } | ElementKind::TextBox { .. }
+            )
+        }) {
+            self.focus_selected_text_editor(ctx);
+        }
+    }
+
     pub(crate) fn focus_selected_text_editor(&mut self, ctx: &egui::Context) {
         ctx.data_mut(|data| {
             data.insert_temp(egui::Id::new("properties-tool-tab"), false);
@@ -341,59 +408,85 @@ impl crate::app::Editor {
         let Some(el_id) = self.selection.single().map(|t| t.element.clone()) else {
             return Err("Select a text element first.".into());
         };
+        let source = self.selected_element().cloned().ok_or_else(|| {
+            "Selected text element was not found on the current frame.".to_owned()
+        })?;
+        let state = TextFieldState::from_kind(&source.kind)
+            .ok_or_else(|| "Selected element is not text.".to_owned())?;
+        let fragments = self.fonts.field_outline_fragments(&state)?;
+        if fragments.is_empty() {
+            return Err("Text has no visible glyph outlines.".into());
+        }
+        let mut outlines: Vec<([u8; 4], Vec<neoflash_core::PathCommand>)> = Vec::new();
+        for fragment in fragments {
+            if let Some((_, commands)) = outlines
+                .last_mut()
+                .filter(|(fill, _)| *fill == fragment.fill)
+            {
+                commands.extend(fragment.commands);
+            } else {
+                outlines.push((fragment.fill, fragment.commands));
+            }
+        }
+        if outlines.len() > 1
+            && (!source.scripts.is_empty()
+                || source.accessibility.is_some()
+                || source.cache_as_bitmap
+                || source.blend_mode != neoflash_core::BlendMode::Normal
+                || !source.filters.is_empty())
+        {
+            return Err("Mixed-colour text with scripts, accessibility, filters, blending or bitmap caching cannot be split into separate outline paths without changing its behavior.".into());
+        }
+        let cmd_count = outlines.iter().map(|(_, commands)| commands.len()).sum();
         let mut candidate = self.project.clone();
         let sym_id = self.symbol_id().to_owned();
         let frame = self.frame;
         let Some(sym) = candidate.symbol_mut(&sym_id) else {
             return Err("Active symbol not found.".into());
         };
-        let mut cmd_count = 0usize;
+        let mut replacement_targets = Vec::new();
         for layer in &mut sym.timeline.layers {
             let Some(key_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
                 continue;
             };
-            if let Some(el) = layer.keyframes[key_idx]
-                .elements
-                .iter_mut()
-                .find(|e| e.id == el_id)
-            {
-                let Some(state) = TextFieldState::from_kind(&el.kind) else {
-                    return Err("Selected element is not text.".into());
-                };
-                let cmds = TextFieldState::static_text_to_outline_commands(
-                    &state.text,
-                    &state.format.font,
-                    state.format.size,
-                    None,
-                );
-                if cmds.is_empty() {
-                    return Err("Text has no visible glyph outlines.".into());
+            let layer_id = layer.id.clone();
+            let elements = &mut layer.keyframes[key_idx].elements;
+            if let Some(at) = elements.iter().position(|element| element.id == el_id) {
+                let mut replacements = Vec::with_capacity(outlines.len());
+                for (index, (fill, commands)) in outlines.iter().enumerate() {
+                    let mut replacement = source.clone();
+                    if index > 0 {
+                        replacement.id = neoflash_core::new_id("object");
+                        replacement.name.clear();
+                        replacement.scripts.clear();
+                        replacement.accessibility = None;
+                    }
+                    replacement.transform.primitive = None;
+                    replacement.kind = ElementKind::Path {
+                        commands: commands.clone(),
+                        fill_rule: FillRule::NonZero,
+                        fill: *fill,
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    };
+                    replacement_targets.push(crate::selection::SelectionTarget {
+                        layer: layer_id.clone(),
+                        element: replacement.id.clone(),
+                    });
+                    replacements.push(replacement);
                 }
-                cmd_count = cmds.len();
-                let rgb = state.format.color;
-                let fill = [
-                    ((rgb >> 16) & 0xff) as u8,
-                    ((rgb >> 8) & 0xff) as u8,
-                    (rgb & 0xff) as u8,
-                    state.alpha,
-                ];
-                el.kind = ElementKind::Path {
-                    commands: cmds,
-                    fill_rule: FillRule::NonZero,
-                    fill,
-                    stroke: [0, 0, 0, 0],
-                    stroke_width: 0.0,
-                };
+                elements.splice(at..=at, replacements);
                 break;
             }
         }
-        if cmd_count == 0 {
+        if replacement_targets.is_empty() {
             return Err("Selected text element was not found on the current frame.".into());
         }
         candidate.upgrade_format_for_features();
         candidate.validate().map_err(|e| e.to_string())?;
         self.transact_named("Convert text to outlines", |s| {
             s.project = candidate;
+            s.set_selection(replacement_targets);
         });
         Ok(cmd_count)
     }

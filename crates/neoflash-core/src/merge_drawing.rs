@@ -9,8 +9,11 @@
 //!   coalesce (`Union`), strokes drawn across a fill slice it into separate selectable fills, and
 //!   intersecting strokes split at their intersection points.
 
+use crate::authoring_geometry::erase_path_stroke;
 use crate::evaluate::{affine_multiply, transform_matrix};
-use crate::geometry::{FlattenOptions, MAX_PATH_COMMANDS, flatten_path};
+use crate::geometry::{
+    FlattenOptions, GeometryError, MAX_PATH_COMMANDS, flatten_path, validate_path_commands,
+};
 use crate::model::{Color, Element, ElementKind, FillRule, Id, PathCommand, Transform, new_id};
 use crate::runtime_graphics::GradientPaint;
 
@@ -22,6 +25,14 @@ const ADJACENT_TOL: f64 = 1.5;
 // the closing point accounted for by the shared flattener; a failed batch must never consume art.
 const REMERGE_BATCH_MAX_COMMANDS: usize = MAX_PATH_COMMANDS * 9 / 10;
 const REMERGE_BATCH_MAX_POINTS: usize = 60_000;
+const MAX_SPLIT_INTERSECTION_CHECKS: usize = 8_000_000;
+const MAX_MERGE_ERASER_POINTS: usize = 4_096;
+// Paint Bucket is invoked synchronously from a pointer gesture. Bound every potentially
+// quadratic arrangement stage before it runs, and bound the number of generated planar edges.
+// This keeps hostile or accidentally dense layers from monopolising the editor thread.
+const MAX_BUCKET_QUADRATIC_CHECKS: usize = 8_000_000;
+const MAX_BUCKET_RAW_SEGMENTS: usize = 4_096;
+const MAX_BUCKET_PLANAR_EDGES: usize = 16_384;
 
 /// Planar boolean operation between closed vector shapes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -336,6 +347,15 @@ fn build_stroke_element(
     }
 }
 
+/// Split fragments are new pieces of geometry, not duplicate authored objects. Only the first
+/// surviving outside piece keeps the source object's identity-bearing metadata; appearance and
+/// compositing metadata remain shared by every piece.
+fn clear_fragment_identity(element: &mut Element) {
+    element.name.clear();
+    element.scripts.clear();
+    element.accessibility = None;
+}
+
 /// Decompose a drawable vector shape into an optional world-space Merge fill element and zero or
 /// more world-space Merge stroke elements.
 pub fn decompose_element_to_merge_parts(
@@ -429,17 +449,16 @@ fn signed_ring_area(ring: &[[f64; 2]]) -> f64 {
     area2 * 0.5
 }
 
-/// Flatten closed contours from `commands` into vertex rings (without duplicate closing vertex).
-pub fn flatten_closed_rings(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> {
-    let Ok(contours) = flatten_path(
+fn checked_flatten_closed_rings(
+    commands: &[PathCommand],
+) -> Result<Vec<Vec<[f64; 2]>>, GeometryError> {
+    let contours = flatten_path(
         commands,
         FlattenOptions {
             tolerance: 0.35,
             ..FlattenOptions::default()
         },
-    ) else {
-        return Vec::new();
-    };
+    )?;
     let mut rings = Vec::new();
     for c in contours {
         let mut pts: Vec<[f64; 2]> = Vec::with_capacity(c.points.len());
@@ -458,21 +477,26 @@ pub fn flatten_closed_rings(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> {
             rings.push(pts);
         }
     }
-    rings
+    Ok(rings)
 }
 
-/// Flatten stroke contours from `commands` into open or closed polylines (closed polylines repeat
-/// their start vertex at the end).
-pub fn flatten_stroke_polylines(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> {
-    let Ok(contours) = flatten_path(
+/// Flatten closed contours from `commands` into vertex rings (without duplicate closing vertex).
+/// This compatibility helper keeps its historical empty fallback; transactional authoring paths
+/// use `checked_flatten_closed_rings` so a rejected boundary is never silently omitted.
+pub fn flatten_closed_rings(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> {
+    checked_flatten_closed_rings(commands).unwrap_or_default()
+}
+
+fn checked_flatten_stroke_polylines(
+    commands: &[PathCommand],
+) -> Result<Vec<Vec<[f64; 2]>>, GeometryError> {
+    let contours = flatten_path(
         commands,
         FlattenOptions {
             tolerance: 0.35,
             ..FlattenOptions::default()
         },
-    ) else {
-        return Vec::new();
-    };
+    )?;
     let mut polylines = Vec::new();
     for c in contours {
         let mut pts: Vec<[f64; 2]> = Vec::with_capacity(c.points.len() + 1);
@@ -493,7 +517,13 @@ pub fn flatten_stroke_polylines(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> 
             polylines.push(pts);
         }
     }
-    polylines
+    Ok(polylines)
+}
+
+/// Flatten stroke contours from `commands` into open or closed polylines (closed polylines repeat
+/// their start vertex at the end). Transactional authoring paths use the fallible helper above.
+pub fn flatten_stroke_polylines(commands: &[PathCommand]) -> Vec<Vec<[f64; 2]>> {
+    checked_flatten_stroke_polylines(commands).unwrap_or_default()
 }
 
 fn ring_winding_number(pt: [f64; 2], ring: &[[f64; 2]]) -> i32 {
@@ -4321,7 +4351,15 @@ pub fn paint_bucket_planar_face(
     elements: &[Element],
     seed: [f64; 2],
     gap_tolerance: f64,
-) -> Option<Vec<PathCommand>> {
+) -> Result<Option<Vec<PathCommand>>, GeometryError> {
+    if seed.iter().any(|value| !value.is_finite())
+        || !gap_tolerance.is_finite()
+        || gap_tolerance < 0.0
+    {
+        return Err(invalid_merge_geometry(
+            "paint bucket seed and gap tolerance must be finite, and the tolerance nonnegative",
+        ));
+    }
     let mut raw_segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
     for el in elements {
         if !el.visible {
@@ -4331,21 +4369,27 @@ pub fn paint_bucket_planar_face(
             continue;
         };
         if is_merge_stroke(el) || extract_stroke_paint(&el.kind).is_some() {
-            for poly in flatten_stroke_polylines(&cmds) {
+            for poly in checked_flatten_stroke_polylines(&cmds)? {
                 for pair in poly.windows(2) {
                     if dist_sq(pair[0], pair[1]) > 1e-8 {
                         raw_segs.push((pair[0], pair[1]));
+                        if raw_segs.len() > MAX_BUCKET_RAW_SEGMENTS {
+                            return Err(GeometryError::ComplexityLimit);
+                        }
                     }
                 }
             }
         }
         if is_merge_fill(el) || extract_fill_paint(&el.kind).is_some() {
-            let rings = flatten_closed_rings(&cmds);
+            let rings = checked_flatten_closed_rings(&cmds)?;
             raw_segs.extend(fill_boundary_segments(&rings, rule));
+            if raw_segs.len() > MAX_BUCKET_RAW_SEGMENTS {
+                return Err(GeometryError::ComplexityLimit);
+            }
         }
     }
     if raw_segs.len() < 3 {
-        return None;
+        return Ok(None);
     }
 
     // Bridge small open endpoint gaps up to `gap_tolerance`.
@@ -4355,6 +4399,14 @@ pub fn paint_bucket_planar_face(
         for &(a, b) in &raw_segs {
             endpoints.push(a);
             endpoints.push(b);
+        }
+        let endpoint_checks = endpoints
+            .len()
+            .checked_mul(endpoints.len())
+            .and_then(|checks| checks.checked_mul(2))
+            .ok_or(GeometryError::ComplexityLimit)?;
+        if endpoint_checks > MAX_BUCKET_QUADRATIC_CHECKS {
+            return Err(GeometryError::ComplexityLimit);
         }
         let mut bridges = Vec::new();
         for i in 0..endpoints.len() {
@@ -4377,11 +4429,22 @@ pub fn paint_bucket_planar_face(
             }
         }
         raw_segs.extend(bridges);
+        if raw_segs.len() > MAX_BUCKET_RAW_SEGMENTS {
+            return Err(GeometryError::ComplexityLimit);
+        }
     }
 
     // Subdivide segments at all pairwise intersections.
     let n = raw_segs.len();
+    let pair_checks = n
+        .checked_mul(n.saturating_sub(1))
+        .map(|checks| checks / 2)
+        .ok_or(GeometryError::ComplexityLimit)?;
+    if pair_checks > MAX_BUCKET_QUADRATIC_CHECKS {
+        return Err(GeometryError::ComplexityLimit);
+    }
     let mut split_params: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; n];
+    let mut split_param_count = n.saturating_mul(2);
     for i in 0..n {
         for j in (i + 1)..n {
             let (a0, a1) = raw_segs[i];
@@ -4390,6 +4453,12 @@ pub fn paint_bucket_planar_face(
                 if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
                     split_params[i].push(t);
                     split_params[j].push(u);
+                    split_param_count = split_param_count
+                        .checked_add(2)
+                        .ok_or(GeometryError::ComplexityLimit)?;
+                    if split_param_count > MAX_BUCKET_PLANAR_EDGES * 2 {
+                        return Err(GeometryError::ComplexityLimit);
+                    }
                 }
             }
         }
@@ -4398,20 +4467,38 @@ pub fn paint_bucket_planar_face(
     // Snap vertices within 0.05 px and build directed half-edges.
     const SNAP: f64 = 0.05;
     let mut vertices: Vec<[f64; 2]> = Vec::new();
+    let inv_cell = 1.0 / (SNAP * 2.0);
+    let mut vertex_grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+        std::collections::HashMap::with_capacity(n.saturating_mul(2));
     let mut find_or_insert = |pt: [f64; 2]| -> usize {
-        if let Some(idx) = vertices
-            .iter()
-            .position(|&v| (v[0] - pt[0]).hypot(v[1] - pt[1]) <= SNAP)
-        {
+        let gx = (pt[0] * inv_cell).floor() as i64;
+        let gy = (pt[1] * inv_cell).floor() as i64;
+        let mut best = None;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if let Some(bucket) = vertex_grid.get(&(gx + dx, gy + dy)) {
+                    for &idx in bucket {
+                        if best.is_none_or(|previous| idx < previous)
+                            && dist_sq(vertices[idx], pt) <= SNAP * SNAP
+                        {
+                            best = Some(idx);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(idx) = best {
             idx
         } else {
             let idx = vertices.len();
             vertices.push(pt);
+            vertex_grid.entry((gx, gy)).or_default().push(idx);
             idx
         }
     };
 
     let mut adj: Vec<Vec<usize>> = Vec::new();
+    let mut planar_edges = 0usize;
     for (i, &(a, b)) in raw_segs.iter().enumerate() {
         let params = &mut split_params[i];
         params.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
@@ -4429,6 +4516,12 @@ pub fn paint_bucket_planar_face(
             let v = find_or_insert(p1);
             if u == v {
                 continue;
+            }
+            planar_edges = planar_edges
+                .checked_add(1)
+                .ok_or(GeometryError::ComplexityLimit)?;
+            if planar_edges > MAX_BUCKET_PLANAR_EDGES {
+                return Err(GeometryError::ComplexityLimit);
             }
             if adj.len() <= u.max(v) {
                 adj.resize(u.max(v) + 1, Vec::new());
@@ -4528,7 +4621,9 @@ pub fn paint_bucket_planar_face(
         }
     }
 
-    let (_, ring) = best_face?;
+    let Some((_, ring)) = best_face else {
+        return Ok(None);
+    };
     let mut cmds = Vec::with_capacity(ring.len() + 1);
     cmds.push(PathCommand::MoveTo {
         x: ring[0][0],
@@ -4538,7 +4633,7 @@ pub fn paint_bucket_planar_face(
         cmds.push(PathCommand::LineTo { x, y });
     }
     cmds.push(PathCommand::Close);
-    Some(cmds)
+    Ok(Some(cmds))
 }
 
 /// Classic Flash Brush paint modes (`T-105`).
@@ -4738,99 +4833,636 @@ pub fn apply_brush_stroke_with_mode(
     }
 }
 
-/// Slice Merge-mode fills in `elements` along the closed `lasso_polygon` contour (`T-128`).
+fn invalid_merge_geometry(message: impl Into<String>) -> GeometryError {
+    GeometryError::InvalidPath(message.into())
+}
+
+fn ensure_fragmentable_merge(element: &Element) -> Result<(), GeometryError> {
+    let protected = if element.cache_as_bitmap {
+        Some("Cache as bitmap")
+    } else if !element.blend_mode.is_normal() {
+        Some("a non-Normal blend mode")
+    } else if !element.filters.is_empty() {
+        Some("filters")
+    } else {
+        None
+    };
+    if let Some(feature) = protected {
+        return Err(invalid_merge_geometry(format!(
+            "partial Merge editing cannot split element '{}' while it uses {feature}; disable the effect or use whole-object editing",
+            element.id
+        )));
+    }
+    Ok(())
+}
+
+/// Validate and flatten a path without the silent-empty fallback used by the older convenience
+/// helpers. Fill paths may use the usual implicit closing edge; selection polygons must contain
+/// only explicitly closed contours.
+fn checked_rings(
+    commands: &[PathCommand],
+    require_closed: bool,
+) -> Result<Vec<Vec<[f64; 2]>>, GeometryError> {
+    validate_path_commands(commands)?;
+    let contours = flatten_path(
+        commands,
+        FlattenOptions {
+            tolerance: 0.35,
+            ..FlattenOptions::default()
+        },
+    )?;
+    let mut rings = Vec::new();
+    for contour in contours {
+        if require_closed && !contour.closed {
+            return Err(invalid_merge_geometry(
+                "selection polygon contours must be closed",
+            ));
+        }
+        let mut points = Vec::with_capacity(contour.points.len());
+        for point in contour.points {
+            if points
+                .last()
+                .is_none_or(|previous| dist_sq(*previous, point) > SNAP_EPS * SNAP_EPS)
+            {
+                points.push(point);
+            }
+        }
+        if points.len() >= 2 && dist_sq(points[0], *points.last().unwrap()) <= SNAP_EPS * SNAP_EPS {
+            points.pop();
+        }
+        if points.len() >= 3 && signed_ring_area(&points).abs() > AREA_EPS {
+            rings.push(points);
+        }
+    }
+    Ok(rings)
+}
+
+fn validate_generated_pieces(pieces: &[Vec<PathCommand>]) -> Result<(), GeometryError> {
+    let mut total = 0usize;
+    for commands in pieces {
+        validate_path_commands(commands)?;
+        total = total
+            .checked_add(commands.len())
+            .ok_or(GeometryError::ComplexityLimit)?;
+        if total > MAX_PATH_COMMANDS {
+            return Err(GeometryError::ComplexityLimit);
+        }
+    }
+    Ok(())
+}
+
+/// Replace `Close` with its explicit seam segment before cutting a stroke. A closed stroke that
+/// does not cross the polygon is retained verbatim by the caller, so its authored join is lost
+/// only when the seam really is cut into open fragments.
+fn explicit_close_segments(commands: &[PathCommand]) -> Vec<PathCommand> {
+    let mut result = Vec::with_capacity(commands.len());
+    let mut cursor = [0.0, 0.0];
+    let mut start = [0.0, 0.0];
+    for &command in commands {
+        match command {
+            PathCommand::MoveTo { x, y } => {
+                cursor = [x, y];
+                start = cursor;
+                result.push(command);
+            }
+            PathCommand::LineTo { x, y }
+            | PathCommand::QuadraticTo { x, y, .. }
+            | PathCommand::CubicTo { x, y, .. } => {
+                cursor = [x, y];
+                result.push(command);
+            }
+            PathCommand::Close => {
+                if dist_sq(cursor, start) > SNAP_EPS * SNAP_EPS {
+                    result.push(PathCommand::LineTo {
+                        x: start[0],
+                        y: start[1],
+                    });
+                }
+                cursor = start;
+            }
+        }
+    }
+    result
+}
+
+/// Split stroke commands at polygon edges, classify every exact Bézier sub-arc by its midpoint,
+/// then join adjacent sub-arcs with the same classification back into the fewest path runs.
+fn classified_stroke_runs(
+    commands: &[PathCommand],
+    cutters: &[([f64; 2], [f64; 2])],
+    polygon_rings: &[Vec<[f64; 2]>],
+) -> Vec<(bool, Vec<PathCommand>)> {
+    let explicit = explicit_close_segments(commands);
+    let pieces = split_bezier_path_with_segments(&explicit, cutters);
+    let mut runs = Vec::new();
+    let mut current_commands: Vec<PathCommand> = Vec::new();
+    let mut current_class = None;
+    let mut current_end: Option<[f64; 2]> = None;
+
+    for piece in pieces {
+        let mut cursor = [0.0, 0.0];
+        let mut have_cursor = false;
+        for command in piece {
+            match command {
+                PathCommand::MoveTo { x, y } => {
+                    cursor = [x, y];
+                    have_cursor = true;
+                }
+                PathCommand::LineTo { .. }
+                | PathCommand::QuadraticTo { .. }
+                | PathCommand::CubicTo { .. }
+                    if have_cursor =>
+                {
+                    let midpoint = eval_command_at(cursor, command, 0.5);
+                    let inside = point_in_rings(midpoint, polygon_rings, FillRule::EvenOdd);
+                    let connected =
+                        current_end.is_some_and(|end| dist_sq(end, cursor) <= SNAP_EPS * SNAP_EPS);
+                    if current_class != Some(inside) || !connected {
+                        if current_commands.len() >= 2 {
+                            runs.push((
+                                current_class.expect("a path run has a classification"),
+                                std::mem::take(&mut current_commands),
+                            ));
+                        } else {
+                            current_commands.clear();
+                        }
+                        current_commands.push(PathCommand::MoveTo {
+                            x: cursor[0],
+                            y: cursor[1],
+                        });
+                        current_class = Some(inside);
+                    }
+                    current_commands.push(command);
+                    cursor = eval_command_at(cursor, command, 1.0);
+                    current_end = Some(cursor);
+                }
+                PathCommand::Close
+                | PathCommand::LineTo { .. }
+                | PathCommand::QuadraticTo { .. }
+                | PathCommand::CubicTo { .. } => {}
+            }
+        }
+    }
+    if current_commands.len() >= 2 {
+        runs.push((
+            current_class.expect("a path run has a classification"),
+            current_commands,
+        ));
+    }
+    runs
+}
+
+fn split_check_budget(commands: &[PathCommand], cutter_count: usize) -> Result<(), GeometryError> {
+    let drawable = commands
+        .iter()
+        .filter(|command| !matches!(command, PathCommand::MoveTo { .. } | PathCommand::Close))
+        .count();
+    let checks = drawable
+        .checked_mul(cutter_count)
+        .and_then(|value| value.checked_mul(32))
+        .ok_or(GeometryError::ComplexityLimit)?;
+    if checks > MAX_SPLIT_INTERSECTION_CHECKS {
+        return Err(GeometryError::ComplexityLimit);
+    }
+    Ok(())
+}
+
+enum FragmentSelection {
+    Existing(Id),
+    Pending(usize),
+}
+
+/// Split every raw Merge fill and stroke along `polygon`, returning the IDs of the pieces inside
+/// it. Fills use planar intersection/difference; strokes keep exact quadratic/cubic sub-arcs.
+/// Object Drawing and temporarily protected grouped elements (`merge == false`) are untouched.
 ///
-/// Any Merge fill that intersects `lasso_polygon` is partitioned into its inside piece(s)
-/// (`BooleanOp::Intersection`) and outside piece(s) (`BooleanOp::Difference`). Returns the
-/// element IDs of all inside pieces (including any Merge fills that already lay completely
-/// inside `lasso_polygon`) so the editor can select the exact lasso-enclosed fill region.
+/// The operation is atomic: invalid input or any path/complexity failure returns an error without
+/// changing `elements`. The source ID/name/scripts/accessibility stay on the first outside piece;
+/// every additional fragment receives a fresh ID and no duplicated identity metadata.
+pub fn split_merge_geometry_by_polygon(
+    elements: &mut Vec<Element>,
+    polygon: &[PathCommand],
+) -> Result<Vec<Id>, GeometryError> {
+    let polygon_rings = checked_rings(polygon, true)?;
+    if polygon_rings.is_empty() {
+        return Err(invalid_merge_geometry(
+            "selection polygon must contain a nondegenerate closed contour",
+        ));
+    }
+    let cutters = fill_boundary_segments(&polygon_rings, FillRule::EvenOdd);
+    if cutters.is_empty() {
+        return Err(invalid_merge_geometry(
+            "selection polygon has no usable boundary",
+        ));
+    }
+    if cutters.len() > MAX_PATH_COMMANDS {
+        return Err(GeometryError::ComplexityLimit);
+    }
+    let polygon_bounds = rings_bounds(&polygon_rings).expect("validated polygon has bounds");
+    let mut selections = Vec::new();
+    let mut pending_ids = Vec::new();
+    let mut next_elements = Vec::with_capacity(elements.len() + 2);
+
+    for existing in elements.iter() {
+        if !is_merge_fill(existing) && !is_merge_stroke(existing) {
+            next_elements.push(existing.clone());
+            continue;
+        }
+        let Some(existing_bounds) = element_fast_world_bounds(existing) else {
+            next_elements.push(existing.clone());
+            continue;
+        };
+        if !bounds_overlap(existing_bounds, polygon_bounds, SNAP_EPS * 2.0) {
+            next_elements.push(existing.clone());
+            continue;
+        }
+        ensure_fragmentable_merge(existing)?;
+        let Some((commands, fill_rule)) = element_world_commands(existing) else {
+            next_elements.push(existing.clone());
+            continue;
+        };
+        validate_path_commands(&commands)?;
+
+        if is_merge_fill(existing) {
+            let existing_rings = checked_rings(&commands, false)?;
+            if existing_rings.is_empty() {
+                next_elements.push(existing.clone());
+                continue;
+            }
+            let inside_pieces = boolean_rings(
+                &existing_rings,
+                fill_rule,
+                &polygon_rings,
+                FillRule::EvenOdd,
+                BooleanOp::Intersection,
+            );
+            if inside_pieces.is_empty() {
+                next_elements.push(existing.clone());
+                continue;
+            }
+            let outside_pieces = boolean_rings(
+                &existing_rings,
+                fill_rule,
+                &polygon_rings,
+                FillRule::EvenOdd,
+                BooleanOp::Difference,
+            );
+            if outside_pieces.is_empty() {
+                selections.push(FragmentSelection::Existing(existing.id.clone()));
+                next_elements.push(existing.clone());
+                continue;
+            }
+            validate_generated_pieces(&outside_pieces)?;
+            validate_generated_pieces(&inside_pieces)?;
+            let paint =
+                extract_fill_paint(&existing.kind).expect("a Merge fill always has fill paint");
+            for (index, piece) in outside_pieces.into_iter().enumerate() {
+                let keep_identity = index == 0;
+                let mut fragment = build_fill_element(
+                    existing,
+                    if keep_identity {
+                        existing.id.clone()
+                    } else {
+                        String::new()
+                    },
+                    piece,
+                    FillRule::NonZero,
+                    &paint,
+                    true,
+                );
+                if !keep_identity {
+                    clear_fragment_identity(&mut fragment);
+                    pending_ids.push(next_elements.len());
+                }
+                next_elements.push(fragment);
+            }
+            for piece in inside_pieces {
+                let mut fragment = build_fill_element(
+                    existing,
+                    String::new(),
+                    piece,
+                    FillRule::NonZero,
+                    &paint,
+                    true,
+                );
+                clear_fragment_identity(&mut fragment);
+                let pending_index = next_elements.len();
+                pending_ids.push(pending_index);
+                selections.push(FragmentSelection::Pending(pending_index));
+                next_elements.push(fragment);
+            }
+            continue;
+        }
+
+        split_check_budget(&commands, cutters.len())?;
+        let runs = classified_stroke_runs(&commands, &cutters, &polygon_rings);
+        let has_inside = runs.iter().any(|(inside, _)| *inside);
+        let has_outside = runs.iter().any(|(inside, _)| !*inside);
+        if !has_inside {
+            next_elements.push(existing.clone());
+            continue;
+        }
+        if !has_outside {
+            selections.push(FragmentSelection::Existing(existing.id.clone()));
+            next_elements.push(existing.clone());
+            continue;
+        }
+        let run_commands: Vec<_> = runs.iter().map(|(_, commands)| commands.clone()).collect();
+        validate_generated_pieces(&run_commands)?;
+        let mut paint =
+            extract_stroke_paint(&existing.kind).expect("a Merge stroke always has stroke paint");
+        paint.width *= transform_scale_factor(&existing.transform);
+        let mut kept_identity = false;
+        for (inside, piece) in runs {
+            let keep_identity = !inside && !kept_identity;
+            let id = if keep_identity {
+                kept_identity = true;
+                existing.id.clone()
+            } else {
+                String::new()
+            };
+            let mut fragment = build_stroke_element(existing, id, piece, &paint, true);
+            if !keep_identity {
+                clear_fragment_identity(&mut fragment);
+                pending_ids.push(next_elements.len());
+            }
+            if inside {
+                selections.push(FragmentSelection::Pending(next_elements.len()));
+            }
+            next_elements.push(fragment);
+        }
+    }
+
+    for index in pending_ids {
+        next_elements[index].id = new_id("element");
+    }
+    let selected_ids = selections
+        .into_iter()
+        .map(|selection| match selection {
+            FragmentSelection::Existing(id) => id,
+            FragmentSelection::Pending(index) => next_elements[index].id.clone(),
+        })
+        .collect();
+    *elements = next_elements;
+    Ok(selected_ids)
+}
+
+fn circle_ring(center: [f64; 2], radius: f64, cap_steps: usize) -> Vec<[f64; 2]> {
+    (0..cap_steps * 2)
+        .map(|step| {
+            let angle = step as f64 * std::f64::consts::TAU / (cap_steps * 2) as f64;
+            [
+                center[0] + angle.cos() * radius,
+                center[1] + angle.sin() * radius,
+            ]
+        })
+        .collect()
+}
+
+fn capsule_ring(from: [f64; 2], to: [f64; 2], radius: f64, cap_steps: usize) -> Vec<[f64; 2]> {
+    let dx = to[0] - from[0];
+    let dy = to[1] - from[1];
+    if dx.hypot(dy) <= 1e-9 {
+        return circle_ring(from, radius, cap_steps);
+    }
+    let angle = dy.atan2(dx);
+    let mut ring = Vec::with_capacity((cap_steps + 1) * 2);
+    for step in 0..=cap_steps {
+        let theta = angle - std::f64::consts::FRAC_PI_2
+            + step as f64 * std::f64::consts::PI / cap_steps as f64;
+        ring.push([to[0] + theta.cos() * radius, to[1] + theta.sin() * radius]);
+    }
+    for step in 0..=cap_steps {
+        let theta = angle
+            + std::f64::consts::FRAC_PI_2
+            + step as f64 * std::f64::consts::PI / cap_steps as f64;
+        ring.push([
+            from[0] + theta.cos() * radius,
+            from[1] + theta.sin() * radius,
+        ]);
+    }
+    ring
+}
+
+fn eraser_cutter_rings(
+    points: &[[f64; 2]],
+    radius: f64,
+    tolerance: f64,
+) -> Result<Vec<Vec<[f64; 2]>>, GeometryError> {
+    if !radius.is_finite() || radius <= 0.0 || !tolerance.is_finite() || tolerance <= 0.0 {
+        return Err(invalid_merge_geometry(
+            "eraser radius and tolerance must be positive and finite",
+        ));
+    }
+    if points.len() > MAX_MERGE_ERASER_POINTS {
+        return Err(GeometryError::ComplexityLimit);
+    }
+    if points
+        .iter()
+        .flatten()
+        .any(|value| !value.is_finite() || value.abs() > 1e9)
+    {
+        return Err(invalid_merge_geometry(
+            "eraser points must be finite and within coordinate limits",
+        ));
+    }
+    if points.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut distinct = Vec::with_capacity(points.len());
+    for &point in points {
+        if distinct.last().is_none_or(|previous| *previous != point) {
+            distinct.push(point);
+        }
+    }
+    let sweep_count = distinct.len().saturating_sub(1).max(1);
+    let max_cap_steps = if distinct.len() == 1 {
+        MAX_PATH_COMMANDS / 2
+    } else {
+        (MAX_PATH_COMMANDS / (sweep_count * 2)).saturating_sub(1)
+    };
+    if max_cap_steps < 3 {
+        return Err(GeometryError::ComplexityLimit);
+    }
+    // Bound the sagitta of each round cap by the caller's flattening tolerance when the gesture
+    // budget allows it. Dense tablet input degrades cap tessellation, never geometry count.
+    let cosine = (1.0 - tolerance / radius).clamp(-1.0, 1.0);
+    let max_step_angle = 2.0 * cosine.acos();
+    let desired_cap_steps = if max_step_angle.is_finite() && max_step_angle > 1e-6 {
+        (std::f64::consts::PI / max_step_angle).ceil() as usize
+    } else {
+        32
+    };
+    let cap_steps = desired_cap_steps.clamp(6, 32).min(max_cap_steps);
+    let rings = if distinct.len() == 1 {
+        vec![circle_ring(distinct[0], radius, cap_steps)]
+    } else {
+        distinct
+            .windows(2)
+            .map(|pair| capsule_ring(pair[0], pair[1], radius, cap_steps))
+            .collect::<Vec<_>>()
+    };
+    let edge_count = rings.iter().try_fold(0usize, |total, ring| {
+        total
+            .checked_add(ring.len())
+            .ok_or(GeometryError::ComplexityLimit)
+    })?;
+    if edge_count > MAX_PATH_COMMANDS {
+        return Err(GeometryError::ComplexityLimit);
+    }
+    if rings
+        .iter()
+        .flatten()
+        .flatten()
+        .any(|value| !value.is_finite() || value.abs() > 1e9)
+    {
+        return Err(invalid_merge_geometry(
+            "eraser sweep exceeds coordinate limits",
+        ));
+    }
+    Ok(rings)
+}
+
+/// Cut a swept round eraser through raw Merge fills and strokes. Fill geometry is subtracted by
+/// the capsule union; stroke centrelines use the bounded authoring eraser and are emitted as
+/// separate surviving runs. Object Drawing and protected grouped elements are untouched.
+///
+/// Returns whether geometry changed. The operation is atomic on invalid/over-budget input. The
+/// first surviving fragment retains the source ID and identity metadata; additional fragments
+/// receive fresh IDs with name/scripts/accessibility cleared while keeping paint and appearance.
+pub fn erase_merge_geometry_with_sweep(
+    elements: &mut Vec<Element>,
+    eraser_points: &[[f64; 2]],
+    radius: f64,
+    tolerance: f64,
+) -> Result<bool, GeometryError> {
+    let cutter_rings = eraser_cutter_rings(eraser_points, radius, tolerance)?;
+    if cutter_rings.is_empty() {
+        return Ok(false);
+    }
+    let cutter_bounds = rings_bounds(&cutter_rings).expect("nonempty eraser has bounds");
+    let mut changed = false;
+    let mut pending_ids = Vec::new();
+    let mut next_elements = Vec::with_capacity(elements.len() + 2);
+
+    for existing in elements.iter() {
+        if !is_merge_fill(existing) && !is_merge_stroke(existing) {
+            next_elements.push(existing.clone());
+            continue;
+        }
+        let Some(existing_bounds) = element_fast_world_bounds(existing) else {
+            next_elements.push(existing.clone());
+            continue;
+        };
+        if !bounds_overlap(existing_bounds, cutter_bounds, radius + SNAP_EPS) {
+            next_elements.push(existing.clone());
+            continue;
+        }
+        ensure_fragmentable_merge(existing)?;
+        let Some((commands, fill_rule)) = element_world_commands(existing) else {
+            next_elements.push(existing.clone());
+            continue;
+        };
+        validate_path_commands(&commands)?;
+
+        if is_merge_fill(existing) {
+            let existing_rings = checked_rings(&commands, false)?;
+            if existing_rings.is_empty() {
+                next_elements.push(existing.clone());
+                continue;
+            }
+            let (outside_pieces, interacted) = boolean_rings_with_interaction(
+                &existing_rings,
+                fill_rule,
+                &cutter_rings,
+                FillRule::NonZero,
+                BooleanOp::Difference,
+            );
+            if !interacted {
+                next_elements.push(existing.clone());
+                continue;
+            }
+            validate_generated_pieces(&outside_pieces)?;
+            changed = true;
+            let paint =
+                extract_fill_paint(&existing.kind).expect("a Merge fill always has fill paint");
+            for (index, piece) in outside_pieces.into_iter().enumerate() {
+                let keep_identity = index == 0;
+                let mut fragment = build_fill_element(
+                    existing,
+                    if keep_identity {
+                        existing.id.clone()
+                    } else {
+                        String::new()
+                    },
+                    piece,
+                    FillRule::NonZero,
+                    &paint,
+                    true,
+                );
+                if !keep_identity {
+                    clear_fragment_identity(&mut fragment);
+                    pending_ids.push(next_elements.len());
+                }
+                next_elements.push(fragment);
+            }
+            continue;
+        }
+
+        let result = erase_path_stroke(
+            &commands,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            eraser_points,
+            radius,
+            tolerance,
+        )?;
+        if !result.changed {
+            next_elements.push(existing.clone());
+            continue;
+        }
+        changed = true;
+        let pieces = split_commands_into_contours(&result.commands);
+        validate_generated_pieces(&pieces)?;
+        let mut paint =
+            extract_stroke_paint(&existing.kind).expect("a Merge stroke always has stroke paint");
+        paint.width *= transform_scale_factor(&existing.transform);
+        for (index, piece) in pieces.into_iter().enumerate() {
+            let keep_identity = index == 0;
+            let mut fragment = build_stroke_element(
+                existing,
+                if keep_identity {
+                    existing.id.clone()
+                } else {
+                    String::new()
+                },
+                piece,
+                &paint,
+                true,
+            );
+            if !keep_identity {
+                clear_fragment_identity(&mut fragment);
+                pending_ids.push(next_elements.len());
+            }
+            next_elements.push(fragment);
+        }
+    }
+
+    if changed {
+        for index in pending_ids {
+            next_elements[index].id = new_id("element");
+        }
+        *elements = next_elements;
+    }
+    Ok(changed)
+}
+
+/// Compatibility entry point for the T-128 editor call site. Invalid/over-budget input remains a
+/// no-op as before; successful calls now also select exact Merge stroke fragments.
 pub fn lasso_split_merge_fills(
     elements: &mut Vec<Element>,
     lasso_polygon: &[PathCommand],
 ) -> Vec<Id> {
-    let lasso_rings = flatten_closed_rings(lasso_polygon);
-    if lasso_rings.is_empty() {
-        return Vec::new();
-    }
-    let Some(lasso_bbox) = rings_bounds(&lasso_rings) else {
-        return Vec::new();
-    };
-    let mut selected_ids = Vec::new();
-    let mut next_elements = Vec::with_capacity(elements.len() + 2);
-    for existing in elements.drain(..) {
-        if !is_merge_fill(&existing) {
-            next_elements.push(existing);
-            continue;
-        }
-        let Some(ex_bbox) = element_fast_world_bounds(&existing) else {
-            next_elements.push(existing);
-            continue;
-        };
-        if !bounds_overlap(ex_bbox, lasso_bbox, SNAP_EPS * 2.0) {
-            next_elements.push(existing);
-            continue;
-        }
-        let Some((ex_cmds, ex_rule)) = element_world_commands(&existing) else {
-            next_elements.push(existing);
-            continue;
-        };
-        let Some(fp) = extract_fill_paint(&existing.kind) else {
-            next_elements.push(existing);
-            continue;
-        };
-        let inside_pieces = boolean_paths(
-            &ex_cmds,
-            ex_rule,
-            lasso_polygon,
-            FillRule::EvenOdd,
-            BooleanOp::Intersection,
-        );
-        if inside_pieces.is_empty() {
-            next_elements.push(existing);
-            continue;
-        }
-        let outside_pieces = boolean_paths(
-            &ex_cmds,
-            ex_rule,
-            lasso_polygon,
-            FillRule::EvenOdd,
-            BooleanOp::Difference,
-        );
-        if outside_pieces.is_empty() {
-            selected_ids.push(existing.id.clone());
-            next_elements.push(existing);
-            continue;
-        }
-        for (idx, cmds) in outside_pieces.into_iter().enumerate() {
-            let piece_id = if idx == 0 {
-                existing.id.clone()
-            } else {
-                new_id("element")
-            };
-            next_elements.push(build_fill_element(
-                &existing,
-                piece_id,
-                cmds,
-                FillRule::NonZero,
-                &fp,
-                true,
-            ));
-        }
-        for cmds in inside_pieces {
-            let inside_id = new_id("element");
-            selected_ids.push(inside_id.clone());
-            next_elements.push(build_fill_element(
-                &existing,
-                inside_id,
-                cmds,
-                FillRule::NonZero,
-                &fp,
-                true,
-            ));
-        }
-    }
-    *elements = next_elements;
-    selected_ids
+    split_merge_geometry_by_polygon(elements, lasso_polygon).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -4886,6 +5518,477 @@ mod tests {
             merge: true,
             ..Element::default()
         }
+    }
+
+    fn rectangle_polygon(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<PathCommand> {
+        vec![
+            PathCommand::MoveTo { x: x0, y: y0 },
+            PathCommand::LineTo { x: x1, y: y0 },
+            PathCommand::LineTo { x: x1, y: y1 },
+            PathCommand::LineTo { x: x0, y: y1 },
+            PathCommand::Close,
+        ]
+    }
+
+    fn add_identity_metadata(mut element: Element, label: &str) -> Element {
+        element.name = label.into();
+        element.scripts = vec![crate::model::ObjectScript {
+            event: crate::model::ObjectEvent::Click,
+            script: crate::model::Script {
+                language: crate::model::ScriptLanguage::ActionScript3,
+                source: format!("trace('{label}')"),
+            },
+        }];
+        element.accessibility = Some(crate::model::Accessibility {
+            name: label.into(),
+            description: "fragment identity".into(),
+            role: crate::model::AccessibleRole::Button,
+            tab_order: 1,
+            disabled: false,
+        });
+        element
+    }
+
+    fn fill_contains(element: &Element, point: [f64; 2]) -> bool {
+        let Some((commands, rule)) = element_world_commands(element) else {
+            return false;
+        };
+        point_in_rings(point, &flatten_closed_rings(&commands), rule)
+    }
+
+    #[test]
+    fn planar_bucket_returns_an_enclosed_face_and_rejects_hostile_arrangements_early() {
+        let lines = vec![
+            line_element("top", 0.0, 0.0, 50.0, 0.0, [0, 0, 0, 255]),
+            line_element("right", 50.0, 0.0, 50.0, 50.0, [0, 0, 0, 255]),
+            line_element("bottom", 50.0, 50.0, 0.0, 50.0, [0, 0, 0, 255]),
+            line_element("left", 0.0, 50.0, 0.0, 0.0, [0, 0, 0, 255]),
+        ];
+        let face = paint_bucket_planar_face(&lines, [25.0, 25.0], 0.0)
+            .expect("ordinary arrangement is within the budget")
+            .expect("closed strokes enclose a face");
+        assert!(matches!(face.first(), Some(PathCommand::MoveTo { .. })));
+        assert_eq!(face.last(), Some(&PathCommand::Close));
+
+        let mut commands = Vec::with_capacity(4_003);
+        commands.push(PathCommand::MoveTo { x: 0.0, y: 0.0 });
+        for index in 1..=4_002 {
+            commands.push(PathCommand::LineTo {
+                x: index as f64,
+                y: (index % 2) as f64,
+            });
+        }
+        let dense = Element {
+            id: "hostile-bucket".into(),
+            kind: ElementKind::Path {
+                commands,
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            merge: true,
+            ..Element::default()
+        };
+        assert_eq!(
+            paint_bucket_planar_face(&[dense], [1.0, 0.5], 0.0),
+            Err(GeometryError::ComplexityLimit)
+        );
+
+        // A valid boundary that exceeds the shared flattening point budget must reject the whole
+        // arrangement. Silently dropping it and returning the nearby small face can flood across
+        // artwork the user expected to be a boundary.
+        let mut over_flatten_commands = Vec::with_capacity(65_537);
+        over_flatten_commands.push(PathCommand::MoveTo { x: 100.0, y: 0.0 });
+        for index in 1..=65_536 {
+            over_flatten_commands.push(PathCommand::LineTo {
+                x: 100.0 + index as f64,
+                y: (index % 2) as f64,
+            });
+        }
+        let over_flatten = Element {
+            id: "over-flatten-boundary".into(),
+            kind: ElementKind::Path {
+                commands: over_flatten_commands,
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 1.0,
+            },
+            merge: true,
+            ..Element::default()
+        };
+        let mut mixed = lines.clone();
+        mixed.push(over_flatten);
+        assert_eq!(
+            paint_bucket_planar_face(&mixed, [25.0, 25.0], 0.0),
+            Err(GeometryError::ComplexityLimit)
+        );
+        assert!(matches!(
+            paint_bucket_planar_face(&lines, [25.0, 25.0], f64::NAN),
+            Err(GeometryError::InvalidPath(_))
+        ));
+    }
+
+    #[test]
+    fn polygon_split_slices_merge_fills_and_preserves_bezier_stroke_fragments() {
+        let fill = add_identity_metadata(
+            rect_element(
+                "fill-source",
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+                [20, 80, 160, 220],
+                [0; 4],
+                0.0,
+            ),
+            "Fill identity",
+        );
+        let stroke = add_identity_metadata(
+            Element {
+                id: "stroke-source".into(),
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0.0, y: 50.0 },
+                        PathCommand::CubicTo {
+                            cx1: 25.0,
+                            cy1: 10.0,
+                            cx2: 75.0,
+                            cy2: 90.0,
+                            x: 100.0,
+                            y: 50.0,
+                        },
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [0; 4],
+                    stroke: [210, 40, 30, 230],
+                    stroke_width: 3.5,
+                },
+                merge: true,
+                ..Element::default()
+            },
+            "Stroke identity",
+        );
+        let mut elements = vec![fill, stroke];
+        let selected = split_merge_geometry_by_polygon(
+            &mut elements,
+            &rectangle_polygon(25.0, 0.0, 75.0, 100.0),
+        )
+        .expect("valid polygon split");
+
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|id| elements
+                    .iter()
+                    .any(|element| &element.id == *id && is_merge_fill(element)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|id| elements
+                    .iter()
+                    .any(|element| &element.id == *id && is_merge_stroke(element)))
+                .count(),
+            1
+        );
+        let selected_stroke = elements
+            .iter()
+            .find(|element| selected.contains(&element.id) && is_merge_stroke(element))
+            .expect("inside stroke fragment");
+        let (inside_stroke_commands, _) = element_world_commands(selected_stroke).unwrap();
+        assert!(
+            inside_stroke_commands
+                .iter()
+                .any(|command| matches!(command, PathCommand::CubicTo { .. })),
+            "polygon splitting must retain an exact cubic sub-arc"
+        );
+
+        let selected_fill = elements
+            .iter()
+            .find(|element| selected.contains(&element.id) && is_merge_fill(element))
+            .expect("inside fill fragment");
+        assert!(fill_contains(selected_fill, [50.0, 20.0]));
+        assert!(elements.iter().any(|element| {
+            is_merge_fill(element)
+                && !selected.contains(&element.id)
+                && fill_contains(element, [10.0, 20.0])
+        }));
+        assert!(elements.iter().any(|element| {
+            is_merge_fill(element)
+                && !selected.contains(&element.id)
+                && fill_contains(element, [90.0, 20.0])
+        }));
+
+        let retained_fill = elements
+            .iter()
+            .find(|element| element.id == "fill-source")
+            .expect("first outside fill keeps source ID");
+        assert_eq!(retained_fill.name, "Fill identity");
+        assert_eq!(retained_fill.scripts.len(), 1);
+        assert!(retained_fill.accessibility.is_some());
+        let retained_stroke = elements
+            .iter()
+            .find(|element| element.id == "stroke-source")
+            .expect("first outside stroke keeps source ID");
+        assert_eq!(retained_stroke.name, "Stroke identity");
+        assert_eq!(retained_stroke.scripts.len(), 1);
+        assert!(retained_stroke.accessibility.is_some());
+        for fragment in elements
+            .iter()
+            .filter(|element| element.id != "fill-source" && element.id != "stroke-source")
+        {
+            assert!(fragment.name.is_empty());
+            assert!(fragment.scripts.is_empty());
+            assert!(fragment.accessibility.is_none());
+        }
+    }
+
+    #[test]
+    fn polygon_split_is_atomic_for_invalid_and_over_budget_inputs() {
+        let mut elements = vec![line_element(
+            "atomic-stroke",
+            -10.0,
+            0.0,
+            10.0,
+            0.0,
+            [0, 0, 0, 255],
+        )];
+        let before = elements.clone();
+        let open_polygon = vec![
+            PathCommand::MoveTo { x: -5.0, y: -5.0 },
+            PathCommand::LineTo { x: 5.0, y: -5.0 },
+            PathCommand::LineTo { x: 5.0, y: 5.0 },
+        ];
+        assert!(matches!(
+            split_merge_geometry_by_polygon(&mut elements, &open_polygon),
+            Err(GeometryError::InvalidPath(_))
+        ));
+        assert_eq!(elements, before);
+
+        let edge_count = 520usize;
+        let mut polygon = Vec::with_capacity(edge_count + 2);
+        for index in 0..edge_count {
+            let angle = index as f64 * std::f64::consts::TAU / edge_count as f64;
+            let command = if index == 0 {
+                PathCommand::MoveTo {
+                    x: angle.cos() * 100.0,
+                    y: angle.sin() * 100.0,
+                }
+            } else {
+                PathCommand::LineTo {
+                    x: angle.cos() * 100.0,
+                    y: angle.sin() * 100.0,
+                }
+            };
+            polygon.push(command);
+        }
+        polygon.push(PathCommand::Close);
+        let mut commands = vec![PathCommand::MoveTo { x: -90.0, y: 0.0 }];
+        for index in 1..=edge_count {
+            commands.push(PathCommand::LineTo {
+                x: -90.0 + index as f64 * 180.0 / edge_count as f64,
+                y: (index as f64 * 0.13).sin(),
+            });
+        }
+        elements[0].kind = ElementKind::Path {
+            commands,
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        };
+        let before_budget = elements.clone();
+        assert_eq!(
+            split_merge_geometry_by_polygon(&mut elements, &polygon),
+            Err(GeometryError::ComplexityLimit)
+        );
+        assert_eq!(elements, before_budget);
+    }
+
+    #[test]
+    fn partial_merge_edits_refuse_compositing_effects_atomically() {
+        let polygon = rectangle_polygon(25.0, 25.0, 75.0, 75.0);
+        for effect in ["cache", "blend", "filter"] {
+            let mut element = rect_element(
+                "protected-fill",
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+                [20, 80, 160, 255],
+                [0; 4],
+                0.0,
+            );
+            match effect {
+                "cache" => element.cache_as_bitmap = true,
+                "blend" => element.blend_mode = crate::BlendMode::Multiply,
+                "filter" => {
+                    element.filters = vec![crate::FilterSpec::Blur {
+                        blur_x: 4.0,
+                        blur_y: 4.0,
+                        quality: 1,
+                    }]
+                }
+                _ => unreachable!(),
+            }
+
+            let mut split_elements = vec![element.clone()];
+            let split_before = split_elements.clone();
+            let split_error =
+                split_merge_geometry_by_polygon(&mut split_elements, &polygon).unwrap_err();
+            assert!(
+                matches!(&split_error, GeometryError::InvalidPath(message) if message.contains("whole-object editing")),
+                "{effect}: {split_error}"
+            );
+            assert_eq!(split_elements, split_before, "{effect} split is atomic");
+
+            let mut erase_elements = vec![element];
+            let erase_before = erase_elements.clone();
+            let erase_error = erase_merge_geometry_with_sweep(
+                &mut erase_elements,
+                &[[50.0, -10.0], [50.0, 110.0]],
+                8.0,
+                0.2,
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&erase_error, GeometryError::InvalidPath(message) if message.contains("whole-object editing")),
+                "{effect}: {erase_error}"
+            );
+            assert_eq!(erase_elements, erase_before, "{effect} erase is atomic");
+        }
+    }
+
+    #[test]
+    fn swept_merge_eraser_cuts_fill_and_stroke_and_preserves_one_identity() {
+        let fill = add_identity_metadata(
+            rect_element(
+                "eraser-fill",
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+                [70, 120, 200, 190],
+                [0; 4],
+                0.0,
+            ),
+            "Fill script owner",
+        );
+        let stroke = add_identity_metadata(
+            line_element("eraser-stroke", -20.0, 50.0, 120.0, 50.0, [15, 25, 35, 240]),
+            "Stroke script owner",
+        );
+        let mut elements = vec![fill, stroke];
+        assert!(
+            erase_merge_geometry_with_sweep(
+                &mut elements,
+                &[[50.0, -20.0], [50.0, 120.0]],
+                10.0,
+                0.2,
+            )
+            .expect("valid swept erase")
+        );
+
+        let fills: Vec<_> = elements
+            .iter()
+            .filter(|element| is_merge_fill(element))
+            .collect();
+        let strokes: Vec<_> = elements
+            .iter()
+            .filter(|element| is_merge_stroke(element))
+            .collect();
+        assert_eq!(fills.len(), 2, "vertical sweep splits the fill in two");
+        assert_eq!(strokes.len(), 2, "vertical sweep splits the stroke in two");
+        assert!(
+            fills
+                .iter()
+                .any(|element| fill_contains(element, [20.0, 50.0]))
+        );
+        assert!(
+            fills
+                .iter()
+                .any(|element| fill_contains(element, [80.0, 50.0]))
+        );
+        assert!(
+            !fills
+                .iter()
+                .any(|element| fill_contains(element, [50.0, 50.0]))
+        );
+
+        for (id, name) in [
+            ("eraser-fill", "Fill script owner"),
+            ("eraser-stroke", "Stroke script owner"),
+        ] {
+            let retained = elements
+                .iter()
+                .find(|element| element.id == id)
+                .expect("first surviving piece keeps source ID");
+            assert_eq!(retained.name, name);
+            assert_eq!(retained.scripts.len(), 1);
+            assert!(retained.accessibility.is_some());
+        }
+        for fragment in elements
+            .iter()
+            .filter(|element| element.id != "eraser-fill" && element.id != "eraser-stroke")
+        {
+            assert!(fragment.name.is_empty());
+            assert!(fragment.scripts.is_empty());
+            assert!(fragment.accessibility.is_none());
+        }
+        assert!(fills.iter().all(|element| {
+            matches!(
+                element.kind,
+                ElementKind::Path {
+                    fill: [70, 120, 200, 190],
+                    ..
+                }
+            )
+        }));
+        assert!(strokes.iter().all(|element| {
+            matches!(
+                element.kind,
+                ElementKind::Path {
+                    stroke: [15, 25, 35, 240],
+                    stroke_width: 2.0,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn swept_merge_eraser_is_atomic_for_invalid_or_over_budget_input() {
+        let mut elements = vec![rect_element(
+            "atomic-fill",
+            0.0,
+            0.0,
+            20.0,
+            20.0,
+            [20, 40, 60, 255],
+            [0; 4],
+            0.0,
+        )];
+        let before = elements.clone();
+        assert!(matches!(
+            erase_merge_geometry_with_sweep(&mut elements, &[[10.0, 10.0]], f64::NAN, 0.2),
+            Err(GeometryError::InvalidPath(_))
+        ));
+        assert_eq!(elements, before);
+
+        let too_many = (0..=MAX_MERGE_ERASER_POINTS)
+            .map(|index| [index as f64 * 0.01, 10.0])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            erase_merge_geometry_with_sweep(&mut elements, &too_many, 2.0, 0.2),
+            Err(GeometryError::ComplexityLimit)
+        );
+        assert_eq!(elements, before);
+        assert!(!erase_merge_geometry_with_sweep(&mut elements, &[], 2.0, 0.2).unwrap());
+        assert_eq!(elements, before);
     }
 
     #[test]

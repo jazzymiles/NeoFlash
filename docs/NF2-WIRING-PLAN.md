@@ -118,7 +118,7 @@ if the preview frame differs from the modal frame in any visible way, file a req
 | W2.1 motion path | Resolved (R-005): `NF2/Motion Path` painter in `components/canvas.rs`. R-006 Paste motion special dialog resolved (design ready). |
 | W0.8 toasts | R-044 resolved and host connected: canvas-bottom stack, severity timers, modal delay and Output actions. General Open/import/export result routing remains partial. |
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
-| W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help (disabled) and Close panel rows are in the frame-view ⋯ menu. |
+| W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help and Close panel rows are in the frame-view ⋯ menu; Help and global F1 open the searchable Shortcuts command catalogue. |
 | W0.15 menus | Confirm order/grouping for absent §8 menu items and View ▸ Grid/Guides/Snapping submenus. |
 | v2.2 tool/command/brush panels | R-038 flyouts, Brushes, Brush/Pencil controls and Customize are connected; the compact 36 pt TypeHeader still needs a shared API (current component is 48 pt). Commands awaits a `.nfsl` execution contract. R-022 Trace bitmap is connected; Bitmap properties remains unavailable. |
 | W2.x canvas chrome | Painters exist and are used for selection/transform boxes, anchors and marquee; open R-011 (rotated box, contrast over artwork, Light transformation point) and a gradient-transform gesture model. |
@@ -130,17 +130,17 @@ if the preview frame differs from the modal frame in any visible way, file a req
 Format: **UI** → panel file/function · **Engine** → crate/module · **API** (NEW = proposal) · **Tests** · **Registry**
 (id in `docs/progress/product.json`) · **Acceptance** (short; full criteria in the spec).
 
-**Drawing follow-ups (TO-07)** — **partial**. Brush has eight tip shapes, document-unit Size 1–200,
-zoom-following cursor/⌥⌘ resize, smoothing, pressure size control and gradient Lock fill. Brushes lists supported
-Round/Flat/Chisel presets. Pencil has independent Straighten/Smooth/Ink modes and smoothing strength. Customize
-uses draft Add/Remove/reorder/Restore/Cancel/OK and persists global tool groups outside named layouts. Shared
-flyout rows preserve the remembered tool; gestures and panel actions keep the chosen tool active. Physical tablet
-acceptance, tilt, non-Normal paint modes, custom/artistic/pattern presets, advanced Pencil stroke options and
-predictive smoothing preview remain open. The compact type-header API remains a design-system gap. `authoring_geometry.rs`
-implements per-contour gap closing and swept partial-stroke clipping; R-034 controls preserve fill/gradient/group
-data and refuse unsupported cuts atomically with Warning notifications and status/Output. Partial-fill erasing
-remains unavailable. Tests: core `authoring_geometry`, editor `tablet_input`, `vector_gesture_tests` and
-`tool_workflow_tests`.
+**Drawing follow-ups (TO-07)** — **partial**. Brush has eight tip shapes, all five paint modes, document-unit Size
+1–200, zoom-following cursor/⌥⌘ resize, smoothing, pressure size control, tilt-angle toggle, gradient Lock fill and
+Round/Flat/Chisel plus custom user presets. Pencil has independent Straighten/Smooth/Ink modes and smoothing strength.
+Customize uses draft Add/Remove/reorder/Restore/Cancel/OK and persists global tool groups outside named layouts.
+Shared flyout rows preserve the remembered tool; gestures and panel actions keep the chosen tool active. The compact
+type-header API remains a design-system gap; artistic/pattern brushes, advanced Pencil stroke options and predictive
+smoothing preview remain open. Paint Bucket fills bounded faces formed by one or several contours under an explicit
+complexity budget; Ink Bottle can stroke transparent contours. Eraser defaults to cutting raw Merge fills and Bézier
+strokes; Lasso and marquee split partial raw Merge geometry so deletion removes only the selected fragment. Object
+Drawing, masked and combined-effect cases keep their conservative refusal paths. Tests: core Merge/authoring geometry,
+editor `tablet_input`, `selection_tests`, `vector_gesture_tests` and `tool_workflow_tests`.
 
 **Documents and named workspaces** — connected under R-035/R-036. New/Open add tabs; repeat Open activates the
 existing tab. Next/Previous and Close/Close others/Close all work from document chrome and menus. Each document
@@ -252,8 +252,9 @@ work; folding (Collapse between braces / Expand all) remains disabled.
 Layer folder / Motion guide / tweens / Scene, Edit ▸ Timeline ▸, Edit ▸ Undo/Redo `<step>`, Modify ▸ Document… (`⌘J`),
 Control ▸ Go to end / step, Window ▸ Swatches / Info / Ease / History / Scene / Motion editor / Project, Library Delete /
 Duplicate / Swap symbol (`panels/library.rs`, `authoring_symbols.rs`), Show in library, Clear keyframe, Convert to (blank)
-keyframes and Select all frames work. Open: Properties `Swap…` picker and Stage context menu `Swap symbol…` / `Duplicate
-symbol…` (R-012). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
+keyframes and Select all frames work. Stage `Swap symbol…` / `Duplicate symbol…` work and right-click selects the
+target under every active tool. Open: Properties `Swap…` picker (R-012), true `Edit in new window`, dimmed affine
+in-context symbol editing and Bitmap Trace/broader object rows (R-060). Distribute to layers, Find/Preferences/Shortcuts, Compiler errors/Code snippets/Movie Explorer,
 Hide panels and Enable simple buttons are implemented; current working/unavailable boundaries are in
 `NF2-FUNCTIONAL-SPEC.md` §11. Real-input menu tests exercise toggles in both directions without document changes.
 - UI: `panels/menu.rs`, `authoring_modify.rs::modify_menu_ui`, frame/layer context menus (`panels/timeline.rs`,
@@ -352,6 +353,8 @@ content. Shape hints are §7.4.
 - Registry: `web-html5-export`. Acceptance: spec DL-03.
 
 **W1.11 · Authored text options (PR-01 part: type Static/Dynamic/Input, selectable, border, password, max chars)** — E-09
+- Stage Text now distinguishes point text (click) from fixed multiline wrapping TextBox authoring (drag). Break Apart
+  reaches editable installed-font glyph contours; multi-character text first splits into positioned characters.
 - UI: `text_boxes.rs › text_box_properties` rows existing in the NF2 Text variant composition (request for any row not
   present).
 - Engine: NEW `TextBox` fields; export maps to runtime `TextField` (already implemented for scripts).
@@ -594,7 +597,7 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 18 | ~~Range edits inside tweens keep editable curves (`animation-frame-ranges`)~~ | Done: `timeline_edit.rs` subdivides `CubicBezier`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `Linear` span and `property_eases` curves via exact De Casteljau cubic-Bézier splitting (`subdivide_cubic_bezier`) on `InsertKeyframe`, `ClearFrames` and `RemoveFrames` (`timeline_tweens.rs`). | | | |
 | 19 | ~~XFL import of tween kinds, guides and scenes~~ | Done: `neoflash-import/src/xfl.rs` and `xfl/shape.rs` import multi-scene `DOMTimeline`s (`Project.scenes`), library folders, `normal`/`guide`/`mask`/`folder` layers, classic and shape tweens (with Flash acceleration, single-segment global `CustomEase` and `motionTweenOrientToPath`), Graphic `firstFrame` offsets, skew matrices and stroke-only straight/quadratic guide paths (`tests/batch_import_capabilities.rs`). | | | |
 | 20 | ~~Layer properties dialog: Guided type (DL-16)~~ | Done: modal `panels/layer_properties.rs` (`Modify ▸ Timeline ▸ Layer properties…`, `Layer menu ▸ Properties…`, double-click layer icon) edits Name, Visible, Locked, `Normal`/`Guide`/`Guided`/`Mask`/`Masked`/`Folder` (`Guided` ↔ `motion_guide`), `Mask mode` (`Geometry`/`Alpha`/`Luminance`) + `Invert mask` (`R-048`), Outline colour & outlines toggle, and Layer height `Compact`/`Short`/`100 %`/`200 %` with one Undo step (`panel_tests.rs`, `timeline_commands_tests.rs`). | | | |
-| 21 | Frame view ▸ Help (F1) (TL-12) | `panels/timeline_controls.rs` | none | — | Needs a product decision on the help target; stays disabled until then |
+| 21 | ~~Frame view ▸ Help (F1) (TL-12)~~ | Done: `panels/timeline_controls.rs` opens Preferences ▸ Shortcuts, the same searchable command/function catalogue as global F1 (`panel_tests::preferences_dialog_previews_saves_cancels_and_resets`). | none | | |
 | 22 | ~~Timeline and AS2/AS3 masks: geometry, alpha, luminance and AE-style mask inversion~~ | Done: format-9 `MaskMode::{Geometry, Alpha, Luminance}` (BT.709 luminance) and `LayerProperties.mask_invert`, evaluated across core (`authored_layers.rs`, `mask_composition.rs`, `mask_coverage.rs`), native stage (`stage_clipping.rs`), HTML5 Canvas 2D (`web/path.js`) and Lottie export (`lottie.rs` `"inv": true`), with editor controls in `Layer properties` (`R-048`), layer context menu / `Folder and mask…` and the 2 inline AE-style 16×16 mask icons on `LayerRole::Mask` timeline rows (`R-049`) (`timeline_masks.rs`, `timeline_commands_tests.rs`, `path-cache.test.cjs`). | | | |
 
 Related stage work outside the timeline: object and pixel snapping (`Guides > Objects > Grid > Pixels`), the Tools

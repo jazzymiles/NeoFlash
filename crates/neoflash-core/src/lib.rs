@@ -112,12 +112,12 @@ pub use library_folders::valid_library_folder;
 pub use merge_drawing::{
     BooleanOp, BrushPaintMode, apply_brush_stroke_with_mode, apply_merge_shape_to_keyframe,
     boolean_paths, boolean_rings, combine_elements_boolean, decompose_element_to_merge_parts,
-    element_world_commands, flatten_closed_rings, flatten_stroke_polylines, is_merge_fill,
-    is_merge_stroke, lasso_split_merge_fills, merge_connected_stroke_ids,
-    merge_fill_adjacent_stroke_ids, paint_bucket_planar_face, point_in_rings,
-    remerge_moved_elements_in_keyframe, slice_fill_rings_with_polylines, slice_fill_with_stroke,
-    split_bezier_path_with_segments, split_polyline_with_segments, sub_arc_bezier_command,
-    trim_polyline_inside_fill,
+    element_world_commands, erase_merge_geometry_with_sweep, flatten_closed_rings,
+    flatten_stroke_polylines, is_merge_fill, is_merge_stroke, lasso_split_merge_fills,
+    merge_connected_stroke_ids, merge_fill_adjacent_stroke_ids, paint_bucket_planar_face,
+    point_in_rings, remerge_moved_elements_in_keyframe, slice_fill_rings_with_polylines,
+    slice_fill_with_stroke, split_bezier_path_with_segments, split_merge_geometry_by_polygon,
+    split_polyline_with_segments, sub_arc_bezier_command, trim_polyline_inside_fill,
 };
 pub use model::*;
 pub use motion_tools::{
