@@ -608,3 +608,243 @@ fn distort_and_envelope_stage_gestures_warp_shapes_support_shift_taper_and_undo(
     assert_eq!(editor.selected_element().unwrap().kind, shape());
     editor.project.validate().unwrap();
 }
+
+/// Flash Reference p. 178 ("Reshape lines and shapes"):
+/// - Selection tool (`V`) shows `arrow-reshape-corner` on unselected shape corners/endpoints,
+///   `arrow-reshape-curve` on unselected segments and smooth curve vertices, and
+///   `arrow-reshape-corner` when `Option` (`Alt`) is held over a segment to pull out a new corner.
+/// - Dragging a corner repositions it while keeping straight edges straight; dragging a segment
+///   bends it into a curve; `Option`-dragging a segment splits it to create a new corner point.
+/// - Subselection tool (`A`) displays and adjusts anchor points on `Rectangle` and `Ellipse`
+///   shapes, converting them to `Path` on point edit with one-step Undo.
+#[test]
+fn selection_reshape_cursors_and_gestures_and_subselection_shape_points() {
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(shape(), 150., 150.);
+    editor.set_tool(Tool::Select);
+    editor.clear_selection();
+    editor.history.clear();
+    editor.saved_project = Some(editor.project.clone());
+    let before = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+
+    let at = |x: f32, y: f32| page.min + egui::vec2(x, y);
+    let hover_with =
+        |editor: &mut Editor, time: f64, pos: egui::Pos2, modifiers: egui::Modifiers| {
+            frame(
+                editor,
+                &ctx,
+                time,
+                vec![egui::Event::PointerMoved(pos)],
+                modifiers,
+            );
+            editor.shown_stage_cursor.map(|c| c.name)
+        };
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+
+    // 1. Hover cursors on unselected rectangle [150..250, 150..210]:
+    assert_eq!(
+        hover_with(&mut editor, 0.20, at(150., 150.), egui::Modifiers::NONE),
+        Some("arrow-reshape-corner"),
+        "unselected corner shows arrow-reshape-corner"
+    );
+    assert_eq!(
+        hover_with(&mut editor, 0.25, at(200., 150.), egui::Modifiers::NONE),
+        Some("arrow-reshape-curve"),
+        "unselected edge shows arrow-reshape-curve"
+    );
+    assert_eq!(
+        hover_with(&mut editor, 0.30, at(200., 150.), alt),
+        Some("arrow-reshape-corner"),
+        "Option-hovering unselected edge shows arrow-reshape-corner"
+    );
+    assert_eq!(
+        hover_with(&mut editor, 0.35, at(200., 180.), egui::Modifiers::NONE),
+        Some("arrow-move"),
+        "interior of unselected filled shape shows arrow-move"
+    );
+
+    // 2. Corner drag on unselected rectangle moves corner while keeping straight segments straight:
+    let nw = at(150., 150.);
+    let nw_drag = at(140., 130.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.40,
+        vec![
+            egui::Event::PointerMoved(nw),
+            button(nw, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(nw_drag),
+            button(nw_drag, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        editor.selection.is_empty(),
+        "reshaping an unselected shape keeps it unselected"
+    );
+    let el = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    if let ElementKind::Path { commands, .. } = &el.kind {
+        assert_eq!(commands[0], PathCommand::MoveTo { x: -10., y: -20. });
+        assert!(
+            commands.iter().all(|c| matches!(
+                c,
+                PathCommand::MoveTo { .. } | PathCommand::LineTo { .. } | PathCommand::Close
+            )),
+            "corner reshape keeps straight segments straight: {commands:?}"
+        );
+    } else {
+        panic!("expected Path after corner reshape");
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 3. Edge drag without Option bends straight segment into a curve passing through dragged point:
+    let top_mid = at(200., 150.);
+    let top_curve = at(200., 120.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.50,
+        vec![
+            egui::Event::PointerMoved(top_mid),
+            button(top_mid, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(top_curve),
+            button(top_curve, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let el = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    if let ElementKind::Path { commands, .. } = &el.kind {
+        assert!(
+            commands.iter().any(|c| matches!(
+                c,
+                PathCommand::QuadraticTo { cx, cy, x, y }
+                    if (*cx - 50.).abs() < 1e-4
+                        && (*cy - -60.).abs() < 1e-4
+                        && (*x - 100.).abs() < 1e-4
+                        && (*y - 0.).abs() < 1e-4
+            )),
+            "segment drag bends top edge into quadratic curve with control point (50, -60): {commands:?}"
+        );
+    } else {
+        panic!("expected Path after curve reshape");
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 4. Option-drag on edge creates a new corner point splitting the straight segment in two:
+    frame(
+        &mut editor,
+        &ctx,
+        0.60,
+        vec![
+            egui::Event::PointerMoved(top_mid),
+            button(top_mid, true, alt),
+            egui::Event::PointerMoved(top_curve),
+            button(top_curve, false, alt),
+        ],
+        alt,
+    );
+    let el = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    if let ElementKind::Path { commands, .. } = &el.kind {
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, PathCommand::LineTo { x, y } if (*x - 50.).abs() < 1e-4 && (*y - -30.).abs() < 1e-4)),
+            "Option-drag inserts new corner point at (50, -30): {commands:?}"
+        );
+        assert!(
+            !commands.iter().any(|c| matches!(
+                c,
+                PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. }
+            )),
+            "Option-drag on straight edge keeps split segments straight: {commands:?}"
+        );
+    } else {
+        panic!("expected Path after Option-drag corner creation");
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 5. Subselection tool (`Tool::Subselect`) displays and drags anchor points on a Rectangle:
+    editor.set_tool(Tool::Subselect);
+    // Click interior of the Rectangle with Subselection tool to select it and expose its anchors.
+    let center = at(200., 180.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.70,
+        vec![
+            egui::Event::PointerMoved(center),
+            button(center, true, egui::Modifiers::NONE),
+            button(center, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(editor.selection.targets.len(), 1);
+    assert_eq!(
+        hover_with(&mut editor, 0.75, nw, egui::Modifiers::NONE),
+        Some("subselect-point"),
+        "Subselection tool shows subselect-point on Rectangle corner anchor"
+    );
+    assert_eq!(
+        hover_with(&mut editor, 0.80, top_mid, alt),
+        Some("pen-add"),
+        "Subselection tool with Option shows pen-add on Rectangle segment"
+    );
+    frame(
+        &mut editor,
+        &ctx,
+        0.85,
+        vec![
+            egui::Event::PointerMoved(nw),
+            button(nw, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(nw_drag),
+            button(nw_drag, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let el = editor.selected_element().unwrap();
+    if let ElementKind::Path { commands, .. } = &el.kind {
+        assert_eq!(commands[0], PathCommand::MoveTo { x: -10., y: -20. });
+    } else {
+        panic!("Subselection anchor drag must convert Rectangle to Path");
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 6. Smooth curve vertex on an unselected Ellipse shows arrow-reshape-curve (or arrow-reshape-corner with Option):
+    editor.set_tool(Tool::Select);
+    editor.add_element(
+        ElementKind::Ellipse {
+            width: 80.,
+            height: 60.,
+            fill: [200, 80, 80, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.,
+        },
+        320.,
+        150.,
+    );
+    editor.clear_selection();
+    stage_input_frame(&mut editor, &ctx, 0.90, vec![]);
+    // Top cardinal vertex of Ellipse at [320..400, 150..210] is at (360, 150) — smooth cubic junction:
+    assert_eq!(
+        hover_with(&mut editor, 0.95, at(360., 150.), egui::Modifiers::NONE),
+        Some("arrow-reshape-curve"),
+        "smooth curve vertex on unselected Ellipse shows arrow-reshape-curve"
+    );
+    assert_eq!(
+        hover_with(&mut editor, 1.00, at(360., 150.), alt),
+        Some("arrow-reshape-corner"),
+        "Option-hovering smooth curve vertex on unselected Ellipse shows arrow-reshape-corner"
+    );
+}

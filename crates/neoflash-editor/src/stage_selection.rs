@@ -41,10 +41,20 @@ impl Scope {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct ReshapeEntry {
+    target: SelectionTarget,
+    base_element: Element,
+    action: crate::vector::ReshapeAction,
+}
+
 #[derive(Clone, Copy)]
 #[allow(clippy::large_enum_variant)]
 enum GestureKind {
     Move,
+    Reshape {
+        edit_anchor: Pos2,
+    },
     Pivot {
         initial_world: geometry::Point,
     },
@@ -117,6 +127,7 @@ pub(crate) struct SelectionGesture {
     original_selection: Selection,
     targets: Vec<(SelectionTarget, Transform)>,
     base_elements: Vec<(SelectionTarget, Element)>,
+    reshape_entries: Vec<ReshapeEntry>,
     /// `(layer_id, keyframe_frame, element_id, original_transform)` for other keyframes in
     /// `onion_range()` when `Edit multiple frames` is active.
     other_keyframes: Vec<(Id, u32, Id, Transform)>,
@@ -309,7 +320,10 @@ impl Editor {
             && gesture.began
         {
             if gesture.changed {
-                if !matches!(gesture.kind, GestureKind::Pivot { .. }) {
+                if !matches!(
+                    gesture.kind,
+                    GestureKind::Pivot { .. } | GestureKind::Reshape { .. }
+                ) {
                     self.remerge_selected_after_move(&gesture);
                 }
                 self.commit_history();
@@ -515,12 +529,16 @@ impl Editor {
         let scope_changed =
             !gesture.scope.matches(self) || !matches!(self.tool, Tool::Select | Tool::Transform);
         let stale = scope_changed
-            || (!gesture.targets.is_empty() && {
+            || ((!gesture.targets.is_empty() || !gesture.reshape_entries.is_empty()) && {
                 let allowed: HashSet<_> = self.editable_targets().into_iter().collect();
                 gesture
                     .targets
                     .iter()
                     .any(|(target, _)| !allowed.contains(target))
+                    || gesture
+                        .reshape_entries
+                        .iter()
+                        .any(|entry| !allowed.contains(&entry.target))
             });
         if stale {
             self.cancel_selection_gesture();
@@ -715,6 +733,173 @@ impl Editor {
         (slop > 0.0).then(|| pick_with_slop(slop)).flatten()
     }
 
+    pub(crate) fn pick_reshape_target(
+        &self,
+        scene: &[DrawItem],
+        p: &egui::Painter,
+        origin: Pos2,
+        mapping: StageMapping,
+        pos: Pos2,
+        alt: bool,
+    ) -> Option<(Cursor, Pos2, SelectionTarget, Vec<ReshapeEntry>)> {
+        if self.tool != Tool::Select {
+            return None;
+        }
+        let local = mapping.screen_to_edit(origin, self.zoom, pos);
+        let context_point = mapping.edit_to_stage_pos(local);
+        let eligible: HashMap<_, _> = self
+            .editable_targets()
+            .into_iter()
+            .map(|target| (target.element.clone(), target))
+            .collect();
+        let selected_ids: HashSet<_> = self
+            .selection
+            .targets
+            .iter()
+            .map(|target| target.element.as_str())
+            .collect();
+        let sym = self.symbol();
+        let grouped: HashSet<_> = sym
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|layer| layer.properties.groups.iter())
+            .flat_map(|group| group.members.iter().map(|id| id.as_str()))
+            .collect();
+        let elements_by_id: HashMap<&str, (&Layer, &Element)> = sym
+            .timeline
+            .layers
+            .iter()
+            .filter_map(|layer| layer.key_at(self.frame).map(|key| (layer, key)))
+            .flat_map(|(layer, key)| {
+                key.elements
+                    .iter()
+                    .map(move |element| (element.id.as_str(), (layer, element)))
+            })
+            .collect();
+        let authored = self.presented_interactive_authored_scene(self.show_layer_masking(p.ctx()));
+        let element_stroke_width = |el: &Element| -> f64 {
+            match &el.kind {
+                ElementKind::Rectangle {
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Ellipse {
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::Path {
+                    stroke,
+                    stroke_width,
+                    ..
+                }
+                | ElementKind::PaintedPath {
+                    stroke,
+                    stroke_width,
+                    ..
+                } if stroke[3] > 0 => *stroke_width,
+                _ => 0.0,
+            }
+        };
+
+        for item in scene.iter().rev() {
+            let Some(root_id) = item.instance_path.first() else {
+                continue;
+            };
+            let Some(target) = eligible.get(root_id) else {
+                continue;
+            };
+            let mut mapped = item.clone();
+            mapped.transform = mapping.map_matrix(mapped.transform);
+            let item_hit = authored
+                .contains_point(&item.instance_path, [local.x as f64, local.y as f64])
+                && crate::stage::hit_item_with_slop(&mapped, p, context_point, self.zoom, 0.0);
+            if selected_ids.contains(root_id.as_str())
+                || grouped.contains(root_id.as_str())
+                || item.instance_path.len() != 1
+            {
+                if item_hit {
+                    return None;
+                }
+                continue;
+            }
+            let Some(&(layer, element)) = elements_by_id.get(root_id.as_str()) else {
+                if item_hit {
+                    return None;
+                }
+                continue;
+            };
+            let Some(commands) = crate::vector::editable_element_commands(element) else {
+                if item_hit {
+                    return None;
+                }
+                continue;
+            };
+            let m = transform_matrix(element.transform);
+            let stroke_w = element_stroke_width(element);
+            if let Some((action, cursor, edit_anchor)) = crate::vector::hit_reshape_on_commands(
+                &commands, stroke_w, m, mapping, origin, self.zoom, pos, alt,
+            ) && authored.contains_point(
+                &item.instance_path,
+                [edit_anchor.x as f64, edit_anchor.y as f64],
+            ) {
+                let mut entries = vec![ReshapeEntry {
+                    target: target.clone(),
+                    base_element: element.clone(),
+                    action,
+                }];
+                if element.merge
+                    && let Some(key) = layer.key_at(self.frame)
+                {
+                    for other in &key.elements {
+                        if other.id == element.id
+                            || !other.merge
+                            || selected_ids.contains(other.id.as_str())
+                            || grouped.contains(other.id.as_str())
+                        {
+                            continue;
+                        }
+                        let Some(other_cmds) = crate::vector::editable_element_commands(other)
+                        else {
+                            continue;
+                        };
+                        let other_m = transform_matrix(other.transform);
+                        let other_stroke_w = element_stroke_width(other);
+                        if let Some((other_action, _, other_anchor)) =
+                            crate::vector::hit_reshape_on_commands(
+                                &other_cmds,
+                                other_stroke_w,
+                                other_m,
+                                mapping,
+                                origin,
+                                self.zoom,
+                                pos,
+                                alt,
+                            )
+                            && other_anchor.distance(edit_anchor) <= 2.5
+                        {
+                            entries.push(ReshapeEntry {
+                                target: SelectionTarget {
+                                    layer: layer.id.clone(),
+                                    element: other.id.clone(),
+                                },
+                                base_element: other.clone(),
+                                action: other_action,
+                            });
+                        }
+                    }
+                }
+                return Some((cursor, edit_anchor, target.clone(), entries));
+            }
+            if item_hit {
+                return None;
+            }
+        }
+        None
+    }
+
     fn update_selection_gesture(
         &mut self,
         pos: Pos2,
@@ -899,6 +1084,81 @@ impl Editor {
                     }
                 }
             }
+            self.object_gesture = Some(gesture);
+            return;
+        }
+        if let GestureKind::Reshape { edit_anchor } = gesture.kind {
+            let origin = gesture.scope.origin;
+            let snapped_screen = self.snap_drag(
+                gesture.scope.mapping,
+                origin,
+                gesture.press,
+                pos,
+                edit_anchor,
+            );
+            let current_edit = position(gesture.scope.local(snapped_screen));
+            let delta_edit = current_edit - edit_anchor;
+            if modifiers.alt {
+                for entry in &mut gesture.reshape_entries {
+                    entry.action = entry.action.with_corner_modifier();
+                }
+                gesture.cursor = nf::ARROW_RESHAPE_CORNER;
+            }
+            if !gesture.began {
+                self.history.begin(&self.project);
+                let mut layers_to_split = Vec::new();
+                for entry in &gesture.reshape_entries {
+                    if !layers_to_split.contains(&entry.target.layer) {
+                        layers_to_split.push(entry.target.layer.clone());
+                    }
+                }
+                for layer_id in &layers_to_split {
+                    self.split_layer_for_stage_transform(layer_id);
+                }
+                gesture.began = true;
+            }
+            let mut updated_map: HashMap<&str, Element> = HashMap::new();
+            let active_drag = delta_edit.length_sq() > 1e-6;
+            for entry in &gesture.reshape_entries {
+                let reshaped = if active_drag {
+                    let m = transform_matrix(entry.base_element.transform);
+                    inverse_matrix(m).and_then(|inv| {
+                        let local_anchor = crate::stage::affine(inv, edit_anchor);
+                        let local_current = crate::stage::affine(inv, current_edit);
+                        let local_delta = [
+                            f64::from(local_current.x - local_anchor.x),
+                            f64::from(local_current.y - local_anchor.y),
+                        ];
+                        let base_cmds =
+                            crate::vector::editable_element_commands(&entry.base_element)?;
+                        let new_cmds = crate::vector::apply_reshape_action(
+                            &base_cmds,
+                            entry.action,
+                            local_delta,
+                        )?;
+                        let mut el = entry.base_element.clone();
+                        crate::vector::write_editable_element_commands(&mut el, new_cmds);
+                        Some(el)
+                    })
+                } else {
+                    None
+                };
+                updated_map.insert(
+                    entry.target.element.as_str(),
+                    reshaped.unwrap_or_else(|| entry.base_element.clone()),
+                );
+            }
+            let frame = self.frame;
+            for layer in &mut self.symbol_mut().timeline.layers {
+                if let Some(key) = layer.key_at_mut(frame) {
+                    for element in &mut key.elements {
+                        if let Some(new_el) = updated_map.get(element.id.as_str()) {
+                            *element = new_el.clone();
+                        }
+                    }
+                }
+            }
+            gesture.changed = active_drag;
             self.object_gesture = Some(gesture);
             return;
         }
@@ -1176,7 +1436,10 @@ impl Editor {
                 };
                 (main, others)
             }
-            GestureKind::Distort { .. } | GestureKind::Envelope { .. } | GestureKind::Marquee => {
+            GestureKind::Reshape { .. }
+            | GestureKind::Distort { .. }
+            | GestureKind::Envelope { .. }
+            | GestureKind::Marquee => {
                 unreachable!()
             }
         };
@@ -1945,14 +2208,30 @@ impl Editor {
             && rect.contains(pos)
         {
             let local = mapping.screen_to_edit(origin, self.zoom, pos);
+            let alt = ui.input(|input| input.modifiers.alt);
+            let cmd = ui.input(|input| input.modifiers.command || input.modifiers.ctrl);
+            let cmd_distort_cursor = cmd
+                .then(|| {
+                    cmd_corner_distort_zones
+                        .iter()
+                        .find(|(r, ..)| r.contains(pos))
+                        .map(|(_, _, cursor)| *cursor)
+                })
+                .flatten();
             self.stage_cursor = Some(if let Some(gesture) = &self.object_gesture {
                 gesture.cursor
+            } else if let Some(cursor) = cmd_distort_cursor {
+                cursor
             } else if let Some((_, _, cursor)) = zones.iter().find(|(zone, ..)| zone.contains(pos))
             {
                 *cursor
-            } else if transform_frame.is_some_and(|frame| frame.contains(pos))
-                || self.pick_placement(scene, p, local, mapping).is_some()
+            } else if transform_frame.is_some_and(|frame| frame.contains(pos)) {
+                move_cursor
+            } else if let Some((reshape_cursor, ..)) =
+                self.pick_reshape_target(scene, p, origin, mapping, pos, alt)
             {
+                reshape_cursor
+            } else if self.pick_placement(scene, p, local, mapping).is_some() {
                 move_cursor
             } else {
                 nf::ARROW
@@ -2008,11 +2287,17 @@ impl Editor {
                         ui.ctx()
                             .data_mut(|d| d.insert_temp(pivot_click_id, (now, pos)));
                     }
+                    let reshape_pick = (!modifiers.shift)
+                        .then(|| {
+                            self.pick_reshape_target(scene, p, origin, mapping, pos, modifiers.alt)
+                        })
+                        .flatten();
                     let hit = self.pick_placement(scene, p, local, mapping);
                     // Preferences ▸ Shift-select off: clicking an object adds it without ⇧.
                     let additive =
                         modifiers.shift || (!self.workspace.shift_select && hit.is_some());
                     let mut cursor = move_cursor;
+                    let mut reshape_entries = Vec::new();
                     let kind = if let Some((kind, zone_cursor)) = zone {
                         cursor = zone_cursor;
                         kind
@@ -2023,6 +2308,10 @@ impl Editor {
                     {
                         // Free Transform: dragging anywhere inside the box moves the selection.
                         GestureKind::Move
+                    } else if let Some((reshape_cursor, edit_anchor, _, entries)) = reshape_pick {
+                        cursor = reshape_cursor;
+                        reshape_entries = entries;
+                        GestureKind::Reshape { edit_anchor }
                     } else if let Some(target) = &hit {
                         if !self.selection.targets.contains(target) {
                             let mut targets = if additive {
@@ -2126,6 +2415,7 @@ impl Editor {
                         original_selection,
                         targets,
                         base_elements,
+                        reshape_entries,
                         other_keyframes,
                         hit,
                         shift: additive,
@@ -2152,7 +2442,10 @@ impl Editor {
                     self.update_selection_gesture(pos, modifiers, scene, p);
                     if let Some(gesture) = self.object_gesture.as_ref()
                         && !gesture.moved
-                        && matches!(gesture.kind, GestureKind::Move | GestureKind::Marquee)
+                        && matches!(
+                            gesture.kind,
+                            GestureKind::Move | GestureKind::Reshape { .. } | GestureKind::Marquee
+                        )
                     {
                         let mut targets = if gesture.shift {
                             gesture.original_selection.targets.clone()

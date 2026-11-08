@@ -436,15 +436,17 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Depends on: UI-only (+ ST-01…ST-04). Acceptance: every control changes the stage immediately; Save as default
   survives restart.
 
-**ST-07 · NF2 stage cursors** — done (`stage_cursor.rs`)
+**ST-07 · NF2 stage cursors** — done (`stage_cursor.rs`, `stage_selection.rs`, `vector.rs`)
 - Done: every stage tool shows its NF2 cursor over the canvas only (rulers, floating stage chrome, popovers and
-  dialogs keep system cursors; guides keep their system resize cursor). Hover targets: Selection — `arrow-move` over an
-  object; Free Transform — `resize-h/v/d1/d2` on handles (by screen direction), `skew-h/v` on the edge between handles,
-  `rotate` just outside a corner, `move` inside the box; Subselection — `subselect-point` over a path point; Pen —
-  `pen-close` over the first anchor and `pen-add` over a selected path segment; Hand — `hand-closed` while dragging;
-  Zoom — `zoom-out` with ⌥; motion path ◆ — `hand-open/closed`. The mapping follows Flash conventions; the design has no
-  per-handle table (R-011). Cursors are identical in both themes. Not yet: `arrow-reshape-curve/corner`,
-  `pen-remove/convert`, `drag-copy`.
+  dialogs keep system cursors; guides keep their system resize cursor). Hover targets: Selection — `arrow-reshape-corner`
+  over an unselected shape corner/endpoint or with ⌥ over a segment, `arrow-reshape-curve` over an unselected shape/line
+  segment or smooth curve vertex, `arrow-move` over a selected object or fill interior; Free Transform — `resize-h/v/d1/d2`
+  on handles (by screen direction, or `skew-h` with ⌘ on a corner in Free Transform), `skew-h/v` on the edge between handles,
+  `rotate` just outside a corner, `move` inside the box; Subselection — `subselect-point` over a path/shape point and `pen-add`
+  with ⌥ over a path/shape segment; Pen — `pen-close` over the first anchor and `pen-add` over a selected path segment; Hand —
+  `hand-closed` while dragging; Zoom — `zoom-out` with ⌥; motion path ◆ — `hand-open/closed`. The mapping follows Flash
+  conventions; the design has no per-handle table (R-011). Cursors are identical in both themes. Not yet: `pen-remove/convert`,
+  `drag-copy`.
 - Purpose: 39 `NF2 Cursor/*` glyphs (tool cursors, reshape corner/curve, move, rotate, skew, hand open/closed,
   zoom in/out, eyedropper, bucket, pen add/remove/close …) over the canvas.
 - Behaviour: stage tools call `neoflash_ui::cursors::show(ctx, canvas, cursor)` (hides the system cursor); chrome

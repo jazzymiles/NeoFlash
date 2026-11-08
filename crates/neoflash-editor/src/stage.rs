@@ -969,12 +969,11 @@ impl Editor {
                         let to_local = |pos: Pos2| mapping.screen_to_edit(origin, zoom, pos);
                         let on_path_handle = self.tool == Tool::Subselect
                             && (self.selected_sampled().is_some_and(|e| {
-                                if let ElementKind::Path { commands, .. }
-                                | ElementKind::PaintedPath { commands, .. } = &e.kind
+                                if let Some(commands) = crate::vector::editable_element_commands(&e)
                                 {
                                     let matrix = transform_matrix(e.transform);
                                     response.interact_pointer_pos().is_some_and(|pos| {
-                                        crate::vector::handles(commands).iter().any(|h| {
+                                        crate::vector::handles(&commands).iter().any(|h| {
                                             mapping
                                                 .edit_to_screen(
                                                     origin,

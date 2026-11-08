@@ -2085,19 +2085,17 @@ impl Editor {
         let Some(element) = self.selected_sampled() else {
             return;
         };
-        let (ElementKind::Path { ref commands, .. }
-        | ElementKind::PaintedPath { ref commands, .. }) = element.kind
-        else {
+        let Some(commands) = editable_element_commands(&element) else {
             return;
         };
         let matrix = transform_matrix(element.transform);
         let zoom = self.zoom;
         let screen =
             |pos: Pos2| mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pos));
-        let handles = handles(commands);
+        let handles = handles(&commands);
         // `NF2/Bezier Handle` from each anchor to its control points, then `NF2/Anchor Point`s.
         let mut previous = Pos2::ZERO;
-        for command in commands {
+        for command in &commands {
             match *command {
                 PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
                     previous = Pos2::new(x as f32, y as f32)
@@ -2162,7 +2160,7 @@ impl Editor {
             self.stage_cursor = Some(neoflash_ui::cursors::SUBSELECT_POINT);
         } else if alt_hover
             && let Some(hover_pos) = hover
-            && path_segment_hit_local(commands, matrix, mapping, origin, zoom, hover_pos).is_some()
+            && path_segment_hit_local(&commands, matrix, mapping, origin, zoom, hover_pos).is_some()
         {
             self.stage_cursor = Some(neoflash_ui::cursors::PEN_ADD);
         }
@@ -2224,9 +2222,9 @@ impl Editor {
                         });
                     } else if (modifiers.alt || double_clicked)
                         && let Some((cmd_idx, t)) =
-                            path_segment_hit_local(commands, matrix, mapping, origin, zoom, pos)
+                            path_segment_hit_local(&commands, matrix, mapping, origin, zoom, pos)
                         && let Some((new_commands, inserted)) =
-                            subdivide_path_at(commands, cmd_idx, t)
+                            subdivide_path_at(&commands, cmd_idx, t)
                         && validate_path_commands(&new_commands).is_ok()
                     {
                         let element_id = element.id.clone();
@@ -2234,20 +2232,8 @@ impl Editor {
                         self.playing = false;
                         self.transact(|s| {
                             s.ensure_selected_key();
-                            if let Some(Element {
-                                kind:
-                                    ElementKind::Path {
-                                        commands: destination,
-                                        ..
-                                    }
-                                    | ElementKind::PaintedPath {
-                                        commands: destination,
-                                        ..
-                                    },
-                                ..
-                            }) = s.selected_element_mut()
-                            {
-                                *destination = new_commands;
+                            if let Some(el) = s.selected_element_mut() {
+                                write_editable_element_commands(el, new_commands);
                             }
                         });
                         self.vector.selected_anchors = Some((element_id, vec![inserted]));
@@ -2312,20 +2298,9 @@ impl Editor {
             drag.began = true;
         }
         if drag.began
-            && let Some(Element {
-                kind:
-                    ElementKind::Path {
-                        commands: destination,
-                        ..
-                    }
-                    | ElementKind::PaintedPath {
-                        commands: destination,
-                        ..
-                    },
-                ..
-            }) = self.selected_element_mut()
+            && let Some(el) = self.selected_element_mut()
         {
-            *destination = commands;
+            write_editable_element_commands(el, commands);
         }
         self.vector.point_drag = Some(drag);
     }
@@ -2377,22 +2352,20 @@ impl Editor {
         let Some(element) = self.selected_sampled() else {
             return false;
         };
-        let (ElementKind::Path { ref commands, .. }
-        | ElementKind::PaintedPath { ref commands, .. }) = element.kind
-        else {
+        let Some(commands) = editable_element_commands(&element) else {
             return false;
         };
         let matrix = transform_matrix(element.transform);
         let zoom = self.zoom;
         let screen =
             |pt: Pos2| mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pt));
-        if handles(commands)
+        if handles(&commands)
             .iter()
             .any(|h| screen(h.point).distance(pos) < 8.)
         {
             return false;
         }
-        path_segment_hit_local(commands, matrix, mapping, origin, zoom, pos).is_some()
+        path_segment_hit_local(&commands, matrix, mapping, origin, zoom, pos).is_some()
     }
 
     pub(crate) fn pen_subdivide_candidate(
@@ -2406,24 +2379,20 @@ impl Editor {
             |target: crate::selection::SelectionTarget,
              element: Element|
              -> Option<(crate::selection::SelectionTarget, Vec<PathCommand>, usize)> {
-                let (ElementKind::Path { ref commands, .. }
-                | ElementKind::PaintedPath { ref commands, .. }) = element.kind
-                else {
-                    return None;
-                };
+                let commands = editable_element_commands(&element)?;
                 let matrix = transform_matrix(element.transform);
                 let screen = |pt: Pos2| {
                     mapping.edit_to_screen(origin, zoom, crate::stage::affine(matrix, pt))
                 };
-                if handles(commands)
+                if handles(&commands)
                     .iter()
                     .any(|h| h.role == PointRole::Anchor && screen(h.point).distance(pos) < 8.)
                 {
                     return None;
                 }
                 let (cmd_idx, t) =
-                    path_segment_hit_local(commands, matrix, mapping, origin, zoom, pos)?;
-                let (new_commands, inserted) = subdivide_path_at(commands, cmd_idx, t)?;
+                    path_segment_hit_local(&commands, matrix, mapping, origin, zoom, pos)?;
+                let (new_commands, inserted) = subdivide_path_at(&commands, cmd_idx, t)?;
                 validate_path_commands(&new_commands).ok()?;
                 Some((target, new_commands, inserted))
             };
@@ -2479,20 +2448,9 @@ impl Editor {
             if let Some(layer_idx) = s.target_layer_index(&target) {
                 let frame = s.frame;
                 if let Some(key) = s.symbol_mut().timeline.layers[layer_idx].key_at_mut(frame)
-                    && let Some(Element {
-                        kind:
-                            ElementKind::Path {
-                                commands: destination,
-                                ..
-                            }
-                            | ElementKind::PaintedPath {
-                                commands: destination,
-                                ..
-                            },
-                        ..
-                    }) = key.elements.iter_mut().find(|e| e.id == target.element)
+                    && let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element)
                 {
-                    *destination = new_commands;
+                    write_editable_element_commands(el, new_commands);
                 }
             }
             s.set_selection(vec![target]);
@@ -2511,9 +2469,7 @@ impl Editor {
         let Some(element) = self.selected_sampled() else {
             return false;
         };
-        let (ElementKind::Path { ref commands, .. }
-        | ElementKind::PaintedPath { ref commands, .. }) = element.kind
-        else {
+        let Some(commands) = editable_element_commands(&element) else {
             return false;
         };
         let Some((selected_id, indices)) = self.vector.selected_anchors.clone() else {
@@ -2522,8 +2478,8 @@ impl Editor {
         if selected_id != element.id || indices.is_empty() {
             return false;
         }
-        let remaining = delete_anchors_from_path(commands, &indices);
-        if remaining == *commands {
+        let remaining = delete_anchors_from_path(&commands, &indices);
+        if remaining == commands {
             return false;
         }
         self.playing = false;
@@ -2547,25 +2503,699 @@ impl Editor {
         }
         self.transact(|s| {
             s.ensure_selected_key();
-            if let Some(Element {
-                kind:
-                    ElementKind::Path {
-                        commands: destination,
-                        ..
-                    }
-                    | ElementKind::PaintedPath {
-                        commands: destination,
-                        ..
-                    },
-                ..
-            }) = s.selected_element_mut()
-            {
-                *destination = remaining;
+            if let Some(el) = s.selected_element_mut() {
+                write_editable_element_commands(el, remaining);
             }
         });
         self.vector.selected_anchors = None;
         true
     }
+}
+
+pub(crate) fn editable_element_commands(element: &Element) -> Option<Vec<PathCommand>> {
+    element.to_path_commands().map(|(commands, _)| commands)
+}
+
+pub(crate) fn write_editable_element_commands(element: &mut Element, commands: Vec<PathCommand>) {
+    match &mut element.kind {
+        ElementKind::Path {
+            commands: destination,
+            ..
+        }
+        | ElementKind::PaintedPath {
+            commands: destination,
+            ..
+        } => {
+            *destination = commands;
+        }
+        ElementKind::Rectangle {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            fill,
+            stroke,
+            stroke_width,
+            ..
+        } => {
+            element.transform.primitive = None;
+            element.kind = ElementKind::Path {
+                commands,
+                fill_rule: FillRule::NonZero,
+                fill: *fill,
+                stroke: *stroke,
+                stroke_width: *stroke_width,
+            };
+        }
+        _ => {}
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReshapeVertexKind {
+    Corner,
+    SmoothCurve,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ReshapeAction {
+    Corner {
+        local_vertex: [f64; 2],
+    },
+    SmoothVertex {
+        local_vertex: [f64; 2],
+        break_corner: bool,
+    },
+    Segment {
+        cmd_idx: usize,
+        t: f64,
+        local_point: [f64; 2],
+        create_corner: bool,
+    },
+}
+
+impl ReshapeAction {
+    pub(crate) fn with_corner_modifier(self) -> Self {
+        match self {
+            Self::SmoothVertex { local_vertex, .. } => Self::SmoothVertex {
+                local_vertex,
+                break_corner: true,
+            },
+            Self::Segment {
+                cmd_idx,
+                t,
+                local_point,
+                ..
+            } => Self::Segment {
+                cmd_idx,
+                t,
+                local_point,
+                create_corner: true,
+            },
+            other => other,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ContourSegInfo {
+    p0: [f64; 2],
+    p1: [f64; 2],
+    is_curve: bool,
+    out_dir: [f64; 2],
+    in_dir: [f64; 2],
+}
+
+fn contour_ranges(commands: &[PathCommand]) -> Vec<(usize, usize, bool)> {
+    let mut ranges = Vec::new();
+    let mut current_start = None;
+    for (idx, cmd) in commands.iter().enumerate() {
+        if matches!(cmd, PathCommand::MoveTo { .. }) {
+            if let Some(start) = current_start {
+                let closed = matches!(commands.get(idx - 1), Some(PathCommand::Close));
+                let body_end = if closed { idx - 1 } else { idx };
+                ranges.push((start, body_end, closed));
+            }
+            current_start = Some(idx);
+        }
+    }
+    if let Some(start) = current_start {
+        let end = commands.len();
+        let closed = matches!(commands.get(end - 1), Some(PathCommand::Close));
+        let body_end = if closed { end - 1 } else { end };
+        ranges.push((start, body_end, closed));
+    }
+    ranges
+}
+
+pub(crate) fn classify_reshape_vertices(
+    commands: &[PathCommand],
+) -> Vec<([f64; 2], ReshapeVertexKind)> {
+    let mut out = Vec::new();
+    let junction_kind = |prev: &ContourSegInfo, next: &ContourSegInfo| -> ReshapeVertexKind {
+        if !prev.is_curve || !next.is_curve {
+            return ReshapeVertexKind::Corner;
+        }
+        let l1 = prev.in_dir[0].hypot(prev.in_dir[1]);
+        let l2 = next.out_dir[0].hypot(next.out_dir[1]);
+        if l1 <= 1e-9 || l2 <= 1e-9 {
+            return ReshapeVertexKind::Corner;
+        }
+        let dot = (prev.in_dir[0] * next.out_dir[0] + prev.in_dir[1] * next.out_dir[1]) / (l1 * l2);
+        if dot >= 0.965 {
+            ReshapeVertexKind::SmoothCurve
+        } else {
+            ReshapeVertexKind::Corner
+        }
+    };
+
+    for (start, body_end, closed) in contour_ranges(commands) {
+        if body_end <= start + 1 {
+            continue;
+        }
+        let Some(start_pt) = anchor_endpoint(&commands[start]) else {
+            continue;
+        };
+        let mut p0 = start_pt;
+        let mut segs = Vec::new();
+        for cmd in &commands[(start + 1)..body_end] {
+            match *cmd {
+                PathCommand::LineTo { x, y } => {
+                    let p1 = [x, y];
+                    let d = [p1[0] - p0[0], p1[1] - p0[1]];
+                    if d[0].hypot(d[1]) > 1e-6 {
+                        segs.push(ContourSegInfo {
+                            p0,
+                            p1,
+                            is_curve: false,
+                            out_dir: d,
+                            in_dir: d,
+                        });
+                    }
+                    p0 = p1;
+                }
+                PathCommand::QuadraticTo { cx, cy, x, y } => {
+                    let p1 = [x, y];
+                    let out_dir = if (cx - p0[0]).hypot(cy - p0[1]) > 1e-6 {
+                        [cx - p0[0], cy - p0[1]]
+                    } else {
+                        [x - p0[0], y - p0[1]]
+                    };
+                    let in_dir = if (x - cx).hypot(y - cy) > 1e-6 {
+                        [x - cx, y - cy]
+                    } else {
+                        [x - p0[0], y - p0[1]]
+                    };
+                    segs.push(ContourSegInfo {
+                        p0,
+                        p1,
+                        is_curve: true,
+                        out_dir,
+                        in_dir,
+                    });
+                    p0 = p1;
+                }
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                } => {
+                    let p1 = [x, y];
+                    let out_dir = if (cx1 - p0[0]).hypot(cy1 - p0[1]) > 1e-6 {
+                        [cx1 - p0[0], cy1 - p0[1]]
+                    } else if (cx2 - p0[0]).hypot(cy2 - p0[1]) > 1e-6 {
+                        [cx2 - p0[0], cy2 - p0[1]]
+                    } else {
+                        [x - p0[0], y - p0[1]]
+                    };
+                    let in_dir = if (x - cx2).hypot(y - cy2) > 1e-6 {
+                        [x - cx2, y - cy2]
+                    } else if (x - cx1).hypot(y - cy1) > 1e-6 {
+                        [x - cx1, y - cy1]
+                    } else {
+                        [x - p0[0], y - p0[1]]
+                    };
+                    segs.push(ContourSegInfo {
+                        p0,
+                        p1,
+                        is_curve: true,
+                        out_dir,
+                        in_dir,
+                    });
+                    p0 = p1;
+                }
+                _ => {}
+            }
+        }
+        if closed && (p0[0] - start_pt[0]).hypot(p0[1] - start_pt[1]) > 1e-6 {
+            let d = [start_pt[0] - p0[0], start_pt[1] - p0[1]];
+            segs.push(ContourSegInfo {
+                p0,
+                p1: start_pt,
+                is_curve: false,
+                out_dir: d,
+                in_dir: d,
+            });
+        }
+        if segs.is_empty() {
+            continue;
+        }
+        let effectively_closed = closed
+            || (segs.len() >= 2
+                && (segs.last().unwrap().p1[0] - start_pt[0])
+                    .hypot(segs.last().unwrap().p1[1] - start_pt[1])
+                    <= 1e-4);
+        let first_kind = if effectively_closed {
+            junction_kind(segs.last().unwrap(), &segs[0])
+        } else {
+            ReshapeVertexKind::Corner
+        };
+        out.push((segs[0].p0, first_kind));
+        for i in 0..(segs.len() - 1) {
+            out.push((segs[i].p1, junction_kind(&segs[i], &segs[i + 1])));
+        }
+        if !effectively_closed {
+            out.push((segs.last().unwrap().p1, ReshapeVertexKind::Corner));
+        }
+    }
+    out
+}
+
+fn eval_command_segment_at(commands: &[PathCommand], cmd_idx: usize, t: f64) -> Option<[f64; 2]> {
+    let t = t.clamp(0.0, 1.0);
+    let mut subpath_start: Option<[f64; 2]> = None;
+    let mut cursor: Option<[f64; 2]> = None;
+    for (idx, cmd) in commands.iter().enumerate() {
+        if idx == cmd_idx {
+            let p0 = cursor?;
+            return match *cmd {
+                PathCommand::MoveTo { .. } => None,
+                PathCommand::LineTo { x, y } => {
+                    Some([p0[0] + (x - p0[0]) * t, p0[1] + (y - p0[1]) * t])
+                }
+                PathCommand::QuadraticTo { cx, cy, x, y } => {
+                    let u = 1.0 - t;
+                    Some([
+                        u * u * p0[0] + 2.0 * u * t * cx + t * t * x,
+                        u * u * p0[1] + 2.0 * u * t * cy + t * t * y,
+                    ])
+                }
+                PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                } => {
+                    let u = 1.0 - t;
+                    let (u2, t2) = (u * u, t * t);
+                    Some([
+                        u2 * u * p0[0] + 3.0 * u2 * t * cx1 + 3.0 * u * t2 * cx2 + t2 * t * x,
+                        u2 * u * p0[1] + 3.0 * u2 * t * cy1 + 3.0 * u * t2 * cy2 + t2 * t * y,
+                    ])
+                }
+                PathCommand::Close => {
+                    let start = subpath_start?;
+                    Some([
+                        p0[0] + (start[0] - p0[0]) * t,
+                        p0[1] + (start[1] - p0[1]) * t,
+                    ])
+                }
+            };
+        }
+        match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                subpath_start = Some([x, y]);
+                cursor = Some([x, y]);
+            }
+            PathCommand::LineTo { x, y }
+            | PathCommand::QuadraticTo { x, y, .. }
+            | PathCommand::CubicTo { x, y, .. } => {
+                cursor = Some([x, y]);
+            }
+            PathCommand::Close => {
+                cursor = subpath_start;
+            }
+        }
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn hit_reshape_on_commands(
+    commands: &[PathCommand],
+    stroke_width: f64,
+    matrix: [f64; 6],
+    mapping: StageMapping,
+    origin: Pos2,
+    zoom: f32,
+    pos: Pos2,
+    alt: bool,
+) -> Option<(ReshapeAction, neoflash_ui::cursors::Cursor, Pos2)> {
+    let vertices = classify_reshape_vertices(commands);
+    let mut best_vertex: Option<(f32, [f64; 2], ReshapeVertexKind, Pos2)> = None;
+    for (local_v, kind) in vertices {
+        let edit_pt = crate::stage::affine(matrix, Pos2::new(local_v[0] as f32, local_v[1] as f32));
+        let screen_pt = mapping.edit_to_screen(origin, zoom, edit_pt);
+        let dist = screen_pt.distance(pos);
+        if dist <= 8.0 && best_vertex.is_none_or(|(best_d, ..)| dist < best_d) {
+            best_vertex = Some((dist, local_v, kind, edit_pt));
+        }
+    }
+    if let Some((_, local_vertex, kind, edit_pt)) = best_vertex {
+        return match kind {
+            ReshapeVertexKind::Corner => Some((
+                ReshapeAction::Corner { local_vertex },
+                neoflash_ui::cursors::ARROW_RESHAPE_CORNER,
+                edit_pt,
+            )),
+            ReshapeVertexKind::SmoothCurve => {
+                let cursor = if alt {
+                    neoflash_ui::cursors::ARROW_RESHAPE_CORNER
+                } else {
+                    neoflash_ui::cursors::ARROW_RESHAPE_CURVE
+                };
+                Some((
+                    ReshapeAction::SmoothVertex {
+                        local_vertex,
+                        break_corner: alt,
+                    },
+                    cursor,
+                    edit_pt,
+                ))
+            }
+        };
+    }
+
+    let stage_pt = Pos2::ZERO + (pos - origin) / zoom.max(1e-3);
+    let composite = mapping.map_matrix(matrix);
+    let stage_commands = map_commands_forward(commands, composite);
+    let scale = composite[0]
+        .hypot(composite[1])
+        .max(composite[2].hypot(composite[3]));
+    let stroke_tol = if stroke_width > 0.0 && scale.is_finite() {
+        0.5 * stroke_width * scale + 2.0 / f64::from(zoom.max(1e-3))
+    } else {
+        0.0
+    };
+    let tolerance = (7.0 / f64::from(zoom.max(1e-3))).max(stroke_tol);
+    let (cmd_idx, t, _closest, dist) = nearest_path_segment(
+        &stage_commands,
+        [f64::from(stage_pt.x), f64::from(stage_pt.y)],
+    )?;
+    if dist > tolerance {
+        return None;
+    }
+    let local_point = eval_command_segment_at(commands, cmd_idx, t)?;
+    let edit_pt = crate::stage::affine(
+        matrix,
+        Pos2::new(local_point[0] as f32, local_point[1] as f32),
+    );
+    let cursor = if alt {
+        neoflash_ui::cursors::ARROW_RESHAPE_CORNER
+    } else {
+        neoflash_ui::cursors::ARROW_RESHAPE_CURVE
+    };
+    Some((
+        ReshapeAction::Segment {
+            cmd_idx,
+            t,
+            local_point,
+            create_corner: alt,
+        },
+        cursor,
+        edit_pt,
+    ))
+}
+
+pub(crate) fn apply_reshape_action(
+    commands: &[PathCommand],
+    action: ReshapeAction,
+    local_delta: [f64; 2],
+) -> Option<Vec<PathCommand>> {
+    if !local_delta[0].is_finite() || !local_delta[1].is_finite() {
+        return None;
+    }
+    if local_delta[0].hypot(local_delta[1]) <= 1e-9 {
+        return Some(commands.to_vec());
+    }
+    match action {
+        ReshapeAction::Corner { local_vertex } => Some(move_reshape_vertex(
+            commands,
+            local_vertex,
+            local_delta,
+            false,
+        )),
+        ReshapeAction::SmoothVertex {
+            local_vertex,
+            break_corner,
+        } => Some(move_reshape_vertex(
+            commands,
+            local_vertex,
+            local_delta,
+            break_corner,
+        )),
+        ReshapeAction::Segment {
+            cmd_idx,
+            t,
+            local_point,
+            create_corner,
+        } => reshape_segment_at(
+            commands,
+            cmd_idx,
+            t,
+            local_point,
+            local_delta,
+            create_corner,
+        ),
+    }
+}
+
+fn move_reshape_vertex(
+    commands: &[PathCommand],
+    local_vertex: [f64; 2],
+    delta: [f64; 2],
+    break_corner: bool,
+) -> Vec<PathCommand> {
+    let [dx, dy] = delta;
+    let moved_target = [local_vertex[0] + dx, local_vertex[1] + dy];
+    let near_vertex =
+        |pt: [f64; 2]| (pt[0] - local_vertex[0]).hypot(pt[1] - local_vertex[1]) <= 1e-4;
+    let mut out = commands.to_vec();
+
+    for (start, body_end, closed) in contour_ranges(commands) {
+        if body_end <= start {
+            continue;
+        }
+        let mut prev_moved = anchor_endpoint(&commands[start]).is_some_and(near_vertex);
+        if prev_moved && let Some(PathCommand::MoveTo { x, y }) = out.get_mut(start) {
+            *x += dx;
+            *y += dy;
+        }
+        let first_moved = prev_moved;
+        for idx in (start + 1)..body_end {
+            let cur_moved = anchor_endpoint(&commands[idx]).is_some_and(near_vertex);
+            let p0 = anchor_endpoint(&commands[idx - 1]).unwrap_or(local_vertex);
+            let p1 = anchor_endpoint(&commands[idx]).unwrap_or(local_vertex);
+            match out.get_mut(idx) {
+                Some(PathCommand::LineTo { x, y }) => {
+                    if cur_moved {
+                        *x += dx;
+                        *y += dy;
+                    }
+                }
+                Some(PathCommand::QuadraticTo { cx, cy, x, y }) => {
+                    if cur_moved {
+                        *x += dx;
+                        *y += dy;
+                    }
+                    if break_corner && (prev_moved || cur_moved) {
+                        let a = if prev_moved { moved_target } else { p0 };
+                        let b = if cur_moved { moved_target } else { p1 };
+                        *cx = 0.5 * (a[0] + b[0]);
+                        *cy = 0.5 * (a[1] + b[1]);
+                    } else if prev_moved && cur_moved {
+                        *cx += dx;
+                        *cy += dy;
+                    } else if prev_moved || cur_moved {
+                        *cx += 0.5 * dx;
+                        *cy += 0.5 * dy;
+                    }
+                }
+                Some(PathCommand::CubicTo {
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    x,
+                    y,
+                }) => {
+                    if prev_moved {
+                        if break_corner {
+                            *cx1 = moved_target[0];
+                            *cy1 = moved_target[1];
+                        } else {
+                            *cx1 += dx;
+                            *cy1 += dy;
+                        }
+                    }
+                    if cur_moved {
+                        if break_corner {
+                            *cx2 = moved_target[0];
+                            *cy2 = moved_target[1];
+                        } else {
+                            *cx2 += dx;
+                            *cy2 += dy;
+                        }
+                        *x += dx;
+                        *y += dy;
+                    }
+                }
+                _ => {}
+            }
+            prev_moved = cur_moved;
+        }
+        let _ = (closed, first_moved);
+    }
+    out
+}
+
+fn reshape_segment_at(
+    commands: &[PathCommand],
+    cmd_idx: usize,
+    t: f64,
+    local_point: [f64; 2],
+    delta: [f64; 2],
+    create_corner: bool,
+) -> Option<Vec<PathCommand>> {
+    if cmd_idx >= commands.len() {
+        return None;
+    }
+    let mut subpath_start: Option<[f64; 2]> = None;
+    let mut cursor: Option<[f64; 2]> = None;
+    let mut p0_at_cmd = None;
+    let mut start_at_cmd = None;
+    for (idx, cmd) in commands.iter().enumerate() {
+        if idx == cmd_idx {
+            p0_at_cmd = cursor;
+            start_at_cmd = subpath_start;
+            break;
+        }
+        match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                subpath_start = Some([x, y]);
+                cursor = Some([x, y]);
+            }
+            PathCommand::LineTo { x, y }
+            | PathCommand::QuadraticTo { x, y, .. }
+            | PathCommand::CubicTo { x, y, .. } => {
+                cursor = Some([x, y]);
+            }
+            PathCommand::Close => {
+                cursor = subpath_start;
+            }
+        }
+    }
+    let p0 = p0_at_cmd?;
+    let corner = [local_point[0] + delta[0], local_point[1] + delta[1]];
+
+    if create_corner {
+        match commands[cmd_idx] {
+            PathCommand::MoveTo { .. } => return None,
+            PathCommand::LineTo { x, y } => {
+                let mut out = Vec::with_capacity(commands.len() + 1);
+                out.extend_from_slice(&commands[..cmd_idx]);
+                out.push(PathCommand::LineTo {
+                    x: corner[0],
+                    y: corner[1],
+                });
+                out.push(PathCommand::LineTo { x, y });
+                out.extend_from_slice(&commands[(cmd_idx + 1)..]);
+                return Some(out);
+            }
+            PathCommand::Close => {
+                let mut out = Vec::with_capacity(commands.len() + 1);
+                out.extend_from_slice(&commands[..cmd_idx]);
+                out.push(PathCommand::LineTo {
+                    x: corner[0],
+                    y: corner[1],
+                });
+                out.push(PathCommand::Close);
+                out.extend_from_slice(&commands[(cmd_idx + 1)..]);
+                return Some(out);
+            }
+            PathCommand::QuadraticTo { .. } | PathCommand::CubicTo { .. } => {
+                let (mut split, inserted) = subdivide_path_at(commands, cmd_idx, t)?;
+                let p_end = anchor_endpoint(split.get(inserted + 1)?)?;
+                match split.get_mut(inserted)? {
+                    PathCommand::QuadraticTo { cx, cy, x, y } => {
+                        *x = corner[0];
+                        *y = corner[1];
+                        *cx = 0.5 * (p0[0] + corner[0]);
+                        *cy = 0.5 * (p0[1] + corner[1]);
+                    }
+                    PathCommand::CubicTo { cx2, cy2, x, y, .. } => {
+                        *x = corner[0];
+                        *y = corner[1];
+                        *cx2 = corner[0];
+                        *cy2 = corner[1];
+                    }
+                    _ => {}
+                }
+                match split.get_mut(inserted + 1)? {
+                    PathCommand::QuadraticTo { cx, cy, .. } => {
+                        *cx = 0.5 * (corner[0] + p_end[0]);
+                        *cy = 0.5 * (corner[1] + p_end[1]);
+                    }
+                    PathCommand::CubicTo { cx1, cy1, .. } => {
+                        *cx1 = corner[0];
+                        *cy1 = corner[1];
+                    }
+                    _ => {}
+                }
+                return Some(split);
+            }
+        }
+    }
+
+    let tau = t.clamp(0.15, 0.85);
+    let quad_weight = (2.0 * (1.0 - tau) * tau).max(1e-4);
+    let cubic_weight = (3.0 * (1.0 - tau) * tau).max(1e-4);
+    let mut out = Vec::with_capacity(commands.len() + 1);
+    out.extend_from_slice(&commands[..cmd_idx]);
+    match commands[cmd_idx] {
+        PathCommand::MoveTo { .. } => return None,
+        PathCommand::LineTo { x, y } => {
+            let cx = 0.5 * (p0[0] + x) + delta[0] / quad_weight;
+            let cy = 0.5 * (p0[1] + y) + delta[1] / quad_weight;
+            out.push(PathCommand::QuadraticTo { cx, cy, x, y });
+        }
+        PathCommand::Close => {
+            let start = start_at_cmd?;
+            let cx = 0.5 * (p0[0] + start[0]) + delta[0] / quad_weight;
+            let cy = 0.5 * (p0[1] + start[1]) + delta[1] / quad_weight;
+            out.push(PathCommand::QuadraticTo {
+                cx,
+                cy,
+                x: start[0],
+                y: start[1],
+            });
+            out.push(PathCommand::Close);
+        }
+        PathCommand::QuadraticTo { cx, cy, x, y } => {
+            out.push(PathCommand::QuadraticTo {
+                cx: cx + delta[0] / quad_weight,
+                cy: cy + delta[1] / quad_weight,
+                x,
+                y,
+            });
+        }
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            out.push(PathCommand::CubicTo {
+                cx1: cx1 + delta[0] / cubic_weight,
+                cy1: cy1 + delta[1] / cubic_weight,
+                cx2: cx2 + delta[0] / cubic_weight,
+                cy2: cy2 + delta[1] / cubic_weight,
+                x,
+                y,
+            });
+        }
+    }
+    out.extend_from_slice(&commands[(cmd_idx + 1)..]);
+    Some(out)
 }
 
 pub(crate) fn path_segment_hit_local(

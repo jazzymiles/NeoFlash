@@ -2,6 +2,20 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Classic Flash Selection tool (`V`) reshape cursors and gestures (`arrow-reshape-corner`, `arrow-reshape-curve`, `⌥`-drag
+  new corner point) and Subselection tool (`A`) point display/adjustment on shapes (`T-142`):
+  - Hovering near the outline of an unselected shape or line (`Rectangle`, `Ellipse`, `Path`, `PaintedPath`) with the
+    `Selection` tool (`V`) now shows `arrow-reshape-corner` at corners and open endpoints, `arrow-reshape-curve` along
+    line/curve segments and smooth curve vertices, and `arrow-reshape-corner` when holding `⌥` (`Option` / `Alt`) over a
+    segment, while hovering the fill interior or any selected object shows `arrow-move`.
+  - Dragging a corner or open endpoint with `Selection` (`V`) repositions that vertex while keeping straight segments
+    straight; dragging a segment bends a straight edge into a curve or adjusts an existing curve to pass through the
+    pointer; `⌥`-dragging a segment splits it to pull out a new corner point; co-located Merge shapes on the same layer
+    reshape together in one Undo step.
+  - Clicking or selecting a `Rectangle` or `Ellipse` with the `Subselection` tool (`A`) now displays its anchor points and
+    Bézier handles (`subselect-point` on anchor/handle hover, `pen-add` when `⌥`-hovering a segment) and converts the
+    shape to an editable `Path` when dragging, adding or deleting points.
+
 - Full-width classic Flash Timeline ruler and empty frame grid across unexposed cells (`T-141`):
   - Non-Button timelines now render the ruler ticks, frame numbers (`1, 5, 10, 15, 20…`) and each layer row's empty
     frame cells (including shaded 5th cells and 4pt bottom frame ticks) across the full visible width of the Timeline
