@@ -684,14 +684,14 @@ impl EnvelopeCage {
     pub(crate) fn from_bounds(bounds: Bounds) -> Self {
         let c = bounds.center();
         let anchors = [
-            bounds.min,                  // 0: TL
-            [c[0], bounds.min[1]],       // 1: TC
+            bounds.min,                     // 0: TL
+            [c[0], bounds.min[1]],          // 1: TC
             [bounds.max[0], bounds.min[1]], // 2: TR
-            [bounds.max[0], c[1]],       // 3: RC
-            bounds.max,                  // 4: BR
-            [c[0], bounds.max[1]],       // 5: BC
+            [bounds.max[0], c[1]],          // 3: RC
+            bounds.max,                     // 4: BR
+            [c[0], bounds.max[1]],          // 5: BC
             [bounds.min[0], bounds.max[1]], // 6: BL
-            [bounds.min[0], c[1]],       // 7: LC
+            [bounds.min[0], c[1]],          // 7: LC
         ];
         let mut tangent_prev = [[0.0; 2]; 8];
         let mut tangent_next = [[0.0; 2]; 8];
@@ -810,10 +810,7 @@ impl EnvelopeCage {
 
         let [tl, _, tr, _, br, _, bl, _] = self.anchors;
         let bilinear = lerp_point(lerp_point(tl, tr, u), lerp_point(bl, br, u), v);
-        [
-            lc[0] + ld[0] - bilinear[0],
-            lc[1] + ld[1] - bilinear[1],
-        ]
+        [lc[0] + ld[0] - bilinear[0], lc[1] + ld[1] - bilinear[1]]
     }
 }
 
@@ -887,26 +884,27 @@ fn deform_element_commands(
     let mut current = [0.0, 0.0];
     let mut subpath_start = [0.0, 0.0];
 
-    let emit_subdivided_segment = |commands: &mut Vec<PathCommand>,
-                                   subdivisions: usize,
-                                   sample_local: &dyn Fn(f64) -> Point| {
-        let n = subdivisions.max(1);
-        for i in 0..n {
-            let t0 = i as f64 / n as f64;
-            let t3 = (i + 1) as f64 / n as f64;
-            let t1 = t0 + (t3 - t0) / 3.0;
-            let t2 = t0 + (t3 - t0) * (2.0 / 3.0);
-            let q0 = map_local(sample_local(t0));
-            let q1 = map_local(sample_local(t1));
-            let q2 = map_local(sample_local(t2));
-            let q3 = map_local(sample_local(t3));
-            if subdivide_lines <= 1 {
-                commands.push(PathCommand::LineTo { x: q3[0], y: q3[1] });
-            } else {
-                commands.push(fit_cubic_through_four_points(q0, q1, q2, q3));
+    let emit_subdivided_segment =
+        |commands: &mut Vec<PathCommand>,
+         subdivisions: usize,
+         sample_local: &dyn Fn(f64) -> Point| {
+            let n = subdivisions.max(1);
+            for i in 0..n {
+                let t0 = i as f64 / n as f64;
+                let t3 = (i + 1) as f64 / n as f64;
+                let t1 = t0 + (t3 - t0) / 3.0;
+                let t2 = t0 + (t3 - t0) * (2.0 / 3.0);
+                let q0 = map_local(sample_local(t0));
+                let q1 = map_local(sample_local(t1));
+                let q2 = map_local(sample_local(t2));
+                let q3 = map_local(sample_local(t3));
+                if subdivide_lines <= 1 {
+                    commands.push(PathCommand::LineTo { x: q3[0], y: q3[1] });
+                } else {
+                    commands.push(fit_cubic_through_four_points(q0, q1, q2, q3));
+                }
             }
-        }
-    };
+        };
 
     for cmd in source_commands {
         match cmd {
@@ -998,10 +996,7 @@ fn deform_element_commands(
                 x,
                 y,
             } => {
-                if !finite_point([cx1, cy1])
-                    || !finite_point([cx2, cy2])
-                    || !finite_point([x, y])
-                {
+                if !finite_point([cx1, cy1]) || !finite_point([cx2, cy2]) || !finite_point([x, y]) {
                     return None;
                 }
             }
@@ -1083,17 +1078,11 @@ pub(crate) fn deform_element_quad(
     let context_to_element = invert_affine_matrix(element_to_context)?;
     let span_x = source_bounds.max[0] - source_bounds.min[0];
     let span_y = source_bounds.max[1] - source_bounds.min[1];
-    deform_element_commands(
-        element,
-        element_to_context,
-        context_to_element,
-        2,
-        &|pt| {
-            let u = (pt[0] - source_bounds.min[0]) / span_x;
-            let v = (pt[1] - source_bounds.min[1]) / span_y;
-            quad.eval(u, v)
-        },
-    )
+    deform_element_commands(element, element_to_context, context_to_element, 2, &|pt| {
+        let u = (pt[0] - source_bounds.min[0]) / span_x;
+        let v = (pt[1] - source_bounds.min[1]) / span_y;
+        quad.eval(u, v)
+    })
 }
 
 /// Deforms a vector shape (`Rectangle`, `Ellipse`, `Path`, `PaintedPath`) using the 24-handle
@@ -1112,17 +1101,11 @@ pub(crate) fn deform_element_envelope(
     let context_to_element = invert_affine_matrix(element_to_context)?;
     let span_x = cage.bounds.max[0] - cage.bounds.min[0];
     let span_y = cage.bounds.max[1] - cage.bounds.min[1];
-    deform_element_commands(
-        element,
-        element_to_context,
-        context_to_element,
-        4,
-        &|pt| {
-            let u = (pt[0] - cage.bounds.min[0]) / span_x;
-            let v = (pt[1] - cage.bounds.min[1]) / span_y;
-            cage.eval(u, v)
-        },
-    )
+    deform_element_commands(element, element_to_context, context_to_element, 4, &|pt| {
+        let u = (pt[0] - cage.bounds.min[0]) / span_x;
+        let v = (pt[1] - cage.bounds.min[1]) / span_y;
+        cage.eval(u, v)
+    })
 }
 
 #[cfg(test)]
@@ -1751,7 +1734,10 @@ mod tests {
                 false,
             )
             .unwrap();
-        point_close(moved.corners[0], [BOUNDS.min[0] + 15.0, BOUNDS.min[1] + 5.0]);
+        point_close(
+            moved.corners[0],
+            [BOUNDS.min[0] + 15.0, BOUNDS.min[1] + 5.0],
+        );
         point_close(moved.corners[1], quad.corners[1]);
         point_close(moved.corners[2], quad.corners[2]);
         point_close(moved.corners[3], quad.corners[3]);

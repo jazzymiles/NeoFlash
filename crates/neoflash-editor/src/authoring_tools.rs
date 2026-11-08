@@ -3020,8 +3020,10 @@ impl Editor {
 
     pub(crate) fn active_free_transform_mode(&self) -> FreeTransformMode {
         let mode = self.authoring_tools.transform_mode;
-        if matches!(mode, FreeTransformMode::Distort | FreeTransformMode::Envelope)
-            && !self.can_distort_or_envelope_selection()
+        if matches!(
+            mode,
+            FreeTransformMode::Distort | FreeTransformMode::Envelope
+        ) && !self.can_distort_or_envelope_selection()
         {
             FreeTransformMode::FreeTransform
         } else {

@@ -2360,7 +2360,8 @@ impl Editor {
         use crate::commands::CommandId as C;
         use crate::ui_icons::{menu_item_enabled, menu_popup};
         menu_popup(ui, "Modify", "Convert to symbol…", "F8", |ui| {
-            if crate::ui_icons::menu_item(ui, "Document…", &self.sc(C::ModifyDocument)).clicked() {
+            if crate::ui_icons::menu_item(ui, "Document…", &self.sc(C::ModifyDocument)).clicked()
+            {
                 self.open_document_settings();
                 ui.close();
             }
@@ -2416,30 +2417,37 @@ impl Editor {
             let can_combine = self.can_combine_objects();
             let can_del_envelope = self.can_delete_envelope_selection();
             let del_env_sc = self.sc(C::ModifyDeleteEnvelope);
-            menu_popup(ui, "Combine objects", "Delete Envelope", &del_env_sc, |ui| {
-                if menu_item_enabled(ui, can_del_envelope, "Delete Envelope", &del_env_sc).clicked()
-                {
-                    self.delete_envelope_selection();
-                    ui.close();
-                }
-                neoflash_ui::components::menu_separator(ui);
-                if menu_item_enabled(ui, can_combine, "Union", "").clicked() {
-                    self.combine_objects_selection(BooleanOp::Union, false);
-                    ui.close();
-                }
-                if menu_item_enabled(ui, can_combine, "Intersect", "").clicked() {
-                    self.combine_objects_selection(BooleanOp::Intersection, false);
-                    ui.close();
-                }
-                if menu_item_enabled(ui, can_combine, "Punch", "").clicked() {
-                    self.combine_objects_selection(BooleanOp::Difference, false);
-                    ui.close();
-                }
-                if menu_item_enabled(ui, can_combine, "Crop", "").clicked() {
-                    self.combine_objects_selection(BooleanOp::Intersection, true);
-                    ui.close();
-                }
-            });
+            menu_popup(
+                ui,
+                "Combine objects",
+                "Delete Envelope",
+                &del_env_sc,
+                |ui| {
+                    if menu_item_enabled(ui, can_del_envelope, "Delete Envelope", &del_env_sc)
+                        .clicked()
+                    {
+                        self.delete_envelope_selection();
+                        ui.close();
+                    }
+                    neoflash_ui::components::menu_separator(ui);
+                    if menu_item_enabled(ui, can_combine, "Union", "").clicked() {
+                        self.combine_objects_selection(BooleanOp::Union, false);
+                        ui.close();
+                    }
+                    if menu_item_enabled(ui, can_combine, "Intersect", "").clicked() {
+                        self.combine_objects_selection(BooleanOp::Intersection, false);
+                        ui.close();
+                    }
+                    if menu_item_enabled(ui, can_combine, "Punch", "").clicked() {
+                        self.combine_objects_selection(BooleanOp::Difference, false);
+                        ui.close();
+                    }
+                    if menu_item_enabled(ui, can_combine, "Crop", "").clicked() {
+                        self.combine_objects_selection(BooleanOp::Intersection, true);
+                        ui.close();
+                    }
+                },
+            );
             neoflash_ui::components::menu_separator(ui);
             menu_popup(
                 ui,
@@ -2574,122 +2582,116 @@ impl Editor {
         } else {
             remove_custom_sc
         };
-        crate::ui_icons::menu_popup(
-            ui,
-            "Transform",
-            "Scale and Rotate…",
-            &scale_rot_sc,
-            |ui| {
-                if menu_check_enabled(
-                    ui,
-                    selected,
-                    "Free Transform",
-                    &self.sc(C::ModifyFreeTransform),
-                    is_transform_tool && active_mode == FreeTransformMode::FreeTransform,
-                )
+        crate::ui_icons::menu_popup(ui, "Transform", "Scale and Rotate…", &scale_rot_sc, |ui| {
+            if menu_check_enabled(
+                ui,
+                selected,
+                "Free Transform",
+                &self.sc(C::ModifyFreeTransform),
+                is_transform_tool && active_mode == FreeTransformMode::FreeTransform,
+            )
+            .clicked()
+            {
+                self.set_free_transform_mode(FreeTransformMode::FreeTransform);
+                ui.close();
+            }
+            if menu_check_enabled(
+                ui,
+                can_deform,
+                "Distort",
+                &self.sc(C::ModifyDistort),
+                is_transform_tool && active_mode == FreeTransformMode::Distort,
+            )
+            .clicked()
+            {
+                self.set_free_transform_mode(FreeTransformMode::Distort);
+                ui.close();
+            }
+            if menu_check_enabled(
+                ui,
+                can_deform,
+                "Envelope",
+                &self.sc(C::ModifyEnvelope),
+                is_transform_tool && active_mode == FreeTransformMode::Envelope,
+            )
+            .clicked()
+            {
+                self.set_free_transform_mode(FreeTransformMode::Envelope);
+                ui.close();
+            }
+            if menu_check_enabled(
+                ui,
+                selected,
+                "Scale",
+                &self.sc(C::ModifyScale),
+                is_transform_tool && active_mode == FreeTransformMode::Scale,
+            )
+            .clicked()
+            {
+                self.set_free_transform_mode(FreeTransformMode::Scale);
+                ui.close();
+            }
+            if menu_check_enabled(
+                ui,
+                selected,
+                "Rotate and Skew",
+                &self.sc(C::ModifyRotateAndSkew),
+                is_transform_tool && active_mode == FreeTransformMode::RotateAndSkew,
+            )
+            .clicked()
+            {
+                self.set_free_transform_mode(FreeTransformMode::RotateAndSkew);
+                ui.close();
+            }
+            if menu_item_enabled(ui, selected, "Scale and Rotate…", &scale_rot_sc).clicked() {
+                self.open_scale_and_rotate_dialog();
+                ui.close();
+            }
+            neoflash_ui::components::menu_separator(ui);
+            if menu_item_enabled(ui, selected, "Rotate 90° CW", &cw_sc).clicked() {
+                self.rotate_90_cw_selection(ui.ctx());
+                ui.close();
+            }
+            if menu_item_enabled(ui, selected, "Rotate 90° CCW", &ccw_sc).clicked() {
+                self.rotate_90_ccw_selection(ui.ctx());
+                ui.close();
+            }
+            neoflash_ui::components::menu_separator(ui);
+            if menu_item_enabled(
+                ui,
+                selected,
+                "Flip Vertical",
+                &self.sc(C::ModifyFlipVertical),
+            )
+            .clicked()
+            {
+                self.flip_vertical_selection(ui.ctx());
+                ui.close();
+            }
+            if menu_item_enabled(
+                ui,
+                selected,
+                "Flip Horizontal",
+                &self.sc(C::ModifyFlipHorizontal),
+            )
+            .clicked()
+            {
+                self.flip_horizontal_selection(ui.ctx());
+                ui.close();
+            }
+            neoflash_ui::components::menu_separator(ui);
+            if menu_item_enabled(ui, selected, "Remove Transform", &remove_sc).clicked() {
+                self.reset_selection_transform(ui.ctx());
+                ui.close();
+            }
+            neoflash_ui::components::menu_separator(ui);
+            if crate::ui_icons::menu_item(ui, "Transform panel", &self.sc(C::WindowTransform))
                 .clicked()
-                {
-                    self.set_free_transform_mode(FreeTransformMode::FreeTransform);
-                    ui.close();
-                }
-                if menu_check_enabled(
-                    ui,
-                    can_deform,
-                    "Distort",
-                    &self.sc(C::ModifyDistort),
-                    is_transform_tool && active_mode == FreeTransformMode::Distort,
-                )
-                .clicked()
-                {
-                    self.set_free_transform_mode(FreeTransformMode::Distort);
-                    ui.close();
-                }
-                if menu_check_enabled(
-                    ui,
-                    can_deform,
-                    "Envelope",
-                    &self.sc(C::ModifyEnvelope),
-                    is_transform_tool && active_mode == FreeTransformMode::Envelope,
-                )
-                .clicked()
-                {
-                    self.set_free_transform_mode(FreeTransformMode::Envelope);
-                    ui.close();
-                }
-                if menu_check_enabled(
-                    ui,
-                    selected,
-                    "Scale",
-                    &self.sc(C::ModifyScale),
-                    is_transform_tool && active_mode == FreeTransformMode::Scale,
-                )
-                .clicked()
-                {
-                    self.set_free_transform_mode(FreeTransformMode::Scale);
-                    ui.close();
-                }
-                if menu_check_enabled(
-                    ui,
-                    selected,
-                    "Rotate and Skew",
-                    &self.sc(C::ModifyRotateAndSkew),
-                    is_transform_tool && active_mode == FreeTransformMode::RotateAndSkew,
-                )
-                .clicked()
-                {
-                    self.set_free_transform_mode(FreeTransformMode::RotateAndSkew);
-                    ui.close();
-                }
-                if menu_item_enabled(ui, selected, "Scale and Rotate…", &scale_rot_sc).clicked() {
-                    self.open_scale_and_rotate_dialog();
-                    ui.close();
-                }
-                neoflash_ui::components::menu_separator(ui);
-                if menu_item_enabled(ui, selected, "Rotate 90° CW", &cw_sc).clicked() {
-                    self.rotate_90_cw_selection(ui.ctx());
-                    ui.close();
-                }
-                if menu_item_enabled(ui, selected, "Rotate 90° CCW", &ccw_sc).clicked() {
-                    self.rotate_90_ccw_selection(ui.ctx());
-                    ui.close();
-                }
-                neoflash_ui::components::menu_separator(ui);
-                if menu_item_enabled(
-                    ui,
-                    selected,
-                    "Flip Vertical",
-                    &self.sc(C::ModifyFlipVertical),
-                )
-                .clicked()
-                {
-                    self.flip_vertical_selection(ui.ctx());
-                    ui.close();
-                }
-                if menu_item_enabled(
-                    ui,
-                    selected,
-                    "Flip Horizontal",
-                    &self.sc(C::ModifyFlipHorizontal),
-                )
-                .clicked()
-                {
-                    self.flip_horizontal_selection(ui.ctx());
-                    ui.close();
-                }
-                neoflash_ui::components::menu_separator(ui);
-                if menu_item_enabled(ui, selected, "Remove Transform", &remove_sc).clicked() {
-                    self.reset_selection_transform(ui.ctx());
-                    ui.close();
-                }
-                neoflash_ui::components::menu_separator(ui);
-                if crate::ui_icons::menu_item(ui, "Transform panel", &self.sc(C::WindowTransform))
-                    .clicked()
-                {
-                    self.show_panel(PanelId::Transform);
-                    ui.close();
-                }
-            },
-        );
+            {
+                self.show_panel(PanelId::Transform);
+                ui.close();
+            }
+        });
     }
 
     /// Arrange ▸ (Modify and the stage object menu).
@@ -5120,7 +5122,9 @@ mod arrange_tests {
     #[test]
     fn transform_submodes_menu_commands_envelope_delete_and_hotkey_bindings_work() {
         use crate::authoring_tools::FreeTransformMode;
-        use crate::transform_geometry::{Bounds, EnvelopeCage, EnvelopeHandle, deform_element_envelope};
+        use crate::transform_geometry::{
+            Bounds, EnvelopeCage, EnvelopeHandle, deform_element_envelope,
+        };
 
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::blank());

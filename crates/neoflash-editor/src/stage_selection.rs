@@ -42,6 +42,7 @@ impl Scope {
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::large_enum_variant)]
 enum GestureKind {
     Move,
     Pivot {
@@ -1640,16 +1641,16 @@ impl Editor {
                     }
                 } else if active_mode == FreeTransformMode::Distort {
                     let sampled = self.sampled_targets();
-                    let session_valid = self
-                        .authoring_modify
-                        .distort_session
-                        .as_ref()
-                        .is_some_and(|s| {
-                            s.symbol == self.symbol_id()
-                                && s.frame == self.frame
-                                && s.targets == self.selection.targets
-                                && s.last_applied_elements == sampled
-                        });
+                    let session_valid =
+                        self.authoring_modify
+                            .distort_session
+                            .as_ref()
+                            .is_some_and(|s| {
+                                s.symbol == self.symbol_id()
+                                    && s.frame == self.frame
+                                    && s.targets == self.selection.targets
+                                    && s.last_applied_elements == sampled
+                            });
                     if !session_valid {
                         let quad = geometry::DistortQuad::from_bounds(context_world);
                         self.authoring_modify.distort_session =
@@ -1696,7 +1697,8 @@ impl Editor {
                     }
                 } else {
                     // `NF2/Transform Box` (Scale / RotateAndSkew / FreeTransform) on the selection's stage bounds.
-                    let rects = cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
+                    let rects =
+                        cv::paint_transform_box(p, p.ctx(), frame, cv::TransformMode::Scale);
                     let pivot_world = g.world_pivot;
                     let pivot_screen = screen(position(pivot_world));
                     transform_pivot_screen = Some(pivot_screen);

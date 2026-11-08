@@ -354,12 +354,7 @@ pub(crate) fn paint_transform_modifier_icon(
             p.line_segment([pt(3.0, 3.0), pt(12.5, 3.0)], stroke);
             p.line_segment([pt(10.0, 1.2), pt(12.8, 3.0)], stroke);
             p.line_segment([pt(10.0, 4.8), pt(12.8, 3.0)], stroke);
-            let poly = [
-                pt(4.5, 6.5),
-                pt(13.5, 6.5),
-                pt(11.5, 14.0),
-                pt(2.5, 14.0),
-            ];
+            let poly = [pt(4.5, 6.5), pt(13.5, 6.5), pt(11.5, 14.0), pt(2.5, 14.0)];
             for i in 0..4 {
                 p.line_segment([poly[i], poly[(i + 1) % 4]], stroke);
             }
@@ -376,15 +371,14 @@ pub(crate) fn paint_transform_modifier_icon(
         }
         TransformModifierIcon::Distort => {
             // Perspective-tapered trapezoid (narrower left edge, taller right edge) + corner handles.
-            let quad = [
-                pt(3.0, 5.5),
-                pt(13.0, 2.5),
-                pt(13.0, 13.5),
-                pt(3.0, 11.5),
-            ];
+            let quad = [pt(3.0, 5.5), pt(13.0, 2.5), pt(13.0, 13.5), pt(3.0, 11.5)];
             for i in 0..4 {
                 p.line_segment([quad[i], quad[(i + 1) % 4]], stroke);
-                p.rect_filled(Rect::from_center_size(quad[i], Vec2::splat(2.2)), 0.0, color);
+                p.rect_filled(
+                    Rect::from_center_size(quad[i], Vec2::splat(2.2)),
+                    0.0,
+                    color,
+                );
             }
         }
         TransformModifierIcon::Envelope => {

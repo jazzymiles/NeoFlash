@@ -525,3 +525,86 @@ fn custom_transformation_point_drags_rotates_alt_resizes_and_resets_with_undo() 
     editor.undo();
     assert_eq!(editor.project, before);
 }
+
+#[test]
+fn distort_and_envelope_stage_gestures_warp_shapes_support_shift_taper_and_undo() {
+    use crate::authoring_tools::FreeTransformMode;
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.add_element(shape(), 150., 150.);
+    clean(&mut editor);
+    let before = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+
+    // 1. FreeTransformMode::Distort with Shift perspective taper on top-left corner (150, 150).
+    editor.set_free_transform_mode(FreeTransformMode::Distort);
+    stage_input_frame(&mut editor, &ctx, 0.15, vec![]);
+    let nw = page.min + egui::vec2(150., 150.);
+    let nw_end = page.min + egui::vec2(170., 150.);
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(nw),
+            button(nw, true, shift),
+            egui::Event::PointerMoved(nw_end),
+            button(nw_end, false, shift),
+        ],
+        shift,
+    );
+    // The rectangle was converted to a distorted Path whose top edge tapered from [0..100] to [20..80].
+    let distorted = editor.selected_element().unwrap().clone();
+    assert!(matches!(distorted.kind, ElementKind::Path { .. }));
+    let quad = editor
+        .authoring_modify
+        .distort_session
+        .as_ref()
+        .unwrap()
+        .quad;
+    near(quad.corners[0][0], 170.);
+    near(quad.corners[1][0], 230.);
+    editor.project.validate().unwrap();
+
+    // Undo restores the original parametric Rectangle.
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 2. FreeTransformMode::Envelope: drag top-middle square anchor (200, 150) upward to (200, 110),
+    // then drag a circular tangent handle, then restore via Delete Envelope.
+    editor.set_free_transform_mode(FreeTransformMode::Envelope);
+    stage_input_frame(&mut editor, &ctx, 0.3, vec![]);
+    let top_mid = page.min + egui::vec2(200., 150.);
+    let top_mid_end = page.min + egui::vec2(200., 110.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![
+            egui::Event::PointerMoved(top_mid),
+            button(top_mid, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(top_mid_end),
+            button(top_mid_end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let enveloped = editor.selected_element().unwrap().clone();
+    if let ElementKind::Path { commands, .. } = &enveloped.kind {
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, PathCommand::CubicTo { .. })),
+            "Envelope stage drag must bend straight edges into cubic Bézier curves"
+        );
+    } else {
+        panic!("expected Path after Envelope drag");
+    }
+    assert!(editor.can_delete_envelope_selection());
+    assert!(editor.delete_envelope_selection());
+    assert_eq!(editor.selected_element().unwrap().kind, shape());
+    editor.project.validate().unwrap();
+}
