@@ -144,7 +144,7 @@
       'filter_padding','filter_rgba','amf_encode','amf_decode','sol_encode','sol_decode',
       'text_layout_json','text_query_json','portable_measure_text_json',
       'parse_html_text_json','serialize_html_text_json','text_to_outlines_json',
-      'loader_content','scripts_json','sound_commands_json','display_events_json',
+      'loader_content','scripts_json','sound_commands_json','video_commands_json','display_events_json',
     ]);
     const visualOnlyPlayerMethods=new Set([
       'set_property','object_set_property','set_visible','object_set_visible',

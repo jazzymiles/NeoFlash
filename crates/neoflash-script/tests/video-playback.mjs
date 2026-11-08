@@ -56,7 +56,7 @@ function mediaBoundary(){
   };
 }
 export async function verifyVideoPlayback(root,cargo){
-  const directory=mkdtempSync(resolve(root,'target/video-playback-'));const media=mediaBoundary();let player,host,server;let requests=0;
+  const directory=mkdtempSync(resolve(root,'target/video-playback-'));const media=mediaBoundary();let player,host,timelinePlayer,timelineHost,server;let requests=0;
   try{
     const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/video-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
@@ -94,7 +94,27 @@ export async function verifyVideoPlayback(root,cargo){
     assert.deepEqual([scene.plays,scene.legacyPlays,scene.metadataCount,scene.legacyMetadata,scene.completed,scene.legacyCompleted],[0,0,0,0,0,0]);
     assert.notEqual(scene.stream,oldStream);assert.notEqual(scene.video,oldVideo);assert.throws(()=>oldStream.play('media/motion.mp4'),/session|disposed|previous|stale/i);
     assert.ok(media.loads.every(load=>load.bytes.equals(original)),'AS2 plays only the original silent AAC fixture; every src assignment was separately checked muted/zero-volume');assert.ok(media.revoked.length>0,'owned Blob URLs are released');
+
+    // A Finder/import-style authored span has no script-created NetStream. The real published
+    // host must drain Rust VideoCommands, bind the full placement path and start its visual
+    // decoder browser-muted before user activation.
+    const timelineMedia=mediaBoundary(),authoredVideo={id:'timeline-video',name:'timelineVideo',transform:{x:0,y:0,scale_x:1,scale_y:1,rotation:0,alpha:1},kind:{type:'video',width:320,height:180},scripts:[]};
+    const timelineProject={format_version:9,name:'Published imported video',width:320,height:180,fps:10,background:[0,0,0,255],root:'root',resources:[resource],symbols:[{id:'root',name:'Scene',kind:'movie_clip',timeline:{frame_count:4,layers:[{id:'video-layer',name:'Video',visible:true,locked:false,keyframes:[{frame:0,label:'',tween:null,elements:[authoredVideo],video:{resource:resource.id,sync:'stream',start_offset_ms:0,loop_video:false,muted:false}},{frame:2,label:'',tween:null,elements:[]}]}],scripts:[]}}]};
+    timelinePlayer=new wasm.WebPlayer(JSON.stringify(timelineProject));
+    const timelineBundle={...bundle,project:timelineProject,scripts:[],program:null};
+    ({host:timelineHost}=createRuntimeHost(root,timelinePlayer,[],{bundle:timelineBundle,video:{...timelineMedia,isUserGesture:()=>false},context:{measureText:line=>({width:line.length*8})}}));
+    timelineHost.dispatchScripts();
+    await until(()=>timelineMedia.loads.length===1&&!timelineMedia.elements[0].paused,'published authored span starts its native decoder');
+    assert.equal(timelineMedia.elements[0].muted,true,'pre-activation authored video remains browser-muted');
+    assert.ok(timelineMedia.loads[0].bytes.equals(original),'published authored span receives the original imported MP4 bytes');
+    timelinePlayer.tick();timelineHost.dispatchScripts();
+    assert.equal(timelineMedia.elements[0].currentTime,.1,'Rust timeline time reaches the native decoder');
+    timelinePlayer.set_playing(false);timelineHost.dispatchScripts();assert.equal(timelineMedia.elements[0].paused,true,'transport Pause freezes authored video');
+    timelinePlayer.control('[]','goto_and_stop',3);timelineHost.dispatchScripts();assert.ok(timelineMedia.revoked.length>=1,'leaving the span retires its Blob URL');
+    timelineHost.resetProject();await until(()=>timelineMedia.loads.length===2,'Restart creates a fresh authored decoder');assert.equal(timelineMedia.elements[1].currentTime,0);
+    timelineHost.disposeFamily();timelineHost=null;timelinePlayer.free();timelinePlayer=null;
+
     host.disposeFamily();assert.throws(()=>scene.stream.time,/session|disposed|previous|stale/i);
-  }finally{host?.disposeFamily();player?.free();if(server)await new Promise(resolve=>server.close(resolve));rmSync(directory,{recursive:true,force:true});}
+  }finally{timelineHost?.disposeFamily();timelinePlayer?.free();host?.disposeFamily();player?.free();if(server)await new Promise(resolve=>server.close(resolve));rmSync(directory,{recursive:true,force:true});}
   console.log('Video playback: ordinary export/actual WASM, AS3 dynamic + AS2 authored Video, embedded bytes + local HTTP transport, silent metadata/play/pause/seek/close, completion and Restart passed with injected media events.');
 }

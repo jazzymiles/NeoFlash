@@ -6634,3 +6634,136 @@ fn t129_editor_resource_and_library_mutations_are_atomic() {
         .expect("changed face embeds a real font");
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn selected_text_embed_font_is_transactional_preselected_and_round_trips() {
+    use crate::panels::font_embedding::{font_embedding_draft, has_font_embedding_dialog};
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.add_element(
+        ElementKind::TextBox {
+            text: "Hello Ω".to_owned(),
+            width: 180.0,
+            height: 40.0,
+            format: TextFormat {
+                font: "Inter".to_owned(),
+                size: 18.0,
+                ..TextFormat::default()
+            },
+            word_wrap: false,
+            multiline: false,
+        },
+        24.0,
+        36.0,
+    );
+    let text_id = editor.symbol().timeline.layers[editor.layer]
+        .key_at(editor.frame)
+        .unwrap()
+        .elements
+        .last()
+        .unwrap()
+        .id
+        .clone();
+    editor.select_single_id(text_id.clone());
+
+    let render_properties = |editor: &mut Editor, time, events| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 900.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.properties(ui, ctx));
+            },
+        )
+    };
+    render_properties(&mut editor, 0.1, vec![]);
+    let output = render_properties(&mut editor, 0.2, vec![]);
+    let embed_font = named_bounds(&output, "Embed font").expect("Embed font checkbox");
+    assert!(named_bounds(&output, "Embedding…").is_some());
+
+    let before = editor.project.clone();
+    render_properties(
+        &mut editor,
+        0.3,
+        vec![
+            Event::PointerMoved(embed_font.center()),
+            crate::tests::primary_button(embed_font.center(), true),
+            crate::tests::primary_button(embed_font.center(), false),
+        ],
+    );
+    let draft = font_embedding_draft(&ctx).expect("selected-field embedding draft");
+    assert_eq!(draft.entries.len(), 1, "no unrelated sample fonts");
+    assert_eq!(draft.entries[draft.selected].family, "Inter");
+    assert_eq!(draft.entries[draft.selected].style, "Regular");
+    assert!(
+        draft.entries[draft.selected].ranges[7],
+        "Greek text should preselect the Greek character range"
+    );
+    editor.cancel_font_embedding(&ctx);
+    assert_eq!(editor.project, before, "Cancel must not enable embedFonts");
+    assert!(!has_font_embedding_dialog(&ctx));
+
+    editor.open_font_embedding_for_text(&ctx, "Book Antiqua", true, false, "Headline", false);
+    let arbitrary = font_embedding_draft(&ctx).expect("arbitrary installed-family draft");
+    assert_eq!(arbitrary.entries[arbitrary.selected].family, "Book Antiqua");
+    assert_eq!(arbitrary.entries[arbitrary.selected].style, "Bold");
+    editor.cancel_font_embedding(&ctx);
+
+    editor.open_font_embedding_for_text(&ctx, "Inter", false, false, "Hello Ω", true);
+    assert_eq!(editor.confirm_font_embedding(&ctx), Ok(1));
+    assert_eq!(editor.history.undo_label(), Some("Font embedding"));
+    let element = editor
+        .project
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|keyframe| &keyframe.elements)
+        .find(|element| element.id == text_id)
+        .unwrap();
+    let ElementKind::TextBox { format, .. } = &element.kind else {
+        panic!("expected text field");
+    };
+    assert!(
+        format
+            .field_options()
+            .is_some_and(|options| options.embed_fonts)
+    );
+    assert!(neoflash_export::has_embedded_font_face(
+        &editor.project,
+        "Inter",
+        false,
+        false
+    ));
+
+    let json = editor.project.to_json().expect("serialize embedded text");
+    let restored = Project::from_json(&json).expect("reload embedded text");
+    let restored_element = restored
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|keyframe| &keyframe.elements)
+        .find(|element| element.id == text_id)
+        .unwrap();
+    let ElementKind::TextBox { format, .. } = &restored_element.kind else {
+        panic!("expected restored text field");
+    };
+    assert!(
+        format
+            .field_options()
+            .is_some_and(|options| options.embed_fonts)
+    );
+    restored.validate().unwrap();
+
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "one Undo reverts resources and field flag"
+    );
+}

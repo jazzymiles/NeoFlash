@@ -114,6 +114,26 @@ test('WASM exposes independent authored targets and validates activation lifetim
  const disabled=nodes.find(n=>n.accessibility.disabled);assert.equal(player.activate_accessible(JSON.stringify(disabled.instance_path),disabled.lifetime_id),false);
  player.free();
 });
+test('WASM schedules authored timeline video for the published host boundary',async()=>{
+  await ready;
+  const video={id:'video',name:'video',transform:transform(0),kind:{type:'video',width:320,height:180},scripts:[]};
+  const data={format_version:9,name:'Timeline video',width:320,height:180,fps:10,background:[0,0,0,255],root:'root',
+    resources:[{id:'movie',path:'media/imported.mp4',media_type:'video/mp4',data_base64:Buffer.from('\0\0\0\x18ftypisom\0\0\x02\0isomiso2avc1mp41','binary').toString('base64')}],
+    symbols:[{id:'root',name:'Scene',kind:'movie_clip',timeline:{frame_count:4,layers:[{id:'video-layer',name:'Video',visible:true,locked:false,keyframes:[
+      {...key(0,[video]),video:{resource:'movie',sync:'stream',start_offset_ms:0,loop_video:false,muted:false}},
+      key(2,[]),
+    ]}],scripts:[]}}]};
+  const player=new wasm.WebPlayer(JSON.stringify(data));
+  let commands=JSON.parse(player.video_commands_json());
+  assert.equal(commands.length,1);assert.equal(commands[0].op,'seek_and_present');
+  assert.deepEqual(commands[0].target_path,['video']);assert.equal(commands[0].resource,'movie');assert.equal(commands[0].target_time_ms,0);
+  player.tick();commands=JSON.parse(player.video_commands_json());assert.equal(commands[0].target_time_ms,100);
+  player.set_playing(false);assert.deepEqual(JSON.parse(player.video_commands_json()).map(c=>c.op),['pause_streams']);
+  player.set_playing(true);commands=JSON.parse(player.video_commands_json());assert.equal(commands[0].playing,true);assert.equal(commands[0].target_time_ms,100);
+  player.control('[]','goto_and_stop',3);assert.deepEqual(JSON.parse(player.video_commands_json()).map(c=>c.op),['stop_channel']);
+  player.reset();assert.deepEqual(JSON.parse(player.video_commands_json()).map(c=>c.op),['stop_all','seek_and_present']);
+  player.free();
+});
 test('WASM timeline sounds reach the Web Audio host as play/stream/stop commands',async()=>{
   await ready;
   const data=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));

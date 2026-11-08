@@ -410,7 +410,12 @@ PCM/MP3 audio resources and `CPicFrame` frame sounds. Open (§7.4): decoded wave
 codecs (ADPCM/GSM/Nellymoser), audio re-encoding at publish. Registry: `animation-media-sync`, `web-media-assets`,
 `imports-binary-document`.
 
-**W2.7 · Authored video (PR-09, TL-13 Video layer)** — E-19. Registry: `animation-media-sync`, `web-media-assets`.
+**W2.7 · Authored video (PR-09, TL-13 Video layer)** — E-19 — **partial**. `TimelineVideoSpan` is scheduled by the
+shared Rust `Player` and published through WASM `VideoCommand`s to stable full-placement browser channels. Stream
+spans follow play/pause/scrub and retire at span exit; Event starts on keyframe entry and continues independently
+until a matching Stop; Restart clears all channels. Visual playback begins browser-muted before activation. Native
+editor decoding remains a placeholder, and external/progressive deployment is still open. Registry:
+`animation-media-sync`, `web-media-assets`.
 
 **W2.8 · Code hints, toolbox, navigator, auto-format (AC-01, AC-02, AC-06, AC-08 rest)** — E-20 — **partial**: code
 hints, toolbox sidebar, Script navigator and re-indenting Auto-format work ([NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md));
@@ -437,10 +442,10 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.2 Export image PSD / AI / PDF — partial (documented fidelity and option fallbacks) | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (layered PSD; EPS-compatible AI and raster-backed PDF; PSD groups/smart objects/editable text/colour conversion pending) | E-22 | `web-html5-export` |
 | W3.3 Export video — done | DL-05 | `panels/export_video.rs` (DL-05 done) | E-23 | `web-html5-export`, `web-media-assets` |
 | W3.4 Export audio, Sound properties, Edit envelope — done | DL-06, DL-08, DL-09 | `panels/export_audio.rs` (DL-06 done), `panels/sound_properties.rs` (DL-08 done), `panels/edit_envelope.rs` (DL-09 done) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
-| W3.5 Import video, Import PSD — partial | DL-07, DL-10 | `panels/import_video.rs` imports validated media into the document; authored playback remains partial. `neoflash_import::psd` is a tested importer library; editor/CLI wiring remains. | E-19, E-24 | `web-media-assets`, `imports-*` |
+| W3.5 Import video, Import PSD — partial | DL-07, DL-10 | `panels/import_video.rs` imports validated media into the document; embedded timeline spans publish and play automatically in HTML5, while native decoding and external/progressive deployment remain open. `neoflash_import::psd` is a tested importer library; editor/CLI wiring remains. | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
-| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | `panels/font_embedding.rs` stores the author-selected standalone font binary and metadata after technical container validation; NeoFlash does not infer the author's licence rights, so compliance remains the author's responsibility. Browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
+| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | TextBox Properties exposes `Embed font` / `Embedding…`; `panels/font_embedding.rs` opens on the exact selected Family/Style, stores ranges/custom characters, and commits the field flag plus technically validated standalone font in one Undo. NeoFlash does not infer the author's licence rights, so compliance remains the author's responsibility. Browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
 | W3.9 Deco, Spray, Bone/IK — done | TO-03…05 | `panels/live_planned.rs` (`apply_deco_pattern`, `apply_spray_brush_burst`, `live_bone_properties`) | E-27, E-28 | `editor-advanced-drawing` |
 | W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. 9-slice/shared-library/accessibility engines have tested commands, but their complete authoring controls remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 

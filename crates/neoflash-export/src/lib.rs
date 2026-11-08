@@ -352,6 +352,7 @@ struct ProgramBundle<'a> {
 pub fn export_warnings(project: &Project) -> Vec<String> {
     let embedded = embedded_font_families(project);
     let mut fonts = BTreeSet::new();
+    let mut warnings = Vec::new();
     for symbol in &project.symbols {
         for layer in &symbol.timeline.layers {
             for key in &layer.keyframes {
@@ -361,7 +362,35 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
                             fonts.insert(font_family.clone());
                         }
                         ElementKind::TextBox { format, .. } => {
-                            fonts.insert(format.font.clone());
+                            let embedded_only = format
+                                .field_options()
+                                .is_some_and(|options| options.embed_fonts);
+                            if embedded_only {
+                                if !has_embedded_font_face(
+                                    project,
+                                    &format.font,
+                                    format.bold,
+                                    format.italic,
+                                ) {
+                                    let style = match (format.bold, format.italic) {
+                                        (true, true) => "Bold Italic",
+                                        (true, false) => "Bold",
+                                        (false, true) => "Italic",
+                                        (false, false) => "Regular",
+                                    };
+                                    let field = if element.name.trim().is_empty() {
+                                        element.id.as_str()
+                                    } else {
+                                        element.name.as_str()
+                                    };
+                                    warnings.push(format!(
+                                        "Text field '{field}' requires embedded font '{}' ({style}), but no matching embedded face is configured. Select the field, open Properties ▸ Embed font ▸ Embedding…, and add that face before publishing; embedded-only text can otherwise be blank.",
+                                        format.font
+                                    ));
+                                }
+                            } else {
+                                fonts.insert(format.font.clone());
+                            }
                         }
                         _ => {}
                     }
@@ -369,13 +398,14 @@ pub fn export_warnings(project: &Project) -> Vec<String> {
             }
         }
     }
-    let mut warnings: Vec<_> = fonts
-        .into_iter()
-        .filter(|font| !embedded.contains(&font.to_ascii_lowercase()))
-        .map(|font| format!(
-            "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
-        ))
-        .collect();
+    warnings.extend(
+        fonts
+            .into_iter()
+            .filter(|font| !embedded.contains(&font.to_ascii_lowercase()))
+            .map(|font| format!(
+                "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
+            )),
+    );
     let non_font_resources = project
         .resources
         .iter()
@@ -2519,6 +2549,148 @@ mod tests {
                 .any(|e| matches!(e.kind, ElementKind::Text { .. })),
             "static text was converted to vector path outlines"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn selected_text_embedding_uses_authored_family_style_ranges_and_field_state() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+
+        let mut project = Project::blank();
+        project.format_version = 7;
+        let font_id = "font-book-bold";
+        let all_fixture_codepoints: std::collections::BTreeSet<u32> = (32u32..=0x04ff).collect();
+        let font_bytes = neoflash_core::TextFormat::subset_font_bytes(
+            b"portable-font-fixture",
+            &all_fixture_codepoints,
+        )
+        .unwrap();
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                font_id,
+                "fonts/Book Antiqua Bold.ttf",
+                "font/ttf",
+                &font_bytes,
+            )
+            .unwrap(),
+        );
+        let metadata = serde_json::json!([{
+            "id": font_id,
+            "name": "Book Antiqua Bold",
+            "family": "Book Antiqua",
+            "style": "Bold",
+            "ranges": [true, false, false, false, false, false, false, false],
+            "extra_chars": "Ω",
+            "export_for_actionscript": false,
+            "class_name": ""
+        }]);
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "font-embedding-metadata",
+                "fonts/embedding.json",
+                "application/json",
+                &serde_json::to_vec(&metadata).unwrap(),
+            )
+            .unwrap(),
+        );
+        let mut format = neoflash_core::TextFormat {
+            font: "Book Antiqua".to_owned(),
+            size: 18.0,
+            bold: true,
+            ..neoflash_core::TextFormat::default()
+        };
+        format.set_field_options(Some(neoflash_core::AuthoredTextFieldOptions {
+            embed_fonts: true,
+            ..Default::default()
+        }));
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(neoflash_core::Element {
+                id: "embedded-field".to_owned(),
+                name: "Headline".to_owned(),
+                kind: ElementKind::TextBox {
+                    text: "AΩ".to_owned(),
+                    width: 180.0,
+                    height: 40.0,
+                    format,
+                    word_wrap: false,
+                    multiline: false,
+                },
+                ..Default::default()
+            });
+        project.validate().unwrap();
+        assert!(has_embedded_font_face(
+            &project,
+            "Book Antiqua",
+            true,
+            false
+        ));
+        assert!(
+            !export_warnings(&project)
+                .iter()
+                .any(|warning| warning.contains("requires embedded font"))
+        );
+
+        let mut subset_project = project.clone();
+        let subset = apply_font_policy(&mut subset_project, FontExportPolicy::Subset);
+        assert_eq!(subset.subset_stats.len(), 1);
+        assert_eq!(
+            subset.subset_stats[0].codepoint_count, 28,
+            "space + A-Z + the explicit custom Omega"
+        );
+
+        let out = dir.join("out-selected-font");
+        export_project_with_policy(&project, &out, &rt, FontExportPolicy::Embed).unwrap();
+        let html = fs::read_to_string(out.join("index.html")).unwrap();
+        assert!(html.contains("font-family: \"Book Antiqua\""));
+        assert!(html.contains("font-style: normal"));
+        assert!(html.contains("font-weight: 700"));
+        assert!(!html.contains("font-family: \"Book Antiqua Bold\""));
+        let bundle: serde_json::Value = serde_json::from_str(
+            fs::read_to_string(out.join("bundle.js"))
+                .unwrap()
+                .strip_prefix("globalThis.NeoFlashBundle = ")
+                .unwrap()
+                .strip_suffix(";\n")
+                .unwrap(),
+        )
+        .unwrap();
+        let published: Project = serde_json::from_value(bundle["project"].clone()).unwrap();
+        let ElementKind::TextBox { format, .. } = &published.symbols[0].timeline.layers[0]
+            .keyframes[0]
+            .elements
+            .iter()
+            .find(|element| element.id == "embedded-field")
+            .unwrap()
+            .kind
+        else {
+            panic!("published embedded field missing");
+        };
+        assert!(
+            format
+                .field_options()
+                .is_some_and(|options| options.embed_fonts)
+        );
+
+        let ElementKind::TextBox { format, .. } = &mut project.symbols[0].timeline.layers[0]
+            .keyframes[0]
+            .elements
+            .iter_mut()
+            .find(|element| element.id == "embedded-field")
+            .unwrap()
+            .kind
+        else {
+            unreachable!();
+        };
+        format.italic = true;
+        assert!(export_warnings(&project).iter().any(|warning| {
+            warning.contains("Book Antiqua")
+                && warning.contains("Bold Italic")
+                && warning.contains("Properties ▸ Embed font ▸ Embedding…")
+        }));
+
         fs::remove_dir_all(dir).unwrap();
     }
 }

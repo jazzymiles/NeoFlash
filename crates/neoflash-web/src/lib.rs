@@ -442,6 +442,9 @@ impl WebPlayer {
     }
     pub fn set_playing(&mut self, value: bool) {
         self.player.set_playing(value);
+        if value {
+            self.player.sync_timeline_videos(&self.project);
+        }
     }
     pub fn script_overflowed(&self) -> bool {
         self.player.script_overflowed()
@@ -449,6 +452,10 @@ impl WebPlayer {
     /// Timeline sound commands (`SoundCommand`, tagged by `op`) since the last call.
     pub fn sound_commands_json(&mut self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.drain_sound_commands()).map_err(display_error)
+    }
+    /// Authored timeline-video commands (`VideoCommand`, tagged by `op`) since the last call.
+    pub fn video_commands_json(&mut self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.drain_video_commands()).map_err(display_error)
     }
     /// Audio resource IDs used by timeline sounds (decoded ahead of their keyframes).
     pub fn timeline_sound_resources_json(&self) -> Result<String, JsValue> {

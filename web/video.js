@@ -25,7 +25,7 @@
   function create(options={}){
     const {player,net,events=global.NeoFlashEvents,referenceOf,proxyForRef}=options;
     if(!player?.object_video_info||!net?.mediaSource||!events?.create)throw new TypeError('Video requires the shared display, resource and Event services.');
-    const connections=new WeakMap(),streams=new WeakMap(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),frames=new Set(),derived=new Map();
+    const connections=new WeakMap(),streams=new WeakMap(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map();
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
     const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
     let generation=1,disposed=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0;
@@ -55,6 +55,7 @@
     function emit(r,code,level='status',extra={}){
       const epoch=generation,sequence=r.sequence,info={code,level,...extra};
       if(disposed||r.generation!==epoch)return false;
+      if(r.timelineOwned)return current(r,r.media,sequence)||(!r.media&&r.generation===generation&&r.sequence===sequence);
       if(r.legacy){const fn=r.receiver.onStatus;if(typeof fn==='function')Reflect.apply(fn,r.receiver,[info]);else if(level==='error'&&typeof options.onSystemStatus==='function')options.onSystemStatus(info);}
       else hub.dispatch(r.receiver,new NetStatusEvent('netStatus',false,false,info));
       after(epoch);return !disposed&&r.generation===generation&&r.sequence===sequence;
@@ -84,7 +85,7 @@
       }
       collectFrames();repaint();changed();
     }
-    function audio(r){if(!r.media)return;r.media.muted=!unlocked||muted||r.volume===0||r.receiveState?.audio===false;r.media.volume=r.volume;}
+    function audio(r){if(!r.media)return;r.media.muted=!unlocked||muted||r.timelineMuted===true||r.volume===0||r.receiveState?.audio===false;r.media.volume=r.volume;}
     function stopMedia(r,retain){
       const frozen=retain?freeze(r):null;
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;
@@ -93,7 +94,10 @@
       r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
     }
     function playNative(r){
-      if(!r.media||!r.wanted||!unlocked)return;
+      // Authored timeline video may advance visually before activation because `audio()` keeps
+      // its HTMLVideoElement browser-muted. An actual gesture later unmutes only spans whose
+      // authored `muted` flag is false. Script-created NetStreams retain the gesture gate.
+      if(!r.media||!r.wanted||(!unlocked&&!r.timelineOwned))return;
       const media=r.media,sequence=r.sequence;if(r.legacy){if(r.playing)return;if(!streamPolicy(r,{op:'buffer_gate',...bufferFacts(r)}))return;}audio(r);
       let promise;try{promise=media.play();}catch(error){promise=Promise.reject(error);}
       Promise.resolve(promise).catch(error=>{if(!current(r,media,sequence)||!r.wanted)return;if(error?.name==='AbortError')return;r.playing=false;if(error?.name==='NotAllowedError'){unlocked=false;audio(r);changed();return;}try{emit(r,'NetStream.Play.Failed','error',{description:String(error?.message||error)});}catch(cause){report(cause);}});
@@ -105,11 +109,11 @@
       const [width,height]=dimensions(media);if(!Number.isFinite(media.duration)||media.duration<0)throw new TypeError('Live or unbounded-duration video is unsupported; use a finite media file.');
       r.metadata=true;r.width=width;r.height=height;r.duration=media.duration;r.serial=++serial;
       observeController(r,'metadata');if(!current(r,media,sequence))return;
-      const client=r.legacy?r.receiver:r.client,fn=client?.onMetaData;
+      const client=r.timelineOwned?null:(r.legacy?r.receiver:r.client),fn=client?.onMetaData;
       if(!current(r,media,sequence))return;
       if(typeof fn==='function')Reflect.apply(fn,client,[{width,height,duration:media.duration}]);
       if(!current(r,media,sequence))return;
-      if(r.pendingSeek!==null){const at=r.pendingSeek;r.pendingSeek=null;seek(r,at);}after(generation);changed();
+      if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);seek(r,at);}after(generation);changed();
     }
     function load(r,url){
       if(typeof url!=='string'||!url)throw new TypeError('NetStream.play requires a media URL string.');
@@ -136,7 +140,7 @@
       const nextFrame=(now,facts)=>{if(!current(r,media,sequence))return;try{if(r.receivePolicy)streamPolicy(r,{op:"frame",now,presented:facts.presentedFrames});r.serial=++serial;observeController(r,'time');repaint();if(current(r,media,sequence))r.frameCallback=media.requestVideoFrameCallback(nextFrame);}catch(error){if(current(r,media,sequence))report(error);}};
       if(typeof media.requestVideoFrameCallback==='function')r.frameCallback=media.requestVideoFrameCallback(nextFrame);
       if(source.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=source.url;
-      r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}playNative(r);changed();
+      r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}if(!r.timelineOwned)playNative(r);changed();
     }
     function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
     function resume(r){r.wanted=true;if(gesture()){unlocked=true;muted=false;}playNative(r);changed();}
@@ -245,11 +249,12 @@
     for(const name of ['call','addHeader','addEventListenerRemote'])Object.defineProperty(NetConnection.prototype,name,{configurable:true,writable:true,value(){unsupported('NetConnection.'+name);}});
     function videoRef(target){const value=referenceOf(target);if(!value||!player.object_alive(value.key))throw new Error('Video display object is stale or foreign.');const info=JSON.parse(native('object_video_info',value.key));return {key:value.key,ref:value.objectRef,info};}
     function binding(target){const value=videoRef(target);let b=bindings.get(value.key);if(!b){b={...value,stream:null,capture:null,captureClearId:null,frozen:null,clearSerial:-1,revision:++serial};bindings.set(value.key,b);}return b;}
-    function attach(target,value){const b=binding(target),next=value===null?null:state(value,streams);if(next===b.stream&&!b.capture)return;
+    function attachRecord(target,next){const b=binding(target);if(next===b.stream&&!b.capture)return;
       if(b.capture){b.frozen=freezeCapture(b);b.capture.release();b.capture=null;b.captureClearId=null;}
       const old=b.stream;b.frozen=old?freeze(old):b.frozen;b.stream=null;
       if(next){for(const other of bindings.values())if(other!==b&&other.stream===next){other.frozen=freeze(next);other.stream=null;other.revision=++serial;}b.stream=next;b.frozen=null;b.clearSerial=-1;}b.revision=++serial;collectFrames();after(generation);
     }
+    function attach(target,value){return attachRecord(target,value===null?null:state(value,streams));}
     function freezeCapture(b){const source=b.capture?.read();if(!source||!source.image)return b.frozen;const output=frame(source.width,source.height),ctx=output.canvas.getContext('2d');if(!ctx)throw new Error('Camera retained frame requires Canvas 2D.');ctx.drawImage(source.image,0,0,source.width,source.height);return output;}
     function attachAs3Camera(target,value){
       const b=binding(target);
@@ -298,6 +303,36 @@
       }
       context.save();try{const deblocking=Number(kind.deblocking??b?.info?.deblocking??0);context.imageSmoothingEnabled=Boolean(kind.smoothing||deblocking>0);if(deblocking>0){context.imageSmoothingQuality=deblocking>=4?'high':deblocking>=2?'medium':'low';if(deblocking>=2)context.filter=`blur(${((deblocking-1)*0.25).toFixed(2)}px)`;}context.drawImage(image,0,0,kind.width,kind.height);}finally{context.restore();}
     }
+    function timelineTarget(path){const ref=JSON.parse(native('object_ref',JSON.stringify(path)));if(!ref)throw new Error('Authored timeline Video placement is no longer active.');return proxyForRef(ref);}
+    function timelinePath(resource){const path=options.resourcePath?.(resource);if(typeof path!=='string'||!path)throw new Error(`Timeline video resource '${resource}' is missing from the publication.`);return path;}
+    function retireTimeline(channel,retain=true){const ctl=timelineControllers.get(channel);if(!ctl)return;timelineControllers.delete(channel);const b=bindings.get(ctl.targetKey);if(b?.stream===ctl.record){b.frozen=retain?freeze(ctl.record):null;b.stream=null;b.revision=++serial;}stopMedia(ctl.record,retain);streamRecords.delete(ctl.record);collectFrames();}
+    function timelineRecord(command){
+      if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');
+      const target=timelineTarget(command.target_path),targetKey=referenceOf(target)?.key;if(!targetKey)throw new Error('Authored timeline Video placement has no stable display reference.');
+      const connection={generation,sequence:0,local:true,legacy:false};
+      const record={receiver:null,generation,connection,peerID:'timeline',sequence:0,legacy:false,timelineOwned:true,timelineMuted:Boolean(command.muted),timelineLoop:Boolean(command.loop_video),client:null,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};
+      streamRecords.add(record);attachRecord(target,record);load(record,timelinePath(command.resource));record.timelineMuted=Boolean(command.muted);record.timelineLoop=Boolean(command.loop_video);if(record.media)record.media.loop=Boolean(command.loop_video);audio(record);
+      const ctl={record,targetKey,resource:command.resource};timelineControllers.set(command.channel,ctl);return ctl;
+    }
+    function timelineSeek(record,milliseconds,loop,force=false){let seconds=Math.max(0,Number(milliseconds)||0)/1000;record.timelineLoop=Boolean(loop);if(record.metadata&&record.duration>0)seconds=loop?seconds%record.duration:Math.min(seconds,record.duration);if(!record.media)throw new Error('Timeline video decoder was retired before seek.');const current=Number(record.media.currentTime)||0,close=record.playing&&Math.abs(current-seconds)<=0.08;if(record.metadata&&(!close||force))seek(record,seconds);else if(!record.metadata)record.pendingSeek=seconds;record.time=close&&!force?current:seconds;}
+    function timeline(commands){
+      open();if(!Array.isArray(commands))throw new TypeError('Timeline video commands require an Array.');
+      for(const command of commands){
+        if(!command||typeof command.op!=='string')throw new TypeError('Invalid timeline video command.');
+        if(command.op==='seek_and_present'||command.op==='start_event'){
+          let ctl=timelineControllers.get(command.channel);const target=timelineTarget(command.target_path),targetKey=referenceOf(target)?.key;
+          if(!ctl||ctl.resource!==command.resource||ctl.targetKey!==targetKey){if(ctl)retireTimeline(command.channel,false);ctl=timelineRecord(command);}
+          const r=ctl.record;r.timelineMuted=Boolean(command.muted);r.timelineLoop=Boolean(command.loop_video);if(r.media)r.media.loop=Boolean(command.loop_video);audio(r);
+          timelineSeek(r,command.op==='start_event'?command.start_offset_ms:command.target_time_ms,command.loop_video,command.op==='start_event'||!command.playing);
+          if(command.op==='start_event'||command.playing){r.wanted=true;playNative(r);}else pause(r);
+        }else if(command.op==='stop_channel')retireTimeline(command.channel,true);
+        else if(command.op==='stop'){for(const[channel,ctl]of [...timelineControllers])if(ctl.resource===command.resource)retireTimeline(channel,true);}
+        else if(command.op==='pause_streams'){for(const ctl of timelineControllers.values())if(ctl.record.wanted||ctl.record.playing)pause(ctl.record);}
+        else if(command.op==='stop_all'){for(const channel of [...timelineControllers.keys()])retireTimeline(channel,false);}
+        else if(command.op!=='cue_point_triggered')throw new TypeError(`Unknown timeline video command '${command.op}'.`);
+      }
+      changed();
+    }
     function legacyController(target,observer){
       videoRef(target);if(typeof observer!=='function')throw new TypeError('AS2 video observer required.');
       const connection=new LegacyNetConnection();connection.connect(null);const stream=new LegacyNetStream(connection),record=streams.get(stream);record.controllerObserver=observer;attach(target,stream);let retired=false;
@@ -322,9 +357,9 @@
         r.serial=++serial;
       }
     }
-    function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
+    function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();timelineControllers.clear();for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
+    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
   }
   const api=Object.freeze({create,VideoStatus});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
 })(globalThis);

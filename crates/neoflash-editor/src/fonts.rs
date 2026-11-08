@@ -592,15 +592,16 @@ pub(crate) fn embeddable_font_bytes(family: &str, style: &str) -> Result<Vec<u8>
         return Ok(bytes.to_vec());
     }
 
+    let style_lower = style.to_ascii_lowercase();
     let properties = Properties {
-        weight: if style.eq_ignore_ascii_case("Bold") {
-            Weight::BOLD
-        } else if style.eq_ignore_ascii_case("Semi Bold") {
+        weight: if style_lower.contains("semi bold") || style_lower.contains("semibold") {
             Weight::SEMIBOLD
+        } else if style_lower.contains("bold") {
+            Weight::BOLD
         } else {
             Weight::NORMAL
         },
-        style: if style.eq_ignore_ascii_case("Italic") {
+        style: if style_lower.contains("italic") {
             Style::Italic
         } else {
             Style::Normal

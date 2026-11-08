@@ -157,7 +157,7 @@ fn input(
 }
 
 #[test]
-fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_scene() {
+fn blank_stage_click_clears_frame_context_and_double_click_exits_one_level() {
     let (mut editor, ctx, page) = rectangle_stage();
     editor.set_tool(Tool::Select);
 
@@ -273,9 +273,9 @@ fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_
             Modifiers::NONE,
         );
     }
-    assert!(editor.editing_scene());
-    assert_eq!(editor.edit_depth(), 1);
-    assert_eq!(ids(&editor), vec!["double-click-outer-placement"]);
+    assert_eq!(editor.symbol_id(), "double-click-outer");
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(ids(&editor), vec!["double-click-inner-placement"]);
     assert_eq!(
         editor.tool,
         Tool::PolyStar,
@@ -284,11 +284,36 @@ fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_
     assert_eq!(editor.project, before_navigation);
     assert!(!editor.history.can_undo());
 
+    // A second deliberate double-click leaves the outer symbol in the same way. The release of
+    // the first double-click was consumed above, so it cannot immediately re-enter the selected
+    // inner placement and turn one exit gesture into a bounce.
+    for (time, pressed) in [(3.0, true), (3.05, false), (3.15, true), (3.2, false)] {
+        input(
+            &mut editor,
+            &ctx,
+            time,
+            if pressed {
+                vec![
+                    Event::PointerMoved(nested_blank),
+                    primary_button(nested_blank, true),
+                ]
+            } else {
+                vec![primary_button(nested_blank, false)]
+            },
+            Modifiers::NONE,
+        );
+    }
+    assert!(editor.editing_scene());
+    assert_eq!(editor.edit_depth(), 1);
+    assert_eq!(ids(&editor), vec!["double-click-outer-placement"]);
+    assert_eq!(editor.project, before_navigation);
+    assert!(!editor.history.can_undo());
+
     // A selected MovieClip alone is not enough to enter it: the double-click must actually hit
     // that placement. This prevents any later empty double-click from reopening a stale selection.
     editor.set_tool(Tool::Select);
     let empty_root = page.center();
-    for (time, pressed) in [(3.0, true), (3.05, false), (3.15, true), (3.2, false)] {
+    for (time, pressed) in [(4.0, true), (4.05, false), (4.15, true), (4.2, false)] {
         input(
             &mut editor,
             &ctx,
@@ -308,7 +333,7 @@ fn blank_stage_click_clears_frame_context_and_double_click_exits_nested_edit_to_
 
     // The ordinary affordance is preserved when the pointer really is on the instance artwork.
     let root_instance_art = page.min + egui::vec2(130., 120.);
-    for (time, pressed) in [(4.0, true), (4.05, false), (4.15, true), (4.2, false)] {
+    for (time, pressed) in [(5.0, true), (5.05, false), (5.15, true), (5.2, false)] {
         input(
             &mut editor,
             &ctx,

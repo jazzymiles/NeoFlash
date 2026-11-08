@@ -33,7 +33,7 @@ const FONT_FAMILIES: [&str; 6] = [
     "Courier New",
 ];
 
-const FONT_STYLES: [&str; 4] = ["Regular", "Semi Bold", "Bold", "Italic"];
+const FONT_STYLES: [&str; 5] = ["Regular", "Semi Bold", "Bold", "Italic", "Bold Italic"];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct EmbeddedFontEntry {
@@ -73,6 +73,14 @@ pub(crate) struct FontEmbeddingDraft {
     pub(crate) entries: Vec<EmbeddedFontEntry>,
     pub(crate) selected: usize,
     original_entries: Vec<EmbeddedFontEntry>,
+    pending_text_target: Option<PendingTextEmbedding>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PendingTextEmbedding {
+    symbol_id: String,
+    frame: u32,
+    element_id: String,
 }
 
 impl Default for FontEmbeddingDraft {
@@ -112,6 +120,7 @@ impl Default for FontEmbeddingDraft {
             ],
             selected: 0,
             original_entries: Vec::new(),
+            pending_text_target: None,
         }
     }
 }
@@ -205,12 +214,102 @@ fn embedding_draft_for_project(project: &neoflash_core::Project) -> FontEmbeddin
     draft
 }
 
+fn selected_text_entry(family: &str, bold: bool, italic: bool, text: &str) -> EmbeddedFontEntry {
+    let style = match (bold, italic) {
+        (true, true) => "Bold Italic",
+        (true, false) => "Bold",
+        (false, true) => "Italic",
+        (false, false) => "Regular",
+    };
+    let mut ranges = [true, true, true, true, false, false, false, false];
+    ranges[5] = text
+        .chars()
+        .any(|ch| ('\u{0400}'..='\u{04ff}').contains(&ch));
+    ranges[6] = text
+        .chars()
+        .any(|ch| ('\u{0100}'..='\u{017f}').contains(&ch));
+    ranges[7] = text
+        .chars()
+        .any(|ch| ('\u{0370}'..='\u{03ff}').contains(&ch));
+    let mut extra_chars = String::new();
+    for character in text.chars().filter(|character| {
+        !character.is_whitespace()
+            && !character.is_ascii()
+            && !('\u{0100}'..='\u{017f}').contains(character)
+            && !('\u{0370}'..='\u{03ff}').contains(character)
+            && !('\u{0400}'..='\u{04ff}').contains(character)
+    }) {
+        if !extra_chars.contains(character) {
+            extra_chars.push(character);
+        }
+    }
+    EmbeddedFontEntry {
+        id: new_id("res"),
+        name: format!("{family} {style}"),
+        family: family.to_owned(),
+        style: style.to_owned(),
+        ranges,
+        extra_chars,
+        export_for_actionscript: false,
+        class_name: String::new(),
+    }
+}
+
 impl Editor {
     /// Open the `Font embedding` modal dialog (`DL-11`).
     pub(crate) fn open_font_embedding(&mut self, ctx: &egui::Context) {
         self.finish_edits();
         let draft = embedding_draft_for_project(&self.project);
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
+    }
+
+    /// Open font embedding from a selected text field, with that field's exact face selected.
+    /// A project without prior font resources starts with only this face instead of sample entries.
+    pub(crate) fn open_font_embedding_for_text(
+        &mut self,
+        ctx: &egui::Context,
+        family: &str,
+        bold: bool,
+        italic: bool,
+        text: &str,
+        enable_after_confirm: bool,
+    ) {
+        let pending_text_target = enable_after_confirm.then(|| PendingTextEmbedding {
+            symbol_id: self.symbol_id().to_owned(),
+            frame: self.frame,
+            element_id: self
+                .selection
+                .single()
+                .map(|target| target.element.clone())
+                .unwrap_or_default(),
+        });
+        self.finish_edits();
+        let mut draft = embedding_draft_for_project(&self.project);
+        let has_authored_entries = !stored_embedding_entries(&self.project).is_empty()
+            || self
+                .project
+                .resources
+                .iter()
+                .any(neoflash_export::is_font_resource);
+        if !has_authored_entries {
+            draft.entries.clear();
+            draft.original_entries.clear();
+        }
+        let selected = selected_text_entry(family, bold, italic, text);
+        let selected_index = draft
+            .entries
+            .iter()
+            .position(|entry| {
+                entry.family.eq_ignore_ascii_case(&selected.family)
+                    && entry.style.eq_ignore_ascii_case(&selected.style)
+            })
+            .unwrap_or_else(|| {
+                draft.entries.push(selected);
+                draft.entries.len() - 1
+            });
+        draft.selected = selected_index;
+        draft.pending_text_target = pending_text_target;
+        ctx.data_mut(|data| data.insert_temp(draft_id(), draft));
     }
 
     pub(crate) fn cancel_font_embedding(&mut self, ctx: &egui::Context) {
@@ -336,6 +435,46 @@ impl Editor {
         if !saved_entries.is_empty() {
             candidate.resources.push(metadata);
         }
+        if let Some(target) = &draft.pending_text_target {
+            let Some(symbol) = candidate.symbol_mut(&target.symbol_id) else {
+                let error =
+                    "Could not update font embedding: selected text symbol no longer exists."
+                        .to_owned();
+                self.message(&error);
+                return Err(error);
+            };
+            let mut updated = false;
+            for layer in &mut symbol.timeline.layers {
+                let Some(key_index) = layer
+                    .keyframes
+                    .iter()
+                    .rposition(|keyframe| keyframe.frame <= target.frame)
+                else {
+                    continue;
+                };
+                let Some(element) = layer.keyframes[key_index]
+                    .elements
+                    .iter_mut()
+                    .find(|element| element.id == target.element_id)
+                else {
+                    continue;
+                };
+                if let neoflash_core::ElementKind::TextBox { format, .. } = &mut element.kind {
+                    let mut options = format.field_options().unwrap_or_default();
+                    options.embed_fonts = true;
+                    format.set_field_options(Some(options));
+                    updated = true;
+                }
+                break;
+            }
+            if !updated {
+                let error =
+                    "Could not update font embedding: selected text field no longer exists."
+                        .to_owned();
+                self.message(&error);
+                return Err(error);
+            }
+        }
         candidate.format_version = candidate.format_version.max(3);
         candidate.upgrade_format_for_features();
         if let Err(error) = candidate.validate() {
@@ -431,7 +570,12 @@ impl Editor {
                     c::Select::new(ui.id().with("font-embed-family"), &fam_lbl)
                         .width(200.0)
                         .show(ui, |ui| {
-                            for fam in FONT_FAMILIES {
+                            let mut families: Vec<&str> =
+                                self.fonts.families.iter().map(String::as_str).collect();
+                            families.extend(FONT_FAMILIES);
+                            families.sort_unstable_by_key(|family| family.to_ascii_lowercase());
+                            families.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+                            for fam in families {
                                 if ui
                                     .add(
                                         c::MenuItem::new(&format!("Family: {fam}"))
@@ -490,7 +634,7 @@ impl Editor {
 
         let entry = &draft.entries[draft.selected];
         let badge_text = format!(
-            "{} glyphs · ~ {} kB",
+            "{} glyphs · subset estimate ~ {} kB",
             entry.glyph_count(),
             entry.approx_kb()
         );

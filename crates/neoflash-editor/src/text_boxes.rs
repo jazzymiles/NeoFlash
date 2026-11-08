@@ -186,6 +186,53 @@ impl crate::app::Editor {
         changes.note(size_response);
         changes.note(ui.checkbox(&mut format.bold, "Bold"));
         changes.note(ui.checkbox(&mut format.italic, "Italic"));
+        let mut field_options = format.field_options().unwrap_or_default();
+        let embed_response = ui.add(neoflash_ui::components::Checkbox::new(
+            &mut field_options.embed_fonts,
+            "Embed font",
+        ));
+        let enable_after_confirm = embed_response.changed() && field_options.embed_fonts;
+        if enable_after_confirm {
+            // Enabling is transactional with the dialog: Cancel must not leave the field in
+            // embedded-only mode without a matching embedded font resource.
+            field_options.embed_fonts = false;
+        }
+        if embed_response.changed() && !enable_after_confirm {
+            format.set_field_options((!field_options.is_default()).then_some(field_options));
+        }
+        changes.note(embed_response);
+        let embedding_response = ui
+            .add(neoflash_ui::components::Button::new("Embedding…"))
+            .on_hover_text("Set font embedding options for this text field");
+        let open_embedding = enable_after_confirm || embedding_response.clicked();
+        if open_embedding {
+            let family = format.font.clone();
+            let bold = format.bold;
+            let italic = format.italic;
+            let authored_text = text.clone();
+            self.open_font_embedding_for_text(
+                ctx,
+                &family,
+                bold,
+                italic,
+                &authored_text,
+                enable_after_confirm,
+            );
+        }
+        if format
+            .field_options()
+            .is_some_and(|options| options.embed_fonts)
+            && !neoflash_export::has_embedded_font_face(
+                &self.project,
+                &format.font,
+                format.bold,
+                format.italic,
+            )
+        {
+            ui.add(neoflash_ui::components::InlineMessage::warning(
+                "This embedded-only field has no matching embedded face. Open Embedding… before publishing.",
+            ));
+        }
         changes.note(property_row(ui, "Color", |ui| {
             let mut rgb = [
                 (format.color >> 16) as u8,

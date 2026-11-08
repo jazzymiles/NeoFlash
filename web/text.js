@@ -361,11 +361,38 @@
       if(field.alpha>0)for(const [x,y,radius]of layout(field).bullets||[]){const marker={left:x-radius,top:y-radius,right:x+radius,bottom:y+radius};if(field.box){marker.left=Math.max(0,marker.left);marker.top=Math.max(0,marker.top);marker.right=Math.min(field.box.width,marker.right);marker.bottom=Math.min(field.box.height,marker.bottom);}if(marker.right>marker.left&&marker.bottom>marker.top)box=box?{left:Math.min(box.left,marker.left),top:Math.min(box.top,marker.top),right:Math.max(box.right,marker.right),bottom:Math.max(box.bottom,marker.bottom)}:marker;}
       return box;
     }
-    function isEmbeddedFontAvailable(family){
+    const projectResources=Array.isArray(project?.resources)?project.resources:[];
+    const embeddingMetadataResource=projectResources.find(r=>String(r?.path||'').toLowerCase()==='fonts/embedding.json');
+    const projectFontResourceIds=new Set(projectResources.filter(r=>{
+      const mime=String(r?.media_type||r?.mime||'').toLowerCase();
+      const name=String(r?.path||r?.name||r?.id||'').toLowerCase();
+      return mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('woff')||/\.(?:ttf|otf|woff2?)$/.test(name);
+    }).map(r=>String(r?.id||'')));
+    const embeddedFaces=(()=>{
+      if(!embeddingMetadataResource)return [];
+      try{
+        const encoded=String(embeddingMetadataResource.data_base64||'');
+        if(!encoded||encoded.length>1048576)return [];
+        let json;
+        if(typeof Buffer!=='undefined')json=Buffer.from(encoded,'base64').toString('utf8');
+        else{
+          const binary=global.atob(encoded),bytes=Uint8Array.from(binary,ch=>ch.charCodeAt(0));
+          json=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+        }
+        const entries=JSON.parse(json);
+        if(!Array.isArray(entries)||entries.length>4096)return [];
+        return entries.filter(entry=>entry&&typeof entry==='object'&&typeof entry.id==='string'&&projectFontResourceIds.has(entry.id)&&typeof entry.family==='string'&&typeof entry.style==='string');
+      }catch(_){return [];}
+    })();
+    const requestedFontStyle=format=>format?.bold?(format?.italic?'bolditalic':'bold'):(format?.italic?'italic':'regular');
+    const normalizedFontStyle=value=>String(value||'regular').toLowerCase().replace(/[\s_-]+/g,'');
+    function isEmbeddedFontAvailable(format){
+      const family=format?.font;
       if(!family)return false;
-      const wanted=String(family).toLowerCase();
-      if(registeredFonts.some(f=>String(f?.fontName||'').toLowerCase()===wanted))return true;
-      if(Array.isArray(project?.resources)&&project.resources.some(r=>{
+      const wanted=String(family).trim().toLowerCase(),wantedStyle=requestedFontStyle(format);
+      if(registeredFonts.some(f=>String(f?.fontName||'').trim().toLowerCase()===wanted&&normalizedFontStyle(f?.fontStyle)===wantedStyle))return true;
+      if(embeddingMetadataResource)return embeddedFaces.some(face=>face.family.trim().toLowerCase()===wanted&&normalizedFontStyle(face.style)===wantedStyle);
+      if(projectResources.some(r=>{
         const mime=String(r?.media_type||r?.mime||'').toLowerCase();
         const name=String(r?.path||r?.name||r?.id||'').toLowerCase();
         const isFont=mime.startsWith('font/')||mime.includes('truetype')||mime.includes('opentype')||mime.includes('woff')||/\.(?:ttf|otf|woff2?)$/.test(name);
@@ -392,7 +419,7 @@
         const rgb=field.format.color;context.fillStyle=`rgba(${rgb>>>16},${rgb>>>8&255},${rgb&255},${baseAlpha})`;
         for(const item of result.runs?.length?result.runs:result.lines){
           const fmt=item.format||field.format;
-          if(embedOnly&&registeredFonts.length>0&&!isEmbeddedFontAvailable(fmt.font))continue;
+          if(embedOnly&&registeredFonts.length>0&&!isEmbeddedFontAvailable(fmt))continue;
           if(item.format){
             applyFont(context,item.format,false,embedOnly);
             const itemRgb=item.format.color;

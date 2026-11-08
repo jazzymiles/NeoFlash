@@ -132,6 +132,8 @@ pub struct Player {
     scenes: Vec<SceneRange>,
     /// Timeline sound commands for the host and the active stream channels.
     pub(crate) sound: crate::timeline_sound::SoundState,
+    /// Authored timeline-video commands and active decoder channels.
+    pub(crate) video: crate::timeline_video::TimelineVideoState,
 }
 
 impl Player {
@@ -164,6 +166,7 @@ impl Player {
             overflowed: false,
             scenes: vec![],
             sound: Default::default(),
+            video: Default::default(),
         };
         player.reset_with_playing(project, playing);
         player
@@ -198,6 +201,7 @@ impl Player {
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.sound.reset();
+        self.video.reset();
         self.clocks.insert(
             vec![],
             Clock {
@@ -224,6 +228,7 @@ impl Player {
         self.playing = playing;
         if !playing {
             self.sound.stop_streams();
+            self.video.pause_streams();
         }
         self.set_linked_playing(playing);
     }
@@ -234,6 +239,11 @@ impl Player {
         let mut commands = self.sound.drain();
         commands.extend(self.drain_linked_sound_commands());
         commands
+    }
+
+    /// Authored timeline-video commands produced since the previous host drain.
+    pub fn drain_video_commands(&mut self) -> Vec<crate::VideoCommand> {
+        self.video.drain()
     }
 
     /// AS2 `stopAllSounds()` / AS3 `SoundMixer.stopAll()`: stop every sound now.
@@ -257,6 +267,27 @@ impl Player {
         let mut nodes: Vec<_> = self.previous.values().collect();
         nodes.sort_by(|a, b| a.path.cmp(&b.path));
         self.sound.sync_streams(project, nodes.into_iter(), running);
+    }
+
+    fn sync_video_scene(&mut self, project: &Project, scene: &Evaluation) {
+        let playing = self.playing;
+        let clocks = &self.clocks;
+        let running = |path: &[Id]| {
+            playing
+                && (0..=path.len())
+                    .rev()
+                    .find_map(|n| clocks.get(&path[..n]))
+                    .is_some_and(|clock| clock.playing)
+        };
+        self.video
+            .sync(project, &scene.nodes, &scene.items, running);
+    }
+
+    /// Reconcile authored video after a transport play/resume that does not itself advance a
+    /// frame. Tick, seek and timeline controls already call this through `refresh`.
+    pub fn sync_timeline_videos(&mut self, project: &Project) {
+        let scene = self.snapshot(project);
+        self.sync_video_scene(project, &scene);
     }
     pub fn script_overflowed(&self) -> bool {
         self.overflowed
@@ -302,6 +333,7 @@ impl Player {
         self.budget = SCRIPT_BUDGET;
         self.overflowed = false;
         self.sound.stop_streams();
+        self.video.stop_streams();
         self.sound.extend(linked_sound_commands);
         let count = project
             .symbol(self.root_id(project))
@@ -677,6 +709,7 @@ impl Player {
                 })
             })
             .collect::<Vec<_>>();
+        self.sync_video_scene(project, &scene);
         let retired_sound_commands = self.graph.reconcile(&placements);
         self.previous = scene
             .nodes
@@ -708,12 +741,16 @@ impl Player {
         let count = project
             .symbol(&clock.symbol_id)
             .map_or(1, |s| s.timeline.frame_count.max(1));
-        match command {
+        let refreshed = match command {
             PlaybackCommand::Play => {
                 clock.playing = true;
                 clock.programmatically_played |= count > 1;
+                false
             }
-            PlaybackCommand::Stop => clock.playing = false,
+            PlaybackCommand::Stop => {
+                clock.playing = false;
+                false
+            }
             PlaybackCommand::GotoAndPlay(frame) | PlaybackCommand::GotoAndStop(frame) => {
                 if frame >= count {
                     return false;
@@ -731,9 +768,13 @@ impl Player {
                 let mut forced = HashSet::new();
                 forced.insert(path.to_vec());
                 self.refresh(project, false, &forced);
+                true
             }
-        }
+        };
         self.sync_sound_streams(project);
+        if !refreshed {
+            self.sync_timeline_videos(project);
+        }
         true
     }
 

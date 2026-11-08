@@ -1046,7 +1046,7 @@ impl Editor {
             });
     }
 
-    /// Treat two clean clicks on genuinely empty canvas as the classic quick exit from symbol
+    /// Treat two clean clicks on genuinely empty canvas as the classic one-level exit from symbol
     /// editing. Tracking the first click ourselves lets the second press be intercepted before a
     /// sticky drawing tool starts another gesture; active Pen/shape/paint gestures keep ownership.
     fn take_empty_stage_double_click(
@@ -1108,7 +1108,8 @@ impl Editor {
         if double {
             self.finish_edits();
             self.playing = false;
-            self.leave_symbol_to_level(0);
+            let parent = self.edit_depth().saturating_sub(2);
+            self.leave_symbol_to_level(parent);
             // The transition happens on the second press so a sticky authoring tool cannot claim
             // it. egui reports `double_clicked()` on the following release frame; keep that
             // matching release owned by the exit gesture or Select could immediately reopen the

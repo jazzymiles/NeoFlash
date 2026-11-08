@@ -2,6 +2,19 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Published-media and classic text follow-up (`T-137`): double-clicking genuinely empty canvas while editing a
+  nested symbol now leaves exactly one hierarchy level per gesture, preserving the complete press/release guard so
+  the restored child is not immediately reopened. Authored timeline video now reaches HTML5 publication through a
+  Rust-owned scheduler and stable full-placement channels: Finder-imported MP4/M4V/MOV/WebM/OGV spans create native
+  browser decoders automatically and advance visually while browser-muted before activation. Stream spans follow
+  play, pause and scrubbing and retire at span exit; Event spans continue independently until a matching Stop;
+  Restart clears all authored video channels. None of these paths requires an ActionScript `NetStream`. TextBox Properties now
+  exposes NF2 `Embed font` and `Embedding…`; the existing dialog opens on the selected Family/Style, stores character
+  ranges and custom characters, enables the field atomically with the font resources in one Undo step, and preserves
+  Cancel. HTML5 `@font-face`, outline lookup and embedded-only diagnostics use exact metadata Family/Style rather
+  than the resource filename. Full Embed carries the complete face; the dialog labels its glyph-size figure as a
+  subset estimate. Font licence rights remain the author's responsibility.
+
 - Live-workflow regression repair (`T-136`): a nested-editing empty-canvas double-click now consumes the complete
   gesture and stays on the root Stage instead of immediately reopening the selected MovieClip. Help, `F1` and
   Timeline Help open an immediate menu-command palette with focused fuzzy search, keyboard navigation and direct

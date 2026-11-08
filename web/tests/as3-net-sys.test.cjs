@@ -1278,6 +1278,61 @@ test('Wave 6 Areas 4-7 conformance: SoftKeyboardEvent, drawWithQuality supersamp
   // When embedFonts is true, generic sans-serif fallback is omitted
   assert.equal(drawCalls[0].font.includes('sans-serif'), false);
 
+  // Authored embedding metadata, not the resource filename, owns the exact family/style match.
+  // Registering any runtime Font activates embedded-only filtering; an unrelated registered Font
+  // must not make a misleading resource path look like the requested embedded face.
+  const embeddingMetadata = [
+    { id: 'book-face', family: 'Book Antiqua', style: 'Bold' },
+    { id: 'misleading-face', family: 'Different Family', style: 'Regular' },
+  ];
+  const metadataTextHost = NeoFlashText.create({
+    player: h.player,
+    wasm,
+    project: {
+      resources: [
+        { id: 'book-face', path: 'fonts/opaque-asset-17.ttf', media_type: 'font/ttf', data_base64: 'AA==' },
+        { id: 'misleading-face', path: 'fonts/PathOnlyFamily.ttf', media_type: 'font/ttf', data_base64: 'AA==' },
+        {
+          id: 'font-metadata',
+          path: 'fonts/embedding.json',
+          media_type: 'application/json',
+          data_base64: Buffer.from(JSON.stringify(embeddingMetadata), 'utf8').toString('base64'),
+        },
+      ],
+    },
+    measureText: (s, fmt) => s.length * ((fmt && fmt.size) || 12) * 0.55,
+  });
+  function UnrelatedEmbeddedFont() {
+    return metadataTextHost.Font.__nfAllocate({ className: 'UnrelatedEmbeddedFont' });
+  }
+  metadataTextHost.Font.registerFont(UnrelatedEmbeddedFont);
+  const metadataField = {
+    box: { width: 200, height: 40 }, text: 'Embedded', multiline: false, word_wrap: false,
+    alpha: 255, revision: '2', embed_fonts: true,
+    format: { font: 'Book Antiqua', size: 16, color: 0x336699, align: 'left', bold: true, italic: false },
+    default_format: { font: 'Book Antiqua', size: 16, color: 0x336699, align: 'left', bold: true, italic: false },
+  };
+  drawCalls.length = 0;
+  metadataTextHost.draw(mockCtx, metadataField);
+  assert.equal(drawCalls.some(c => c.op === 'fillText'), true, 'metadata family/style resolves an opaque resource name');
+  drawCalls.length = 0;
+  metadataTextHost.draw(mockCtx, {
+    ...metadataField,
+    revision: '3',
+    format: { ...metadataField.format, italic: true },
+    default_format: { ...metadataField.default_format, italic: true },
+  });
+  assert.equal(drawCalls.some(c => c.op === 'fillText'), false, 'a missing Bold Italic face is not accepted as Bold');
+  drawCalls.length = 0;
+  metadataTextHost.draw(mockCtx, {
+    ...metadataField,
+    revision: '4',
+    format: { ...metadataField.format, font: 'PathOnlyFamily', bold: false },
+    default_format: { ...metadataField.default_format, font: 'PathOnlyFamily', bold: false },
+  });
+  assert.equal(drawCalls.some(c => c.op === 'fillText'), false, 'metadata prevents filename-only false positives');
+  metadataTextHost.dispose();
+
   // 3. Area 7: Sound.loadPCMFromByteArray -> playable AudioBuffer + SoundMixer.computeSpectrum channel mixing
   const audioHost = NeoFlashAudio.create({
     player: h.player,

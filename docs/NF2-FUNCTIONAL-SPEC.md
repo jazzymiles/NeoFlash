@@ -71,7 +71,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | ST-09 | Toasts / progress / spinner | Window chrome | partial | UI-only | P1 |
 | ST-10 | Dock compass | Docking | absent | UI-only | P3 |
 | ST-11 | Canvas editing chrome (Selection/Transform box variants, gradient transform focal handle) | Stage | partial (boxes, anchors, marquee, transformation point done) | editor | P2 |
-| PR-01 | Properties — Text (full NF2 variant) | Properties | partial | yes | P2 |
+| PR-01 | Properties — Text (full NF2 variant) | Properties | partial (`Embed font` / `Embedding…` working) | yes | P2 |
 | PR-02 | Properties — Oval / Rectangle primitive options | Properties | done | yes | P2 |
 | PR-03 | Stroke style (line style, cap, join, miter, hinting, scale) + Stroke style dialog | Properties / dialog | done (`panels/stroke_style.rs`) | yes | P2 |
 | PR-04 | Properties — Movie clip: colour effect styles | Properties | partial (R-012) | editor | P1 |
@@ -79,7 +79,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | partial (Library + Stage Swap done; R-012) | editor / yes | P2 |
 | PR-07 | Properties — Graphic thumbnail strip | Properties | done (`panels/live_planned.rs` + `authoring_symbols.rs`) | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
-| PR-09 | Properties — Video playback & cue points | Properties | partial (`timeline_video.rs`; full authored playback UI remains) | yes | P3 |
+| PR-09 | Properties — Video playback & cue points | Properties | partial (`TimelineVideoSpan` HTML5 playback works; Properties/cue-points UI remains) | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | done | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
@@ -117,7 +117,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Dialog | partial (`panels/export_image.rs` + `neoflash_export::image_export`; documented format fallbacks) | yes | P2 (PNG/SVG) / P3 |
 | DL-05 | Export video | Dialog | done (`panels/export_video.rs`) | yes | P3 |
 | DL-06 | Export audio | Dialog | done | yes | P3 |
-| DL-07 | Import video | Dialog | partial (`panels/import_video.rs`; validated authoring import, playback remains partial) | yes | P3 |
+| DL-07 | Import video | Dialog | partial (`panels/import_video.rs`; embedded HTML5 playback works, native/external/progressive remain) | yes | P3 |
 | DL-08 | Sound properties | Dialog | done | yes | P3 |
 | DL-09 | Edit envelope | Dialog | done | yes | P3 |
 | DL-10 | Import PSD to library | Importer | partial (`neoflash_import::psd`; editor/CLI wiring remains) | yes | P3 |
@@ -507,19 +507,22 @@ the document. The separate Bitmap properties dialog remains unavailable.
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 
-**PR-01 · Properties — Text** — partial (`TextBox` font/size/colour/leading/alignment/wrap work)
+**PR-01 · Properties — Text** — partial (`TextBox` font/size/colour/leading/alignment/wrap and font embedding work)
 - Stage authoring: clicking with Text creates point text that grows with its content; dragging creates a fixed,
   multiline wrapping TextBox. Break Apart splits multi-character text into positioned characters and a subsequent
   Break Apart converts a character to editable contours from its installed font; single-character text converts
   directly. Conversion is atomic and preserves supported per-character formatting rather than synthesising boxes.
-- Missing NF2 controls: text type Static / Dynamic / Input; orientation; Embed…; tracking (letter spacing); Auto
+- Working font controls: `Embed font` and `Embedding…` use the existing NF2 components; the dialog opens on the
+  selected exact Family/Style, stores ranges/custom characters and commits the resource plus field flag in one Undo.
+- Missing NF2 controls: text type Static / Dynamic / Input; orientation; tracking (letter spacing); Auto
   kern; anti-alias (readability / animation / device); selectable; render as HTML; border; superscript / subscript;
   paragraph indent / margins (fields exist in `TextFormat` — verify editor exposure); behaviour single line /
   multiline / no wrap / password; Options; Filters.
-- Data: `ElementKind::TextBox { text, width, height, format: TextFormat, word_wrap, multiline }`; `TextFormat` has
+- Data: `ElementKind::TextBox { text, width, height, format: TextFormat, word_wrap, multiline }`; `TextFormat.fieldOptions`
+  carries `embed_fonts`, and `TextFormat` has
   letter_spacing, kerning, indent, margins, url/target. Runtime `TextField` has type/selectable/password for scripts
   (runtime only). **NEW** authored text type, selectable, html, border, anti-alias, max chars, variable name.
-- Depends on: engine (authored dynamic/input text in export; HTML subset); Embed… needs DL-11.
+- Depends on: engine (authored dynamic/input text in export; browser-loadable HTML font subset remains partial).
 - Acceptance: Input text authored in the editor is editable in HTML5; Dynamic text has an instance name reachable
   from AS3/AS2; Static text stays non-selectable unless "selectable".
 
@@ -579,14 +582,15 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Data: `FrameSound { resource, sync, loops, loop_forever, effect, envelope }` (TL-07, DL-09, format 7).
   Acceptance: Event sound plays once per keyframe hit; Stop stops it; Stream follows playhead.
 
-**PR-09 · Properties — Video** — partial (W/H + NetStream hint)
+**PR-09 · Properties — Video** — partial (embedded authored HTML5 playback works; Properties/cue-points UI remains)
 - Missing: tabs Properties / Cue points; preview with transport; instance name + Swap…; file info; Deployment
   Embedded / External / Progressive; Autoplay; Loop; Muted; Skin; Scale Fit / Fill / None; Volume; cue points table
   (name, time, Event / Navigation) add/remove; Edit in timeline.
-- Data: `ElementKind::Video { width, height }`; runtime `video.rs` / `web/video.js` play scripted NetStream.
-  **NEW** source resource, deployment, playback flags, cue points.
-- Acceptance: an authored video with Autoplay plays in HTML5 without script; cue point fires an AS3 `cuePoint` event
-  (bounded).
+- Data: `ElementKind::Video { width, height }` plus `TimelineVideoSpan`; the Rust `Player` schedules authored
+  Stream/Event/Stop commands through WASM to `web/video.js`, while scripted NetStream remains available.
+  **NEW UI** source resource, deployment, playback flags, cue points.
+- Acceptance: embedded authored video plays in HTML5 without script. A bounded AS3 `cuePoint` event remains future
+  acceptance with the cue-points UI.
 
 **PR-10 · Properties — Motion tween** — done (`panels/motion_tween.rs`)
 - Done: replaces the frame Tween section while the playhead is inside a motion tween. Ease (Flash acceleration of the
@@ -908,8 +912,9 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 - Working: the 720 pt modal dialog and live floating panel choose a real local MP4/WebM/Ogg resource, validate its
   container/codec diagnostics, set the timeline video span, optionally place a video element, extend the timeline and
   match the document FPS in one `"Import video"` Undo step. Identical media is reused and colliding resource paths are
-  made unique. Read, format or project-validation failures leave both the draft and document unchanged. The authored
-  playback/cue-point surface in PR-09 and true URL-backed progressive deployment remain incomplete.
+  made unique. Read, format or project-validation failures leave both the draft and document unchanged. Embedded
+  authored spans publish and play automatically in HTML5. Native editor decoding, the Properties/cue-point surface
+  in PR-09 and true URL-backed external/progressive deployment remain incomplete.
 
 **DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
 source path and decoded format/duration/size stats, configures per-resource `Export` compression (`Compression: MP3 | Default | WAV (PCM) | Original`, `Bit rate: 64`–`320 kbps`, `Quality: Fast | Medium | Best`, `Convert stereo to mono`, and live `"Result: … — N % of original"` caption in `ResourceUnit.audio_export`, format 9), auditions the transcoded preview with `Test`/`Stop`, reloads from the recorded import path
@@ -950,7 +955,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, validated Import video, HTML5/Video Publish, Export image…, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; PSD import lacks editor wiring; authored video playback and the documented image-format fidelity limits remain partial; Publish settings has live HTML5 size and Video (MP4) controls |
+| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, validated Import video with automatic embedded HTML5 playback, HTML5/Video Publish, Export image…, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; PSD import lacks editor wiring; native video decoding and external/progressive deployment remain partial; documented image-format fidelity limits remain; Publish settings has live HTML5 size and Video (MP4) controls |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences, Keyboard shortcuts and Customize tools | Editing commands require the appropriate active document, selection and history |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
@@ -984,4 +989,4 @@ These checks do not claim end-to-end acceptance of every context-dependent comma
 | --- | --- | --- |
 | Frame | Working: tweens, Ease…, Clear / Convert keyframes, Select all frames, Copy / Paste motion, Paste motion special, Reverse frames, Synchronise symbols | Appropriate frame/span selection |
 | Layer | — (Add classic motion guide, Guide / Mask toggles, `Sync layer to timeline` and `Blending` submenu work; `Folder and mask…` also edits layer blend mode and timeline sync; `Window ▸ Panels ▸ Filters` edits layer `Blending` when no stage object is selected) | — |
-| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and stays returned on the root Stage without changing the sticky tool; breadcrumbs still provide deliberate level-by-level exit. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace, Break Apart and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |
+| Stage object | Working under every active tool: Edit in place defaults to the exact selected instance with its affine parent context dimmed; Library/Explorer definition editing remains isolated. Nested sessions preserve each level's frame, selection, viewport, ruler zero and Timeline focus, and restore them on exit. Double-clicking genuinely empty canvas with no active draft/gesture consumes the complete gesture and leaves exactly one hierarchy level without changing the sticky tool or reopening the restored child; repeat the gesture to continue upward, while breadcrumbs provide direct deliberate navigation. Swap symbol…, Duplicate symbol…, Create motion tween, Show in library and Distribute to layers ⇧⌘D work. Edit in new window stays disabled; Bitmap Trace, Break Apart and broader object-action rows await R-060. Non-affine 9-slice instances refuse in-place editing. Local guides/grid work for axis-preserving and quarter-turn mappings; signed/reflected ruler labels and arbitrary oblique local guide/grid/ruler chrome await R-063, with a safe screen-ruler fallback. | PR-06, LI-01, R-060, R-063 |

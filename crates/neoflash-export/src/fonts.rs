@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+const FONT_EMBEDDING_METADATA_PATH: &str = "fonts/embedding.json";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FontExportPolicy {
@@ -30,6 +32,89 @@ pub struct FontBundle {
     pub metrics: BTreeMap<String, serde_json::Value>,
     pub subset_stats: Vec<FontSubsetStats>,
     pub outlined_elements: usize,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+struct EmbeddedFontMetadata {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    family: String,
+    #[serde(default)]
+    style: String,
+    #[serde(default)]
+    ranges: Vec<bool>,
+    #[serde(default)]
+    extra_chars: String,
+}
+
+fn embedding_metadata(project: &Project) -> BTreeMap<String, EmbeddedFontMetadata> {
+    project
+        .resources
+        .iter()
+        .find(|resource| {
+            resource
+                .path
+                .eq_ignore_ascii_case(FONT_EMBEDDING_METADATA_PATH)
+        })
+        .and_then(|resource| resource.decoded_bytes().ok())
+        .and_then(|bytes| serde_json::from_slice::<Vec<EmbeddedFontMetadata>>(&bytes).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry| !entry.id.is_empty())
+        .map(|entry| (entry.id.clone(), entry))
+        .collect()
+}
+
+fn requested_style(bold: bool, italic: bool) -> &'static str {
+    match (bold, italic) {
+        (true, true) => "Bold Italic",
+        (true, false) => "Bold",
+        (false, true) => "Italic",
+        (false, false) => "Regular",
+    }
+}
+
+fn face_key(family: &str, style: &str) -> String {
+    format!(
+        "{}\u{1f}{}",
+        family.trim().to_ascii_lowercase(),
+        style.trim().to_ascii_lowercase()
+    )
+}
+
+fn metadata_codepoints(entry: &EmbeddedFontMetadata) -> BTreeSet<u32> {
+    let mut codepoints = BTreeSet::from([32]);
+    let enabled = |index| entry.ranges.get(index).copied().unwrap_or(false);
+    if enabled(0) {
+        codepoints.extend('A' as u32..='Z' as u32);
+    }
+    if enabled(1) {
+        codepoints.extend('a' as u32..='z' as u32);
+    }
+    if enabled(2) {
+        codepoints.extend('0' as u32..='9' as u32);
+    }
+    if enabled(3) {
+        codepoints.extend(0x20..=0x2f);
+        codepoints.extend(0x3a..=0x40);
+        codepoints.extend(0x5b..=0x60);
+        codepoints.extend(0x7b..=0x7e);
+    }
+    if enabled(4) {
+        codepoints.extend(0x20..=0x7e);
+    }
+    if enabled(5) {
+        codepoints.extend(0x0400..=0x04ff);
+    }
+    if enabled(6) {
+        codepoints.extend(0x0100..=0x017f);
+    }
+    if enabled(7) {
+        codepoints.extend(0x0370..=0x03ff);
+    }
+    codepoints.extend(entry.extra_chars.chars().map(|character| character as u32));
+    codepoints
 }
 
 pub fn is_font_resource(resource: &ResourceUnit) -> bool {
@@ -101,10 +186,16 @@ pub fn collect_used_codepoints(project: &Project) -> BTreeMap<String, BTreeSet<u
 }
 
 pub fn embedded_font_families(project: &Project) -> BTreeSet<String> {
+    let metadata = embedding_metadata(project);
     let mut families = BTreeSet::new();
     for res in &project.resources {
         if is_font_resource(res) {
-            let fam = font_family_for_resource(res);
+            let fam = metadata
+                .get(&res.id)
+                .map(|entry| entry.family.trim())
+                .filter(|family| !family.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| font_family_for_resource(res));
             families.insert(fam.to_ascii_lowercase());
             families.insert(fam);
             families.insert(res.id.to_ascii_lowercase());
@@ -114,14 +205,43 @@ pub fn embedded_font_families(project: &Project) -> BTreeSet<String> {
     families
 }
 
+/// Whether the project carries a font resource for the exact authored TextField face.
+/// Legacy resources without embedding metadata retain their historical family-only match.
+pub fn has_embedded_font_face(project: &Project, family: &str, bold: bool, italic: bool) -> bool {
+    let metadata = embedding_metadata(project);
+    let style = requested_style(bold, italic);
+    project.resources.iter().any(|resource| {
+        if !is_font_resource(resource) {
+            return false;
+        }
+        if let Some(entry) = metadata.get(&resource.id) {
+            entry.family.eq_ignore_ascii_case(family) && entry.style.eq_ignore_ascii_case(style)
+        } else {
+            font_family_for_resource(resource).eq_ignore_ascii_case(family)
+        }
+    })
+}
+
 pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
+    let metadata = embedding_metadata(project);
+    let mut font_bytes_by_face: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut font_bytes_by_family: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for res in &project.resources {
         if is_font_resource(res)
             && let Ok(bytes) = res.decoded_bytes()
         {
-            font_bytes_by_family.insert(font_family_for_resource(res), bytes.clone());
-            font_bytes_by_family.insert(res.id.clone(), bytes);
+            let entry = metadata.get(&res.id);
+            let family = entry
+                .map(|entry| entry.family.trim())
+                .filter(|family| !family.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| font_family_for_resource(res));
+            let style = entry.map_or("Regular", |entry| entry.style.as_str());
+            font_bytes_by_face.insert(face_key(&family, style), bytes.clone());
+            font_bytes_by_family
+                .entry(family.to_ascii_lowercase())
+                .or_insert_with(|| bytes.clone());
+            font_bytes_by_family.insert(res.id.to_ascii_lowercase(), bytes);
         }
     }
     let mut converted = 0usize;
@@ -136,7 +256,12 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
                             font_size,
                             color,
                         } => {
-                            let bytes = font_bytes_by_family.get(font_family).map(Vec::as_slice);
+                            let bytes = font_bytes_by_face
+                                .get(&face_key(font_family, "Regular"))
+                                .or_else(|| {
+                                    font_bytes_by_family.get(&font_family.to_ascii_lowercase())
+                                })
+                                .map(Vec::as_slice);
                             let commands = TextFieldState::static_text_to_outline_commands(
                                 text,
                                 font_family,
@@ -153,8 +278,15 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
                         }
                         ElementKind::TextBox { .. } if element.name.trim().is_empty() => {
                             if let Some(field) = TextFieldState::from_kind(&element.kind) {
-                                let bytes = font_bytes_by_family
-                                    .get(&field.format.font)
+                                let bytes = font_bytes_by_face
+                                    .get(&face_key(
+                                        &field.format.font,
+                                        requested_style(field.format.bold, field.format.italic),
+                                    ))
+                                    .or_else(|| {
+                                        font_bytes_by_family
+                                            .get(&field.format.font.to_ascii_lowercase())
+                                    })
                                     .map(Vec::as_slice);
                                 let commands = field.to_outline_commands(bytes);
                                 let rgb = field.format.color;
@@ -190,6 +322,7 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
 
 pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> FontBundle {
     let used_by_family = collect_used_codepoints(project);
+    let metadata = embedding_metadata(project);
     let mut bundle = FontBundle {
         policy,
         css_rules: String::new(),
@@ -219,17 +352,24 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
         if !is_font_resource(res) {
             continue;
         }
-        let family = font_family_for_resource(res);
+        let face = metadata.get(&res.id);
+        let family = face
+            .map(|entry| entry.family.trim())
+            .filter(|family| !family.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| font_family_for_resource(res));
         let Ok(raw_bytes) = res.decoded_bytes() else {
             continue;
         };
         let original_bytes = raw_bytes.len();
         let active_bytes = if policy == FontExportPolicy::Subset {
-            let codepoints = used_by_family
-                .get(&family)
-                .or_else(|| used_by_family.get(&res.id))
-                .cloned()
-                .unwrap_or_else(|| (32u32..=126).collect());
+            let codepoints = face.map(metadata_codepoints).unwrap_or_else(|| {
+                used_by_family
+                    .get(&family)
+                    .or_else(|| used_by_family.get(&res.id))
+                    .cloned()
+                    .unwrap_or_else(|| (32u32..=126).collect())
+            });
             let subset = TextFormat::subset_font_bytes(&raw_bytes, &codepoints)
                 .unwrap_or_else(|_| raw_bytes.clone());
             bundle.subset_stats.push(FontSubsetStats {
@@ -255,14 +395,28 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
         }
 
         let css_family = family.replace('\\', "\\\\").replace('"', "\\\"");
+        let style = face.map_or("Regular", |entry| entry.style.as_str());
+        let style_lower = style.to_ascii_lowercase();
+        let css_weight = if style_lower.contains("semi bold") || style_lower.contains("semibold") {
+            600
+        } else if style_lower.contains("bold") {
+            700
+        } else {
+            400
+        };
+        let css_style = if style_lower.contains("italic") {
+            "italic"
+        } else {
+            "normal"
+        };
         let mime = if res.media_type.trim().is_empty() {
             "font/ttf"
         } else {
             res.media_type.trim()
         };
         bundle.css_rules.push_str(&format!(
-            "@font-face {{ font-family: \"{}\"; src: url('data:{};base64,{}'); font-display: block; }}\n",
-            css_family, mime, res.data_base64
+            "@font-face {{ font-family: \"{}\"; font-style: {}; font-weight: {}; src: url('data:{};base64,{}'); font-display: block; }}\n",
+            css_family, css_style, css_weight, mime, res.data_base64
         ));
     }
 

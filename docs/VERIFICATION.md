@@ -124,6 +124,13 @@ Linked-card body clicks and keyboard activation passed, but an initial nested-ta
 
 Audit `VIDEO-HTML5-20261027T1042Z`, revision `f42ad94`: a four-second H.264 clip with silent AAC reached AS3-created and AS2-authored Video views. Real controls verified metadata, pre-completion pause, seek, resume, completion, post-completion Close retaining frames, AS3-only clear and Restart during HTTP playback. Screenshots confirmed retained paused/final frames and changed seek/resume frames.
 
+T-137 separately exercised an imported-style `TimelineVideoSpan` with no script-created `NetStream`. The ordinary
+export/actual-WASM host received the original bundled MP4 bytes, created a decoder for the full authored placement
+path, advanced to 0.1 s at 10 fps, paused, retired its Blob after leaving the span and created a fresh decoder on
+Restart. Native Chrome then showed changing H.264 frames before activation while the media remained browser-muted;
+Pause held frame 23/40 and Restart resumed from frame 2/40. This establishes the embedded authored-video publication
+path, not audible output, native editor decoding, external/progressive deployment or codec breadth.
+
 This short complete file does not establish audible output, precise synchronization, large-file transport, arbitrary codecs, active-close/rebinding races, smoothing, complex masks/transforms/filters or native Video authoring. See [ADR 0031](decisions/0031-video-streams.md).
 
 <a id="independent-classpackage-verification-of-6687ced"></a>
@@ -325,7 +332,7 @@ Actual **Chrome** checks observed nested animation, Pause, object Click scripts 
 
 Chrome keyboard checks observed named buttons, one activation per Enter/Space, retained focus during animation, disabled/image semantics and focus scrolling. A narrow viewport showed the complete fixed stage in Fit and a scrollable full-size stage at 100%; Pan moved the viewport without firing scripts. A separate in-app-browser check included 200% focus scrolling and Fit reset. Full VoiceOver, physical touch and cross-engine accessibility remain unverified; fixed-stage scaling is not responsive layout authoring.
 
-A later native Test Movie opened and exercised one local export in **Safari**. That specific check does not verify every standalone resource/media workflow or clean-machine typography. Export packaging tests establish embedded WASM and local scripts; font embedding remains absent.
+A later native Test Movie opened and exercised one local export in **Safari**. That specific check does not verify every standalone resource/media workflow or clean-machine typography. Export packaging tests establish embedded WASM and local scripts; that historical acceptance did not exercise font embedding.
 
 <a id="real-fla-to-html5--27-october"></a>
 ## Real FLA import and HTML5

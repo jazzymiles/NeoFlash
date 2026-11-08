@@ -765,7 +765,7 @@
         capture:(target,plan)=>{const bitmap=new bitmapHost.BitmapData(plan.width,plan.height,false,0xffffff);try{bitmap.draw(target,new geometryHost.Matrix(1,0,0,1,-plan.x,-plan.y));return player.bitmap_encode_png(JSON.stringify(bitmapHost.refOf(bitmap)),0,0,plan.width,plan.height,false);}finally{bitmap.dispose();}},onError:netFailure});legacyGlobals=Object.freeze({...legacyGlobals,PrintJob:as2PrintHost.PrintJob});}
       if(global.NeoFlashAS2Capture){as2CaptureHost=global.NeoFlashAS2Capture.create(wasm,{referenceOf:target=>references.get(target),display,getAudio:()=>audioHost,afterEvent:afterTimerEvent,onError:netFailure,onSystemStatus:notifySystemStatus});legacyGlobals=Object.freeze({...legacyGlobals,Camera:as2CaptureHost.Camera,Microphone:as2CaptureHost.Microphone});}
       if(global.NeoFlashVideo&&netHost&&global.NeoFlashEvents&&typeof player.object_video_info==='function'){
-        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getAs3Camera:()=>as3MediaEventsHost?.cameraVideoAdapter,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,getFrameRate:()=>runtimeFrameRate,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
+        videoHost=global.NeoFlashVideo.create({getCapture:()=>as2CaptureHost,getAs3Camera:()=>as3MediaEventsHost?.cameraVideoAdapter,getRemoting:()=>as2ConnectionsHost?.remoting,player,wasm,events:global.NeoFlashEvents,net:netHost,getSoundTransform:()=>audioHost?.SoundTransform,getFrameRate:()=>runtimeFrameRate,resourcePath:id=>(typeof project==='undefined'?null:project.resources?.find(resource=>resource.id===id)?.path)||null,referenceOf:target=>references.get(target),proxyForRef,onError:netFailure,onSystemStatus:notifySystemStatus,afterEvent:afterTimerEvent,onFrame:()=>{if(typeof context!=='undefined')render();},onState:updateAudioStatus});
         const LegacyVideo=function(){throw new TypeError('AS2 Video must be an authored Video placement; new Video() is not available.');};
         Object.defineProperties(LegacyVideo,{__nfIs:{value:videoHost.Video.__nfIs},[Symbol.hasInstance]:{value:videoHost.Video.__nfIs}});
         legacyGlobals=Object.freeze({...legacyGlobals,Video:LegacyVideo,NetConnection:videoHost.LegacyNetConnection,NetStream:videoHost.LegacyNetStream});
@@ -795,7 +795,7 @@
             else proxyFor([])?.gotoAndStop?.(target+1);
           }
         };
-        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:typeof document==='undefined'?null:document,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{if(typeof canvas==='undefined')return [Number(event?.clientX)||0,Number(event?.clientY)||0];const r=canvas.getBoundingClientRect(),[w,h]=logicalSize();return[(event.clientX-r.left)*w/r.width,(event.clientY-r.top)*h/r.height];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
+        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:typeof document==='undefined'?null:document,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{if(typeof canvas==='undefined')return [Number(event?.clientX)||0,Number(event?.clientY)||0];const r=canvas.getBoundingClientRect(),[w,h]=logicalSize();return[(event.clientX-r.left)*w/r.width,(event.clientY-r.top)*h/r.height];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){
@@ -1548,6 +1548,7 @@
       if (player.script_overflowed()) throw new Error('Script event limit exceeded. Check recursive timeline controls.');
       as2ObjectHost?.syncTextVariables();
       drainSounds();
+      drainVideos();
       } finally {
         inDispatch = wasInDispatch;
       }
@@ -1561,6 +1562,13 @@
       if(!audioHost)return;
       if(!soundsPreloaded){soundsPreloaded=true;const ids=JSON.parse(player.timeline_sound_resources_json());if(ids.length)audioHost.preloadTimeline(ids);}
       if(commands.length)audioHost.timeline(commands);
+    }
+    // Authored timeline video uses the same Rust-owned command boundary as frame sound. The
+    // browser owns only native decoding, frame presentation and user-activation state.
+    function drainVideos(){
+      if(typeof player.video_commands_json!=='function')return;
+      const commands=JSON.parse(player.video_commands_json());
+      if(commands.length&&videoHost)videoHost.timeline(commands);
     }
     // AS2 stopAllSounds() and AS3 SoundMixer.stopAll() stop scripted and timeline sounds.
     function stopTimelineSounds(){if(typeof player.stop_all_sounds==='function'){player.stop_all_sounds();drainSounds();}}
@@ -1655,7 +1663,7 @@
     canvas.addEventListener('pointerleave', () => { pointerOverContent=false;updateCursor(); });
     toggle.addEventListener('click', () => {
       player.set_playing(!player.is_playing());
-      try { drainSounds(); } catch (error) { fail(error); }
+      try { drainSounds();drainVideos(); } catch (error) { fail(error); }
       lastTime = null;
       accumulated = 0;
       render();
@@ -1741,7 +1749,7 @@
       global.requestAnimationFrame(animate);
     }
     global.requestAnimationFrame(animate);
-    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, pause: () => { player.set_playing(false); drainSounds(); }, resume: () => player.set_playing(true), restart: () => document.getElementById('restart').click() });
+    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, pause: () => { player.set_playing(false); drainSounds();drainVideos(); }, resume: () => {player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
   }
   boot().catch(fail);
 })(globalThis);
