@@ -30,3 +30,6 @@ __pycache__/
 
 # Local reference signatures used to regenerate the Actions API index.
 /docs/actionscript-reference/
+
+# Local screenshot history of the application’s evolution.
+/steps/

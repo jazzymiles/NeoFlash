@@ -1063,5 +1063,3 @@ test('TextInput: clicking Dynamic/Static text keeps Canvas text visible without 
   textInput.dispose();
   player.free();
 });
-
-
