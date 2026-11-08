@@ -303,7 +303,9 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Done: `Transform.primitive: Option<PrimitiveOptions>` stores Rectangle `corner_radii: [f64; 4]` (linked by default)
   and Oval `start_angle`, `end_angle` (`0–360°`), `inner_radius` (`0–99 %`) and `close_path` in document format 7.
   Geometry builders in `neoflash_core::geometry` drive evaluation, shape morphs, hit testing, native painting and HTML5
-  export. `Modify ▸ Break Apart` (`⌘B`) converts a parametric rectangle or oval into its `Path`.
+  export. While dragging a `Rectangle` on Stage (`stage_selection.rs`), pressing `↑` / `↓` arrow keys adjusts
+  `rectangle_corner_radius` live with immediate visual feedback. `Modify ▸ Break Apart` (`⌘B`) converts a parametric
+  rectangle or oval into its `Path`.
 - Purpose: drawing objects that keep parametric corner radii / start-end angle / inner radius after drawing.
 - Behaviour: drag draws and keeps the tool active for subsequent gestures; Oval previews its actual contour (including arcs and inner radius) before release; ⇧ constrains; ⌥ from centre; Properties shows PR-02 options; Break Apart converts to paths.
 - Data: format-7 `Transform.primitive: Option<PrimitiveOptions>` on `ElementKind::Rectangle/Ellipse`.
@@ -345,18 +347,22 @@ the document. The separate Bitmap properties dialog remains unavailable.
   NF2 snap ring.
 
 **TO-07 · Tool options: Object drawing, Smooth / Straighten, Snap to objects** — partial
-- Done: Object / Merge Drawing (`J`, existing tool options and Drawing preferences), pencil smoothing/straightening,
-  brush size and whole-object/fill/stroke eraser modes. Merge separates fill/stroke, merges or subtracts overlapping
-  fills and splits at actual fill/stroke intersections; internal tessellation edges are not cuts. Grouped Merge
-  elements remain isolated from raw drawing and drop-time remerging. Transformed gradients keep their appearance.
+- Done: Under `Options` in the `Tools` panel (`panels/tools.rs`), per-tool Classic Flash icon modifiers replace the old generic settings button (`Selection`: `Snap to objects`, `Smooth`, `Straighten`; `Free Transform`: `Snap to objects`, `Rotate and Skew`, `Scale`, `Distort`, `Envelope`; `Line`/`Pen`/`Rectangle`/`Oval`: `Object drawing (J)`, `Snap to objects`; `PolyStar`: `Object drawing (J)`, `Snap to objects`, `PolyStar tool settings…`; `Pencil`: `Object drawing (J)`, `Pencil mode`; `Brush`: `Object drawing (J)`, `Lock fill`, `Brush mode`, `Brush size`, `Brush shape`, `Use pressure`, `Use tilt`; `Paint Bucket`: `Gap size`, `Lock fill`; `Eraser`: `Eraser mode`, `Faucet`, `Eraser size`; `Lasso`: `Touch selects`, `Slice merge fills`, `Polygon mode`, `Magic wand`, `Magic wand settings…`; `Zoom`: `Enlarge`, `Reduce`). Stretching the `Tools` panel horizontally reflows tools into `N` left-aligned columns (`tool_columns_for_width`, `tool_grid_row`) and compacts the floating window height from the bottom up while keeping its top `outer_position[1]` fixed (`compact_floating_tools_window_bottom_up`). Object / Merge Drawing (`J`, existing tool options and Drawing preferences), pencil smoothing/straightening,
+  brush size and whole-object/fill/stroke/selected-fills/inside eraser modes (`Round` and `Square` tip shapes). Merge separates fill/stroke, merges or subtracts overlapping
+  fills and splits at actual fill/stroke intersections; internal tessellation edges are not cuts. Double-clicking a raw Merge stroke with Selection (`V`) selects only connected Merge stroke segments of the same stroke paint (`merge_connected_stroke_ids`). Grouped Merge
+  elements remain isolated from raw drawing and drop-time remerging. Transformed gradients keep their appearance. On a multi-selection, `Modify ▸ Break Apart` (`⌘B`, `break_apart_selection`) continues working when some selected objects are already final shapes (`merge == true`), advancing each remaining group, symbol instance, text block, bitmap, primitive or Object Drawing shape by one hierarchy step per invocation until all selected objects are shapes.
+- Subselection (`A`) supports multi-anchor dragging (`move_selected_anchors`), `1 px` / `Shift + 10 px` arrow-key anchor nudging (`nudge_selected_vector_points`), rectangular marquee selection of anchor points (`subselect_marquee`), and `⌥`-dragging a corner anchor to pull out symmetric cubic Bézier tangent handles (`pull_anchor_tangent`).
+- Free Transform (`Q`) double-clicking the transformation point (`reset_transformation_point`) toggles a Symbol Instance between its default center (`None`) and its symbol registration point (`Some([0.0, 0.0])`), and resets custom pivots back to center.
+- Line (`N`) supports `⌥` (`Alt`) symmetric center-out drawing (`line_gesture_points`).
+- Lasso (`L`) includes `Polygon mode` (click-by-click straight-edge polygon selection closed by double-click, `Enter`, or clicking the start vertex) and `Magic wand` + `Magic wand settings…` (`Threshold 0..=200`, `Smoothing: Pixels | Rough | Normal | Smooth`) for selecting contiguous color regions of bitmaps/bitmap-filled Merge shapes and same-paint Merge fills.
 - Bucket applies the active solid or gradient paint to an existing shape or to a bounded planar face assembled from
-  several vector contours; Gap size closes eligible contour gaps in screen units. Ink Bottle can add the active stroke
-  to a transparent contour; Eyedropper replaces the selected well with the sampled solid color. Properties RGB edits
+  several vector contours; Gap size closes eligible contour gaps in screen units. With `Lock fill` off, clicking with a Radial gradient centers the gradient at the click point, and clicking-and-dragging with a Linear or Radial gradient sets the gradient center, rotation angle and span along the drag vector (`apply_bucket_gradient_to_element`). Ink Bottle can add the active stroke
+  to a transparent contour; Eyedropper replaces the selected well with the sampled solid color or gradient, and when sampling a gradient fill automatically enables `Lock fill` (`brush_lock_fill = true`). Properties RGB edits
   replace a gradient; alpha-only edits retain stops and update their alpha.
-- Eraser tests the full swept cursor disk against visible geometry, including holes, masks and layer locks. Its default
-  mode cuts through raw Merge fills and Bézier strokes; whole-object/fill/stroke modes remain explicit choices. The
+- Eraser tests the full swept cursor footprint (`Round` disk or `Square` box) against visible geometry, including holes, masks and layer locks. Its default
+  mode (`Erase normal`) cuts through raw Merge fills and Bézier strokes; `Erase fills`, `Erase lines`, `Erase selected fills` and `Erase inside` remain explicit choices, plus `Faucet` one-click fill/stroke erasure. The
   cursor is the complete preview: crossing artwork never flashes whole-object bounding boxes.
-- Pen closes only inside the displayed first-anchor Close zone. Escape commits a valid open contour and keeps Pen
+- Pen closes only inside the displayed first-anchor Close zone, auto-removes an interior anchor when clicked (`nf::PEN_REMOVE`), and converts an anchor between sharp corner and smooth curve with `⌥`-click or `⌥`-drag (`nf::PEN_CONVERT`). Escape commits a valid open contour and keeps Pen
   active, so the next click begins a second path instead of losing the first one.
 - Brush: Round, Flat and Chisel presets; eight tip shapes; Size 1–200 px in document units; smoothing; pressure size
   control; Lock fill for gradient placement. The shared cursor follows zoom and ⌥⌘-drag resizes the brush. Existing
@@ -378,12 +384,9 @@ the document. The separate Bitmap properties dialog remains unavailable.
   actual intersections, group isolation and Undo. `tool_workflow_tests.rs` covers eight pressure footprints,
   document-unit size across zooms, Pencil modes, sticky tools, one Undo and global Customize draft/apply/cancel.
 
-**TO-08 · Fill/stroke chip → Swatches popover** — `fill_stroke_chip` · partial
-- Purpose: §6 says the chip opens the NF2 Swatches popover; today it opens an egui RGB colour picker in a rail popover.
-- Behaviour: hex + alpha, eyedropper, no colour, wheel → Color panel, Recent / Document / Palette / Gradients.
-- Data: `Editor.fill/stroke`; Recent list (editor), Document colours (scan `Project`).
-- Depends on: UI-only, but it **changes the component used** → confirm via NF2-REQUESTS.md before switching.
-- Acceptance: choosing a swatch sets the drawing colour; alpha preserved; Recent updates.
+**TO-08 · Fill/stroke chip → Color & Fill Type popover** — `fill_stroke_chip` · done (`panels/tools.rs`, `authoring_modify.rs`)
+- Done: Clicking Fill or Stroke in `NF2/Fill Stroke Chip` opens the unified NF2 Color & Fill Type popover (`color_fill_popover_contents`) with fill-type selector (`None`, `Solid colour`, `Linear gradient`, `Radial gradient`, `Bitmap fill`), hex + alpha, 2D HSB/RGB colour picker, gradient stops bar, eyedropper, no colour, black-and-white reset, swap, `Add to swatches`, and collapsible `Swatches`.
+- Data: `Editor::contextual_paints`, `Editor.fill/stroke`, `WorkspacePrefs.recent_colors`, document colours (`Project`).
 
 ## 3. Stage chrome (`crates/neoflash-editor/src/shell.rs`, `stage.rs`, `panels/menu.rs`)
 
@@ -443,9 +446,9 @@ the document. The separate Bitmap properties dialog remains unavailable.
   segment or smooth curve vertex, `arrow-move` over a selected object or fill interior; Free Transform — `resize-h/v/d1/d2`
   on handles (by screen direction, or `skew-h` with ⌘ on a corner in Free Transform), `skew-h/v` on the edge between handles,
   `rotate` just outside a corner, `move` inside the box; Subselection — `subselect-point` over a path/shape point and `pen-add`
-  with ⌥ over a path/shape segment; Pen — `pen-close` over the first anchor and `pen-add` over a selected path segment; Hand —
+  with ⌥ over a path/shape segment; Pen — `pen-close` over the first anchor, `pen-remove` over an existing interior anchor, `pen-convert` with ⌥ over any anchor, and `pen-add` over a selected path segment; Hand —
   `hand-closed` while dragging; Zoom — `zoom-out` with ⌥; motion path ◆ — `hand-open/closed`. The mapping follows Flash
-  conventions; the design has no per-handle table (R-011). Cursors are identical in both themes. Not yet: `pen-remove/convert`,
+  conventions; the design has no per-handle table (R-011). Cursors are identical in both themes. Not yet:
   `drag-copy`.
 - Purpose: 39 `NF2 Cursor/*` glyphs (tool cursors, reshape corner/curve, move, rotate, skew, hand open/closed,
   zoom in/out, eyedropper, bucket, pen add/remove/close …) over the canvas.
@@ -500,36 +503,53 @@ the document. The separate Bitmap properties dialog remains unavailable.
   Screenshot aid: `NEOFLASH_SCREENSHOT_SELECT=select|transform|subselect` selects everything on the frame with that tool.
 - Purpose: `NF2/Selection Box` kinds (Group, Symbol + registration point, Static text round handle, Dynamic text
   square handle, Primitive control points), `Transform Box` scale vs rotate/skew, Anchor / Bezier handle, Marquee,
-  Shape Selection hatch, Gradient Transform focal triangle.
-- Behaviour: missing parts — radial focal handle (`editor-paint-effects` limit), on-stage primitive corner/angle handles.
+  Shape Selection hatch, Gradient Transform boundaries and handles.
+- Behaviour: `Tool::Gradient` (`F`) draws classic Flash Linear boundaries (two parallel perpendicular boundary lines at `x = ±819.2`, Center circle `(0, 0)`, Width square `[→]` at `(819.2, 0)`, and Rotation circle at the end of the right boundary line) and Radial boundaries (64-segment elliptical boundary ring + horizontal diameter axis line, Center circle `(0, 0)`, Focal point inverted triangle `▽` + circle, Width square `[→]`, proportional Radius/Size circle with inward arrow, and Rotation circle). Remaining: on-stage primitive corner/angle handles.
 - Brush uses the shared zoom-following footprint/resize cursor; Pencil retains its existing draft overlay without
   the separately illustrated smoothing-ahead preview. Still `StageOverlay`: rectangle/oval/line/polystar drafts,
-  pen/pencil draft stroke, lasso, eraser size circle and the gradient tool (2 handles; `NF2/Gradient Transform` has 5
-  that need focal/width gestures).
+  pen/pencil draft stroke, lasso, eraser size circle and the gradient tool (`paint_gradient_handles`).
 
 ## 4. Properties variants (`crates/neoflash-editor/src/panels/properties.rs`, `text_boxes.rs`, `paint_controls.rs`)
 
-**PR-01 · Properties — Text** — partial (compact two-row Character, Paragraph, Options and font embedding work)
+**PR-01 · Properties — Text** — done (`text_boxes.rs`, `ui_icons.rs`, `neoflash-core/src/text.rs`, `web/text.js`, `web/text-input.js`)
 - Stage authoring: clicking with Text creates point text that grows with its content; dragging creates a fixed,
-  multiline wrapping TextBox. Break Apart splits multi-character text into positioned characters and a subsequent
+  multiline wrapping TextBox; double-clicking an existing TextBox from `Selection`, `Free Transform` or `Subselection`
+  enters inline Stage text editing (`Esc` returns to `Selection`). When a TextBox is selected, Stage draws TLF-style
+  In/Out flow port boxes at the top-left/bottom-right corners and dashed vertical column-gutter dividers when `Columns > 1`
+  (`ui_icons::paint_container_guides`). Break Apart splits multi-character text into positioned characters and a subsequent
   Break Apart converts a character to editable contours from its installed font; single-character text converts
   directly. Conversion is atomic and preserves supported per-character formatting rather than synthesising boxes.
-- Working Character, Paragraph and Options controls (`text_boxes.rs`): two-row multiline `Text` editor; two-column
-  `Text type` (`Static Text` / `Dynamic Text` / `Input Text`) and `Family`; `Style` (`Regular` / `Bold` / `Italic` /
-  `Bold Italic`), `Embed font` and `Embedding…` on one row (opening the existing NF2 dialog on the selected exact
-  Family/Style, storing ranges/custom characters and committing the resource plus field flag in one Undo); two-column
-  `Size` (`pt`) and `Letter spacing` (`px`); `Color` and `Auto kern` on one row; compact `Selectable`, `HTML`,
-  `Border` and `Underline` switches; `Paragraph` with 4-mode `Segmented` alignment (`Left` / `Center` / `Right` /
-  `Justify`), two-column `Indent` + `Line` spacing, two-column `Left` + `Right` margins and `Behavior` (`Single line` /
-  `Multiline` / `Multiline no wrap` / `Password`); and collapsible `Options` (`URL`, two-column `Target` + `Max chars`,
-  two-column `Variable` + `Restrict`).
-- Remaining NF2 controls: vertical orientation; anti-alias (readability / animation / device); superscript / subscript.
+- Complete Flash CS5 `Properties — Text` inspector (`text_boxes.rs`):
+  - Header: `Text type` (`TLF Text (CS5)` / `ClassicStatic` / `Dynamic Text` / `Input Text`), `Orientation`
+    (`Horizontal` / `Vertical LTR` / `Vertical RTL`) + `Direction` (`LTR` / `RTL`), and `Read only` / `Selectable` / `Editable` mode select.
+  - `Character`: `Family`, `Style` (`Regular` / `Bold` / `Italic` / `Bold Italic`) + `Embed…` (opening the NF2 Font
+    Embedding dialog on the selected Family/Style and committing ranges/custom characters in one Undo), `Size` (`pt`) +
+    `Leading` (`pt` or `%`), `Color` + `Tracking` (`px`), `Highlight` optional slash-swatch + `Auto kern`, `Anti-alias`
+    (`Readability` / `Animation` / `Bitmap text (no anti-alias)` / `Use device fonts`), `Rotation` (`Auto` / `0°` / `90°` /
+    `180°` / `270°`), and `Strikethrough` / `Underline` / `Superscript` / `Subscript` vector icon strip.
+  - `Advanced character`: `Case` (`Default` / `Caps` / `Small Caps` / `Uppercase` / `Lowercase` / `Caps to Small Caps`),
+    `Digit case` (`Default` / `Lining` / `Old-Style`), `Digit width` (`Default` / `Proportional` / `Tabular`),
+    `Ligatures` (`Minimum` / `Common` / `Uncommon` / `Exotic`), `Break` (`All` / `Any` / `Auto` / `No Break`),
+    `Baseline shift` (`px`), and `Locale`.
+  - `Paragraph`: 5-mode `Format` icon strip (`Align Left` / `Align Center` / `Align Right` / `Justify` / `Justify All`),
+    two-column `Left` + `Right` margins, `Indent` + `Justify` mode (`Inter-word` / `Distribute`), and two-column
+    `Space before` + `Space after` (`pt`).
+  - `Container and flow`: `Behavior` (`Single line` / `Multiline` / `Multiline no wrap` / `Password`), `Max chars` +
+    4-mode `Vertical alignment` icon strip (`Top` / `Center` / `Bottom` / `Justify`), `Columns` (`1..=50`) + `Gutter`
+    (`px`) with custom column/gutter icons, 4-sided `Padding` (`L` / `R` / `T` / `B`) with `Lock padding` toggle,
+    `Border` optional slash-swatch + `Border width` (`pt`) + `Background` optional slash-swatch, and `1st line offset`
+    (`Auto` / `Ascent` / `Line Height` / `Fixed pt`).
+  - `Options`: `Link` (`URL`) + `Target` (`_blank` / `_self` / `_parent` / `_top`), `Variable` + `Restrict`, and `Render as HTML`.
 - Data: `ElementKind::TextBox { text, width, height, format: TextFormat, word_wrap, multiline }`; `TextFormat.fieldOptions`
-  carries `field_type`, `selectable`, `editable`, `border`, `password`, `max_chars`, `restrict`, `html` and `embed_fonts`,
-  and `TextFormat` has letter_spacing, kerning, indent, margins, url/target/variable.
-- Depends on: engine (authored dynamic/input text in export; browser-loadable HTML font subset remains partial).
-- Acceptance: Input text authored in the editor is editable in HTML5; Dynamic text has an instance name reachable
-  from AS3/AS2; Static text stays non-selectable unless "selectable".
+  carries all Flash CS5 character, advanced character, paragraph, container/flow (`column_count`, `column_gutter`,
+  `vertical_align`, 4-sided padding, `border_width`, `first_line_offset_mode` + `first_line_offset`) and options fields.
+- HTML5 runtime: only `Input` text fields mount a transparent, scroll-free DOM `<input>`/`<textarea>` overlay on click;
+  `Static` and `Dynamic` text fields stay on Canvas 2D and inherit all authored `TextFormat` and `AuthoredTextFieldOptions`
+  properties (including multi-column flow, 4-sided padding, vertical align, highlight/strikethrough/superscript/subscript,
+  HTML tags, timeline variable binding, and URL navigation).
+- Acceptance: Input text authored in the editor is editable in HTML5 without scrollbars; Dynamic text has an instance name
+  and variable binding reachable from AS3/AS2; Static text stays non-selectable unless "selectable"; multi-column flow
+  matches between Stage and HTML5.
 
 **PR-02 · Properties — Oval / Rectangle primitive options** — done (`authoring_tools.rs::primitive_options_properties_ui`, wired into `panels/properties.rs` and Tool options; see TO-01)
 - Controls: Oval: Start angle, End angle, Inner radius %, Close path, Reset. Rectangle: four corner radii (linked by
@@ -568,7 +588,7 @@ the document. The separate Bitmap properties dialog remains unavailable.
   layer/instance while preserving transform, instance name, scripts, filters, blend mode, accessibility and compatible playback
   settings (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo). Selected symbol-instance Properties
   also provides symbol behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Duplicate…`, and two-column
-  `Position and size` (`X`/`Y`, `W`/`H` + `Constrain instance proportions`, `Scale X`/`Scale Y`, `Rotation`/`Skew`).
+  `Position and size` (`W`/`H` + `Constrain proportions` lock on Row 1, `X`/`Y` on Row 2, `Scale X`/`Scale Y` in `100 %` on Row 3, `Rotation`/`Skew` on Row 4).
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
@@ -619,12 +639,11 @@ the document. The separate Bitmap properties dialog remains unavailable.
 
 ## 5. Color panel (`crates/neoflash-editor/src/authoring_modify.rs` › `color_panel_*`, `fill_type_select`)
 
-**CO-01 · Fill type Linear / Radial gradient** — `fill_type_select` · done (`authoring_modify.rs`)
-- Done: Color panel switches both fill and stroke paints between None, Solid colour, Linear gradient and Radial gradient
+**CO-01 · Fill type Linear / Radial gradient & unified contextual paint** — `fill_type_select` · done (`authoring_modify.rs`)
+- Done: Color panel and Color popover operate with a single unified contextual UI (`Editor::contextual_paints`, without a `Selection`/`Drawing` toggle or `Mixed` apply gates) and switch both fill and stroke paints between `None`, `Solid colour`, `Linear gradient`, `Radial gradient`, and `Bitmap fill`
   with `NF2/Gradient Bar` (click to add stops, drag to reposition, drag vertically off to remove when > 2 stops) and
-  `NF2/Color Picker` editing of the selected stop. Solid rectangles, ovals and paths convert cleanly to `PaintedPath` via
-  `Element::to_path_commands()` with one Undo step. Not yet: Flow `Reflect` / `Repeat` and `Linear RGB` remain disabled
-  with an explanatory tooltip while runtime `GradientPaint` uses Extend (pad) spread and sRGB interpolation.
+  `NF2/Color Picker` editing of the selected stop. `No fill` / `No stroke` (`PaintFillType::None`, `[0, 0, 0, 0]` with no gradient or bitmap fill) is strictly separated from `Solid colour` with `α = 0 %` (`color != [0, 0, 0, 0]`, `color[3] == 0`, normalized via `ensure_solid_non_none`). On a multi-selection, changing Fill (solid colour, gradient, or bitmap fill) updates only selected objects that actually have a fill (`element_has_fill == true`) and never assigns a fill to unfilled stroke-only contours until filled with the Paint Bucket (`Tool::Bucket`). Solid rectangles, ovals and paths convert cleanly to `PaintedPath` via
+  `Element::to_path_commands()` with one Undo step.
 - Purpose: Color panel edits gradients: `NF2/Gradient Bar` with draggable stops (click adds, drag off removes),
   Flow extend / reflect / repeat, Linear RGB, selected stop edited by the picker; on-stage via Gradient Transform.
 - Data: `ElementKind::PaintedPath { fill_gradient, stroke_gradient: Option<GradientPaint> }`.
@@ -796,7 +815,8 @@ refused.
   Recent updates.
 
 **PP-11 · Info** — done (`panels/info.rs`, `Window ▸ Panels ▸ Info` `⌘I`)
-- Done: editable 2×2 selection `W` / `H` / `X` / `Y` fields (committed as one Undo step via Transform layout units),
+- Done: interactive 9-point (3×3) `RegistrationPicker` (`info_anchor`) + editable 2×2 selection `W` / `H` / `X` / `Y` fields
+  (displaying and editing the chosen 9-point anchor coordinate and scaling `W` / `H` relative to that anchor as one Undo step),
   live `Cursor` `X` / `Y` in active ruler units, and `Colour` `R` `G` `B` `A` + swatch under the stage pointer (sampling
   topmost painted elements, gradients and cached bitmap pixels, falling back to stage background).
 - Controls: W H X Y of the selection, Cursor X Y in stage coordinates, Colour under cursor R G B A.
