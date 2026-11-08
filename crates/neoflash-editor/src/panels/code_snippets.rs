@@ -420,6 +420,9 @@ impl Editor {
                 }
             }
             let frame = s.frame;
+            if frame >= s.symbol().timeline.frame_count {
+                s.ensure_key(false);
+            }
             let existing = s
                 .symbol()
                 .timeline

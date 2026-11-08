@@ -3615,6 +3615,9 @@ impl Editor {
                     .map_or(ScriptLanguage::JavaScript, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
+                    if frame >= editor.symbol().timeline.frame_count {
+                        editor.ensure_key(false);
+                    }
                     let scripts = &mut editor.symbol_mut().timeline.scripts;
                     if let Some(existing) = scripts.iter_mut().find(|s| s.frame == frame) {
                         append_script_assist_to_source(&mut existing.script.source, &snippet);

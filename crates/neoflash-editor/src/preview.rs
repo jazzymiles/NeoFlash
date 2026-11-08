@@ -228,6 +228,9 @@ impl Editor {
         preview: Option<&AuthoringPreview>,
         show_masking: bool,
     ) -> AuthoredScene {
+        if !self.playing && self.frame >= self.symbol().timeline.frame_count {
+            return AuthoredScene::default();
+        }
         let eval_project = self.project_for_stage_eval();
         let simple_buttons_active = self.enable_simple_buttons
             && !self.playing

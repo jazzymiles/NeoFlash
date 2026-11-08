@@ -560,6 +560,9 @@ impl Editor {
                 ScriptTarget::Source => unreachable!("Project files use their own editor"),
                 ScriptTarget::Frame => {
                     let frame = s.frame;
+                    if frame >= s.symbol().timeline.frame_count {
+                        s.ensure_key(false);
+                    }
                     let scripts = &mut s.symbol_mut().timeline.scripts;
                     scripts.retain(|fs| fs.frame != frame);
                     if !script.source.trim().is_empty()

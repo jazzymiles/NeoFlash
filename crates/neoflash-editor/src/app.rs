@@ -714,10 +714,21 @@ impl Editor {
         self.layer = self
             .layer
             .min(self.symbol().timeline.layers.len().saturating_sub(1));
-        self.frame = self
-            .frame
-            .min(self.symbol().timeline.frame_count.saturating_sub(1));
+        let max_frame = if self.symbol().kind == SymbolKind::Button {
+            self.symbol().timeline.frame_count.saturating_sub(1)
+        } else {
+            999_999
+        };
+        self.frame = self.frame.min(max_frame);
         self.normalize_targets();
+    }
+    fn clamp_playhead_to_timeline(&mut self) {
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        self.frame = self.frame.min(last);
+        if let Some(range) = &mut self.timeline_edit.range {
+            range.end = range.end.min(last);
+            range.start = range.start.min(range.end);
+        }
     }
     pub fn undo(&mut self) {
         self.finish_edits();
@@ -725,6 +736,7 @@ impl Editor {
         self.vector = Default::default();
         self.history.undo(&mut self.project);
         self.normalize_selection();
+        self.clamp_playhead_to_timeline();
     }
     pub fn redo(&mut self) {
         self.finish_edits();
@@ -732,6 +744,7 @@ impl Editor {
         self.vector = Default::default();
         self.history.redo(&mut self.project);
         self.normalize_selection();
+        self.clamp_playhead_to_timeline();
     }
     pub fn step_history_to(&mut self, index: usize) -> bool {
         self.finish_edits();
@@ -739,6 +752,7 @@ impl Editor {
         self.vector = Default::default();
         let moved = self.history.step_to(&mut self.project, index);
         self.normalize_selection();
+        self.clamp_playhead_to_timeline();
         moved
     }
     pub fn clear_history(&mut self) {
@@ -2187,9 +2201,23 @@ impl Editor {
         if !self.layer_editable() {
             return;
         }
+        let count = self.symbol().timeline.frame_count;
+        let layer = &self.symbol().timeline.layers[self.layer];
+        let layer_id = layer.id.clone();
+        let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+        if self.frame >= layer_end {
+            let target = self.frame;
+            if self.apply_frame_edit(TimelineEdit::SetEnd {
+                layers: vec![layer_id],
+                end_frame: target.saturating_add(1),
+            }) {
+                self.frame = target;
+            }
+            return;
+        }
         self.apply_frame_edit(TimelineEdit::Insert {
-            layers: vec![self.symbol().timeline.layers[self.layer].id.clone()],
-            at: (self.frame + 1).min(self.symbol().timeline.frame_count),
+            layers: vec![layer_id],
+            at: (self.frame + 1).min(count),
             count: 1,
             include_scripts: self.timeline_edit.include_scripts,
         });

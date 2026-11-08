@@ -371,3 +371,103 @@ fn onion_range_fill_is_painted_after_the_ruler_background() {
         "frames 2..=8 must fill exactly seven frame cells"
     );
 }
+
+#[test]
+fn timeline_marks_unexposed_grid_cells_and_extends_frames_on_f5_f6_f7_and_stage_draw() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 1;
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.clear_history();
+    let before = editor.project.clone();
+    assert_eq!(editor.symbol().timeline.frame_count, 1);
+
+    let output = timeline_panel_frame(&mut editor, &ctx, 0.1, vec![]);
+    let palette = neoflash_ui::palette(&ctx);
+    let mut ruler_numbers = Vec::new();
+    let mut fifth_cells = 0usize;
+    for clipped in &output.shapes {
+        match &clipped.shape {
+            egui::epaint::Shape::Text(text) => {
+                ruler_numbers.push(text.galley.job.text.clone());
+            }
+            egui::epaint::Shape::Rect(rect)
+                if rect.fill == palette.timeline_empty_5th
+                    && (rect.rect.width() - editor.timeline_cell).abs() < 0.5 =>
+            {
+                fifth_cells += 1;
+            }
+            _ => {}
+        }
+    }
+    for expected in ["1", "5", "10", "15", "20"] {
+        assert!(
+            ruler_numbers.iter().any(|text| text == expected),
+            "ruler must render frame label {expected} even on a 1-frame timeline, got {ruler_numbers:?}"
+        );
+    }
+    assert!(
+        fifth_cells >= 10,
+        "layer row must render shaded 5th empty frame cells across the timeline width, got {fifth_cells}"
+    );
+
+    // Selecting an unexposed frame cell (frame 10, index 9) keeps the playhead there across UI frames
+    // and extends exposure to frame 10 on F5 (insert_frame).
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.frame = 9;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 9,
+        end: 9,
+    });
+    editor.normalize_selection();
+    assert_eq!(editor.frame, 9);
+    editor.insert_frame();
+    assert_eq!(editor.symbol().timeline.frame_count, 10);
+    assert_eq!(editor.frame, 9);
+    editor.project.validate().unwrap();
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // F7 (Insert blank keyframe) on unexposed frame 15 (index 14) extends the timeline and creates keyframe 14.
+    editor.frame = 14;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id.clone()],
+        start: 14,
+        end: 14,
+    });
+    editor.make_key(true);
+    assert_eq!(editor.symbol().timeline.frame_count, 15);
+    assert!(
+        editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .any(|keyframe| keyframe.frame == 14 && keyframe.elements.is_empty())
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // Drawing on the Stage while an unexposed frame cell (frame 8, index 7) is selected extends the timeline
+    // and places the new element on a keyframe at that frame.
+    editor.frame = 7;
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 7,
+        end: 7,
+    });
+    editor.normalize_selection();
+    assert_eq!(editor.frame, 7);
+    assert!(editor.current_authored_scene(false).draws.is_empty());
+    editor.add_element(object("drawn-at-8", 60.0, 40.0).kind, 60.0, 40.0);
+    assert_eq!(editor.symbol().timeline.frame_count, 8);
+    assert!(sample_layer(&editor.symbol().timeline.layers[0], 0).is_empty());
+    assert_eq!(
+        sample_layer(&editor.symbol().timeline.layers[0], 7).len(),
+        1
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}

@@ -478,43 +478,48 @@ impl Editor {
                             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
                             .auto_shrink([false, false])
                             .themed().show(ui, |ui| {
-                                let width = ((if button_states { count.saturating_add(1) } else { count.saturating_add(4).max(72) }) as f32 * cell_width)
+                                let width = ((count + 1) as f32 * cell_width)
                                     .max(ui.available_width());
                                 let (rect, response) = ui.allocate_exact_size(
                                     Vec2::new(width, (content_height + 8.).max(height - 18.)),
                                     Sense::click_and_drag(),
                                 );
+                                let grid_count = if button_states {
+                                    count
+                                } else {
+                                    ((rect.width() / cell_width).floor().max(1.) as u32)
+                                        .max(count)
+                                        .min(1_000_000)
+                                };
                                 grid_rect = rect;
                                 grid_clip = ui.clip_rect().intersect(rect);
-                                self.timeline_grid_interact(ui, &response, rect, grid_clip, cell_width, count, &layer_indices, resize.is_some() || reorder.is_some());
+                                self.timeline_grid_interact(ui, &response, rect, grid_clip, cell_width, grid_count, &layer_indices, resize.is_some() || reorder.is_some());
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
                                 self.paint_timeline_rows(&painter, rect, grid_clip, cell_width, &layers, action_row, &script_frames, view.tinted);
                                 self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
-                                let end_x = rect.left() + count as f32 * cell_width;
                                 let selected_cell = Rect::from_min_size(
                                     Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * row_height),
                                     Vec2::new(cell_width, row_height),
                                 );
                                 if response.hovered()
                                     && let Some(pos) = response.hover_pos()
+                                    && let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, grid_count, layers.len(), row_height)
                                 {
-                                    if let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, count, layers.len(), row_height) {
-                                        let key = layers[layer].key_at(frame);
-                                        let label = match key {
-                                            Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
-                                            Some(key) if key.frame == frame => "Keyframe · drag to move, Option-drag to copy".to_owned(),
-                                            Some(key) if key.elements.is_empty() => format!("Empty frames from {}", key.frame + 1),
-                                            Some(key) => format!("Content held from keyframe {}", key.frame + 1),
-                                            None => "Empty before the first keyframe".to_owned(),
-                                        };
-                                        if key.is_some_and(|key| key.frame == frame) && !layers[layer].locked && layers[layer].visible {
-                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                                        }
-                                        response.clone().on_hover_text(format!("{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions", layers[layer].name, frame + 1, label));
-                                    } else if pos.x >= end_x {
-                                        response.clone().on_hover_text(format!("Timeline ends at frame {}. Insert frames (F5) to extend it.", count));
+                                    let layer_end = layers[layer].properties.end_frame.unwrap_or(count).min(count);
+                                    let key = (frame < layer_end).then(|| layers[layer].key_at(frame)).flatten();
+                                    let label = match key {
+                                        Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
+                                        Some(key) if key.frame == frame => "Keyframe · drag to move, Option-drag to copy".to_owned(),
+                                        Some(key) if key.elements.is_empty() => format!("Empty frames from {}", key.frame + 1),
+                                        Some(key) => format!("Content held from keyframe {}", key.frame + 1),
+                                        None if frame >= layer_end => format!("Empty frame (layer ends at frame {} · F5 to insert frame, F6/F7 for keyframe)", layer_end),
+                                        None => "Empty before the first keyframe".to_owned(),
+                                    };
+                                    if key.is_some_and(|key| key.frame == frame) && !layers[layer].locked && layers[layer].visible {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                                     }
+                                    response.clone().on_hover_text(format!("{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions", layers[layer].name, frame + 1, label));
                                 }
                                 if response.dragged_by(egui::PointerButton::Primary)
                                     && let Some((symbol, layer_id, from)) = &self.timeline_key_drag
@@ -529,7 +534,7 @@ impl Editor {
                                     painter.text(Pos2::new(grid_clip.left() + space::S1, grid_clip.bottom() - space::S1), Align2::LEFT_BOTTOM, text, typography::font(TextStyle::Small), stroke.color);
                                 }
                                 if response.context_menu_opened()
-                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, count, layers.len(), row_height).is_some())
+                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, grid_count, layers.len(), row_height).is_some())
                                 {
                                 response.context_menu(|ui| {
                                     crate::ui_icons::menu_contents(ui, 280., |ui| self.frame_context_menu(ui));
@@ -708,6 +713,18 @@ impl Editor {
                 );
                 let geo = Geometry { origin_x: grid_rect.left(), frame_width: cell_width, row_height };
                 let end_x = grid_rect.left() + count as f32 * cell_width;
+                let grid_end_x = if button_states {
+                    end_x
+                } else {
+                    grid_rect.right().max(end_x)
+                };
+                let grid_count = if button_states {
+                    count
+                } else {
+                    ((grid_rect.width() / cell_width).floor().max(1.) as u32)
+                        .max(count)
+                        .min(1_000_000)
+                };
                 let rp = ui.painter_at(ruler);
                 rp.rect_filled(ruler, 0, p.bg_panel);
                 rp.hline(ruler.x_range(), ruler.bottom() - 0.5, Stroke::new(1.0_f32, p.border_subtle));
@@ -728,15 +745,14 @@ impl Editor {
                         rp.text(Pos2::new(x + cell_width / 2., ruler.center().y), Align2::CENTER_CENTER, *name, typography::font(TextStyle::MonoSmall), p.text_tertiary);
                     }
                 } else {
-                    // Ticks and numbers stop at the last frame; its number may overhang.
-                    let digits = count.max(1).ilog10() as f32 + 1.;
+                    // Ticks, frame numbers and seconds span the full visible timeline grid.
+                    let digits = grid_count.max(1).ilog10() as f32 + 1.;
                     let overhang = (digits * 7. - cell_width).max(0.);
-                    // Seconds stop at the end too (no "5s" past frame 120 at 24 fps).
-                    let full_ruler = Rect::from_min_max(Pos2::new(grid_rect.left(), ruler.top()), Pos2::new(end_x + overhang, ruler.bottom()));
+                    let full_ruler = Rect::from_min_max(Pos2::new(grid_rect.left(), ruler.top()), Pos2::new(grid_end_x + overhang, ruler.bottom()));
                     let fps = self.project.fps.max(1) as f32;
-                    let numbers = rp.with_clip_rect(Rect::from_min_max(Pos2::new(ruler.left(), ruler.top() + seconds_row), Pos2::new(end_x + overhang, ruler.bottom())));
+                    let numbers = rp.with_clip_rect(Rect::from_min_max(Pos2::new(ruler.left(), ruler.top() + seconds_row), Pos2::new(grid_end_x + overhang, ruler.bottom())));
                     tl::paint_ruler(&numbers, &ctx, full_ruler, &geo, fps, view.show_seconds);
-                    let seconds = rp.with_clip_rect(Rect::from_min_max(ruler.min, Pos2::new(end_x, ruler.top() + seconds_row)));
+                    let seconds = rp.with_clip_rect(Rect::from_min_max(ruler.min, Pos2::new(grid_end_x, ruler.top() + seconds_row)));
                     tl::paint_ruler(&seconds, &ctx, full_ruler, &geo, fps, view.show_seconds);
                 }
                 for &frame in &script_frames {
@@ -837,10 +853,10 @@ impl Editor {
                     self.finish_edits();
                     self.timeline_key_drag = None;
                     self.set_playing(false);
-                    if pos.x < end_x {
+                    if pos.x < grid_end_x {
                         self.reset_authored_preview();
-                        let frame = frame_at_x(pos.x, grid_rect.left(), cell_width, count);
-                        self.frame = if view.snap_playhead && !ui.input(|i| i.modifiers.shift) {
+                        let frame = frame_at_x(pos.x, grid_rect.left(), cell_width, grid_count);
+                        self.frame = if view.snap_playhead && !ui.input(|i| i.modifiers.shift) && frame < count {
                             self.snap_scrub_frame(frame, pos.x, grid_rect.left(), cell_width)
                         } else {
                             frame
@@ -999,6 +1015,12 @@ impl Editor {
         let first = (((clip.left() - rect.left()) / cell).max(0.) as u32).min(count);
         let last = (((clip.right() - rect.left()) / cell).ceil().max(0.) as u32).min(count);
         let end_x = rect.left() + count as f32 * cell;
+        let button_states = self.symbol().kind == SymbolKind::Button;
+        let grid_end_x = if button_states {
+            end_x
+        } else {
+            rect.right().max(end_x)
+        };
         let selection = self.frame_range();
         let preview = self.workspace.timeline.preview != crate::workspace::FramePreview::Off;
         if preview {
@@ -1009,18 +1031,23 @@ impl Editor {
             let y = rect.top() + li as f32 * row_height;
             let row =
                 Rect::from_min_max(Pos2::new(rect.left(), y), Pos2::new(end_x, y + row_height));
-            if !row.intersects(clip) {
+            let grid_row = Rect::from_min_max(
+                Pos2::new(rect.left(), y),
+                Pos2::new(grid_end_x, y + row_height),
+            );
+            if !grid_row.intersects(clip) {
                 continue;
             }
             let rp = painter.with_clip_rect(clip.intersect(row));
+            let grid_rp = painter.with_clip_rect(clip.intersect(grid_row));
             if layer.properties.role == LayerRole::Folder {
-                tl::paint_grid(&rp, &ctx, row, &geo, GridKind::Folder);
+                tl::paint_grid(&grid_rp, &ctx, grid_row, &geo, GridKind::Folder);
                 if any_solo && !self.is_layer_id_effectively_soloed(&layer.id) {
-                    rp.rect_filled(row, 0., p.bg_panel.gamma_multiply(0.55));
+                    grid_rp.rect_filled(grid_row, 0., p.bg_panel.gamma_multiply(0.55));
                 }
                 continue;
             }
-            tl::paint_grid(&rp, &ctx, row, &geo, GridKind::Layer);
+            tl::paint_grid(&grid_rp, &ctx, grid_row, &geo, GridKind::Layer);
             let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
             // A motion tween is one span through its ◆ property keys (which have no span of
             // their own); classic and shape tweens without an end keyframe are broken.
@@ -1079,6 +1106,15 @@ impl Editor {
                         },
                         tinted,
                     );
+                } else if next > start {
+                    let span = geo.span(row, start + 1, next);
+                    let body =
+                        Rect::from_min_max(span.min, Pos2::new(span.right(), span.bottom() - 1.0));
+                    if body.width() >= 3.0 {
+                        let edge = Stroke::new(1.0_f32, p.timeline_grid);
+                        rp.vline(body.left() + 0.5, body.y_range(), edge);
+                        rp.vline(body.right() - 0.5, body.y_range(), edge);
+                    }
                 }
             }
             // NF2 v2.2: frame ticks (`TL Grid Lines`) belong to `paint_grid`, below spans.
@@ -1088,9 +1124,9 @@ impl Editor {
                 .map(|range| (range.start, range.end));
             if let Some((start, end)) = selected {
                 tl::paint_span(
-                    &rp,
+                    &grid_rp,
                     &ctx,
-                    geo.span(row, start + 1, end + 1),
+                    geo.span(grid_row, start + 1, end + 1),
                     SpanType::Selected,
                     tinted,
                 );
@@ -1181,7 +1217,7 @@ impl Editor {
             }
             // R-045: while any layer is soloed, frame cells of non-soloed rows are drawn at 45 %.
             if any_solo && !self.is_layer_id_effectively_soloed(&layer.id) {
-                rp.rect_filled(row, 0., p.bg_panel.gamma_multiply(0.55));
+                grid_rp.rect_filled(grid_row, 0., p.bg_panel.gamma_multiply(0.55));
             }
         }
     }

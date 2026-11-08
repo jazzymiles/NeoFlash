@@ -86,9 +86,12 @@ impl Editor {
         if range.layers.is_empty() {
             return None;
         }
-        range.end = range
-            .end
-            .min(self.symbol().timeline.frame_count.saturating_sub(1));
+        let max_frame = if self.symbol().kind == neoflash_core::SymbolKind::Button {
+            self.symbol().timeline.frame_count.saturating_sub(1)
+        } else {
+            999_999
+        };
+        range.end = range.end.min(max_frame);
         range.start = range.start.min(range.end);
         Some(range)
     }
@@ -134,10 +137,19 @@ impl Editor {
 
     pub(crate) fn apply_frame_edit(&mut self, edit: TimelineEdit) -> bool {
         self.finish_edits();
+        let old_count = self.symbol().timeline.frame_count;
         let mut candidate = self.project.clone();
         match edit_frames(&mut candidate, self.symbol_id(), edit) {
             Ok(()) => {
                 self.transact(|editor| editor.project = candidate);
+                if self.symbol().timeline.frame_count < old_count {
+                    let last = self.symbol().timeline.frame_count.saturating_sub(1);
+                    self.frame = self.frame.min(last);
+                    if let Some(range) = &mut self.timeline_edit.range {
+                        range.end = range.end.min(last);
+                        range.start = range.start.min(range.end);
+                    }
+                }
                 self.reset_authored_preview();
                 self.normalize_selection();
                 self.clear_selection();
@@ -356,6 +368,33 @@ impl Editor {
 
     pub(crate) fn insert_frame_range(&mut self) {
         if let Some(range) = self.frame_range() {
+            let count = self.symbol().timeline.frame_count;
+            let extends_beyond_end = range.layers.iter().all(|id| {
+                self.symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|l| &l.id == id)
+                    .is_some_and(|l| {
+                        let layer_end = l.properties.end_frame.unwrap_or(count).min(count);
+                        range.end >= layer_end
+                    })
+            });
+            if extends_beyond_end {
+                let new_end = range.end.saturating_add(1);
+                if self.apply_frame_edit(TimelineEdit::SetEnd {
+                    layers: range.layers.clone(),
+                    end_frame: new_end,
+                }) {
+                    self.frame = range.end;
+                    self.select_frame_range(FrameRange {
+                        layers: range.layers,
+                        start: range.end,
+                        end: range.end,
+                    });
+                }
+                return;
+            }
             self.apply_frame_edit(TimelineEdit::Insert {
                 layers: range.layers,
                 at: range.start,
@@ -525,10 +564,11 @@ impl Editor {
         rect: Rect,
         clip: Rect,
         cell: f32,
-        count: u32,
+        grid_count: u32,
         rows: &[usize],
         blocked: bool,
     ) {
+        let count = self.symbol().timeline.frame_count;
         let row_height = self.workspace.timeline.row_height();
         if rows.is_empty() {
             return;
@@ -571,7 +611,7 @@ impl Editor {
                 && !response.context_menu_opened()
                 && ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
         }) {
-            let hit = timeline_cell_at(pos, rect.min, cell, count, rows.len(), row_height);
+            let hit = timeline_cell_at(pos, rect.min, cell, grid_count, rows.len(), row_height);
             let end_hit = rows
                 .iter()
                 .enumerate()
@@ -657,10 +697,16 @@ impl Editor {
                         target_frame: frame,
                     });
                 } else {
-                    let key = self.symbol().timeline.layers[rows[row]]
-                        .keyframes
-                        .iter()
-                        .any(|key| key.frame == frame);
+                    let layer_end = self.symbol().timeline.layers[rows[row]]
+                        .properties
+                        .end_frame
+                        .unwrap_or(count)
+                        .min(count);
+                    let key = frame < layer_end
+                        && self.symbol().timeline.layers[rows[row]]
+                            .keyframes
+                            .iter()
+                            .any(|key| key.frame == frame);
                     let (sel_start, sel_end) = if span_mode {
                         self.layer_span_range(rows[row], frame, count)
                     } else {
@@ -691,7 +737,7 @@ impl Editor {
         } else if response.secondary_clicked()
             && let Some(pos) = response.interact_pointer_pos()
             && let Some((frame, row)) =
-                timeline_cell_at(pos, rect.min, cell, count, rows.len(), row_height)
+                timeline_cell_at(pos, rect.min, cell, grid_count, rows.len(), row_height)
         {
             self.finish_edits();
             self.set_playing(false);
@@ -721,7 +767,8 @@ impl Editor {
         if let Some(pos) = position
             && let Some(gesture) = self.timeline_edit.gesture.clone()
         {
-            let frame = frame_at_x(pos.x, rect.left(), cell, count);
+            let frame = frame_at_x(pos.x, rect.left(), cell, grid_count);
+            let key_frame = frame_at_x(pos.x, rect.left(), cell, count);
             let row = (((pos.y - rect.top()) / row_height).max(0.) as usize)
                 .min(rows.len().saturating_sub(1));
             let dragging = ui.input(|i| i.pointer.is_decidedly_dragging()) || response.dragged();
@@ -769,7 +816,7 @@ impl Editor {
                         })
                     }
                     Gesture::Key { layer, .. } => {
-                        self.frame = frame;
+                        self.frame = key_frame;
                         self.layer = layer;
                     }
                     Gesture::End { layer, .. } => {

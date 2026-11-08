@@ -1168,8 +1168,9 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             include_scripts,
         } => {
             if count == 0
-                || at > old_count
+                || at > MAX_FRAME
                 || old_count
+                    .max(at)
                     .checked_add(count)
                     .is_none_or(|end| end > MAX_FRAME)
             {
@@ -1178,31 +1179,33 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             for index in layer_indices(timeline, &layers)? {
                 let mut layer = timeline.layers[index].clone();
                 let old_end = layer.properties.end_frame.unwrap_or(0);
-                isolate_range(timeline, &mut layer, at, at, &mut budget, fps)?;
-                split(timeline, &mut layer, at, fps);
-                let hold = if at > 0 && at <= old_end {
-                    sampled_key(timeline, &layer, at - 1, fps).elements
-                } else {
-                    vec![]
-                };
-                for key in &mut layer.keyframes {
-                    if key.frame >= at {
-                        key.frame += count;
+                if at <= old_end {
+                    let has_key_at_or_before = layer.keyframes.iter().any(|k| k.frame <= at);
+                    for key in &mut layer.keyframes {
+                        if if has_key_at_or_before {
+                            key.frame > at
+                        } else {
+                            key.frame >= at
+                        } {
+                            key.frame += count;
+                        }
                     }
+                    if layer.keyframes.is_empty() {
+                        layer.keyframes.push(blank(0));
+                    }
+                    layer.properties.end_frame = Some(old_end + count);
+                } else {
+                    if layer.keyframes.is_empty() {
+                        layer.keyframes.push(blank(0));
+                    }
+                    layer.properties.end_frame = Some(at + count);
                 }
-                if at > old_end {
-                    layer.keyframes.push(blank(old_end));
-                }
-                let mut key = blank(at);
-                key.elements = hold;
-                layer.keyframes.push(key);
-                layer.properties.end_frame = Some(old_end.max(at) + count);
                 layer.keyframes.sort_by_key(|key| key.frame);
                 timeline.layers[index] = layer;
             }
             if include_scripts {
                 for script in &mut timeline.scripts {
-                    if script.frame >= at {
+                    if script.frame > at {
                         script.frame += count;
                     }
                 }
@@ -1346,10 +1349,20 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             range,
             blank: to_blank,
         } => {
-            let end = range_end(timeline, &range)?;
+            if range.start > range.end || range.end >= MAX_FRAME {
+                return Err("The frame range is outside the timeline.".into());
+            }
+            let end = range.end + 1;
             for index in layer_indices(timeline, &range.layers)? {
                 let mut layer = timeline.layers[index].clone();
-                let last = end.min(layer.properties.end_frame.unwrap_or(0));
+                if layer.keyframes.is_empty() && end > 0 {
+                    layer.keyframes.push(blank(0));
+                }
+                let old_end = layer.properties.end_frame.unwrap_or(0);
+                let new_end = old_end.max(end);
+                layer.properties.end_frame = Some(new_end);
+                timeline.frame_count = timeline.frame_count.max(new_end);
+                let last = end.min(new_end);
                 if last <= range.start {
                     continue;
                 }
@@ -1410,6 +1423,9 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     isolate_range(timeline, &mut layer, end_frame, old_end, &mut budget, fps)?;
                 }
                 layer.keyframes.retain(|key| key.frame < end_frame);
+                if layer.keyframes.is_empty() && end_frame > 0 {
+                    layer.keyframes.push(blank(0));
+                }
                 layer.properties.end_frame = Some(end_frame);
                 timeline.layers[index] = layer;
             }

@@ -2,6 +2,16 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Full-width classic Flash Timeline ruler and empty frame grid across unexposed cells (`T-141`):
+  - Non-Button timelines now render the ruler ticks, frame numbers (`1, 5, 10, 15, 20…`) and each layer row's empty
+    frame cells (including shaded 5th cells and 4pt bottom frame ticks) across the full visible width of the Timeline
+    panel even when `timeline.frame_count` is `1` or shorter than the viewport, while closing blank keyframe spans with
+    1pt left/right cell borders so authored exposure is clearly separated from unexposed empty cells.
+  - Clicking, drag-selecting or right-clicking any unexposed frame cell selects that cell/range and moves the playhead
+    there; pressing `F5` (`Insert frame`), `F6` (`Insert keyframe`), `F7` (`Insert blank keyframe`), `Convert to
+    keyframes`, `Paste frames`, adding a frame script or drawing on the Stage automatically extends the layer's exposure
+    and `timeline.frame_count` up to the selected frame in a single Undo step.
+
 - Classic Flash Free Transform mechanics (`Rotate and Skew`, `Scale`, `Distort`, `Envelope`), `Modify ▸ Transform` /
   `Modify ▸ Combine objects ▸ Delete Envelope` menus, combined Group bounding box and shortcut bindings (`T-139`):
   - **Free Transform sub-modes & Tools Options icons:** When `Free Transform` (`Q`) is active, the `Tools` panel

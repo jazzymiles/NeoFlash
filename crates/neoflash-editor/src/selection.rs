@@ -36,9 +36,12 @@ impl Editor {
     }
 
     fn element_in_edit_scope<'a>(&self, layer: &'a Layer, id: &str) -> Option<&'a Element> {
-        if let Some(el) = layer
-            .key_at(self.frame)
-            .and_then(|key| key.elements.iter().find(|element| element.id == id))
+        let count = self.symbol().timeline.frame_count;
+        let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+        if self.frame < layer_end
+            && let Some(el) = layer
+                .key_at(self.frame)
+                .and_then(|key| key.elements.iter().find(|element| element.id == id))
         {
             return Some(el);
         }
@@ -281,10 +284,13 @@ impl Editor {
         } else {
             (frame, frame)
         };
+        let count = self.symbol().timeline.frame_count;
         let layer = &mut self.symbol_mut().timeline.layers[index];
-        let in_current = layer
-            .key_at(frame)
-            .is_some_and(|k| k.elements.iter().any(|e| e.id == target.element));
+        let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+        let in_current = frame < layer_end
+            && layer
+                .key_at(frame)
+                .is_some_and(|k| k.elements.iter().any(|e| e.id == target.element));
         if in_current {
             return layer
                 .key_at_mut(frame)?
@@ -322,6 +328,7 @@ impl Editor {
         } else {
             (self.frame, self.frame)
         };
+        let count = self.symbol().timeline.frame_count;
         let selected: HashSet<_> = self.selection.targets.iter().collect();
         let mut sampled = Vec::new();
         for layer in self
@@ -332,13 +339,16 @@ impl Editor {
             .filter(|layer| self.layer_is_selectable(layer))
         {
             let mut seen = HashSet::new();
-            for element in sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps)) {
-                let target = SelectionTarget {
-                    layer: layer.id.clone(),
-                    element: element.id.clone(),
-                };
-                if selected.contains(&target) && seen.insert(element.id.clone()) {
-                    sampled.push((target, element));
+            let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+            if self.frame < layer_end {
+                for element in sample_layer_at_fps(layer, self.frame, f64::from(self.project.fps)) {
+                    let target = SelectionTarget {
+                        layer: layer.id.clone(),
+                        element: element.id.clone(),
+                    };
+                    if selected.contains(&target) && seen.insert(element.id.clone()) {
+                        sampled.push((target, element));
+                    }
                 }
             }
             if multiple {
@@ -366,6 +376,7 @@ impl Editor {
     pub(crate) fn ensure_key_for(&mut self, layer_id: &str, blank: bool) {
         if !blank && !self.workspace.timeline_prefs.auto_keyframe {
             let frame = self.frame;
+            let count = self.symbol().timeline.frame_count;
             let keep_span_key = self
                 .symbol()
                 .timeline
@@ -373,9 +384,10 @@ impl Editor {
                 .iter()
                 .find(|layer| layer.id == layer_id)
                 .is_some_and(|layer| {
-                    motion_span(layer, frame).is_none()
+                    let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
+                    frame < layer_end
+                        && motion_span(layer, frame).is_none()
                         && layer.key_at(frame).is_some()
-                        && layer.properties.end_frame.is_none_or(|end| frame < end)
                 });
             if keep_span_key {
                 return;
@@ -385,7 +397,35 @@ impl Editor {
     }
     /// Make `frame` a keyframe of the layer (a ◆ property key inside a motion tween).
     pub(crate) fn ensure_key_at(&mut self, layer_id: &str, frame: u32, blank: bool) {
+        if frame >= 1_000_000 {
+            return;
+        }
         let fps = f64::from(self.project.fps);
+        let old_count = self.symbol().timeline.frame_count;
+        if frame >= old_count {
+            let new_count = frame + 1;
+            let mut pinned_other = false;
+            {
+                let timeline = &mut self.symbol_mut().timeline;
+                for other in &mut timeline.layers {
+                    if other.id == layer_id {
+                        continue;
+                    }
+                    if other.properties.role == LayerRole::Folder {
+                        if other.properties.end_frame.is_some() {
+                            other.properties.end_frame = Some(new_count);
+                        }
+                    } else if other.properties.end_frame.is_none() {
+                        other.properties.end_frame = Some(old_count);
+                        pinned_other = true;
+                    }
+                }
+                timeline.frame_count = new_count;
+            }
+            if pinned_other {
+                self.project.format_version = self.project.format_version.max(5);
+            }
+        }
         let Some(layer) = self
             .symbol_mut()
             .timeline
@@ -395,6 +435,12 @@ impl Editor {
         else {
             return;
         };
+        if let Some(end) = &mut layer.properties.end_frame {
+            *end = (*end).max(frame + 1);
+        }
+        if layer.keyframes.is_empty() && frame > 0 {
+            layer.keyframes.push(Keyframe::default());
+        }
         if let Some(key) = layer.keyframes.iter_mut().find(|key| key.frame == frame) {
             if blank {
                 key.elements.clear();
@@ -436,9 +482,6 @@ impl Editor {
         key.label.clear();
         // A frame sound belongs to the keyframe it was attached to; copying it would play twice.
         key.sound = None;
-        if let Some(end) = &mut layer.properties.end_frame {
-            *end = (*end).max(frame + 1);
-        }
         layer.keyframes.push(key);
         layer.keyframes.sort_by_key(|key| key.frame);
     }
