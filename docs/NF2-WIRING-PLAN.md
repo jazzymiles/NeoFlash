@@ -354,13 +354,11 @@ content. Shape hints are §7.4.
 - Tests: export with loop off stops at end (browser scenario); trace stripped.
 - Registry: `web-html5-export`. Acceptance: spec DL-03.
 
-**W1.11 · Authored text options (PR-01 part: type Static/Dynamic/Input, selectable, border, password, max chars)** — E-09
-- Stage Text now distinguishes point text (click) from fixed multiline wrapping TextBox authoring (drag). Break Apart
-  reaches editable installed-font glyph contours; multi-character text first splits into positioned characters.
-- UI: `text_boxes.rs › text_box_properties` rows existing in the NF2 Text variant composition (request for any row not
-  present).
-- Engine: NEW `TextBox` fields; export maps to runtime `TextField` (already implemented for scripts).
-- Tests: authored Input text editable in HTML5 (browser scenario); AS3 instance name access.
+**W1.11 · Authored text options (PR-01: Flash CS5 Character, Advanced character, Paragraph, Container and flow, Options)** — E-09 — **done** (`text_boxes.rs`, `ui_icons.rs`, `neoflash-core/src/{as2_text,runtime_graph,text}.rs`, `web/{as2-text,display,text,text-input}.js`)
+- Stage Text distinguishes point text (click) from fixed multiline wrapping TextBox authoring (drag), supports double-click inline editing from Selection/Free Transform/Subselection, and draws Stage multi-column gutter dividers and TLF In/Out flow ports (`paint_container_guides`). Break Apart reaches editable installed-font glyph contours; multi-character text first splits into positioned characters.
+- UI: `text_boxes.rs › text_box_properties` exposes the complete Flash CS5 inspector (`Character`, `Advanced character`, `Paragraph`, `Container and flow` with `Columns` `1..=50`, `Gutter`, 4-sided `Padding` + lock, `Vertical alignment`, `Border`/`Background` optional slash-swatches and `1st line offset`, plus `Options` with `Link`/`Target`, `Variable`, `Restrict`, `Render as HTML`) using 25 custom `TextPropertyGlyph` vector icons in `ui_icons.rs`.
+- Engine: `TextFormat` and `AuthoredTextFieldOptions` carry all Flash CS5 properties; `layout_textbox` and `web/text.js` flow lines across multiple columns, apply 4-sided padding and vertical alignment (`top|center|bottom|justify`), render highlight/strikethrough/superscript/subscript/vertical orientation, and gate DOM `<input>`/`<textarea>` overlays strictly to `Input` fields.
+- Tests: `panel_tests::t152_flash_cs5_text_properties_columns_padding_vertical_align_and_highlights_work_with_undo`, `neoflash_core::text::tests::multi_column_layout_splits_lines_across_columns_with_padding_and_vertical_align`, `web/tests/text-input.test.cjs`, `web/tests/as2-text-rendering.test.cjs`.
 - Registry: `editor-text`.
 
 **W1.12 · Loop/scene-agnostic playback option + document script default** — E-01 — **done** (editor Loop playback and Play all scenes in W0.1 plus `AuthoredPlayback::set_looping(bool)` / `is_looping()` in `crates/neoflash-core/src/authored_playback.rs` so preview and Test Movie share loop/non-loop playback semantics)

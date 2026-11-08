@@ -1216,8 +1216,21 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
         "K / S / I / U",
         &[
             "Paint Bucket (K) Gap Size: Choose Don't Close Gaps, or Close Small / Medium / Large Gaps to bridge open contour gaps automatically; Lock Fill tiles a single shared gradient/bitmap matrix across multiple shapes.",
-            "Eyedropper (I) Auto-Switch: Clicking a stroke samples its style and switches to Ink Bottle (S); clicking a fill or bitmap switches to Paint Bucket (K) with Lock Fill enabled; clicking text switches to Text (T).",
+            "Eyedropper (I): Sampling a gradient fill copies the gradient into the active Fill well and automatically enables Lock Fill (`brush_lock_fill = true`).",
             "Deco Tool (U): Generates procedural vector patterns—Vine Fill (branching vines with leaves/flowers), Grid Fill (tiled symbols), and Symmetry Brush (Reflect across line/point, Rotate around, Grid translation), plus the 10 CS5 procedural brushes documented in the audit.",
+        ],
+    );
+    mode_card(
+        ui,
+        Some(crate::ui_icons::GRADIENT_TRANSFORM_16),
+        "Gradient Transform Tool (F) & Color Mixer Overflow (Extend / Reflect / Repeat)",
+        "Linear & Radial",
+        BadgeType::Accent,
+        "F / Shift+F9",
+        &[
+            "Linear Gradient Boundaries & Handles: Displays two parallel perpendicular boundary lines with a Center circle (moves origin), a Width square [→] on the right line (scales span width without rotating), and a Rotation circle at the top-right corner (Shift constrains to 45°).",
+            "Radial Gradient Boundaries & Handles: Displays an elliptical boundary ring + horizontal diameter axis line with a Center circle, a Focal point inverted triangle ▽ on the axis, a Width square [→] (stretches X axis), a Size/Radius circle with inward arrow (scales XY proportionally), and a Rotation circle.",
+            "Color Panel & Popover: Places Fill on the left and Stroke on the right, renders a visual Overflow dropdown (Extend, Reflect, Repeat) + Linear RGB toggle, and lets you click either the 20 px gradient bar or the 20 px pointer rail below it to insert and immediately edit color stops.",
         ],
     );
 }
@@ -1790,14 +1803,14 @@ fn chapter_filters_text_and_audio(ui: &mut Ui, _state: &mut HelpManualState) {
     mode_card(
         ui,
         Some(i16::TEXT),
-        "Text Engine (Static / Dynamic / Input), Font Embedding & TLF Import",
+        "Text Engine (TLF CS5 / Static / Dynamic / Input), Multi-Column Flow & Font Embedding",
         "Typography",
         BadgeType::Accent,
         "T / Embedding…",
         &[
-            "Point vs Area Text: Click on Stage with Text (T) for auto-expanding Point Text (round top-right handle ○); drag for fixed-width word-wrapping Area Text (square handle □; double-click handle to revert to auto-width).",
-            "Font Embedding Dialog: Select Unicode character ranges (Uppercase, Lowercase, Numerals, Punctuation, Extended Latin, Cyrillic, Greek, CJK) or custom glyphs to embed TrueType/OpenType outlines into published projects.",
-            "Break Apart Text (⌘B × 2): First ⌘B splits a text block into individual letter boxes (ideal for Distribute to Layers ⇧⌘D); second ⌘B converts glyphs into editable vector paths.",
+            "Point vs Area Text & Inline Editing: Click on Stage with Text (T) for auto-expanding Point Text (round top-right handle ○); drag for fixed-width word-wrapping Area Text (square handle □; double-click handle to revert to auto-width); double-click any TextBox with Selection (V) or Free Transform (Q) to edit text inline.",
+            "Flash CS5 Character, Paragraph & Container Flow: Configure Highlight colour, Strikethrough, Underline, Superscript/Subscript, Leading (pt or %), Orientation (Horizontal, Vertical LTR/RTL), Advanced Character (Case, Digit Case/Width, Ligatures, Baseline Shift, Locale), 5-mode Paragraph alignment (including Justify All) with Space Before/After, and Container & Flow (1–50 Columns with Gutter px, 4-sided L/R/T/B Padding with Lock, Top/Center/Bottom/Justify Vertical Alignment, Border/Background slash-swatches, and 1st Line Offset).",
+            "Font Embedding & 2-Step Break Apart (⌘B × 2): Select Unicode ranges or custom glyphs in Font Embedding… to embed outlines; press ⌘B once to split words into individual letter boxes and a second time to convert glyphs into editable vector paths.",
         ],
     );
     mode_card(
