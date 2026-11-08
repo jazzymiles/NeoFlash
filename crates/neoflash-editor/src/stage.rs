@@ -190,16 +190,77 @@ pub(crate) fn local_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
             ..
         } => crate::vector::path_bounds_cached(commands, item.path_fingerprint)
             .map(|b| {
+                let pad = if crate::vector::vector_paint_visibility(&item.kind)
+                    .is_some_and(|v| v.stroke || !v.fill)
+                {
+                    *stroke_width as f32 / 2.
+                } else {
+                    0.
+                };
                 Rect::from_min_max(
                     Pos2::new(b.x_min as f32, b.y_min as f32),
                     Pos2::new(b.x_max as f32, b.y_max as f32),
                 )
-                .expand(*stroke_width as f32 / 2.)
+                .expand(pad)
             })
             .unwrap_or(Rect::NOTHING),
     }
 }
 pub(crate) fn world_bounds(item: &DrawItem, p: &egui::Painter) -> Rect {
+    let [a, b, c, d, tx, ty] = item.transform;
+    if b.abs() > 1e-9 || c.abs() > 1e-9 {
+        match &item.kind {
+            ElementKind::Path {
+                commands,
+                stroke_width,
+                ..
+            }
+            | ElementKind::PaintedPath {
+                commands,
+                stroke_width,
+                ..
+            } => {
+                return crate::vector::transformed_path_bounds_cached(
+                    commands,
+                    item.path_fingerprint,
+                    item.transform,
+                )
+                .map(|bounds| {
+                    let pad = if crate::vector::vector_paint_visibility(&item.kind)
+                        .is_some_and(|v| v.stroke || !v.fill)
+                    {
+                        let half = (*stroke_width * 0.5).max(0.0);
+                        let sx = a.hypot(c);
+                        let sy = b.hypot(d);
+                        Vec2::new((half * sx) as f32, (half * sy) as f32)
+                    } else {
+                        Vec2::ZERO
+                    };
+                    Rect::from_min_max(
+                        Pos2::new(bounds.x_min as f32, bounds.y_min as f32),
+                        Pos2::new(bounds.x_max as f32, bounds.y_max as f32),
+                    )
+                    .expand2(pad)
+                })
+                .unwrap_or(Rect::NOTHING);
+            }
+            ElementKind::Ellipse { width, height, .. }
+                if *width >= 0.0 && *height >= 0.0 && width.is_finite() && height.is_finite() =>
+            {
+                let rx = *width * 0.5;
+                let ry = *height * 0.5;
+                let wx = a * rx + c * ry + tx;
+                let wy = b * rx + d * ry + ty;
+                let ex = (a * rx).hypot(c * ry);
+                let ey = (b * rx).hypot(d * ry);
+                return Rect::from_min_max(
+                    Pos2::new((wx - ex) as f32, (wy - ey) as f32),
+                    Pos2::new((wx + ex) as f32, (wy + ey) as f32),
+                );
+            }
+            _ => {}
+        }
+    }
     let r = local_bounds(item, p);
     let mut bounds = Rect::NOTHING;
     for pt in [

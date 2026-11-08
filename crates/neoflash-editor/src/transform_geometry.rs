@@ -484,6 +484,88 @@ pub(crate) fn skew_many_in_context(
     transform_many_by_affine(initial, edit_shear)
 }
 
+/// Scale the selection's axis-aligned bounding box `bounds` in the mapped parent context
+/// along its horizontal and/or vertical axes (`handle`) relative to the opposite edge/corner
+/// (or `center` when `options.from_center` is set).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn scale_box_in_context(
+    initial: &[Transform],
+    edit_to_context: [f64; 6],
+    bounds: Bounds,
+    handle: ResizeHandle,
+    center: Point,
+    press: Point,
+    current: Point,
+    options: ResizeOptions,
+) -> Option<Vec<Transform>> {
+    if !bounds.resizable()
+        || !finite_point(center)
+        || !finite_point(press)
+        || !finite_point(current)
+    {
+        return None;
+    }
+    if press == current {
+        return Some(initial.to_vec());
+    }
+    let handle_pt = handle.point(bounds);
+    let axes = handle.axes();
+    let mut anchor = if options.from_center {
+        center
+    } else {
+        handle.opposite().point(bounds)
+    };
+    if options.from_center {
+        let sx_span = (handle_pt[0] - anchor[0]).abs();
+        let sy_span = (handle_pt[1] - anchor[1]).abs();
+        if (axes[0] != 0 && sx_span <= EPSILON) || (axes[1] != 0 && sy_span <= EPSILON) {
+            anchor = bounds.center();
+        }
+    }
+    let span = subtract(handle_pt, anchor);
+    let delta = subtract(current, press);
+    let target_span = add(span, delta);
+    let (sx, sy) = if options.preserve_aspect && handle.is_corner() {
+        let factor = projected_ratio(span, target_span)?;
+        (factor, factor)
+    } else {
+        let sx = if axes[0] != 0 {
+            if span[0].abs() <= EPSILON {
+                return None;
+            }
+            target_span[0] / span[0]
+        } else {
+            1.0
+        };
+        let sy = if axes[1] != 0 {
+            if span[1].abs() <= EPSILON {
+                return None;
+            }
+            target_span[1] / span[1]
+        } else {
+            1.0
+        };
+        (sx, sy)
+    };
+    if !sx.is_finite() || !sy.is_finite() || sx.abs() <= 1e-4 || sy.abs() <= 1e-4 {
+        return None;
+    }
+    let context_scale = [
+        sx,
+        0.0,
+        0.0,
+        sy,
+        anchor[0] * (1.0 - sx),
+        anchor[1] * (1.0 - sy),
+    ];
+    let context_to_edit = invert_affine_matrix(edit_to_context)?;
+    let edit_scale = affine_multiply(
+        affine_multiply(context_to_edit, context_scale),
+        edit_to_context,
+    );
+    transform_many_by_affine(initial, edit_scale)
+}
+
 fn shear_matrix(horizontal: bool, edge: f64, anchor: f64, displacement: f64) -> Option<[f64; 6]> {
     let span = edge - anchor;
     if !span.is_finite() || span.abs() <= EPSILON || !displacement.is_finite() {
@@ -526,6 +608,12 @@ fn transform_many_by_affine(initial: &[Transform], affine: [f64; 6]) -> Option<V
             };
             result.rotation += 360.0 * ((t.rotation - result.rotation) / 360.0).round();
             result.skew += 360.0 * ((t.skew - result.skew) / 360.0).round();
+            if result.rotation.abs() <= 1e-9 {
+                result.rotation = 0.0;
+            }
+            if result.skew.abs() <= 1e-9 {
+                result.skew = 0.0;
+            }
             (valid_transform(result) && nonsingular(result)).then_some(result)
         })
         .collect()
@@ -1005,7 +1093,15 @@ fn deform_element_commands(
     }
 
     let mut updated = element.clone();
-    updated.transform.primitive = None;
+    let old_matrix = transform_matrix(element.transform);
+    let stroke_scale = ((old_matrix[0].hypot(old_matrix[1]) + old_matrix[2].hypot(old_matrix[3]))
+        * 0.5)
+        .clamp(1e-3, 1e4);
+    updated.transform = Transform {
+        alpha: element.transform.alpha,
+        color_transform: element.transform.color_transform,
+        ..Transform::default()
+    };
     updated.kind = match &element.kind {
         ElementKind::Rectangle {
             fill,
@@ -1029,7 +1125,7 @@ fn deform_element_commands(
             fill_rule,
             fill: *fill,
             stroke: *stroke,
-            stroke_width: *stroke_width,
+            stroke_width: (*stroke_width * stroke_scale).min(1000.0),
         },
         ElementKind::PaintedPath {
             fill,
@@ -1038,15 +1134,24 @@ fn deform_element_commands(
             stroke_gradient,
             stroke_width,
             ..
-        } => ElementKind::PaintedPath {
-            commands,
-            fill_rule,
-            fill: *fill,
-            stroke: *stroke,
-            fill_gradient: fill_gradient.clone(),
-            stroke_gradient: stroke_gradient.clone(),
-            stroke_width: *stroke_width,
-        },
+        } => {
+            let map_grad = |g: &Option<neoflash_core::GradientPaint>| {
+                g.as_ref().map(|paint| {
+                    let mut p = paint.clone();
+                    p.matrix = affine_multiply(old_matrix, p.matrix);
+                    p
+                })
+            };
+            ElementKind::PaintedPath {
+                commands,
+                fill_rule,
+                fill: *fill,
+                stroke: *stroke,
+                fill_gradient: map_grad(fill_gradient),
+                stroke_gradient: map_grad(stroke_gradient),
+                stroke_width: (*stroke_width * stroke_scale).min(1000.0),
+            }
+        }
         _ => return None,
     };
     Some(updated)
@@ -1075,10 +1180,10 @@ pub(crate) fn deform_element_quad(
         return None;
     }
     let element_to_context = affine_multiply(edit_to_context, transform_matrix(element.transform));
-    let context_to_element = invert_affine_matrix(element_to_context)?;
+    let context_to_edit = invert_affine_matrix(edit_to_context)?;
     let span_x = source_bounds.max[0] - source_bounds.min[0];
     let span_y = source_bounds.max[1] - source_bounds.min[1];
-    deform_element_commands(element, element_to_context, context_to_element, 2, &|pt| {
+    deform_element_commands(element, element_to_context, context_to_edit, 2, &|pt| {
         let u = (pt[0] - source_bounds.min[0]) / span_x;
         let v = (pt[1] - source_bounds.min[1]) / span_y;
         quad.eval(u, v)
@@ -1098,10 +1203,10 @@ pub(crate) fn deform_element_envelope(
         return None;
     }
     let element_to_context = affine_multiply(edit_to_context, transform_matrix(element.transform));
-    let context_to_element = invert_affine_matrix(element_to_context)?;
+    let context_to_edit = invert_affine_matrix(edit_to_context)?;
     let span_x = cage.bounds.max[0] - cage.bounds.min[0];
     let span_y = cage.bounds.max[1] - cage.bounds.min[1];
-    deform_element_commands(element, element_to_context, context_to_element, 4, &|pt| {
+    deform_element_commands(element, element_to_context, context_to_edit, 4, &|pt| {
         let u = (pt[0] - cage.bounds.min[0]) / span_x;
         let v = (pt[1] - cage.bounds.min[1]) / span_y;
         cage.eval(u, v)

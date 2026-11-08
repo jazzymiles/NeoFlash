@@ -62,6 +62,11 @@ enum GestureKind {
         bounds: geometry::Bounds,
         handle: geometry::ResizeHandle,
     },
+    BoxScale {
+        bounds: geometry::Bounds,
+        handle: geometry::ResizeHandle,
+        center: geometry::Point,
+    },
     Scale {
         context_pivot: geometry::Point,
         context_center: geometry::Point,
@@ -575,7 +580,7 @@ impl Editor {
                 continue;
             };
             let rect = crate::stage::local_bounds(item, p);
-            let item_world = transformed_rect(rect, item.transform);
+            let item_world = crate::stage::world_bounds(item, p);
             let item_context = mapped_world_bounds(item, p, mapping);
             world = world.union(item_world);
             context_world = context_world.union(item_context);
@@ -608,6 +613,7 @@ impl Editor {
                 geometry::ResizeOptions::default(),
             )
             .is_some()
+                || (context_world.width() > 1e-6 && context_world.height() > 1e-6)
         } else {
             self.selection.len() > 1 && world.width() > 1e-6 && world.height() > 1e-6
         };
@@ -682,9 +688,19 @@ impl Editor {
                 boxes.push((id.clone(), local, context, kind, is_merge));
             }
         }
-        let world_pivot = if let (Some(local), Some(initial)) = (local, initial) {
-            let local_pivot = initial.pivot.unwrap_or_else(|| local.center());
+        let world_pivot = if let Some(initial) = initial
+            && let Some(local_pivot) = initial.pivot
+        {
             geometry::transformed_point(initial, local_pivot)
+        } else if let (Some(local), Some(initial)) = (local, initial)
+            && !single.as_ref().is_some_and(|e| {
+                matches!(
+                    e.kind,
+                    ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
+                )
+            })
+        {
+            geometry::transformed_point(initial, local.center())
         } else if let Some((targets, gp)) = &self.authoring_modify.group_pivot
             && targets == &self.selection.targets
         {
@@ -1193,6 +1209,19 @@ impl Editor {
                     anchor,
                 ))
             }
+            GestureKind::BoxScale { bounds, handle, .. } => {
+                let anchor = gesture
+                    .scope
+                    .mapping
+                    .stage_to_edit_pos(position(handle.point(bounds)));
+                gesture.scope.local(self.snap_drag(
+                    gesture.scope.mapping,
+                    origin,
+                    gesture.press,
+                    pos,
+                    anchor,
+                ))
+            }
             GestureKind::Scale { .. } => {
                 gesture
                     .scope
@@ -1321,6 +1350,44 @@ impl Editor {
                             )
                         })
                         .collect::<Option<Vec<_>>>()
+                };
+                (main, others)
+            }
+            GestureKind::BoxScale {
+                bounds,
+                handle,
+                center,
+            } => {
+                let opts = geometry::ResizeOptions {
+                    from_center: modifiers.alt,
+                    preserve_aspect: modifiers.shift,
+                };
+                let context_press = gesture.scope.mapping.edit_to_stage_point(press);
+                let context_current = gesture.scope.mapping.edit_to_stage_point(current);
+                let edit_to_context = gesture.scope.mapping.matrix();
+                let main = geometry::scale_box_in_context(
+                    &originals,
+                    edit_to_context,
+                    bounds,
+                    handle,
+                    center,
+                    context_press,
+                    context_current,
+                    opts,
+                );
+                let others = if other_originals.is_empty() {
+                    None
+                } else {
+                    geometry::scale_box_in_context(
+                        &other_originals,
+                        edit_to_context,
+                        bounds,
+                        handle,
+                        center,
+                        context_press,
+                        context_current,
+                        opts,
+                    )
                 };
                 (main, others)
             }
@@ -1987,25 +2054,56 @@ impl Editor {
                         FreeTransformMode::FreeTransform | FreeTransformMode::Scale
                     ) && g.resizable
                     {
+                        let is_curved_or_path = self.selected_sampled().is_some_and(|el| {
+                            matches!(
+                                el.kind,
+                                ElementKind::Path { .. }
+                                    | ElementKind::PaintedPath { .. }
+                                    | ElementKind::Ellipse { .. }
+                            )
+                        });
                         for (rect, box_handle) in rects.iter().zip(BOX) {
                             let kind = if let (Some(local), Some(initial)) = (g.local, g.initial) {
-                                // A single placement resizes in its own axes: the box handle drives the
-                                // local handle of the same kind nearest to it on screen.
-                                let distance = |h: &H| {
-                                    screen(position(geometry::transformed_point(
-                                        initial,
-                                        h.point(local),
-                                    )))
-                                    .distance(rect.center())
-                                };
-                                let handle = H::ALL
-                                    .into_iter()
-                                    .filter(|h| h.is_corner() == box_handle.is_corner())
-                                    .min_by(|a, b| distance(a).total_cmp(&distance(b)))
-                                    .unwrap_or(box_handle);
-                                GestureKind::Resize {
-                                    bounds: local,
-                                    handle,
+                                let mapped_initial = mapping.map_matrix(transform_matrix(initial));
+                                let axis_aligned_in_context = (mapped_initial[1].abs() <= 1e-6
+                                    && mapped_initial[2].abs() <= 1e-6)
+                                    || (mapped_initial[0].abs() <= 1e-6
+                                        && mapped_initial[3].abs() <= 1e-6);
+                                let use_box_scale = !axis_aligned_in_context
+                                    && (initial.skew.abs() > 1e-4
+                                        || is_curved_or_path
+                                        || !box_handle.is_corner());
+                                if use_box_scale {
+                                    GestureKind::BoxScale {
+                                        bounds: context_world,
+                                        handle: box_handle,
+                                        center: context_pivot,
+                                    }
+                                } else {
+                                    // A single placement resizes in its own axes: the box handle drives the
+                                    // local handle of the same kind nearest to it on screen.
+                                    let distance = |h: &H| {
+                                        screen(position(geometry::transformed_point(
+                                            initial,
+                                            h.point(local),
+                                        )))
+                                        .distance(rect.center())
+                                    };
+                                    let handle = H::ALL
+                                        .into_iter()
+                                        .filter(|h| h.is_corner() == box_handle.is_corner())
+                                        .min_by(|a, b| distance(a).total_cmp(&distance(b)))
+                                        .unwrap_or(box_handle);
+                                    GestureKind::Resize {
+                                        bounds: local,
+                                        handle,
+                                    }
+                                }
+                            } else if !box_handle.is_corner() {
+                                GestureKind::BoxScale {
+                                    bounds: context_world,
+                                    handle: box_handle,
+                                    center: context_pivot,
                                 }
                             } else {
                                 GestureKind::Scale {

@@ -848,3 +848,180 @@ fn selection_reshape_cursors_and_gestures_and_subselection_shape_points() {
         "Option-hovering smooth curve vertex on unselected Ellipse shows arrow-reshape-corner"
     );
 }
+
+#[test]
+fn tight_transformed_bounds_and_screen_axis_box_scale_for_skewed_rotated_and_deformed_shapes() {
+    use crate::authoring_tools::FreeTransformMode;
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    let painter = ctx.layer_painter(egui::LayerId::background());
+
+    // 1. A rotated circle (Ellipse) has tight 100x100 world_bounds (not 141.42x141.42).
+    let circle_item = DrawItem {
+        element_id: "circle".to_owned(),
+        name: "Circle".to_owned(),
+        instance_path: vec!["circle".to_owned()],
+        layer_id: "layer_1".to_owned(),
+        transform: transform_matrix(Transform {
+            x: 200.,
+            y: 150.,
+            rotation: 45.,
+            ..Default::default()
+        }),
+        alpha: 1.,
+        color_transform: ColorTransform::default(),
+        path_fingerprint: None,
+        kind: ElementKind::Ellipse {
+            width: 100.,
+            height: 100.,
+            fill: [100, 160, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.,
+        },
+    };
+    let circle_bounds = crate::stage::world_bounds(&circle_item, &painter);
+    near(f64::from(circle_bounds.width()), 100.);
+    near(f64::from(circle_bounds.height()), 100.);
+
+    // 2. An asymmetric Path with transparent stroke (stroke[3] == 0, stroke_width > 0) and
+    //    rotation + skew has exact tight world_bounds with zero empty gap on all 4 sides.
+    let commands = vec![
+        PathCommand::MoveTo { x: 0., y: 80. },
+        PathCommand::LineTo { x: 120., y: 0. },
+        PathCommand::LineTo { x: 100., y: 90. },
+        PathCommand::Close,
+    ];
+    editor.add_element(
+        ElementKind::Path {
+            commands: commands.clone(),
+            fill_rule: FillRule::NonZero,
+            fill: [80, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 8.,
+        },
+        200.,
+        180.,
+    );
+    editor.selected_element_mut().unwrap().transform = Transform {
+        x: 200.,
+        y: 180.,
+        rotation: 28.,
+        skew: 22.,
+        ..Default::default()
+    };
+    editor.project.format_version = editor.project.format_version.max(5);
+    clean(&mut editor);
+    let before = editor.project.clone();
+    stage_input_frame(&mut editor, &ctx, 0.1, vec![]);
+
+    let evaluated = evaluate(&editor.project, editor.symbol_id(), editor.frame);
+    let initial_rect = crate::stage::world_bounds(&evaluated[0], &painter);
+    let expected_pts: Vec<[f64; 2]> = [[0., 80.], [120., 0.], [100., 90.]]
+        .into_iter()
+        .map(|p| geometry::transformed_point(editor.selected_element().unwrap().transform, p))
+        .collect();
+    let exp_min_x = expected_pts
+        .iter()
+        .map(|p| p[0])
+        .fold(f64::INFINITY, f64::min);
+    let exp_max_x = expected_pts
+        .iter()
+        .map(|p| p[0])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let exp_min_y = expected_pts
+        .iter()
+        .map(|p| p[1])
+        .fold(f64::INFINITY, f64::min);
+    let exp_max_y = expected_pts
+        .iter()
+        .map(|p| p[1])
+        .fold(f64::NEG_INFINITY, f64::max);
+    near(f64::from(initial_rect.min.x), exp_min_x);
+    near(f64::from(initial_rect.max.x), exp_max_x);
+    near(f64::from(initial_rect.min.y), exp_min_y);
+    near(f64::from(initial_rect.max.y), exp_max_y);
+
+    // 3. Dragging the West (W) handle of the Free Transform box left by 50 px scales the box
+    //    horizontally in screen space while keeping East (max.x), North (min.y), and South (max.y) fixed.
+    let west_handle = page.min + egui::vec2(initial_rect.min.x, initial_rect.center().y);
+    let west_end = west_handle + egui::vec2(-50., 0.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.2,
+        vec![
+            egui::Event::PointerMoved(west_handle),
+            button(west_handle, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(west_end),
+            button(west_end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let after_west = crate::stage::world_bounds(
+        &evaluate(&editor.project, editor.symbol_id(), editor.frame)[0],
+        &painter,
+    );
+    near(f64::from(after_west.min.x), exp_min_x - 50.);
+    near(f64::from(after_west.max.x), exp_max_x);
+    near(f64::from(after_west.min.y), exp_min_y);
+    near(f64::from(after_west.max.y), exp_max_y);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 4. Dragging the SouthEast (SE) corner handle of the rotated/skewed Path by (+30, +25)
+    //    keeps NorthWest (min.x, min.y) fixed and moves SouthEast to (max.x + 30, max.y + 25).
+    stage_input_frame(&mut editor, &ctx, 0.25, vec![]);
+    let se_handle = page.min + egui::vec2(initial_rect.max.x, initial_rect.max.y);
+    let se_end = se_handle + egui::vec2(30., 25.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![
+            egui::Event::PointerMoved(se_handle),
+            button(se_handle, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(se_end),
+            button(se_end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let after_se = crate::stage::world_bounds(
+        &evaluate(&editor.project, editor.symbol_id(), editor.frame)[0],
+        &painter,
+    );
+    near(f64::from(after_se.min.x), exp_min_x);
+    near(f64::from(after_se.min.y), exp_min_y);
+    near(f64::from(after_se.max.x), exp_max_x + 30.);
+    near(f64::from(after_se.max.y), exp_max_y + 25.);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+
+    // 5. Deforming the rotated/skewed Path in Envelope mode bakes its transform into edit-space
+    //    path coordinates with an identity Transform so subsequent Free Transform bounds stay tight.
+    editor.set_free_transform_mode(FreeTransformMode::Envelope);
+    stage_input_frame(&mut editor, &ctx, 0.35, vec![]);
+    let top_mid = page.min + egui::vec2(initial_rect.center().x, initial_rect.min.y);
+    let top_mid_end = top_mid + egui::vec2(0., -15.);
+    frame(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![
+            egui::Event::PointerMoved(top_mid),
+            button(top_mid, true, egui::Modifiers::NONE),
+            egui::Event::PointerMoved(top_mid_end),
+            button(top_mid_end, false, egui::Modifiers::NONE),
+        ],
+        egui::Modifiers::NONE,
+    );
+    let deformed = editor.selected_element().unwrap();
+    near(deformed.transform.x, 0.);
+    near(deformed.transform.y, 0.);
+    near(deformed.transform.scale_x, 1.);
+    near(deformed.transform.scale_y, 1.);
+    near(deformed.transform.rotation, 0.);
+    near(deformed.transform.skew, 0.);
+    editor.project.validate().unwrap();
+}

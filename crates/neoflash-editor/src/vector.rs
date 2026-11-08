@@ -180,9 +180,13 @@ impl Default for TessCache {
     }
 }
 
+type TransformedBoundsCacheKey = (u64, u64, usize, [u64; 4]);
+
 thread_local! {
     static TESS_CACHE: RefCell<TessCache> = RefCell::new(TessCache::default());
     static BOUNDS_CACHE: RefCell<HashMap<(u64, u64, usize), Option<PathBounds>>> =
+        RefCell::new(HashMap::with_capacity(1024));
+    static TRANSFORMED_BOUNDS_CACHE: RefCell<HashMap<TransformedBoundsCacheKey, Option<PathBounds>>> =
         RefCell::new(HashMap::with_capacity(1024));
     static SCREEN_MESH_CACHE: RefCell<ScreenMeshCache> = RefCell::new(ScreenMeshCache::new(
         MAX_SCREEN_MESH_CACHE_ENTRIES,
@@ -222,6 +226,104 @@ pub(crate) fn path_bounds_cached(
         cache.insert(key, computed);
     });
     computed
+}
+
+fn transform_path_command_linear(cmd: PathCommand, m: [f64; 6]) -> PathCommand {
+    let map = |x: f64, y: f64| -> (f64, f64) { (m[0] * x + m[2] * y, m[1] * x + m[3] * y) };
+    match cmd {
+        PathCommand::MoveTo { x, y } => {
+            let (x, y) = map(x, y);
+            PathCommand::MoveTo { x, y }
+        }
+        PathCommand::LineTo { x, y } => {
+            let (x, y) = map(x, y);
+            PathCommand::LineTo { x, y }
+        }
+        PathCommand::QuadraticTo { cx, cy, x, y } => {
+            let (cx, cy) = map(cx, cy);
+            let (x, y) = map(x, y);
+            PathCommand::QuadraticTo { cx, cy, x, y }
+        }
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            let (cx1, cy1) = map(cx1, cy1);
+            let (cx2, cy2) = map(cx2, cy2);
+            let (x, y) = map(x, y);
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            }
+        }
+        PathCommand::Close => PathCommand::Close,
+    }
+}
+
+/// Exact tight axis-aligned bounding box of `commands` after applying the affine matrix `m`.
+/// Translation `(m[4], m[5])` is applied after looking up the linear-part cache so moving an
+/// object across the Stage reuses the cached curve extrema.
+pub(crate) fn transformed_path_bounds_cached(
+    commands: &[PathCommand],
+    fingerprint: Option<PathFingerprint>,
+    m: [f64; 6],
+) -> Option<PathBounds> {
+    if m.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let norm_bits = |v: f64| if v == 0.0 { 0 } else { v.to_bits() };
+    let (ha, hb, len) = bounds_cache_key(commands, fingerprint);
+    let key = (
+        ha,
+        hb,
+        len,
+        [
+            norm_bits(m[0]),
+            norm_bits(m[1]),
+            norm_bits(m[2]),
+            norm_bits(m[3]),
+        ],
+    );
+    let linear_bounds =
+        if let Some(hit) = TRANSFORMED_BOUNDS_CACHE.with(|cell| cell.borrow().get(&key).copied()) {
+            hit
+        } else {
+            let transformed: Vec<PathCommand> = commands
+                .iter()
+                .copied()
+                .map(|cmd| transform_path_command_linear(cmd, m))
+                .collect();
+            let computed = path_bounds(&transformed).ok().flatten();
+            TRANSFORMED_BOUNDS_CACHE.with(|cell| {
+                let mut cache = cell.borrow_mut();
+                if cache.len() >= MAX_BOUNDS_CACHE_ENTRIES {
+                    cache.clear();
+                }
+                cache.insert(key, computed);
+            });
+            computed
+        }?;
+    let tx = m[4];
+    let ty = m[5];
+    let shifted = PathBounds {
+        x_min: linear_bounds.x_min + tx,
+        y_min: linear_bounds.y_min + ty,
+        x_max: linear_bounds.x_max + tx,
+        y_max: linear_bounds.y_max + ty,
+    };
+    (shifted.x_min.is_finite()
+        && shifted.y_min.is_finite()
+        && shifted.x_max.is_finite()
+        && shifted.y_max.is_finite())
+    .then_some(shifted)
 }
 
 fn tess_cache_key(

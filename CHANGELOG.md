@@ -2,6 +2,20 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Tight transformed bounding boxes and screen-axis Free Transform box scaling for rotated, skewed and deformed shapes
+  (`T-143`):
+  - `world_bounds` and `selection_geometry` now compute exact curve-extrema bounding boxes (`transformed_path_bounds_cached`
+    and analytical rotated/skewed ellipse bounds) for rotated or skewed `Path`, `PaintedPath` and `Ellipse` shapes and
+    omit stroke padding when the stroke is transparent (`stroke[3] == 0` on a filled shape), eliminating oversized
+    bounding boxes around rotated, skewed or envelope/distort-deformed vector artwork.
+  - `Distort` (`deform_element_quad`) and `Envelope` (`deform_element_envelope`) now bake the element's affine transform
+    into edit-space path coordinates and reset `element.transform` to identity in edit space, preventing residual skewed
+    or rotated local axes from distorting subsequent Free Transform bounds or handle drags.
+  - Dragging Free Transform (`Q`) scale handles on a skewed object, a rotated/skewed `Path`/`PaintedPath`/`Ellipse`, an
+    edge handle (`N, E, S, W`) on a rotated object, or an edge handle on a multi-selection/Group now scales the visible
+    bounding box along its horizontal/vertical axes (`GestureKind::BoxScale` / `scale_box_in_context`) so the dragged
+    handle tracks the cursor directly instead of stretching along an oblique internal axis.
+
 - Classic Flash Selection tool (`V`) reshape cursors and gestures (`arrow-reshape-corner`, `arrow-reshape-curve`, `⌥`-drag
   new corner point) and Subselection tool (`A`) point display/adjustment on shapes (`T-142`):
   - Hovering near the outline of an unselected shape or line (`Rectangle`, `Ellipse`, `Path`, `PaintedPath`) with the
