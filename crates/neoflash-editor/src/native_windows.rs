@@ -13,11 +13,13 @@
 #[cfg(all(target_os = "macos", not(test)))]
 mod imp {
     use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSApplication, NSWindow, NSWindowCollectionBehavior, NSWindowTabbingMode};
-    use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+    use objc2_app_kit::{
+        NSApplication, NSFloatingWindowLevel, NSWindow, NSWindowCollectionBehavior,
+        NSWindowTabbingMode,
+    };
+    use std::sync::atomic::{AtomicIsize, Ordering};
 
     static ROOT: AtomicIsize = AtomicIsize::new(0);
-    static SEEN: AtomicUsize = AtomicUsize::new(0);
 
     /// Call once while only the main window exists (from `Editor::new`).
     pub fn install() {
@@ -31,27 +33,34 @@ mod imp {
         }
     }
 
-    /// Configure windows created since the last call. Cheap when nothing changed.
+    /// Configure detached panel windows so they stay above the main Stage window while NeoFlash
+    /// is active, hide on app deactivation, and never merge into full-screen tabs.
     pub fn configure_panels() {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
         let windows = app.windows();
-        let count = windows.len();
-        if SEEN.swap(count, Ordering::Relaxed) == count {
-            return;
-        }
         let root = ROOT.load(Ordering::Relaxed);
         for window in windows.iter() {
             if window.windowNumber() == root {
                 continue;
             }
-            window.setTabbingMode(NSWindowTabbingMode::Disallowed);
+            if window.tabbingMode() != NSWindowTabbingMode::Disallowed {
+                window.setTabbingMode(NSWindowTabbingMode::Disallowed);
+            }
+            if !window.hidesOnDeactivate() {
+                window.setHidesOnDeactivate(true);
+            }
+            if window.level() != NSFloatingWindowLevel {
+                window.setLevel(NSFloatingWindowLevel);
+            }
             let behavior = (window.collectionBehavior()
                 - NSWindowCollectionBehavior::FullScreenPrimary)
                 | NSWindowCollectionBehavior::FullScreenAuxiliary;
-            window.setCollectionBehavior(behavior);
+            if window.collectionBehavior() != behavior {
+                window.setCollectionBehavior(behavior);
+            }
         }
     }
 }

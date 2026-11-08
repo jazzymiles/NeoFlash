@@ -7139,7 +7139,7 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
             inner_size: [180.0, h_2col],
         },
     );
-    editor.compact_floating_tools_window_bottom_up(&ctx, PanelId::Tools, h_wide, 80.0, 1.0);
+    editor.compact_floating_tools_window_bottom_up(&ctx, PanelId::Tools, h_wide, 88.0, 80.0, 1.0);
     let compacted = editor
         .workspace
         .floating
@@ -7155,4 +7155,94 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
         compacted.inner_size[1], h_wide,
         "Bottom of floating Tools window compacts upward to match content height"
     );
+
+    // Unified contextual color: no Selection/Drawing toggle and no Fill · Mixed / Width · Mixed
+    // even when multiple shapes with different colors and widths are selected.
+    editor.workspace.color_picker_expanded = true;
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![
+        Element {
+            id: "r1".into(),
+            name: "r1".into(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 40.0,
+                fill: [0, 0, 0, 0],
+                stroke: [20, 30, 40, 255],
+                stroke_width: 1.0,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "r2".into(),
+            name: "r2".into(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 40.0,
+                fill: [91, 140, 255, 255],
+                stroke: [200, 40, 60, 255],
+                stroke_width: 4.0,
+            },
+            ..Element::default()
+        },
+    ];
+    editor.set_selection(vec![
+        crate::selection::SelectionTarget {
+            layer: layer_id.clone(),
+            element: "r1".into(),
+        },
+        crate::selection::SelectionTarget {
+            layer: layer_id.clone(),
+            element: "r2".into(),
+        },
+    ]);
+    let (ctx_fill, _, _, _, _) = editor.contextual_paints();
+    assert_eq!(
+        ctx_fill,
+        [91, 140, 255, 255],
+        "Contextual fill prefers visible fill across mixed selection"
+    );
+
+    let out_color = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(320.0, 560.0),
+            )),
+            time: Some(0.3),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = editor.color_fill_popover_contents(ui);
+            });
+        },
+    );
+    assert!(
+        named_bounds(&out_color, "Drawing").is_none()
+            && named_bounds(&out_color, "Apply fill to selection").is_none()
+            && named_bounds(&out_color, "Apply width to selection").is_none(),
+        "Color popover must not show Selection/Drawing toggle or Mixed apply buttons"
+    );
+
+    editor.reset_default_paints();
+    assert_eq!(editor.fill, [255, 255, 255, 255]);
+    assert_eq!(editor.stroke, [0, 0, 0, 255]);
+    for el in &editor.symbol().timeline.layers[0].keyframes[0].elements {
+        let ElementKind::Rectangle { fill, stroke, .. } = el.kind else {
+            panic!("expected rectangle");
+        };
+        assert_eq!(fill, [255, 255, 255, 255]);
+        assert_eq!(stroke, [0, 0, 0, 255]);
+    }
+    editor.swap_active_paints();
+    assert_eq!(editor.fill, [0, 0, 0, 255]);
+    assert_eq!(editor.stroke, [255, 255, 255, 255]);
+    for el in &editor.symbol().timeline.layers[0].keyframes[0].elements {
+        let ElementKind::Rectangle { fill, stroke, .. } = el.kind else {
+            panic!("expected rectangle");
+        };
+        assert_eq!(fill, [0, 0, 0, 255]);
+        assert_eq!(stroke, [255, 255, 255, 255]);
+    }
 }

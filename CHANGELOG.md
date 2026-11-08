@@ -2,6 +2,25 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Floating `Tools` live-resize height locking, unified contextual Color without `Selection` / `Drawing` toggle or
+  `Mixed` apply gates, and always-on-top floating panel windows (`T-149`):
+  - Locked the floating `Tools` viewport's `MinInnerSize.height` and `MaxInnerSize.height` to its computed content
+    height (`tools_desired_inner_height` in `crates/neoflash-editor/src/detached.rs`, with `minimum_window_size(PanelId::Tools)`
+    lowered to `[88.0, 160.0]` in `crates/neoflash-editor/src/workspace.rs`) so macOS `NSWindow` live-resize drags clamp
+    height and pin `NSMaxY(frame)` before `wgpu` renders each frame, eliminating `CAMetalLayer` vertical texture
+    stretching/squishing of tool icons during mouse drags.
+  - Set `egui::WindowLevel::AlwaysOnTop` on detached viewports (`crates/neoflash-editor/src/detached.rs`) and
+    `NSFloatingWindowLevel` + `setHidesOnDeactivate(true)` on non-root `NSWindow`s (`crates/neoflash-editor/src/native_windows.rs`)
+    so undocked floating panels remain visible above the main Stage window when clicking on the Stage while hiding
+    automatically when NeoFlash is deactivated.
+  - Removed the `Selection` / `Drawing` segmented toggle and `Fill · Mixed` / `Width · Mixed` (`Apply fill to selection` /
+    `Apply width to selection`) sections from the Color panel and Color popover (`crates/neoflash-editor/src/authoring_modify.rs`,
+    `crates/neoflash-editor/src/panels/live_planned.rs`). Color now operates with a single unified contextual UI and
+    logic (`contextual_paints`, `set_selection_fill_type`, `set_selection_gradient_stops`, `swap_active_paints`,
+    `reset_default_paints`): `Tools`, `Color`, `Swatches`, and `Properties` reflect the active selection's Fill/Stroke
+    in context and apply every color, fill-type, gradient, stroke-width, swap, or default B&W change simultaneously to
+    both the active tool paint and all selected editable paintable objects on the Stage.
+
 - Classic Flash `Tools` panel `Options` icon modifiers, multi-column horizontal reflow, and bottom-up floating window
   compaction (`T-148`):
   - Replaced the `Tool options` sun button (`i20::SETTINGS`) and inline `"Tool properties…"` text dump under `Options`

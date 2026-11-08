@@ -335,6 +335,27 @@ impl Editor {
                 },
             )?;
             label = "Bitmap fill";
+        } else if self.selection.len() > 1 {
+            for target in self.selection.targets.clone() {
+                if self.target_editable(&target)
+                    && crate::bitmaps::apply_bitmap_fill_to_project(
+                        &mut candidate,
+                        self.symbol_id(),
+                        &target.layer,
+                        self.frame,
+                        neoflash_core::AuthoredBitmapFill {
+                            element_id: target.element,
+                            resource_id: res_id.clone(),
+                            matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                            repeat: true,
+                            smoothing: true,
+                        },
+                    )
+                    .is_ok()
+                {
+                    label = "Bitmap fill";
+                }
+            }
         }
         candidate.upgrade_format_for_features();
         candidate.validate().map_err(|error| error.to_string())?;
@@ -356,36 +377,14 @@ impl Editor {
             .data(|d| d.get_temp::<BitmapFillDraft>(draft_id))
             .unwrap_or_default();
 
-        let sel_count = self.selection.len();
-        ui.horizontal(|ui| {
-            let mut scope = self.authoring_modify.color_selection;
-            if c::Segmented::show(
-                ui,
-                &mut scope,
-                &[(true, "Selection"), (false, "Drawing")],
-                false,
-            )
-            .is_some()
-            {
-                self.authoring_modify.color_selection = scope;
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let lbl = if sel_count == 1 {
-                    "1 object".to_owned()
-                } else {
-                    format!("{sel_count} objects")
-                };
-                ui.label(rich(&lbl, TextStyle::Body).color(nf.text_secondary));
-            });
-        });
-
+        let (ctx_fill, _, ctx_stroke, _, _) = self.contextual_paints();
         let fill_col =
-            Color32::from_rgba_unmultiplied(self.fill[0], self.fill[1], self.fill[2], self.fill[3]);
+            Color32::from_rgba_unmultiplied(ctx_fill[0], ctx_fill[1], ctx_fill[2], ctx_fill[3]);
         let stroke_col = Color32::from_rgba_unmultiplied(
-            self.stroke[0],
-            self.stroke[1],
-            self.stroke[2],
-            self.stroke[3],
+            ctx_stroke[0],
+            ctx_stroke[1],
+            ctx_stroke[2],
+            ctx_stroke[3],
         );
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
@@ -404,20 +403,22 @@ impl Editor {
                     .add(c::IconButton::new(i20::COLOR_SWAP, "Swap colours").side(28.0))
                     .clicked()
                 {
-                    std::mem::swap(&mut self.fill, &mut self.stroke);
+                    self.swap_active_paints();
                 }
                 if ui
                     .add(c::IconButton::new(i20::COLOR_NONE, "No colour").side(28.0))
                     .clicked()
                 {
-                    self.fill[3] = 0;
+                    self.set_selection_fill_type(
+                        false,
+                        crate::authoring_modify::PaintFillType::None,
+                    );
                 }
                 if ui
                     .add(c::IconButton::new(i20::COLOR_DEFAULT, "Black and white").side(28.0))
                     .clicked()
                 {
-                    self.stroke = [0, 0, 0, 255];
-                    self.fill = [255, 255, 255, 255];
+                    self.reset_default_paints();
                 }
             });
         });

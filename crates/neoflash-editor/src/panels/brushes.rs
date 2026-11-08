@@ -391,9 +391,9 @@ impl Editor {
         if resp.clicked() {
             ui.ctx()
                 .data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), stroke));
-            self.authoring_modify.color_selection = false;
+            self.authoring_modify.color_selection = true;
             self.workspace.color_picker_expanded = true;
-            crate::authoring_modify::request_color_popover(ui.ctx(), key, resp.rect, stroke, false);
+            crate::authoring_modify::request_color_popover(ui.ctx(), key, resp.rect, stroke, true);
             self.show_panel(PanelId::Color);
         }
         self.show_active_color_popover(ui);

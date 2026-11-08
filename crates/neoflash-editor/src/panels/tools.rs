@@ -524,11 +524,10 @@ impl Editor {
             )
             .inner;
         if reset {
-            self.stroke = [0, 0, 0, 255];
-            self.fill = [255, 255, 255, 255];
+            self.reset_default_paints();
         }
         if swap {
-            std::mem::swap(&mut self.fill, &mut self.stroke);
+            self.swap_active_paints();
         }
     }
 
@@ -552,15 +551,10 @@ impl Editor {
                 }
                 (c[3] > 0).then(|| egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]))
             };
+        let (ctx_fill, ctx_fill_grad, ctx_stroke, ctx_stroke_grad, _) = self.contextual_paints();
         let chip = nf::FillStrokeChip {
-            fill: chip_color(
-                self.fill,
-                self.authoring_modify.drawing_fill_gradient.as_ref(),
-            ),
-            stroke: chip_color(
-                self.stroke,
-                self.authoring_modify.drawing_stroke_gradient.as_ref(),
-            ),
+            fill: chip_color(ctx_fill, ctx_fill_grad.as_ref()),
+            stroke: chip_color(ctx_stroke, ctx_stroke_grad.as_ref()),
         }
         .show(ui);
         if chip.fill_clicked {
@@ -570,7 +564,7 @@ impl Editor {
                 Some(RailPopover::Fill)
             };
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), false));
-            self.authoring_modify.color_selection = !self.selection.targets.is_empty();
+            self.authoring_modify.color_selection = true;
             set_popover(&ctx, next);
         } else if chip.stroke_clicked {
             let next = if popover(&ctx) == Some(RailPopover::Stroke) {
@@ -579,7 +573,7 @@ impl Editor {
                 Some(RailPopover::Stroke)
             };
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("color-panel-active-stroke"), true));
-            self.authoring_modify.color_selection = !self.selection.targets.is_empty();
+            self.authoring_modify.color_selection = true;
             set_popover(&ctx, next);
         }
         let stroke_well = match popover(&ctx) {

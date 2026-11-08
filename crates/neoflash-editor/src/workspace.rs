@@ -1370,7 +1370,7 @@ impl ScreenRect {
 
 pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
     match panel {
-        PanelId::Tools => [88., 300.],
+        PanelId::Tools => [88., 160.],
         PanelId::Timeline => [320., 180.],
         PanelId::Library => [248., 300.],
         PanelId::Align

@@ -2,11 +2,8 @@
 //! at the current frame and keeps placement identity and scripts intact.
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
-    app::Editor,
-    paint_controls::{number_field, numeric_row, paint_row},
-    selection::SelectionTarget,
-    stage_mapping::StageMapping,
-    workspace::PanelId,
+    app::Editor, paint_controls::number_field, selection::SelectionTarget,
+    stage_mapping::StageMapping, workspace::PanelId,
 };
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::*;
@@ -14,7 +11,7 @@ use neoflash_ui::{
     Icon, TextStyle,
     components::{
         Button, Checkbox, ColorField, ColorPicker, ColorWell, ColorWellTarget, DragField, Field,
-        GradientBar, IconButton, IconGroup, MenuItem, SectionHeader, Segmented, Select,
+        GradientBar, IconButton, IconGroup, MenuItem, Segmented, Select,
         color_picker::{Hsb, hsv},
     },
     icons::{i16, i20},
@@ -3290,6 +3287,58 @@ impl Editor {
             })
     }
 
+    pub(crate) fn contextual_paints(
+        &self,
+    ) -> (
+        Color,
+        Option<GradientPaint>,
+        Color,
+        Option<GradientPaint>,
+        f64,
+    ) {
+        if self.authoring_modify.color_selection {
+            let values: Vec<_> = self
+                .sampled_targets()
+                .into_iter()
+                .filter(|(t, _)| self.target_editable(t))
+                .filter_map(|(_, e)| paints_with_gradients(&e.kind))
+                .collect();
+            if !values.is_empty() {
+                let fill_sample = values
+                    .iter()
+                    .find(|v| v.fill[3] > 0 || v.fill_gradient.is_some())
+                    .unwrap_or(&values[0]);
+                let fill = fill_sample.fill;
+                let fill_grad = fill_sample.fill_gradient.clone();
+                let (stroke, stroke_grad, width) = if let Some(stroke_sample) = values
+                    .iter()
+                    .find(|v| v.supports_stroke && (v.stroke[3] > 0 || v.stroke_gradient.is_some()))
+                    .or_else(|| values.iter().find(|v| v.supports_stroke))
+                {
+                    (
+                        stroke_sample.stroke,
+                        stroke_sample.stroke_gradient.clone(),
+                        stroke_sample.stroke_width,
+                    )
+                } else {
+                    (
+                        self.stroke,
+                        self.authoring_modify.drawing_stroke_gradient.clone(),
+                        self.stroke_width,
+                    )
+                };
+                return (fill, fill_grad, stroke, stroke_grad, width);
+            }
+        }
+        (
+            self.fill,
+            self.authoring_modify.drawing_fill_gradient.clone(),
+            self.stroke,
+            self.authoring_modify.drawing_stroke_gradient.clone(),
+            self.stroke_width,
+        )
+    }
+
     pub(crate) fn set_selection_fill_type(&mut self, stroke_well: bool, mode: PaintFillType) {
         if !self.authoring_modify.color_selection {
             self.set_drawing_fill_type(stroke_well, mode);
@@ -3304,9 +3353,7 @@ impl Editor {
             }
             return;
         }
-        if !stroke_well {
-            self.authoring_modify.drawing_bitmap_fill = None;
-        }
+        self.set_drawing_fill_type(stroke_well, mode);
         let targets: Vec<_> = self
             .sampled_targets()
             .into_iter()
@@ -3329,6 +3376,17 @@ impl Editor {
                     .then_some((target, element))
             })
             .collect();
+        if let Some((_, first_el)) = changes.first()
+            && let Some(sample) = paints_with_gradients(&first_el.kind)
+        {
+            if stroke_well {
+                self.stroke = sample.stroke;
+                self.authoring_modify.drawing_stroke_gradient = sample.stroke_gradient;
+            } else {
+                self.fill = sample.fill;
+                self.authoring_modify.drawing_fill_gradient = sample.fill_gradient;
+            }
+        }
         if !had_bitmap_targets.is_empty() {
             let frame = self.frame;
             self.finish_edits();
@@ -3437,7 +3495,7 @@ impl Editor {
         if normalized.is_empty() {
             return;
         }
-        if !self.authoring_modify.color_selection {
+        {
             let (color, grad) = if stroke_well {
                 (
                     &mut self.stroke,
@@ -3453,6 +3511,8 @@ impl Editor {
                 paint.stops = normalized.clone();
                 *color = normalized[0].color;
             }
+        }
+        if !self.authoring_modify.color_selection {
             return;
         }
         let targets: Vec<_> = self
@@ -3491,12 +3551,12 @@ impl Editor {
     }
 
     pub(crate) fn swap_active_paints(&mut self) {
+        std::mem::swap(&mut self.fill, &mut self.stroke);
+        std::mem::swap(
+            &mut self.authoring_modify.drawing_fill_gradient,
+            &mut self.authoring_modify.drawing_stroke_gradient,
+        );
         if !self.authoring_modify.color_selection {
-            std::mem::swap(&mut self.fill, &mut self.stroke);
-            std::mem::swap(
-                &mut self.authoring_modify.drawing_fill_gradient,
-                &mut self.authoring_modify.drawing_stroke_gradient,
-            );
             return;
         }
         let changes: Vec<_> = self
@@ -3524,15 +3584,24 @@ impl Editor {
                 _ => None,
             })
             .collect();
+        if let Some((_, first_el)) = changes.first()
+            && let Some(sample) = paints_with_gradients(&first_el.kind)
+        {
+            self.fill = sample.fill;
+            self.stroke = sample.stroke;
+            self.authoring_modify.drawing_fill_gradient = sample.fill_gradient;
+            self.authoring_modify.drawing_stroke_gradient = sample.stroke_gradient;
+        }
         self.apply_modified(changes, None);
     }
 
     pub(crate) fn reset_default_paints(&mut self) {
+        self.fill = [255, 255, 255, 255];
+        self.stroke = [0, 0, 0, 255];
+        self.authoring_modify.drawing_fill_gradient = None;
+        self.authoring_modify.drawing_stroke_gradient = None;
+        self.authoring_modify.drawing_bitmap_fill = None;
         if !self.authoring_modify.color_selection {
-            self.fill = [255, 255, 255, 255];
-            self.stroke = [0, 0, 0, 255];
-            self.authoring_modify.drawing_fill_gradient = None;
-            self.authoring_modify.drawing_stroke_gradient = None;
             return;
         }
         let changes: Vec<_> = self
@@ -3738,7 +3807,6 @@ impl Editor {
 
     fn color_panel_contents(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = space::S2;
-        let p = neoflash_ui::palette(ui.ctx());
         let targets = self
             .sampled_targets()
             .into_iter()
@@ -3748,31 +3816,12 @@ impl Editor {
             .iter()
             .filter_map(|(_, e)| paints_with_gradients(&e.kind))
             .collect();
-        ui.horizontal(|ui| {
-            Segmented::show(
-                ui,
-                &mut self.authoring_modify.color_selection,
-                &[(true, "Selection"), (false, "Drawing")],
-                false,
-            );
-            if self.authoring_modify.color_selection {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let n = targets.len();
-                    ui.label(
-                        rich(
-                            format!("{n} object{}", if n == 1 { "" } else { "s" }),
-                            TextStyle::Body,
-                        )
-                        .color(p.text_secondary),
-                    );
-                });
-            }
-        });
         // Which paint the wells edit: remembered per panel, Fill by default.
         let active_id = egui::Id::new("color-panel-active-stroke");
         let mut stroke_active = ui.data(|d| d.get_temp::<bool>(active_id).unwrap_or(false));
-        // Flash behaviour: with nothing paintable selected the Color panel edits the tool (drawing)
-        // colours instead of going blank; the scope control and the object count stay as they are.
+        // Unified contextual colour: with nothing paintable selected the Color panel edits the
+        // tool (drawing) colours; when paintable objects are selected, edits apply to both the
+        // selection and the active tool paint without switching modes.
         if !self.authoring_modify.color_selection || targets.is_empty() || values.is_empty() {
             let fill_grad = self.authoring_modify.drawing_fill_gradient.clone();
             let stroke_grad = self.authoring_modify.drawing_stroke_gradient.clone();
@@ -3880,27 +3929,8 @@ impl Editor {
             return;
         }
 
-        let first = values[0].clone();
-        let fill = first.fill;
-        let fill_grad = first.fill_gradient.clone();
-        let mut stroke = first.stroke;
-        let mut stroke_grad = first.stroke_gradient.clone();
-        let mut width = first.stroke_width;
+        let (fill, fill_grad, stroke, stroke_grad, width) = self.contextual_paints();
         let supports_stroke = values.iter().any(|value| value.supports_stroke);
-        let supports_gradient = targets.iter().any(|(_, e)| {
-            matches!(
-                e.kind,
-                ElementKind::Rectangle { .. }
-                    | ElementKind::Ellipse { .. }
-                    | ElementKind::Path { .. }
-                    | ElementKind::PaintedPath { .. }
-            )
-        });
-        if let Some(value) = values.iter().find(|value| value.supports_stroke) {
-            stroke = value.stroke;
-            stroke_grad = value.stroke_gradient.clone();
-            width = value.stroke_width;
-        }
         let mixed_fill = values
             .iter()
             .any(|v| v.fill != fill || v.fill_gradient != fill_grad);
@@ -3956,19 +3986,7 @@ impl Editor {
                     || targets.iter().any(|(t, _)| self.target_has_bitmap_fill(t)));
             let current_mode = classify_fill_type(active_color, active_grad.as_ref(), has_bitmap);
             if let Some(new_mode) = fill_type_select(ui, current_mode, stroke_active) {
-                if !supports_gradient
-                    && matches!(
-                        new_mode,
-                        PaintFillType::LinearGradient
-                            | PaintFillType::RadialGradient
-                            | PaintFillType::BitmapFill
-                    )
-                {
-                    self.authoring_modify.color_selection = false;
-                    self.set_drawing_fill_type(stroke_active, new_mode);
-                } else {
-                    self.set_selection_fill_type(stroke_active, new_mode);
-                }
+                self.set_selection_fill_type(stroke_active, new_mode);
                 return;
             }
 
@@ -4013,53 +4031,84 @@ impl Editor {
                 }
             } else {
                 let (mut new_fill, mut new_stroke) = (fill, stroke);
-                let (mut force_fill, mut force_stroke) = (false, false);
-                let mut control = None;
-                if !stroke_active {
-                    if mixed_fill {
-                        if let Some((value, id)) = mixed_color_edit(ui, "Fill") {
-                            new_fill = value;
-                            force_fill = true;
-                            control = Some(id);
-                        }
-                    } else {
-                        control = color_mixer_ui(
-                            ui,
-                            scope.with("sel-fill-hsb"),
-                            "Fill colour",
-                            &mut new_fill,
-                            &mut self.authoring_modify.color_model_hsb,
-                        );
-                    }
-                } else if mixed_stroke {
-                    if let Some((value, id)) = mixed_color_edit(ui, "Stroke") {
-                        new_stroke = value;
-                        force_stroke = true;
-                        control = Some(id);
-                    }
+                let control = if !stroke_active {
+                    color_mixer_ui(
+                        ui,
+                        scope.with("sel-fill-hsb"),
+                        "Fill colour",
+                        &mut new_fill,
+                        &mut self.authoring_modify.color_model_hsb,
+                    )
                 } else {
-                    control = color_mixer_ui(
+                    color_mixer_ui(
                         ui,
                         scope.with("sel-stroke-hsb"),
                         "Stroke colour",
                         &mut new_stroke,
                         &mut self.authoring_modify.color_model_hsb,
-                    );
-                }
+                    )
+                };
                 if let Some(control) = control {
+                    if stroke_active {
+                        self.stroke = new_stroke;
+                        update_gradient_for_color_edit(
+                            &mut self.authoring_modify.drawing_stroke_gradient,
+                            stroke,
+                            new_stroke,
+                        );
+                    } else {
+                        self.fill = new_fill;
+                        update_gradient_for_color_edit(
+                            &mut self.authoring_modify.drawing_fill_gradient,
+                            fill,
+                            new_fill,
+                        );
+                    }
                     let changes = targets
                         .iter()
                         .cloned()
                         .filter_map(|(target, mut element)| {
                             let previous = paints(&element.kind)?;
+                            let old_fill = if !stroke_active && mixed_fill {
+                                [
+                                    new_fill[0].wrapping_add(1),
+                                    new_fill[1],
+                                    new_fill[2],
+                                    new_fill[3].wrapping_add(1),
+                                ]
+                            } else {
+                                fill
+                            };
+                            let old_stroke = if stroke_active && mixed_stroke {
+                                [
+                                    new_stroke[0].wrapping_add(1),
+                                    new_stroke[1],
+                                    new_stroke[2],
+                                    new_stroke[3].wrapping_add(1),
+                                ]
+                            } else {
+                                stroke
+                            };
                             let changed = edit_paints(
                                 &mut element.kind,
                                 (
-                                    if force_fill { previous.0 } else { fill },
-                                    if force_stroke { previous.1 } else { stroke },
-                                    width,
+                                    if !stroke_active { old_fill } else { previous.0 },
+                                    if stroke_active {
+                                        old_stroke
+                                    } else {
+                                        previous.1
+                                    },
+                                    previous.2,
                                 ),
-                                (new_fill, new_stroke, width),
+                                (
+                                    if !stroke_active { new_fill } else { previous.0 },
+                                    if stroke_active {
+                                        new_stroke
+                                    } else {
+                                        previous.1
+                                    },
+                                    previous.2,
+                                ),
                             );
                             changed.then_some((target, element))
                         })
@@ -4070,17 +4119,8 @@ impl Editor {
 
             if supports_stroke {
                 let mut new_width = width;
-                let mut force_width = false;
-                let width_control = if mixed_width {
-                    mixed_width_edit(ui).map(|(v, id)| {
-                        new_width = v;
-                        force_width = true;
-                        id
-                    })
-                } else {
-                    stroke_section_ui(ui, &mut new_width, true)
-                };
-                if let Some(control) = width_control {
+                if let Some(control) = stroke_section_ui(ui, &mut new_width, true) {
+                    self.stroke_width = new_width;
                     let changes = targets
                         .into_iter()
                         .filter_map(|(target, mut element)| {
@@ -4090,7 +4130,7 @@ impl Editor {
                                 (
                                     previous.0,
                                     previous.1,
-                                    if force_width { previous.2 } else { width },
+                                    if mixed_width { new_width - 1.0 } else { width },
                                 ),
                                 (previous.0, previous.1, new_width),
                             );
@@ -4647,7 +4687,11 @@ fn color_mixer_ui(
                 ui.data_mut(|d| d.insert_temp(color_picker_toggle(), true));
             }
             if cf.response.changed() {
+                let prev = *color;
                 *color = field_c32.to_srgba_unmultiplied();
+                if prev[3] == 0 && color[..3] != prev[..3] && color[3] == 0 {
+                    color[3] = 255;
+                }
                 changed_id = Some(cf.response.id);
             }
         });
@@ -4697,14 +4741,24 @@ fn color_mixer_ui(
             .width(w)
             .show(ui);
         if cf.response.changed() {
+            let prev = *color;
             *color = field_c32.to_srgba_unmultiplied();
+            if prev[3] == 0 && color[..3] != prev[..3] && color[3] == 0 {
+                color[3] = 255;
+            }
             hsb = color_to_hsb(*color);
             changed_id = Some(cf.response.id);
         }
     });
 
+    let before_hsb = hsb;
     let picker_r = ui.add(ColorPicker { color: &mut hsb });
     if picker_r.changed() {
+        if before_hsb.a == 0.0
+            && (hsb.h != before_hsb.h || hsb.s != before_hsb.s || hsb.v != before_hsb.v)
+        {
+            hsb.a = 1.0;
+        }
         *color = egui::Color32::from(hsb).to_srgba_unmultiplied();
         changed_id = Some(picker_r.id);
     }
@@ -4874,57 +4928,6 @@ fn stroke_section_ui(ui: &mut egui::Ui, width: &mut f64, with_divider: bool) -> 
         });
     });
     changed
-}
-
-/// Mixed values are explicit. A new value is a deliberate draft, never an
-/// arbitrary selected object's paint; Apply changes only this named field.
-fn mixed_color_edit(ui: &mut egui::Ui, label: &str) -> Option<(Color, egui::Id)> {
-    let id = ui.id().with(("mixed-color", label));
-    let (mut draft, mut edited) = ui.ctx().data(|data| {
-        data.get_temp::<(Color, bool)>(id)
-            .unwrap_or(([0, 0, 0, 255], false))
-    });
-    let mut result = None;
-    SectionHeader::new(&format!("{label} · Mixed"))
-        .id_salt(id)
-        .default_open(false)
-        .show(ui, |ui| {
-            edited |= paint_row(ui, label, "New value", &mut draft).changed();
-            let apply = ui
-                .add_enabled_semantic(
-                    edited,
-                    Button::new(&format!("Apply {} to selection", label.to_lowercase())),
-                )
-                .on_disabled_hover_text("Enter a new value before applying it to the selection.");
-            if apply.clicked() {
-                result = Some((draft, apply.id));
-            }
-        });
-    ui.ctx()
-        .data_mut(|data| data.insert_temp(id, (draft, edited)));
-    result
-}
-fn mixed_width_edit(ui: &mut egui::Ui) -> Option<(f64, egui::Id)> {
-    let id = ui.id().with("mixed-stroke-width");
-    let (mut draft, mut edited) = ui
-        .ctx()
-        .data(|data| data.get_temp::<(f64, bool)>(id).unwrap_or((1., false)));
-    let mut result = None;
-    SectionHeader::new("Width · Mixed")
-        .id_salt(id)
-        .default_open(false)
-        .show(ui, |ui| {
-            edited |= numeric_row(ui, "New value", &mut draft, 0. ..=100., 0.25).changed();
-            let apply = ui
-                .add_enabled_semantic(edited, Button::new("Apply width to selection"))
-                .on_disabled_hover_text("Enter a new width before applying it to the selection.");
-            if apply.clicked() {
-                result = Some((draft, apply.id));
-            }
-        });
-    ui.ctx()
-        .data_mut(|data| data.insert_temp(id, (draft, edited)));
-    result
 }
 
 /// Rotate / flip commands in the order of the Transform panel icon group.

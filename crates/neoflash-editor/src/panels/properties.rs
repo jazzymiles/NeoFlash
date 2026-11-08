@@ -611,6 +611,34 @@ impl Editor {
                 }
                 if original != element && let Some(control) = changes.control {
                     if let Some(field) = TextFieldState::from_kind(&element.kind) && let Err(error) = field.validate() { self.message(format!("Text box edit rejected: {error}")); return; }
+                    match (&original.kind, &element.kind) {
+                        (
+                            ElementKind::Rectangle { fill: of, stroke: os, stroke_width: ow, .. }
+                            | ElementKind::Ellipse { fill: of, stroke: os, stroke_width: ow, .. }
+                            | ElementKind::Path { fill: of, stroke: os, stroke_width: ow, .. }
+                            | ElementKind::PaintedPath { fill: of, stroke: os, stroke_width: ow, .. },
+                            ElementKind::Rectangle { fill: nf, stroke: ns, stroke_width: nw, .. }
+                            | ElementKind::Ellipse { fill: nf, stroke: ns, stroke_width: nw, .. }
+                            | ElementKind::Path { fill: nf, stroke: ns, stroke_width: nw, .. }
+                            | ElementKind::PaintedPath { fill: nf, stroke: ns, stroke_width: nw, .. },
+                        ) => {
+                            if nf != of {
+                                self.fill = *nf;
+                            }
+                            if ns != os {
+                                self.stroke = *ns;
+                            }
+                            if nw != ow {
+                                self.stroke_width = *nw;
+                            }
+                        }
+                        (ElementKind::Text { color: oc, .. }, ElementKind::Text { color: nc, .. })
+                            if nc != oc =>
+                        {
+                            self.fill = *nc;
+                        }
+                        _ => {}
+                    }
                     self.begin_property_edit(scope, control);
                     self.select_single_id(original.id.clone());
                     self.ensure_selected_key();

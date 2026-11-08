@@ -304,8 +304,8 @@ fn color_swatch(ui: &mut egui::Ui, id: &str, label: &str, value: &mut Color) -> 
         "path-stroke" => Some(("path-stroke", true, true)),
         "text-color" => Some(("text-color", false, true)),
         "text-box-color" => Some(("text-box-color", false, true)),
-        "inspector-tool-fill" => Some(("inspector-tool-fill", false, false)),
-        "inspector-tool-stroke" => Some(("inspector-tool-stroke", true, false)),
+        "inspector-tool-fill" => Some(("inspector-tool-fill", false, true)),
+        "inspector-tool-stroke" => Some(("inspector-tool-stroke", true, true)),
         _ => None,
     };
     if let Some((static_id, stroke_well, color_selection)) = popover_target {

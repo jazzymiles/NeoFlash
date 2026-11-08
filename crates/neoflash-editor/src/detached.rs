@@ -640,6 +640,10 @@ impl Editor {
                 .root
                 .as_ref()
                 .map_or([80., 80.], |root| root.minimum_size());
+            let tools_lock_h_px = (panels.as_slice() == [PanelId::Tools])
+                .then_some(self.detached.tools_desired_inner_height)
+                .flatten()
+                .map(|h| (h * zoom).max(minimum[1]));
             let saved = window.geometry;
             let mut desired = saved.unwrap_or(WindowGeometry {
                 outer_position: [fallback.origin[0] + 40., fallback.origin[1] + 40.],
@@ -647,7 +651,7 @@ impl Editor {
             });
             desired.inner_size = [
                 desired.inner_size[0].max(minimum[0]),
-                desired.inner_size[1].max(minimum[1]),
+                tools_lock_h_px.unwrap_or_else(|| desired.inner_size[1].max(minimum[1])),
             ];
             let geometry =
                 recover_geometry(panel, Some(desired), &self.detached.monitors, fallback);
@@ -662,12 +666,19 @@ impl Editor {
                     .collect::<Vec<_>>()
                     .join(" + ")
             );
+            let min_h_logical = tools_lock_h_px
+                .map(|h| h / zoom)
+                .unwrap_or_else(|| minimum[1].min(geometry.inner_size[1]) / zoom);
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(&title)
+                .with_window_level(egui::WindowLevel::AlwaysOnTop)
                 .with_min_inner_size([
                     minimum[0].min(geometry.inner_size[0]) / zoom,
-                    minimum[1].min(geometry.inner_size[1]) / zoom,
+                    min_h_logical,
                 ]);
+            if let Some(lock_h_px) = tools_lock_h_px {
+                builder = builder.with_max_inner_size([4096.0, lock_h_px / zoom]);
+            }
             if initial {
                 builder = builder
                     .with_position([
@@ -783,6 +794,7 @@ impl Editor {
                             ctx,
                             window_id,
                             desired_h,
+                            minimum[0],
                             minimum[1],
                             zoom,
                         );
@@ -1048,6 +1060,7 @@ impl Editor {
         ctx: &egui::Context,
         window_id: PanelId,
         desired_inner_h: f32,
+        min_w_px: f32,
         min_h_px: f32,
         zoom: f32,
     ) {
@@ -1061,6 +1074,15 @@ impl Editor {
             return;
         };
         let target_h_px = (desired_inner_h * zoom).max(min_h_px);
+        let target_h_logical = target_h_px / zoom;
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+            min_w_px.min(geom.inner_size[0]) / zoom,
+            target_h_logical,
+        )));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(egui::vec2(
+            4096.0,
+            target_h_logical,
+        )));
         if (geom.inner_size[1] - target_h_px).abs() <= 1.5 {
             return;
         }
@@ -1069,12 +1091,13 @@ impl Editor {
         self.workspace.remember_floating_geometry(window_id, geom);
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
             geom.inner_size[0] / zoom,
-            target_h_px / zoom,
+            target_h_logical,
         )));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
             geom.outer_position[0] / zoom,
             geom.outer_position[1] / zoom,
         )));
+        ctx.request_repaint();
     }
 
     fn finish_floating_context_menu(&mut self, ctx: &egui::Context) {
