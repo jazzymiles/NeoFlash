@@ -280,3 +280,41 @@ test('WASM format 8 curves retain arc-length motion, orientation and authored sh
   assert.notDeepEqual(JSON.parse(unhinted.scene_json())[0].kind.commands,commands);
   unhinted.free();
 });
+
+test('WASM format 10 keeps same-layer object motion paths, easing and orientation independent',async()=>{
+  await ready;
+  const moving=(id,x,y,alpha=1)=>({...shape(x),id,name:id,scripts:[],transform:{...transform(x),y,alpha}});
+  const curve=(startX,controlY,endX)=>({type:'path',commands:[
+    {op:'move_to',x:startX,y:0},
+    {op:'cubic_to',cx1:startX,cy1:controlY,cx2:endX,cy2:controlY,x:endX,y:0},
+  ]});
+  const doc={format_version:10,name:'Object motion tracks',width:400,height:260,fps:24,
+    background:[255,255,255,255],root:'root',symbols:[{id:'root',name:'Scene',kind:'movie_clip',
+    timeline:{frame_count:21,scripts:[],layers:[{id:'motion',name:'Motion',visible:true,locked:false,
+      keyframes:[
+        {...key(0,[moving('a',0,0),moving('b',200,0)],'','linear'),tween_kind:'motion',motion_tracks:[
+          {element_id:'a',easing:'ease_in',property_eases:[['x','linear'],['y','linear']],orient_to_path:true,motion_path:curve(0,100,100)},
+          {element_id:'b',easing:'ease_out',property_eases:[['x','linear'],['y','linear']],orient_to_path:false,motion_path:curve(200,-100,300)},
+        ]},
+        {...key(20,[moving('a',100,0,0),moving('b',300,0,0)],'','linear'),tween_kind:'motion',
+          keyed_properties:['x','y','alpha'],motion_keys:[
+            {element_id:'a',properties:['x','y','alpha']},
+            {element_id:'b',properties:['x','y','alpha']},
+          ]},
+      ]}]}}]};
+  const player=new wasm.WebPlayer(JSON.stringify(doc));
+  player.control('[]','goto_and_stop',10);
+  const scene=JSON.parse(player.scene_json());
+  const a=scene.find(item=>item.element_id==='a');
+  const b=scene.find(item=>item.element_id==='b');
+  assert.ok(a&&b,'both same-layer objects remain addressable by stable ID');
+  assert.ok(Math.abs(a.transform[4]-50)<0.05&&Math.abs(a.transform[5]-75)<0.05,`a path: ${a.transform}`);
+  assert.ok(Math.abs(b.transform[4]-250)<0.05&&Math.abs(b.transform[5]+75)<0.05,`b path: ${b.transform}`);
+  assert.ok(Math.abs(a.kind.fill[3]/255-0.75)<0.01,`a EaseIn alpha: ${a.kind.fill[3]}`);
+  assert.ok(Math.abs(b.kind.fill[3]/255-0.25)<0.01,`b EaseOut alpha: ${b.kind.fill[3]}`);
+  assert.ok(Math.abs(a.transform[0]-1)>0.2||Math.abs(a.transform[1])>0.2,'a follows its path orientation');
+  assert.ok(Math.abs(b.transform[0]-1)<1e-9&&Math.abs(b.transform[1])<1e-9,'b keeps authored orientation');
+  player.free();
+  const wrongVersion=structuredClone(doc);wrongVersion.format_version=9;
+  assert.throws(()=>new wasm.WebPlayer(JSON.stringify(wrongVersion)),/version 10/);
+});

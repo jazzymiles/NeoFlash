@@ -52,6 +52,11 @@ pub(crate) struct MotionClip {
     ease: Easing,
     property_eases: Vec<(TweenProperty, Easing)>,
     orient_to_path: bool,
+    snap_to_guide: bool,
+    sync_symbols: bool,
+    /// Object-coordinate editable path. A legacy secondary track with a changing offset is baked
+    /// before paste instead of pretending its shared reference curve is independent.
+    motion_path: Option<Vec<PathCommand>>,
     /// Frames from the span start to its end key (classic) or span end (motion).
     length: u32,
     /// Offset 0 first, then ◆ property keys in frame order (motion) or the end key (classic).
@@ -69,6 +74,7 @@ pub(crate) struct MotionClip {
 struct MotionKey {
     offset: u32,
     keyed: Option<Vec<TweenProperty>>,
+    roving: bool,
     pose: Transform,
 }
 
@@ -146,6 +152,111 @@ fn place(key: &mut Keyframe, template: &Element, pose: Transform) {
     }
 }
 
+fn copy_motion_properties(
+    target: &mut Transform,
+    source: &Transform,
+    properties: &[TweenProperty],
+) {
+    for property in properties {
+        match property {
+            TweenProperty::X => target.x = source.x,
+            TweenProperty::Y => target.y = source.y,
+            TweenProperty::ScaleX => target.scale_x = source.scale_x,
+            TweenProperty::ScaleY => target.scale_y = source.scale_y,
+            TweenProperty::Rotation => target.rotation = source.rotation,
+            TweenProperty::Skew => target.skew = source.skew,
+            TweenProperty::Alpha => target.alpha = source.alpha,
+            TweenProperty::Color => target.color_transform = source.color_transform,
+        }
+    }
+}
+
+pub(crate) fn translate_motion_path(path: &[PathCommand], delta: [f64; 2]) -> Vec<PathCommand> {
+    let mut translated = path.to_vec();
+    for command in &mut translated {
+        match command {
+            PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                *x += delta[0];
+                *y += delta[1];
+            }
+            PathCommand::CubicTo {
+                cx1,
+                cy1,
+                cx2,
+                cy2,
+                x,
+                y,
+            } => {
+                *cx1 += delta[0];
+                *cy1 += delta[1];
+                *cx2 += delta[0];
+                *cy2 += delta[1];
+                *x += delta[0];
+                *y += delta[1];
+            }
+            _ => {}
+        }
+    }
+    translated
+}
+
+fn remove_object_motion_key(key: &mut Keyframe, element_id: &str) {
+    if key.keyed_properties.is_none() {
+        return;
+    }
+    key.materialize_motion_keys();
+    if let Some(keys) = &mut key.motion_keys {
+        keys.retain(|object_key| object_key.element_id != element_id);
+    }
+    key.sync_motion_key_union();
+}
+
+fn remove_object_motion_properties(
+    key: &mut Keyframe,
+    element_id: &str,
+    properties: &[TweenProperty],
+) {
+    if key.keyed_properties.is_none() {
+        return;
+    }
+    key.materialize_motion_keys();
+    if let Some(keys) = &mut key.motion_keys {
+        if let Some(object_key) = keys.iter_mut().find(|key| key.element_id == element_id) {
+            object_key
+                .properties
+                .retain(|property| !properties.contains(property));
+        }
+        keys.retain(|key| !key.properties.is_empty());
+    }
+    key.sync_motion_key_union();
+}
+
+fn ensure_object_motion_key<'a>(
+    layer: &'a mut Layer,
+    snapshot: &Timeline,
+    original: &Layer,
+    frame: u32,
+    fps: f64,
+    easing: Easing,
+) -> &'a mut Keyframe {
+    if let Some(index) = layer.keyframes.iter().position(|key| key.frame == frame) {
+        return &mut layer.keyframes[index];
+    }
+    let mut key = sampled_key(snapshot, original, frame, fps);
+    key.tween = Some(easing);
+    key.tween_kind = TweenKind::Motion;
+    key.keyed_properties = Some(Vec::new());
+    key.motion_keys = Some(Vec::new());
+    layer.keyframes.push(key);
+    layer.keyframes.sort_by_key(|key| key.frame);
+    let index = layer
+        .keyframes
+        .iter()
+        .position(|key| key.frame == frame)
+        .unwrap();
+    &mut layer.keyframes[index]
+}
+
 impl Editor {
     /// The selected object on the current timeline: layer index and element id.
     fn selected_object(&self) -> Option<(usize, Id)> {
@@ -168,19 +279,8 @@ impl Editor {
         let selected = self
             .selected_object()
             .filter(|(index, _)| *index == self.layer)
-            .map(|(_, id)| id);
-        let pick = |key: &Keyframe| -> Option<Id> {
-            selected
-                .clone()
-                .filter(|id| key.elements.iter().any(|e| &e.id == id))
-                .or_else(|| (key.elements.len() == 1).then(|| key.elements[0].id.clone()))
-                .or_else(|| {
-                    key.elements
-                        .iter()
-                        .find(|e| matches!(e.kind, ElementKind::Instance { .. }))
-                        .map(|e| e.id.clone())
-                })
-        };
+            .map(|(_, id)| id)
+            .ok_or("Select exactly one object on the tweened layer to copy its motion.")?;
         let pose = |key: &Keyframe, id: &str| {
             key.elements
                 .iter()
@@ -188,7 +288,10 @@ impl Editor {
                 .map(|e| e.transform)
         };
         if let Some((start, properties, end)) = motion_span(layer, self.frame) {
-            let id = pick(start).ok_or("The motion tween has no object to copy.")?;
+            let id = selected.clone();
+            if !start.elements.iter().any(|element| element.id == id) {
+                return Err("The selected object is not part of this motion tween.");
+            }
             let last = properties.last().map_or(start.frame, |k| k.frame);
             let end = end
                 .unwrap_or(timeline.frame_count)
@@ -197,13 +300,18 @@ impl Editor {
             let mut keys = vec![MotionKey {
                 offset: 0,
                 keyed: None,
+                roving: false,
                 pose: pose(start, &id).unwrap(),
             }];
             for key in properties {
-                if let Some(pose) = pose(key, &id) {
+                let keyed = key.motion_key_properties_for(&id);
+                if !keyed.is_empty()
+                    && let Some(pose) = pose(key, &id)
+                {
                     keys.push(MotionKey {
                         offset: key.frame - start.frame,
-                        keyed: key.keyed_properties.clone(),
+                        keyed: Some(keyed.to_vec()),
+                        roving: key.motion_key_roving_for(&id),
                         pose,
                     });
                 }
@@ -215,9 +323,26 @@ impl Editor {
                     .map_or(keys[0].pose, |e| e.transform);
             return Ok(MotionClip {
                 kind: TweenKind::Motion,
-                ease: start.tween.unwrap_or(Easing::Linear),
-                property_eases: start.property_eases.clone(),
-                orient_to_path: start.orient_to_path,
+                ease: start.motion_easing_for(&id),
+                property_eases: start
+                    .motion_track(&id)
+                    .and_then(|track| track.property_eases.clone())
+                    .unwrap_or_else(|| start.property_eases.clone()),
+                orient_to_path: start.motion_orient_to_path_for(&id),
+                snap_to_guide: start.motion_snap_to_guide_for(&id),
+                sync_symbols: start.motion_sync_symbols_for(&id),
+                motion_path: match start.motion_path_for(&id) {
+                    MotionPathSource::Object(path) => Some(path.to_vec()),
+                    MotionPathSource::Legacy(path)
+                        if start
+                            .elements
+                            .first()
+                            .is_some_and(|element| element.id == id) =>
+                    {
+                        Some(path.to_vec())
+                    }
+                    MotionPathSource::None | MotionPathSource::Legacy(_) => None,
+                },
                 length: end - start.frame,
                 keys,
                 hold,
@@ -245,7 +370,10 @@ impl Editor {
             .filter(|k| k.frame > key.frame)
             .min_by_key(|k| k.frame)
             .ok_or("The tween has no end keyframe.")?;
-        let id = pick(key).ok_or("The tween has no object to copy.")?;
+        let id = selected;
+        if !key.elements.iter().any(|element| element.id == id) {
+            return Err("The selected object is not part of this tween.");
+        }
         let (Some(first), Some(last)) = (pose(key, &id), pose(next, &id)) else {
             return Err("The tweened object is not on the end keyframe.");
         };
@@ -254,16 +382,21 @@ impl Editor {
             ease,
             property_eases: vec![],
             orient_to_path: key.orient_to_path,
+            snap_to_guide: key.snap_to_guide,
+            sync_symbols: key.sync_symbols,
+            motion_path: None,
             length: next.frame - key.frame,
             keys: vec![
                 MotionKey {
                     offset: 0,
                     keyed: None,
+                    roving: false,
                     pose: first,
                 },
                 MotionKey {
                     offset: next.frame - key.frame,
                     keyed: None,
+                    roving: false,
                     pose: last,
                 },
             ],
@@ -317,13 +450,13 @@ impl Editor {
         }
         let (index, id) = self.selected_object().unwrap();
         let source_start = clip.source.layers[clip.source_layer].key_at(clip.source_start);
-        let has_curve = source_start.is_some_and(|key| key.motion_path.is_some());
-        let source_group = source_start.is_some_and(|key| key.elements.len() > 1);
-        let target_group = self.symbol().timeline.layers[index]
-            .keyframes
-            .iter()
-            .any(|key| key.elements.len() > 1);
-        if has_curve && (source_group || target_group) {
+        let unresolved_legacy_curve = source_start.is_some_and(|key| {
+            matches!(
+                key.motion_path_for(&clip.source_element),
+                MotionPathSource::Legacy(_)
+            ) && clip.motion_path.is_none()
+        });
+        if unresolved_legacy_curve {
             if clip.length > 10_000 {
                 self.message("The pasted motion exceeds the 10,000-frame timeline limit.");
                 return;
@@ -346,6 +479,7 @@ impl Editor {
                 keys.push(MotionKey {
                     offset,
                     keyed: (offset > 0).then(|| TweenProperty::ALL.to_vec()),
+                    roving: false,
                     pose: element.transform,
                 });
             }
@@ -357,10 +491,13 @@ impl Editor {
             clip.ease = Easing::Linear;
             clip.property_eases.clear();
             clip.orient_to_path = false;
-            clip.source.layers[clip.source_layer]
-                .key_at_mut(clip.source_start)
-                .unwrap()
-                .motion_path = None;
+            clip.snap_to_guide = false;
+            clip.sync_symbols = false;
+            clip.motion_path = None;
+        }
+        if clip.kind == TweenKind::Motion {
+            self.paste_object_motion(index, id, clip);
+            return;
         }
         let at = self.frame;
         let end = at + clip.length;
@@ -483,6 +620,156 @@ impl Editor {
         });
     }
 
+    /// Merge one copied Motion track into the selected object. Physical frames are shared by the
+    /// layer, but only this object's format-10 entries and poses are replaced; other objects,
+    /// labels, sounds and span timing remain intact.
+    fn paste_object_motion(&mut self, index: usize, id: Id, clip: MotionClip) {
+        let at = self.frame;
+        let Some(desired_end) = at.checked_add(clip.length).filter(|end| *end <= 10_000) else {
+            self.message("The pasted motion exceeds the 10,000-frame timeline limit.");
+            return;
+        };
+        let timeline = &self.symbol().timeline;
+        let original = &timeline.layers[index];
+        let existing_span = motion_span(original, at).map(|(start, _, end)| {
+            (
+                start.frame,
+                end.unwrap_or(timeline.frame_count).max(start.frame + 1),
+            )
+        });
+        let (span_start, effective_end, new_span) = if let Some((start, end)) = existing_span {
+            (start, desired_end.min(end).max(at + 1), false)
+        } else {
+            let next_ordinary = original
+                .keyframes
+                .iter()
+                .filter(|key| key.frame > at && key.keyed_properties.is_none())
+                .map(|key| key.frame)
+                .min();
+            (
+                at,
+                next_ordinary.map_or(desired_end, |next| desired_end.min(next)),
+                true,
+            )
+        };
+        if effective_end <= at {
+            return;
+        }
+        let fps = f64::from(self.project.fps);
+        let Some(template) = sample_layer_in_at_fps(timeline, original, at, fps)
+            .into_iter()
+            .find(|element| element.id == id)
+        else {
+            return;
+        };
+        let target = template.transform;
+        let base = clip.keys[0].pose;
+        self.transact_named("Paste motion", move |s| {
+            {
+                let timeline = &mut s.symbol_mut().timeline;
+                let snapshot = timeline.clone();
+                let original = snapshot.layers[index].clone();
+                let layer = &mut timeline.layers[index];
+
+                if !layer.keyframes.iter().any(|key| key.frame == span_start) {
+                    let key = sampled_key(&snapshot, &original, span_start, fps);
+                    layer.keyframes.push(key);
+                    layer.keyframes.sort_by_key(|key| key.frame);
+                }
+                let start_index = layer
+                    .keyframes
+                    .iter()
+                    .position(|key| key.frame == span_start)
+                    .unwrap();
+                if new_span {
+                    let start = &mut layer.keyframes[start_index];
+                    start.tween = Some(clip.ease);
+                    start.tween_kind = TweenKind::Motion;
+                    start.keyed_properties = None;
+                    start.motion_keys = None;
+                }
+
+                for key in layer
+                    .keyframes
+                    .iter_mut()
+                    .filter(|key| key.frame >= at && key.frame < effective_end)
+                {
+                    remove_object_motion_key(key, &id);
+                }
+
+                if at == span_start {
+                    let start = &mut layer.keyframes[start_index];
+                    place(start, &template, target);
+                    let inherits_legacy_path = start.motion_path.is_some();
+                    let path = clip.motion_path.as_ref().map(|path| {
+                        translate_motion_path(path, [target.x - base.x, target.y - base.y])
+                    });
+                    let track = start.ensure_motion_track(&id);
+                    track.easing = Some(clip.ease);
+                    track.property_eases = Some(clip.property_eases.clone());
+                    track.orient_to_path = Some(clip.orient_to_path);
+                    track.snap_to_guide = Some(clip.snap_to_guide);
+                    track.sync_symbols = Some(clip.sync_symbols);
+                    track.motion_path = path.map_or_else(
+                        || inherits_legacy_path.then_some(MotionPathOverride::Disabled),
+                        |commands| Some(MotionPathOverride::Path { commands }),
+                    );
+                }
+
+                for recorded in &clip.keys {
+                    let frame = at + recorded.offset;
+                    if frame >= effective_end {
+                        continue;
+                    }
+                    let pose = relative(&base, &recorded.pose, &target);
+                    if frame == span_start {
+                        place(&mut layer.keyframes[start_index], &template, pose);
+                        continue;
+                    }
+                    let key = ensure_object_motion_key(
+                        layer, &snapshot, &original, frame, fps, clip.ease,
+                    );
+                    if key.keyed_properties.is_none() {
+                        continue;
+                    }
+                    let properties = recorded
+                        .keyed
+                        .clone()
+                        .unwrap_or_else(|| TweenProperty::ALL.to_vec());
+                    if let Some(element) = key.elements.iter_mut().find(|element| element.id == id)
+                    {
+                        copy_motion_properties(&mut element.transform, &pose, &properties);
+                    } else {
+                        place(key, &template, pose);
+                    }
+                    let object_key = key.ensure_motion_property_key(&id);
+                    object_key.properties = properties;
+                    object_key.roving = recorded.roving;
+                    key.sync_motion_key_union();
+                }
+
+                if new_span && effective_end < snapshot.frame_count {
+                    if !layer.keyframes.iter().any(|key| key.frame == effective_end) {
+                        layer
+                            .keyframes
+                            .push(sampled_key(&snapshot, &original, effective_end, fps));
+                    }
+                    if let Some(end_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|key| key.frame == effective_end)
+                    {
+                        place(end_key, &template, relative(&base, &clip.hold, &target));
+                    }
+                }
+                layer.keyframes.sort_by_key(|key| key.frame);
+                layer.normalize_motion_keys();
+                timeline.frame_count = timeline.frame_count.max(effective_end);
+            }
+            s.project.upgrade_format_for_features();
+        });
+    }
+
     pub(crate) fn open_paste_motion_special(&mut self) {
         if self.can_paste_motion() {
             self.finish_edits();
@@ -520,12 +807,15 @@ impl Editor {
                     .iter_mut()
                     .find(|key| key.frame == start)
                     .unwrap();
-                key.tween = Some(clip.ease);
-                key.property_eases = if key.tween_kind == TweenKind::Motion {
-                    clip.property_eases.clone()
+                if key.tween_kind == TweenKind::Motion {
+                    let track = key.ensure_motion_track(&id);
+                    track.easing = Some(clip.ease);
+                    track.property_eases = Some(clip.property_eases.clone());
                 } else {
-                    vec![]
-                };
+                    key.tween = Some(clip.ease);
+                    key.property_eases.clear();
+                }
+                s.project.upgrade_format_for_features();
             });
             return;
         }
@@ -544,6 +834,22 @@ impl Editor {
         else {
             return;
         };
+        if !options.properties[6]
+            && !options.properties[7]
+            && self.paste_motion_special_into_object_span(
+                &clip,
+                options,
+                index,
+                &id,
+                at,
+                paste_end,
+                &target_timeline,
+                target_fps,
+                &target,
+            )
+        {
+            return;
+        }
         let mut source = clip.source.clone();
         // Ease unchecked uses the destination span's ease for the copied property changes.
         if !options.properties[8] {
@@ -702,6 +1008,175 @@ impl Editor {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn paste_motion_special_into_object_span(
+        &mut self,
+        clip: &MotionClip,
+        options: &PasteMotionOptions,
+        index: usize,
+        id: &str,
+        at: u32,
+        paste_end: u32,
+        target_timeline: &Timeline,
+        target_fps: f64,
+        target: &Element,
+    ) -> bool {
+        let original = &target_timeline.layers[index];
+        let Some((start, _, span_end)) = motion_span(original, at) else {
+            return false;
+        };
+        let span_start = start.frame;
+        let end = paste_end.min(
+            span_end
+                .unwrap_or(target_timeline.frame_count)
+                .saturating_sub(1),
+        );
+        if end < at {
+            return false;
+        }
+        let p = options.properties;
+        let properties: Vec<TweenProperty> = [
+            (p[0], TweenProperty::X),
+            (p[1], TweenProperty::Y),
+            (p[2], TweenProperty::ScaleX),
+            (p[3], TweenProperty::ScaleY),
+            (p[4], TweenProperty::Rotation),
+            (p[4], TweenProperty::Skew),
+            (p[5], TweenProperty::Alpha),
+            (p[5], TweenProperty::Color),
+        ]
+        .into_iter()
+        .filter_map(|(chosen, property)| chosen.then_some(property))
+        .collect();
+        if properties.is_empty() {
+            return false;
+        }
+        let first = clip.keys[0].pose;
+        let mut updates = Vec::with_capacity((end - at + 1) as usize);
+        for frame in at..=end {
+            let Some(copied) = sample_layer_in_at_fps(
+                &clip.source,
+                &clip.source.layers[clip.source_layer],
+                clip.source_start + frame - at,
+                clip.source_fps,
+            )
+            .into_iter()
+            .find(|element| element.id == clip.source_element) else {
+                continue;
+            };
+            let Some(mut element) =
+                sample_layer_in_at_fps(target_timeline, original, frame, target_fps)
+                    .into_iter()
+                    .find(|element| element.id == id)
+            else {
+                continue;
+            };
+            let delta = relative(&first, &copied.transform, &target.transform);
+            if p[0] {
+                element.transform.x = delta.x;
+            }
+            if p[1] {
+                element.transform.y = delta.y;
+            }
+            if p[2] {
+                element.transform.scale_x = if options.preserve_scale {
+                    delta.scale_x
+                } else {
+                    copied.transform.scale_x
+                };
+            }
+            if p[3] {
+                element.transform.scale_y = if options.preserve_scale {
+                    delta.scale_y
+                } else {
+                    copied.transform.scale_y
+                };
+            }
+            if p[4] {
+                element.transform.rotation = if options.preserve_rotation {
+                    delta.rotation
+                } else {
+                    copied.transform.rotation
+                };
+                element.transform.skew = if options.preserve_rotation {
+                    delta.skew
+                } else {
+                    copied.transform.skew
+                };
+            }
+            if p[5] {
+                element.transform.alpha = copied.transform.alpha;
+                element.transform.color_transform = copied.transform.color_transform;
+            }
+            updates.push((frame, element));
+        }
+        let id = id.to_owned();
+        let properties_for_keys = properties.clone();
+        let clip_ease = clip.ease;
+        let clip_property_eases = clip.property_eases.clone();
+        let paste_ease = p[8];
+        self.transact_named("Paste motion special", move |s| {
+            {
+                let timeline = &mut s.symbol_mut().timeline;
+                let snapshot = timeline.clone();
+                let original = snapshot.layers[index].clone();
+                let layer = &mut timeline.layers[index];
+                for key in layer
+                    .keyframes
+                    .iter_mut()
+                    .filter(|key| key.frame >= at && key.frame <= end)
+                {
+                    remove_object_motion_properties(key, &id, &properties_for_keys);
+                }
+                for (frame, element) in updates {
+                    let key = if frame == span_start {
+                        layer
+                            .keyframes
+                            .iter_mut()
+                            .find(|key| key.frame == span_start)
+                            .unwrap()
+                    } else {
+                        ensure_object_motion_key(
+                            layer, &snapshot, &original, frame, target_fps, clip_ease,
+                        )
+                    };
+                    if let Some(existing) = key.elements.iter_mut().find(|item| item.id == id) {
+                        copy_motion_properties(
+                            &mut existing.transform,
+                            &element.transform,
+                            &properties_for_keys,
+                        );
+                    } else {
+                        key.elements.push(element);
+                    }
+                    if frame != span_start {
+                        let object_key = key.ensure_motion_property_key(&id);
+                        for property in &properties_for_keys {
+                            if !object_key.properties.contains(property) {
+                                object_key.properties.push(*property);
+                            }
+                        }
+                        object_key.roving = false;
+                        key.sync_motion_key_union();
+                    }
+                }
+                if paste_ease
+                    && let Some(start) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|key| key.frame == span_start)
+                {
+                    let track = start.ensure_motion_track(&id);
+                    track.easing = Some(clip_ease);
+                    track.property_eases = Some(clip_property_eases);
+                }
+                layer.normalize_motion_keys();
+            }
+            s.project.upgrade_format_for_features();
+        });
+        true
+    }
+
     // ── Motion path on the stage ──
 
     /// The motion tween path of the selected object while the playhead is in its motion span.
@@ -725,7 +1200,11 @@ impl Editor {
         // Key points sit where the object is shown on their frame (a ◆ key that does not key X/Y
         // stores a stale position until its next refresh).
         let keys = std::iter::once(start)
-            .chain(properties)
+            .chain(
+                properties
+                    .into_iter()
+                    .filter(|key| !key.motion_key_properties_for(&element).is_empty()),
+            )
             .filter(|key| key.elements.iter().any(|e| e.id == element))
             .filter_map(|key| position(key.frame).map(|at| (key.frame, at)))
             .collect();
@@ -813,7 +1292,7 @@ impl Editor {
             let timeline = &self.symbol().timeline;
             if let Some(layer) = timeline.layers.iter().find(|l| l.id == drag.layer)
                 && let Some((start, _, _)) = motion_span(layer, drag.frame)
-                && start.snap_to_guide
+                && start.motion_snap_to_guide_for(&drag.element)
                 && let Some(guide_id) = layer.properties.motion_guide.as_deref()
                 && let Some(guide) = timeline
                     .layers
@@ -857,12 +1336,14 @@ impl Editor {
         let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == drag.frame) else {
             return;
         };
-        if let Some(keyed) = &mut key.keyed_properties {
+        if key.keyed_properties.is_some() {
+            let object_key = key.ensure_motion_property_key(&drag.element);
             for property in [TweenProperty::X, TweenProperty::Y] {
-                if !keyed.contains(&property) {
-                    keyed.push(property);
+                if !object_key.properties.contains(&property) {
+                    object_key.properties.push(property);
                 }
             }
+            key.sync_motion_key_union();
         }
         if let Some(element) = key.elements.iter_mut().find(|e| e.id == drag.element) {
             element.transform.x = to[0];

@@ -939,6 +939,7 @@ impl Editor {
                     }
                 }
                 for key in &mut layer.keyframes {
+                    key.remap_motion_element_ids(&symbol_element_remap);
                     if let Some(sound) = &mut key.sound
                         && let Some(imported) = resource_remap.get(&sound.resource)
                     {

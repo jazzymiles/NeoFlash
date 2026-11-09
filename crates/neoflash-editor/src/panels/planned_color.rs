@@ -2,6 +2,7 @@
 //! (solid RGB/HSB, linear and radial gradients, stroke width) lives in `authoring_modify.rs`.
 //! Colours below are sample document colours (HSV), not UI tokens.
 use super::planned::{caption, num, select};
+use crate::paint_controls::two_column_row;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
@@ -56,11 +57,11 @@ fn stroke(ui: &mut Ui) {
     );
     ui.add_space(space::S2);
     ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
-    let half = (ui.available_width() - space::S2) / 2.0;
-    ui.horizontal(|ui| {
-        num(ui, 1.0, "Stroke width", "Width", "px", 1, half);
-        select(ui, "Solid", half);
-    });
+    two_column_row(
+        ui,
+        |ui, width| num(ui, 1.0, "Stroke width", "Width", "px", 1, width),
+        |ui, width| select(ui, "Solid", width),
+    );
 }
 
 /// Panel / Color — Bitmap fill.

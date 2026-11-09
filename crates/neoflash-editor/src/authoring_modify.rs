@@ -2,8 +2,11 @@
 //! at the current frame and keeps placement identity and scripts intact.
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::{
-    app::Editor, paint_controls::number_field, selection::SelectionTarget,
-    stage_mapping::StageMapping, workspace::PanelId,
+    app::Editor,
+    paint_controls::{number_field, two_column_row},
+    selection::SelectionTarget,
+    stage_mapping::StageMapping,
+    workspace::PanelId,
 };
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::*;
@@ -5451,26 +5454,30 @@ fn stroke_section_ui(ui: &mut egui::Ui, width: &mut f64, with_divider: bool) -> 
         ui.add_space(space::S2);
     }
     ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
-    let half = (ui.available_width() - space::S2).max(80.0) / 2.0;
     let mut changed = None;
-    ui.horizontal(|ui| {
-        let r = ui.add(
-            Field::new(width, "Stroke width")
-                .prefix("Width")
-                .unit("px")
-                .range(0.0..=100.0)
-                .decimals(1)
-                .width(half),
-        );
-        if r.changed() {
-            changed = Some(r.id);
-        }
-        ui.add_enabled_ui(false, |ui| {
-            Select::new("color-stroke-style", "Solid")
-                .width(half)
-                .show(ui, |_| {});
-        });
-    });
+    let (width_response, _) = two_column_row(
+        ui,
+        |ui, cell_width| {
+            ui.add(
+                Field::new(width, "Stroke width")
+                    .prefix("Width")
+                    .unit("px")
+                    .range(0.0..=100.0)
+                    .decimals(1)
+                    .width(cell_width),
+            )
+        },
+        |ui, cell_width| {
+            ui.add_enabled_ui(false, |ui| {
+                Select::new("color-stroke-style", "Solid")
+                    .width(cell_width)
+                    .show(ui, |_| {});
+            })
+        },
+    );
+    if width_response.changed() {
+        changed = Some(width_response.id);
+    }
     changed
 }
 
@@ -5570,22 +5577,36 @@ fn field_pair(
     link: Option<&mut bool>,
 ) -> [egui::Response; 2] {
     let [a, b] = values;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = space::S2;
-        let link_width = crate::theme::control_h() + space::S2;
-        let width = ((ui.available_width() - link_width - space::S2) / 2.).max(64.);
-        let first = number_field(ui, prefixes[0], a, range.clone(), 1., suffix, Some(width));
-        let second = number_field(ui, prefixes[1], b, range, 1., suffix, Some(width));
-        if let Some(link) = link
-            && ui
-                .add(IconButton::new(i16::LINK, "Constrain proportions").selected(*link))
-                .clicked()
-        {
-            *link = !*link;
+    let first_range = range.clone();
+    if let Some(linked) = link {
+        let (first, (second, link_response)) = two_column_row(
+            ui,
+            |ui, width| number_field(ui, prefixes[0], a, first_range, 1., suffix, Some(width)),
+            |ui, width| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                    let second =
+                        number_field(ui, prefixes[1], b, range, 1., suffix, Some(field_width));
+                    let link_response = ui
+                        .add(IconButton::new(i16::LINK, "Constrain proportions").selected(*linked));
+                    (second, link_response)
+                })
+                .inner
+            },
+        );
+        if link_response.clicked() {
+            *linked = !*linked;
         }
         [first, second]
-    })
-    .inner
+    } else {
+        let (first, second) = two_column_row(
+            ui,
+            |ui, width| number_field(ui, prefixes[0], a, first_range, 1., suffix, Some(width)),
+            |ui, width| number_field(ui, prefixes[1], b, range, 1., suffix, Some(width)),
+        );
+        [first, second]
+    }
 }
 
 fn combined_bounds(items: &[Placement]) -> Rect {

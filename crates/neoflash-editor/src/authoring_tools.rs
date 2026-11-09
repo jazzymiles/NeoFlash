@@ -4417,68 +4417,92 @@ impl Editor {
 }
 
 fn rectangle_options_widgets(ui: &mut egui::Ui, opts: &mut RectangleOptions) -> Option<egui::Id> {
-    use neoflash_ui::{components as c, icons::i16, tokens::space};
+    use neoflash_ui::{components as c, icons::i16};
     let mut changed = None;
-    let w = ((ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0).max(56.0);
     let mut r = opts.corner_radii;
     let mut edited_corner = None;
-    ui.horizontal(|ui| {
-        let tl = ui.add(
-            c::Field::new(&mut r[0], "Top-left radius")
-                .prefix("↖")
-                .range(0.0..=500.0)
-                .decimals(0)
-                .stepper()
-                .width(w),
-        );
-        if tl.changed() {
-            edited_corner = Some((0, tl.id));
+    let (mut top_left, mut top_right) = (r[0], r[1]);
+    let (tl, (tr, link)) = crate::paint_controls::two_column_row(
+        ui,
+        |ui, width| {
+            ui.add(
+                c::Field::new(&mut top_left, "Top-left radius")
+                    .prefix("↖")
+                    .range(0.0..=500.0)
+                    .decimals(0)
+                    .stepper()
+                    .width(width),
+            )
+        },
+        |ui, width| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = neoflash_ui::tokens::space::S2;
+                let field_width =
+                    (width - crate::theme::control_h() - neoflash_ui::tokens::space::S2).max(0.0);
+                let tr = ui.add(
+                    c::Field::new(&mut top_right, "Top-right radius")
+                        .prefix("↗")
+                        .range(0.0..=500.0)
+                        .decimals(0)
+                        .stepper()
+                        .width(field_width),
+                );
+                let link = ui.add(
+                    c::IconButton::new(i16::LINK, "Lock corners").selected(opts.corners_locked),
+                );
+                (tr, link)
+            })
+            .inner
+        },
+    );
+    if tl.changed() {
+        edited_corner = Some((0, tl.id));
+        r[0] = top_left;
+    }
+    if tr.changed() {
+        edited_corner = Some((1, tr.id));
+        r[1] = top_right;
+    }
+    if link.clicked() {
+        opts.corners_locked = !opts.corners_locked;
+        if opts.corners_locked {
+            r = [r[0]; 4];
         }
-        let tr = ui.add(
-            c::Field::new(&mut r[1], "Top-right radius")
-                .prefix("↗")
-                .range(0.0..=500.0)
-                .decimals(0)
-                .stepper()
-                .width(w),
-        );
-        if tr.changed() {
-            edited_corner = Some((1, tr.id));
-        }
-        let link =
-            ui.add(c::IconButton::new(i16::LINK, "Lock corners").selected(opts.corners_locked));
-        if link.clicked() {
-            opts.corners_locked = !opts.corners_locked;
-            if opts.corners_locked {
-                r = [r[0]; 4];
-            }
-            changed = Some(link.id);
-        }
-    });
-    ui.horizontal(|ui| {
-        let bl = ui.add(
-            c::Field::new(&mut r[3], "Bottom-left radius")
-                .prefix("↙")
-                .range(0.0..=500.0)
-                .decimals(0)
-                .stepper()
-                .width(w),
-        );
-        if bl.changed() {
-            edited_corner = Some((3, bl.id));
-        }
-        let br = ui.add(
-            c::Field::new(&mut r[2], "Bottom-right radius")
-                .prefix("↘")
-                .range(0.0..=500.0)
-                .decimals(0)
-                .stepper()
-                .width(w),
-        );
-        if br.changed() {
-            edited_corner = Some((2, br.id));
-        }
-    });
+        changed = Some(link.id);
+    }
+
+    let (mut bottom_left, mut bottom_right) = (r[3], r[2]);
+    let (bl, br) = crate::paint_controls::two_column_row(
+        ui,
+        |ui, width| {
+            ui.add(
+                c::Field::new(&mut bottom_left, "Bottom-left radius")
+                    .prefix("↙")
+                    .range(0.0..=500.0)
+                    .decimals(0)
+                    .stepper()
+                    .width(width),
+            )
+        },
+        |ui, width| {
+            ui.add(
+                c::Field::new(&mut bottom_right, "Bottom-right radius")
+                    .prefix("↘")
+                    .range(0.0..=500.0)
+                    .decimals(0)
+                    .stepper()
+                    .width(width),
+            )
+        },
+    );
+    if bl.changed() {
+        edited_corner = Some((3, bl.id));
+        r[3] = bottom_left;
+    }
+    if br.changed() {
+        edited_corner = Some((2, br.id));
+        r[2] = bottom_right;
+    }
     if let Some((idx, id)) = edited_corner {
         let v = r[idx].clamp(0.0, 500.0);
         if opts.corners_locked {
@@ -4490,7 +4514,7 @@ fn rectangle_options_widgets(ui: &mut egui::Ui, opts: &mut RectangleOptions) -> 
     }
     let mut slider_val = r[0].clamp(0.0, 100.0);
     let slider = ui.add(
-        c::Slider::new(&mut slider_val, 0.0..=100.0, "Corner radius").width(2.0 * w + space::S2),
+        c::Slider::new(&mut slider_val, 0.0..=100.0, "Corner radius").width(ui.available_width()),
     );
     if slider.changed() {
         r = [slider_val; 4];
@@ -4508,35 +4532,41 @@ fn rectangle_options_widgets(ui: &mut egui::Ui, opts: &mut RectangleOptions) -> 
 fn oval_options_widgets(ui: &mut egui::Ui, opts: &mut OvalOptions) -> Option<egui::Id> {
     use neoflash_ui::{components as c, icons::i16, tokens::space};
     let mut changed = None;
-    let w = ((ui.available_width() - space::S2) / 2.0).max(64.0);
-    ui.horizontal(|ui| {
-        let s = ui.add(
-            c::Field::new(&mut opts.start_angle, "Start")
-                .prefix("Start")
-                .unit("°")
-                .range(0.0..=360.0)
-                .decimals(0)
-                .stepper()
-                .width(w),
-        );
-        if s.changed() {
-            opts.start_angle = opts.start_angle.clamp(0.0, 360.0);
-            changed = Some(s.id);
-        }
-        let e = ui.add(
-            c::Field::new(&mut opts.end_angle, "End")
-                .prefix("End")
-                .unit("°")
-                .range(0.0..=360.0)
-                .decimals(0)
-                .stepper()
-                .width(w),
-        );
-        if e.changed() {
-            opts.end_angle = opts.end_angle.clamp(0.0, 360.0);
-            changed = Some(e.id);
-        }
-    });
+    let (s, e) = crate::paint_controls::two_column_row(
+        ui,
+        |ui, width| {
+            ui.add(
+                c::Field::new(&mut opts.start_angle, "Start")
+                    .prefix("Start")
+                    .unit("°")
+                    .range(0.0..=360.0)
+                    .decimals(0)
+                    .stepper()
+                    .width(width),
+            )
+        },
+        |ui, width| {
+            ui.add(
+                c::Field::new(&mut opts.end_angle, "End")
+                    .prefix("End")
+                    .unit("°")
+                    .range(0.0..=360.0)
+                    .decimals(0)
+                    .stepper()
+                    .width(width),
+            )
+        },
+    );
+    if s.changed() {
+        opts.start_angle = opts.start_angle.clamp(0.0, 360.0);
+        changed = Some(s.id);
+    }
+    if e.changed() {
+        opts.end_angle = opts.end_angle.clamp(0.0, 360.0);
+        changed = Some(e.id);
+    }
+    // FORM_GRID_EXCEPTION: Inner is deliberately paired with an action checkbox, not a value.
+    let inner_width = ((ui.available_width() - space::S2) / 2.0).max(64.0);
     ui.horizontal(|ui| {
         let inner = ui.add(
             c::Field::new(&mut opts.inner_radius, "Inner")
@@ -4545,7 +4575,7 @@ fn oval_options_widgets(ui: &mut egui::Ui, opts: &mut OvalOptions) -> Option<egu
                 .range(0.0..=99.0)
                 .decimals(0)
                 .stepper()
-                .width(w),
+                .width(inner_width),
         );
         if inner.changed() {
             opts.inner_radius = opts.inner_radius.clamp(0.0, 99.0);

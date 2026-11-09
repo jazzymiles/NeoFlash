@@ -83,8 +83,9 @@ impl Editor {
 
     fn properties_contents(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         use crate::paint_controls::{
-            PropertyChanges, color_row, numeric_pair, numeric_pair_with_suffix, numeric_row,
-            paint_row, percent_row, property_row, set_paint_row_gradient, text_row,
+            PropertyChanges, color_row, numeric_pair, numeric_pair_with_suffix,
+            numeric_pair_with_trailing, numeric_row, paint_row, percent_row, property_row,
+            set_paint_row_gradient, text_row, two_column_row,
         };
         // Figma inspector body: V gap 12 between all rows.
         ui.spacing_mut().item_spacing.y = space::S3;
@@ -329,40 +330,29 @@ impl Editor {
                             | ElementKind::Ellipse { width, height, .. }
                             | ElementKind::Video { width, height } => {
                                 let (old_w, old_h) = (*width, *height);
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S2;
-                                    let pair_width = (ui.available_width()
-                                        - crate::theme::control_h()
-                                        - space::S2)
-                                        .max(80.0);
-                                    ui.allocate_ui_with_layout(
-                                        egui::vec2(pair_width, crate::theme::control_h()),
-                                        egui::Layout::top_down(egui::Align::Min),
-                                        |ui| {
-                                            for r in numeric_pair(
-                                                ui,
-                                                ["W", "H"],
-                                                [width, height],
-                                                1. ..=10000.,
-                                                1.,
-                                            ) {
-                                                changes.note(r);
-                                            }
-                                        },
-                                    );
-                                    if ui
-                                        .add(
+                                let (responses, link) = numeric_pair_with_trailing(
+                                    ui,
+                                    ["W", "H"],
+                                    [width, height],
+                                    1. ..=10000.,
+                                    1.,
+                                    "",
+                                    (crate::theme::control_h(), |ui| {
+                                        ui.add(
                                             nf::IconButton::new(
                                                 i16::LINK,
                                                 "Constrain proportions",
                                             )
                                             .selected(linked),
                                         )
-                                        .clicked()
-                                    {
-                                        linked = !linked;
-                                    }
-                                });
+                                    }),
+                                );
+                                for response in responses {
+                                    changes.note(response);
+                                }
+                                if link.clicked() {
+                                    linked = !linked;
+                                }
                                 if linked && old_w > 0.0 && old_h > 0.0 {
                                     if (*width - old_w).abs() > 1e-6 {
                                         *height = (*width * old_h / old_w).clamp(1.0, 10000.0);
@@ -403,40 +393,29 @@ impl Editor {
                                 let mut w = (base_w * element.transform.scale_x.abs()).max(0.01);
                                 let mut h = (base_h * element.transform.scale_y.abs()).max(0.01);
                                 let (old_w, old_h) = (w, h);
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = space::S2;
-                                    let pair_width = (ui.available_width()
-                                        - crate::theme::control_h()
-                                        - space::S2)
-                                        .max(80.0);
-                                    ui.allocate_ui_with_layout(
-                                        egui::vec2(pair_width, crate::theme::control_h()),
-                                        egui::Layout::top_down(egui::Align::Min),
-                                        |ui| {
-                                            for r in numeric_pair(
-                                                ui,
-                                                ["W", "H"],
-                                                [&mut w, &mut h],
-                                                0.01..=100_000.,
-                                                1.,
-                                            ) {
-                                                changes.note(r);
-                                            }
-                                        },
-                                    );
-                                    if ui
-                                        .add(
+                                let (responses, link) = numeric_pair_with_trailing(
+                                    ui,
+                                    ["W", "H"],
+                                    [&mut w, &mut h],
+                                    0.01..=100_000.,
+                                    1.,
+                                    "",
+                                    (crate::theme::control_h(), |ui| {
+                                        ui.add(
                                             nf::IconButton::new(
                                                 i16::LINK,
                                                 "Constrain proportions",
                                             )
                                             .selected(linked),
                                         )
-                                        .clicked()
-                                    {
-                                        linked = !linked;
-                                    }
-                                });
+                                    }),
+                                );
+                                for response in responses {
+                                    changes.note(response);
+                                }
+                                if link.clicked() {
+                                    linked = !linked;
+                                }
                                 let w_changed = (w - old_w).abs() > 1e-6;
                                 let h_changed = (h - old_h).abs() > 1e-6;
                                 if linked && old_w > 0.0 && old_h > 0.0 {
@@ -834,15 +813,24 @@ impl Editor {
                 let (old_width, old_height) = (width, height);
                 let link_id = egui::Id::new("properties-stage-size-linked");
                 let mut linked = ui.data(|d| d.get_temp::<bool>(link_id).unwrap_or(false));
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let pair_width = ui.available_width() - crate::theme::control_h() - space::S2;
-                    ui.allocate_ui_with_layout(egui::vec2(pair_width, crate::theme::control_h()), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        for r in numeric_pair(ui, ["W", "H"], [&mut width, &mut height], 1. ..=8192., 1.) { changes.note(r); }
-                    });
-                    let link = ui.add(nf::IconButton::new(i16::LINK, "Constrain stage proportions").selected(linked));
-                    if link.clicked() { linked = !linked; }
-                });
+                let (responses, link) = numeric_pair_with_trailing(
+                    ui,
+                    ["W", "H"],
+                    [&mut width, &mut height],
+                    1. ..=8192.,
+                    1.,
+                    "",
+                    (crate::theme::control_h(), |ui| {
+                        ui.add(
+                            nf::IconButton::new(i16::LINK, "Constrain stage proportions")
+                                .selected(linked),
+                        )
+                    }),
+                );
+                for response in responses {
+                    changes.note(response);
+                }
+                if link.clicked() { linked = !linked; }
                 ui.data_mut(|d| d.insert_temp(link_id, linked));
                 if linked && old_width > 0. && old_height > 0. {
                     if width != old_width { height = (width * old_height / old_width).round().clamp(1., 8192.); }
@@ -889,53 +877,52 @@ impl Editor {
                                 options.push((if let Some(flash @ Easing::Flash { .. }) = key.tween { Some(flash) } else { Some(Easing::Flash { acceleration: 0. }) }, "Flash ease"));
                                 changes.note(select_row(ui, "Easing", "tween", &mut key.tween, &options));
                                 if key.tween.is_some() && key.tween_kind == TweenKind::Classic {
-                                    ui.horizontal(|ui| {
-                                        let half = (ui.available_width() - space::S2) / 2.;
-                                        let mut turns = key.classic_rotate_turns as f64;
-                                        let r_turns = ui.add(
+                                    let mut turns = key.classic_rotate_turns as f64;
+                                    let old_direction = key.classic_rotate_dir;
+                                    let mut direction = old_direction;
+                                    let dir_label = format!("Direction: {}", direction.label());
+                                    let (r_turns, mut r_dir) = two_column_row(
+                                        ui,
+                                        |ui, width| ui.add(
                                             nf::Field::new(&mut turns, "Rotate")
                                                 .prefix("Rotate")
                                                 .unit("×")
                                                 .range(0.0..=(Keyframe::MAX_ROTATE_TURNS as f64))
                                                 .stepper()
-                                                .width(half),
-                                        );
-                                        if r_turns.changed() {
-                                            key.classic_rotate_turns = (turns.round().max(0.0) as u32)
-                                                .min(Keyframe::MAX_ROTATE_TURNS);
-                                        }
-                                        changes.note(r_turns);
-                                        let dir_label = format!(
-                                            "Direction: {}",
-                                            key.classic_rotate_dir.label()
-                                        );
-                                        let mut dir_changed = false;
-                                        let (mut r_dir, _) =
+                                                .width(width),
+                                        ),
+                                        |ui, width| {
+                                            let (response, _) =
                                             nf::Select::new("classic-direction", &dir_label)
-                                                .width(half)
+                                                .width(width)
                                                 .show(ui, |ui| {
                                                     for dir in ClassicRotateDirection::ALL {
                                                         if ui
                                                             .add(
                                                                 MenuItem::new(dir.label()).checked(
-                                                                    key.classic_rotate_dir == dir,
+                                                                    direction == dir,
                                                                 ),
                                                             )
                                                             .clicked()
                                                         {
-                                                            if key.classic_rotate_dir != dir {
-                                                                key.classic_rotate_dir = dir;
-                                                                dir_changed = true;
-                                                            }
+                                                            direction = dir;
                                                             ui.close();
                                                         }
                                                     }
                                                 });
-                                        if dir_changed {
-                                            r_dir.mark_changed();
-                                        }
-                                        changes.note(r_dir);
-                                    });
+                                            response
+                                        },
+                                    );
+                                    if r_turns.changed() {
+                                        key.classic_rotate_turns = (turns.round().max(0.0) as u32)
+                                            .min(Keyframe::MAX_ROTATE_TURNS);
+                                    }
+                                    if direction != old_direction {
+                                        key.classic_rotate_dir = direction;
+                                        r_dir.mark_changed();
+                                    }
+                                    changes.note(r_turns);
+                                    changes.note(r_dir);
                                     changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.orient_to_path, "Orient to path")).on_disabled_hover_text("Needs a motion guide layer"));
                                     changes.note(ui.add_enabled(guided, nf::Checkbox::new(&mut key.snap_to_guide, "Snap to motion guide")).on_disabled_hover_text("Needs a motion guide layer"));
                                     changes.note(ui.add(nf::Checkbox::new(&mut key.sync_symbols, "Sync graphic symbols")));
@@ -971,12 +958,29 @@ impl Editor {
                 } else {
                     let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
                     inspector_section(ui, "Playback", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = space::S2;
-                            let width = (ui.available_width() - space::S2) / 2.;
-                            changes.note(ui.add(nf::DragField::new(&mut fps, "FPS").prefix("FPS").range(1..=1000).speed(0.25).width(width)));
-                            changes.note(ui.add(nf::DragField::new(&mut timeline.frame_count, "Frames").prefix("Frames").range(min..=10000).speed(0.25).width(width)));
-                        });
+                        let (fps_response, frames_response) = two_column_row(
+                            ui,
+                            |ui, width| {
+                                ui.add(
+                                    nf::DragField::new(&mut fps, "FPS")
+                                        .prefix("FPS")
+                                        .range(1..=1000)
+                                        .speed(0.25)
+                                        .width(width),
+                                )
+                            },
+                            |ui, width| {
+                                ui.add(
+                                    nf::DragField::new(&mut timeline.frame_count, "Frames")
+                                        .prefix("Frames")
+                                        .range(min..=10000)
+                                        .speed(0.25)
+                                        .width(width),
+                                )
+                            },
+                        );
+                        changes.note(fps_response);
+                        changes.note(frames_response);
                     });
                     inspector_section(ui, "Publish", |ui| {
                         ui.add(Badge::new("HTML5 · Rust / WebAssembly", BadgeType::Accent));
@@ -1095,9 +1099,8 @@ impl Editor {
         element_id: &str,
         transform: &mut Transform,
     ) -> Option<egui::Id> {
-        use crate::paint_controls::{PropertyChanges, color_row};
+        use crate::paint_controls::{PropertyChanges, color_row, two_column_row};
         let mut changes = PropertyChanges::default();
-        let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         enum ColorEffectStyle {
@@ -1144,25 +1147,36 @@ impl Editor {
             ColorEffectStyle::Alpha => "Style: Alpha",
         };
         let mut picked_style = None;
+        let style_select = |ui: &mut egui::Ui,
+                            width: f32,
+                            current: ColorEffectStyle,
+                            picked: &mut Option<ColorEffectStyle>| {
+            let (response, _) = nf::Select::new("mc-color-effect-style", style_label)
+                .width(width)
+                .show(ui, |ui| {
+                    for (style, name) in [
+                        (ColorEffectStyle::None, "None"),
+                        (ColorEffectStyle::Brightness, "Brightness"),
+                        (ColorEffectStyle::Tint, "Tint"),
+                        (ColorEffectStyle::Advanced, "Advanced"),
+                        (ColorEffectStyle::Alpha, "Alpha"),
+                    ] {
+                        if ui
+                            .add(MenuItem::new(name).checked(style == current))
+                            .clicked()
+                        {
+                            *picked = Some(style);
+                            ui.close();
+                        }
+                    }
+                });
+            response
+        };
 
         match style {
             ColorEffectStyle::None => {
-                let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
-                    .width(ui.available_width())
-                    .show(ui, |ui| {
-                        for (st, name) in [
-                            (ColorEffectStyle::None, "None"),
-                            (ColorEffectStyle::Brightness, "Brightness"),
-                            (ColorEffectStyle::Tint, "Tint"),
-                            (ColorEffectStyle::Advanced, "Advanced"),
-                            (ColorEffectStyle::Alpha, "Alpha"),
-                        ] {
-                            if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
-                                picked_style = Some(st);
-                                ui.close();
-                            }
-                        }
-                    });
+                let width = ui.available_width();
+                let mut s_resp = style_select(ui, width, style, &mut picked_style);
                 if let Some(next) = picked_style {
                     style = next;
                     if next == ColorEffectStyle::None {
@@ -1175,47 +1189,33 @@ impl Editor {
             }
             ColorEffectStyle::Alpha => {
                 let mut alpha_pct = (transform.alpha * 100.0).clamp(0.0, 100.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
-                        .width(half)
-                        .show(ui, |ui| {
-                            for (st, name) in [
-                                (ColorEffectStyle::None, "None"),
-                                (ColorEffectStyle::Brightness, "Brightness"),
-                                (ColorEffectStyle::Tint, "Tint"),
-                                (ColorEffectStyle::Advanced, "Advanced"),
-                                (ColorEffectStyle::Alpha, "Alpha"),
-                            ] {
-                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
-                                    picked_style = Some(st);
-                                    ui.close();
-                                }
-                            }
-                        });
-                    if let Some(next) = picked_style {
-                        style = next;
-                        if next == ColorEffectStyle::None {
-                            transform.alpha = 1.0;
-                            transform.color_transform = ColorTransform::default();
-                            s_resp.mark_changed();
-                        }
+                let (mut s_resp, f_resp) = two_column_row(
+                    ui,
+                    |ui, width| style_select(ui, width, style, &mut picked_style),
+                    |ui, width| {
+                        ui.add(
+                            nf::Field::new(&mut alpha_pct, "Opacity")
+                                .prefix("α")
+                                .unit("%")
+                                .decimals(0)
+                                .range(0.0..=100.0)
+                                .width(width),
+                        )
+                    },
+                );
+                if let Some(next) = picked_style {
+                    style = next;
+                    if next == ColorEffectStyle::None {
+                        transform.alpha = 1.0;
+                        transform.color_transform = ColorTransform::default();
                     }
-                    changes.note(s_resp);
-
-                    let f_resp = ui.add(
-                        nf::Field::new(&mut alpha_pct, "Opacity")
-                            .prefix("α")
-                            .unit("%")
-                            .decimals(0)
-                            .range(0.0..=100.0)
-                            .width(half),
-                    );
-                    if f_resp.changed() {
-                        transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
-                    }
-                    changes.note(f_resp);
-                });
+                    s_resp.mark_changed();
+                }
+                if f_resp.changed() {
+                    transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
+                }
+                changes.note(s_resp);
+                changes.note(f_resp);
                 let sl_resp = ui.add(
                     nf::Slider::new(&mut alpha_pct, 0.0..=100.0, "Opacity")
                         .width(ui.available_width()),
@@ -1256,47 +1256,33 @@ impl Editor {
                         ct.offsets[2] = 0.0;
                     }
                 };
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
-                        .width(half)
-                        .show(ui, |ui| {
-                            for (st, name) in [
-                                (ColorEffectStyle::None, "None"),
-                                (ColorEffectStyle::Brightness, "Brightness"),
-                                (ColorEffectStyle::Tint, "Tint"),
-                                (ColorEffectStyle::Advanced, "Advanced"),
-                                (ColorEffectStyle::Alpha, "Alpha"),
-                            ] {
-                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
-                                    picked_style = Some(st);
-                                    ui.close();
-                                }
-                            }
-                        });
-                    if let Some(next) = picked_style {
-                        style = next;
-                        if next == ColorEffectStyle::None {
-                            transform.alpha = 1.0;
-                            transform.color_transform = ColorTransform::default();
-                            s_resp.mark_changed();
-                        }
+                let (mut s_resp, f_resp) = two_column_row(
+                    ui,
+                    |ui, width| style_select(ui, width, style, &mut picked_style),
+                    |ui, width| {
+                        ui.add(
+                            nf::Field::new(&mut b_pct, "Brightness")
+                                .prefix("Bright")
+                                .unit("%")
+                                .decimals(0)
+                                .range(-100.0..=100.0)
+                                .width(width),
+                        )
+                    },
+                );
+                if let Some(next) = picked_style {
+                    style = next;
+                    if next == ColorEffectStyle::None {
+                        transform.alpha = 1.0;
+                        transform.color_transform = ColorTransform::default();
                     }
-                    changes.note(s_resp);
-
-                    let f_resp = ui.add(
-                        nf::Field::new(&mut b_pct, "Brightness")
-                            .prefix("Bright")
-                            .unit("%")
-                            .decimals(0)
-                            .range(-100.0..=100.0)
-                            .width(half),
-                    );
-                    if f_resp.changed() {
-                        apply_b(&mut transform.color_transform, b_pct);
-                    }
-                    changes.note(f_resp);
-                });
+                    s_resp.mark_changed();
+                }
+                if f_resp.changed() {
+                    apply_b(&mut transform.color_transform, b_pct);
+                }
+                changes.note(s_resp);
+                changes.note(f_resp);
                 let sl_resp = ui.add(
                     nf::Slider::new(&mut b_pct, -100.0..=100.0, "Brightness")
                         .width(ui.available_width()),
@@ -1328,51 +1314,37 @@ impl Editor {
                     ct.offsets[1] = f64::from(rgb[1]) * t;
                     ct.offsets[2] = f64::from(rgb[2]) * t;
                 };
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
-                        .width(half)
-                        .show(ui, |ui| {
-                            for (st, name) in [
-                                (ColorEffectStyle::None, "None"),
-                                (ColorEffectStyle::Brightness, "Brightness"),
-                                (ColorEffectStyle::Tint, "Tint"),
-                                (ColorEffectStyle::Advanced, "Advanced"),
-                                (ColorEffectStyle::Alpha, "Alpha"),
-                            ] {
-                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
-                                    picked_style = Some(st);
-                                    ui.close();
-                                }
-                            }
-                        });
-                    if let Some(next) = picked_style {
-                        style = next;
-                        if next == ColorEffectStyle::None {
-                            transform.alpha = 1.0;
-                            transform.color_transform = ColorTransform::default();
-                            s_resp.mark_changed();
-                        }
+                let (mut s_resp, f_resp) = two_column_row(
+                    ui,
+                    |ui, width| style_select(ui, width, style, &mut picked_style),
+                    |ui, width| {
+                        ui.add(
+                            nf::Field::new(&mut tint_pct, "Tint")
+                                .prefix("Tint")
+                                .unit("%")
+                                .decimals(0)
+                                .range(0.0..=100.0)
+                                .width(width),
+                        )
+                    },
+                );
+                if let Some(next) = picked_style {
+                    style = next;
+                    if next == ColorEffectStyle::None {
+                        transform.alpha = 1.0;
+                        transform.color_transform = ColorTransform::default();
                     }
-                    changes.note(s_resp);
-
-                    let f_resp = ui.add(
-                        nf::Field::new(&mut tint_pct, "Tint")
-                            .prefix("Tint")
-                            .unit("%")
-                            .decimals(0)
-                            .range(0.0..=100.0)
-                            .width(half),
+                    s_resp.mark_changed();
+                }
+                if f_resp.changed() {
+                    apply_tint(
+                        &mut transform.color_transform,
+                        tint_pct,
+                        [tint_rgba[0], tint_rgba[1], tint_rgba[2]],
                     );
-                    if f_resp.changed() {
-                        apply_tint(
-                            &mut transform.color_transform,
-                            tint_pct,
-                            [tint_rgba[0], tint_rgba[1], tint_rgba[2]],
-                        );
-                    }
-                    changes.note(f_resp);
-                });
+                }
+                changes.note(s_resp);
+                changes.note(f_resp);
                 let c_resp = color_row(ui, "mc-tint-color", "", "Tint color", &mut tint_rgba);
                 if c_resp.changed() {
                     tint_pct = (f64::from(tint_rgba[3]) / 255.0 * 100.0).clamp(0.0, 100.0);
@@ -1386,47 +1358,33 @@ impl Editor {
             }
             ColorEffectStyle::Advanced => {
                 let mut alpha_pct = (transform.alpha * 100.0).clamp(0.0, 100.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::S2;
-                    let (mut s_resp, _) = nf::Select::new("mc-color-effect-style", style_label)
-                        .width(half)
-                        .show(ui, |ui| {
-                            for (st, name) in [
-                                (ColorEffectStyle::None, "None"),
-                                (ColorEffectStyle::Brightness, "Brightness"),
-                                (ColorEffectStyle::Tint, "Tint"),
-                                (ColorEffectStyle::Advanced, "Advanced"),
-                                (ColorEffectStyle::Alpha, "Alpha"),
-                            ] {
-                                if ui.add(MenuItem::new(name).checked(st == style)).clicked() {
-                                    picked_style = Some(st);
-                                    ui.close();
-                                }
-                            }
-                        });
-                    if let Some(next) = picked_style {
-                        style = next;
-                        if next == ColorEffectStyle::None {
-                            transform.alpha = 1.0;
-                            transform.color_transform = ColorTransform::default();
-                            s_resp.mark_changed();
-                        }
+                let (mut s_resp, f_resp) = two_column_row(
+                    ui,
+                    |ui, width| style_select(ui, width, style, &mut picked_style),
+                    |ui, width| {
+                        ui.add(
+                            nf::Field::new(&mut alpha_pct, "Opacity")
+                                .prefix("α")
+                                .unit("%")
+                                .decimals(0)
+                                .range(0.0..=100.0)
+                                .width(width),
+                        )
+                    },
+                );
+                if let Some(next) = picked_style {
+                    style = next;
+                    if next == ColorEffectStyle::None {
+                        transform.alpha = 1.0;
+                        transform.color_transform = ColorTransform::default();
                     }
-                    changes.note(s_resp);
-
-                    let f_resp = ui.add(
-                        nf::Field::new(&mut alpha_pct, "Opacity")
-                            .prefix("α")
-                            .unit("%")
-                            .decimals(0)
-                            .range(0.0..=100.0)
-                            .width(half),
-                    );
-                    if f_resp.changed() {
-                        transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
-                    }
-                    changes.note(f_resp);
-                });
+                    s_resp.mark_changed();
+                }
+                if f_resp.changed() {
+                    transform.alpha = (alpha_pct / 100.0).clamp(0.0, 1.0);
+                }
+                changes.note(s_resp);
+                changes.note(f_resp);
                 for (ch_idx, mul_label, off_label) in [
                     (0usize, "R ×", "+ R"),
                     (1usize, "G ×", "+ G"),
@@ -1435,35 +1393,37 @@ impl Editor {
                 ] {
                     let mut mul_pct = transform.color_transform.multipliers[ch_idx] * 100.0;
                     let mut off_val = transform.color_transform.offsets[ch_idx];
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let r_mul = ui.add(
-                            nf::Field::new(&mut mul_pct, mul_label)
-                                .prefix(mul_label)
-                                .unit("%")
-                                .decimals(0)
-                                .range(-1000.0..=1000.0)
-                                .width(half),
-                        );
-                        if r_mul.changed() {
-                            transform.color_transform.multipliers[ch_idx] =
-                                (mul_pct / 100.0).clamp(-16.0, 16.0);
-                        }
-                        changes.note(r_mul);
-
-                        let r_off = ui.add(
-                            nf::Field::new(&mut off_val, off_label)
-                                .prefix(off_label)
-                                .decimals(0)
-                                .range(-255.0..=255.0)
-                                .width(half),
-                        );
-                        if r_off.changed() {
-                            transform.color_transform.offsets[ch_idx] =
-                                off_val.clamp(-255.0, 255.0);
-                        }
-                        changes.note(r_off);
-                    });
+                    let (r_mul, r_off) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                nf::Field::new(&mut mul_pct, mul_label)
+                                    .prefix(mul_label)
+                                    .unit("%")
+                                    .decimals(0)
+                                    .range(-1000.0..=1000.0)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                nf::Field::new(&mut off_val, off_label)
+                                    .prefix(off_label)
+                                    .decimals(0)
+                                    .range(-255.0..=255.0)
+                                    .width(width),
+                            )
+                        },
+                    );
+                    if r_mul.changed() {
+                        transform.color_transform.multipliers[ch_idx] =
+                            (mul_pct / 100.0).clamp(-16.0, 16.0);
+                    }
+                    if r_off.changed() {
+                        transform.color_transform.offsets[ch_idx] = off_val.clamp(-255.0, 255.0);
+                    }
+                    changes.note(r_mul);
+                    changes.note(r_off);
                 }
             }
         }

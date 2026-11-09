@@ -2,6 +2,15 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Motion tweens now keep keys, easing, roving state, paths and Orient/Snap/Sync settings independently for every
+  stable object on a shared layer (`T-182`, document format 10). Motion Editor, Ease and Motion Tween Properties
+  follow the single Stage selection; Copy/Paste, range edits, native playback, HTML5 and Lottie preserve sibling
+  tracks, while older shared-path documents retain their original behaviour.
+
+- Paired value fields across Properties, Transform/Color, Text, Filters, Motion, Info, Accessibility, tool panels and
+  Sound Properties now share one responsive two-column grid (`T-185`). Trailing controls remain inside their own
+  cell, colour rows keep swatch+hex beside alpha, and narrow layouts stack left before right.
+
 - Audited and hardened the `T-160`–`T-175` delivery without removing its behavior (`T-176`): disabling live scripts now drops every initial/frame/click dispatch and clears script-owned state; History capacity remains bounded after Redo; IK skinning uses full affine transforms, stable vertex bindings and retained rest points; legacy AIR SQL payloads whose random salt begins with the v2 header remain readable; Shape Tween welding preserves distinct scripts/accessibility/cache metadata; explicit Unicode ligature glyphs are no longer rewritten; saved-command and extension registries fail closed and mutate through Undo; donor Library imports remap colliding symbols, resources, layers, elements and references; saves use unique atomic temporary files; Deco/Spray `Edit…` controls no longer create artwork accidentally and the tested Spray generator honors its requested symbol; FLA object-script events survive export/import; malformed Shape Hints stay bounded and diagnostic; web locale/FPS state resets cleanly; and duplicated Lottie test geometry was consolidated.
 
 - Editor & Timeline accuracy fixes, configurable structural-delta Undo engine, RFC 8439 ChaCha20 + HMAC-SHA256 NeoFlash AIR-SQL payload encryption, bounded Flash CS5 typography, IK/Puppet/Deco/Spray/3D engines with settings panels and tested internal commands, Library 9-slice/shared-document workflows, live authoring `trace()` & AS2/AS3 preview toggle, replayable History Commands + capability-checked project manifests, XFL-backed `.fla` save + bounded `.swf` bytecode inspection, real measured FPS counter, and Midnight Express Episode 4 (`T-160`–`T-171`):

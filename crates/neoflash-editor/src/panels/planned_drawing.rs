@@ -2,16 +2,13 @@
 //! Rectangle primitive (`drawing-tools-panels.png`), Deco tool, Spray brush and
 //! IK bone (`drawing-tools-panels-2.png`). Fixed sample values; sample artwork colours are HSV data.
 use super::planned::{check, form_label, num, select, stepper, switch, text};
+use crate::paint_controls::two_column_row;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
 use neoflash_ui::icons::{i16, i20};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich;
-
-fn half(ui: &Ui) -> f32 {
-    (ui.available_width() - space::S2) / 2.0
-}
 
 fn section(ui: &mut Ui, label: &str, open: bool, body: impl FnOnce(&mut Ui)) {
     c::SectionHeader::new(label)
@@ -20,19 +17,20 @@ fn section(ui: &mut Ui, label: &str, open: bool, body: impl FnOnce(&mut Ui)) {
         .show(ui, body);
 }
 
-fn pair_num(ui: &mut Ui, a: (&str, f64, &str), b: (&str, f64, &str), decimals: usize, w: f32) {
-    ui.horizontal(|ui| {
-        num(ui, a.1, a.0, a.0, a.2, decimals, w);
-        num(ui, b.1, b.0, b.0, b.2, decimals, w);
-    });
+fn pair_num(ui: &mut Ui, a: (&str, f64, &str), b: (&str, f64, &str), decimals: usize) {
+    two_column_row(
+        ui,
+        |ui, width| num(ui, a.1, a.0, a.0, a.2, decimals, width),
+        |ui, width| num(ui, b.1, b.0, b.0, b.2, decimals, width),
+    );
 }
 
 fn pair_stepper(ui: &mut Ui, a: (&str, f64, &str), b: (&str, f64, &str), decimals: usize) {
-    let w = half(ui);
-    ui.horizontal(|ui| {
-        stepper(ui, a.1, a.0, a.0, a.2, decimals, w);
-        stepper(ui, b.1, b.0, b.0, b.2, decimals, w);
-    });
+    two_column_row(
+        ui,
+        |ui, width| stepper(ui, a.1, a.0, a.0, a.2, decimals, width),
+        |ui, width| stepper(ui, b.1, b.0, b.0, b.2, decimals, width),
+    );
 }
 
 /// Fill and Stroke wells (fill first, as in the primitive references).
@@ -77,14 +75,20 @@ pub(super) fn properties_oval(ui: &mut Ui) {
         title: "Oval primitive",
         subtitle: "Drawing object · layer \"ball\"",
     });
-    let field = (ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0;
     section(ui, "Position and size", true, |ui| {
-        ui.horizontal(|ui| {
-            num(ui, 100.0, "X", "X", "", 1, field);
-            num(ui, 100.0, "Y", "Y", "", 1, field);
-            link_button(ui);
-        });
-        pair_num(ui, ("W", 50.0, ""), ("H", 50.0, ""), 1, field);
+        two_column_row(
+            ui,
+            |ui, width| num(ui, 100.0, "X", "X", "", 1, width),
+            |ui, width| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                    num(ui, 100.0, "Y", "Y", "", 1, field_width);
+                    link_button(ui);
+                });
+            },
+        );
+        pair_num(ui, ("W", 50.0, ""), ("H", 50.0, ""), 1);
     });
     section(ui, "Fill and stroke", true, |ui| {
         wells(ui, hsv(0.6, 0.75, 0.75, 1.0).into());
@@ -93,11 +97,11 @@ pub(super) fn properties_oval(ui: &mut Ui) {
             let _ = ui.add(c::Button::new("Custom…").icon(i16::SETTINGS));
             switch(ui, false, "Stroke hinting");
         });
-        let w = half(ui);
-        ui.horizontal(|ui| {
-            select(ui, "Scale: Normal", w);
-            num(ui, 3.0, "Miter", "Miter", "", 0, w);
-        });
+        two_column_row(
+            ui,
+            |ui, width| select(ui, "Scale: Normal", width),
+            |ui, width| num(ui, 3.0, "Miter", "Miter", "", 0, width),
+        );
         for (label, items) in [
             (
                 "Cap",
@@ -128,9 +132,10 @@ pub(super) fn properties_oval(ui: &mut Ui) {
     });
     section(ui, "Oval options", true, |ui| {
         pair_stepper(ui, ("Start", 90.0, "°"), ("End", 0.0, "°"), 0);
-        let w = half(ui);
+        // FORM_GRID_EXCEPTION: Inner is deliberately paired with an action checkbox, not a value.
+        let inner_width = (ui.available_width() - space::S2) / 2.0;
         ui.horizontal(|ui| {
-            stepper(ui, 0.0, "Inner", "Inner", "%", 0, w);
+            stepper(ui, 0.0, "Inner", "Inner", "%", 0, inner_width);
             check(ui, true, "Close path");
         });
         let _ = ui.add(c::Button::ghost("Reset").icon(i16::RESET_TRANSFORM));
@@ -145,27 +150,33 @@ pub(super) fn properties_rect(ui: &mut Ui) {
         subtitle: "Drawing object · editable corners",
     });
     section(ui, "Position and size", true, |ui| {
-        let w = half(ui);
-        pair_num(ui, ("X", 140.0, ""), ("Y", 96.0, ""), 1, w);
-        pair_num(ui, ("W", 240.0, ""), ("H", 120.0, ""), 1, w);
+        pair_num(ui, ("X", 140.0, ""), ("Y", 96.0, ""), 1);
+        pair_num(ui, ("W", 240.0, ""), ("H", 120.0, ""), 1);
     });
     section(ui, "Fill and stroke", true, |ui| {
         wells(ui, hsv(48.0 / 360.0, 1.0, 1.0, 1.0).into());
         stroke_row(ui, 1.0);
     });
     section(ui, "Rectangle options", true, |ui| {
-        let w = (ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0;
-        ui.horizontal(|ui| {
-            stepper(ui, 12.0, "Top-left radius", "↖", "", 0, w);
-            stepper(ui, 12.0, "Top-right radius", "↗", "", 0, w);
-            link_button(ui);
-        });
-        ui.horizontal(|ui| {
-            stepper(ui, 12.0, "Bottom-left radius", "↙", "", 0, w);
-            stepper(ui, 12.0, "Bottom-right radius", "↘", "", 0, w);
-        });
+        two_column_row(
+            ui,
+            |ui, width| stepper(ui, 12.0, "Top-left radius", "↖", "", 0, width),
+            |ui, width| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                    stepper(ui, 12.0, "Top-right radius", "↗", "", 0, field_width);
+                    link_button(ui);
+                });
+            },
+        );
+        two_column_row(
+            ui,
+            |ui, width| stepper(ui, 12.0, "Bottom-left radius", "↙", "", 0, width),
+            |ui, width| stepper(ui, 12.0, "Bottom-right radius", "↘", "", 0, width),
+        );
         let mut v = 50.0;
-        ui.add(c::Slider::new(&mut v, 0.0..=100.0, "Corner radius").width(2.0 * w + space::S2));
+        ui.add(c::Slider::new(&mut v, 0.0..=100.0, "Corner radius").width(ui.available_width()));
         let _ = ui.add(c::Button::ghost("Reset"));
     });
 }
@@ -223,8 +234,7 @@ pub(super) fn spray_brush(ui: &mut Ui) {
     });
     section(ui, "Brush", true, |ui| {
         pair_stepper(ui, ("Width", 24.0, "px"), ("Height", 24.0, "px"), 0);
-        let w = half(ui);
-        stepper(ui, 0.0, "Angle", "Angle", "°", 0, w);
+        stepper(ui, 0.0, "Angle", "Angle", "°", 0, ui.available_width());
     });
 }
 
@@ -241,9 +251,8 @@ pub(super) fn bone(ui: &mut Ui) {
         let _ = ui.add(c::IconButton::new(i16::CHEVDOWN, "Child bone"));
     });
     section(ui, "Position", true, |ui| {
-        let w = half(ui);
-        pair_num(ui, ("X", 210.4, ""), ("Y", 188.0, ""), 1, w);
-        pair_num(ui, ("Length", 96.0, "px"), ("Angle", -32.0, "°"), 0, w);
+        pair_num(ui, ("X", 210.4, ""), ("Y", 188.0, ""), 1);
+        pair_num(ui, ("Length", 96.0, "px"), ("Angle", -32.0, "°"), 0);
     });
     section(ui, "Joint: rotation", true, |ui| {
         ui.horizontal(|ui| {
@@ -262,13 +271,15 @@ pub(super) fn bone(ui: &mut Ui) {
         pair_stepper(ui, ("Strength", 20.0, ""), ("Damping", 40.0, ""), 0);
     });
     section(ui, "Armature", true, |ui| {
-        let w = half(ui);
+        two_column_row(
+            ui,
+            |ui, width| select(ui, "Type: Authortime", width),
+            |ui, width| select(ui, "Style: Solid", width),
+        );
+        // FORM_GRID_EXCEPTION: Speed is deliberately paired with an action switch, not a value.
+        let speed_width = (ui.available_width() - space::S2) / 2.0;
         ui.horizontal(|ui| {
-            select(ui, "Type: Authortime", w);
-            select(ui, "Style: Solid", w);
-        });
-        ui.horizontal(|ui| {
-            stepper(ui, 100.0, "Speed", "Speed", "%", 0, w);
+            stepper(ui, 100.0, "Speed", "Speed", "%", 0, speed_width);
             switch(ui, true, "Enable spring");
         });
     });

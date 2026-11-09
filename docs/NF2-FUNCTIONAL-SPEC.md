@@ -42,7 +42,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TL-02 | Loop playback | Timeline controls | done | editor | P1 |
 | TL-03 | Scene select ▸ New scene | Timeline controls | done | yes | P2 |
 | TL-04 | Shape tween | Timeline controls | done | yes (small) | P2 |
-| TL-05 | Motion tween | Timeline controls | partial | yes | P2 |
+| TL-05 | Motion tween | Timeline controls | done | yes | P2 |
 | TL-06 | Ease panel button | Timeline controls | done | editor | P1 |
 | TL-07 | Sound | Timeline controls | done | yes | P3 |
 | TL-08 | Edit multiple frames | Timeline controls | done | editor | P2 |
@@ -184,19 +184,26 @@ groups.
 - Acceptance: shape tween marker renders green with arrow; paths with matching and differing topology morph; a
   keyframe without shapes produces an explanation instead of a jump.
 
-**TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · partial
-- Done: `tween_kind = Motion`; ◆ property keyframes are keyframes with `keyed_properties`; editing inside the span keys only changed properties (`timeline_commands::record_motion_property_keys`, run on every history commit); F6 keys all; independent tracks with the span ease or per-property ease overrides (`Keyframe.property_eases` in format 7, `evaluate::sample_motion`), Orient to path along the X/Y track direction, continuous Graphic symbol playback (`Keyframe.sync_symbols`), and guide endpoint snapping (`Keyframe.snap_to_guide`). The selected instance's path is drawn on the stage (`NF2/Motion Path`, R-005; `TimelineView { show_motion_path, show_motion_frame_dots }`) while the playhead is in its span; dragging a key point ◆ moves that key and keys X/Y, one Undo (`timeline_motion.rs`). Properties — Motion tween (PR-10) is done and Motion editor (PP-02) is partial. Bézier segment/handle editing and Paste motion special are available (R-006/R-008). Selective paste materializes affected spans to preserve unticked animation; range cuts/reverse bake curved paths.
-- Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on stage.
-- Behaviour: on a non-empty frame → convert every object on the layer to one motion span, matching independent
-  property tracks by stable object ID; dragging any member on a later frame creates a full-pose ◆ key that keys only
-  the changed properties. The path is visible on stage and uses the first object as the shared curved-path reference;
-  the span is edited in Motion editor (PP-02) and Properties — Motion tween (PR-10). Empty content produces an
-  actionable diagnostic.
-- Data: `tween_kind = Motion` on the span start key; ◆ keys = `Keyframe.keyed_properties`, `property_eases`,
-  `sync_symbols`, `snap_to_guide` (tracks are derived from them, not stored separately).
-- Depends on: engine (done for tracks, per-property eases, orient, sync, snap and format-8 Bézier paths).
-- Acceptance: create/remove with one Undo each; ◆ markers render; several objects on one layer retain their stable IDs
-  and interpolate X/Y/rotation/scale/alpha independently in editor and HTML5; classic tweens unchanged.
+**TL-05 · Motion tween** — `timeline_frame_tools` (tween group, item 3) · done
+- Done: `tween_kind = Motion`; every object on a non-empty layer keeps independent stable-ID property keys, easing,
+  roving state, path and Orient/Snap/Sync settings. Editing inside the span records only the changed properties for
+  each changed object; F6 keys all properties for every object in the span. Motion Editor, Ease, Properties — Motion tween
+  and the Stage path follow exactly one selected object; no or ambiguous selection uses an empty/mixed state and never
+  silently targets the first object. Dragging a ◆ path point keys only that object's X/Y in one Undo. Copy/Paste,
+  Paste motion special, Reverse, Convert to keyframes and range edits preserve sibling tracks; native, HTML5 and
+  Lottie evaluation use the same stable identities. Range cuts/reverse and XFL may bake curved paths.
+- Purpose: object-based tween with per-property keyframes ◆ (blue span) and an editable motion path on Stage for
+  every selected object, including several objects sharing one Motion layer.
+- Behaviour: creating Motion on a non-empty frame converts every object on the layer to one span. Moving or changing
+  one member creates or updates only that member's keys and settings; switching Stage selection switches the displayed
+  track and path. Empty content produces an actionable diagnostic.
+- Data: `tween_kind = Motion` on the span start key; format-10 `Keyframe.motion_tracks` stores sparse settings per
+  `element_id`, and `Keyframe.motion_keys` stores per-object property/roving keys. Legacy `keyed_properties`,
+  `property_eases`, `motion_path`, `orient_to_path`, `sync_symbols`, `snap_to_guide` and `roving` remain exact fallbacks
+  for older documents.
+- Acceptance: create/remove with one Undo each; ◆ markers render; two- and three-object spans keep overlapping and
+  non-overlapping keys, curves/easing/options and relative poses independent through save/reopen, Copy/Paste, range
+  edits, nested Edit in Place, native playback and HTML5; Classic Tween behaviour is unchanged.
 
 **TL-06 · Ease panel button** — `timeline_frame_tools` · done
 - Done: enabled only while the playhead is inside a tween (classic, shape or motion); opens the Ease panel (PP-01). Frame
@@ -531,8 +538,12 @@ actions are tracked separately.
 Properties is contextual: object selection takes precedence, followed by Timeline range/frame, Stage when Select is
 active with no selection, and active-tool settings otherwise. There is no separate `Selection / Tool` switch. Explicit
 entry points such as Brushes ▸ Brush options activate the matching tool and request its settings without leaking the
-override across documents or later context changes. Paired Text fields share one aligned second-column grid at the
-320-point inspector minimum and stack vertically below their usable width; size remains above position.
+override across documents or later context changes. Every semantically paired value row in Properties, Transform,
+Color, Text, Filters, Motion, Info, Accessibility, live/planned tool settings and Sound Properties uses the same
+two-column grid: equal cells, the NF2 S2 gap and an 80 pt minimum. Narrow surfaces stack left before right. A trailing
+Link/lock/action stays inside its own cell and cannot move the second-column axis; colour rows keep swatch+hex in the
+first cell and alpha in the second. Full-span rows and intentional action or three/four-column compositions retain
+their own layout.
 
 **PR-01 · Properties — Text** — done (`text_boxes.rs`, `ui_icons.rs`, `neoflash-core/src/text.rs`, `web/text.js`, `web/text-input.js`)
 - Stage authoring: clicking with Text creates point text that grows with its content; dragging creates a fixed,
@@ -559,7 +570,8 @@ override across documents or later context changes. Paired Text fields share one
     `Space before` + `Space after` (`pt`).
   - `Container and flow`: `Behavior` (`Single line` / `Multiline` / `Multiline no wrap` / `Password`), `Max chars` +
     4-mode `Vertical alignment` icon strip (`Top` / `Center` / `Bottom` / `Justify`), `Columns` (`1..=50`) + `Gutter`
-    (`px`) with custom column/gutter icons, 4-sided `Padding` (`L` / `R` / `T` / `B`) with `Lock padding` toggle,
+    (`px`) with custom column/gutter icons, 4-sided `Padding` (`L` / `R` / `T` / `B`) with `Lock padding` contained in
+    the right cell so it never shifts the shared second-column origin,
     `Border` optional slash-swatch + `Border width` (`pt`) + `Background` optional slash-swatch, and `1st line offset`
     (`Auto` / `Ascent` / `Line Height` / `Fixed pt`).
   - `Options`: `Link` (`URL`) + `Target` (`_blank` / `_self` / `_parent` / `_top`), `Variable` + `Restrict`, and `Render as HTML`.
@@ -589,6 +601,8 @@ override across documents or later context changes. Paired Text fields share one
 
 **PR-04 · Movie clip — Colour effect styles** — done (`panels/properties.rs` `color_effect_section_ui`: `Style: None / Brightness / Tint / Advanced / Alpha` with value fields, sliders, tint colour picker and two-column Advanced RGBA multiplier/offset rows)
 - Purpose: Style None / Brightness / Tint / Advanced / Alpha + value slider (Tint: colour + %, Advanced: 8 fields).
+- Layout: Style/value and every Advanced multiplier/offset pair use the shared responsive grid; Tint keeps its
+  swatch+hex value in the first cell and alpha/amount in the second.
 - Data: `Transform.color_transform: ColorTransform` already exists and interpolates in tweens (format 5).
 - Depends on: editor. Acceptance: Tint 50 % red shows in editor and HTML5; Undo restores; tween between two
   tints interpolates.
@@ -597,7 +611,8 @@ override across documents or later context changes. Paired Text fields share one
 - Controls: Display: Visible, Cache as bitmap, Blending (Normal, Layer, Multiply, Screen, Lighten, Darken,
   Difference, Add, Subtract, Invert, Alpha, Erase, Overlay, Hardlight), Render Original / Export as bitmap. Filters
   table (Drop shadow, Blur, Glow, Bevel, Gradient glow/bevel, Adjust color) with add / duplicate / remove, per-filter
-  fields (Blur X/Y, Strength, Quality …), enable checkbox.
+  fields (Blur X/Y, Strength, Quality …), enable checkbox. Every semantically paired value row uses the shared grid;
+  asymmetric action rows remain intentional exceptions.
 - Data: `Element.{filters, blend_mode, cache_as_bitmap, visible}` in format 7 reusing `FilterSpec` (max 8 per object).
 - Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
   an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
@@ -610,8 +625,9 @@ override across documents or later context changes. Paired Text fields share one
   `accent_default` outline + `Replace on all keyframes of “<layer>”`), replaces `ElementKind::Instance.symbol_id` across the
   layer/instance while preserving transform, instance name, scripts, filters, blend mode, accessibility and compatible playback
   settings (`authoring_symbols.rs::swap_layer_or_selected_symbol`, cycle-safe, one Undo). Selected symbol-instance Properties
-  also provides symbol behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Duplicate…`, and two-column
-  `Position and size` (`W`/`H` + `Constrain proportions` lock on Row 1, `X`/`Y` on Row 2, `Scale X`/`Scale Y` in `100 %` on Row 3, `Rotation`/`Skew` on Row 4).
+  also provides symbol behavior switching (`Movie Clip` / `Button` / `Graphic`), `Edit symbol`, `Duplicate…`, and
+  two-column `Position and size` (`W`/`H` + `Constrain proportions` lock inside the H cell on Row 1, `X`/`Y` on Row 2,
+  `Scale X`/`Scale Y` in `100 %` on Row 3, `Rotation`/`Skew` on Row 4), with one stable second-column axis.
 - Parameters tab: component parameters — no component model. **NEW**, P3.
 - Acceptance: Swap keeps position/filters/name, one Undo; Undo restores the original symbol.
 
@@ -623,6 +639,8 @@ override across documents or later context changes. Paired Text fields share one
 
 **PR-08 · Properties — Sound (frame)** — `panels/properties_sound.rs` · partial
 - Done: Sound section of frame Properties when the keyframe has a sound: sound select (None + library sounds), Effect presets + Custom, `Envelope…` opening the modal `Edit envelope` dialog (`panels/edit_envelope.rs`, DL-09; format-7 `SoundEffect::Custom` + `FrameSound.envelope`), Sync, Repeat/Loop + count, file info, Play (native preview), and `Sound properties…` opening the modal `Sound properties` dialog (`panels/sound_properties.rs`, DL-08). Real decoded peaks are shared with the timeline; Edit envelope waveform/trim UI still awaits R-016.
+- Layout: paired values in Sound Properties, including bit rate/quality, use the shared responsive grid; waveform and
+  action rows keep their intentional full-width/asymmetric composition.
 - Controls: Label name/type; sound file select; Effect (None, Left/Right channel, Fade left→right / right→left, Fade in,
   Fade out, Custom) + Envelope… (DL-09); Sync Event / Start / Stop / Stream; Repeat / Loop + count; waveform; file info;
   Play; Sound properties… (DL-08).
@@ -640,17 +658,16 @@ override across documents or later context changes. Paired Text fields share one
   acceptance with the cue-points UI.
 
 **PR-10 · Properties — Motion tween** — done (`panels/motion_tween.rs`)
-- Done: replaces the frame Tween section while the playhead is inside a motion tween. Ease (Flash acceleration of the
-  span start key) + Edit curve… (opens PP-01); Rotate turns + CW/CCW (written as the last Rotation ◆ key); Orient to
-  path (`Keyframe.orient_to_path` on the span start key, turning the object along its X/Y track); Path X/Y/W/H moves and
-  scales the X/Y keys; Show path and Show frame dots (`WorkspacePrefs.timeline.show_motion_path` /
-  `show_motion_frame_dots`); Sync graphic symbols (`Keyframe.sync_symbols` in format 7, continuous Graphic playback +
-  `sync_layer_symbols`); and Snap to motion guide (`Keyframe.snap_to_guide` in format 7, snapping path endpoints to a
-  linked guide layer's stroke). The path itself is drawn on the stage (R-005 resolved).
+- Done: replaces the frame Tween section while the playhead is inside a motion tween and exactly one member of that
+  span is selected on Stage. Ease + Edit curve…, Rotate turns/direction, Orient to path, Path X/Y/W/H, Sync graphic
+  symbols and Snap to motion guide read/write that object's format-10 track only; Show path/frame dots remain
+  workspace display preferences. Switching Stage selection switches the displayed settings and path. No or multiple
+  selection shows the existing empty/mixed state and never targets the first object. Format-7/8 shared settings remain
+  the fallback for older documents.
 - Controls: Ease −100 in … +100 out + Edit curve… (→ PP-01); Rotation count + direction CW/CCW + Orient to path; Path
   X/Y/W/H; Show path / frame dots; Sync graphic symbols; Snap to motion guide.
-- Data: values live in the span keys (TL-05). Acceptance: Orient to path rotates the object along the path tangent
-  in editor and HTML5.
+- Data: `MotionTrackOverride` on the span start plus `MotionPropertyKey` on ◆ keys (TL-05). Acceptance: changing
+  Ease, Orient, Path, Sync or Snap for one of two objects leaves the sibling untouched in editor, HTML5 and Lottie.
 - Reusable: `Editor::set_orient_to_path` (any tweened span); `TimelineEdit::SyncSymbols` / `Editor::sync_symbols`;
   `timeline_motion.rs::paint_motion_path`.
 
@@ -737,34 +754,33 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 - Done: bound to the tween span under the playhead (motion: its start key); presets Linear, Ease In/Out/In-Out, Back,
   Bounce, Elastic (`Easing::{Bounce, Elastic}` with `EaseDirection::{In, Out, InOut}` in format 7, Penner exact
   formulas) and Custom; `Property` select (`All`, `Position`, `Rotation`, `Scale`, `Colour`) + `One curve for all`
-  editing `Keyframe.property_eases` on motion tweens; draggable handles; X1–Y2 fields; preview track with Play/Stop;
-  Reset · Cancel · Apply (one Undo).
+  editing the selected object's format-10 track on motion tweens (legacy `Keyframe.property_eases` remains the
+  fallback); draggable handles; X1–Y2 fields; preview track with Play/Stop; Reset · Cancel · Apply (one Undo).
 - Controls: context line ("Classic tween · <layer> · frames a–b"); Property select All / Position / Rotation / Scale /
   Colour / Filters + "One curve for all"; presets Linear, Ease In, Ease Out, Ease In-Out, Back, Bounce, Elastic, Custom;
   `EaseGraph` with draggable Bézier handles (range 0–100 / Overshoot / Undershoot switches automatically); X1 Y1 X2 Y2
   fields; preview track with play and "Frame n / N · p %"; Reset · Cancel · Apply.
-- Behaviour: edits a draft; Apply writes `Keyframe.tween` (or `Keyframe.property_eases` when `One curve for all` is off)
-  in one Undo; Cancel discards; X fields 0–1, Y fields −0.3…1.3 in the graph (model allows |y| ≤ 100).
-- Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier{..}, Flash{..}, Bounce{..}, Elastic{..}}` and
-  `Keyframe.property_eases`; evaluation `evaluate::easing` solves Bézier x by bisection and evaluates Penner Bounce and
-  Elastic exactly.
+- Behaviour: edits a draft; for Motion, Apply writes `MotionTrackOverride.easing` or `.property_eases` for the single
+  selected element ID; classic/shape and legacy Motion retain their shared fields. Cancel discards; X fields 0–1,
+  Y fields −0.3…1.3 in the graph (model allows |y| ≤ 100).
+- Data: `Easing::{Linear, EaseIn, EaseOut, EaseInOut, CubicBezier{..}, Flash{..}, Bounce{..}, Elastic{..}}`, legacy
+  `Keyframe.property_eases` and format-10 `MotionTrackOverride.property_eases`; evaluation solves Bézier x by
+  bisection and evaluates Penner Bounce and Elastic exactly.
 - Acceptance: Apply on "Back out" (Y2 > 1) or "Bounce" overshoots/bounces in editor preview and HTML5; Cancel leaves the
   document unchanged (History unchanged).
 
 **PP-02 · Motion editor** — done (`panels/motion_editor.rs`)
-- Done: rows X, Y, Rotation Z, Scale X/Y, Skew, Alpha over the motion span with ◆ keys; value field keys the property at the
-  playhead; per-row `Ease` column selects per-property eases (`Keyframe.property_eases`, format 7) in one Undo; ◆
-  adds/removes that property's key; ◀ ▶ jump between its keys; click a lane to move the playhead, drag a key vertically
-  on the selected lane to change its value or horizontally to move that property's key in time (`Editor::move_motion_key`,
-  one Undo per drag); `Add property` (`+`) menus on `Basic motion` (`X`, `Y`, `Rotation Z`), `Transformation` (`Scale X`,
-  `Scale Y`, `Skew`), `Colour effect` (`Alpha`, `Tint / Colour`) and `Filters` (`Blur`, `Glow`, `Drop shadow`,
-  `Adjust colour`); Graph size / Expanded sliders and `Frames` span-duration stepper.
+- Done: follows exactly one Stage-selected object in the active Motion span. Rows X, Y, Rotation Z, Scale X/Y, Skew,
+  Alpha and Tint/Colour show only that stable element ID's ◆ keys and format-10 easing; value edits, add/remove,
+  previous/next navigation and vertical/horizontal key drags cannot key, retime or remove sibling tracks. Switching
+  selection switches lanes; no or multiple selection shows the existing empty/mixed state. `Add property` menus,
+  Graph size / Expanded sliders and the `Frames` span-duration stepper retain their existing composition.
 - Controls: columns Property · Value · Ease · Keyframe + frame ruler; sections Basic motion (X, Y, Rotation Z),
   Transformation (Scale X/Y, Skew X/Y), Colour effect (Alpha, Tint …), Filters; per row value field, ease select (No
   ease, Simple (slow), Bounce …), ◀ ◆ ▶ keyframe navigation, curve lane; Add property; footer Graph size, Expanded
   height, visible frames; hint "Click a curve to edit · ⌥-drag a keyframe to copy · ⇧ snaps to frames".
-- Data/Depends on: TL-05 motion tween tracks. Acceptance: adding a ◆ on Rotation at frame 20 changes only rotation;
-  curve drag edits value with one Undo per drag.
+- Data/Depends on: TL-05 format-10 object-scoped Motion tracks. Acceptance: adding/moving/removing Rotation for object
+  A at frame 20 leaves object B's keys and value untouched; curve drag is one Undo and survives save/reopen/HTML5.
 
 **PP-03 · Properties — Motion tween** = PR-10.
 

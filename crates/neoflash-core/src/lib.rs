@@ -181,7 +181,7 @@ pub use text::{
 };
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
-    sync_layer_symbols,
+    sync_layer_symbol, sync_layer_symbols,
 };
 pub use timeline_sound::{
     MAX_WAVEFORM_BUCKETS, ScrubSoundSlice, SoundCommand, WaveformPeaks, compute_lip_sync_keyframes,

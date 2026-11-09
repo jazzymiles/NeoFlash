@@ -151,6 +151,15 @@ impl ClipboardPayload {
             .symbols
             .iter()
             .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| !key.motion_tracks.is_empty() || key.motion_keys.is_some())
+        {
+            return 10;
+        }
+        if self
+            .symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
             .any(|layer| {
                 !layer.properties.blend_mode.is_normal()
                     || layer.properties.sync_timeline
@@ -463,6 +472,7 @@ impl ClipboardPayload {
                     if let Some(sound) = &mut key.sound {
                         sound.resource = identities[&sound.resource].clone();
                     }
+                    remap_motion_element_references(key, &identities);
                     for element in &mut key.elements {
                         element.id = identities[&element.id].clone();
                         remap_reference(element, &identities);
@@ -778,6 +788,7 @@ fn canonical_symbol_closure(
                         if let Some(sound) = &mut key.sound {
                             sound.resource = identities[&sound.resource].clone();
                         }
+                        remap_motion_element_references(key, &identities);
                         for element in &mut key.elements {
                             element.id = identities[&element.id].clone();
                             remap_reference(element, &identities);
@@ -936,6 +947,17 @@ fn remap_reference(element: &mut Element, map: &HashMap<Id, Id>) {
         _ => return,
     };
     *id = map[id].clone();
+}
+
+fn remap_motion_element_references(key: &mut Keyframe, map: &HashMap<Id, Id>) {
+    for track in &mut key.motion_tracks {
+        track.element_id = map[&track.element_id].clone();
+    }
+    if let Some(object_keys) = &mut key.motion_keys {
+        for object_key in object_keys {
+            object_key.element_id = map[&object_key.element_id].clone();
+        }
+    }
 }
 
 fn reject_unknown_fields(

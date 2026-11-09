@@ -1,7 +1,8 @@
 //! Motion tweens with independent property tracks, motion guides and tween kinds.
 use neoflash_core::{
-    Easing, Element, ElementKind, Keyframe, Layer, LayerProperties, LayerRole, PathCommand,
-    Project, Timeline, Transform, TweenKind, TweenProperty, evaluate, sample_layer,
+    Easing, Element, ElementKind, Keyframe, Layer, LayerProperties, LayerRole, MotionPathOverride,
+    MotionPropertyKey, MotionTrackOverride, PathCommand, Project, Timeline, Transform, TweenKind,
+    TweenProperty, evaluate, sample_layer,
 };
 
 fn rect(id: &str, x: f64, y: f64) -> Element {
@@ -65,6 +66,14 @@ fn position(project: &Project, frame: u32) -> (f64, f64) {
     (item.transform[4], item.transform[5])
 }
 
+fn object_pose(layer: &Layer, frame: u32, element_id: &str) -> Transform {
+    sample_layer(layer, frame)
+        .into_iter()
+        .find(|element| element.id == element_id)
+        .unwrap_or_else(|| panic!("missing sampled element {element_id}"))
+        .transform
+}
+
 #[test]
 fn motion_tween_tracks_interpolate_independently() {
     // X is keyed at 10 and 20; Y only at 20. Y must interpolate over 0..20
@@ -91,6 +100,631 @@ fn motion_tween_tracks_interpolate_independently() {
     // Round trip keeps the tween kind and the keyed tracks.
     let reloaded = Project::from_json(&project.to_json().unwrap()).unwrap();
     assert_eq!(reloaded, project);
+}
+
+#[test]
+fn object_scoped_motion_keys_eases_and_options_do_not_broadcast() {
+    let mut start = key(0, vec![rect("a", 0.0, 0.0), rect("b", 0.0, 0.0)]);
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    let mut a_track = MotionTrackOverride::new("a");
+    a_track.property_eases = Some(vec![(TweenProperty::X, Easing::EaseIn)]);
+    a_track.orient_to_path = Some(true);
+    a_track.snap_to_guide = Some(true);
+    a_track.sync_symbols = Some(true);
+    let mut b_track = MotionTrackOverride::new("b");
+    b_track.property_eases = Some(vec![(TweenProperty::Y, Easing::EaseOut)]);
+    b_track.orient_to_path = Some(false);
+    b_track.snap_to_guide = Some(false);
+    b_track.sync_symbols = Some(false);
+    start.motion_tracks = vec![a_track, b_track];
+
+    let mut object_key = key(10, vec![rect("a", 100.0, 999.0), rect("b", 999.0, 200.0)]);
+    object_key.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    object_key.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "a".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "b".into(),
+            properties: vec![TweenProperty::Y],
+            roving: false,
+        },
+    ]);
+
+    let mut motion_layer = layer("motion", vec![start, object_key]);
+    motion_layer.properties.end_frame = Some(11);
+    let mut project = project(11, vec![motion_layer]);
+    project.format_version = 9;
+    assert!(project.validate().is_err(), "format 10 data must be gated");
+    project.upgrade_format_for_features();
+    assert_eq!(project.format_version, 10);
+    project.validate().unwrap();
+
+    let motion = &project.symbols[0].timeline.layers[0];
+    let a = object_pose(motion, 5, "a");
+    let b = object_pose(motion, 5, "b");
+    let a_expected = neoflash_core::easing(5.0 / 11.0, Easing::EaseIn) * 11.0 / 10.0 * 100.0;
+    let b_expected = neoflash_core::easing(5.0 / 11.0, Easing::EaseOut) * 11.0 / 10.0 * 200.0;
+    assert!((a.x - a_expected).abs() < 1e-9, "A X uses its EaseIn track");
+    assert_eq!(a.y, 0.0, "B's Y key must not key A's Y track");
+    assert_eq!(b.x, 0.0, "A's X key must not key B's X track");
+    assert!(
+        (b.y - b_expected).abs() < 1e-9,
+        "B Y uses its EaseOut track"
+    );
+
+    let span_start = &motion.keyframes[0];
+    assert!(span_start.motion_orient_to_path_for("a"));
+    assert!(!span_start.motion_orient_to_path_for("b"));
+    assert!(span_start.motion_snap_to_guide_for("a"));
+    assert!(!span_start.motion_snap_to_guide_for("b"));
+    assert!(span_start.motion_sync_symbols_for("a"));
+    assert!(!span_start.motion_sync_symbols_for("b"));
+
+    let json = project.to_json().unwrap();
+    assert!(json.contains("\"motion_tracks\""));
+    assert!(json.contains("\"motion_keys\""));
+    assert!(json.contains("\"sync_symbols\""));
+    assert_eq!(Project::from_json(&json).unwrap(), project);
+
+    use neoflash_core::{FrameRange, TimelineEdit, edit_frames};
+    let original = project.clone();
+    let mut cleared = project.clone();
+    let root = cleared.root.clone();
+    edit_frames(
+        &mut cleared,
+        &root,
+        TimelineEdit::Clear {
+            range: FrameRange {
+                layers: vec!["motion".into()],
+                start: 4,
+                end: 5,
+            },
+            include_scripts: false,
+        },
+    )
+    .unwrap();
+    cleared.validate().unwrap();
+    let cleared_layer = &cleared.symbols[0].timeline.layers[0];
+    for frame in (0..4).chain(6..11) {
+        for id in ["a", "b"] {
+            let before = object_pose(&original.symbols[0].timeline.layers[0], frame, id);
+            let after = object_pose(cleared_layer, frame, id);
+            assert!(
+                (before.x - after.x).abs() < 1e-6 && (before.y - after.y).abs() < 1e-6,
+                "range subdivision changed {id} at frame {frame}: {before:?} vs {after:?}"
+            );
+        }
+    }
+
+    let legacy = curved_motion_project();
+    let legacy_json = legacy.to_json().unwrap();
+    assert!(!legacy_json.contains("motion_tracks"));
+    assert!(!legacy_json.contains("motion_keys"));
+    let reloaded = Project::from_json(&legacy_json).unwrap();
+    assert_eq!(reloaded, legacy);
+    for frame in 0..legacy.symbols[0].timeline.frame_count {
+        assert_eq!(
+            sample_layer(&reloaded.symbols[0].timeline.layers[0], frame),
+            sample_layer(&legacy.symbols[0].timeline.layers[0], frame),
+            "legacy format-8 behavior changed at frame {frame}"
+        );
+    }
+}
+
+#[test]
+fn object_scoped_motion_paths_and_orientation_use_each_objects_reference() {
+    let mut start = key(
+        0,
+        vec![rect("vertical", 0.0, 0.0), rect("horizontal", 0.0, 100.0)],
+    );
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    let mut vertical = MotionTrackOverride::new("vertical");
+    vertical.orient_to_path = Some(true);
+    vertical.motion_path = Some(MotionPathOverride::Path {
+        commands: vec![
+            PathCommand::MoveTo { x: 0.0, y: 0.0 },
+            PathCommand::CubicTo {
+                cx1: 0.0,
+                cy1: 100.0,
+                cx2: 100.0,
+                cy2: 100.0,
+                x: 100.0,
+                y: 0.0,
+            },
+        ],
+    });
+    let mut horizontal = MotionTrackOverride::new("horizontal");
+    horizontal.orient_to_path = Some(false);
+    horizontal.motion_path = Some(MotionPathOverride::Path {
+        commands: vec![
+            PathCommand::MoveTo { x: 0.0, y: 100.0 },
+            PathCommand::LineTo { x: 100.0, y: 100.0 },
+        ],
+    });
+    start.motion_tracks = vec![vertical, horizontal];
+
+    let mut end = key(
+        10,
+        vec![
+            rect("vertical", 100.0, 0.0),
+            rect("horizontal", 100.0, 100.0),
+        ],
+    );
+    end.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    end.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "vertical".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "horizontal".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y],
+            roving: false,
+        },
+    ]);
+    let mut project = project(11, vec![layer("motion", vec![start, end])]);
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let motion = &project.symbols[0].timeline.layers[0];
+    let vertical = object_pose(motion, 5, "vertical");
+    let horizontal = object_pose(motion, 5, "horizontal");
+    assert!((vertical.x - 50.0).abs() < 0.05);
+    assert!((vertical.y - 75.0).abs() < 0.05);
+    assert!(
+        vertical.rotation < -80.0 && vertical.rotation > -100.0,
+        "unexpected oriented path rotation: {vertical:?}"
+    );
+    assert!((horizontal.x - 50.0).abs() < 1e-9);
+    assert!((horizontal.y - 100.0).abs() < 1e-9);
+    assert_eq!(horizontal.rotation, 0.0);
+
+    let original = project.clone();
+    let mut reordered = project.clone();
+    for key in &mut reordered.symbols[0].timeline.layers[0].keyframes {
+        key.elements.reverse();
+    }
+    for frame in 0..11 {
+        for id in ["vertical", "horizontal"] {
+            assert_eq!(
+                object_pose(&original.symbols[0].timeline.layers[0], frame, id),
+                object_pose(&reordered.symbols[0].timeline.layers[0], frame, id),
+                "element order changed {id}'s track at frame {frame}"
+            );
+        }
+    }
+
+    let mut deleted = reordered;
+    for key in &mut deleted.symbols[0].timeline.layers[0].keyframes {
+        key.elements.retain(|element| element.id != "vertical");
+    }
+    deleted.symbols[0].timeline.layers[0].normalize_motion_keys();
+    deleted.validate().unwrap();
+    assert_eq!(
+        deleted.symbols[0].timeline.layers[0].keyframes[0]
+            .motion_tracks
+            .iter()
+            .map(|track| track.element_id.as_str())
+            .collect::<Vec<_>>(),
+        ["horizontal"]
+    );
+    for frame in 0..11 {
+        assert_eq!(
+            object_pose(&original.symbols[0].timeline.layers[0], frame, "horizontal"),
+            object_pose(&deleted.symbols[0].timeline.layers[0], frame, "horizontal"),
+            "deleting a sibling changed the surviving track at frame {frame}"
+        );
+    }
+
+    use neoflash_core::{FrameRange, TimelineEdit, edit_frames};
+    let mut reversed = original.clone();
+    let root = reversed.root.clone();
+    edit_frames(
+        &mut reversed,
+        &root,
+        TimelineEdit::Reverse {
+            range: FrameRange {
+                layers: vec!["motion".into()],
+                start: 0,
+                end: 10,
+            },
+        },
+    )
+    .unwrap();
+    reversed.validate().unwrap();
+    for frame in 0..11 {
+        for id in ["vertical", "horizontal"] {
+            let before = object_pose(&original.symbols[0].timeline.layers[0], 10 - frame, id);
+            let after = object_pose(&reversed.symbols[0].timeline.layers[0], frame, id);
+            assert!(
+                (before.x - after.x).abs() < 1e-8
+                    && (before.y - after.y).abs() < 1e-8
+                    && (before.rotation - after.rotation).abs() < 1e-8,
+                "reverse changed {id} at frame {frame}: {before:?} vs {after:?}"
+            );
+        }
+    }
+
+    let mut converted = original.clone();
+    let root = converted.root.clone();
+    edit_frames(
+        &mut converted,
+        &root,
+        TimelineEdit::ConvertToKeyframes {
+            range: FrameRange {
+                layers: vec!["motion".into()],
+                start: 2,
+                end: 7,
+            },
+            blank: false,
+        },
+    )
+    .unwrap();
+    converted.validate().unwrap();
+    for frame in 0..11 {
+        for id in ["vertical", "horizontal"] {
+            let before = object_pose(&original.symbols[0].timeline.layers[0], frame, id);
+            let after = object_pose(&converted.symbols[0].timeline.layers[0], frame, id);
+            assert!(
+                (before.x - after.x).abs() < 1e-8
+                    && (before.y - after.y).abs() < 1e-8
+                    && (before.rotation - after.rotation).abs() < 1e-8,
+                "Convert to keyframes changed {id} at frame {frame}: {before:?} vs {after:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn three_object_overlapping_keys_keep_roving_object_scoped() {
+    let mut start = key(
+        0,
+        vec![
+            rect("a", 0.0, 0.0),
+            rect("b", 0.0, 0.0),
+            rect("c", 0.0, 0.0),
+        ],
+    );
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+
+    let mut at_two = key(
+        2,
+        vec![
+            rect("a", 10.0, 999.0),
+            rect("b", 10.0, 999.0),
+            rect("c", 999.0, 999.0),
+        ],
+    );
+    at_two.keyed_properties = Some(vec![TweenProperty::X]);
+    at_two.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "a".into(),
+            properties: vec![TweenProperty::X],
+            roving: true,
+        },
+        MotionPropertyKey {
+            element_id: "b".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        },
+    ]);
+
+    let mut at_five = key(
+        5,
+        vec![
+            rect("a", 999.0, 999.0),
+            rect("b", 999.0, 999.0),
+            rect("c", 999.0, 50.0),
+        ],
+    );
+    at_five.keyed_properties = Some(vec![TweenProperty::Y]);
+    at_five.motion_keys = Some(vec![MotionPropertyKey {
+        element_id: "c".into(),
+        properties: vec![TweenProperty::Y],
+        roving: false,
+    }]);
+
+    let mut at_ten = key(
+        10,
+        vec![
+            rect("a", 100.0, 999.0),
+            rect("b", 100.0, 999.0),
+            rect("c", 999.0, 100.0),
+        ],
+    );
+    at_ten.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    at_ten.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "a".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "b".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "c".into(),
+            properties: vec![TweenProperty::Y],
+            roving: false,
+        },
+    ]);
+
+    let mut project = project(
+        11,
+        vec![layer("motion", vec![start, at_two, at_five, at_ten])],
+    );
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    let motion = &project.symbols[0].timeline.layers[0];
+    let a = object_pose(motion, 2, "a");
+    let b = object_pose(motion, 2, "b");
+    let c = object_pose(motion, 2, "c");
+    assert!((a.x - 20.0).abs() < 1e-9, "A's roving key is retimed");
+    assert!((b.x - 10.0).abs() < 1e-9, "B's key keeps authored time");
+    assert_eq!(a.y, 0.0);
+    assert_eq!(b.y, 0.0);
+    assert!((c.y - 20.0).abs() < 1e-9);
+    assert_eq!(c.x, 0.0, "unkeyed C X must ignore stored full poses");
+    assert!(motion.keyframes[1].motion_key_roving_for("a"));
+    assert!(!motion.keyframes[1].motion_key_roving_for("b"));
+    assert!(!motion.keyframes[1].motion_key_roving_for("c"));
+}
+
+#[test]
+fn object_scoped_guide_snap_leaves_sibling_track_unsnapped() {
+    let mut start = key(0, vec![rect("snapped", 0.0, 0.0), rect("free", 0.0, 20.0)]);
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    let mut snapped = MotionTrackOverride::new("snapped");
+    snapped.snap_to_guide = Some(true);
+    let mut free = MotionTrackOverride::new("free");
+    free.snap_to_guide = Some(false);
+    start.motion_tracks = vec![snapped, free];
+
+    let mut end = key(
+        10,
+        vec![rect("snapped", 100.0, 100.0), rect("free", 100.0, 120.0)],
+    );
+    end.keyed_properties = Some(vec![TweenProperty::X, TweenProperty::Y]);
+    end.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "snapped".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "free".into(),
+            properties: vec![TweenProperty::X, TweenProperty::Y],
+            roving: false,
+        },
+    ]);
+    let mut motion = layer("motion", vec![start, end]);
+    motion.properties.motion_guide = Some("guide".into());
+
+    let mut guide = layer(
+        "guide",
+        vec![key(
+            0,
+            vec![Element {
+                id: "path".into(),
+                name: "path".into(),
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                        PathCommand::LineTo { x: 100.0, y: 0.0 },
+                        PathCommand::LineTo { x: 100.0, y: 100.0 },
+                    ],
+                    fill_rule: Default::default(),
+                    fill: [0, 0, 0, 0],
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                ..Element::default()
+            }],
+        )],
+    );
+    guide.properties.role = LayerRole::Guide;
+    let mut project = project(11, vec![motion, guide]);
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let timeline = &project.symbols[0].timeline;
+    let sampled = neoflash_core::sample_layer_in(timeline, &timeline.layers[0], 5);
+    let snapped = sampled
+        .iter()
+        .find(|element| element.id == "snapped")
+        .unwrap();
+    let free = sampled.iter().find(|element| element.id == "free").unwrap();
+    assert!((snapped.transform.x - 100.0).abs() < 1e-6);
+    assert!(snapped.transform.y.abs() < 1e-6);
+    assert!((free.transform.x - 50.0).abs() < 1e-9);
+    assert!((free.transform.y - 70.0).abs() < 1e-9);
+}
+
+#[test]
+fn object_motion_validation_and_legacy_key_materialization_are_strict() {
+    let mut legacy_key = key(5, vec![rect("a", 10.0, 0.0), rect("b", 20.0, 0.0)]);
+    legacy_key.keyed_properties = Some(vec![TweenProperty::X]);
+    legacy_key.roving = true;
+    legacy_key.materialize_motion_keys();
+    assert_eq!(legacy_key.motion_keys.as_ref().unwrap().len(), 2);
+    assert!(legacy_key.motion_key_roving_for("a"));
+    assert!(legacy_key.motion_key_roving_for("b"));
+    assert!(!legacy_key.roving);
+    assert_eq!(legacy_key.keyed_properties, Some(vec![TweenProperty::X]));
+
+    let mut start = key(0, vec![rect("a", 0.0, 0.0)]);
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    let mut track = MotionTrackOverride::new("a");
+    track.sync_symbols = Some(true);
+    start.motion_tracks = vec![track];
+    let mut end = key(10, vec![rect("a", 100.0, 0.0)]);
+    end.keyed_properties = Some(vec![TweenProperty::X]);
+    end.motion_keys = Some(vec![MotionPropertyKey {
+        element_id: "a".into(),
+        properties: vec![TweenProperty::X],
+        roving: false,
+    }]);
+    let mut valid = project(11, vec![layer("motion", vec![start, end])]);
+    valid.upgrade_format_for_features();
+    valid.validate().unwrap();
+
+    let mut duplicate_track = valid.clone();
+    let duplicate =
+        duplicate_track.symbols[0].timeline.layers[0].keyframes[0].motion_tracks[0].clone();
+    duplicate_track.symbols[0].timeline.layers[0].keyframes[0]
+        .motion_tracks
+        .push(duplicate);
+    assert!(duplicate_track.validate().is_err());
+
+    let mut missing_track_object = valid.clone();
+    missing_track_object.symbols[0].timeline.layers[0].keyframes[0].motion_tracks[0].element_id =
+        "missing".into();
+    assert!(missing_track_object.validate().is_err());
+
+    let mut wrong_union = valid.clone();
+    wrong_union.symbols[0].timeline.layers[0].keyframes[1].keyed_properties =
+        Some(vec![TweenProperty::Y]);
+    assert!(wrong_union.validate().is_err());
+
+    let mut invalid_roving = valid.clone();
+    invalid_roving.symbols[0].timeline.layers[0].keyframes[1].keyed_properties =
+        Some(vec![TweenProperty::Alpha]);
+    invalid_roving.symbols[0].timeline.layers[0].keyframes[1].motion_keys =
+        Some(vec![MotionPropertyKey {
+            element_id: "a".into(),
+            properties: vec![TweenProperty::Alpha],
+            roving: true,
+        }]);
+    assert!(invalid_roving.validate().is_err());
+
+    let mut invalid_path = valid;
+    invalid_path.symbols[0].timeline.layers[0].keyframes[0].motion_tracks[0].motion_path =
+        Some(MotionPathOverride::Path {
+            commands: vec![PathCommand::LineTo { x: 1.0, y: 1.0 }],
+        });
+    assert!(invalid_path.validate().is_err());
+}
+
+#[test]
+fn targeted_symbol_sync_changes_only_the_requested_instance() {
+    use neoflash_core::{InstancePlayback, Symbol, SymbolKind, sync_layer_symbol};
+    let graphic = Symbol {
+        id: "walk".into(),
+        name: "walk".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 6,
+            layers: vec![layer("content", vec![key(0, vec![])])],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    let instance = |id: &str| Element {
+        id: id.into(),
+        name: id.into(),
+        kind: ElementKind::Instance {
+            symbol_id: "walk".into(),
+            playback: InstancePlayback::Loop,
+        },
+        ..Element::default()
+    };
+    let mut target_layer = layer(
+        "instances",
+        vec![
+            key(0, vec![instance("a"), instance("b")]),
+            key(3, vec![instance("a-next"), instance("b-next")]),
+        ],
+    );
+    let mut project = Project::blank();
+    project.symbols.push(graphic);
+
+    assert_eq!(
+        sync_layer_symbol(&project, &mut target_layer, 3, 3, "a-next"),
+        1
+    );
+    let playback = |id: &str| match &target_layer.keyframes[1]
+        .elements
+        .iter()
+        .find(|element| element.id == id)
+        .unwrap()
+        .kind
+    {
+        ElementKind::Instance { playback, .. } => *playback,
+        _ => unreachable!(),
+    };
+    assert_eq!(playback("a-next"), InstancePlayback::LoopFrom(3));
+    assert_eq!(playback("b-next"), InstancePlayback::Loop);
+}
+
+#[test]
+fn object_scoped_motion_sync_continues_only_the_enabled_graphic() {
+    use neoflash_core::{InstancePlayback, Symbol, SymbolKind};
+    let graphic = Symbol {
+        id: "walk".into(),
+        name: "walk".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 6,
+            layers: vec![layer(
+                "content",
+                (0..6)
+                    .map(|frame| key(frame, vec![rect("dot", frame as f64 * 10.0, 0.0)]))
+                    .collect(),
+            )],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    };
+    let instance = |id: &str| Element {
+        id: id.into(),
+        name: id.into(),
+        kind: ElementKind::Instance {
+            symbol_id: "walk".into(),
+            playback: InstancePlayback::Loop,
+        },
+        ..Element::default()
+    };
+    let mut start = key(0, vec![instance("a"), instance("b")]);
+    start.tween = Some(Easing::Linear);
+    start.tween_kind = TweenKind::Motion;
+    let mut a = MotionTrackOverride::new("a");
+    a.sync_symbols = Some(true);
+    let mut b = MotionTrackOverride::new("b");
+    b.sync_symbols = Some(false);
+    start.motion_tracks = vec![a, b];
+    let end = key(3, vec![instance("a-next"), instance("b-next")]);
+    let mut project = project(4, vec![layer("instances", vec![start, end])]);
+    project.symbols.push(graphic);
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let items = evaluate(&project, &project.root, 3);
+    let nested_x = |placement: &str| {
+        items
+            .iter()
+            .find(|item| item.instance_path.first().is_some_and(|id| id == placement))
+            .unwrap_or_else(|| panic!("missing nested draw for {placement}"))
+            .transform[4]
+    };
+    assert_eq!(nested_x("a-next"), 30.0);
+    assert_eq!(nested_x("b-next"), 0.0);
 }
 
 #[test]

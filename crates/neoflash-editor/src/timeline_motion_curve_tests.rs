@@ -52,10 +52,11 @@ fn fixture() -> (Editor, egui::Context, egui::Rect) {
     (editor, ctx, page)
 }
 fn curve(editor: &Editor) -> Vec<PathCommand> {
-    editor.symbol().timeline.layers[0].keyframes[0]
-        .motion_path
-        .clone()
-        .unwrap()
+    let element = &editor.selection.single().unwrap().element;
+    match editor.symbol().timeline.layers[0].keyframes[0].motion_path_for(element) {
+        MotionPathSource::Legacy(path) | MotionPathSource::Object(path) => path.to_vec(),
+        MotionPathSource::None => panic!("selected object has no editable motion curve"),
+    }
 }
 fn pose(editor: &Editor, frame: u32) -> Transform {
     sample_layer(&editor.symbol().timeline.layers[0], frame)[0].transform
@@ -111,7 +112,7 @@ fn motion_curve_bend_handle_smooth_corner_cancel_and_undo() {
     assert!(pose(&editor, 5).y > 150., "live preview follows bent curve");
     stage_input_frame(&mut editor, &ctx, 0.3, vec![primary_button(to, false)]);
     let output = stage_input_frame(&mut editor, &ctx, 0.4, vec![]);
-    assert_eq!(editor.project.format_version, 8);
+    assert_eq!(editor.project.format_version, 10);
     editor.project.validate().unwrap();
     assert!(
         output
@@ -303,7 +304,7 @@ fn motion_curve_anchors_follow_key_edits_without_moving_other_handles() {
 }
 
 #[test]
-fn secondary_motion_tracks_only_expose_matching_curve_handles() {
+fn secondary_motion_tracks_get_independent_editable_curves() {
     let (mut editor, _, _) = fixture();
     let layer = editor.symbol().timeline.layers[0].id.clone();
     for key in &mut editor.symbol_mut().timeline.layers[0].keyframes {
@@ -318,32 +319,168 @@ fn secondary_motion_tracks_only_expose_matching_curve_handles() {
         element: "secondary".into(),
     }]);
     let before = editor.project.clone();
-    assert!(!editor.begin_motion_curve_drag(CurveTarget::Segment(1), [120., 110.]));
-    assert_eq!(editor.project, before);
-    assert!(
-        editor.begin_motion_key_drag(10, [170., 110.]),
-        "secondary position keys still edit"
-    );
-    editor.cancel_motion_drags();
-    editor.set_selection(vec![SelectionTarget {
-        layer: layer.clone(),
-        element: "moving".into(),
-    }]);
-    assert!(editor.begin_motion_curve_drag(CurveTarget::Segment(1), [100., 100.]));
-    editor.cancel_motion_drags();
-    editor.symbol_mut().timeline.layers[0].keyframes[2].elements[1]
-        .transform
-        .x -= 25.;
-    editor.set_selection(vec![SelectionTarget {
-        layer,
-        element: "secondary".into(),
-    }]);
     assert!(
         editor.begin_motion_curve_drag(CurveTarget::Segment(1), [120., 110.]),
-        "constant offsets share exact curve geometry"
+        "a changing secondary offset has its own editable path"
     );
-    editor.cancel_motion_drags();
+    editor.drag_motion_curve_to([120., 150.], false);
+    editor.finish_motion_curve_drag();
+    let start = &editor.symbol().timeline.layers[0].keyframes[0];
+    assert!(matches!(
+        start
+            .motion_track("secondary")
+            .and_then(|track| track.motion_path.as_ref()),
+        Some(MotionPathOverride::Path { .. })
+    ));
+    assert!(start.motion_track("moving").is_none());
+    for frame in 0..30 {
+        let old = sample_layer(&before.symbols[0].timeline.layers[0], frame)
+            .into_iter()
+            .find(|element| element.id == "moving")
+            .unwrap();
+        let current = sample_layer(&editor.symbol().timeline.layers[0], frame)
+            .into_iter()
+            .find(|element| element.id == "moving")
+            .unwrap();
+        assert_eq!(current.transform, old.transform, "main track at {frame}");
+    }
     editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn ordinary_object_edits_rebase_only_the_selected_format10_path() {
+    for edited_frame in [5, 10] {
+        let (mut editor, _, _) = fixture();
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        for key in &mut editor.symbol_mut().timeline.layers[0].keyframes {
+            let mut secondary = key.elements[0].clone();
+            secondary.id = "secondary".into();
+            secondary.transform.x += 20.;
+            secondary.transform.y += 10.;
+            key.elements.push(secondary);
+            if key.frame > 0 {
+                let mut object_keys = vec![MotionPropertyKey {
+                    element_id: "moving".into(),
+                    properties: vec![TweenProperty::X, TweenProperty::Y],
+                    roving: false,
+                }];
+                if key.frame == 20 {
+                    object_keys.push(MotionPropertyKey {
+                        element_id: "secondary".into(),
+                        properties: vec![TweenProperty::X, TweenProperty::Y],
+                        roving: false,
+                    });
+                }
+                key.motion_keys = Some(object_keys);
+                key.sync_motion_key_union();
+            }
+        }
+        let start = &mut editor.symbol_mut().timeline.layers[0].keyframes[0];
+        let mut primary_track = MotionTrackOverride::new("moving");
+        primary_track.motion_path = Some(MotionPathOverride::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 50., y: 100. },
+                PathCommand::LineTo { x: 150., y: 100. },
+                PathCommand::LineTo { x: 250., y: 100. },
+            ],
+        });
+        let mut secondary_track = MotionTrackOverride::new("secondary");
+        secondary_track.motion_path = Some(MotionPathOverride::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 70., y: 110. },
+                PathCommand::LineTo { x: 270., y: 110. },
+            ],
+        });
+        start.motion_tracks = vec![primary_track, secondary_track];
+        editor.project.upgrade_format_for_features();
+        editor.set_selection(vec![SelectionTarget {
+            layer: layer_id.clone(),
+            element: "secondary".into(),
+        }]);
+        editor.frame = edited_frame;
+        editor.project.validate().unwrap();
+        let before = editor.project.clone();
+        let primary_track_before = before.symbols[0].timeline.layers[0].keyframes[0]
+            .motion_track("moving")
+            .cloned();
+        let primary_keys_before: Vec<_> = before.symbols[0].timeline.layers[0]
+            .keyframes
+            .iter()
+            .filter_map(|key| {
+                key.motion_keys.as_ref().and_then(|keys| {
+                    keys.iter()
+                        .find(|entry| entry.element_id == "moving")
+                        .cloned()
+                        .map(|entry| (key.frame, entry))
+                })
+            })
+            .collect();
+
+        editor.transact_named("Move secondary object", |editor| {
+            editor.ensure_key_at(&layer_id, edited_frame, false);
+            let key = editor.symbol_mut().timeline.layers[0]
+                .keyframes
+                .iter_mut()
+                .find(|key| key.frame == edited_frame)
+                .unwrap();
+            let element = key
+                .elements
+                .iter_mut()
+                .find(|element| element.id == "secondary")
+                .unwrap();
+            element.transform.x = 120. + f64::from(edited_frame);
+            element.transform.y = 160.;
+        });
+
+        let changed = &editor.symbol().timeline.layers[0];
+        let key = changed
+            .keyframes
+            .iter()
+            .find(|key| key.frame == edited_frame)
+            .unwrap();
+        let secondary_key = key
+            .motion_keys
+            .as_ref()
+            .and_then(|keys| keys.iter().find(|entry| entry.element_id == "secondary"))
+            .expect("ordinary edit records the secondary object's key");
+        assert!(secondary_key.properties.contains(&TweenProperty::X));
+        assert!(secondary_key.properties.contains(&TweenProperty::Y));
+        let shown = sample_layer(changed, edited_frame)
+            .into_iter()
+            .find(|element| element.id == "secondary")
+            .unwrap();
+        assert!((shown.transform.x - 120. - f64::from(edited_frame)).abs() < 1e-7);
+        assert!((shown.transform.y - 160.).abs() < 1e-7);
+        assert_eq!(
+            changed.keyframes[0].motion_track("moving").cloned(),
+            primary_track_before,
+            "the sibling path is untouched"
+        );
+        let primary_keys_after: Vec<_> = changed
+            .keyframes
+            .iter()
+            .filter_map(|key| {
+                key.motion_keys.as_ref().and_then(|keys| {
+                    keys.iter()
+                        .find(|entry| entry.element_id == "moving")
+                        .cloned()
+                        .map(|entry| (key.frame, entry))
+                })
+            })
+            .collect();
+        assert_eq!(primary_keys_after, primary_keys_before);
+        assert!(matches!(
+            changed.keyframes[0]
+                .motion_track("secondary")
+                .and_then(|track| track.motion_path.as_ref()),
+            Some(MotionPathOverride::Path { commands }) if commands.len() == 3
+        ));
+        editor.project.validate().unwrap();
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
 }
 
 #[test]
@@ -381,7 +518,11 @@ fn deleting_or_reordering_a_curve_reference_preserves_surviving_animation() {
         });
         editor.project.validate().unwrap();
         let changed = &editor.symbol().timeline.layers[0];
-        assert_eq!(changed.keyframes[0].motion_path.is_none(), changing_offset);
+        assert_eq!(
+            changed.keyframes[0].motion_track("moving").is_none(),
+            remove_reference,
+            "object path follows the stable id and is pruned only with its object"
+        );
         assert_eq!(
             changed
                 .keyframes

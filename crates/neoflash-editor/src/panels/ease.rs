@@ -43,6 +43,10 @@ pub(crate) struct TweenSpan {
     pub layer_id: Id,
     pub layer_name: String,
     pub kind: TweenKind,
+    /// Stable object selected on the Stage for a Motion Tween. Classic and Shape spans keep this
+    /// empty; Motion panels refuse ambiguous or missing object selection instead of using the
+    /// first element on the layer.
+    pub motion_element: Option<Id>,
     /// Frame of the keyframe holding the ease (a motion tween's start key).
     pub start: u32,
     /// Exclusive end frame of the span.
@@ -182,6 +186,21 @@ fn draft_id() -> egui::Id {
 }
 
 impl Editor {
+    /// One unambiguous Stage-selected object on `layer_id`, if the selection belongs to the
+    /// current edit-in-place symbol. Motion authoring must never fall back to element order.
+    pub(crate) fn selected_motion_element(&self, layer_id: &str) -> Option<Id> {
+        if self.selection.symbol != self.symbol_id() {
+            return None;
+        }
+        let target = self.selection.single()?;
+        let layer = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.target_layer_index(target)?)?;
+        (layer.id == layer_id).then(|| target.element.clone())
+    }
+
     /// Tween span under the playhead on the current layer, if the frame is tweened.
     pub(crate) fn tween_span(&self) -> Option<TweenSpan> {
         let timeline = &self.symbol().timeline;
@@ -205,25 +224,42 @@ impl Editor {
                 .unwrap_or(timeline.frame_count);
             (key, end)
         };
+        let motion_element = (key.tween_kind == TweenKind::Motion)
+            .then(|| self.selected_motion_element(&layer.id))
+            .flatten()
+            .filter(|element_id| key.elements.iter().any(|element| element.id == *element_id));
+        let easing = motion_element
+            .as_deref()
+            .map(|element_id| key.motion_easing_for(element_id))
+            .or(key.tween)?;
+        let property_eases = if key.tween_kind == TweenKind::Motion {
+            motion_element
+                .as_deref()
+                .and_then(|element_id| key.motion_track(element_id))
+                .and_then(|track| track.property_eases.clone())
+                .unwrap_or_else(|| key.property_eases.clone())
+        } else {
+            vec![]
+        };
         Some(TweenSpan {
             layer_id: layer.id.clone(),
             layer_name: layer.name.clone(),
             kind: key.tween_kind,
+            motion_element,
             start: key.frame,
             end: end.max(key.frame + 1),
-            easing: key.tween?,
-            property_eases: if key.tween_kind == TweenKind::Motion {
-                key.property_eases.clone()
-            } else {
-                vec![]
-            },
+            easing,
+            property_eases,
         })
     }
 
     /// Open the Ease panel focused on `property` of the current motion tween (`Motion editor ▸ Edit curve…`).
     pub(crate) fn open_ease_for_property(&mut self, ctx: &egui::Context, property: TweenProperty) {
         self.show_panel(crate::workspace::PanelId::Ease);
-        let Some(span) = self.tween_span().filter(|s| s.kind == TweenKind::Motion) else {
+        let Some(span) = self
+            .tween_span()
+            .filter(|s| s.kind == TweenKind::Motion && s.motion_element.is_some())
+        else {
             return;
         };
         let symbol = self.symbol_id().to_owned();
@@ -232,7 +268,8 @@ impl Editor {
             Some(mut draft)
                 if draft.symbol == symbol
                     && draft.span.layer_id == span.layer_id
-                    && draft.span.start == span.start =>
+                    && draft.span.start == span.start
+                    && draft.span.motion_element == span.motion_element =>
             {
                 if !draft.dirty {
                     draft.easing = span.easing;
@@ -268,10 +305,14 @@ impl Editor {
                 let layer = &timeline.layers[index];
                 !layer_effectively_locked(timeline, layer)
                     && layer_effectively_visible(timeline, layer)
-                    && layer
-                        .keyframes
-                        .iter()
-                        .any(|k| k.frame == span.start && k.tween.is_some())
+                    && layer.keyframes.iter().any(|k| {
+                        k.frame == span.start
+                            && k.tween.is_some()
+                            && (span.kind != TweenKind::Motion
+                                || span.motion_element.as_ref().is_some_and(|element_id| {
+                                    k.elements.iter().any(|element| element.id == *element_id)
+                                }))
+                    })
             })
     }
 
@@ -306,6 +347,7 @@ impl Editor {
             || deduped
                 .iter()
                 .any(|(_, e)| matches!(e, Easing::Flash { .. }));
+        let motion_element = span.motion_element.clone();
         self.transact_named("Edit ease", |s| {
             if let Some(key) = s
                 .symbol_mut()
@@ -315,16 +357,22 @@ impl Editor {
                 .find(|l| l.id == span.layer_id)
                 .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == span.start))
             {
-                key.tween = Some(easing);
-                key.property_eases = if key.tween_kind == TweenKind::Motion {
-                    deduped
+                if key.tween_kind == TweenKind::Motion {
+                    let Some(element_id) = motion_element.as_deref() else {
+                        return;
+                    };
+                    let track = key.ensure_motion_track(element_id);
+                    track.easing = Some(easing);
+                    track.property_eases = Some(deduped);
                 } else {
-                    vec![]
-                };
+                    key.tween = Some(easing);
+                    key.property_eases.clear();
+                }
             }
             if uses_flash {
                 s.project.format_version = s.project.format_version.max(5);
             }
+            s.project.upgrade_format_for_features();
         });
         true
     }
@@ -345,14 +393,17 @@ impl Editor {
     /// Panel / Ease body (moved from the planned preview; bound to the span under the playhead).
     fn ease_panel(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        let span = self.tween_span();
+        let span = self
+            .tween_span()
+            .filter(|span| span.kind != TweenKind::Motion || span.motion_element.is_some());
         let symbol = self.symbol_id().to_owned();
         let stored: Option<EaseDraft> = ctx.data(|d| d.get_temp(draft_id()));
         let mut draft = match (stored, &span) {
             (Some(draft), Some(span))
                 if draft.symbol == symbol
                     && draft.span.layer_id == span.layer_id
-                    && draft.span.start == span.start =>
+                    && draft.span.start == span.start
+                    && draft.span.motion_element == span.motion_element =>
             {
                 let mut draft = draft;
                 if !draft.dirty {
@@ -386,6 +437,7 @@ impl Editor {
                     layer_id: String::new(),
                     layer_name: String::new(),
                     kind: TweenKind::Classic,
+                    motion_element: None,
                     start: 0,
                     end: 1,
                     easing: Easing::Linear,

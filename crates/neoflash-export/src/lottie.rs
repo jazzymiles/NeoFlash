@@ -14,10 +14,10 @@ use base64::Engine as _;
 use image::{ExtendedColorType, ImageEncoder as _};
 use neoflash_core::{
     BlendMode, Color, ColorTransform, Easing, Element, ElementKind, FillRule, GradientKind,
-    GradientPaint, InstancePlayback, Keyframe, Layer, LayerRole, PathCommand, Project, Symbol,
-    Timeline, Transform, TweenKind, TweenProperty, effective_property_ease,
-    flatten_scenes_with_ranges, layer_effective_blend_mode, layer_effectively_synced,
-    layer_effectively_visible, motion_span, placement_start, sample_layer_in_at_fps,
+    GradientPaint, InstancePlayback, Keyframe, Layer, LayerRole, MotionPathSource, PathCommand,
+    Project, Symbol, Timeline, Transform, TweenKind, TweenProperty, flatten_scenes_with_ranges,
+    layer_effective_blend_mode, layer_effectively_synced, layer_effectively_visible, motion_span,
+    placement_start, sample_layer_in_at_fps,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -747,10 +747,24 @@ impl<'a> LottieBuilder<'a> {
                 !k.property_expressions.is_empty()
                     || k.motion_path.is_some()
                     || k.orient_to_path
+                    || k.roving
                     || matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
                     || k.property_eases
                         .iter()
                         .any(|(_, e)| matches!(e, Easing::Bounce | Easing::Elastic))
+                    || k.motion_tracks.iter().any(|track| {
+                        track.motion_path.is_some()
+                            || track.orient_to_path == Some(true)
+                            || matches!(track.easing, Some(Easing::Bounce | Easing::Elastic))
+                            || track.property_eases.as_ref().is_some_and(|eases| {
+                                eases.iter().any(|(_, ease)| {
+                                    matches!(ease, Easing::Bounce | Easing::Elastic)
+                                })
+                            })
+                    })
+                    || k.motion_keys
+                        .as_ref()
+                        .is_some_and(|keys| keys.iter().any(|key| key.roving))
             });
         let sample_frames: Vec<u32> = if dense {
             (span.start_frame..span.end_frame).collect()
@@ -1191,10 +1205,11 @@ impl<'a> LottieBuilder<'a> {
             )
         };
 
-        let orient_auto = layer
-            .keyframes
-            .iter()
-            .any(|k| k.frame >= first_frame && k.frame < last_frame && k.orient_to_path);
+        let orient_auto = layer.keyframes.iter().any(|k| {
+            k.frame >= first_frame
+                && k.frame < last_frame
+                && k.motion_orient_to_path_for(&representative.id)
+        });
 
         match &representative.kind {
             ElementKind::Instance {
@@ -1564,6 +1579,7 @@ impl<'a> LottieBuilder<'a> {
         origin_offset: [f64; 2],
     ) -> Value {
         let first_t = samples[0].1.transform;
+        let element_id = samples[0].1.id.as_str();
         let is_static = samples
             .iter()
             .all(|(_, e)| transforms_approx_eq(e.transform, first_t));
@@ -1576,12 +1592,19 @@ impl<'a> LottieBuilder<'a> {
         let dense = layer.properties.motion_guide.is_some()
             || layer.keyframes.iter().any(|k| {
                 !k.property_expressions.is_empty()
-                    || k.motion_path.is_some()
-                    || k.orient_to_path
-                    || matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
-                    || k.property_eases
-                        .iter()
-                        .any(|(_, e)| matches!(e, Easing::Bounce | Easing::Elastic))
+                    || !matches!(k.motion_path_for(element_id), MotionPathSource::None)
+                    || k.motion_orient_to_path_for(element_id)
+                    || k.motion_key_roving_for(element_id)
+                    || matches!(
+                        k.motion_easing_for(element_id),
+                        Easing::Bounce | Easing::Elastic
+                    )
+                    || TweenProperty::ALL.into_iter().any(|property| {
+                        matches!(
+                            k.motion_property_ease_for(element_id, property),
+                            Easing::Bounce | Easing::Elastic
+                        )
+                    })
             });
 
         let key_frames: Vec<(u32, Transform, Option<Easing>)> = if dense {
@@ -1594,11 +1617,11 @@ impl<'a> LottieBuilder<'a> {
                 })
                 .collect()
         } else {
-            collect_transform_keyframes(timeline, layer, samples)
+            collect_transform_keyframes(timeline, layer, samples, element_id)
         };
 
         let p_kfs = build_vec3_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, TweenProperty::X).or(t.2);
+            let ease = ease_for_prop(layer, f, element_id, TweenProperty::X).or(t.2);
             (
                 [
                     round4(t.1.x + origin_offset[0]),
@@ -1609,7 +1632,7 @@ impl<'a> LottieBuilder<'a> {
             )
         });
         let s_kfs = build_vec3_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, TweenProperty::ScaleX).or(t.2);
+            let ease = ease_for_prop(layer, f, element_id, TweenProperty::ScaleX).or(t.2);
             (
                 [
                     round4(t.1.scale_x * 100.0),
@@ -1620,11 +1643,11 @@ impl<'a> LottieBuilder<'a> {
             )
         });
         let r_kfs = build_scalar_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, TweenProperty::Rotation).or(t.2);
+            let ease = ease_for_prop(layer, f, element_id, TweenProperty::Rotation).or(t.2);
             (round4(t.1.rotation), ease)
         });
         let o_kfs = build_scalar_keyframes(&key_frames, |t, f| {
-            let ease = ease_for_prop(layer, f, TweenProperty::Alpha).or(t.2);
+            let ease = ease_for_prop(layer, f, element_id, TweenProperty::Alpha).or(t.2);
             (round4(effective_opacity_percent(t.1)), ease)
         });
 
@@ -1639,7 +1662,7 @@ impl<'a> LottieBuilder<'a> {
         ks.insert("s".into(), s_kfs);
         if samples.iter().any(|(_, e)| e.transform.skew.abs() > 1e-4) {
             let sk_kfs = build_scalar_keyframes(&key_frames, |t, f| {
-                let ease = ease_for_prop(layer, f, TweenProperty::Skew).or(t.2);
+                let ease = ease_for_prop(layer, f, element_id, TweenProperty::Skew).or(t.2);
                 (round4(-t.1.skew), ease)
             });
             ks.insert("sk".into(), sk_kfs);
@@ -1979,6 +2002,7 @@ fn collect_transform_keyframes(
     timeline: &Timeline,
     layer: &Layer,
     samples: &[(u32, Element)],
+    element_id: &str,
 ) -> Vec<(u32, Transform, Option<Easing>)> {
     let first_f = samples.first().unwrap().0;
     let last_f = samples.last().unwrap().0;
@@ -1989,7 +2013,13 @@ fn collect_transform_keyframes(
     key_times.insert(first_f);
     key_times.insert(last_f);
     for kf in &layer.keyframes {
-        if kf.frame >= first_f && kf.frame <= last_f && sample_map.contains_key(&kf.frame) {
+        let relevant =
+            kf.keyed_properties.is_none() || !kf.motion_key_properties_for(element_id).is_empty();
+        if relevant
+            && kf.frame >= first_f
+            && kf.frame <= last_f
+            && sample_map.contains_key(&kf.frame)
+        {
             key_times.insert(kf.frame);
             // If a hold keyframe transitions at `next_kf.frame`, include `next_kf.frame - 1` or
             // mark the keyframe as hold (`None`).
@@ -2001,22 +2031,27 @@ fn collect_transform_keyframes(
     let mut out = Vec::with_capacity(times.len());
     for &f in &times {
         let t = sample_map[&f];
-        let ease = layer_ease_at(layer, f);
+        let ease = layer_ease_at(layer, f, element_id);
         out.push((f, t, ease));
     }
     out
 }
 
-fn layer_ease_at(layer: &Layer, frame: u32) -> Option<Easing> {
+fn layer_ease_at(layer: &Layer, frame: u32, element_id: &str) -> Option<Easing> {
     if let Some((start, _, _)) = motion_span(layer, frame) {
-        return start.tween;
+        return Some(start.motion_easing_for(element_id));
     }
     layer.key_at(frame).and_then(|k| k.tween)
 }
 
-fn ease_for_prop(layer: &Layer, frame: u32, prop: TweenProperty) -> Option<Easing> {
+fn ease_for_prop(
+    layer: &Layer,
+    frame: u32,
+    element_id: &str,
+    prop: TweenProperty,
+) -> Option<Easing> {
     if let Some((start, _, _)) = motion_span(layer, frame) {
-        return Some(effective_property_ease(start, prop));
+        return Some(start.motion_property_ease_for(element_id, prop));
     }
     layer.key_at(frame).and_then(|k| k.tween)
 }
@@ -3155,8 +3190,9 @@ fn build_lottie_html_preview(title: &str, width: u32, height: u32, lottie_json: 
 mod tests {
     use super::*;
     use neoflash_core::{
-        FrameScript, GradientStop, Keyframe, LayerProperties, OvalOptions, PrimitiveOptions,
-        PropertyExpression, RectangleOptions, Script, ScriptLanguage, SymbolKind, TweenProperty,
+        FrameScript, GradientStop, Keyframe, LayerProperties, MotionPathOverride,
+        MotionPropertyKey, MotionTrackOverride, OvalOptions, PrimitiveOptions, PropertyExpression,
+        RectangleOptions, Script, ScriptLanguage, SymbolKind, TweenProperty,
     };
 
     struct TestOutputDir(PathBuf);
@@ -3184,6 +3220,136 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn object_scoped_motion_tracks_export_independent_paths_eases_and_orientation() {
+        let rect = |id: &str, x: f64, y: f64, alpha: f64| Element {
+            id: id.into(),
+            name: id.into(),
+            transform: Transform {
+                x,
+                y,
+                alpha,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill: [255, 0, 0, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let path = |start_x, control_y, end_x| MotionPathOverride::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: start_x, y: 0.0 },
+                PathCommand::CubicTo {
+                    cx1: start_x,
+                    cy1: control_y,
+                    cx2: end_x,
+                    cy2: control_y,
+                    x: end_x,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut a_track = MotionTrackOverride::new("a");
+        a_track.easing = Some(Easing::EaseIn);
+        a_track.property_eases = Some(vec![
+            (TweenProperty::X, Easing::Linear),
+            (TweenProperty::Y, Easing::Linear),
+        ]);
+        a_track.orient_to_path = Some(true);
+        a_track.motion_path = Some(path(0.0, 100.0, 100.0));
+        let mut b_track = MotionTrackOverride::new("b");
+        b_track.easing = Some(Easing::EaseOut);
+        b_track.property_eases = Some(vec![
+            (TweenProperty::X, Easing::Linear),
+            (TweenProperty::Y, Easing::Linear),
+        ]);
+        b_track.orient_to_path = Some(false);
+        b_track.motion_path = Some(path(200.0, -100.0, 300.0));
+
+        let mut project = Project::blank();
+        project.format_version = 10;
+        let root_id = project.root.clone();
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 21;
+        root.timeline.layers[0].name = "Motion".into();
+        root.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                elements: vec![rect("a", 0.0, 0.0, 1.0), rect("b", 200.0, 0.0, 1.0)],
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Motion,
+                motion_tracks: vec![a_track, b_track],
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 20,
+                elements: vec![rect("a", 100.0, 0.0, 0.0), rect("b", 300.0, 0.0, 0.0)],
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Motion,
+                keyed_properties: Some(vec![
+                    TweenProperty::X,
+                    TweenProperty::Y,
+                    TweenProperty::Alpha,
+                ]),
+                motion_keys: Some(vec![
+                    MotionPropertyKey {
+                        element_id: "a".into(),
+                        properties: vec![TweenProperty::X, TweenProperty::Y, TweenProperty::Alpha],
+                        roving: false,
+                    },
+                    MotionPropertyKey {
+                        element_id: "b".into(),
+                        properties: vec![TweenProperty::X, TweenProperty::Y, TweenProperty::Alpha],
+                        roving: false,
+                    },
+                ]),
+                ..Keyframe::default()
+            },
+        ];
+        project
+            .validate()
+            .expect("format-10 motion project validates");
+
+        let (value, _) = export_lottie_value(
+            &project,
+            &LottieOptions {
+                include_background: false,
+                ..LottieOptions::default()
+            },
+        )
+        .expect("export object-scoped motion");
+        let layers = value["layers"].as_array().unwrap();
+        let layer = |name: &str| {
+            layers
+                .iter()
+                .find(|layer| layer["nm"] == format!("Motion · {name}"))
+                .unwrap_or_else(|| panic!("missing Lottie track for {name}"))
+        };
+        let a = layer("a");
+        let b = layer("b");
+        fn key_at<'a>(property: &str, layer: &'a Value, frame: u32) -> &'a Value {
+            layer["ks"][property]["k"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|key| key["t"] == frame)
+                .unwrap_or_else(|| panic!("missing {property} key at frame {frame}"))
+        }
+        let a_position = &key_at("p", a, 10)["s"];
+        let b_position = &key_at("p", b, 10)["s"];
+        assert!((a_position[0].as_f64().unwrap() - 50.0).abs() < 0.05);
+        assert!((a_position[1].as_f64().unwrap() - 75.0).abs() < 0.05);
+        assert!((b_position[0].as_f64().unwrap() - 250.0).abs() < 0.05);
+        assert!((b_position[1].as_f64().unwrap() + 75.0).abs() < 0.05);
+        assert!((key_at("o", a, 10)["s"][0].as_f64().unwrap() - 75.0).abs() < 0.05);
+        assert!((key_at("o", b, 10)["s"][0].as_f64().unwrap() - 25.0).abs() < 0.05);
+        assert_eq!(a["ao"], 1);
+        assert_eq!(b["ao"], 0);
     }
 
     fn heart_puff_commands(cx: f64, cy: f64, size: f64) -> Vec<PathCommand> {

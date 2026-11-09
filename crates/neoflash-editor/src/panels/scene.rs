@@ -51,6 +51,9 @@ pub(crate) fn refresh_timeline_ids(timeline: &mut Timeline) {
         }
     }
     for layer in &mut timeline.layers {
+        for key in &mut layer.keyframes {
+            key.remap_motion_element_ids(&elements);
+        }
         let properties = &mut layer.properties;
         for link in [
             &mut properties.parent,

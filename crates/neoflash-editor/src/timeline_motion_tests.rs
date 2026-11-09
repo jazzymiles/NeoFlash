@@ -110,6 +110,32 @@ fn motion_editor() -> Editor {
     Editor::from_project(&egui::Context::default(), project)
 }
 
+fn multi_object_motion_editor() -> Editor {
+    let mut editor = motion_editor();
+    editor.project.resources.push(
+        ResourceUnit::from_bytes("motion-sound", "motion.wav", "audio/wav", b"")
+            .expect("test audio resource"),
+    );
+    for key in &mut editor.project.symbols[0].timeline.layers[0].keyframes {
+        let mut secondary = key.elements[0].clone();
+        secondary.id = "secondary".into();
+        secondary.name = "secondary".into();
+        secondary.transform.x += 300.;
+        secondary.transform.y += 50. + key.frame as f64;
+        key.elements.push(secondary);
+        if key.keyed_properties.is_some() {
+            key.materialize_motion_keys();
+        }
+        if key.frame == 10 {
+            key.label = "keep-label".into();
+            key.sound = Some(FrameSound::new("motion-sound"));
+        }
+    }
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
+    editor
+}
+
 fn select(editor: &mut Editor, layer: &str, element: &str) {
     editor.set_selection(vec![SelectionTarget {
         layer: layer.into(),
@@ -142,8 +168,10 @@ fn paste_motion_reproduces_the_animation_on_another_instance() {
     let mut editor = motion_editor();
     editor.frame = 5;
     editor.layer = 0;
+    select(&mut editor, "moving", "star");
     assert!(editor.can_copy_motion());
     editor.copy_motion();
+    editor.clear_selection();
     assert!(
         !editor.can_paste_motion(),
         "Paste motion needs a selected object"
@@ -171,6 +199,103 @@ fn paste_motion_reproduces_the_animation_on_another_instance() {
 }
 
 #[test]
+fn paste_motion_merges_only_the_selected_object_on_a_shared_motion_layer() {
+    let mut editor = multi_object_motion_editor();
+    editor.layer = 0;
+    editor.frame = 0;
+    select(&mut editor, "moving", "star");
+    editor.copy_motion();
+    select(&mut editor, "moving", "secondary");
+    let before = editor.project.clone();
+    editor.paste_motion();
+    editor.project.validate().unwrap();
+
+    let timeline = &editor.symbol().timeline;
+    for frame in 0..30 {
+        let old_star = sampled_element(&before.symbols[0].timeline, 0, "star", frame);
+        let new_star = sampled_element(timeline, 0, "star", frame);
+        assert_eq!(new_star, old_star, "source object at frame {frame}");
+        let secondary = sampled_element(timeline, 0, "secondary", frame);
+        assert!((secondary.transform.x - old_star.transform.x - 300.).abs() < 1e-7);
+        assert!(
+            (secondary.transform.y - old_star.transform.y - 50.).abs() < 1e-7,
+            "secondary y at {frame}: {} vs {}",
+            secondary.transform.y,
+            old_star.transform.y + 50.
+        );
+    }
+    let shared = timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 10)
+        .unwrap();
+    assert_eq!(shared.label, "keep-label");
+    assert_eq!(shared.sound, Some(FrameSound::new("motion-sound")));
+    assert!(
+        shared
+            .motion_keys
+            .as_ref()
+            .is_some_and(|keys| keys.iter().any(|key| key.element_id == "star")
+                && keys.iter().any(|key| key.element_id == "secondary"))
+    );
+    let reopened = Project::from_json(&editor.project.to_json().unwrap()).unwrap();
+    reopened.validate().unwrap();
+    editor.undo();
+    assert_eq!(
+        editor.project, before,
+        "one Undo restores both tracks exactly"
+    );
+}
+
+#[test]
+fn paste_motion_special_on_shared_motion_layer_preserves_other_entries_and_metadata() {
+    use crate::timeline_motion::PasteMotionOptions;
+    let mut editor = multi_object_motion_editor();
+    editor.layer = 0;
+    editor.frame = 0;
+    select(&mut editor, "moving", "star");
+    editor.copy_motion();
+    select(&mut editor, "moving", "secondary");
+    let before = editor.project.clone();
+    let baseline = before.symbols[0].timeline.clone();
+    let mut options = PasteMotionOptions {
+        properties: [false; 9],
+        ..Default::default()
+    };
+    options.properties[0] = true;
+    editor.paste_motion_special(&options);
+    editor.project.validate().unwrap();
+    for frame in 0..30 {
+        let current_star = sampled_element(&editor.symbol().timeline, 0, "star", frame);
+        let old_star = sampled_element(&baseline, 0, "star", frame);
+        assert!(
+            (current_star.transform.x - old_star.transform.x).abs() < 1e-9
+                && (current_star.transform.y - old_star.transform.y).abs() < 1e-9
+                && (current_star.transform.rotation - old_star.transform.rotation).abs() < 1e-9
+                && (current_star.transform.alpha - old_star.transform.alpha).abs() < 1e-9,
+            "other track at frame {frame}"
+        );
+        let actual = sampled_element(&editor.symbol().timeline, 0, "secondary", frame);
+        let old_secondary = sampled_element(&baseline, 0, "secondary", frame);
+        let source = sampled_element(&baseline, 0, "star", frame);
+        assert!((actual.transform.x - source.transform.x - 300.).abs() < 1e-7);
+        assert_eq!(
+            actual.transform.y, old_secondary.transform.y,
+            "unticked Y at frame {frame}"
+        );
+    }
+    let shared = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 10)
+        .unwrap();
+    assert_eq!(shared.label, "keep-label");
+    assert_eq!(shared.sound, Some(FrameSound::new("motion-sound")));
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
 fn paste_motion_copies_a_classic_tween_relative_to_the_target() {
     let mut editor = motion_editor();
     {
@@ -182,6 +307,7 @@ fn paste_motion_copies_a_classic_tween_relative_to_the_target() {
         timeline.layers[0].keyframes = vec![start, key(8, vec![end])];
     }
     editor.frame = 2;
+    select(&mut editor, "moving", "star");
     editor.copy_motion();
     editor.frame = 4;
     editor.layer = 1;
@@ -326,6 +452,7 @@ fn orient_to_path_is_set_on_the_tween_under_the_playhead() {
     let mut editor = motion_editor();
     editor.layer = 1;
     editor.frame = 0;
+    select(&mut editor, "still", "other");
     if let Some(span) = editor.tween_span() {
         editor.set_orient_to_path(&span, true);
     }
@@ -334,6 +461,7 @@ fn orient_to_path_is_set_on_the_tween_under_the_playhead() {
         "an untweened span cannot orient"
     );
     editor.project.symbols[0].timeline.layers[1].keyframes[0].tween = Some(Easing::Linear);
+    editor.project.symbols[0].timeline.layers[1].keyframes[0].tween_kind = TweenKind::Motion;
     editor.project.symbols[0].timeline.layers[1]
         .keyframes
         .push(key(10, vec![instance("other", "clip", 80., 50.)]));
@@ -342,7 +470,7 @@ fn orient_to_path_is_set_on_the_tween_under_the_playhead() {
     if let Some(span) = editor.tween_span() {
         editor.set_orient_to_path(&span, true);
     }
-    assert!(editor.symbol().timeline.layers[1].keyframes[0].orient_to_path);
+    assert!(editor.symbol().timeline.layers[1].keyframes[0].motion_orient_to_path_for("other"));
     editor.undo();
     assert_eq!(editor.project, before);
 }
@@ -418,6 +546,7 @@ fn copy_paste_motion_preserves_per_property_eases() {
 
     editor.frame = 4;
     editor.layer = 0;
+    select(&mut editor, "moving", "star");
     editor.copy_motion();
 
     editor.frame = 0;
@@ -427,7 +556,10 @@ fn copy_paste_motion_preserves_per_property_eases() {
     editor.paste_motion();
     editor.project.validate().unwrap();
     assert_eq!(
-        editor.symbol().timeline.layers[1].keyframes[0].property_eases,
+        editor.symbol().timeline.layers[1].keyframes[0]
+            .motion_track("other")
+            .and_then(|track| track.property_eases.clone())
+            .unwrap(),
         vec![
             (TweenProperty::X, Easing::Bounce),
             (TweenProperty::Y, Easing::EaseIn),
@@ -502,6 +634,7 @@ fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
     k0.tween = Some(Easing::Linear);
     k0.tween_kind = TweenKind::Motion;
     let mut b_inst = instance("b", "walk", 40., 0.);
+    b_inst.id = "a".into();
     b_inst.kind = ElementKind::Instance {
         symbol_id: "walk".into(),
         playback: InstancePlayback::LoopFrom(6),
@@ -514,14 +647,16 @@ fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
     let mut editor = Editor::from_project(&egui::Context::default(), project);
     assert_eq!(
         evaluate(&editor.project, &editor.project.root, 3)[0].element_id,
-        "dot-6"
+        "dot-1"
     );
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+    select(&mut editor, &layer_id, "a");
     let span = editor.motion_tween_span().unwrap();
     let before = editor.project.clone();
     editor.set_motion_sync_symbols(&span, true);
     editor.project.validate().unwrap();
-    assert_eq!(editor.project.format_version, 7);
-    assert!(editor.symbol().timeline.layers[0].keyframes[0].sync_symbols);
+    assert_eq!(editor.project.format_version, 10);
+    assert!(editor.symbol().timeline.layers[0].keyframes[0].motion_sync_symbols_for("a"));
     assert!(matches!(
         editor.symbol().timeline.layers[0].keyframes[1].elements[0].kind,
         ElementKind::Instance {
@@ -563,11 +698,12 @@ fn motion_sync_symbols_and_snap_to_guide_options_commit_with_one_undo() {
     )];
     editor.layer = 0;
     editor.frame = 5;
+    select(&mut editor, "moving", "star");
     let span = editor.motion_tween_span().unwrap();
     let before_snap = editor.project.clone();
     editor.set_motion_snap_to_guide(&span, true);
     editor.project.validate().unwrap();
-    assert!(editor.symbol().timeline.layers[0].keyframes[0].snap_to_guide);
+    assert!(editor.symbol().timeline.layers[0].keyframes[0].motion_snap_to_guide_for("star"));
     assert_eq!(position(&editor, 0, "star", 0), (0.0, 20.0));
     assert_eq!(position(&editor, 0, "star", 10), (100.0, 20.0));
 
@@ -607,9 +743,9 @@ fn motion_guide_drag_snap_threshold_is_measured_in_affine_screen_space() {
     )];
     editor.layer = 0;
     editor.frame = 5;
+    select(&mut editor, "moving", "star");
     let span = editor.motion_tween_span().unwrap();
     editor.set_motion_snap_to_guide(&span, true);
-    select(&mut editor, "moving", "star");
 
     // Only 0.2 local units from the guide, but 20 screen points after the captured Y stretch:
     // the key must remain unsnapped.
@@ -687,6 +823,7 @@ fn paste_motion_special_preserves_unticked_animation_and_other_objects_across_bo
     editor.project.validate().unwrap();
     editor.layer = 0;
     editor.frame = 0;
+    select(&mut editor, "moving", "star");
     editor.copy_motion();
     editor.layer = 1;
     editor.frame = 5;
@@ -786,6 +923,7 @@ fn styled_paste_editor() -> Editor {
     editor.project.validate().unwrap();
     editor.layer = 0;
     editor.frame = 0;
+    select(&mut editor, "moving", "star");
     editor.copy_motion();
     editor.layer = 1;
     editor.frame = 4;

@@ -1066,8 +1066,11 @@ impl Editor {
                         *member = mapping[member].clone();
                     }
                 }
-                for element in layer.keyframes.iter_mut().flat_map(|k| &mut k.elements) {
-                    element.id = mapping[&element.id].clone();
+                for key in &mut layer.keyframes {
+                    key.remap_motion_element_ids(&mapping);
+                    for element in &mut key.elements {
+                        element.id = mapping[&element.id].clone();
+                    }
                 }
             }
             timeline.frame_count = timeline.frame_count.max(clipboard.frames);
@@ -2033,6 +2036,67 @@ mod tests {
         editor.project.validate().unwrap();
         editor.undo();
         assert_eq!(editor.project, before);
+    }
+
+    #[test]
+    fn copied_motion_layer_remaps_only_its_format10_object_references() {
+        let ctx = egui::Context::default();
+        let mut project = Project::blank();
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.frame_count = 3;
+        let mut track = MotionTrackOverride::new("moving");
+        track.easing = Some(Easing::EaseOut);
+        timeline.layers[0].keyframes = vec![
+            Keyframe {
+                elements: vec![shape("moving", 0.)],
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Motion,
+                motion_tracks: vec![track],
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 1,
+                elements: vec![shape("moving", 50.)],
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Motion,
+                keyed_properties: Some(vec![TweenProperty::X]),
+                motion_keys: Some(vec![MotionPropertyKey {
+                    element_id: "moving".into(),
+                    properties: vec![TweenProperty::X],
+                    roving: false,
+                }]),
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 2,
+                elements: vec![shape("moving", 100.)],
+                ..Default::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+        project.validate().unwrap();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.copy_timeline_layers(&ctx, 0);
+        let clipboard = ctx
+            .data(|data| data.get_temp::<LayerClipboard>(editor.layer_clipboard_id()))
+            .unwrap();
+        editor.paste_timeline_layers(clipboard, 0);
+
+        let copied = editor
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|layer| layer.name.ends_with(" copy"))
+            .unwrap();
+        let copied_id = copied.keyframes[0].elements[0].id.clone();
+        assert_ne!(copied_id, "moving");
+        assert_eq!(copied.keyframes[0].motion_tracks[0].element_id, copied_id);
+        assert_eq!(
+            copied.keyframes[1].motion_keys.as_ref().unwrap()[0].element_id,
+            copied_id
+        );
+        editor.project.validate().unwrap();
     }
 
     #[test]

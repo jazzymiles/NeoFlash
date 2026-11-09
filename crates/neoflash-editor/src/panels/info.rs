@@ -3,13 +3,13 @@
 //! and live stage `Cursor` + `Colour` RGBA readouts under the pointer.
 use super::planned::{form_label, mono};
 use crate::app::Editor;
+use crate::paint_controls::two_column_row;
 use crate::stage_view::RulerUnits;
 use crate::theme::DesignUi as _;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Pos2, Rect, Ui, Vec2};
 use neoflash_core::*;
 use neoflash_ui::components as c;
-use neoflash_ui::tokens::space;
 use std::collections::HashMap;
 
 #[derive(Clone)]
@@ -357,53 +357,62 @@ impl Editor {
             ui.add(c::RegistrationPicker {
                 point: &mut self.authoring_tools.info_anchor,
             });
-            let half = ((ui.available_width() - space::S2) * 0.5).max(52.0);
             ui.vertical(|ui| {
                 ui.add_enabled_ui_semantic(editable, |ui| {
-                    ui.horizontal(|ui| {
-                        let rw = ui.add(
-                            c::Field::new(&mut w, "Width")
-                                .prefix("W")
-                                .decimals(1)
-                                .range(0.1..=100_000.0)
-                                .width(half),
-                        );
-                        if rw.changed() {
-                            edited_control = Some((rw.id, "Resize"));
-                        }
-                        let rh = ui.add(
-                            c::Field::new(&mut h, "Height")
-                                .prefix("H")
-                                .decimals(1)
-                                .range(0.1..=100_000.0)
-                                .width(half),
-                        );
-                        if rh.changed() {
-                            edited_control = Some((rh.id, "Resize"));
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        let rx = ui.add(
-                            c::Field::new(&mut x, "X")
-                                .prefix("X")
-                                .decimals(1)
-                                .range(-1_000_000.0..=1_000_000.0)
-                                .width(half),
-                        );
-                        if rx.changed() {
-                            edited_control = Some((rx.id, "Move"));
-                        }
-                        let ry = ui.add(
-                            c::Field::new(&mut y, "Y")
-                                .prefix("Y")
-                                .decimals(1)
-                                .range(-1_000_000.0..=1_000_000.0)
-                                .width(half),
-                        );
-                        if ry.changed() {
-                            edited_control = Some((ry.id, "Move"));
-                        }
-                    });
+                    let (rw, rh) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut w, "Width")
+                                    .prefix("W")
+                                    .decimals(1)
+                                    .range(0.1..=100_000.0)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut h, "Height")
+                                    .prefix("H")
+                                    .decimals(1)
+                                    .range(0.1..=100_000.0)
+                                    .width(width),
+                            )
+                        },
+                    );
+                    if rw.changed() {
+                        edited_control = Some((rw.id, "Resize"));
+                    }
+                    if rh.changed() {
+                        edited_control = Some((rh.id, "Resize"));
+                    }
+                    let (rx, ry) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut x, "X")
+                                    .prefix("X")
+                                    .decimals(1)
+                                    .range(-1_000_000.0..=1_000_000.0)
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut y, "Y")
+                                    .prefix("Y")
+                                    .decimals(1)
+                                    .range(-1_000_000.0..=1_000_000.0)
+                                    .width(width),
+                            )
+                        },
+                    );
+                    if rx.changed() {
+                        edited_control = Some((rx.id, "Move"));
+                    }
+                    if ry.changed() {
+                        edited_control = Some((ry.id, "Move"));
+                    }
                 });
             });
         });

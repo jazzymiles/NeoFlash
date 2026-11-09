@@ -363,7 +363,6 @@ impl crate::app::Editor {
         let min_leading = (-format.size * 1.2 + 0.1).max(-10000.);
         let (size_response, spacing_response) = two_column_row(
             ui,
-            80.0,
             |ui, width| {
                 ui.add(
                     nf::Field::new(&mut format.size, "Size")
@@ -404,8 +403,13 @@ impl crate::app::Editor {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = space::S2;
             let color_w = (ui.available_width() - 134.0 - space::S2 * 2.0).max(108.0);
+            let color_h = if color_w < crate::paint_controls::FORM_CELL_MIN * 2.0 + space::S2 {
+                crate::theme::control_h() * 2.0 + ui.spacing().item_spacing.y
+            } else {
+                crate::theme::control_h()
+            };
             ui.allocate_ui_with_layout(
-                egui::vec2(color_w, crate::theme::control_h()),
+                egui::vec2(color_w, color_h),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     let c_resp = color_row(ui, "text-box-color", "", "Color", &mut rgba);
@@ -601,7 +605,6 @@ impl crate::app::Editor {
         if current_aa_idx == 4 {
             let (sharpness, thickness) = two_column_row(
                 ui,
-                80.0,
                 |ui, width| {
                     ui.add(
                         nf::Field::new(&mut field_options.sharpness, "Sharpness")
@@ -735,7 +738,6 @@ impl crate::app::Editor {
                     let (mut case_resp, mut lig_resp) =
                         two_column_row(
                             ui,
-                            80.0,
                             |ui, width| {
                                 nf::Select::new("text_box_case", cur_case)
                                     .width(width)
@@ -806,7 +808,6 @@ impl crate::app::Editor {
                         .unwrap_or("Width: Default");
                     let (mut dc_resp, mut dw_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             nf::Select::new("text_box_digit_case", cur_dc)
                                 .width(width)
@@ -869,7 +870,6 @@ impl crate::app::Editor {
                         .unwrap_or("Break: Auto");
                     let (mut break_resp, baseline_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             nf::Select::new("text_box_line_break", cur_brk)
                                 .width(width)
@@ -1059,7 +1059,6 @@ impl crate::app::Editor {
                     let lead_unit = if is_pct_leading { "%" } else { "pt" };
                     let (indent_resp, (leading_resp, mut mode_resp)) = two_column_row(
                         ui,
-                        108.0,
                         |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut format.indent, "Indent")
@@ -1074,10 +1073,14 @@ impl crate::app::Editor {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = space::S1;
                                 let mode_w = 48.0;
-                                let lead_w = (width - mode_w - space::S1).max(56.0);
+                                // The unit selector belongs to the right grid cell. At the shared
+                                // 80 pt minimum it narrows only the value field; it must never make
+                                // this cell wider than the common second-column guide.
+                                let lead_w = (width - mode_w - space::S1).max(0.0);
+                                let lead_prefix = if lead_w >= 56.0 { "Line" } else { "" };
                                 let leading_resp = ui.add(
                                     nf::Field::new(&mut format.leading, "Leading")
-                                        .prefix("Line")
+                                        .prefix(lead_prefix)
                                         .unit(lead_unit)
                                         .decimals(1)
                                         .range(min_leading..=10000.0)
@@ -1132,7 +1135,6 @@ impl crate::app::Editor {
                     // Row 3: Margins — Left (px) + Right (px) in 2 columns.
                     let (left_resp, right_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut format.left_margin, "Left margin")
@@ -1160,7 +1162,6 @@ impl crate::app::Editor {
                     // Row 4: Paragraph Space Before (pt) + Space After (pt) in 2 columns.
                     let (before_resp, after_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.space_before, "Space before")
@@ -1197,7 +1198,6 @@ impl crate::app::Editor {
                         .unwrap_or("Justify: Word spacing");
                     let (mut justify_resp, block_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             nf::Select::new("text_box_justify_rule", cur_tj)
                                 .width(width)
@@ -1366,7 +1366,6 @@ impl crate::app::Editor {
                     let mut cols_f64 = field_options.column_count.max(1) as f64;
                     let (col_resp, gut_resp) = two_column_row(
                         ui,
-                        96.0,
                         |ui, width| {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = space::S1;
@@ -1426,71 +1425,79 @@ impl crate::app::Editor {
                         && (field_options.padding_left - field_options.padding_bottom).abs() < 1e-6;
                     let mut pad_linked =
                         ui.data(|d| d.get_temp::<bool>(pad_link_id).unwrap_or(default_linked));
-                    let link_w = crate::theme::control_h();
-                    let pad_col_w =
-                        ((ui.available_width() - link_w - space::S2 * 2.0) / 2.0).max(56.0);
                     let (old_pl, old_pr, old_pt, old_pb) = (
                         field_options.padding_left,
                         field_options.padding_right,
                         field_options.padding_top,
                         field_options.padding_bottom,
                     );
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        if ui
-                            .add(
-                                nf::IconButton::new(i16::LINK, "Link padding values")
-                                    .selected(pad_linked),
-                            )
-                            .clicked()
-                        {
-                            pad_linked = !pad_linked;
-                        }
-                        changes.note(
+                    let (pad_l, (pad_r, link_response)) = two_column_row(
+                        ui,
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.padding_left, "Padding left")
                                     .prefix("Pad L")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=1000.0)
-                                    .width(pad_col_w),
-                            ),
-                        );
-                        changes.note(
-                            ui.add(
-                                nf::Field::new(&mut field_options.padding_right, "Padding right")
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                let field_width =
+                                    (width - crate::theme::control_h() - space::S2).max(0.0);
+                                let response = ui.add(
+                                    nf::Field::new(
+                                        &mut field_options.padding_right,
+                                        "Padding right",
+                                    )
                                     .prefix("Pad R")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=1000.0)
-                                    .width(pad_col_w),
-                            ),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        ui.add_space(link_w);
-                        changes.note(
+                                    .width(field_width),
+                                );
+                                let link = ui.add(
+                                    nf::IconButton::new(i16::LINK, "Link padding values")
+                                        .selected(pad_linked),
+                                );
+                                (response, link)
+                            })
+                            .inner
+                        },
+                    );
+                    if link_response.clicked() {
+                        pad_linked = !pad_linked;
+                    }
+                    changes.note(pad_l);
+                    changes.note(pad_r);
+                    let (pad_t, pad_b) = two_column_row(
+                        ui,
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.padding_top, "Padding top")
                                     .prefix("Pad T")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=1000.0)
-                                    .width(pad_col_w),
-                            ),
-                        );
-                        changes.note(
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
                             ui.add(
                                 nf::Field::new(&mut field_options.padding_bottom, "Padding bottom")
                                     .prefix("Pad B")
                                     .unit("px")
                                     .decimals(1)
                                     .range(0.0..=1000.0)
-                                    .width(pad_col_w),
-                            ),
-                        );
-                    });
+                                    .width(width),
+                            )
+                        },
+                    );
+                    changes.note(pad_t);
+                    changes.note(pad_b);
                     ui.data_mut(|d| d.insert_temp(pad_link_id, pad_linked));
                     if pad_linked {
                         let new_pad = if (field_options.padding_left - old_pl).abs() > 1e-6 {
@@ -1570,7 +1577,6 @@ impl crate::app::Editor {
                     if is_fixed_pt {
                         let (mut mode_resp, offset_resp) = two_column_row(
                             ui,
-                            80.0,
                             |ui, width| {
                                 nf::Select::new("text_box_first_line_offset", cur_flo)
                                     .width(width)
@@ -1670,7 +1676,6 @@ impl crate::app::Editor {
                         .unwrap_or("Auto size: None");
                     let (target_resp, mut auto_size_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             let mut response = ui.add(
                                 nf::TextField::new(&mut target_str, "Target")
@@ -1713,7 +1718,6 @@ impl crate::app::Editor {
                     let mut restrict_str = field_options.restrict.clone().unwrap_or_default();
                     let (variable_resp, restrict_resp) = two_column_row(
                         ui,
-                        80.0,
                         |ui, width| {
                             let mut response = ui.add(
                                 nf::TextField::new(&mut var_str, "Variable")

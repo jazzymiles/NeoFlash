@@ -473,12 +473,26 @@ impl Editor {
             key.elements = sampled;
         }
         key.keyed_properties = None;
+        key.motion_keys = None;
         if let Some((tween, kind)) = motion.filter(|_| !blank) {
             // Inside a motion tween the new key is a ◆ property key; the edit that follows
             // keys exactly the properties it changes (`record_motion_property_keys`).
             key.tween = tween;
             key.tween_kind = kind;
             key.keyed_properties = Some(vec![]);
+            key.motion_keys = Some(vec![]);
+            // These settings belong only to the span start. A cloned ◆ must not accidentally
+            // become a second source of object tracks, paths, eases, guide options or rotation.
+            key.motion_tracks.clear();
+            key.motion_path = None;
+            key.property_eases.clear();
+            key.orient_to_path = false;
+            key.sync_symbols = false;
+            key.snap_to_guide = false;
+            key.classic_rotate_turns = 0;
+            key.classic_rotate_dir = ClassicRotateDirection::Auto;
+            key.tween_scale = true;
+            key.roving = false;
         }
         key.frame = frame;
         key.label.clear();

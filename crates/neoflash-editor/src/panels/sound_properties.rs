@@ -8,6 +8,7 @@
 use super::dialog_helpers::group;
 use super::planned::caption;
 use crate::app::Editor;
+use crate::paint_controls::two_column_row;
 use crate::timeline_sound::decode_unit;
 use eframe::egui;
 use neoflash_core::*;
@@ -443,55 +444,65 @@ impl Editor {
                                 }
                             });
                         let is_mp3 = draft.export.compression == SoundCompression::Mp3;
-                        ui.horizontal(|ui| {
-                            let half = (w - space::S2) / 2.0;
-                            ui.add_enabled_ui(is_mp3, |ui| {
-                                let br_label =
-                                    format!("Bit rate: {} kbps", draft.export.bit_rate_kbps);
-                                c::Select::new(ui.id().with("sound-props-bitrate"), &br_label)
-                                    .width(half)
-                                    .show(ui, |ui| {
-                                        for &kbps in &VALID_AUDIO_BIT_RATES_KBPS {
-                                            if ui
-                                                .add(
-                                                    c::MenuItem::new(&format!(
-                                                        "Bit rate: {kbps} kbps"
-                                                    ))
-                                                    .checked(draft.export.bit_rate_kbps == kbps),
-                                                )
-                                                .clicked()
-                                            {
-                                                draft.export.bit_rate_kbps = kbps;
-                                                draft.export_modified = true;
-                                                ui.close();
+                        let old_bit_rate = draft.export.bit_rate_kbps;
+                        let old_quality = draft.export.quality;
+                        let mut bit_rate = old_bit_rate;
+                        let mut quality = old_quality;
+                        two_column_row(
+                            ui,
+                            |ui, width| {
+                                ui.add_enabled_ui(is_mp3, |ui| {
+                                    let br_label = format!("Bit rate: {bit_rate} kbps");
+                                    c::Select::new(ui.id().with("sound-props-bitrate"), &br_label)
+                                        .width(width)
+                                        .show(ui, |ui| {
+                                            for &kbps in &VALID_AUDIO_BIT_RATES_KBPS {
+                                                if ui
+                                                    .add(
+                                                        c::MenuItem::new(&format!(
+                                                            "Bit rate: {kbps} kbps"
+                                                        ))
+                                                        .checked(bit_rate == kbps),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    bit_rate = kbps;
+                                                    ui.close();
+                                                }
                                             }
-                                        }
-                                    });
-                            });
-                            ui.add_enabled_ui(is_mp3, |ui| {
-                                let q_label = format!("Quality: {}", draft.export.quality.label());
-                                c::Select::new(ui.id().with("sound-props-quality"), &q_label)
-                                    .width(half)
-                                    .show(ui, |ui| {
-                                        for q in SoundExportQuality::ALL {
-                                            if ui
-                                                .add(
-                                                    c::MenuItem::new(&format!(
-                                                        "Quality: {}",
-                                                        q.label()
-                                                    ))
-                                                    .checked(draft.export.quality == q),
-                                                )
-                                                .clicked()
-                                            {
-                                                draft.export.quality = q;
-                                                draft.export_modified = true;
-                                                ui.close();
+                                        });
+                                });
+                            },
+                            |ui, width| {
+                                ui.add_enabled_ui(is_mp3, |ui| {
+                                    let q_label = format!("Quality: {}", quality.label());
+                                    c::Select::new(ui.id().with("sound-props-quality"), &q_label)
+                                        .width(width)
+                                        .show(ui, |ui| {
+                                            for q in SoundExportQuality::ALL {
+                                                if ui
+                                                    .add(
+                                                        c::MenuItem::new(&format!(
+                                                            "Quality: {}",
+                                                            q.label()
+                                                        ))
+                                                        .checked(quality == q),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    quality = q;
+                                                    ui.close();
+                                                }
                                             }
-                                        }
-                                    });
-                            });
-                        });
+                                        });
+                                });
+                            },
+                        );
+                        if bit_rate != old_bit_rate || quality != old_quality {
+                            draft.export.bit_rate_kbps = bit_rate;
+                            draft.export.quality = quality;
+                            draft.export_modified = true;
+                        }
                         let can_mono = matches!(
                             draft.export.compression,
                             SoundCompression::Mp3 | SoundCompression::Wav

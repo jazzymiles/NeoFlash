@@ -7,6 +7,7 @@
 //! upgrading the document to format 7 when authored display/filter properties are used.
 use super::planned::type_header;
 use crate::app::Editor;
+use crate::paint_controls::two_column_row;
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::workspace::PanelId;
 use eframe::egui::{self, Ui};
@@ -480,8 +481,6 @@ impl Editor {
                 .get(self.layer)
                 .is_some_and(|l| l.properties.role != LayerRole::Guide);
 
-        let half = (ui.available_width() - space::S2).max(40.0) / 2.0;
-
         let mut next_visible = None;
         let mut next_cache = None;
         let mut next_blend = None;
@@ -508,50 +507,55 @@ impl Editor {
                                 }
                             });
                         });
-                        ui.horizontal(|ui| {
-                            let blend_label = format!("Blending: {}", blend_mode.label());
-                            c::Select::new((id_prefix, "filters-blending"), &blend_label)
-                                .width(half)
-                                .show(ui, |ui| {
-                                    for mode in BlendMode::ALL {
-                                        if ui
-                                            .add(
-                                                c::MenuItem::new(mode.label())
-                                                    .checked(mode == blend_mode),
-                                            )
-                                            .clicked()
-                                        {
-                                            next_blend = Some(mode);
-                                            ui.close();
-                                        }
-                                    }
-                                });
-                            ui.add_enabled_ui_semantic(editable, |ui| {
-                                let render_label = if cache_as_bitmap {
-                                    "Render: Export as bitmap"
-                                } else {
-                                    "Render: Original"
-                                };
-                                c::Select::new((id_prefix, "filters-render"), render_label)
-                                    .width(half)
+                        two_column_row(
+                            ui,
+                            |ui, width| {
+                                let blend_label = format!("Blending: {}", blend_mode.label());
+                                c::Select::new((id_prefix, "filters-blending"), &blend_label)
+                                    .width(width)
                                     .show(ui, |ui| {
-                                        for (cached, label) in
-                                            [(false, "Original"), (true, "Export as bitmap")]
-                                        {
+                                        for mode in BlendMode::ALL {
                                             if ui
                                                 .add(
-                                                    c::MenuItem::new(label)
-                                                        .checked(cache_as_bitmap == cached),
+                                                    c::MenuItem::new(mode.label())
+                                                        .checked(mode == blend_mode),
                                                 )
                                                 .clicked()
                                             {
-                                                next_cache = Some(cached);
+                                                next_blend = Some(mode);
                                                 ui.close();
                                             }
                                         }
                                     });
-                            });
-                        });
+                            },
+                            |ui, width| {
+                                ui.add_enabled_ui_semantic(editable, |ui| {
+                                    let render_label = if cache_as_bitmap {
+                                        "Render: Export as bitmap"
+                                    } else {
+                                        "Render: Original"
+                                    };
+                                    c::Select::new((id_prefix, "filters-render"), render_label)
+                                        .width(width)
+                                        .show(ui, |ui| {
+                                            for (cached, label) in
+                                                [(false, "Original"), (true, "Export as bitmap")]
+                                            {
+                                                if ui
+                                                    .add(
+                                                        c::MenuItem::new(label)
+                                                            .checked(cache_as_bitmap == cached),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    next_cache = Some(cached);
+                                                    ui.close();
+                                                }
+                                            }
+                                        });
+                                });
+                            },
+                        );
                     });
             });
         }
@@ -597,28 +601,33 @@ impl Editor {
                                 let mut sliders =
                                     state.adjust.get(&key).copied().unwrap_or_default();
                                 let mut changed_id = None;
-                                ui.horizontal(|ui| {
-                                    let r1 = ui.add(
-                                        c::Field::new(&mut sliders.brightness, "Brightness")
-                                            .prefix("Brightness")
-                                            .decimals(0)
-                                            .range(-100.0..=100.0)
-                                            .width(half),
-                                    );
-                                    if r1.changed() {
-                                        changed_id = Some(r1.id);
-                                    }
-                                    let r2 = ui.add(
-                                        c::Field::new(&mut sliders.contrast, "Contrast")
-                                            .prefix("Contrast")
-                                            .decimals(0)
-                                            .range(-100.0..=100.0)
-                                            .width(half),
-                                    );
-                                    if r2.changed() {
-                                        changed_id = Some(r2.id);
-                                    }
-                                });
+                                let (r1, r2) = two_column_row(
+                                    ui,
+                                    |ui, width| {
+                                        ui.add(
+                                            c::Field::new(&mut sliders.brightness, "Brightness")
+                                                .prefix("Brightness")
+                                                .decimals(0)
+                                                .range(-100.0..=100.0)
+                                                .width(width),
+                                        )
+                                    },
+                                    |ui, width| {
+                                        ui.add(
+                                            c::Field::new(&mut sliders.contrast, "Contrast")
+                                                .prefix("Contrast")
+                                                .decimals(0)
+                                                .range(-100.0..=100.0)
+                                                .width(width),
+                                        )
+                                    },
+                                );
+                                if r1.changed() {
+                                    changed_id = Some(r1.id);
+                                }
+                                if r2.changed() {
+                                    changed_id = Some(r2.id);
+                                }
                                 let preset_label = if *matrix == IDENTITY_COLOR_MATRIX {
                                     "Preset: Identity"
                                 } else if *matrix == INVERT_COLOR_MATRIX {
@@ -626,85 +635,91 @@ impl Editor {
                                 } else {
                                     "Preset: Custom"
                                 };
-                                let mut picked_matrix = None;
-                                ui.horizontal(|ui| {
-                                    let r3 = ui.add(
-                                        c::Field::new(&mut sliders.saturation, "Saturation")
-                                            .prefix("Saturation")
-                                            .unit("%")
-                                            .decimals(0)
-                                            .range(-100.0..=100.0)
-                                            .width(half),
-                                    );
-                                    if r3.changed() {
-                                        changed_id = Some(r3.id);
-                                    }
-                                    c::Select::new(
-                                        (id_prefix, "filters-color-preset"),
-                                        preset_label,
-                                    )
-                                    .width(half)
-                                    .show(ui, |ui| {
-                                        for (name, vals, exact) in [
-                                            (
-                                                "Identity",
-                                                AdjustColorSliders::default(),
-                                                Some(IDENTITY_COLOR_MATRIX),
-                                            ),
-                                            (
-                                                "Grayscale",
-                                                AdjustColorSliders {
-                                                    saturation: -100.0,
-                                                    ..Default::default()
-                                                },
-                                                None,
-                                            ),
-                                            (
-                                                "High contrast",
-                                                AdjustColorSliders {
-                                                    contrast: 40.0,
-                                                    ..Default::default()
-                                                },
-                                                None,
-                                            ),
-                                            (
-                                                "Warm hue (+30°)",
-                                                AdjustColorSliders {
-                                                    hue: 30.0,
-                                                    ..Default::default()
-                                                },
-                                                None,
-                                            ),
-                                            (
-                                                "Cool hue (-30°)",
-                                                AdjustColorSliders {
-                                                    hue: -30.0,
-                                                    ..Default::default()
-                                                },
-                                                None,
-                                            ),
-                                            (
-                                                "Invert",
-                                                AdjustColorSliders::default(),
-                                                Some(INVERT_COLOR_MATRIX),
-                                            ),
-                                        ] {
-                                            if ui.add(c::MenuItem::new(name)).clicked() {
-                                                sliders = vals;
-                                                picked_matrix = Some(exact.unwrap_or_else(|| {
-                                                    adjust_color_matrix(
-                                                        vals.brightness,
-                                                        vals.contrast,
-                                                        vals.saturation,
-                                                        vals.hue,
-                                                    )
-                                                }));
-                                                ui.close();
+                                let mut picked_preset = None;
+                                let (r3, _) = two_column_row(
+                                    ui,
+                                    |ui, width| {
+                                        ui.add(
+                                            c::Field::new(&mut sliders.saturation, "Saturation")
+                                                .prefix("Saturation")
+                                                .unit("%")
+                                                .decimals(0)
+                                                .range(-100.0..=100.0)
+                                                .width(width),
+                                        )
+                                    },
+                                    |ui, width| {
+                                        c::Select::new(
+                                            (id_prefix, "filters-color-preset"),
+                                            preset_label,
+                                        )
+                                        .width(width)
+                                        .show(ui, |ui| {
+                                            for (name, vals, exact) in [
+                                                (
+                                                    "Identity",
+                                                    AdjustColorSliders::default(),
+                                                    Some(IDENTITY_COLOR_MATRIX),
+                                                ),
+                                                (
+                                                    "Grayscale",
+                                                    AdjustColorSliders {
+                                                        saturation: -100.0,
+                                                        ..Default::default()
+                                                    },
+                                                    None,
+                                                ),
+                                                (
+                                                    "High contrast",
+                                                    AdjustColorSliders {
+                                                        contrast: 40.0,
+                                                        ..Default::default()
+                                                    },
+                                                    None,
+                                                ),
+                                                (
+                                                    "Warm hue (+30°)",
+                                                    AdjustColorSliders {
+                                                        hue: 30.0,
+                                                        ..Default::default()
+                                                    },
+                                                    None,
+                                                ),
+                                                (
+                                                    "Cool hue (-30°)",
+                                                    AdjustColorSliders {
+                                                        hue: -30.0,
+                                                        ..Default::default()
+                                                    },
+                                                    None,
+                                                ),
+                                                (
+                                                    "Invert",
+                                                    AdjustColorSliders::default(),
+                                                    Some(INVERT_COLOR_MATRIX),
+                                                ),
+                                            ] {
+                                                if ui.add(c::MenuItem::new(name)).clicked() {
+                                                    let matrix = exact.unwrap_or_else(|| {
+                                                        adjust_color_matrix(
+                                                            vals.brightness,
+                                                            vals.contrast,
+                                                            vals.saturation,
+                                                            vals.hue,
+                                                        )
+                                                    });
+                                                    picked_preset = Some((vals, matrix));
+                                                    ui.close();
+                                                }
                                             }
-                                        }
-                                    });
-                                });
-                                if let Some(m) = picked_matrix {
+                                        })
+                                    },
+                                );
+                                if r3.changed() {
+                                    changed_id = Some(r3.id);
+                                }
+                                if let Some((vals, m)) = picked_preset {
+                                    sliders = vals;
                                     state.adjust.insert(key, sliders);
                                     filter_edit =
                                         Some((idx, FilterSpec::ColorMatrix { matrix: m }, None));
@@ -730,80 +745,81 @@ impl Editor {
                                     let mut blur_x = *bx;
                                     let mut blur_y = *by;
                                     let cur_q = *q;
-                                    ui.horizontal(|ui| {
-                                        let rx = ui.add(
-                                            c::Field::new(&mut blur_x, "Blur X")
-                                                .prefix("Blur X")
-                                                .unit("px")
-                                                .decimals(0)
-                                                .range(0.0..=255.0)
-                                                .width(half),
-                                        );
-                                        if rx.changed() {
-                                            *bx = blur_x;
-                                            changed_id = Some(rx.id);
-                                        }
-                                        let ry = ui.add(
-                                            c::Field::new(&mut blur_y, "Blur Y")
-                                                .prefix("Blur Y")
-                                                .unit("px")
-                                                .decimals(0)
-                                                .range(0.0..=255.0)
-                                                .width(half),
-                                        );
-                                        if ry.changed() {
-                                            *by = blur_y;
-                                            changed_id = Some(ry.id);
-                                        }
-                                    });
-                                    ui.horizontal(|ui| {
-                                        if let Some(st) = filter_strength_mut(&mut active) {
-                                            let mut pct = *st * 100.0;
-                                            let rs = ui.add(
-                                                c::Field::new(&mut pct, "Strength")
+                                    let (rx, ry) = two_column_row(
+                                        ui,
+                                        |ui, width| {
+                                            ui.add(
+                                                c::Field::new(&mut blur_x, "Blur X")
+                                                    .prefix("Blur X")
+                                                    .unit("px")
+                                                    .decimals(0)
+                                                    .range(0.0..=255.0)
+                                                    .width(width),
+                                            )
+                                        },
+                                        |ui, width| {
+                                            ui.add(
+                                                c::Field::new(&mut blur_y, "Blur Y")
+                                                    .prefix("Blur Y")
+                                                    .unit("px")
+                                                    .decimals(0)
+                                                    .range(0.0..=255.0)
+                                                    .width(width),
+                                            )
+                                        },
+                                    );
+                                    if rx.changed() {
+                                        *bx = blur_x;
+                                        changed_id = Some(rx.id);
+                                    }
+                                    if ry.changed() {
+                                        *by = blur_y;
+                                        changed_id = Some(ry.id);
+                                    }
+                                    let strength = filter_strength_mut(&mut active).map(|st| *st);
+                                    let mut pct = strength.unwrap_or(1.0) * 100.0;
+                                    let (rs, _) =
+                                        two_column_row(
+                                            ui,
+                                            |ui, width| {
+                                                let field = c::Field::new(&mut pct, "Strength")
                                                     .prefix("Strength")
                                                     .unit("%")
                                                     .decimals(0)
                                                     .range(0.0..=25500.0)
-                                                    .width(half),
-                                            );
-                                            if rs.changed() {
-                                                *st = (pct / 100.0).clamp(0.0, 255.0);
-                                                changed_id = Some(rs.id);
-                                            }
-                                        } else {
-                                            let mut fixed = 100.0;
-                                            ui.add_enabled(
-                                                false,
-                                                c::Field::new(&mut fixed, "Strength")
-                                                    .prefix("Strength")
-                                                    .unit("%")
-                                                    .decimals(0)
-                                                    .width(half),
-                                            );
-                                        }
-                                        c::Select::new(
-                                            (id_prefix, "filters-quality"),
-                                            quality_label(cur_q),
-                                        )
-                                        .width(half)
-                                        .show(ui, |ui| {
-                                            for (level, label) in
-                                                [(1u8, "Low"), (2, "Medium"), (3, "High")]
-                                            {
-                                                if ui
-                                                    .add(
-                                                        c::MenuItem::new(label)
-                                                            .checked(cur_q == level),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    picked_quality = Some(level);
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                    });
+                                                    .width(width);
+                                                ui.add_enabled(strength.is_some(), field)
+                                            },
+                                            |ui, width| {
+                                                c::Select::new(
+                                                    (id_prefix, "filters-quality"),
+                                                    quality_label(cur_q),
+                                                )
+                                                .width(width)
+                                                .show(ui, |ui| {
+                                                    for (level, label) in
+                                                        [(1u8, "Low"), (2, "Medium"), (3, "High")]
+                                                    {
+                                                        if ui
+                                                            .add(
+                                                                c::MenuItem::new(label)
+                                                                    .checked(cur_q == level),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            picked_quality = Some(level);
+                                                            ui.close();
+                                                        }
+                                                    }
+                                                })
+                                            },
+                                        );
+                                    if rs.changed()
+                                        && let Some(st) = filter_strength_mut(&mut active)
+                                    {
+                                        *st = (pct / 100.0).clamp(0.0, 255.0);
+                                        changed_id = Some(rs.id);
+                                    }
                                 }
                                 if let Some(level) = picked_quality
                                     && let Some((_, _, q)) = filter_blur_mut(&mut active)
@@ -817,39 +833,50 @@ impl Editor {
                         }
                     } else {
                         ui.add_enabled_ui_semantic(false, |ui| {
-                            let mut zero = 0.0;
+                            let mut zero_x = 0.0;
+                            let mut zero_y = 0.0;
                             let mut hundred = 100.0;
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    c::Field::new(&mut zero, "Blur X")
-                                        .prefix("Blur X")
-                                        .unit("px")
-                                        .decimals(0)
-                                        .width(half),
-                                );
-                                ui.add(
-                                    c::Field::new(&mut zero, "Blur Y")
-                                        .prefix("Blur Y")
-                                        .unit("px")
-                                        .decimals(0)
-                                        .width(half),
-                                );
-                            });
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    c::Field::new(&mut hundred, "Strength")
-                                        .prefix("Strength")
-                                        .unit("%")
-                                        .decimals(0)
-                                        .width(half),
-                                );
-                                c::Select::new(
-                                    (id_prefix, "filters-quality-empty"),
-                                    "Quality: Low",
-                                )
-                                .width(half)
-                                .show(ui, |_| {});
-                            });
+                            two_column_row(
+                                ui,
+                                |ui, width| {
+                                    ui.add(
+                                        c::Field::new(&mut zero_x, "Blur X")
+                                            .prefix("Blur X")
+                                            .unit("px")
+                                            .decimals(0)
+                                            .width(width),
+                                    )
+                                },
+                                |ui, width| {
+                                    ui.add(
+                                        c::Field::new(&mut zero_y, "Blur Y")
+                                            .prefix("Blur Y")
+                                            .unit("px")
+                                            .decimals(0)
+                                            .width(width),
+                                    )
+                                },
+                            );
+                            two_column_row(
+                                ui,
+                                |ui, width| {
+                                    ui.add(
+                                        c::Field::new(&mut hundred, "Strength")
+                                            .prefix("Strength")
+                                            .unit("%")
+                                            .decimals(0)
+                                            .width(width),
+                                    )
+                                },
+                                |ui, width| {
+                                    c::Select::new(
+                                        (id_prefix, "filters-quality-empty"),
+                                        "Quality: Low",
+                                    )
+                                    .width(width)
+                                    .show(ui, |_| {})
+                                },
+                            );
                         });
                     }
 

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -399,6 +399,18 @@ impl Project {
         if self.uses_format_9() {
             self.format_version = self.format_version.max(9);
         }
+        if self.uses_format_10() {
+            self.format_version = self.format_version.max(10);
+        }
+    }
+
+    /// Object-scoped Motion Tween settings and property keys (format 10).
+    pub fn uses_format_10(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| !key.motion_tracks.is_empty() || key.motion_keys.is_some())
     }
 
     /// Explicit painted-alpha/luminance/inverted timeline masks, per-resource audio/bitmap export
@@ -846,6 +858,81 @@ pub struct ElementAppearance {
     pub text_binding: Option<TextPathBinding>,
 }
 
+/// An object-specific spatial-path override on a Motion Tween track (format 10).
+///
+/// Absence of an override keeps the legacy keyframe-level `motion_path`. `Disabled`
+/// is therefore distinct from absence: it lets one object opt out of a legacy shared
+/// path without changing the other objects on the layer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MotionPathOverride {
+    Disabled,
+    Path { commands: Vec<PathCommand> },
+}
+
+/// Sparse object-specific settings for one object in a Motion Tween span (format 10).
+///
+/// Every optional field falls back to the corresponding legacy setting on the span's
+/// start keyframe. `property_eases: Some(vec![])` explicitly removes inherited
+/// per-property overrides for this object.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MotionTrackOverride {
+    pub element_id: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub easing: Option<Easing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub property_eases: Option<Vec<(TweenProperty, Easing)>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orient_to_path: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snap_to_guide: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_symbols: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_path: Option<MotionPathOverride>,
+}
+
+impl MotionTrackOverride {
+    pub fn new(element_id: impl Into<Id>) -> Self {
+        Self {
+            element_id: element_id.into(),
+            easing: None,
+            property_eases: None,
+            orient_to_path: None,
+            snap_to_guide: None,
+            sync_symbols: None,
+            motion_path: None,
+        }
+    }
+
+    pub fn is_noop(&self) -> bool {
+        self.easing.is_none()
+            && self.property_eases.is_none()
+            && self.orient_to_path.is_none()
+            && self.snap_to_guide.is_none()
+            && self.sync_symbols.is_none()
+            && self.motion_path.is_none()
+    }
+}
+
+/// Properties keyed for one object on a Motion Tween property keyframe (format 10).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MotionPropertyKey {
+    pub element_id: Id,
+    pub properties: Vec<TweenProperty>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub roving: bool,
+}
+
+/// Resolved spatial path for one object. `Legacy` preserves the format-8 shared
+/// first-element-reference behavior; `Object` is authored directly for `element_id`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MotionPathSource<'a> {
+    None,
+    Legacy(&'a [PathCommand]),
+    Object(&'a [PathCommand]),
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Keyframe {
     /// Internal frame index is zero-based. The editor and goto API display one-based frames.
@@ -871,6 +958,13 @@ pub struct Keyframe {
     /// track offsets. MoveTo followed by LineTo/CubicTo; position keys control timing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion_path: Option<Vec<PathCommand>>,
+    /// Sparse per-object Motion Tween settings. Empty keeps the legacy shared settings above.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub motion_tracks: Vec<MotionTrackOverride>,
+    /// Per-object property keys. `None` keeps legacy `keyed_properties`/`roving` semantics;
+    /// `Some` is authoritative even when no object is keyed at this frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_keys: Option<Vec<MotionPropertyKey>>,
     /// Keep nested graphic symbol animations synchronized across this tween span
     /// (document version 7).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -958,6 +1052,8 @@ impl Default for Keyframe {
             orient_to_path: false,
             property_eases: Vec::new(),
             motion_path: None,
+            motion_tracks: Vec::new(),
+            motion_keys: None,
             sync_symbols: false,
             snap_to_guide: false,
             sound: None,
@@ -987,6 +1083,177 @@ impl Default for Keyframe {
 
 impl Keyframe {
     pub const MAX_ROTATE_TURNS: u32 = 1000;
+
+    pub fn motion_track(&self, element_id: &str) -> Option<&MotionTrackOverride> {
+        self.motion_tracks
+            .iter()
+            .find(|track| track.element_id == element_id)
+    }
+
+    pub fn motion_track_mut(&mut self, element_id: &str) -> Option<&mut MotionTrackOverride> {
+        self.motion_tracks
+            .iter_mut()
+            .find(|track| track.element_id == element_id)
+    }
+
+    /// Return the sparse settings entry for `element_id`, creating it when needed.
+    pub fn ensure_motion_track(&mut self, element_id: &str) -> &mut MotionTrackOverride {
+        if let Some(index) = self
+            .motion_tracks
+            .iter()
+            .position(|track| track.element_id == element_id)
+        {
+            return &mut self.motion_tracks[index];
+        }
+        self.motion_tracks
+            .push(MotionTrackOverride::new(element_id));
+        self.motion_tracks.last_mut().unwrap()
+    }
+
+    /// Follow a fresh-ID operation for only the object references owned by Motion data.
+    /// IDs absent from `remap` are deliberately retained so partial imports cannot retarget
+    /// a track to an unrelated object.
+    pub fn remap_motion_element_ids(&mut self, remap: &HashMap<Id, Id>) {
+        for track in &mut self.motion_tracks {
+            if let Some(fresh) = remap.get(&track.element_id) {
+                track.element_id = fresh.clone();
+            }
+        }
+        if let Some(keys) = &mut self.motion_keys {
+            for key in keys {
+                if let Some(fresh) = remap.get(&key.element_id) {
+                    key.element_id = fresh.clone();
+                }
+            }
+        }
+    }
+
+    pub fn motion_easing_for(&self, element_id: &str) -> Easing {
+        self.motion_track(element_id)
+            .and_then(|track| track.easing)
+            .or(self.tween)
+            .unwrap_or(Easing::Linear)
+    }
+
+    pub fn motion_property_ease_for(&self, element_id: &str, property: TweenProperty) -> Easing {
+        let overrides = self
+            .motion_track(element_id)
+            .and_then(|track| track.property_eases.as_deref())
+            .unwrap_or(&self.property_eases);
+        overrides
+            .iter()
+            .find(|(candidate, _)| *candidate == property)
+            .map(|(_, ease)| *ease)
+            .unwrap_or_else(|| self.motion_easing_for(element_id))
+    }
+
+    pub fn motion_orient_to_path_for(&self, element_id: &str) -> bool {
+        self.motion_track(element_id)
+            .and_then(|track| track.orient_to_path)
+            .unwrap_or(self.orient_to_path)
+    }
+
+    pub fn motion_snap_to_guide_for(&self, element_id: &str) -> bool {
+        self.motion_track(element_id)
+            .and_then(|track| track.snap_to_guide)
+            .unwrap_or(self.snap_to_guide)
+    }
+
+    pub fn motion_sync_symbols_for(&self, element_id: &str) -> bool {
+        self.motion_track(element_id)
+            .and_then(|track| track.sync_symbols)
+            .unwrap_or(self.sync_symbols)
+    }
+
+    pub fn motion_path_for(&self, element_id: &str) -> MotionPathSource<'_> {
+        match self
+            .motion_track(element_id)
+            .and_then(|track| track.motion_path.as_ref())
+        {
+            Some(MotionPathOverride::Disabled) => MotionPathSource::None,
+            Some(MotionPathOverride::Path { commands }) => {
+                MotionPathSource::Object(commands.as_slice())
+            }
+            None => self
+                .motion_path
+                .as_deref()
+                .map_or(MotionPathSource::None, MotionPathSource::Legacy),
+        }
+    }
+
+    /// Properties keyed for one object. Explicit format-10 keys are authoritative;
+    /// absent format-10 data retains the legacy broadcast semantics.
+    pub fn motion_key_properties_for(&self, element_id: &str) -> &[TweenProperty] {
+        match &self.motion_keys {
+            Some(keys) => keys
+                .iter()
+                .find(|key| key.element_id == element_id)
+                .map_or(&[], |key| key.properties.as_slice()),
+            None => self.keyed_properties.as_deref().unwrap_or(&[]),
+        }
+    }
+
+    pub fn motion_key_roving_for(&self, element_id: &str) -> bool {
+        match &self.motion_keys {
+            Some(keys) => keys
+                .iter()
+                .find(|key| key.element_id == element_id)
+                .is_some_and(|key| key.roving),
+            None => self.roving,
+        }
+    }
+
+    /// Convert one legacy broadcast property key into explicit per-object entries without
+    /// changing its behavior. New object-specific edits can then modify only their entry.
+    pub fn materialize_motion_keys(&mut self) {
+        if self.motion_keys.is_some() {
+            return;
+        }
+        let properties = self.keyed_properties.clone().unwrap_or_default();
+        let roving = self.roving
+            && (properties.contains(&TweenProperty::X) || properties.contains(&TweenProperty::Y));
+        let keys = if properties.is_empty() {
+            Vec::new()
+        } else {
+            self.elements
+                .iter()
+                .map(|element| MotionPropertyKey {
+                    element_id: element.id.clone(),
+                    properties: properties.clone(),
+                    roving,
+                })
+                .collect()
+        };
+        self.motion_keys = Some(keys);
+        self.roving = false;
+        self.sync_motion_key_union();
+    }
+
+    pub fn ensure_motion_property_key(&mut self, element_id: &str) -> &mut MotionPropertyKey {
+        self.materialize_motion_keys();
+        let keys = self.motion_keys.as_mut().unwrap();
+        if let Some(index) = keys.iter().position(|key| key.element_id == element_id) {
+            return &mut keys[index];
+        }
+        keys.push(MotionPropertyKey {
+            element_id: element_id.to_owned(),
+            properties: Vec::new(),
+            roving: false,
+        });
+        keys.last_mut().unwrap()
+    }
+
+    /// Rebuild the legacy structural union used to identify a Motion property key.
+    pub fn sync_motion_key_union(&mut self) {
+        let Some(keys) = &self.motion_keys else {
+            return;
+        };
+        let union = TweenProperty::ALL
+            .into_iter()
+            .filter(|property| keys.iter().any(|key| key.properties.contains(property)))
+            .collect();
+        self.keyed_properties = Some(union);
+    }
 
     pub fn bitmap_fill(&self, element_id: &str) -> Option<&AuthoredBitmapFill> {
         self.bitmap_fills
@@ -2810,9 +3077,11 @@ impl Layer {
     pub fn normalize_motion_keys(&mut self) {
         self.keyframes.sort_by_key(|key| key.frame);
         let mut in_motion = false;
+        let mut motion_ids = HashSet::new();
         for key in &mut self.keyframes {
             if key.keyed_properties.is_some() && !in_motion {
                 key.keyed_properties = None;
+                key.motion_keys = None;
             }
             if !(key.tween.is_some() && key.tween_kind == TweenKind::Shape) {
                 key.shape_hints.clear();
@@ -2820,7 +3089,16 @@ impl Layer {
             if key.keyed_properties.is_none() {
                 in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
                 let in_classic = key.tween.is_some() && key.tween_kind == TweenKind::Classic;
+                key.motion_keys = None;
                 key.roving = false;
+                motion_ids.clear();
+                if in_motion {
+                    motion_ids.extend(key.elements.iter().map(|element| element.id.clone()));
+                    key.motion_tracks
+                        .retain(|track| motion_ids.contains(&track.element_id));
+                } else {
+                    key.motion_tracks.clear();
+                }
                 if !in_motion {
                     key.property_eases.clear();
                     key.motion_path = None;
@@ -2835,6 +3113,7 @@ impl Layer {
                     key.tween_scale = true;
                 }
             } else {
+                key.motion_tracks.clear();
                 key.property_eases.clear();
                 key.motion_path = None;
                 key.sync_symbols = false;
@@ -2842,11 +3121,37 @@ impl Layer {
                 key.classic_rotate_turns = 0;
                 key.classic_rotate_dir = ClassicRotateDirection::Auto;
                 key.tween_scale = true;
-                let has_pos = key.keyed_properties.as_ref().is_some_and(|props| {
-                    props.contains(&TweenProperty::X) || props.contains(&TweenProperty::Y)
-                });
-                if !has_pos {
+                if let Some(keys) = &mut key.motion_keys {
+                    let placed: HashSet<_> = key
+                        .elements
+                        .iter()
+                        .map(|element| element.id.as_str())
+                        .collect();
+                    for object_key in keys.iter_mut() {
+                        object_key.properties = TweenProperty::ALL
+                            .into_iter()
+                            .filter(|property| object_key.properties.contains(property))
+                            .collect();
+                        if !object_key.properties.contains(&TweenProperty::X)
+                            && !object_key.properties.contains(&TweenProperty::Y)
+                        {
+                            object_key.roving = false;
+                        }
+                    }
+                    keys.retain(|object_key| {
+                        !object_key.properties.is_empty()
+                            && motion_ids.contains(&object_key.element_id)
+                            && placed.contains(object_key.element_id.as_str())
+                    });
                     key.roving = false;
+                    key.sync_motion_key_union();
+                } else {
+                    let has_pos = key.keyed_properties.as_ref().is_some_and(|props| {
+                        props.contains(&TweenProperty::X) || props.contains(&TweenProperty::Y)
+                    });
+                    if !has_pos {
+                        key.roving = false;
+                    }
                 }
             }
         }

@@ -14,6 +14,7 @@ pub(crate) struct CurveDrag {
     symbol: Id,
     layer: Id,
     start: u32,
+    element: Id,
     target: CurveTarget,
     press: [f64; 2],
     path: Vec<PathCommand>,
@@ -25,6 +26,7 @@ pub(crate) struct CurveDrag {
 struct Curve {
     layer: Id,
     start: u32,
+    element: Id,
     path: Vec<PathCommand>,
     offset: [f64; 2],
 }
@@ -126,6 +128,7 @@ pub(crate) fn rebase_motion_paths(before: &Project, project: &mut Project) {
 }
 
 pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer, fps: f64) {
+    rebase_object_motion_paths(before, layer, fps);
     let starts: Vec<_> = layer
         .keyframes
         .iter()
@@ -282,6 +285,172 @@ pub(crate) fn rebase_layer_motion_paths(before: &Layer, layer: &mut Layer, fps: 
     }
 }
 
+/// Reconcile format-10 paths by stable element id. Unlike the legacy path, object paths never
+/// depend on element order, so deleting or reordering a neighbour cannot transfer their geometry.
+fn rebase_object_motion_paths(before: &Layer, layer: &mut Layer, fps: f64) {
+    let previous_pose = |frame: u32, element_id: &str| {
+        before
+            .keyframes
+            .iter()
+            .find(|key| key.frame == frame)
+            .and_then(|key| key.elements.iter().find(|element| element.id == element_id))
+            .map(|element| element.transform)
+            .or_else(|| {
+                sample_layer_at_fps(before, frame, fps)
+                    .into_iter()
+                    .find(|element| element.id == element_id)
+                    .map(|element| element.transform)
+            })
+    };
+    let starts: Vec<(u32, Id, Vec<PathCommand>)> = before
+        .keyframes
+        .iter()
+        .flat_map(|key| {
+            key.motion_tracks.iter().filter_map(move |track| {
+                let MotionPathOverride::Path { commands } = track.motion_path.as_ref()? else {
+                    return None;
+                };
+                Some((key.frame, track.element_id.clone(), commands.clone()))
+            })
+        })
+        .collect();
+    for (frame, element_id, mut path) in starts {
+        let Some(start_index) = layer.keyframes.iter().position(|key| key.frame == frame) else {
+            continue;
+        };
+        let unchanged = layer.keyframes[start_index]
+            .motion_track(&element_id)
+            .and_then(|track| track.motion_path.as_ref())
+            .is_some_and(|current| {
+                matches!(current, MotionPathOverride::Path { commands } if commands == &path)
+            });
+        if !unchanged {
+            continue;
+        }
+        let mut frames: Vec<u32> = motion_path_waypoints(before, frame, &element_id)
+            .into_iter()
+            .map(|(key_frame, _)| key_frame)
+            .collect();
+        let Some((start, properties, _)) = motion_span(layer, frame) else {
+            continue;
+        };
+        let keys: Vec<Keyframe> = std::iter::once(start)
+            .chain(properties)
+            .filter(|key| {
+                let already_keys_position = key
+                    .motion_key_properties_for(&element_id)
+                    .iter()
+                    .any(|property| matches!(property, TweenProperty::X | TweenProperty::Y));
+                let position_changed = key
+                    .elements
+                    .iter()
+                    .find(|element| element.id == element_id)
+                    .zip(previous_pose(key.frame, &element_id))
+                    .is_some_and(|(element, previous)| {
+                        (element.transform.x - previous.x).hypot(element.transform.y - previous.y)
+                            > 1e-9
+                    });
+                key.frame == frame || already_keys_position || position_changed
+            })
+            .cloned()
+            .collect();
+        if frames.len() != path.len() {
+            for key in &keys {
+                let Some(to) = key.elements.iter().find(|element| element.id == element_id) else {
+                    continue;
+                };
+                let Some(old_pose) = previous_pose(key.frame, &element_id) else {
+                    continue;
+                };
+                let delta = [to.transform.x - old_pose.x, to.transform.y - old_pose.y];
+                if delta[0].hypot(delta[1]) <= 1e-9 {
+                    continue;
+                }
+                let Some(shown) = sample_layer_at_fps(before, key.frame, fps)
+                    .into_iter()
+                    .find(|element| element.id == element_id)
+                else {
+                    continue;
+                };
+                let at = [shown.transform.x, shown.transform.y];
+                let index = if key.frame == frame {
+                    0
+                } else if frames.last() == Some(&key.frame) {
+                    path.len() - 1
+                } else if let Some(index) = path.iter().position(|command| {
+                    let point = endpoint(*command);
+                    (point[0] - at[0]).hypot(point[1] - at[1]) < 0.1
+                }) {
+                    index
+                } else {
+                    let Some((segment, t, _, _)) = nearest_path_segment(&path, at) else {
+                        continue;
+                    };
+                    let Some((split, index)) = subdivide_path_at(&path, segment, t) else {
+                        continue;
+                    };
+                    path = split;
+                    index
+                };
+                move_anchor(&mut path, index, delta);
+            }
+            if let Some(track) = layer.keyframes[start_index].motion_track_mut(&element_id) {
+                track.motion_path = Some(MotionPathOverride::Path { commands: path });
+            }
+            continue;
+        }
+        for key in keys {
+            let Some(to) = key.elements.iter().find(|element| element.id == element_id) else {
+                continue;
+            };
+            let Some(old_pose) = previous_pose(key.frame, &element_id) else {
+                continue;
+            };
+            let delta = [to.transform.x - old_pose.x, to.transform.y - old_pose.y];
+            let changed = delta[0].hypot(delta[1]) > 1e-9;
+            let index = if let Some(index) = frames.iter().position(|at| *at == key.frame) {
+                index
+            } else if changed {
+                let index = frames.partition_point(|at| *at < key.frame);
+                if index == 0 {
+                    continue;
+                }
+                if index == frames.len() {
+                    let [x, y] = endpoint(*path.last().unwrap());
+                    path.push(PathCommand::LineTo { x, y });
+                } else {
+                    let old_position = sample_layer_at_fps(before, key.frame, fps)
+                        .into_iter()
+                        .find(|element| element.id == element_id)
+                        .map(|element| [element.transform.x, element.transform.y])
+                        .unwrap_or([old_pose.x, old_pose.y]);
+                    let [x, y] = endpoint(path[index - 1]);
+                    let Some((_, t, _, _)) = nearest_path_segment(
+                        &[PathCommand::MoveTo { x, y }, path[index]],
+                        old_position,
+                    ) else {
+                        continue;
+                    };
+                    let Some((split, _)) = subdivide_path_at(&path, index, t) else {
+                        continue;
+                    };
+                    path = split;
+                }
+                frames.insert(index, key.frame);
+                index
+            } else {
+                continue;
+            };
+            if changed {
+                move_anchor(&mut path, index, delta);
+            }
+        }
+        if let Some(track) = layer.keyframes[start_index].motion_track_mut(&element_id) {
+            track.motion_path = Some(MotionPathOverride::Path { commands: path });
+        }
+    }
+}
+
 /// The path's reference is implicit in its start element. Reordering/deleting that element
 /// must not move surviving artwork. Parallel tracks can retain the editable translated curve;
 /// independent tracks need exact frame poses, sampled with the original reference restored.
@@ -413,48 +582,68 @@ impl Editor {
             return None;
         }
         let (start, _, _) = motion_span(layer, self.frame)?;
-        let first = start.elements.first()?;
-        let waypoints = motion_path_waypoints(layer, self.frame, &first.id);
+        let selected = start
+            .elements
+            .iter()
+            .find(|element| element.id == visible.element)?;
+        let waypoints = motion_path_waypoints(layer, self.frame, &selected.id);
         if waypoints.len() < 2 {
             return None;
         }
-        let selected = start.elements.iter().find(|e| e.id == visible.element)?;
-        let offset = [
-            selected.transform.x - first.transform.x,
-            selected.transform.y - first.transform.y,
-        ];
-        if selected.id != first.id {
-            let selected_points = motion_path_waypoints(layer, self.frame, &selected.id);
-            if waypoints
-                .iter()
-                .zip(&selected_points)
-                .any(|((_, a), (_, b))| {
-                    (b[0] - a[0] - offset[0]).abs() > 1e-6 || (b[1] - a[1] - offset[1]).abs() > 1e-6
-                })
-            {
-                // Handles describe the reference object's shared curve. A secondary track
-                // with a changing offset has different geometry; its ◆ keys remain editable.
-                return None;
-            }
-        }
-        let path = start.motion_path.clone().unwrap_or_else(|| {
+        let straight_path = || {
             waypoints
                 .iter()
                 .enumerate()
-                .map(|(i, (_, p))| {
-                    if i == 0 {
-                        PathCommand::MoveTo { x: p[0], y: p[1] }
+                .map(|(index, (_, point))| {
+                    if index == 0 {
+                        PathCommand::MoveTo {
+                            x: point[0],
+                            y: point[1],
+                        }
                     } else {
-                        PathCommand::LineTo { x: p[0], y: p[1] }
+                        PathCommand::LineTo {
+                            x: point[0],
+                            y: point[1],
+                        }
                     }
                 })
                 .collect()
-        });
+        };
+        let path = match start.motion_path_for(&selected.id) {
+            MotionPathSource::Object(path) => path.to_vec(),
+            MotionPathSource::Legacy(path) => {
+                let first = start.elements.first()?;
+                if first.id == selected.id {
+                    path.to_vec()
+                } else {
+                    let reference = motion_path_waypoints(layer, self.frame, &first.id);
+                    let offset = [
+                        selected.transform.x - first.transform.x,
+                        selected.transform.y - first.transform.y,
+                    ];
+                    if reference.len() == waypoints.len()
+                        && reference
+                            .iter()
+                            .zip(&waypoints)
+                            .all(|((_, from), (_, to))| {
+                                (to[0] - from[0] - offset[0]).abs() <= 1e-6
+                                    && (to[1] - from[1] - offset[1]).abs() <= 1e-6
+                            })
+                    {
+                        crate::timeline_motion::translate_motion_path(path, offset)
+                    } else {
+                        straight_path()
+                    }
+                }
+            }
+            MotionPathSource::None => straight_path(),
+        };
         Some(Curve {
             layer: layer.id.clone(),
             start: start.frame,
+            element: selected.id.clone(),
             path,
-            offset,
+            offset: [0.0, 0.0],
         })
     }
     fn selected_curve_anchor(&self, curve: &Curve) -> usize {
@@ -468,8 +657,7 @@ impl Editor {
                     .iter()
                     .find(|l| l.id == curve.layer)
                     .unwrap();
-                let first = layer.key_at(curve.start).unwrap().elements.first().unwrap();
-                let points = motion_path_waypoints(layer, self.frame, &first.id);
+                let points = motion_path_waypoints(layer, self.frame, &curve.element);
                 let selected_frame = points
                     .iter()
                     .min_by_key(|(f, _)| f.abs_diff(self.frame))
@@ -477,7 +665,7 @@ impl Editor {
                 let position =
                     sample_layer_at_fps(layer, selected_frame, f64::from(self.project.fps))
                         .into_iter()
-                        .find(|e| e.id == first.id)
+                        .find(|e| e.id == curve.element)
                         .map_or(endpoint(curve.path[0]), |e| [e.transform.x, e.transform.y]);
                 curve
                     .path
@@ -560,6 +748,7 @@ impl Editor {
             symbol: self.symbol_id().into(),
             layer: curve.layer,
             start: curve.start,
+            element: curve.element,
             target,
             press,
             path: curve.path,
@@ -628,7 +817,8 @@ impl Editor {
             .find(|l| l.id == drag.layer)
             .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == drag.start))
         {
-            key.motion_path = Some(path);
+            key.ensure_motion_track(&drag.element).motion_path =
+                Some(MotionPathOverride::Path { commands: path });
         }
     }
     pub(crate) fn finish_motion_curve_drag(&mut self) {
@@ -701,7 +891,10 @@ impl Editor {
                 .find(|l| l.id == curve.layer)
                 .and_then(|l| l.keyframes.iter_mut().find(|k| k.frame == curve.start))
             {
-                key.motion_path = Some(curve.path);
+                key.ensure_motion_track(&curve.element).motion_path =
+                    Some(MotionPathOverride::Path {
+                        commands: curve.path,
+                    });
             }
         });
     }

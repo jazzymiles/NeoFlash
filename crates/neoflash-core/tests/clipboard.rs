@@ -440,6 +440,118 @@ fn cross_session_remaps_shared_closure_once_and_repeated_frame_placements_consis
 }
 
 #[test]
+fn format_10_object_motion_tracks_survive_cross_session_symbol_clipboard() {
+    let mut start = key(
+        0,
+        vec![shape("track-a", 0.0), shape("track-b", 0.0)],
+        Some(Easing::Linear),
+        "Motion start",
+    );
+    start.tween_kind = TweenKind::Motion;
+    let mut a_track = MotionTrackOverride::new("track-a");
+    a_track.easing = Some(Easing::EaseIn);
+    a_track.sync_symbols = Some(true);
+    let mut b_track = MotionTrackOverride::new("track-b");
+    b_track.easing = Some(Easing::EaseOut);
+    b_track.sync_symbols = Some(false);
+    start.motion_tracks = vec![a_track, b_track];
+
+    let mut end = key(
+        10,
+        vec![shape("track-a", 100.0), shape("track-b", 200.0)],
+        None,
+        "Object keys",
+    );
+    end.keyed_properties = Some(vec![TweenProperty::X]);
+    end.motion_keys = Some(vec![
+        MotionPropertyKey {
+            element_id: "track-a".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        },
+        MotionPropertyKey {
+            element_id: "track-b".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        },
+    ]);
+    let motion_symbol = symbol("object-motion", SymbolKind::MovieClip, vec![start, end]);
+
+    let mut source = Project::blank();
+    source.symbols.push(motion_symbol);
+    let placement = instance("motion-placement", "object-motion");
+    source.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(placement.clone());
+    source.upgrade_format_for_features();
+    assert_eq!(source.format_version, 10);
+    source.validate().unwrap();
+    let source_pose: Vec<_> = sample_layer(
+        &source.symbol("object-motion").unwrap().timeline.layers[0],
+        5,
+    )
+    .into_iter()
+    .map(|element| (element.name, element.transform.x))
+    .collect();
+
+    let payload =
+        ClipboardPayload::capture(&source, vec![placement], "format-10-source", [0.0, 0.0])
+            .unwrap();
+    let payload = ClipboardPayload::from_text(&payload.to_text().unwrap())
+        .unwrap()
+        .unwrap();
+    let destination = Project::blank();
+    let root = destination.root.clone();
+    let layer_id = destination.symbols[0].timeline.layers[0].id.clone();
+    let result = payload
+        .paste_into(
+            &destination,
+            "format-10-destination",
+            &root,
+            &layer_id,
+            0,
+            [0.0, 0.0],
+        )
+        .unwrap();
+    assert_eq!(result.project.format_version, 10);
+    result.project.validate().unwrap();
+
+    let imported = result
+        .project
+        .symbols
+        .iter()
+        .find(|candidate| candidate.name == "Library object-motion")
+        .unwrap();
+    let keys = &imported.timeline.layers[0].keyframes;
+    let start_ids: HashSet<_> = keys[0]
+        .elements
+        .iter()
+        .map(|element| element.id.as_str())
+        .collect();
+    assert!(
+        keys[0]
+            .motion_tracks
+            .iter()
+            .all(|track| start_ids.contains(track.element_id.as_str()))
+    );
+    assert!(
+        keys[1]
+            .motion_keys
+            .as_ref()
+            .unwrap()
+            .iter()
+            .all(|object_key| start_ids.contains(object_key.element_id.as_str()))
+    );
+    assert!(!start_ids.contains("track-a"));
+    assert!(!start_ids.contains("track-b"));
+    let imported_pose: Vec<_> = sample_layer(&imported.timeline.layers[0], 5)
+        .into_iter()
+        .map(|element| (element.name, element.transform.x))
+        .collect();
+    assert_eq!(imported_pose, source_pose);
+}
+
+#[test]
 fn same_session_uses_current_library_graph_and_does_not_resurrect_old_dependencies() {
     let original = source();
     let p = payload(&original);

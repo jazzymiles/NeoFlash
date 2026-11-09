@@ -51,42 +51,72 @@ pub(crate) fn record_motion_property_keys(before: &Project, project: &mut Projec
                 old_symbol.and_then(|s| s.timeline.layers.iter().find(|l| l.id == layer.id))
             {
                 for key in &mut layer.keyframes {
-                    let Some(keyed) = &mut key.keyed_properties else {
+                    if key.keyed_properties.is_none() {
                         continue;
-                    };
+                    }
                     let reference = match old.keyframes.iter().find(|k| k.frame == key.frame) {
                         Some(old_key) if old_key.keyed_properties.is_some() => {
                             old_key.elements.clone()
                         }
-                        _ if keyed.is_empty() => sample_layer_at_fps(old, key.frame, fps),
+                        _ if key.keyed_properties.as_ref().is_some_and(Vec::is_empty) => {
+                            sample_layer_at_fps(old, key.frame, fps)
+                        }
                         _ => continue,
                     };
+                    let mut changed = Vec::<(Id, Vec<TweenProperty>)>::new();
                     for element in &key.elements {
                         let Some(previous) = reference.iter().find(|e| e.id == element.id) else {
                             continue;
                         };
+                        let properties = TweenProperty::ALL
+                            .into_iter()
+                            .filter(|property| {
+                                property_changed(&element.transform, &previous.transform, *property)
+                            })
+                            .collect::<Vec<_>>();
+                        if !properties.is_empty() {
+                            changed.push((element.id.clone(), properties));
+                        }
+                    }
+                    if changed.is_empty() {
+                        continue;
+                    }
+                    key.materialize_motion_keys();
+                    for (element_id, properties) in changed {
+                        let object_key = key.ensure_motion_property_key(&element_id);
                         for property in TweenProperty::ALL {
-                            if !keyed.contains(&property)
-                                && property_changed(
-                                    &element.transform,
-                                    &previous.transform,
-                                    property,
-                                )
+                            if properties.contains(&property)
+                                && !object_key.properties.contains(&property)
                             {
-                                keyed.push(property);
+                                object_key.properties.push(property);
                             }
                         }
                     }
+                    key.sync_motion_key_union();
                 }
             }
             let snapshot = layer.clone();
             for key in &mut layer.keyframes {
-                let Some(keyed) = key.keyed_properties.clone() else {
+                if key.keyed_properties.is_none() {
                     continue;
-                };
+                }
                 let shown = sample_layer_at_fps(&snapshot, key.frame, fps);
+                let keyed_by_element: Vec<(Id, Vec<TweenProperty>)> = key
+                    .elements
+                    .iter()
+                    .map(|element| {
+                        (
+                            element.id.clone(),
+                            key.motion_key_properties_for(&element.id).to_vec(),
+                        )
+                    })
+                    .collect();
                 for element in &mut key.elements {
                     if let Some(pose) = shown.iter().find(|e| e.id == element.id) {
+                        let keyed = keyed_by_element
+                            .iter()
+                            .find(|(element_id, _)| element_id == &element.id)
+                            .map_or(&[][..], |(_, properties)| properties.as_slice());
                         for property in TweenProperty::ALL {
                             if !keyed.contains(&property) {
                                 copy_property(&mut element.transform, &pose.transform, property);
@@ -330,17 +360,31 @@ impl Editor {
                             key.tween = Some(key.tween.unwrap_or(default));
                             key.tween_kind = kind;
                             if kind != TweenKind::Motion {
+                                key.motion_tracks.clear();
+                                key.motion_keys = None;
                                 key.property_eases.clear();
+                                key.motion_path = None;
+                                key.orient_to_path = false;
                                 key.sync_symbols = false;
                                 key.snap_to_guide = false;
+                                key.roving = false;
+                            } else {
+                                key.classic_rotate_turns = 0;
+                                key.classic_rotate_dir = ClassicRotateDirection::Auto;
+                                key.tween_scale = true;
                             }
                         } else if in_span && key.frame > start && key.keyed_properties.is_some() {
                             if kind != TweenKind::Motion {
                                 key.keyed_properties = None;
+                                key.motion_keys = None;
+                                key.motion_tracks.clear();
                                 key.tween_kind = kind;
                                 key.property_eases.clear();
+                                key.motion_path = None;
+                                key.orient_to_path = false;
                                 key.sync_symbols = false;
                                 key.snap_to_guide = false;
+                                key.roving = false;
                             }
                         } else if key.frame > start {
                             in_span = false;
@@ -389,10 +433,14 @@ impl Editor {
                     if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == start) {
                         key.tween = None;
                         key.tween_kind = TweenKind::Classic;
+                        key.motion_tracks.clear();
+                        key.motion_keys = None;
                         key.orient_to_path = false;
                         key.property_eases.clear();
+                        key.motion_path = None;
                         key.sync_symbols = false;
                         key.snap_to_guide = false;
+                        key.roving = false;
                     }
                 }
             }
@@ -1384,6 +1432,16 @@ impl Editor {
         }
         let frame = self.frame;
         let layer_idx = self.layer;
+        if self.selection.symbol != self.symbol_id() {
+            return false;
+        }
+        let Some(target) = self.selection.single() else {
+            return false;
+        };
+        if self.target_layer_index(target) != Some(layer_idx) {
+            return false;
+        }
+        let element_id = target.element.clone();
         let Some(key) = self
             .symbol()
             .timeline
@@ -1393,18 +1451,17 @@ impl Editor {
         else {
             return false;
         };
-        let is_pos_key = key
-            .keyed_properties
-            .as_ref()
-            .is_some_and(|kp| kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y));
+        let keyed = key.motion_key_properties_for(&element_id);
+        let is_pos_key = keyed.contains(&TweenProperty::X) || keyed.contains(&TweenProperty::Y);
         if !is_pos_key {
             return false;
         }
-        let next_roving = !key.roving;
-        self.transact_named("Toggle roving keyframe", |editor| {
+        let next_roving = !key.motion_key_roving_for(&element_id);
+        self.transact_named("Toggle roving keyframe", move |editor| {
             let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
             if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
-                k.roving = next_roving;
+                k.ensure_motion_property_key(&element_id).roving = next_roving;
+                k.sync_motion_key_union();
             }
             layer.normalize_motion_keys();
         });

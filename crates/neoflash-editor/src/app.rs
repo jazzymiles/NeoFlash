@@ -371,21 +371,29 @@ impl Editor {
                 }
             }
         }
+        // `NEOFLASH_SCREENSHOT_SELECT=motion` selects one motion object; pair it with
+        // `NEOFLASH_SCREENSHOT_ELEMENT=<stable id>` to prove a specific same-layer track.
         if std::env::var("NEOFLASH_SCREENSHOT_SELECT").as_deref() == Ok("motion") {
             s.set_tool(Tool::Select);
-            if let Some(layer) = s.symbol().timeline.layers.get(s.layer)
-                && let Some(element) = sample_layer_in_at_fps(
+            if let Some(layer) = s.symbol().timeline.layers.get(s.layer) {
+                let layer_id = layer.id.clone();
+                let sampled = sample_layer_in_at_fps(
                     &s.symbol().timeline,
                     layer,
                     s.frame,
                     f64::from(s.project.fps),
-                )
-                .first()
-            {
-                s.set_selection(vec![crate::selection::SelectionTarget {
-                    layer: layer.id.clone(),
-                    element: element.id.clone(),
-                }]);
+                );
+                let requested = std::env::var("NEOFLASH_SCREENSHOT_ELEMENT").ok();
+                let element = requested
+                    .as_deref()
+                    .and_then(|id| sampled.iter().find(|element| element.id == id))
+                    .or_else(|| requested.is_none().then(|| sampled.first()).flatten());
+                if let Some(element) = element {
+                    s.set_selection(vec![crate::selection::SelectionTarget {
+                        layer: layer_id,
+                        element: element.id.clone(),
+                    }]);
+                }
             }
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_PANELS=swatches,info,history,project` reveals real panels.
@@ -842,7 +850,17 @@ impl Editor {
                 .find(|key| key.frame == f && key.keyed_properties.is_some())
                 && !blank
             {
-                key.keyed_properties = Some(TweenProperty::ALL.to_vec());
+                key.motion_keys = Some(
+                    key.elements
+                        .iter()
+                        .map(|element| MotionPropertyKey {
+                            element_id: element.id.clone(),
+                            properties: TweenProperty::ALL.to_vec(),
+                            roving: false,
+                        })
+                        .collect(),
+                );
+                key.sync_motion_key_union();
             }
         });
     }

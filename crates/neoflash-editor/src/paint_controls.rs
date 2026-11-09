@@ -140,8 +140,10 @@ pub(crate) fn number_field(
     )
 }
 
-/// Narrowest paired field that still shows a prefix and four digits.
-const PAIR_FIELD_MIN: f32 = 80.;
+/// Narrowest shared form-grid cell that still shows a prefix and four digits.
+/// All paired editor forms use this one threshold so docked and detached panels
+/// switch to the same left-before-right stack instead of drifting independently.
+pub(crate) const FORM_CELL_MIN: f32 = 80.;
 
 /// Lay out two inspector cells on one shared grid. Every caller receives the
 /// exact cell width, so prefixes, icons and nested selectors cannot change the
@@ -149,16 +151,21 @@ const PAIR_FIELD_MIN: f32 = 80.;
 /// the cells stack instead of clipping or shrinking below their usable size.
 pub(crate) fn two_column_row<L, R>(
     ui: &mut egui::Ui,
-    minimum_cell_width: f32,
     left: impl FnOnce(&mut egui::Ui, f32) -> L,
     right: impl FnOnce(&mut egui::Ui, f32) -> R,
 ) -> (L, R) {
     let gap = space::S2;
     let available = ui.available_width();
-    if available < minimum_cell_width * 2.0 + gap {
-        let left = left(ui, available);
-        let right = right(ui, available);
-        return (left, right);
+    if available < FORM_CELL_MIN * 2.0 + gap {
+        return ui
+            .vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = gap;
+                ui.set_width(available);
+                let left = left(ui, available);
+                let right = right(ui, available);
+                (left, right)
+            })
+            .inner;
     }
 
     ui.horizontal(|ui| {
@@ -215,7 +222,6 @@ pub(crate) fn numeric_pair_with_suffix(
     let first_range = range.clone();
     let (first, second) = two_column_row(
         ui,
-        PAIR_FIELD_MIN,
         |ui, width| {
             ui.scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
                 number_field(ui, labels[0], a, first_range, speed, suffix, Some(width))
@@ -230,6 +236,49 @@ pub(crate) fn numeric_pair_with_suffix(
         },
     );
     [first, second]
+}
+
+/// A paired numeric row whose trailing action belongs to the second cell.
+/// The two cell guides are established before the action width is reserved,
+/// so a Link/lock button can narrow only the right field and never move the
+/// shared second-column axis.
+pub(crate) fn numeric_pair_with_trailing<T>(
+    ui: &mut egui::Ui,
+    labels: [&str; 2],
+    values: [&mut f64; 2],
+    range: RangeInclusive<f64>,
+    speed: f64,
+    suffix: &str,
+    trailing: (f32, impl FnOnce(&mut egui::Ui) -> T),
+) -> ([Response; 2], T) {
+    let (trailing_width, trailing) = trailing;
+    let [a, b] = values;
+    let ids = labels.map(|label| ui.id().with(("numeric-property", label)));
+    let first_range = range.clone();
+    let (first, (second, trailing)) = two_column_row(
+        ui,
+        |ui, width| {
+            ui.scope_builder(egui::UiBuilder::new().id(ids[0]), |ui| {
+                number_field(ui, labels[0], a, first_range, speed, suffix, Some(width))
+            })
+            .inner
+        },
+        |ui, width| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
+                let field_width = (width - trailing_width - space::S2).max(0.0);
+                let second = ui
+                    .scope_builder(egui::UiBuilder::new().id(ids[1]), |ui| {
+                        number_field(ui, labels[1], b, range, speed, suffix, Some(field_width))
+                    })
+                    .inner;
+                let trailing = trailing(ui);
+                (second, trailing)
+            })
+            .inner
+        },
+    );
+    ([first, second], trailing)
 }
 
 pub(crate) fn percent_row(ui: &mut egui::Ui, label: &str, value: &mut f64) -> Response {
@@ -424,47 +473,52 @@ pub(crate) fn color_row(
     value: &mut Color,
 ) -> Response {
     ui.push_id(id, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = space::S2;
-            let swatch = color_swatch(ui, id, label, value);
-            // Figma Background row: swatch 22 · hex 116 · α 134 (of 288 with 8 pt gaps).
-            let alpha_width = ((ui.available_width() - space::S2) * 134. / 250.).max(64.);
-            let hex_width =
-                (ui.available_width() - alpha_width - space::S2).max(crate::theme::control_h());
-            let hex = hex_field(ui, prefix, label, value, hex_width);
-            let mut alpha = value[3] as f64 / 255. * 100.;
-            let before = alpha;
-            let alpha_name = if label == "Background" {
-                "Alpha".to_owned()
-            } else {
-                format!("{label} alpha")
-            };
-            let mut alpha_response = ui.add(
-                DragField::new(&mut alpha, &alpha_name)
-                    .prefix("α")
-                    .suffix(" %")
-                    .range(0. ..=100.)
-                    .speed(0.5)
-                    .max_decimals(2)
-                    .width(ui.available_width()),
-            );
+        let mut alpha = value[3] as f64 / 255. * 100.;
+        let before = alpha;
+        let alpha_name = if label == "Background" {
+            "Alpha".to_owned()
+        } else {
+            format!("{label} alpha")
+        };
+        let ((swatch, hex), mut alpha_response) = two_column_row(
+            ui,
+            |ui, width| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S2;
+                    let swatch = color_swatch(ui, id, label, value);
+                    let hex_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                    let hex = hex_field(ui, prefix, label, value, hex_width);
+                    (swatch, hex)
+                })
+                .inner
+            },
+            |ui, width| {
+                ui.add(
+                    DragField::new(&mut alpha, &alpha_name)
+                        .prefix("α")
+                        .suffix(" %")
+                        .range(0. ..=100.)
+                        .speed(0.5)
+                        .max_decimals(2)
+                        .width(width),
+                )
+            },
+        );
+        alpha_response
+            .flags
+            .set(egui::response::Flags::CHANGED, alpha != before);
+        let alpha_response = alpha_response.on_hover_text(format!("{label} alpha"));
+        if alpha_response.changed() {
+            value[3] = (alpha / 100. * 255.).round().clamp(0., 255.) as u8;
+            *value = crate::authoring_modify::ensure_solid_non_none(*value);
+        }
+        if alpha_response.changed() {
             alpha_response
-                .flags
-                .set(egui::response::Flags::CHANGED, alpha != before);
-            let alpha_response = alpha_response.on_hover_text(format!("{label} alpha"));
-            if alpha_response.changed() {
-                value[3] = (alpha / 100. * 255.).round().clamp(0., 255.) as u8;
-                *value = crate::authoring_modify::ensure_solid_non_none(*value);
-            }
-            if alpha_response.changed() {
-                alpha_response
-            } else if hex.changed() {
-                hex
-            } else {
-                swatch
-            }
-        })
-        .inner
+        } else if hex.changed() {
+            hex
+        } else {
+            swatch
+        }
     })
     .inner
 }

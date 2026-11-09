@@ -11,6 +11,7 @@
 
 use super::planned::{PlannedPanel, PlannedState, caption, form_label, mono};
 use crate::app::Editor;
+use crate::paint_controls::two_column_row;
 use eframe::egui::{self, Color32, Ui};
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
@@ -23,10 +24,6 @@ use neoflash_ui::icons::{self, i16, i20};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::{rich, rich_block};
 use std::io::Cursor;
-
-fn half(ui: &Ui) -> f32 {
-    (ui.available_width() - space::S2) / 2.0
-}
 
 fn section(ui: &mut Ui, label: &str, open: bool, body: impl FnOnce(&mut Ui)) {
     c::SectionHeader::new(label)
@@ -599,32 +596,34 @@ impl Editor {
         );
         ui.add_space(space::S2);
         ui.label(rich("Stroke", TextStyle::Overline).color(nf.text_tertiary));
-        let half_w = half(ui);
-        ui.horizontal(|ui| {
-            let mut sw = self.stroke_width;
-            if ui
-                .add(
+        let mut sw = self.stroke_width;
+        let (stroke_response, ()) = two_column_row(
+            ui,
+            |ui, width| {
+                ui.add(
                     c::Field::new(&mut sw, "Stroke width")
                         .prefix("Width")
                         .unit("px")
                         .range(0.1..=200.0)
                         .decimals(1)
-                        .width(half_w),
+                        .width(width),
                 )
-                .changed()
-            {
-                self.stroke_width = sw.clamp(0.1, 200.0);
-            }
-            c::Select::new(ui.id().with("bitmap-fill-stroke-style"), "Solid")
-                .width(half_w)
-                .show(ui, |ui| {
-                    if ui.add(c::MenuItem::new("Custom…")).clicked() {
-                        let ctx = ui.ctx().clone();
-                        self.open_stroke_style(&ctx);
-                        ui.close();
-                    }
-                });
-        });
+            },
+            |ui, width| {
+                c::Select::new(ui.id().with("bitmap-fill-stroke-style"), "Solid")
+                    .width(width)
+                    .show(ui, |ui| {
+                        if ui.add(c::MenuItem::new("Custom…")).clicked() {
+                            let ctx = ui.ctx().clone();
+                            self.open_stroke_style(&ctx);
+                            ui.close();
+                        }
+                    });
+            },
+        );
+        if stroke_response.changed() {
+            self.stroke_width = sw.clamp(0.1, 200.0);
+        }
 
         ui.ctx().data_mut(|d| d.insert_temp(draft_id, draft));
     }
@@ -684,47 +683,57 @@ impl Editor {
 
         let mut geom_changed = false;
         let mut prim_changed = false;
-        let field = (ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0;
         section(ui, "Position and size", true, |ui| {
-            ui.horizontal(|ui| {
-                geom_changed |= ui
-                    .add(
+            let (x_response, (y_response, _link)) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut x, "X")
                             .prefix("X")
                             .decimals(1)
-                            .width(field),
+                            .width(width),
                     )
-                    .changed();
-                geom_changed |= ui
-                    .add(
-                        c::Field::new(y_ref(&mut y), "Y")
-                            .prefix("Y")
-                            .decimals(1)
-                            .width(field),
-                    )
-                    .changed();
-                let _ = ui.add(c::IconButton::new(i16::LINK, "Lock proportions").selected(true));
-            });
-            ui.horizontal(|ui| {
-                geom_changed |= ui
-                    .add(
+                },
+                |ui, width| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                        let response = ui.add(
+                            c::Field::new(y_ref(&mut y), "Y")
+                                .prefix("Y")
+                                .decimals(1)
+                                .width(field_width),
+                        );
+                        let link = ui
+                            .add(c::IconButton::new(i16::LINK, "Lock proportions").selected(true));
+                        (response, link)
+                    })
+                    .inner
+                },
+            );
+            geom_changed |= x_response.changed() || y_response.changed();
+            let (w_response, h_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut w, "W")
                             .prefix("W")
                             .range(1.0..=4000.0)
                             .decimals(1)
-                            .width(field),
+                            .width(width),
                     )
-                    .changed();
-                geom_changed |= ui
-                    .add(
+                },
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut h, "H")
                             .prefix("H")
                             .range(1.0..=4000.0)
                             .decimals(1)
-                            .width(field),
+                            .width(width),
                     )
-                    .changed();
-            });
+                },
+            );
+            geom_changed |= w_response.changed() || h_response.changed();
         });
 
         let fill_col =
@@ -775,19 +784,23 @@ impl Editor {
                 let mut hinting = false;
                 ui.add(c::Switch::new(&mut hinting, "Stroke hinting"));
             });
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                c::Select::new(ui.id().with("oval-scale"), "Scale: Normal")
-                    .width(hw)
-                    .show(ui, |_| {});
-                let mut miter = 3.0;
-                ui.add(
-                    c::Field::new(&mut miter, "Miter")
-                        .prefix("Miter")
-                        .decimals(0)
-                        .width(hw),
-                );
-            });
+            let mut miter = 3.0;
+            two_column_row(
+                ui,
+                |ui, width| {
+                    c::Select::new(ui.id().with("oval-scale"), "Scale: Normal")
+                        .width(width)
+                        .show(ui, |_| {});
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut miter, "Miter")
+                            .prefix("Miter")
+                            .decimals(0)
+                            .width(width),
+                    );
+                },
+            );
             for (label, items) in [
                 (
                     "Cap",
@@ -818,31 +831,34 @@ impl Editor {
         });
 
         section(ui, "Oval options", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                prim_changed |= ui
-                    .add(
+            let (start_response, end_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut start_deg, "Start")
                             .prefix("Start")
                             .unit("°")
                             .range(0.0..=360.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-                prim_changed |= ui
-                    .add(
+                },
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut end_deg, "End")
                             .prefix("End")
                             .unit("°")
                             .range(0.0..=360.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-            });
+                },
+            );
+            prim_changed |= start_response.changed() || end_response.changed();
+            // FORM_GRID_EXCEPTION: Inner is deliberately paired with an action checkbox.
+            let inner_width = (ui.available_width() - space::S2) / 2.0;
             ui.horizontal(|ui| {
                 prim_changed |= ui
                     .add(
@@ -852,7 +868,7 @@ impl Editor {
                             .range(0.0..=99.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(inner_width),
                     )
                     .changed();
                 prim_changed |= ui
@@ -937,35 +953,48 @@ impl Editor {
 
         let mut changed = false;
         section(ui, "Position and size", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                changed |= ui
-                    .add(c::Field::new(&mut x, "X").prefix("X").decimals(1).width(hw))
-                    .changed();
-                changed |= ui
-                    .add(c::Field::new(&mut y, "Y").prefix("Y").decimals(1).width(hw))
-                    .changed();
-            });
-            ui.horizontal(|ui| {
-                changed |= ui
-                    .add(
+            let (x_response, y_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut x, "X")
+                            .prefix("X")
+                            .decimals(1)
+                            .width(width),
+                    )
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut y, "Y")
+                            .prefix("Y")
+                            .decimals(1)
+                            .width(width),
+                    )
+                },
+            );
+            changed |= x_response.changed() || y_response.changed();
+            let (w_response, h_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut w, "W")
                             .prefix("W")
                             .range(1.0..=4000.0)
                             .decimals(1)
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-                changed |= ui
-                    .add(
+                },
+                |ui, width| {
+                    ui.add(
                         c::Field::new(&mut h, "H")
                             .prefix("H")
                             .range(1.0..=4000.0)
                             .decimals(1)
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-            });
+                },
+            );
+            changed |= w_response.changed() || h_response.changed();
         });
 
         let fill_col =
@@ -1009,87 +1038,102 @@ impl Editor {
 
         let mut corners_locked = self.authoring_tools.rect_options.corners_locked;
         section(ui, "Rectangle options", true, |ui| {
-            let fw = (ui.available_width() - 32.0 - 2.0 * space::S2) / 2.0;
-            ui.horizontal(|ui| {
-                if ui
-                    .add(
-                        c::Field::new(&mut radii[0], "Top-left radius")
+            let (mut top_left, mut top_right) = (radii[0], radii[1]);
+            let (top_left_response, (top_right_response, link_response)) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut top_left, "Top-left radius")
                             .prefix("↖")
                             .range(0.0..=500.0)
                             .decimals(0)
                             .stepper()
-                            .width(fw),
+                            .width(width),
                     )
-                    .changed()
-                {
-                    if corners_locked {
-                        radii = [radii[0]; 4];
-                    }
-                    changed = true;
+                },
+                |ui, width| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        let field_width = (width - crate::theme::control_h() - space::S2).max(0.0);
+                        let field = ui.add(
+                            c::Field::new(&mut top_right, "Top-right radius")
+                                .prefix("↗")
+                                .range(0.0..=500.0)
+                                .decimals(0)
+                                .stepper()
+                                .width(field_width),
+                        );
+                        let link = ui.add(
+                            c::IconButton::new(i16::LINK, "Lock proportions")
+                                .selected(corners_locked),
+                        );
+                        (field, link)
+                    })
+                    .inner
+                },
+            );
+            if top_left_response.changed() {
+                radii[0] = top_left;
+                if corners_locked {
+                    radii = [radii[0]; 4];
                 }
-                if ui
-                    .add(
-                        c::Field::new(&mut radii[1], "Top-right radius")
-                            .prefix("↗")
-                            .range(0.0..=500.0)
-                            .decimals(0)
-                            .stepper()
-                            .width(fw),
-                    )
-                    .changed()
-                {
-                    if corners_locked {
-                        radii = [radii[1]; 4];
-                    }
-                    changed = true;
+                changed = true;
+            }
+            if top_right_response.changed() {
+                radii[1] = top_right;
+                if corners_locked {
+                    radii = [radii[1]; 4];
                 }
-                if ui
-                    .add(c::IconButton::new(i16::LINK, "Lock proportions").selected(corners_locked))
-                    .clicked()
-                {
-                    corners_locked = !corners_locked;
-                    changed = true;
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .add(
-                        c::Field::new(&mut radii[3], "Bottom-left radius")
+                changed = true;
+            }
+            if link_response.clicked() {
+                corners_locked = !corners_locked;
+                changed = true;
+            }
+
+            let (mut bottom_left, mut bottom_right) = (radii[3], radii[2]);
+            let (bottom_left_response, bottom_right_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut bottom_left, "Bottom-left radius")
                             .prefix("↙")
                             .range(0.0..=500.0)
                             .decimals(0)
                             .stepper()
-                            .width(fw),
+                            .width(width),
                     )
-                    .changed()
-                {
-                    if corners_locked {
-                        radii = [radii[3]; 4];
-                    }
-                    changed = true;
-                }
-                if ui
-                    .add(
-                        c::Field::new(&mut radii[2], "Bottom-right radius")
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(&mut bottom_right, "Bottom-right radius")
                             .prefix("↘")
                             .range(0.0..=500.0)
                             .decimals(0)
                             .stepper()
-                            .width(fw),
+                            .width(width),
                     )
-                    .changed()
-                {
-                    if corners_locked {
-                        radii = [radii[2]; 4];
-                    }
-                    changed = true;
+                },
+            );
+            if bottom_left_response.changed() {
+                radii[3] = bottom_left;
+                if corners_locked {
+                    radii = [radii[3]; 4];
                 }
-            });
+                changed = true;
+            }
+            if bottom_right_response.changed() {
+                radii[2] = bottom_right;
+                if corners_locked {
+                    radii = [radii[2]; 4];
+                }
+                changed = true;
+            }
             let mut slider_val = radii[0].clamp(0.0, 100.0);
             if ui
                 .add(
                     c::Slider::new(&mut slider_val, 0.0..=100.0, "Corner radius")
-                        .width(2.0 * fw + space::S2),
+                        .width(ui.available_width()),
                 )
                 .changed()
             {
@@ -1315,47 +1359,58 @@ impl Editor {
             }
         });
         section(ui, "Advanced options", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                ui.add(
-                    c::Field::new(&mut draft.branch_angle, "Branch")
-                        .prefix("Branch")
-                        .unit("°")
-                        .range(-180.0..=180.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-                ui.add(
-                    c::Field::new(&mut draft.scale_pct, "Scale")
-                        .prefix("Scale")
-                        .unit("%")
-                        .range(10.0..=400.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-            });
-            ui.horizontal(|ui| {
-                ui.add(
-                    c::Field::new(&mut draft.segment_px, "Segment")
-                        .prefix("Segment")
-                        .unit("px")
-                        .range(1.0..=100.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-                ui.add(
-                    c::Field::new(&mut draft.step_frames, "Step")
-                        .prefix("Step")
-                        .unit("f")
-                        .range(1.0..=30.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-            });
+            let (branch_angle, scale_pct) = (&mut draft.branch_angle, &mut draft.scale_pct);
+            two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(branch_angle, "Branch")
+                            .prefix("Branch")
+                            .unit("°")
+                            .range(-180.0..=180.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(scale_pct, "Scale")
+                            .prefix("Scale")
+                            .unit("%")
+                            .range(10.0..=400.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+            );
+            let (segment_px, step_frames) = (&mut draft.segment_px, &mut draft.step_frames);
+            two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(segment_px, "Segment")
+                            .prefix("Segment")
+                            .unit("px")
+                            .range(1.0..=100.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(step_frames, "Step")
+                            .prefix("Step")
+                            .unit("f")
+                            .range(1.0..=30.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+            );
             ui.add(c::Checkbox::new(
                 &mut draft.animate_pattern,
                 "Animate pattern (one keyframe per step)",
@@ -1495,27 +1550,32 @@ impl Editor {
                 &mut draft.use_dots,
                 "Use default shape (dots)",
             ));
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                ui.add(
-                    c::Field::new(&mut draft.scale_w, "W")
-                        .prefix("W")
-                        .unit("%")
-                        .range(10.0..=400.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-                ui.add(
-                    c::Field::new(&mut draft.scale_h, "H")
-                        .prefix("H")
-                        .unit("%")
-                        .range(10.0..=400.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-            });
+            let (scale_w, scale_h) = (&mut draft.scale_w, &mut draft.scale_h);
+            two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(scale_w, "W")
+                            .prefix("W")
+                            .unit("%")
+                            .range(10.0..=400.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(scale_h, "H")
+                            .prefix("H")
+                            .unit("%")
+                            .range(10.0..=400.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+            );
             ui.add(c::Checkbox::new(
                 &mut draft.random_scaling,
                 "Random scaling",
@@ -1529,27 +1589,33 @@ impl Editor {
             });
         });
         section(ui, "Brush", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                ui.add(
-                    c::Field::new(&mut draft.brush_w, "Width")
-                        .prefix("Width")
-                        .unit("px")
-                        .range(1.0..=200.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-                ui.add(
-                    c::Field::new(&mut draft.brush_h, "Height")
-                        .prefix("Height")
-                        .unit("px")
-                        .range(1.0..=200.0)
-                        .decimals(0)
-                        .stepper()
-                        .width(hw),
-                );
-            });
+            let (brush_w, brush_h) = (&mut draft.brush_w, &mut draft.brush_h);
+            two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(brush_w, "Width")
+                            .prefix("Width")
+                            .unit("px")
+                            .range(1.0..=200.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(brush_h, "Height")
+                            .prefix("Height")
+                            .unit("px")
+                            .range(1.0..=200.0)
+                            .decimals(0)
+                            .stepper()
+                            .width(width),
+                    );
+                },
+            );
+            let angle_width = ui.available_width();
             ui.add(
                 c::Field::new(&mut draft.brush_angle, "Angle")
                     .prefix("Angle")
@@ -1557,7 +1623,7 @@ impl Editor {
                     .range(-180.0..=180.0)
                     .decimals(0)
                     .stepper()
-                    .width(hw),
+                    .width(angle_width),
             );
         });
 
@@ -1646,47 +1712,38 @@ impl Editor {
             }
         });
         section(ui, "Position", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.x, "X")
-                            .prefix("X")
-                            .decimals(1)
-                            .width(hw),
-                    )
-                    .changed();
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.y, "Y")
-                            .prefix("Y")
-                            .decimals(1)
-                            .width(hw),
-                    )
-                    .changed();
-            });
-            ui.horizontal(|ui| {
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.length, "Length")
+            let (x, y) = (&mut draft.x, &mut draft.y);
+            let (x_response, y_response) = two_column_row(
+                ui,
+                |ui, width| ui.add(c::Field::new(x, "X").prefix("X").decimals(1).width(width)),
+                |ui, width| ui.add(c::Field::new(y, "Y").prefix("Y").decimals(1).width(width)),
+            );
+            changed |= x_response.changed() || y_response.changed();
+            let (length, angle) = (&mut draft.length, &mut draft.angle);
+            let (length_response, angle_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(length, "Length")
                             .prefix("Length")
                             .unit("px")
                             .range(4.0..=1000.0)
                             .decimals(0)
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.angle, "Angle")
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(angle, "Angle")
                             .prefix("Angle")
                             .unit("°")
                             .range(-360.0..=360.0)
                             .decimals(0)
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-            });
+                },
+            );
+            changed |= length_response.changed() || angle_response.changed();
         });
         section(ui, "Joint: rotation", true, |ui| {
             ui.horizontal(|ui| {
@@ -1697,31 +1754,33 @@ impl Editor {
                     .add(c::Switch::new(&mut draft.rot_constrain, "Constrain"))
                     .changed();
             });
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.rot_min, "Min")
+            let (rot_min, rot_max) = (&mut draft.rot_min, &mut draft.rot_max);
+            let (min_response, max_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(rot_min, "Min")
                             .prefix("Min")
                             .unit("°")
                             .range(-180.0..=180.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.rot_max, "Max")
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(rot_max, "Max")
                             .prefix("Max")
                             .unit("°")
                             .range(-180.0..=180.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-            });
+                },
+            );
+            changed |= min_response.changed() || max_response.changed();
         });
         section(ui, "Joint: X / Y translation", false, |ui| {
             ui.horizontal(|ui| {
@@ -1734,70 +1793,82 @@ impl Editor {
             });
         });
         section(ui, "Spring", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.spring_strength, "Strength")
+            let (spring_strength, spring_damping) =
+                (&mut draft.spring_strength, &mut draft.spring_damping);
+            let (strength_response, damping_response) = two_column_row(
+                ui,
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(spring_strength, "Strength")
                             .prefix("Strength")
                             .range(0.0..=100.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-                changed |= ui
-                    .add(
-                        c::Field::new(&mut draft.spring_damping, "Damping")
+                },
+                |ui, width| {
+                    ui.add(
+                        c::Field::new(spring_damping, "Damping")
                             .prefix("Damping")
                             .range(0.0..=100.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(width),
                     )
-                    .changed();
-            });
+                },
+            );
+            changed |= strength_response.changed() || damping_response.changed();
         });
         section(ui, "Armature", true, |ui| {
-            let hw = half(ui);
-            ui.horizontal(|ui| {
-                let type_lbl = if draft.armature_runtime {
-                    "Type: Runtime"
-                } else {
-                    "Type: Authortime"
-                };
-                c::Select::new(ui.id().with("arm-type"), type_lbl)
-                    .width(hw)
-                    .show(ui, |ui| {
-                        for (rt, lbl) in [(false, "Type: Authortime"), (true, "Type: Runtime")] {
-                            if ui
-                                .add(c::MenuItem::new(lbl).checked(draft.armature_runtime == rt))
-                                .clicked()
+            let type_lbl = if draft.armature_runtime {
+                "Type: Runtime"
+            } else {
+                "Type: Authortime"
+            };
+            let style_lbl = if draft.armature_wireframe {
+                "Style: Wire"
+            } else {
+                "Style: Solid"
+            };
+            let (armature_runtime, armature_wireframe) =
+                (&mut draft.armature_runtime, &mut draft.armature_wireframe);
+            two_column_row(
+                ui,
+                |ui, width| {
+                    c::Select::new(ui.id().with("arm-type"), type_lbl)
+                        .width(width)
+                        .show(ui, |ui| {
+                            for (rt, lbl) in [(false, "Type: Authortime"), (true, "Type: Runtime")]
                             {
-                                draft.armature_runtime = rt;
-                                ui.close();
+                                if ui
+                                    .add(c::MenuItem::new(lbl).checked(*armature_runtime == rt))
+                                    .clicked()
+                                {
+                                    *armature_runtime = rt;
+                                    ui.close();
+                                }
                             }
-                        }
-                    });
-                let style_lbl = if draft.armature_wireframe {
-                    "Style: Wire"
-                } else {
-                    "Style: Solid"
-                };
-                c::Select::new(ui.id().with("arm-style"), style_lbl)
-                    .width(hw)
-                    .show(ui, |ui| {
-                        for (wf, lbl) in [(false, "Style: Solid"), (true, "Style: Wire")] {
-                            if ui
-                                .add(c::MenuItem::new(lbl).checked(draft.armature_wireframe == wf))
-                                .clicked()
-                            {
-                                draft.armature_wireframe = wf;
-                                ui.close();
+                        });
+                },
+                |ui, width| {
+                    c::Select::new(ui.id().with("arm-style"), style_lbl)
+                        .width(width)
+                        .show(ui, |ui| {
+                            for (wf, lbl) in [(false, "Style: Solid"), (true, "Style: Wire")] {
+                                if ui
+                                    .add(c::MenuItem::new(lbl).checked(*armature_wireframe == wf))
+                                    .clicked()
+                                {
+                                    *armature_wireframe = wf;
+                                    ui.close();
+                                }
                             }
-                        }
-                    });
-            });
+                        });
+                },
+            );
+            // FORM_GRID_EXCEPTION: Speed is deliberately paired with an action switch.
+            let speed_width = (ui.available_width() - space::S2) / 2.0;
             ui.horizontal(|ui| {
                 changed |= ui
                     .add(
@@ -1807,7 +1878,7 @@ impl Editor {
                             .range(0.0..=100.0)
                             .decimals(0)
                             .stepper()
-                            .width(hw),
+                            .width(speed_width),
                     )
                     .changed();
                 changed |= ui
@@ -1938,33 +2009,35 @@ impl Editor {
                         playback_changed = true;
                     }
                 }
-                let hw = half(ui);
                 let mut first_1 = (first_zero + 1).min(sym_frames) as f64;
                 let mut last_1 = sym_frames as f64;
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
+                let (first_response, _last_response) = two_column_row(
+                    ui,
+                    |ui, width| {
+                        ui.add(
                             c::Field::new(&mut first_1, "First frame")
                                 .prefix("First")
                                 .range(1.0..=f64::from(sym_frames))
                                 .decimals(0)
                                 .stepper()
-                                .width(hw),
+                                .width(width),
                         )
-                        .changed()
-                    {
-                        first_zero = (first_1.round() as u32).clamp(1, sym_frames) - 1;
-                        playback_changed = true;
-                    }
-                    ui.add(
-                        c::Field::new(&mut last_1, "Last frame")
-                            .prefix("Last")
-                            .range(1.0..=f64::from(sym_frames))
-                            .decimals(0)
-                            .stepper()
-                            .width(hw),
-                    );
-                });
+                    },
+                    |ui, width| {
+                        ui.add(
+                            c::Field::new(&mut last_1, "Last frame")
+                                .prefix("Last")
+                                .range(1.0..=f64::from(sym_frames))
+                                .decimals(0)
+                                .stepper()
+                                .width(width),
+                        )
+                    },
+                );
+                if first_response.changed() {
+                    first_zero = (first_1.round() as u32).clamp(1, sym_frames) - 1;
+                    playback_changed = true;
+                }
 
                 let (strip, _) = ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), 44.0),

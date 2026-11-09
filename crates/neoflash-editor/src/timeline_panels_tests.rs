@@ -80,6 +80,7 @@ fn motion_editor() -> Editor {
     let mut editor = Editor::from_project(&egui::Context::default(), project);
     editor.toggle_tween(TweenKind::Motion);
     assert_eq!(editor.current_tween(), Some(TweenKind::Motion));
+    editor.select_single_id("clip".into());
     editor
 }
 
@@ -179,7 +180,11 @@ fn ease_panel_edits_the_motion_span_start_from_a_property_key() {
     );
     let before = editor.project.clone();
     assert!(editor.set_tween_easing(&span, Easing::EaseOut));
-    assert_eq!(start_key(&editor).tween, Some(Easing::EaseOut));
+    assert_eq!(
+        start_key(&editor).motion_easing_for("clip"),
+        Easing::EaseOut
+    );
+    assert_eq!(start_key(&editor).tween, Some(Easing::Linear));
     assert_eq!(
         editor.symbol().timeline.layers[0].keyframes[1].frame,
         5,
@@ -194,6 +199,29 @@ fn scenes_duplicate_rename_and_reorder_with_one_undo_each() {
     let root = editor.project.root.clone();
     editor.new_scene();
     editor.switch_scene(&root);
+    let property_pose = sample_layer(&editor.symbol().timeline.layers[0], 5);
+    let start = &mut editor.symbol_mut().timeline.layers[0].keyframes[0];
+    start.ensure_motion_track("clip").easing = Some(Easing::EaseIn);
+    editor.symbol_mut().timeline.layers[0]
+        .keyframes
+        .push(Keyframe {
+            frame: 5,
+            elements: property_pose,
+            tween: Some(Easing::Linear),
+            tween_kind: TweenKind::Motion,
+            keyed_properties: Some(vec![TweenProperty::X]),
+            motion_keys: Some(vec![MotionPropertyKey {
+                element_id: "clip".into(),
+                properties: vec![TweenProperty::X],
+                roving: false,
+            }]),
+            ..Default::default()
+        });
+    editor.symbol_mut().timeline.layers[0]
+        .keyframes
+        .sort_by_key(|key| key.frame);
+    editor.project.upgrade_format_for_features();
+    editor.project.validate().unwrap();
     // Duplicate: inserted after the current scene, fresh IDs, same content, valid.
     let before = editor.project.clone();
     editor.duplicate_scene();
@@ -218,6 +246,23 @@ fn scenes_duplicate_rename_and_reorder_with_one_undo_each() {
     // One element keeps one ID on every keyframe of its layer.
     let copied = ids(copy);
     assert!(copied.windows(2).all(|w| w[0] == w[1]));
+    let copied_id = copied[0].clone();
+    assert_eq!(
+        copy.timeline.layers[0].keyframes[0].motion_tracks[0].element_id,
+        copied_id
+    );
+    assert_eq!(
+        copy.timeline.layers[0]
+            .keyframes
+            .iter()
+            .find(|key| key.frame == 5)
+            .unwrap()
+            .motion_keys
+            .as_ref()
+            .unwrap()[0]
+            .element_id,
+        copied_id
+    );
     assert_eq!(
         sample_layer(&copy.timeline.layers[0], 5)[0].transform,
         sample_layer(&original.timeline.layers[0], 5)[0].transform
@@ -318,6 +363,94 @@ fn motion_editor_adds_and_removes_one_property_key() {
 }
 
 #[test]
+fn motion_editor_follows_one_selected_object_and_keeps_sibling_tracks_independent() {
+    let mut editor = motion_editor();
+    let instance_kind = editor.symbol().timeline.layers[0].keyframes[0].elements[0]
+        .kind
+        .clone();
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(element("satellite", instance_kind, 200.0));
+
+    editor.select_single_id("clip".into());
+    let clip_span = editor.motion_tween_span().expect("selected clip span");
+    assert_eq!(clip_span.motion_element.as_deref(), Some("clip"));
+    editor.set_motion_value(&clip_span, TweenProperty::X, 4, 80.0, None);
+    assert!(editor.set_motion_property_ease(&clip_span, TweenProperty::X, Some(Easing::EaseOut),));
+    editor.set_orient_to_path(&clip_span, true);
+
+    editor.select_single_id("satellite".into());
+    let satellite_span = editor.motion_tween_span().expect("selected satellite span");
+    assert_eq!(satellite_span.motion_element.as_deref(), Some("satellite"));
+    assert_eq!(
+        editor.motion_key_frames(&satellite_span, TweenProperty::X),
+        vec![0],
+        "the clip's X key must not appear on its sibling track"
+    );
+    editor.set_motion_value(&satellite_span, TweenProperty::Rotation, 6, 45.0, None);
+    assert!(editor.set_motion_property_ease(
+        &satellite_span,
+        TweenProperty::Rotation,
+        Some(Easing::EaseIn),
+    ));
+    editor.set_orient_to_path(&satellite_span, false);
+
+    let layer = &editor.symbol().timeline.layers[0];
+    let clip_key = layer.keyframes.iter().find(|key| key.frame == 4).unwrap();
+    let satellite_key = layer.keyframes.iter().find(|key| key.frame == 6).unwrap();
+    assert_eq!(
+        clip_key.motion_key_properties_for("clip"),
+        &[TweenProperty::X]
+    );
+    assert!(clip_key.motion_key_properties_for("satellite").is_empty());
+    assert_eq!(
+        satellite_key.motion_key_properties_for("satellite"),
+        &[TweenProperty::Rotation]
+    );
+    assert!(satellite_key.motion_key_properties_for("clip").is_empty());
+    let start = &layer.keyframes[0];
+    assert_eq!(
+        start.motion_property_ease_for("clip", TweenProperty::X),
+        Easing::EaseOut
+    );
+    assert_eq!(
+        start.motion_property_ease_for("satellite", TweenProperty::Rotation),
+        Easing::EaseIn
+    );
+    assert!(start.motion_orient_to_path_for("clip"));
+    assert!(!start.motion_orient_to_path_for("satellite"));
+    editor.project.validate().unwrap();
+
+    editor.selection.targets.clear();
+    assert!(
+        editor.motion_tween_span().is_none(),
+        "no Stage object selection must never fall back to the first element"
+    );
+    editor.select_single_id("clip".into());
+    let clip_target = editor.selection.targets[0].clone();
+    editor.select_single_id("satellite".into());
+    let satellite_target = editor.selection.targets[0].clone();
+    editor.selection.targets = vec![clip_target, satellite_target];
+    assert!(
+        editor.motion_tween_span().is_none(),
+        "an ambiguous Stage selection must show no object track"
+    );
+
+    let json = editor.project.to_json().unwrap();
+    let restored = Project::from_json(&json).unwrap();
+    restored.validate().unwrap();
+    let start = &restored.symbols[0].timeline.layers[0].keyframes[0];
+    assert_eq!(
+        start.motion_property_ease_for("clip", TweenProperty::X),
+        Easing::EaseOut
+    );
+    assert_eq!(
+        start.motion_property_ease_for("satellite", TweenProperty::Rotation),
+        Easing::EaseIn
+    );
+}
+
+#[test]
 fn motion_tween_properties_bind_rotation_orient_and_path() {
     let mut editor = motion_editor();
     let span = editor.motion_tween_span().unwrap();
@@ -342,10 +475,10 @@ fn motion_tween_properties_bind_rotation_orient_and_path() {
     editor.project.validate().unwrap();
     editor.undo();
     undo_restores(&mut editor, &before);
-    // Orient to path lives on the span start key and needs format 6.
+    // Orient to path lives on the selected object's span track (format 10).
     editor.set_orient_to_path(&span, true);
-    assert!(start_key(&editor).orient_to_path);
-    assert!(editor.project.format_version >= 6);
+    assert!(start_key(&editor).motion_orient_to_path_for("clip"));
+    assert!(editor.project.format_version >= 10);
     editor.project.validate().unwrap();
     let saved = serde_json::to_string(&editor.project).unwrap();
     assert!(saved.contains("\"orient_to_path\":true"));
@@ -449,7 +582,7 @@ fn per_property_eases_and_move_motion_key_with_single_undo() {
     let span = editor.motion_tween_span().unwrap();
     let before_ease = editor.project.clone();
     assert!(editor.set_motion_property_ease(&span, TweenProperty::X, Some(Easing::Bounce)));
-    assert_eq!(editor.project.format_version, 7);
+    assert!(editor.project.format_version >= 10);
     editor.project.validate().unwrap();
     let span = editor.motion_tween_span().unwrap();
     assert_eq!(
@@ -657,9 +790,9 @@ fn classic_orient_and_snap_controls_follow_guide_state_and_commit_one_undo() {
                 let key = start_key(&editor);
                 assert_eq!(
                     if label == "Orient to path" {
-                        key.orient_to_path
+                        key.motion_orient_to_path_for("clip")
                     } else {
-                        key.snap_to_guide
+                        key.motion_snap_to_guide_for("clip")
                     },
                     guided,
                     "{label} bound to document"

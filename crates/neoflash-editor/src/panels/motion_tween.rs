@@ -6,11 +6,11 @@
 //! box is the bounds of the X / Y keys. Edits go through one Undo step (or one per field drag).
 use super::ease::TweenSpan;
 use crate::app::Editor;
+use crate::paint_controls::two_column_row;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Ui};
 use neoflash_core::*;
 use neoflash_ui::components as c;
-use neoflash_ui::tokens::space;
 
 /// Value of a motion property in the units the panels show: px, degrees, or percent for scale,
 /// alpha and brightness/tint colour offset.
@@ -111,11 +111,56 @@ fn ease_amount(easing: Easing) -> (f64, &'static str) {
     }
 }
 
+/// Remove one object's property entry while preserving every other object's entry on the same
+/// physical keyframe. The legacy union remains populated for structural span discovery.
+fn remove_object_motion_property(
+    key: &mut Keyframe,
+    element_id: &str,
+    property: TweenProperty,
+) -> bool {
+    key.materialize_motion_keys();
+    let empty = {
+        let keys = key.motion_keys.as_mut().expect("materialized motion keys");
+        if let Some(object_key) = keys.iter_mut().find(|entry| entry.element_id == element_id) {
+            object_key
+                .properties
+                .retain(|candidate| *candidate != property);
+        }
+        keys.retain(|entry| !entry.properties.is_empty());
+        keys.is_empty()
+    };
+    key.sync_motion_key_union();
+    empty
+}
+
+/// A now-empty generated ◆ may be dropped, but an authored label, sound, accessibility payload,
+/// appearance override, or any future non-motion field keeps the physical keyframe intact.
+fn removable_empty_motion_key(key: &Keyframe) -> bool {
+    let mut payload = key.clone();
+    payload.frame = 0;
+    payload.elements.clear();
+    payload.tween = None;
+    payload.tween_kind = TweenKind::Classic;
+    payload.keyed_properties = None;
+    payload.orient_to_path = false;
+    payload.property_eases.clear();
+    payload.motion_path = None;
+    payload.motion_tracks.clear();
+    payload.motion_keys = None;
+    payload.sync_symbols = false;
+    payload.snap_to_guide = false;
+    payload.classic_rotate_turns = 0;
+    payload.classic_rotate_dir = ClassicRotateDirection::Auto;
+    payload.tween_scale = true;
+    payload.roving = false;
+    payload == Keyframe::default()
+}
+
 impl Editor {
     /// Motion tween span under the playhead on the current layer.
     pub(crate) fn motion_tween_span(&self) -> Option<TweenSpan> {
         self.tween_span()
-            .filter(|span| span.kind == TweenKind::Motion)
+            .filter(|span| span.kind == TweenKind::Motion && span.motion_element.is_some())
     }
 
     fn span_layer(&self, span: &TweenSpan) -> Option<&Layer> {
@@ -139,6 +184,9 @@ impl Editor {
 
     /// Frames keying `property` in the span: the start key, then the ◆ keys that key it.
     pub(crate) fn motion_key_frames(&self, span: &TweenSpan, property: TweenProperty) -> Vec<u32> {
+        let Some(element_id) = span.motion_element.as_deref() else {
+            return vec![];
+        };
         let Some(layer) = self.span_layer(span) else {
             return vec![];
         };
@@ -149,9 +197,7 @@ impl Editor {
                 k.frame == span.start
                     || (k.frame > span.start
                         && k.frame < span.end
-                        && k.keyed_properties
-                            .as_ref()
-                            .is_some_and(|keyed| keyed.contains(&property)))
+                        && k.motion_key_properties_for(element_id).contains(&property))
             })
             .map(|k| k.frame)
             .collect();
@@ -166,6 +212,7 @@ impl Editor {
         property: TweenProperty,
         frame: u32,
     ) -> Option<f64> {
+        let element_id = span.motion_element.as_deref()?;
         let layer = self.span_layer(span)?;
         sample_layer_in_at_fps(
             &self.symbol().timeline,
@@ -173,7 +220,8 @@ impl Editor {
             frame,
             f64::from(self.project.fps),
         )
-        .first()
+        .iter()
+        .find(|element| element.id == element_id)
         .map(|e| to_display(property, transform_property_value(&e.transform, property)))
     }
 
@@ -184,13 +232,15 @@ impl Editor {
         property: TweenProperty,
         frame: u32,
     ) -> Option<f64> {
+        let element_id = span.motion_element.as_deref()?;
         let key = self
             .span_layer(span)?
             .keyframes
             .iter()
             .find(|k| k.frame == frame)?;
         key.elements
-            .first()
+            .iter()
+            .find(|element| element.id == element_id)
             .map(|e| to_display(property, transform_property_value(&e.transform, property)))
     }
 
@@ -219,6 +269,9 @@ impl Editor {
         if frame < span.start || frame >= span.end || !self.layer_editable() {
             return;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return;
+        };
         let value = from_display(property, value);
         let span = span.clone();
         self.motion_edit(control, |s| {
@@ -226,15 +279,18 @@ impl Editor {
                 s.ensure_key_at(&span.layer_id, frame, false);
             }
             if let Some(key) = s.span_key_mut(&span, frame) {
-                for element in &mut key.elements {
+                if let Some(element) = key.elements.iter_mut().find(|e| e.id == element_id) {
                     set_value(&mut element.transform, property, value);
                 }
-                if let Some(keyed) = &mut key.keyed_properties
-                    && !keyed.contains(&property)
-                {
-                    keyed.push(property);
+                if frame != span.start {
+                    let object_key = key.ensure_motion_property_key(&element_id);
+                    if !object_key.properties.contains(&property) {
+                        object_key.properties.push(property);
+                    }
+                    key.sync_motion_key_union();
                 }
             }
+            s.project.upgrade_format_for_features();
         });
     }
 
@@ -249,18 +305,17 @@ impl Editor {
         if frame < span.start || frame >= span.end || !self.layer_editable() {
             return;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return;
+        };
         let keyed = self.motion_key_frames(span, property).contains(&frame);
         let span = span.clone();
         self.finish_edits();
         self.transact(|s| {
             if keyed {
                 let remove = s.span_key_mut(&span, frame).is_some_and(|key| {
-                    if let Some(list) = &mut key.keyed_properties {
-                        list.retain(|p| *p != property);
-                        list.is_empty()
-                    } else {
-                        false
-                    }
+                    remove_object_motion_property(key, &element_id, property)
+                        && removable_empty_motion_key(key)
                 });
                 if remove
                     && let Some(layer) = s
@@ -274,14 +329,15 @@ impl Editor {
                 }
             } else {
                 s.ensure_key_at(&span.layer_id, frame, false);
-                if let Some(list) = s
-                    .span_key_mut(&span, frame)
-                    .and_then(|key| key.keyed_properties.as_mut())
-                    && !list.contains(&property)
-                {
-                    list.push(property);
+                if let Some(key) = s.span_key_mut(&span, frame) {
+                    let object_key = key.ensure_motion_property_key(&element_id);
+                    if !object_key.properties.contains(&property) {
+                        object_key.properties.push(property);
+                    }
+                    key.sync_motion_key_union();
                 }
             }
+            s.project.upgrade_format_for_features();
         });
     }
 
@@ -347,6 +403,9 @@ impl Editor {
         if span.kind != TweenKind::Motion || !self.layer_editable() {
             return false;
         }
+        if span.motion_element.is_none() {
+            return false;
+        }
         let mut next = span.property_eases.clone();
         match easing {
             Some(ease) => {
@@ -380,15 +439,21 @@ impl Editor {
         {
             return None;
         }
+        let element_id = span.motion_element.clone()?;
         let to_frame = to_frame.clamp(span.start + 1, span.end - 1);
-        let source_elements = {
+        let source_element = {
             let layer = self.span_layer(span)?;
             let key = layer.keyframes.iter().find(|k| k.frame == from_frame)?;
-            let keyed = key.keyed_properties.as_ref()?;
-            if !keyed.contains(&property) {
+            if !key
+                .motion_key_properties_for(&element_id)
+                .contains(&property)
+            {
                 return None;
             }
-            key.elements.clone()
+            key.elements
+                .iter()
+                .find(|element| element.id == element_id)?
+                .clone()
         };
         if to_frame == from_frame {
             return Some(from_frame);
@@ -397,37 +462,32 @@ impl Editor {
         self.motion_edit(control, |s| {
             s.ensure_key_at(&span.layer_id, to_frame, false);
             if let Some(target_key) = s.span_key_mut(&span, to_frame) {
-                for element in &mut target_key.elements {
-                    if let Some(src) = source_elements
-                        .iter()
-                        .find(|e| e.id == element.id)
-                        .or_else(|| source_elements.first())
-                    {
-                        match property {
-                            TweenProperty::Color => {
-                                element.transform.color_transform = src.transform.color_transform;
-                            }
-                            _ => set_value(
-                                &mut element.transform,
-                                property,
-                                property_value(&src.transform, property),
-                            ),
+                if let Some(element) = target_key
+                    .elements
+                    .iter_mut()
+                    .find(|element| element.id == element_id)
+                {
+                    match property {
+                        TweenProperty::Color => {
+                            element.transform.color_transform =
+                                source_element.transform.color_transform;
                         }
+                        _ => set_value(
+                            &mut element.transform,
+                            property,
+                            property_value(&source_element.transform, property),
+                        ),
                     }
                 }
-                if let Some(keyed) = &mut target_key.keyed_properties
-                    && !keyed.contains(&property)
-                {
-                    keyed.push(property);
+                let object_key = target_key.ensure_motion_property_key(&element_id);
+                if !object_key.properties.contains(&property) {
+                    object_key.properties.push(property);
                 }
+                target_key.sync_motion_key_union();
             }
             let remove_source = s.span_key_mut(&span, from_frame).is_some_and(|key| {
-                if let Some(list) = &mut key.keyed_properties {
-                    list.retain(|p| *p != property);
-                    list.is_empty()
-                } else {
-                    false
-                }
+                remove_object_motion_property(key, &element_id, property)
+                    && removable_empty_motion_key(key)
             });
             if remove_source
                 && let Some(layer) = s
@@ -439,6 +499,7 @@ impl Editor {
             {
                 layer.keyframes.retain(|k| k.frame != from_frame);
             }
+            s.project.upgrade_format_for_features();
         });
         Some(to_frame)
     }
@@ -449,11 +510,14 @@ impl Editor {
         if !self.layer_editable() {
             return;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return;
+        };
         let span = span.clone();
         self.finish_edits();
         self.transact_named("Sync graphic symbols", |s| {
             if let Some(key) = s.span_key_mut(&span, span.start) {
-                key.sync_symbols = on;
+                key.ensure_motion_track(&element_id).sync_symbols = Some(on);
             }
             if on {
                 let snapshot = s.project.clone();
@@ -464,9 +528,16 @@ impl Editor {
                     .iter_mut()
                     .find(|l| l.id == span.layer_id)
                 {
-                    neoflash_core::sync_layer_symbols(&snapshot, layer, span.start, span.end);
+                    neoflash_core::sync_layer_symbol(
+                        &snapshot,
+                        layer,
+                        span.start,
+                        span.end,
+                        &element_id,
+                    );
                 }
             }
+            s.project.upgrade_format_for_features();
         });
     }
 
@@ -476,6 +547,9 @@ impl Editor {
         if !self.layer_editable() {
             return;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return;
+        };
         let span = span.clone();
         self.finish_edits();
         self.transact_named("Snap to motion guide", |s| {
@@ -500,31 +574,37 @@ impl Editor {
             {
                 for key in &mut layer.keyframes {
                     if key.frame == span.start {
-                        key.snap_to_guide = on;
+                        key.ensure_motion_track(&element_id).snap_to_guide = Some(on);
                     }
                     let keys_xy = key.frame == span.start
-                        || (key.frame > span.start
-                            && key.frame < span.end
-                            && key.keyed_properties.as_ref().is_some_and(|kp| {
-                                kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)
-                            }));
+                        || (key.frame > span.start && key.frame < span.end && {
+                            let kp = key.motion_key_properties_for(&element_id);
+                            kp.contains(&TweenProperty::X) || kp.contains(&TweenProperty::Y)
+                        });
                     if keys_xy && let Some(path) = &guide_path {
-                        for element in &mut key.elements {
+                        if let Some(element) = key
+                            .elements
+                            .iter_mut()
+                            .find(|element| element.id == element_id)
+                        {
                             let snapped = path
                                 .point_at(path.nearest([element.transform.x, element.transform.y]));
                             element.transform.x = snapped[0];
                             element.transform.y = snapped[1];
                         }
-                        if let Some(kp) = &mut key.keyed_properties {
+                        if key.frame != span.start {
+                            let kp = key.ensure_motion_property_key(&element_id);
                             for prop in [TweenProperty::X, TweenProperty::Y] {
-                                if !kp.contains(&prop) {
-                                    kp.push(prop);
+                                if !kp.properties.contains(&prop) {
+                                    kp.properties.push(prop);
                                 }
                             }
+                            key.sync_motion_key_union();
                         }
                     }
                 }
             }
+            s.project.upgrade_format_for_features();
         });
     }
 
@@ -533,12 +613,16 @@ impl Editor {
         if !self.layer_editable() {
             return;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return;
+        };
         let span = span.clone();
         self.finish_edits();
         self.transact(|s| {
             if let Some(key) = s.span_key_mut(&span, span.start) {
-                key.orient_to_path = on;
+                key.ensure_motion_track(&element_id).orient_to_path = Some(on);
             }
+            s.project.upgrade_format_for_features();
         });
     }
 
@@ -552,6 +636,9 @@ impl Editor {
         if span.kind != TweenKind::Motion || !self.layer_editable() {
             return false;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return false;
+        };
         let existing = self.motion_key_frames(span, property);
         let target_frame = if self.frame > span.start && self.frame < span.end {
             self.frame
@@ -567,13 +654,14 @@ impl Editor {
         self.finish_edits();
         self.transact(move |s| {
             s.ensure_key_at(&span.layer_id, target_frame, false);
-            if let Some(list) = s
-                .span_key_mut(&span, target_frame)
-                .and_then(|key| key.keyed_properties.as_mut())
-                && !list.contains(&property)
-            {
-                list.push(property);
+            if let Some(key) = s.span_key_mut(&span, target_frame) {
+                let object_key = key.ensure_motion_property_key(&element_id);
+                if !object_key.properties.contains(&property) {
+                    object_key.properties.push(property);
+                }
+                key.sync_motion_key_union();
             }
+            s.project.upgrade_format_for_features();
         });
         true
     }
@@ -587,20 +675,23 @@ impl Editor {
         if span.kind != TweenKind::Motion || !self.layer_editable() {
             return false;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return false;
+        };
         let Some(start_key) = self
             .span_layer(span)
             .and_then(|l| l.keyframes.iter().find(|k| k.frame == span.start))
         else {
             return false;
         };
-        if start_key.elements.is_empty() {
-            return false;
-        }
-        if start_key
+        let Some(start_element) = start_key
             .elements
             .iter()
-            .any(|e| e.filters.len() >= neoflash_core::MAX_OBJECT_FILTERS)
-        {
+            .find(|element| element.id == element_id)
+        else {
+            return false;
+        };
+        if start_element.filters.len() >= neoflash_core::MAX_OBJECT_FILTERS {
             self.message("An object can have at most 8 filters.");
             return false;
         }
@@ -615,12 +706,15 @@ impl Editor {
                 .find(|l| l.id == span.layer_id)
             {
                 for key in &mut layer.keyframes {
-                    if key.frame >= span.start && key.frame < span.end {
-                        for element in &mut key.elements {
-                            if element.filters.len() < neoflash_core::MAX_OBJECT_FILTERS {
-                                element.filters.push(filter.clone());
-                            }
-                        }
+                    if key.frame >= span.start
+                        && key.frame < span.end
+                        && let Some(element) = key
+                            .elements
+                            .iter_mut()
+                            .find(|element| element.id == element_id)
+                        && element.filters.len() < neoflash_core::MAX_OBJECT_FILTERS
+                    {
+                        element.filters.push(filter.clone());
                     }
                 }
             }
@@ -736,6 +830,9 @@ impl Editor {
         if !self.layer_editable() || !bounds.iter().all(|v| v.is_finite()) {
             return;
         }
+        let Some(element_id) = span.motion_element.clone() else {
+            return;
+        };
         let axes = [
             (TweenProperty::X, old[0], old[2], bounds[0], bounds[2]),
             (TweenProperty::Y, old[1], old[3], bounds[1], bounds[3]),
@@ -758,24 +855,27 @@ impl Editor {
                 } else {
                     1.
                 };
-                if let Some(key) = s.span_key_mut(&span, frame) {
-                    for element in &mut key.elements {
-                        let v = property_value(&element.transform, property);
-                        set_value(
-                            &mut element.transform,
-                            property,
-                            new_min + (v - min) * scale,
-                        );
-                    }
+                if let Some(key) = s.span_key_mut(&span, frame)
+                    && let Some(element) = key
+                        .elements
+                        .iter_mut()
+                        .find(|element| element.id == element_id)
+                {
+                    let v = property_value(&element.transform, property);
+                    set_value(
+                        &mut element.transform,
+                        property,
+                        new_min + (v - min) * scale,
+                    );
                 }
             }
+            s.project.upgrade_format_for_features();
         });
     }
 
     /// Properties — Motion tween sections (moved from the planned preview), shown in the frame
     /// Properties while the playhead is inside a motion tween.
     pub(crate) fn motion_tween_properties(&mut self, ui: &mut Ui, span: &TweenSpan) {
-        let half = (ui.available_width() - space::S2) / 2.0;
         let editable = self.layer_editable();
         ui.add_enabled_ui(editable, |ui| {
             c::SectionHeader::new("Ease")
@@ -812,51 +912,60 @@ impl Editor {
                 .id_salt("motion-tween-rotation")
                 .show(ui, |ui| {
                     let (turns, clockwise) = self.motion_rotation(span);
-                    ui.horizontal(|ui| {
-                        let mut value = turns as f64;
-                        let response = ui.add(
-                            c::Field::new(&mut value, "Rotate")
-                                .prefix("Rotate")
-                                .unit("×")
-                                .decimals(0)
-                                .range(0.0..=1000.0)
-                                .stepper()
-                                .width(half),
-                        );
-                        if response.changed() {
-                            self.set_motion_rotation(
-                                span,
-                                value.round() as u32,
-                                clockwise,
-                                Some(response.id),
-                            );
-                        }
-                        let label = if clockwise {
-                            "Direction: CW"
-                        } else {
-                            "Direction: CCW"
-                        };
-                        let mut picked = None;
-                        c::Select::new("motion-tween-direction", label)
-                            .width(half)
-                            .show(ui, |ui| {
-                                for (cw, name) in [(true, "CW"), (false, "CCW")] {
-                                    if ui
-                                        .add(c::MenuItem::new(name).checked(cw == clockwise))
-                                        .clicked()
-                                    {
-                                        picked = Some(cw);
+                    let mut value = turns as f64;
+                    let mut picked = None;
+                    let label = if clockwise {
+                        "Direction: CW"
+                    } else {
+                        "Direction: CCW"
+                    };
+                    let (response, _) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(&mut value, "Rotate")
+                                    .prefix("Rotate")
+                                    .unit("×")
+                                    .decimals(0)
+                                    .range(0.0..=1000.0)
+                                    .stepper()
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            c::Select::new("motion-tween-direction", label)
+                                .width(width)
+                                .show(ui, |ui| {
+                                    for (cw, name) in [(true, "CW"), (false, "CCW")] {
+                                        if ui
+                                            .add(c::MenuItem::new(name).checked(cw == clockwise))
+                                            .clicked()
+                                        {
+                                            picked = Some(cw);
+                                        }
                                     }
-                                }
-                            });
-                        if let Some(cw) = picked.filter(|cw| *cw != clockwise) {
-                            self.set_motion_rotation(span, turns, cw, None);
-                        }
-                    });
+                                })
+                        },
+                    );
+                    if response.changed() {
+                        self.set_motion_rotation(
+                            span,
+                            value.round() as u32,
+                            clockwise,
+                            Some(response.id),
+                        );
+                    }
+                    if let Some(cw) = picked.filter(|cw| *cw != clockwise) {
+                        self.set_motion_rotation(span, turns, cw, None);
+                    }
                     let mut orient = self
                         .span_layer(span)
                         .and_then(|l| l.keyframes.iter().find(|k| k.frame == span.start))
-                        .is_some_and(|k| k.orient_to_path);
+                        .is_some_and(|k| {
+                            span.motion_element
+                                .as_deref()
+                                .is_some_and(|element_id| k.motion_orient_to_path_for(element_id))
+                        });
                     if ui
                         .add(c::Checkbox::new(&mut orient, "Orient to path"))
                         .changed()
@@ -869,24 +978,57 @@ impl Editor {
                 .show(ui, |ui| {
                     let mut bounds = self.motion_path_bounds(span).unwrap_or_default();
                     let mut control = None;
-                    for (row, labels) in [[0, 1], [2, 3]].into_iter().zip([["X", "Y"], ["W", "H"]])
-                    {
-                        ui.horizontal(|ui| {
-                            for (index, label) in row.into_iter().zip(labels) {
-                                let range = if index < 2 { -1e6..=1e6 } else { 0.0..=1e6 };
-                                let response = ui.add(
-                                    c::Field::new(&mut bounds[index], label)
-                                        .prefix(label)
-                                        .decimals(1)
-                                        .range(range)
-                                        .stepper()
-                                        .width(half),
-                                );
-                                if response.changed() {
-                                    control = Some(response.id);
-                                }
-                            }
-                        });
+                    let [x, y, w, h] = bounds.each_mut();
+                    let (rx, ry) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(x, "X")
+                                    .prefix("X")
+                                    .decimals(1)
+                                    .range(-1e6..=1e6)
+                                    .stepper()
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(y, "Y")
+                                    .prefix("Y")
+                                    .decimals(1)
+                                    .range(-1e6..=1e6)
+                                    .stepper()
+                                    .width(width),
+                            )
+                        },
+                    );
+                    let (rw, rh) = two_column_row(
+                        ui,
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(w, "W")
+                                    .prefix("W")
+                                    .decimals(1)
+                                    .range(0.0..=1e6)
+                                    .stepper()
+                                    .width(width),
+                            )
+                        },
+                        |ui, width| {
+                            ui.add(
+                                c::Field::new(h, "H")
+                                    .prefix("H")
+                                    .decimals(1)
+                                    .range(0.0..=1e6)
+                                    .stepper()
+                                    .width(width),
+                            )
+                        },
+                    );
+                    for response in [rx, ry, rw, rh] {
+                        if response.changed() {
+                            control = Some(response.id);
+                        }
                     }
                     if let Some(control) = control {
                         self.set_motion_path_bounds(span, bounds, Some(control));
@@ -917,8 +1059,16 @@ impl Editor {
                     let start_key = self
                         .span_layer(span)
                         .and_then(|l| l.keyframes.iter().find(|k| k.frame == span.start));
-                    let mut sync = start_key.is_some_and(|k| k.sync_symbols);
-                    let mut snap = start_key.is_some_and(|k| k.snap_to_guide);
+                    let mut sync = start_key.is_some_and(|k| {
+                        span.motion_element
+                            .as_deref()
+                            .is_some_and(|element_id| k.motion_sync_symbols_for(element_id))
+                    });
+                    let mut snap = start_key.is_some_and(|k| {
+                        span.motion_element
+                            .as_deref()
+                            .is_some_and(|element_id| k.motion_snap_to_guide_for(element_id))
+                    });
                     if ui
                         .add(c::Checkbox::new(&mut sync, "Sync graphic symbols"))
                         .changed()

@@ -5,16 +5,13 @@
 //! Fixed sample values; sample artwork / document colours are HSV data, never UI tokens.
 use super::dialog_helpers::group;
 use super::planned::{caption, check, mono, select, stepper, switch, text};
+use crate::paint_controls::two_column_row;
 use eframe::egui::{self, Color32, Ui};
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use neoflash_ui::typography::rich_block;
-
-fn half(ui: &Ui) -> f32 {
-    (ui.available_width() - space::S2) / 2.0
-}
 
 /// Sample planet artwork colour (orange dot in thumbnails / Test Movie).
 fn planet_orange() -> Color32 {
@@ -72,11 +69,11 @@ pub(super) fn graphic_properties(ui: &mut Ui) {
             {
                 ui.add(c::Radio::new(i == 0, label));
             }
-            let w = half(ui);
-            ui.horizontal(|ui| {
-                stepper(ui, 1.0, "First frame", "First", "", 0, w);
-                stepper(ui, 24.0, "Last frame", "Last", "", 0, w);
-            });
+            two_column_row(
+                ui,
+                |ui, width| stepper(ui, 1.0, "First frame", "First", "", 0, width),
+                |ui, width| stepper(ui, 24.0, "Last frame", "Last", "", 0, width),
+            );
             // Frame picker: 36 pt thumbnails on a field strip; the first frame is selected.
             let (strip, _) = ui
                 .allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::hover());

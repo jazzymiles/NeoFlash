@@ -7298,7 +7298,6 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 crate::paint_controls::two_column_row(
                     ui,
-                    80.0,
                     |ui, width| {
                         ui.add_sized(
                             [width, 32.0],
@@ -7319,6 +7318,335 @@ fn text_properties_two_column_grid_aligns_and_reflows_without_clipping() {
     let second = named_bounds(&narrow, "Second field").expect("Second field");
     assert!(second.top() >= first.bottom());
     assert!(first.right() <= 160.5 && second.right() <= 160.5);
+
+    // The Leading unit selector is a real trailing control inside cell two. The
+    // shared 80 pt threshold must not let it push that cell past the form at the
+    // intermediate widths where the row remains two-column.
+    for screen_width in [184.0, 200.0, 239.0] {
+        let mut geometry = None;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(screen_width, 160.0),
+                )),
+                time: Some(6.0 + f64::from(screen_width)),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let form_right = ui.available_rect_before_wrap().right();
+                    let form_width = ui.available_width();
+                    let mut indent = 0.0;
+                    let mut leading = 0.0;
+                    let (indent_response, (leading_response, mode_response)) =
+                        crate::paint_controls::two_column_row(
+                            ui,
+                            |ui, width| {
+                                ui.add(
+                                    neoflash_ui::components::Field::new(&mut indent, "Indent")
+                                        .prefix("Indent")
+                                        .unit("px")
+                                        .width(width),
+                                )
+                            },
+                            |ui, width| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x =
+                                        neoflash_ui::tokens::space::S1;
+                                    let mode_width = 48.0;
+                                    let field_width =
+                                        (width - mode_width - neoflash_ui::tokens::space::S1)
+                                            .max(0.0);
+                                    let field_prefix =
+                                        if field_width >= 56.0 { "Line" } else { "" };
+                                    let field = ui.add(
+                                        neoflash_ui::components::Field::new(
+                                            &mut leading,
+                                            "Leading",
+                                        )
+                                        .prefix(field_prefix)
+                                        .unit("pt")
+                                        .width(field_width),
+                                    );
+                                    let (mode, _) = neoflash_ui::components::Select::new(
+                                        "leading-mode-geometry",
+                                        "pt",
+                                    )
+                                    .width(mode_width)
+                                    .show(ui, |_| {});
+                                    (field, mode)
+                                })
+                                .inner
+                            },
+                        );
+                    geometry = Some((
+                        form_width,
+                        form_right,
+                        indent_response.rect,
+                        leading_response.rect,
+                        mode_response.rect,
+                    ));
+                });
+            },
+        );
+        let (form_width, form_right, indent, leading, mode) = geometry.expect("grid geometry");
+        assert!(
+            (168.0..=223.0).contains(&form_width),
+            "test width must exercise the intermediate two-column range: {form_width}"
+        );
+        assert!(
+            leading.left() >= indent.right() + neoflash_ui::tokens::space::S2 - 0.5,
+            "Leading must start on the common second-column axis at {form_width} pt"
+        );
+        assert!(
+            leading.right() <= mode.left() + 0.5 && mode.right() <= form_right + 0.5,
+            "Leading and its unit selector overflow cell two at {form_width} pt: {leading:?}, {mode:?}, right={form_right}"
+        );
+    }
+}
+
+#[test]
+fn shared_form_grid_aligns_color_and_trailing_action_without_shifting_columns() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut numeric_rects = None;
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 440.0))),
+            time: Some(1.0),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::paint_controls::two_column_row(
+                    ui,
+                    |ui, width| {
+                        ui.add_sized(
+                            [width, crate::theme::control_h()],
+                            neoflash_ui::components::Button::new("Axis left one"),
+                        )
+                    },
+                    |ui, width| {
+                        ui.add_sized(
+                            [width, crate::theme::control_h()],
+                            neoflash_ui::components::Button::new("Axis right one"),
+                        )
+                    },
+                );
+                crate::paint_controls::two_column_row(
+                    ui,
+                    |ui, width| {
+                        ui.add_sized(
+                            [width, crate::theme::control_h()],
+                            neoflash_ui::components::Button::new("Axis left two"),
+                        )
+                    },
+                    |ui, width| {
+                        ui.add_sized(
+                            [width, crate::theme::control_h()],
+                            neoflash_ui::components::Button::new("Axis right two"),
+                        )
+                    },
+                );
+
+                let mut plain_left = 10.0;
+                let mut plain_right = 20.0;
+                let plain = ui
+                    .push_id("plain-grid-row", |ui| {
+                        crate::paint_controls::numeric_pair(
+                            ui,
+                            ["Left", "Right"],
+                            [&mut plain_left, &mut plain_right],
+                            -1000.0..=1000.0,
+                            1.0,
+                        )
+                    })
+                    .inner;
+                let mut linked_left = 30.0;
+                let mut linked_right = 40.0;
+                let (linked, link) = ui
+                    .push_id("linked-grid-row", |ui| {
+                        crate::paint_controls::numeric_pair_with_trailing(
+                            ui,
+                            ["Left", "Right"],
+                            [&mut linked_left, &mut linked_right],
+                            -1000.0..=1000.0,
+                            1.0,
+                            "",
+                            (crate::theme::control_h(), |ui| {
+                                ui.add(neoflash_ui::components::IconButton::new(
+                                    neoflash_ui::icons::i16::LINK,
+                                    "Link paired values",
+                                ))
+                            }),
+                        )
+                    })
+                    .inner;
+                numeric_rects = Some((
+                    [plain[0].rect, plain[1].rect],
+                    [linked[0].rect, linked[1].rect],
+                    link.rect,
+                ));
+
+                let mut color = [24, 80, 160, 192];
+                crate::paint_controls::color_row(
+                    ui,
+                    "shared-grid-test-color",
+                    "",
+                    "Grid color",
+                    &mut color,
+                );
+            });
+        },
+    );
+
+    let right_one = named_bounds(&output, "Axis right one").expect("first grid row");
+    let right_two = named_bounds(&output, "Axis right two").expect("second grid row");
+    let (plain, linked, link) = numeric_rects.expect("numeric grid geometry");
+    let swatch = named_bounds(&output, "Grid color color").expect("color swatch");
+    let hex = named_bounds(&output, "Grid color hex").expect("color hex field");
+    let alpha = named_bounds(&output, "Grid color alpha").expect("color alpha field");
+
+    let second_axis = right_one.left();
+    assert!(
+        (right_two.left() - second_axis).abs() <= 1.0,
+        "second grid row shifted the shared second-column axis: {right_two:?}, axis={second_axis}"
+    );
+    assert!(
+        (plain[0].width() - linked[0].width()).abs() <= 1.0,
+        "a trailing action must not narrow the first cell"
+    );
+    assert!(
+        (plain[1].left() - linked[1].left()).abs() <= 1.0,
+        "a trailing action must not shift the second-column origin"
+    );
+    assert!(
+        linked[1].width() + 1.0 < plain[1].width(),
+        "Link must reserve width only inside the second cell"
+    );
+    assert!(
+        link.left() >= linked[1].right() - 0.5,
+        "Link must remain after its second-cell field"
+    );
+    assert!(
+        swatch.right() <= hex.left() + 0.5
+            && hex.right() <= alpha.left() + 0.5
+            && (swatch.center().y - hex.center().y).abs() <= 1.0
+            && (hex.center().y - alpha.center().y).abs() <= 1.0,
+        "color row must keep swatch + hex in cell one and alpha in cell two"
+    );
+}
+
+#[test]
+fn editor_form_sources_reject_new_ad_hoc_half_width_pairs() {
+    const SOURCES: &[(&str, &str)] = &[
+        ("paint_controls.rs", include_str!("paint_controls.rs")),
+        ("panels/properties.rs", include_str!("panels/properties.rs")),
+        ("text_boxes.rs", include_str!("text_boxes.rs")),
+        ("authoring_modify.rs", include_str!("authoring_modify.rs")),
+        ("authoring_tools.rs", include_str!("authoring_tools.rs")),
+        ("panels/filters.rs", include_str!("panels/filters.rs")),
+        (
+            "panels/motion_tween.rs",
+            include_str!("panels/motion_tween.rs"),
+        ),
+        (
+            "panels/motion_editor.rs",
+            include_str!("panels/motion_editor.rs"),
+        ),
+        ("panels/info.rs", include_str!("panels/info.rs")),
+        (
+            "panels/accessibility.rs",
+            include_str!("panels/accessibility.rs"),
+        ),
+        (
+            "panels/properties_sound.rs",
+            include_str!("panels/properties_sound.rs"),
+        ),
+        (
+            "panels/sound_properties.rs",
+            include_str!("panels/sound_properties.rs"),
+        ),
+        (
+            "panels/live_planned.rs",
+            include_str!("panels/live_planned.rs"),
+        ),
+        (
+            "panels/planned_drawing.rs",
+            include_str!("panels/planned_drawing.rs"),
+        ),
+        (
+            "panels/planned_documents.rs",
+            include_str!("panels/planned_documents.rs"),
+        ),
+        (
+            "panels/planned_color.rs",
+            include_str!("panels/planned_color.rs"),
+        ),
+    ];
+    // The shared grid must divide its own available width. The other exception
+    // is the intentionally asymmetric Symbol behavior + Edit/Duplicate action row.
+    const EXACT_EXCEPTIONS: &[(&str, &str)] = &[
+        (
+            "paint_controls.rs",
+            "let width = (ui.available_width() - gap) / 2.0;",
+        ),
+        (
+            "panels/properties.rs",
+            "let half = ((ui.available_width() - space::S2) / 2.0).max(60.0);",
+        ),
+        ("panels/properties.rs", ".width(half)"),
+    ];
+
+    let mut exception_hits = vec![0usize; EXACT_EXCEPTIONS.len()];
+    let mut violations = Vec::new();
+    for &(path, source) in SOURCES {
+        let lines: Vec<_> = source.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            let manual_half = (trimmed.contains("available_width()")
+                && (trimmed.contains("/ 2.") || trimmed.contains("* 0.5")))
+                || trimmed.contains(".width(half)")
+                || trimmed.contains(".width(hw)")
+                || trimmed.contains("let hw = half(ui)")
+                || trimmed.starts_with("fn half(ui");
+            if !manual_half {
+                continue;
+            }
+
+            let mut exact = false;
+            for (slot, &(exception_path, exception_line)) in EXACT_EXCEPTIONS.iter().enumerate() {
+                if path == exception_path && trimmed == exception_line {
+                    exception_hits[slot] += 1;
+                    exact = true;
+                    break;
+                }
+            }
+            if exact {
+                continue;
+            }
+
+            let context_start = index.saturating_sub(16);
+            let explicitly_documented = lines[context_start..=index]
+                .iter()
+                .any(|line| line.contains("FORM_GRID_EXCEPTION"));
+            if !explicitly_documented {
+                violations.push(format!("{path}:{}: {trimmed}", index + 1));
+            }
+        }
+    }
+
+    assert_eq!(
+        exception_hits,
+        vec![1; EXACT_EXCEPTIONS.len()],
+        "named grid exceptions must stay narrow and reviewable"
+    );
+    assert!(
+        violations.is_empty(),
+        "paired form values must use paint_controls::two_column_row; mark only intentional action/3–4-column compositions with FORM_GRID_EXCEPTION:\n{}",
+        violations.join("\n")
+    );
 }
 
 #[test]

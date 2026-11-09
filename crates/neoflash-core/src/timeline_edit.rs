@@ -276,17 +276,73 @@ fn subdivide_single_ease(ease: Easing, t0: f64, t1: f64) -> Option<Easing> {
     }
 }
 
-fn subdivide_motion_eases(
-    first_key: &Keyframe,
-    t0: f64,
-    t1: f64,
-) -> Option<(Easing, Vec<(TweenProperty, Easing)>)> {
+type SubdividedMotionEases = (
+    Easing,
+    Vec<(TweenProperty, Easing)>,
+    Vec<MotionTrackOverride>,
+);
+
+fn subdivide_motion_eases(first_key: &Keyframe, t0: f64, t1: f64) -> Option<SubdividedMotionEases> {
     let base = subdivide_single_ease(first_key.tween?, t0, t1)?;
     let mut prop_eases = Vec::with_capacity(first_key.property_eases.len());
     for &(prop, ease) in &first_key.property_eases {
         prop_eases.push((prop, subdivide_single_ease(ease, t0, t1)?));
     }
-    Some((base, prop_eases))
+    let mut tracks = first_key.motion_tracks.clone();
+    for track in &mut tracks {
+        if let Some(ease) = track.easing {
+            track.easing = Some(subdivide_single_ease(ease, t0, t1)?);
+        }
+        if let Some(property_eases) = &mut track.property_eases {
+            for (_, ease) in property_eases {
+                *ease = subdivide_single_ease(*ease, t0, t1)?;
+            }
+        }
+    }
+    Some((base, prop_eases, tracks))
+}
+
+fn has_object_motion_path(key: &Keyframe) -> bool {
+    key.motion_path.is_some()
+        || key
+            .motion_tracks
+            .iter()
+            .any(|track| matches!(track.motion_path, Some(MotionPathOverride::Path { .. })))
+}
+
+fn has_noninvertible_motion_ease(key: &Keyframe) -> bool {
+    matches!(key.tween, Some(Easing::Bounce | Easing::Elastic))
+        || key
+            .property_eases
+            .iter()
+            .any(|(_, ease)| matches!(ease, Easing::Bounce | Easing::Elastic))
+        || key.motion_tracks.iter().any(|track| {
+            matches!(track.easing, Some(Easing::Bounce | Easing::Elastic))
+                || track.property_eases.as_ref().is_some_and(|property_eases| {
+                    property_eases
+                        .iter()
+                        .any(|(_, ease)| matches!(ease, Easing::Bounce | Easing::Elastic))
+                })
+        })
+}
+
+fn has_object_motion_timing(layer: &Layer, start_idx: usize, end_frame: u32) -> bool {
+    let start = &layer.keyframes[start_idx];
+    start.motion_tracks.iter().any(|track| {
+        track.easing.is_some_and(|ease| ease != Easing::Linear)
+            || track.property_eases.as_ref().is_some_and(|property_eases| {
+                property_eases
+                    .iter()
+                    .any(|(_, ease)| *ease != Easing::Linear)
+            })
+    }) || layer.keyframes[start_idx + 1..]
+        .iter()
+        .take_while(|key| key.frame < end_frame && key.keyed_properties.is_some())
+        .any(|key| {
+            key.motion_keys
+                .as_ref()
+                .is_some_and(|object_keys| object_keys.iter().any(|object_key| object_key.roving))
+        })
 }
 
 /// Subdivide a classic tween `[first, last]` onto `[sub_start, sub_end]`, returning
@@ -566,7 +622,15 @@ fn isolate_range_impl(
                     && first_key
                         .property_eases
                         .iter()
-                        .all(|(_, e)| *e == Easing::Linear);
+                        .all(|(_, e)| *e == Easing::Linear)
+                    && first_key.motion_tracks.iter().all(|track| {
+                        track.easing.is_none_or(|ease| ease == Easing::Linear)
+                            && track.property_eases.as_ref().is_none_or(|property_eases| {
+                                property_eases
+                                    .iter()
+                                    .all(|(_, ease)| *ease == Easing::Linear)
+                            })
+                    });
                 let span_len = (end_frame - first).max(1) as f64;
                 let can_subdivide_nonlinear = !all_linear
                     && !bake_interior
@@ -589,7 +653,8 @@ fn isolate_range_impl(
                         .is_some());
                 if (all_linear || can_subdivide_nonlinear)
                     && original.properties.motion_guide.is_none()
-                    && first_key.motion_path.is_none()
+                    && !has_object_motion_path(first_key)
+                    && !has_object_motion_timing(&original, start_idx, end_frame)
                 {
                     let mut replacement = Vec::new();
                     if first < cut_start {
@@ -599,6 +664,9 @@ fn isolate_range_impl(
                             k.tween = None;
                             k.tween_kind = TweenKind::Classic;
                             k.property_eases.clear();
+                            k.motion_tracks.clear();
+                            k.motion_keys = None;
+                            k.motion_path = None;
                             k.sync_symbols = false;
                             k.snap_to_guide = false;
                             k.orient_to_path = false;
@@ -606,14 +674,16 @@ fn isolate_range_impl(
                         } else {
                             let mut left_start = first_key.clone();
                             if !all_linear
-                                && let Some((sub_tween, sub_props)) = subdivide_motion_eases(
-                                    first_key,
-                                    0.0,
-                                    (cut_start - first) as f64 / span_len,
-                                )
+                                && let Some((sub_tween, sub_props, sub_tracks)) =
+                                    subdivide_motion_eases(
+                                        first_key,
+                                        0.0,
+                                        (cut_start - first) as f64 / span_len,
+                                    )
                             {
                                 left_start.tween = Some(sub_tween);
                                 left_start.property_eases = sub_props;
+                                left_start.motion_tracks = sub_tracks;
                             }
                             replacement.push(left_start.clone());
                             for k in &original.keyframes[start_idx + 1..] {
@@ -637,6 +707,29 @@ fn isolate_range_impl(
                             end_prop.tween = left_start.tween;
                             end_prop.tween_kind = TweenKind::Motion;
                             end_prop.keyed_properties = Some(TweenProperty::ALL.to_vec());
+                            if original.keyframes[start_idx + 1..]
+                                .iter()
+                                .take_while(|key| {
+                                    key.frame < end_frame && key.keyed_properties.is_some()
+                                })
+                                .any(|key| key.motion_keys.is_some())
+                            {
+                                end_prop.motion_keys = Some(
+                                    end_prop
+                                        .elements
+                                        .iter()
+                                        .map(|element| MotionPropertyKey {
+                                            element_id: element.id.clone(),
+                                            properties: TweenProperty::ALL.to_vec(),
+                                            roving: false,
+                                        })
+                                        .collect(),
+                                );
+                            } else {
+                                end_prop.motion_keys = None;
+                            }
+                            end_prop.motion_tracks.clear();
+                            end_prop.motion_path = None;
                             end_prop.property_eases.clear();
                             end_prop.sync_symbols = false;
                             end_prop.snap_to_guide = false;
@@ -667,21 +760,27 @@ fn isolate_range_impl(
                             {
                                 right_start.sound = old.sound.clone();
                             }
-                            let (right_tween, right_props) = if !all_linear
-                                && let Some((sub_t, sub_p)) = subdivide_motion_eases(
+                            let (right_tween, right_props, right_tracks) = if !all_linear
+                                && let Some((sub_t, sub_p, sub_tracks)) = subdivide_motion_eases(
                                     first_key,
                                     (cut_end - first) as f64 / span_len,
                                     1.0,
                                 ) {
-                                (Some(sub_t), sub_p)
+                                (Some(sub_t), sub_p, sub_tracks)
                             } else {
-                                (first_key.tween, first_key.property_eases.clone())
+                                (
+                                    first_key.tween,
+                                    first_key.property_eases.clone(),
+                                    first_key.motion_tracks.clone(),
+                                )
                             };
                             right_start.tween = right_tween;
                             right_start.tween_kind = TweenKind::Motion;
                             right_start.keyed_properties = None;
                             right_start.orient_to_path = first_key.orient_to_path;
                             right_start.property_eases = right_props;
+                            right_start.motion_tracks = right_tracks;
+                            right_start.motion_keys = None;
                             right_start.sync_symbols = first_key.sync_symbols;
                             right_start.snap_to_guide = first_key.snap_to_guide;
                             replacement.push(right_start);
@@ -949,6 +1048,18 @@ fn paste_rows(
         for key in &source.keyframes {
             let mut key = key.clone();
             key.frame += at;
+            for track in &mut key.motion_tracks {
+                if let Some(id) = remap.get(&track.element_id) {
+                    track.element_id = id.clone();
+                }
+            }
+            if let Some(object_keys) = &mut key.motion_keys {
+                for object_key in object_keys {
+                    if let Some(id) = remap.get(&object_key.element_id) {
+                        object_key.element_id = id.clone();
+                    }
+                }
+            }
             for element in &mut key.elements {
                 if let Some(id) = remap.get(&element.id) {
                     element.id = id.clone();
@@ -1034,12 +1145,35 @@ pub fn sync_layer_symbols(project: &Project, layer: &mut Layer, start: u32, end:
         .filter(|s| s.kind == SymbolKind::Graphic)
         .map(|s| (s.id.clone(), s.timeline.frame_count.max(1)))
         .collect();
-    sync_symbols(layer, start, end, &graphics)
+    sync_symbols(layer, start, end, &graphics, None)
+}
+
+/// Synchronize one graphic symbol placement without changing sibling instances on the layer.
+pub fn sync_layer_symbol(
+    project: &Project,
+    layer: &mut Layer,
+    start: u32,
+    end: u32,
+    element_id: &str,
+) -> usize {
+    let graphics: HashMap<Id, u32> = project
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Graphic)
+        .map(|symbol| (symbol.id.clone(), symbol.timeline.frame_count.max(1)))
+        .collect();
+    sync_symbols(layer, start, end, &graphics, Some(element_id))
 }
 
 /// Synchronise symbols on one layer: keyframes in `start..=end` (in frame order) continue the
 /// graphic instances of the keyframe before each of them. Returns the number of changed instances.
-fn sync_symbols(layer: &mut Layer, start: u32, end: u32, graphics: &HashMap<Id, u32>) -> usize {
+fn sync_symbols(
+    layer: &mut Layer,
+    start: u32,
+    end: u32,
+    graphics: &HashMap<Id, u32>,
+    target_element: Option<&str>,
+) -> usize {
     layer.keyframes.sort_by_key(|key| key.frame);
     let mut changed = 0;
     for index in 1..layer.keyframes.len() {
@@ -1050,6 +1184,9 @@ fn sync_symbols(layer: &mut Layer, start: u32, end: u32, graphics: &HashMap<Id, 
         let previous = layer.keyframes[index - 1].clone();
         for element_index in 0..layer.keyframes[index].elements.len() {
             let element = &layer.keyframes[index].elements[element_index];
+            if target_element.is_some_and(|target| element.id != target) {
+                continue;
+            }
             let ElementKind::Instance {
                 symbol_id,
                 playback,
@@ -1061,13 +1198,25 @@ fn sync_symbols(layer: &mut Layer, start: u32, end: u32, graphics: &HashMap<Id, 
                 continue;
             };
             let instance = |e: &&Element| matches!(&e.kind, ElementKind::Instance { symbol_id: s, .. } if s == symbol_id);
-            let Some(before) = previous
+            let exact_before = previous
                 .elements
                 .iter()
                 .filter(instance)
-                .find(|e| e.id == element.id)
-                .or_else(|| previous.elements.iter().find(instance))
-            else {
+                .find(|candidate| candidate.id == element.id);
+            let Some(before) = exact_before.or_else(|| {
+                if target_element.is_some() {
+                    let ordinal = layer.keyframes[index].elements[..=element_index]
+                        .iter()
+                        .filter(|candidate| {
+                            matches!(&candidate.kind, ElementKind::Instance { symbol_id: candidate_symbol, .. } if candidate_symbol == symbol_id)
+                        })
+                        .count()
+                        .saturating_sub(1);
+                    previous.elements.iter().filter(instance).nth(ordinal)
+                } else {
+                    previous.elements.iter().find(instance)
+                }
+            }) else {
                 continue;
             };
             let ElementKind::Instance {
@@ -1146,7 +1295,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             for index in layer_indices(timeline, &range.layers)? {
                 let mut layer = timeline.layers[index].clone();
                 let old_end = layer.properties.end_frame.unwrap_or(0);
-                if layer.keyframes.iter().any(|k| k.motion_path.is_some()) {
+                if layer.keyframes.iter().any(has_object_motion_path) {
                     isolate_range(timeline, &mut layer, range.start, end, &mut budget, fps)?;
                     split(timeline, &mut layer, end, fps);
                 } else if end < old_end
@@ -1303,20 +1452,20 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 // chords or play Bounce/Elastic ease-out forward instead of time-reversed.
                 let mut bake_ranges: Vec<(u32, u32)> = Vec::new();
                 for (i, key) in layer.keyframes.iter().enumerate() {
-                    let has_non_invertible_ease =
-                        matches!(key.tween, Some(Easing::Bounce | Easing::Elastic))
-                            || key
-                                .property_eases
+                    let has_explicit_object_data = key.tween_kind == TweenKind::Motion
+                        && (!key.motion_tracks.is_empty()
+                            || layer.keyframes[i + 1..]
                                 .iter()
-                                .any(|(_, ease)| matches!(ease, Easing::Bounce | Easing::Elastic));
-                    if key.motion_path.is_some() {
+                                .take_while(|candidate| candidate.keyed_properties.is_some())
+                                .any(|candidate| candidate.motion_keys.is_some()));
+                    if has_object_motion_path(key) || has_explicit_object_data {
                         if let Some((_, _, span_end)) = motion_span(&layer, key.frame) {
                             let span_end = span_end.unwrap_or(last);
                             if key.frame < last && span_end > range.start {
                                 bake_ranges.push((key.frame, span_end));
                             }
                         }
-                    } else if has_non_invertible_ease {
+                    } else if has_noninvertible_motion_ease(key) {
                         let span_end = if key.tween_kind == TweenKind::Motion {
                             motion_span(&layer, key.frame)
                                 .and_then(|(_, _, end)| end)
@@ -1367,6 +1516,9 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     {
                         key.elements = sample_layer_in_at_fps(timeline, &original, key.frame, fps);
                         key.tween_kind = TweenKind::Classic;
+                        key.motion_keys = None;
+                        key.motion_tracks.clear();
+                        key.motion_path = None;
                     }
                     let (source_tween, source_kind, source_hints) =
                         &span_sources[if i == 0 { count - 1 } else { i - 1 }];
@@ -1467,6 +1619,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     range.start,
                     range.end,
                     &graphics,
+                    None,
                 );
             }
             if changed == 0 {

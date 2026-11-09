@@ -12,7 +12,7 @@ Use a Rust workspace with independent core, script, import, desktop, WebAssembly
 
 Keep generated files out of source control. Do not nest versioned project copies. Keep user-provided legacy files local unless publication rights and intent are separately established.
 
-Format evolution remains additive: optional fields are omitted when unused and feature detection upgrades the document only when needed. Spatial motion curves use format 8 (`Keyframe.motion_path`); their arc-length evaluation stays in Rust for native/HTML5 consistency. Range edits and XFL export may sample curves into frame poses, an explicit editable-geometry boundary.
+Format evolution remains additive: optional fields are omitted when unused and feature detection upgrades the document only when needed. Spatial motion curves use format 8 (`Keyframe.motion_path`); format 10 adds sparse stable-ID object overrides (`motion_tracks`, `motion_keys`) while absence preserves the exact shared-path/broadcast result. Arc-length evaluation stays in Rust for native/HTML5/Lottie consistency. Range edits and XFL export may sample curves into frame poses, an explicit editable-geometry boundary.
 
 ## Consequences
 

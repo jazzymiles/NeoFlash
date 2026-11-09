@@ -60,11 +60,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=9) {
+    if !matches!(project.format_version, 1..=10) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 9",
+                "unsupported version {}; supported versions are 1 through 10",
                 project.format_version
             ),
         );
@@ -94,6 +94,13 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
         add(
             "format_version".into(),
             "painted-alpha/luminance or inverted timeline masks and per-resource audio export settings require document version 9".into(),
+        );
+    }
+    if project.uses_format_10() && project.format_version < 10 {
+        add(
+            "format_version".into(),
+            "object-scoped Motion Tween tracks and property keys require document version 10"
+                .into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -973,6 +980,171 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             "motion path exceeds the supported curve sampling limits".into(),
                         );
                     }
+                }
+                if !key.motion_tracks.is_empty() {
+                    if !(key.tween.is_some()
+                        && key.tween_kind == TweenKind::Motion
+                        && key.keyed_properties.is_none()
+                        && !key.elements.is_empty())
+                    {
+                        add(
+                            format!("{kp}.motion_tracks"),
+                            "object Motion settings require a nonempty motion tween start keyframe"
+                                .into(),
+                        );
+                    }
+                    let mut track_ids = HashSet::new();
+                    for (ti, track) in key.motion_tracks.iter().enumerate() {
+                        let tp = format!("{kp}.motion_tracks[{ti}]");
+                        if track.element_id.is_empty()
+                            || !key
+                                .elements
+                                .iter()
+                                .any(|element| element.id == track.element_id)
+                            || !track_ids.insert(track.element_id.as_str())
+                        {
+                            add(
+                                format!("{tp}.element_id"),
+                                "motion track element_id must uniquely reference an element on the start keyframe"
+                                    .into(),
+                            );
+                        }
+                        if let Some(ease) = track.easing {
+                            check_easing(ease, format!("{tp}.easing"), &mut add);
+                        }
+                        if let Some(property_eases) = &track.property_eases {
+                            let mut seen_props = HashSet::new();
+                            for (pi, &(property, ease)) in property_eases.iter().enumerate() {
+                                if !seen_props.insert(property) {
+                                    add(
+                                        format!("{tp}.property_eases[{pi}]"),
+                                        "duplicate property in object property_eases".into(),
+                                    );
+                                }
+                                check_easing(ease, format!("{tp}.property_eases[{pi}]"), &mut add);
+                            }
+                        }
+                        if let Some(MotionPathOverride::Path { commands }) = &track.motion_path {
+                            let pp = format!("{tp}.motion_path.commands");
+                            if commands.len() < 2
+                                || !matches!(commands.first(), Some(PathCommand::MoveTo { .. }))
+                                || commands[1..].iter().any(|command| {
+                                    !matches!(
+                                        command,
+                                        PathCommand::LineTo { .. } | PathCommand::CubicTo { .. }
+                                    )
+                                })
+                            {
+                                add(
+                                    pp.clone(),
+                                    "an object motion path must be one open MoveTo followed by LineTo/CubicTo segments"
+                                        .into(),
+                                );
+                            }
+                            if let Err(error) = validate_path_commands(commands) {
+                                add(pp.clone(), error.to_string());
+                            } else if motion_path_polyline(commands).is_none() {
+                                add(
+                                    pp,
+                                    "object motion path exceeds the supported curve sampling limits"
+                                        .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                if let Some(object_keys) = &key.motion_keys {
+                    let span_start = motion_span(layer, key.frame).map(|(start, _, _)| start);
+                    if key.keyed_properties.is_none() || span_start.is_none() {
+                        add(
+                            format!("{kp}.motion_keys"),
+                            "object Motion property keys are only valid on a property keyframe inside a motion tween"
+                                .into(),
+                        );
+                    }
+                    if key.roving {
+                        add(
+                            format!("{kp}.roving"),
+                            "legacy roving must be false when object Motion property keys are explicit"
+                                .into(),
+                        );
+                    }
+                    let mut object_ids = HashSet::new();
+                    let mut union = HashSet::new();
+                    for (oi, object_key) in object_keys.iter().enumerate() {
+                        let op = format!("{kp}.motion_keys[{oi}]");
+                        let exists_on_key = key
+                            .elements
+                            .iter()
+                            .any(|element| element.id == object_key.element_id);
+                        let exists_on_start = span_start.is_some_and(|start| {
+                            start
+                                .elements
+                                .iter()
+                                .any(|element| element.id == object_key.element_id)
+                        });
+                        if object_key.element_id.is_empty()
+                            || !exists_on_key
+                            || !exists_on_start
+                            || !object_ids.insert(object_key.element_id.as_str())
+                        {
+                            add(
+                                format!("{op}.element_id"),
+                                "motion property key element_id must uniquely reference the same object on the span start and property key"
+                                    .into(),
+                            );
+                        }
+                        if object_key.properties.is_empty() {
+                            add(
+                                format!("{op}.properties"),
+                                "an object Motion property key must key at least one property"
+                                    .into(),
+                            );
+                        }
+                        let mut properties = HashSet::new();
+                        for property in &object_key.properties {
+                            union.insert(*property);
+                            if !properties.insert(*property) {
+                                add(
+                                    format!("{op}.properties"),
+                                    "an object Motion property key cannot repeat a property".into(),
+                                );
+                            }
+                        }
+                        if object_key.roving
+                            && !object_key.properties.contains(&TweenProperty::X)
+                            && !object_key.properties.contains(&TweenProperty::Y)
+                        {
+                            add(
+                                format!("{op}.roving"),
+                                "roving requires an X or Y property key for the same object".into(),
+                            );
+                        }
+                    }
+                    let structural: HashSet<_> = key
+                        .keyed_properties
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .copied()
+                        .collect();
+                    if structural != union {
+                        add(
+                            format!("{kp}.keyed_properties"),
+                            "keyed_properties must equal the union of object Motion property keys"
+                                .into(),
+                        );
+                    }
+                } else if key.roving
+                    && !(key.keyed_properties.as_ref().is_some_and(|properties| {
+                        properties.contains(&TweenProperty::X)
+                            || properties.contains(&TweenProperty::Y)
+                    }) && motion_span(layer, key.frame).is_some())
+                {
+                    add(
+                        format!("{kp}.roving"),
+                        "roving requires an X or Y property key inside a motion tween".into(),
+                    );
                 }
                 if !key.shape_hints.is_empty() {
                     if !(key.tween.is_some() && key.tween_kind == TweenKind::Shape) {

@@ -1,6 +1,7 @@
 //! Accessibility panel (NF2 reference `panels/*/png/panels-more-2.png`): expose the selected object
 //! to assistive technology in HTML5 with a name, description, role and reading order.
 use crate::app::{Editor, ScriptTarget};
+use crate::paint_controls::two_column_row;
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::workspace::PanelId;
 use eframe::egui;
@@ -108,22 +109,23 @@ impl Editor {
                     ui.add(nf::TextArea::new(&mut data.description, "Description").hint("Optional description").rows(3).char_limit(DESCRIPTION_LIMIT));
                 });
                 nf::SectionHeader::new("Keyboard and role").id_salt("accessibility-keyboard").show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = space::S2;
-                        let half = ((ui.available_width() - space::S2) / 2.).max(80.);
-                        let role = match data.role { AccessibleRole::Button => "Role: Button", AccessibleRole::Image => "Role: Image" };
-                        nf::Select::new("accessible_role", role).width(half).show(ui, |ui| {
+                    let mut role = data.role;
+                    let mut order = data.tab_order as f64;
+                    two_column_row(ui, |ui, width| {
+                        let label = match role { AccessibleRole::Button => "Role: Button", AccessibleRole::Image => "Role: Image" };
+                        nf::Select::new("accessible_role", label).width(width).show(ui, |ui| {
                             for (value, label) in [(AccessibleRole::Button, "Button"), (AccessibleRole::Image, "Image")] {
-                                if ui.add(nf::MenuItem::new(label).checked(data.role == value)).clicked() {
-                                    data.role = value;
+                                if ui.add(nf::MenuItem::new(label).checked(role == value)).clicked() {
+                                    role = value;
                                 }
                             }
-                        });
-                        let mut order = data.tab_order as f64;
-                        let field = ui.add(nf::Field::new(&mut order, "Read order").prefix("Tab").stepper().range(0.0..=10000.0).width(half));
+                        }).0
+                    }, |ui, width| {
+                        let field = ui.add(nf::Field::new(&mut order, "Read order").prefix("Tab").stepper().range(0.0..=10000.0).width(width));
                         nf::tooltip(field, "Reading and keyboard focus order", None);
-                        data.tab_order = order.round().clamp(0., 10000.) as u32;
                     });
+                    data.role = role;
+                    data.tab_order = order.round().clamp(0., 10000.) as u32;
                     if data.role == AccessibleRole::Button {
                         ui.add(nf::Checkbox::new(&mut data.disabled, "Disabled"));
                         if ui.add(nf::Button::new("Edit Click action").icon(i16::CODE)).clicked() {

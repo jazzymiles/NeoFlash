@@ -123,6 +123,7 @@ fn motion_tween_keys_only_the_properties_an_edit_changes() {
     let layer = &editor.symbol().timeline.layers[0];
     let key = layer.keyframes.iter().find(|k| k.frame == 5).unwrap();
     assert_eq!(key.keyed_properties, Some(vec![TweenProperty::X]));
+    assert_eq!(key.motion_key_properties_for("clip"), &[TweenProperty::X]);
     assert_eq!(sample_layer(layer, 2)[0].transform.x, 20.);
     assert_eq!(sample_layer(layer, 9)[0].transform.x, 50.);
     // F6 inside the span keys every property.
@@ -137,6 +138,8 @@ fn motion_tween_keys_only_the_properties_an_edit_changes() {
         key.keyed_properties.as_ref().unwrap().len(),
         TweenProperty::ALL.len()
     );
+    assert_eq!(key.motion_keys.as_ref().unwrap().len(), 1);
+    assert_eq!(key.motion_key_properties_for("clip"), TweenProperty::ALL);
     editor.project.validate().unwrap();
     // Removing the motion tween drops its ◆ keys.
     editor.frame = 3;
@@ -146,6 +149,90 @@ fn motion_tween_keys_only_the_properties_an_edit_changes() {
             .keyframes
             .iter()
             .all(|k| k.keyed_properties.is_none())
+    );
+}
+
+#[test]
+fn motion_property_keys_and_roving_are_scoped_to_the_selected_object() {
+    let mut editor = clip_editor();
+    let second = Element {
+        id: "satellite".into(),
+        name: "satellite".into(),
+        transform: Transform {
+            x: 200.0,
+            ..Transform::default()
+        },
+        kind: editor.symbol().timeline.layers[0].keyframes[0].elements[0]
+            .kind
+            .clone(),
+        ..Element::default()
+    };
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(second);
+    editor.toggle_tween(TweenKind::Motion);
+
+    editor.frame = 4;
+    editor.select_single_id("clip".into());
+    editor.transact(|s| {
+        s.ensure_selected_key();
+        s.selected_element_mut().unwrap().transform.x = 80.0;
+    });
+    let after_clip = editor.project.clone();
+
+    editor.frame = 6;
+    editor.select_single_id("satellite".into());
+    editor.transact(|s| {
+        s.ensure_selected_key();
+        s.selected_element_mut().unwrap().transform.rotation = 45.0;
+    });
+    let layer = &editor.symbol().timeline.layers[0];
+    let clip_key = layer.keyframes.iter().find(|key| key.frame == 4).unwrap();
+    let satellite_key = layer.keyframes.iter().find(|key| key.frame == 6).unwrap();
+    assert_eq!(
+        clip_key.motion_key_properties_for("clip"),
+        &[TweenProperty::X]
+    );
+    assert!(clip_key.motion_key_properties_for("satellite").is_empty());
+    assert_eq!(
+        satellite_key.motion_key_properties_for("satellite"),
+        &[TweenProperty::Rotation]
+    );
+    assert!(satellite_key.motion_key_properties_for("clip").is_empty());
+    assert_eq!(sample_layer(layer, 6)[0].transform.x, 80.0);
+    assert_eq!(sample_layer(layer, 6)[1].transform.x, 200.0);
+    editor.project.validate().unwrap();
+    assert!(editor.project.format_version >= 10);
+
+    editor.undo();
+    assert_eq!(
+        editor.project, after_clip,
+        "one Undo removes only the second edit"
+    );
+
+    editor.frame = 4;
+    editor.select_single_id("clip".into());
+    assert!(editor.toggle_roving_keyframe());
+    let key = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 4)
+        .unwrap();
+    assert!(key.motion_key_roving_for("clip"));
+    assert!(!key.motion_key_roving_for("satellite"));
+    editor.project.validate().unwrap();
+
+    editor.frame = 8;
+    editor.make_key(false);
+    let key = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|key| key.frame == 8)
+        .unwrap();
+    assert_eq!(key.motion_key_properties_for("clip"), TweenProperty::ALL);
+    assert_eq!(
+        key.motion_key_properties_for("satellite"),
+        TweenProperty::ALL
     );
 }
 
@@ -3954,7 +4041,7 @@ fn donor_library_import_remaps_colliding_symbols_resources_layers_and_elements()
     destination.validate().expect("destination validates");
 
     let mut donor = Project::blank();
-    donor.format_version = 9;
+    donor.format_version = 10;
     donor.resources.push(
         ResourceUnit::from_bytes(
             "shared-resource",
@@ -4026,6 +4113,31 @@ fn donor_library_import_remaps_colliding_symbols_resources_layers_and_elements()
         }),
         ..ElementVectorEffects::default()
     }];
+    imported.timeline.frame_count = 3;
+    imported.timeline.layers[0].keyframes[0].tween = Some(Easing::Linear);
+    imported.timeline.layers[0].keyframes[0].tween_kind = TweenKind::Motion;
+    let mut motion_track = MotionTrackOverride::new("shared-element");
+    motion_track.easing = Some(Easing::EaseIn);
+    imported.timeline.layers[0].keyframes[0].motion_tracks = vec![motion_track];
+    let property_elements = imported.timeline.layers[0].keyframes[0].elements.clone();
+    imported.timeline.layers[0].keyframes.push(Keyframe {
+        frame: 1,
+        elements: property_elements.clone(),
+        tween: Some(Easing::Linear),
+        tween_kind: TweenKind::Motion,
+        keyed_properties: Some(vec![TweenProperty::X]),
+        motion_keys: Some(vec![MotionPropertyKey {
+            element_id: "shared-element".into(),
+            properties: vec![TweenProperty::X],
+            roving: false,
+        }]),
+        ..Default::default()
+    });
+    imported.timeline.layers[0].keyframes.push(Keyframe {
+        frame: 2,
+        elements: property_elements,
+        ..Default::default()
+    });
     donor.symbols.push(imported);
     donor.validate().expect("donor validates");
 
@@ -4059,6 +4171,18 @@ fn donor_library_import_remaps_colliding_symbols_resources_layers_and_elements()
     let appearance = &imported.timeline.layers[0].keyframes[0].appearances[0];
     let effects = &imported.timeline.layers[0].keyframes[0].vector_effects[0];
     let imported_target_id = &imported.timeline.layers[0].keyframes[0].elements[1].id;
+    assert_eq!(
+        imported.timeline.layers[0].keyframes[0].motion_tracks[0].element_id,
+        bitmap.id
+    );
+    assert_eq!(
+        imported.timeline.layers[0].keyframes[1]
+            .motion_keys
+            .as_ref()
+            .unwrap()[0]
+            .element_id,
+        bitmap.id
+    );
     assert_ne!(imported_target_id, "shared-target");
     assert_eq!(
         effects
