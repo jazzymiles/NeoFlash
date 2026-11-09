@@ -325,6 +325,9 @@ impl Editor {
                                             item = item.shortcut(&key);
                                         }
                                         if ui.add(item).clicked() {
+                                            if spec.tool != Tool::Select {
+                                                self.clear_selection();
+                                            }
                                             self.set_tool(spec.tool);
                                             remember_group_tool(ui.ctx(), index, group, spec.tool);
                                             done = true;
@@ -447,6 +450,9 @@ impl Editor {
     fn single_tool_button(&mut self, ui: &mut egui::Ui, spec: ToolSpec) {
         let response = self.tool_button(ui, spec, self.tool == spec.tool, false);
         if response.clicked() {
+            if spec.tool != Tool::Select {
+                self.clear_selection();
+            }
             self.set_tool(spec.tool);
         }
     }
@@ -469,6 +475,9 @@ impl Editor {
                 nf::ToolButton::corner_hit(response.rect).contains(position)
             });
         if response.clicked() && !mark_clicked {
+            if shown.tool != Tool::Select {
+                self.clear_selection();
+            }
             self.set_tool(shown.tool);
         }
         if !flyout {
@@ -504,6 +513,9 @@ impl Editor {
         });
         if let Some(i) = chosen {
             remember_group_tool(&ctx, index, group, group[i].tool);
+            if group[i].tool != Tool::Select {
+                self.clear_selection();
+            }
             self.set_tool(group[i].tool);
         }
         if !keep {

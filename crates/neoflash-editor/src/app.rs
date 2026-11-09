@@ -118,6 +118,7 @@ pub struct Editor {
     pub(crate) confirm_revert: bool,
     pub(crate) panels_hidden: bool,
     pub enable_simple_buttons: bool,
+    pub live_script_preview: bool,
     pub(crate) hovered_simple_button: Option<Id>,
     pub(crate) pressed_simple_button: Option<Id>,
     pub(crate) simple_button_capturing: bool,
@@ -137,6 +138,8 @@ pub struct Editor {
     pub(crate) solo_layers: std::collections::HashMap<Id, std::collections::BTreeSet<Id>>,
     /// Native preview of timeline sounds (Control ▸ Mute sounds).
     pub(crate) timeline_audio: crate::timeline_sound::TimelineAudio,
+    /// Native preview synchronization state for timeline video spans (`T-167`).
+    pub(crate) timeline_video: crate::preview::TimelineVideoPreview,
     /// Autosave timer and crash-recovery storage (`recovery.rs`).
     pub(crate) recovery: crate::recovery::RecoveryManager,
     /// Inactive document state; the active slot is None and lives in Editor.
@@ -450,6 +453,7 @@ impl Editor {
             confirm_revert: false,
             panels_hidden: false,
             enable_simple_buttons: false,
+            live_script_preview: true,
             hovered_simple_button: None,
             pressed_simple_button: None,
             simple_button_capturing: false,
@@ -469,6 +473,7 @@ impl Editor {
             timeline_thumbnails: Default::default(),
             solo_layers: Default::default(),
             timeline_audio: Default::default(),
+            timeline_video: Default::default(),
             recovery: Default::default(),
             sessions: vec![None],
             active_session: 0,
@@ -595,6 +600,12 @@ impl Editor {
         self.enable_simple_buttons = enabled;
         if !enabled {
             self.clear_simple_button_state();
+        }
+    }
+    pub fn set_live_script_preview(&mut self, enabled: bool) {
+        self.live_script_preview = enabled;
+        if let Some(preview) = &mut self.authored_preview {
+            preview.playback.set_live_scripts(enabled);
         }
     }
     pub(crate) fn clear_simple_button_state(&mut self) {
@@ -850,7 +861,9 @@ impl Editor {
                 scripts: vec![],
                 ..Element::default()
             };
-            if s.apply_drawing_gradients_to_element(&mut element) {
+            if s.apply_drawing_gradients_to_element(&mut element)
+                || matches!(element.kind, ElementKind::PaintedPath { .. })
+            {
                 s.project.format_version = s.project.format_version.max(5);
             }
             let layer = s.layer;
@@ -970,28 +983,23 @@ impl Editor {
             Pending::CloseDocument => {
                 self.close_session_tab(ctx, self.active_session);
             }
-            Pending::Open => {
+            Pending::Open | Pending::Import => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter(
                         "NeoFlash or Flash project",
-                        &["nflash", "json", "fla", "xfl", "swf"],
+                        &["nflash", "json", "fla", "xfl", "xml", "swf", "swc"],
                     )
                     .add_filter("NeoFlash project", &["nflash", "json"])
-                    .add_filter("Flash source or movie", &["fla", "xfl", "xml", "swf"])
+                    .add_filter(
+                        "Flash source or movie",
+                        &["fla", "xfl", "xml", "swf", "swc"],
+                    )
                     .pick_file()
                 {
                     self.open_path(path, ctx)
                 }
             }
             Pending::OpenPath(path) => self.open_path(path, ctx),
-            Pending::Import => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Flash source or movie", &["fla", "xfl", "xml", "swf"])
-                    .pick_file()
-                {
-                    self.import_legacy(path, ctx);
-                }
-            }
             Pending::CloseSession(index) => self.finish_session_close(ctx, index),
             Pending::Close | Pending::CloseSessions => self.approve_quit_document(ctx),
         }
@@ -1132,6 +1140,7 @@ impl Editor {
         }
     }
 
+    #[cfg(test)]
     pub fn import_legacy(&mut self, path: PathBuf, ctx: &egui::Context) {
         let _ = self.try_import_legacy(path, ctx);
     }
@@ -1177,10 +1186,29 @@ impl Editor {
                             messages.push(format!(
                                 "Imported {label}. Save as a NeoFlash project (.nflash) or Flash FLA (.fla)."
                             ));
+                            if report.format == neoflash_import::ImportFormat::Swf
+                                && let Ok(swf_bytes) = std::fs::read(&path)
+                                && let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 1)
+                            {
+                                messages.push(format!(
+                                    "SWF player ready ({:?} VM, SWF v{}, {} frames).",
+                                    play_res.vm_kind, play_res.swf_version, play_res.total_frames
+                                ));
+                            }
                             imported = true;
                         }
                         Err(e) => messages.push(e.to_string()),
                     }
+                } else if report.format == neoflash_import::ImportFormat::Swf
+                    && let Ok(swf_bytes) = std::fs::read(&path)
+                    && let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60)
+                {
+                    messages.push(format!(
+                        "Played SWF movie directly ({:?} VM, {} frames executed).",
+                        play_res.vm_kind,
+                        play_res.frames_executed.len()
+                    ));
+                    imported = true;
                 } else {
                     messages.push("Import stopped: this source contains features the current importer cannot preserve.".into());
                 }
@@ -1767,6 +1795,12 @@ impl Editor {
                 Tool::Gradient,
             ] {
                 if self.take_command_shortcut(ctx, C::for_tool(tool)) {
+                    if !matches!(
+                        tool,
+                        Tool::Select | Tool::Subselect | Tool::Transform | Tool::Gradient
+                    ) {
+                        self.clear_selection();
+                    }
                     self.set_tool(tool);
                 }
             }
@@ -2089,6 +2123,18 @@ impl Editor {
             self.give_dock_priority(PanelId::Library);
         }
 
+        if self.take_command_shortcut(ctx, C::ViewShowShapeHints) {
+            self.toggle_shape_hints();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyAddShapeHint) {
+            self.add_shape_hint();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyRemoveAllShapeHints)
+            && self.can_remove_shape_hints()
+        {
+            self.remove_all_shape_hints();
+        }
+
         // Unavailable items: consume only after active registry commands have had a chance to run,
         // so a user can rebind an active command onto F4 / ⌥⌘K / etc. if desired.
         let (cmd, shift, alt, none) = (
@@ -2097,12 +2143,6 @@ impl Editor {
             Modifiers::ALT,
             Modifiers::NONE,
         );
-        if ctx.input_mut(|i| i.consume_key(alt | cmd, Key::H)) {
-            self.toggle_shape_hints();
-        }
-        if ctx.input_mut(|i| i.consume_key(shift | cmd, Key::H)) {
-            self.add_shape_hint();
-        }
         if ctx.input_mut(|input| input.consume_key(none, Key::F1)) {
             // Help search is an immediate command palette; Preferences remains the separate place
             // for reviewing and changing shortcuts.
@@ -2663,6 +2703,7 @@ impl eframe::App for Editor {
             ctx.request_repaint_after(std::time::Duration::from_millis(8));
         }
         self.pump_timeline_audio();
+        self.pump_timeline_video();
         self.normalize_selection();
         self.sync_closed_detached_panels(ctx);
         self.menu(ctx);
@@ -2689,6 +2730,7 @@ impl eframe::App for Editor {
         self.planned_panels(ctx);
         self.update_publish_estimate(ctx);
         self.notification_host(ctx, self.has_document().then_some(self.stage_view.canvas));
+        self.reconcile_stage_cursor_after_overlays(ctx);
         crate::native_windows::configure_panels();
         let name = self
             .path

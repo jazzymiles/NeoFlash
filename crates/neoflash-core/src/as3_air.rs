@@ -1225,35 +1225,168 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
     sha256_bytes(&outer)
 }
 
-fn encrypt_sql_payload(key: &[u8; 16], nonce_seed: u64, plaintext: &[u8]) -> Vec<u8> {
-    let mut salt_in = Vec::with_capacity(32);
-    salt_in.extend_from_slice(key);
-    salt_in.extend_from_slice(&nonce_seed.to_be_bytes());
-    salt_in.extend_from_slice(&(plaintext.len() as u64).to_be_bytes());
-    let salt_full = sha256_bytes(&salt_in);
-    let salt = &salt_full[..16];
+static SQL_CRYPTO_GLOBAL_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
 
-    let mut ciphertext = Vec::with_capacity(plaintext.len());
-    for (block_idx, chunk) in plaintext.chunks(32).enumerate() {
-        let mut ctr_msg = [0u8; 28];
-        ctr_msg[..4].copy_from_slice(b"enc\0");
-        ctr_msg[4..20].copy_from_slice(salt);
-        ctr_msg[20..28].copy_from_slice(&(block_idx as u64).to_be_bytes());
-        let ks = hmac_sha256(key, &ctr_msg);
-        for (i, &b) in chunk.iter().enumerate() {
-            ciphertext.push(b ^ ks[i]);
-        }
+#[inline]
+fn chacha20_quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
+    state[a] = state[a].wrapping_add(state[b]);
+    state[d] ^= state[a];
+    state[d] = state[d].rotate_left(16);
+
+    state[c] = state[c].wrapping_add(state[d]);
+    state[b] ^= state[c];
+    state[b] = state[b].rotate_left(12);
+
+    state[a] = state[a].wrapping_add(state[b]);
+    state[d] ^= state[a];
+    state[d] = state[d].rotate_left(8);
+
+    state[c] = state[c].wrapping_add(state[d]);
+    state[b] ^= state[c];
+    state[b] = state[b].rotate_left(7);
+}
+
+/// Standard RFC 8439 §2.3 ChaCha20 block function (20 rounds).
+pub fn chacha20_block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64] {
+    let mut state = [0u32; 16];
+    state[0] = 0x6170_7865; // "expa"
+    state[1] = 0x3320_646e; // "nd 3"
+    state[2] = 0x7962_2d32; // "2-by"
+    state[3] = 0x6b20_6574; // "te k"
+    for i in 0..8 {
+        state[4 + i] =
+            u32::from_le_bytes([key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]]);
+    }
+    state[12] = counter;
+    for i in 0..3 {
+        state[13 + i] = u32::from_le_bytes([
+            nonce[i * 4],
+            nonce[i * 4 + 1],
+            nonce[i * 4 + 2],
+            nonce[i * 4 + 3],
+        ]);
     }
 
-    let mut mac_msg = Vec::with_capacity(4 + 16 + ciphertext.len());
-    mac_msg.extend_from_slice(b"mac\0");
-    mac_msg.extend_from_slice(salt);
-    mac_msg.extend_from_slice(&ciphertext);
-    let tag = hmac_sha256(key, &mac_msg);
+    let mut working = state;
+    for _ in 0..10 {
+        // Column rounds
+        chacha20_quarter_round(&mut working, 0, 4, 8, 12);
+        chacha20_quarter_round(&mut working, 1, 5, 9, 13);
+        chacha20_quarter_round(&mut working, 2, 6, 10, 14);
+        chacha20_quarter_round(&mut working, 3, 7, 11, 15);
+        // Diagonal rounds
+        chacha20_quarter_round(&mut working, 0, 5, 10, 15);
+        chacha20_quarter_round(&mut working, 1, 6, 11, 12);
+        chacha20_quarter_round(&mut working, 2, 7, 8, 13);
+        chacha20_quarter_round(&mut working, 3, 4, 9, 14);
+    }
 
-    let mut out = Vec::with_capacity(SQL_ENC_VFS_MAGIC.len() + 16 + ciphertext.len() + 32);
+    let mut out = [0u8; 64];
+    for i in 0..16 {
+        let word = working[i].wrapping_add(state[i]);
+        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+    }
+    out
+}
+
+/// Standard RFC 8439 §2.4 ChaCha20 stream cipher encryption/decryption.
+pub fn chacha20_xor(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    initial_counter: u32,
+    input: &[u8],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    for (block_idx, chunk) in input.chunks(64).enumerate() {
+        let counter = initial_counter.wrapping_add(block_idx as u32);
+        let ks = chacha20_block(key, counter, nonce);
+        for (i, &b) in chunk.iter().enumerate() {
+            out.push(b ^ ks[i]);
+        }
+    }
+    out
+}
+
+/// RFC 5869 HKDF-SHA256 key derivation for encryption and authentication subkeys.
+fn derive_sql_subkeys(master_key: &[u8; 16], salt: &[u8; 16]) -> ([u8; 32], [u8; 32]) {
+    let prk = hmac_sha256(salt, master_key);
+    let enc_key = hmac_sha256(&prk, b"neoflash-air-sql-chacha20-v2-enc\x01");
+    let mac_key = hmac_sha256(&prk, b"neoflash-air-sql-chacha20-v2-mac\x01");
+    (enc_key, mac_key)
+}
+
+/// Generate a fresh, non-repeating 16-byte salt and 12-byte RFC 8439 nonce across
+/// all runtime instances by mixing OS CSPRNG (`/dev/urandom` where available),
+/// `RandomState` OS seed, high-resolution clock, stack address entropy, and a
+/// process-global atomic counter.
+fn generate_sql_salt_and_nonce(
+    key: &[u8; 16],
+    instance_seed: u64,
+    payload_len: usize,
+) -> ([u8; 16], [u8; 12]) {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+
+    let global_seq = SQL_CRYPTO_GLOBAL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut os_entropy = [0u8; 32];
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+            let _ = f.read_exact(&mut os_entropy);
+        }
+    }
+    let mut hasher_a = RandomState::new().build_hasher();
+    hasher_a.write_u64(global_seq);
+    hasher_a.write_u64(instance_seed);
+    hasher_a.write_usize(&os_entropy as *const _ as usize);
+    let rand_a = hasher_a.finish();
+
+    let mut hasher_b = RandomState::new().build_hasher();
+    hasher_b.write_u64(rand_a.rotate_left(17));
+    hasher_b.write_usize(payload_len);
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        hasher_b.write_u128(dur.as_nanos());
+    }
+    let rand_b = hasher_b.finish();
+
+    let mut entropy_buf = Vec::with_capacity(80);
+    entropy_buf.extend_from_slice(&os_entropy);
+    entropy_buf.extend_from_slice(&global_seq.to_le_bytes());
+    entropy_buf.extend_from_slice(&instance_seed.to_le_bytes());
+    entropy_buf.extend_from_slice(&rand_a.to_le_bytes());
+    entropy_buf.extend_from_slice(&rand_b.to_le_bytes());
+    entropy_buf.extend_from_slice(&(payload_len as u64).to_le_bytes());
+
+    let block = hmac_sha256(key, &entropy_buf);
+    let mut salt = [0u8; 16];
+    let mut nonce = [0u8; 12];
+    salt.copy_from_slice(&block[..16]);
+    nonce.copy_from_slice(&block[16..28]);
+    (salt, nonce)
+}
+
+const SQL_ENC_V2_HEADER: &[u8; 4] = b"CV2\0";
+
+fn encrypt_sql_payload(key: &[u8; 16], nonce_seed: u64, plaintext: &[u8]) -> Vec<u8> {
+    let (salt, nonce) = generate_sql_salt_and_nonce(key, nonce_seed, plaintext.len());
+    let (enc_key, mac_key) = derive_sql_subkeys(key, &salt);
+    let ciphertext = chacha20_xor(&enc_key, &nonce, 1, plaintext);
+
+    let mut mac_msg = Vec::with_capacity(4 + 16 + 12 + ciphertext.len());
+    mac_msg.extend_from_slice(SQL_ENC_V2_HEADER);
+    mac_msg.extend_from_slice(&salt);
+    mac_msg.extend_from_slice(&nonce);
+    mac_msg.extend_from_slice(&ciphertext);
+    let tag = hmac_sha256(&mac_key, &mac_msg);
+
+    let mut out = Vec::with_capacity(SQL_ENC_VFS_MAGIC.len() + 4 + 16 + 12 + ciphertext.len() + 32);
     out.extend_from_slice(SQL_ENC_VFS_MAGIC);
-    out.extend_from_slice(salt);
+    out.extend_from_slice(SQL_ENC_V2_HEADER);
+    out.extend_from_slice(&salt);
+    out.extend_from_slice(&nonce);
     out.extend_from_slice(&ciphertext);
     out.extend_from_slice(&tag);
     out
@@ -1264,6 +1397,43 @@ fn decrypt_sql_payload(
     encrypted_body: &[u8],
     operation: &str,
 ) -> Result<Vec<u8>, AirSqlError> {
+    if let Some(v2_body) = encrypted_body.strip_prefix(SQL_ENC_V2_HEADER) {
+        if v2_body.len() < 16 + 12 + 32 {
+            return Err(AirSqlError::new(
+                operation,
+                "Encrypted database header is truncated or corrupt.",
+                3138,
+            ));
+        }
+        let mut salt = [0u8; 16];
+        salt.copy_from_slice(&v2_body[..16]);
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&v2_body[16..28]);
+        let tag_start = v2_body.len() - 32;
+        let ciphertext = &v2_body[28..tag_start];
+        let tag = &v2_body[tag_start..];
+
+        let (enc_key, mac_key) = derive_sql_subkeys(key, &salt);
+        let mut mac_msg = Vec::with_capacity(4 + 16 + 12 + ciphertext.len());
+        mac_msg.extend_from_slice(SQL_ENC_V2_HEADER);
+        mac_msg.extend_from_slice(&salt);
+        mac_msg.extend_from_slice(&nonce);
+        mac_msg.extend_from_slice(ciphertext);
+        let expected_tag = hmac_sha256(&mac_key, &mac_msg);
+        let mut diff = 0u8;
+        for (&a, &b) in tag.iter().zip(expected_tag.iter()) {
+            diff |= a ^ b;
+        }
+        if diff != 0 {
+            return Err(AirSqlError::new(
+                operation,
+                "File is encrypted or is not a database.",
+                3138,
+            ));
+        }
+        return Ok(chacha20_xor(&enc_key, &nonce, 1, ciphertext));
+    }
+
     if encrypted_body.len() < 48 {
         return Err(AirSqlError::new(
             operation,
@@ -8174,5 +8344,44 @@ mod tests {
         assert_eq!(blocks[0].1, "<Object Id=\"inner\">payload</Object><Extra/>");
         assert_eq!(blocks[1].0.trim(), "Id=\"second\"");
         assert_eq!(blocks[1].1, "two");
+    }
+
+    #[test]
+    fn rfc8439_chacha20_vector_and_cross_runtime_unique_sql_encryption_nonces() {
+        // RFC 8439 §2.4.2 test vector
+        let mut rfc_key = [0u8; 32];
+        for (i, b) in rfc_key.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+        let rfc_nonce: [u8; 12] = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let ladies = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+        let ct = chacha20_xor(&rfc_key, &rfc_nonce, 1, ladies);
+        assert_eq!(
+            &ct[..16],
+            &[
+                0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80, 0x41, 0xba, 0x07, 0x28, 0xdd, 0x0d,
+                0x69, 0x81,
+            ]
+        );
+        let rt_plain = chacha20_xor(&rfc_key, &rfc_nonce, 1, &ct);
+        assert_eq!(rt_plain.as_slice(), ladies);
+
+        // Two separate AirRuntime instances encrypting identical payloads with the same key
+        // and same initial nonce_seed must produce distinct salts, nonces, and ciphertexts.
+        let key: [u8; 16] = *b"0123456789abcdef";
+        let payload = b"{\"tables\":{\"secrets\":true}}";
+        let enc_a = encrypt_sql_payload(&key, 0, payload);
+        let enc_b = encrypt_sql_payload(&key, 0, payload);
+        assert_ne!(enc_a, enc_b);
+        let body_a = enc_a.strip_prefix(SQL_ENC_VFS_MAGIC).unwrap();
+        let body_b = enc_b.strip_prefix(SQL_ENC_VFS_MAGIC).unwrap();
+        assert!(body_a.starts_with(SQL_ENC_V2_HEADER));
+        assert!(body_b.starts_with(SQL_ENC_V2_HEADER));
+        // Salt (16B) + Nonce (12B) right after "CV2\0" must differ
+        assert_ne!(&body_a[4..32], &body_b[4..32]);
+        assert_eq!(decrypt_sql_payload(&key, body_a, "open").unwrap(), payload);
+        assert_eq!(decrypt_sql_payload(&key, body_b, "open").unwrap(), payload);
     }
 }

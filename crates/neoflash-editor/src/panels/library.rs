@@ -14,6 +14,14 @@ use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 use std::collections::HashSet;
 
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub(crate) enum LibrarySource {
+    #[default]
+    ActiveDocument,
+    Session(usize),
+    External,
+}
+
 #[derive(Default)]
 pub(crate) struct LibraryPanel {
     pub selected_folder: String,
@@ -26,6 +34,8 @@ pub(crate) struct LibraryPanel {
     editing: Option<LibraryEdit>,
     pub(crate) drag: Option<LibraryDrag>,
     drag_press: Option<(egui::ViewportId, u64, Pos2)>,
+    pub(crate) source: LibrarySource,
+    pub(crate) external_library: Option<(String, neoflash_core::Project)>,
 }
 
 #[derive(Clone)]
@@ -94,6 +104,12 @@ struct LibraryEdit {
     name: String,
     parent: String,
     kind: Option<SymbolKind>,
+    scale9_enabled: bool,
+    scale9_grid: [f64; 4],
+    shared_enabled: bool,
+    shared_import: bool,
+    shared_url: String,
+    shared_always_update: bool,
     focus: bool,
     error: Option<String>,
 }
@@ -348,6 +364,223 @@ impl Editor {
         Ok(changed)
     }
 
+    /// Mount an external read-only donor `Project` in the Library panel (`T-166`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn open_external_library_project(
+        &mut self,
+        label: impl Into<String>,
+        project: neoflash_core::Project,
+    ) {
+        self.library_panel.external_library = Some((label.into(), project));
+        self.library_panel.source = LibrarySource::External;
+    }
+
+    /// Copy a symbol (along with any nested symbols and referenced resources) from `donor`
+    /// into the active document in one `"Import library symbol"` Undo step (`T-166`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn import_symbol_from_donor_project(
+        &mut self,
+        donor: &neoflash_core::Project,
+        symbol_id: &str,
+    ) -> Result<String, String> {
+        self.finish_edits();
+        if donor.is_scene(symbol_id) || donor.symbol(symbol_id).is_none() {
+            return Err(format!("Symbol {symbol_id} not found in donor library."));
+        }
+        // Collect transitive symbol dependencies and resource dependencies from donor.
+        let mut sym_order = Vec::new();
+        let mut visited_syms = HashSet::new();
+        let mut needed_resources = HashSet::new();
+        let mut stack = vec![symbol_id.to_owned()];
+        while let Some(curr_id) = stack.pop() {
+            if !visited_syms.insert(curr_id.clone()) {
+                continue;
+            }
+            let Some(sym) = donor.symbol(&curr_id) else {
+                continue;
+            };
+            sym_order.push(sym.clone());
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    if let Some(snd) = &key.sound {
+                        needed_resources.insert(snd.resource.clone());
+                    }
+                    if let Some(vid) = &key.video {
+                        needed_resources.insert(vid.resource.clone());
+                    }
+                    for bf in &key.bitmap_fills {
+                        needed_resources.insert(bf.resource_id.clone());
+                    }
+                    for el in &key.elements {
+                        match &el.kind {
+                            ElementKind::Instance {
+                                symbol_id: child, ..
+                            } => {
+                                stack.push(child.clone());
+                            }
+                            ElementKind::Bitmap { resource_id, .. } => {
+                                needed_resources.insert(resource_id.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut candidate = self.project.clone();
+        for res_id in needed_resources {
+            if candidate.resources.iter().any(|r| r.id == res_id) {
+                continue;
+            }
+            if let Some(unit) = donor.resources.iter().find(|r| r.id == res_id) {
+                let mut cloned_unit = unit.clone();
+                if candidate
+                    .resources
+                    .iter()
+                    .any(|r| r.path.eq_ignore_ascii_case(&cloned_unit.path))
+                {
+                    cloned_unit.path = format!("imported/{}_{}", cloned_unit.id, cloned_unit.path);
+                }
+                candidate.resources.push(cloned_unit);
+            }
+        }
+
+        let mut imported_root_id = symbol_id.to_owned();
+        for mut sym in sym_order.into_iter().rev() {
+            let is_scene = candidate.is_scene(&sym.id);
+            let replacing_non_scene = !is_scene && candidate.symbols.iter().any(|s| s.id == sym.id);
+            let mut used_ids: std::collections::HashSet<String> = candidate
+                .resources
+                .iter()
+                .map(|r| r.id.clone())
+                .chain(candidate.sources.iter().map(|s| s.id.clone()))
+                .collect();
+            for existing_sym in &candidate.symbols {
+                if replacing_non_scene && existing_sym.id == sym.id {
+                    continue;
+                }
+                used_ids.insert(existing_sym.id.clone());
+                for layer in &existing_sym.timeline.layers {
+                    used_ids.insert(layer.id.clone());
+                    for key in &layer.keyframes {
+                        for elem in &key.elements {
+                            used_ids.insert(elem.id.clone());
+                        }
+                    }
+                }
+            }
+            let mut layer_remap: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            for layer in &mut sym.timeline.layers {
+                if !used_ids.insert(layer.id.clone()) {
+                    let fresh = neoflash_core::new_id("layer");
+                    used_ids.insert(fresh.clone());
+                    layer_remap.insert(layer.id.clone(), fresh.clone());
+                    layer.id = fresh;
+                }
+            }
+            if !layer_remap.is_empty() {
+                for layer in &mut sym.timeline.layers {
+                    if let Some(parent) = &layer.properties.parent
+                        && let Some(mapped) = layer_remap.get(parent)
+                    {
+                        layer.properties.parent = Some(mapped.clone());
+                    }
+                    if let Some(guide) = &layer.properties.motion_guide
+                        && let Some(mapped) = layer_remap.get(guide)
+                    {
+                        layer.properties.motion_guide = Some(mapped.clone());
+                    }
+                }
+            }
+            if let Some(existing) = candidate.symbols.iter_mut().find(|s| s.id == sym.id) {
+                if !is_scene {
+                    *existing = sym.clone();
+                } else {
+                    let new_sym_id = neoflash_core::new_id("symbol");
+                    if sym.id == symbol_id {
+                        imported_root_id = new_sym_id.clone();
+                    }
+                    sym.id = new_sym_id;
+                    candidate.symbols.push(sym);
+                }
+            } else {
+                if !sym.folder.is_empty() {
+                    let _ = candidate.add_library_folder(&sym.folder);
+                }
+                candidate.symbols.push(sym);
+            }
+        }
+        if !candidate.library_folders.is_empty()
+            || candidate.symbols.iter().any(|s| !s.folder.is_empty())
+        {
+            candidate.format_version = candidate.format_version.max(4);
+        }
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Import library symbol", |editor| {
+            editor.project = candidate;
+            editor.library_selected = Some(imported_root_id.clone());
+        });
+        Ok(imported_root_id)
+    }
+
+    /// Copy a symbol from another open document session (`self.sessions[session_index]`) into the
+    /// active document in one `"Import library symbol"` Undo step (`T-166`).
+    #[allow(dead_code)]
+    pub fn import_symbol_from_session(
+        &mut self,
+        session_index: usize,
+        symbol_id: &str,
+    ) -> Result<String, String> {
+        let donor = if session_index == self.active_session {
+            return Err("Symbol is already in the active document library.".into());
+        } else {
+            self.sessions
+                .get(session_index)
+                .and_then(|s| s.as_ref())
+                .map(|s| s.project.clone())
+                .ok_or_else(|| format!("Document session {session_index} is not open."))?
+        };
+        self.import_symbol_from_donor_project(&donor, symbol_id)
+    }
+
+    /// Synchronize all `import_for_runtime` Shared Library symbols in the active project against
+    /// any mounted external library and all other open document sessions in one Undo step (`T-166`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sync_shared_libraries_from_open_documents(&mut self) -> usize {
+        self.finish_edits();
+        let mut candidate = self.project.clone();
+        let mut total = 0usize;
+        if let Some((_, ext_proj)) = &self.library_panel.external_library {
+            total += candidate.resolve_shared_library_symbols(ext_proj);
+        }
+        for (idx, slot) in self.sessions.iter().enumerate() {
+            if idx == self.active_session {
+                continue;
+            }
+            if let Some(sess) = slot {
+                total += candidate.resolve_shared_library_symbols(&sess.project);
+            }
+        }
+        if total == 0 {
+            return 0;
+        }
+        candidate.upgrade_format_for_features();
+        if candidate.validate().is_err() {
+            return 0;
+        }
+        self.transact_named("Sync shared library", |editor| {
+            editor.project = candidate;
+        });
+        self.message(format!(
+            "Synchronized {total} shared library symbol{}.",
+            if total == 1 { "" } else { "s" }
+        ));
+        total
+    }
+
     pub(crate) fn library_body(&mut self, ui: &mut egui::Ui) {
         if crate::bitmaps::has_bitmap_properties_dialog(ui.ctx()) {
             self.bitmap_properties_dialog(ui.ctx());
@@ -431,6 +664,67 @@ impl Editor {
             "Search symbol names, folders, linkage identifiers and classes",
             None,
         );
+        if self.sessions.len() > 1 || self.library_panel.external_library.is_some() {
+            let current_label = match &self.library_panel.source {
+                LibrarySource::ActiveDocument => format!("{} (active)", self.project.name),
+                LibrarySource::Session(idx) => self
+                    .sessions
+                    .get(*idx)
+                    .and_then(|s| s.as_ref())
+                    .map(|s| format!("{} (open tab)", s.project.name))
+                    .unwrap_or_else(|| format!("{} (active)", self.project.name)),
+                LibrarySource::External => self
+                    .library_panel
+                    .external_library
+                    .as_ref()
+                    .map(|(lbl, _)| format!("{lbl} (external)"))
+                    .unwrap_or_else(|| format!("{} (active)", self.project.name)),
+            };
+            nf::Select::new("library-document-source", &current_label)
+                .width(content_width)
+                .icon(i16::FOLDER)
+                .show(ui, |ui| {
+                    let active_lbl = format!("{} (active)", self.project.name);
+                    if ui
+                        .add(
+                            nf::MenuItem::new(&active_lbl).checked(
+                                self.library_panel.source == LibrarySource::ActiveDocument,
+                            ),
+                        )
+                        .clicked()
+                    {
+                        self.library_panel.source = LibrarySource::ActiveDocument;
+                    }
+                    for (idx, slot) in self.sessions.iter().enumerate() {
+                        if idx == self.active_session {
+                            continue;
+                        }
+                        if let Some(sess) = slot {
+                            let lbl = format!("{} (open tab)", sess.project.name);
+                            if ui
+                                .add(nf::MenuItem::new(&lbl).checked(
+                                    self.library_panel.source == LibrarySource::Session(idx),
+                                ))
+                                .clicked()
+                            {
+                                self.library_panel.source = LibrarySource::Session(idx);
+                            }
+                        }
+                    }
+                    if let Some((lbl, _)) = &self.library_panel.external_library {
+                        let ext_lbl = format!("{lbl} (external)");
+                        if ui
+                            .add(
+                                nf::MenuItem::new(&ext_lbl)
+                                    .checked(self.library_panel.source == LibrarySource::External),
+                            )
+                            .clicked()
+                        {
+                            self.library_panel.source = LibrarySource::External;
+                        }
+                    }
+                });
+        }
         self.library_browser(ui, overflow);
     }
 
@@ -1005,6 +1299,15 @@ impl Editor {
             self.delete_unused_library_items();
             ui.close();
         }
+        let has_shared = !self.project.shared_libraries().is_empty()
+            && (self.library_panel.external_library.is_some() || self.sessions.len() > 1);
+        if ui
+            .add_enabled(has_shared, nf::MenuItem::new("Sync shared library"))
+            .clicked()
+        {
+            self.sync_shared_libraries_from_open_documents();
+            ui.close();
+        }
         for path in [
             "Library menu ▸ Edit envelope…",
             "Library menu ▸ Font embedding…",
@@ -1097,6 +1400,37 @@ impl Editor {
             EditTarget::Symbol(id) => self.project.symbol(id).map(|symbol| symbol.kind),
             _ => None,
         };
+        let (
+            scale9_enabled,
+            scale9_grid,
+            shared_enabled,
+            shared_import,
+            shared_url,
+            shared_always_update,
+        ) = match &target {
+            EditTarget::Symbol(id) => {
+                let s9 = self.project.symbol(id).and_then(|s| s.scale9_grid());
+                let sh = self.project.shared_library(id);
+                (
+                    s9.is_some(),
+                    s9.unwrap_or([10.0, 10.0, 80.0, 80.0]),
+                    sh.is_some(),
+                    sh.as_ref().is_some_and(|l| l.import_for_runtime),
+                    sh.as_ref()
+                        .map(|l| l.url.clone())
+                        .unwrap_or_else(|| "shared_library.nflash".to_owned()),
+                    sh.as_ref().is_none_or(|l| l.always_update),
+                )
+            }
+            _ => (
+                false,
+                [10.0, 10.0, 80.0, 80.0],
+                false,
+                false,
+                String::new(),
+                true,
+            ),
+        };
         let (name, parent) = match &target {
             EditTarget::NewFolder => {
                 let paths = self.project.library_folder_paths();
@@ -1119,6 +1453,12 @@ impl Editor {
             name,
             parent,
             kind,
+            scale9_enabled,
+            scale9_grid,
+            shared_enabled,
+            shared_import,
+            shared_url,
+            shared_always_update,
             focus: true,
             error: None,
         });
@@ -1202,6 +1542,58 @@ impl Editor {
                             });
                         }
                     }
+                    if *kind != SymbolKind::Button {
+                        ui.add(nf::Checkbox::new(
+                            &mut edit.scale9_enabled,
+                            "Enable guides for 9-slice scaling",
+                        ));
+                        if edit.scale9_enabled {
+                            ui.horizontal(|ui| {
+                                let fw = ((ui.available_width() - space::S2 * 3.0) / 4.0).max(40.0);
+                                ui.add(
+                                    nf::Field::new(&mut edit.scale9_grid[0], "9-slice X")
+                                        .prefix("X")
+                                        .decimals(1)
+                                        .width(fw),
+                                );
+                                ui.add(
+                                    nf::Field::new(&mut edit.scale9_grid[1], "9-slice Y")
+                                        .prefix("Y")
+                                        .decimals(1)
+                                        .width(fw),
+                                );
+                                ui.add(
+                                    nf::Field::new(&mut edit.scale9_grid[2], "9-slice W")
+                                        .prefix("W")
+                                        .range(1.0..=10000.0)
+                                        .decimals(1)
+                                        .width(fw),
+                                );
+                                ui.add(
+                                    nf::Field::new(&mut edit.scale9_grid[3], "9-slice H")
+                                        .prefix("H")
+                                        .range(1.0..=10000.0)
+                                        .decimals(1)
+                                        .width(fw),
+                                );
+                            });
+                        }
+                    }
+                    ui.add(nf::Checkbox::new(
+                        &mut edit.shared_enabled,
+                        "Shared library linkage",
+                    ));
+                    if edit.shared_enabled {
+                        ui.add(nf::Checkbox::new(
+                            &mut edit.shared_import,
+                            "Import for runtime sharing",
+                        ));
+                        crate::paint_controls::text_row(ui, "URL", &mut edit.shared_url);
+                        ui.add(nf::Checkbox::new(
+                            &mut edit.shared_always_update,
+                            "Update automatically",
+                        ));
+                    }
                 }
             }
             if let Some(error) = &edit.error {
@@ -1259,6 +1651,16 @@ impl Editor {
                             symbol.kind = kind;
                             if kind == SymbolKind::Button {
                                 symbol.timeline.frame_count = symbol.timeline.frame_count.max(4);
+                                symbol.set_scale9_grid(None);
+                            } else if edit.scale9_enabled {
+                                symbol.set_scale9_grid(Some([
+                                    edit.scale9_grid[0],
+                                    edit.scale9_grid[1],
+                                    edit.scale9_grid[2].max(1.0),
+                                    edit.scale9_grid[3].max(1.0),
+                                ]));
+                            } else {
+                                symbol.set_scale9_grid(None);
                             }
                             if kind != before {
                                 for owner in &mut candidate.symbols {
@@ -1278,6 +1680,17 @@ impl Editor {
                                     }
                                 }
                             }
+                            let shared_opt = edit.shared_enabled.then(|| {
+                                neoflash_core::SharedLibraryLinkage {
+                                    symbol_id: id.clone(),
+                                    url: edit.shared_url.trim().to_owned(),
+                                    export_for_runtime: !edit.shared_import,
+                                    import_for_runtime: edit.shared_import,
+                                    always_update: edit.shared_always_update,
+                                }
+                            });
+                            candidate.set_shared_library(id, shared_opt);
+                            candidate.upgrade_format_for_features();
                             Ok(())
                         })
                     }

@@ -1592,6 +1592,9 @@
       const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,e*sx,f*sy],item.kind.pixel_snapping);
       return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
     }
+    let measuredFps = 0;
+    let lastTickNow = null;
+    const fpsIntervals = [];
     function render() {
       flushStageRender();
       let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
@@ -1623,6 +1626,11 @@
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
+      if (typeof measuredFps === 'number' && measuredFps > 0) {
+        status.dataset.measuredFps = measuredFps.toFixed(1);
+        status.dataset.targetFps = String(runtimeFrameRate);
+        status.title = `Measured: ${measuredFps.toFixed(1)} fps · Target: ${runtimeFrameRate} fps`;
+      }
       const traceText = lastTrace + (lastTraceLocation ? ` (${lastTraceLocation})` : '');
       if (traceElement.textContent !== traceText) traceElement.textContent = traceText;
       toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
@@ -1745,6 +1753,13 @@
             let ticks = 0;
             while (accumulated >= interval && ticks++ < 12) {
               accumulated -= interval;
+              if (lastTickNow !== null && now > lastTickNow) {
+                fpsIntervals.push((now - lastTickNow) / ticks);
+                if (fpsIntervals.length > 30) fpsIntervals.shift();
+                const avgMs = fpsIntervals.reduce((a, b) => a + b, 0) / fpsIntervals.length;
+                if (avgMs > 0) measuredFps = 1000 / avgMs;
+              }
+              lastTickNow = now;
               broadcastFrame();
               player.tick();
               dispatchScripts();
@@ -1759,7 +1774,7 @@
       global.requestAnimationFrame(animate);
     }
     global.requestAnimationFrame(animate);
-    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, pause: () => { player.set_playing(false); drainSounds();drainVideos(); }, resume: () => {player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
+    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, pause: () => { player.set_playing(false); drainSounds();drainVideos(); }, resume: () => {player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
   }
   boot().catch(fail);
 })(globalThis);

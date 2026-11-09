@@ -30,7 +30,7 @@ use neoflash_ui::{
     tokens::{radius, space},
     typography::{font, rich},
 };
-use std::{fmt::Write as _, path::PathBuf};
+use std::path::PathBuf;
 
 const DIALOG_WIDTH: f32 = 920.0;
 const DIALOG_HEIGHT: f32 = 760.0;
@@ -42,6 +42,8 @@ struct HelpManualState {
     page: usize,
     query: String,
     diagram_tab: usize,
+    active_tag: Option<&'static str>,
+    history: Vec<usize>,
 }
 
 fn state_id() -> egui::Id {
@@ -85,75 +87,152 @@ pub(crate) struct HelpChapterMeta {
     pub subtitle: &'static str,
     pub icon: Icon,
     pub keywords: &'static str,
+    pub tags: &'static [&'static str],
+    pub related: &'static [usize],
 }
 
-pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 10] = [
+pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
     HelpChapterMeta {
         title: "1. Workspace & Stage",
         subtitle: "Stage, Pasteboard, Rulers, Guides, Grid & Snapping priority",
         icon: i16::DESKTOP,
         keywords: "workspace stage pasteboard rulers guides grid snapping zoom hand pan focus mode units",
+        tags: &["Authoring", "Stage"],
+        related: &[1, 2, 6],
     },
     HelpChapterMeta {
         title: "2. Drawing Modes & Objects",
         subtitle: "Merge Drawing vs Object Drawing (J), Primitives, Groups & Combine",
         icon: i16::LAYERS,
         keywords: "merge drawing object drawing primitive group break apart union intersect punch crop boolean",
+        tags: &["Authoring", "Vector", "Tools"],
+        related: &[0, 2, 3, 4],
     },
     HelpChapterMeta {
         title: "3. Selection & Transform",
         subtitle: "Selection (V), Subselection (A), Free Transform (Q) & Lasso (L) modes",
         icon: i16::SELECT,
         keywords: "selection subselection free transform rotate skew scale distort taper envelope lasso magic wand",
+        tags: &["Authoring", "Vector", "Tools"],
+        related: &[1, 3, 5],
     },
     HelpChapterMeta {
         title: "4. Vector & Pen States",
         subtitle: "Pen (P) 9 pointer states, Line (N), Shapes (R/O) & Pencil (Y) modes",
         icon: i16::PEN,
         keywords: "pen anchor point bezier tangent line rectangle oval polystar pencil straighten smooth ink",
+        tags: &["Authoring", "Vector", "Tools", "Graphics"],
+        related: &[1, 2, 4, 14],
     },
     HelpChapterMeta {
         title: "5. Brush, Eraser & Deco",
         subtitle: "Brush (B) 5 paint modes, Paint Bucket (K), Gradient (F), Eraser (E) & Deco",
         icon: i16::BRUSH,
         keywords: "brush paint normal fills behind selection inside lock fill pressure tilt bucket gap ink bottle eyedropper eraser faucet spray deco",
+        tags: &["Authoring", "Vector", "Tools", "Graphics"],
+        related: &[1, 3, 8, 11],
     },
     HelpChapterMeta {
         title: "6. Symbols, 9-Slice & Library",
         subtitle: "MovieClip, Button (4 states), Graphic syncing, 9-Slice & Colour Effects",
         icon: i16::SYMBOL,
         keywords: "symbol movieclip button up over down hit graphic loop play once single frame 9-slice scale9 color effect tint brightness alpha library edit in place",
+        tags: &["Authoring", "Symbols", "Timeline", "DisplayList"],
+        related: &[6, 7, 10, 12],
     },
     HelpChapterMeta {
         title: "7. Timeline, Layers & Masks",
         subtitle: "Keyframes, Span selection, Layer roles, Masking, Onion Skin & Scenes",
         icon: i16::FILM,
         keywords: "timeline frame keyframe blank span layer normal guide guided mask masked folder solo outline onion skin edit multiple frames scene",
+        tags: &["Authoring", "Timeline", "Animation"],
+        related: &[5, 7, 10, 13],
     },
     HelpChapterMeta {
         title: "8. Tweens, Motion & IK",
         subtitle: "Motion Tween ◆ keys, Motion Editor, Classic Tween, Shape Hints & IK Bones",
         icon: i16::TWEEN_MOTION,
         keywords: "motion tween property keyframe roving motion path motion editor ease curve classic tween motion guide orient to path shape tween shape hints bone bind armature inverse kinematics",
+        tags: &["Authoring", "Timeline", "Animation"],
+        related: &[5, 6, 8],
     },
     HelpChapterMeta {
         title: "9. Filters, Text & Audio",
         subtitle: "7 Live Filters, 14 Blend Modes, Classic/TLF Text, Font Embedding & Sound",
         icon: i16::FILTER,
         keywords: "filter drop shadow blur glow bevel gradient adjust color blend mode text static dynamic input embed font tlf sound event start stop stream envelope video",
+        tags: &["Authoring", "Text", "Audio", "Graphics"],
+        related: &[5, 6, 11, 14],
     },
     HelpChapterMeta {
         title: "10. Scripting, Import & Publish",
         subtitle: "AS2/AS3/JS/TS, Code Snippets, Debugger, FLA/SWF/PSD Import & HTML5/Atlas",
         icon: i16::CODE,
         keywords: "actionscript as2 as3 javascript typescript actions code snippets debugger profiler import fla xfl swf psd ai svg trace bitmap publish html5 wasm sprite sheet lottie shortcuts",
+        tags: &["Export", "AS1", "AS2", "AS3", "JS/TS"],
+        related: &[10, 11, 12, 15],
+    },
+    HelpChapterMeta {
+        title: "11. AS1 & AS2 Fundamentals & Timeline",
+        subtitle: "AVM1 Target Paths (_root/_parent/this), on/onClipEvent, Depths & Prototypes",
+        icon: i16::CODE,
+        keywords: "actionscript 1.0 2.0 as1 as2 avm1 _root _parent _level0 this telltarget on onclipevent gotoandplay gotoandstop stop play attachmovie duplicatemovieclip createmovieclip swapdepths getnexthighestdepth prototype registerclass initclip",
+        tags: &["AS1", "AS2", "Timeline", "Symbols", "Events"],
+        related: &[6, 11, 15],
+    },
+    HelpChapterMeta {
+        title: "12. AS2 Core Classes & Built-Ins",
+        subtitle: "MovieClip Drawing API, TextField/TextFormat, Sound, Key/Mouse, BitmapData & LoadVars",
+        icon: i16::BOOKMARK,
+        keywords: "as2 movieclip drawing api linestyle beginfill begingradientfill moveto lineto curveto textfield textformat sound attachsound loadsound key mouse stage bitmapdata matrix point rectangle colortransform loadvars xml sharedobject setinterval",
+        tags: &["AS1", "AS2", "Graphics", "Text", "Audio", "Events"],
+        related: &[8, 10, 14, 15],
+    },
+    HelpChapterMeta {
+        title: "13. AS3 Architecture & Display List",
+        subtitle: "AVM2 Packages, Strong Types, Vector.<T>, DisplayObjectContainer & Coordinate Spaces",
+        icon: i16::CLASS,
+        keywords: "actionscript 3.0 as3 avm2 package class interface extends implements int uint number vector dictionary displayobject interactiveobject displayobjectcontainer sprite movieclip shape bitmap simplebutton addchild removechild getbounds hittestpoint localtoglobal globaltolocal",
+        tags: &["AS3", "DisplayList", "Symbols"],
+        related: &[5, 13, 14, 15],
+    },
+    HelpChapterMeta {
+        title: "14. AS3 Events, Input & Lifecycle",
+        subtitle: "EventDispatcher, 3-Phase Capture/Target/Bubble Flow, Frame Order, Mouse/Keyboard & Timer",
+        icon: i16::PLAY,
+        keywords: "as3 eventdispatcher addeventlistener removeeventlistener dispatchevent capture target bubbling stoppropagation stopimmediatepropagation enter_frame frame_constructed exit_frame added_to_stage mouseevent keyboardevent timerevent timer",
+        tags: &["AS3", "Events", "Timeline", "DisplayList"],
+        related: &[6, 12, 14, 15],
+    },
+    HelpChapterMeta {
+        title: "15. AS3 Graphics, Filters, Sound & Data",
+        subtitle: "flash.display.Graphics, Matrix/Filters, SoundChannel/SoundMixer, ByteArray & E4X XML",
+        icon: i16::FILTER,
+        keywords: "as3 graphics beginfill begingradientfill drawrect drawroundrect drawcircle drawtriangles cubiccurveto filters glowfilter blurfilter dropshadowfilter colormatrixfilter soundchannel soundtransform soundmixer bytearray compress lzma xml e4x json",
+        tags: &["AS3", "Graphics", "Audio", "Text"],
+        related: &[7, 8, 12, 13],
+    },
+    HelpChapterMeta {
+        title: "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide",
+        subtitle: "Side-by-Side Equivalence Rosetta Stone, Scale/Alpha Rules & Porting Checklist",
+        icon: i16::LINK,
+        keywords: "migration porting comparison rosetta stone as1 as2 as3 javascript typescript _alpha alpha _xscale scalex onrelease addeventlistener attachmovie addchild geturl navigatetourl gettimer",
+        tags: &[
+            "AS1",
+            "AS2",
+            "AS3",
+            "JS/TS",
+            "DisplayList",
+            "Events",
+            "Export",
+        ],
+        related: &[9, 10, 11, 12, 13],
     },
 ];
 
-/// Portable text edition used by the browser handoff. The in-app manual remains the
-/// illustrated edition; these points mirror its complete chapter scope without depending
-/// on a second, separately maintained product-help document.
-const HELP_BROWSER_TOPICS: [&[&str]; 10] = [
+/// Portable text edition used by the browser handoff. The in-app manual and browser edition
+/// share this 16-chapter inventory plus full NF2 styling, SVG diagrams, tags, and cross-links.
+pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 16] = [
     &[
         "Use the Stage for authored content and the Pasteboard for temporary off-stage artwork; rulers, guides and the document grid share one snapping priority.",
         "The Hand and Zoom tools, Focus Mode, Fit Stage and percentage controls change only the view and never mutate authored geometry.",
@@ -214,9 +293,45 @@ const HELP_BROWSER_TOPICS: [&[&str]; 10] = [
         "Publish targets include HTML5 plus WebAssembly, sprite sheets, animated SVG, Lottie, audio and video.",
         "Core shortcuts include F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions and Shift-F12 for Publish.",
     ],
+    &[
+        "ActionScript 1.0 and 2.0 execute on the AVM1 timeline and target-path hierarchy (_level0, _root, _parent, this) with 1-based frame indexing.",
+        "Button instances accept on(press, release, rollOver, keyPress) blocks where this refers to the parent timeline; MovieClips accept onClipEvent(load, enterFrame, data) blocks.",
+        "Author-time instances occupy negative depths (-16383..-1), while attachMovie, duplicateMovieClip and createEmptyMovieClip use positive dynamic depths (0..1048575) via getNextHighestDepth().",
+        "AS1 prototype inheritance (Function.prototype and Object.registerClass) and AS2 class definitions (class X extends MovieClip) both bind directly to Library symbols.",
+    ],
+    &[
+        "MovieClip exposes procedural vector drawing (lineStyle, beginFill, beginGradientFill, moveTo, lineTo, curveTo, endFill, clear) and hitTest(x, y, shapeFlag).",
+        "TextField and TextFormat control dynamic and input typography, wordWrap, multiline, embedFonts, scroll/maxscroll, and HTML/StyleSheet formatting.",
+        "Sound manages event and streaming audio per timeline target with attachSound, loadSound, start(offset, loops), setVolume(0..100), and setPan(-100..100).",
+        "Flash 8 flash.display.BitmapData, flash.geom (Matrix, Point, Rectangle, ColorTransform), LoadVars, XML, and SharedObject.getLocal complete the AS2 standard library.",
+    ],
+    &[
+        "ActionScript 3.0 (AVM2) introduces package namespaces, sealed classes, strict runtime types (int, uint, Number, Vector.<T>, Dictionary), and E4X XML.",
+        "The Display List hierarchy (EventDispatcher -> DisplayObject -> InteractiveObject -> DisplayObjectContainer -> Sprite -> MovieClip) replaces AVM1 depth numbers with contiguous 0..numChildren-1 indices.",
+        "Display containers manage children explicitly through addChild, addChildAt, removeChild, setChildIndex, swapChildren, and getObjectsUnderPoint.",
+        "localToGlobal and globalToLocal convert Points accurately across nested affine transformations; getBounds and getRect compute bounding boxes in any target coordinate space.",
+    ],
+    &[
+        "Every AS3 interactive node dispatches events through the W3C three-phase flow: Capture Phase (Stage down to parent), Target Phase, and Bubbling Phase (back up to Stage).",
+        "event.target identifies the originating leaf dispatcher, whereas event.currentTarget identifies the DisplayObject whose listener is currently executing.",
+        "Each frame tick runs a deterministic 6-step sequence: ENTER_FRAME -> child construction -> FRAME_CONSTRUCTED -> timeline frame scripts -> EXIT_FRAME -> RENDER.",
+        "MouseEvent, KeyboardEvent (attached to stage), FocusEvent, and flash.utils.Timer provide structured input and timing callbacks.",
+    ],
+    &[
+        "flash.display.Graphics renders strokes, solid/gradient/bitmap fills, quadratic curveTo, cubicCurveTo, drawRoundRect, drawPath, and UV-mapped drawTriangles.",
+        "Live display filters (BlurFilter, GlowFilter, DropShadowFilter, BevelFilter, ColorMatrixFilter) apply when assigned as a new Array to displayObject.filters.",
+        "flash.media.Sound.play() returns a SoundChannel with live SoundTransform(volume, pan) control, while SoundMixer.computeSpectrum() fills a 512-float ByteArray.",
+        "flash.utils.ByteArray supports big/little-endian binary streams plus ZLIB, DEFLATE, and LZMA compression alongside native JSON and E4X XML queries.",
+    ],
+    &[
+        "AS1/AS2 _x, _y, _rotation, _visible, _name, _currentframe, and _totalframes map to AS3/JS x, y, rotation, visible, name, currentFrame, and totalFrames without underscores.",
+        "AS2 percentage properties _alpha (0..100) and _xscale/_yscale (0..100) map to normalized unit floats alpha (0.0..1.0) and scaleX/scaleY (0.0..1.0) in AS3 and JS/TS.",
+        "AS2 callback properties (mc.onRelease, mc.onEnterFrame) become mc.addEventListener(MouseEvent.CLICK, fn) and mc.addEventListener(Event.ENTER_FRAME, fn) in AS3.",
+        "All four NeoFlash languages (AS1, AS2, AS3, JS/TS) compile to the same deterministic Rust + WebAssembly runtime, timeline evaluator, and Web Audio scheduler.",
+    ],
 ];
 
-fn escape_html(value: &str, output: &mut String) {
+pub(crate) fn escape_html(value: &str, output: &mut String) {
     for ch in value.chars() {
         match ch {
             '&' => output.push_str("&amp;"),
@@ -230,32 +345,7 @@ fn escape_html(value: &str, output: &mut String) {
 }
 
 fn help_browser_html() -> String {
-    let mut html = String::from(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"color-scheme\" content=\"light dark\"><title>NeoFlash Help &amp; Reference</title></head><body><header><h1>NeoFlash Help &amp; Reference</h1><p>Portable text edition of the illustrated in-app manual.</p></header><nav aria-label=\"Chapters\"><ol>",
-    );
-    for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
-        let _ = write!(html, "<li><a href=\"#chapter-{}\">", index + 1);
-        escape_html(chapter.title, &mut html);
-        html.push_str("</a></li>");
-    }
-    html.push_str("</ol></nav><main>");
-    for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
-        let _ = write!(html, "<section id=\"chapter-{}\"><h2>", index + 1);
-        escape_html(chapter.title, &mut html);
-        html.push_str("</h2><p>");
-        escape_html(chapter.subtitle, &mut html);
-        html.push_str("</p><ul>");
-        for topic in HELP_BROWSER_TOPICS[index] {
-            html.push_str("<li>");
-            escape_html(topic, &mut html);
-            html.push_str("</li>");
-        }
-        html.push_str("</ul><p><strong>Search terms:</strong> ");
-        escape_html(chapter.keywords, &mut html);
-        html.push_str("</p></section>");
-    }
-    html.push_str("</main></body></html>");
-    html
+    super::help_as_reference::render_full_browser_help_html()
 }
 
 fn write_help_browser_document() -> Result<PathBuf, String> {
@@ -395,12 +485,26 @@ impl crate::app::Editor {
                                 .show(&mut sidebar, |ui| {
                                     ui.set_min_width(SIDEBAR_WIDTH);
                                     for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
+                                        let matches_tag =
+                                            state.active_tag.is_none_or(|t| ch.tags.contains(&t));
                                         let matches_q = q.is_empty()
                                             || ch.title.to_ascii_lowercase().contains(&q)
                                             || ch.subtitle.to_ascii_lowercase().contains(&q)
-                                            || ch.keywords.contains(&q);
-                                        if !matches_q {
+                                            || ch.keywords.contains(&q)
+                                            || ch
+                                                .tags
+                                                .iter()
+                                                .any(|t| t.to_ascii_lowercase().contains(&q));
+                                        if !matches_tag || !matches_q {
                                             continue;
+                                        }
+                                        if idx == 10 && q.is_empty() && state.active_tag.is_none() {
+                                            ui.add_space(space::S1);
+                                            divider(ui, false);
+                                            ui.label(
+                                                rich("ACTIONSCRIPT 1 / 2 / 3", TextStyle::Overline)
+                                                    .color(p.text_tertiary),
+                                            );
                                         }
                                         if TreeItem::new(ch.title, TreeItemType::Symbol(ch.icon))
                                             .selected(state.page == idx)
@@ -408,6 +512,12 @@ impl crate::app::Editor {
                                             .row
                                             .clicked()
                                         {
+                                            if state.page != idx {
+                                                state.history.push(state.page);
+                                                if state.history.len() > 24 {
+                                                    state.history.remove(0);
+                                                }
+                                            }
                                             state.page = idx;
                                             state.diagram_tab = 0;
                                         }
@@ -502,21 +612,114 @@ impl crate::app::Editor {
 
 fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
     let p = neoflash_ui::palette(ui.ctx());
-    let meta = &HELP_CHAPTERS[state.page.min(HELP_CHAPTERS.len() - 1)];
+    let page_idx = state.page.min(HELP_CHAPTERS.len() - 1);
+    let meta = &HELP_CHAPTERS[page_idx];
 
-    // Chapter Header Banner
+    // Chapter Header Banner + Back history button
     ui.horizontal(|ui| {
         icons::show(ui, meta.icon, p.accent_default);
         ui.vertical(|ui| {
             ui.label(rich(meta.title, TextStyle::DialogTitle).color(p.text_primary));
             ui.label(rich(meta.subtitle, TextStyle::Small).color(p.text_secondary));
         });
+        if let Some(&prev_page) = state.history.last() {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let back_label = format!("← Back to Ch.{}", prev_page + 1);
+                if ui.add(Button::ghost(&back_label)).clicked()
+                    && let Some(prev) = state.history.pop()
+                {
+                    state.page = prev.min(HELP_CHAPTERS.len() - 1);
+                    state.diagram_tab = 0;
+                }
+            });
+        }
     });
+
+    // Interactive Tag Chips for this chapter + global Tag Filter toggle
+    ui.add_space(space::S1);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(space::S1, space::S1);
+        ui.label(rich("Tags:", TextStyle::SmallStrong).color(p.text_tertiary));
+        for &tag in meta.tags {
+            let is_active = state.active_tag == Some(tag);
+            let chip_label = format!("#{tag}");
+            let btn = if is_active {
+                Button::primary(&chip_label)
+            } else {
+                Button::ghost(&chip_label)
+            };
+            if ui.add(btn).clicked() {
+                state.active_tag = if is_active { None } else { Some(tag) };
+            }
+        }
+        ui.label(rich("·", TextStyle::Small).color(p.text_tertiary));
+        for &tag in &[
+            "AS1",
+            "AS2",
+            "AS3",
+            "JS/TS",
+            "DisplayList",
+            "Events",
+            "Graphics",
+        ] {
+            if meta.tags.contains(&tag) {
+                continue;
+            }
+            let is_active = state.active_tag == Some(tag);
+            let chip_label = format!("#{tag}");
+            let btn = if is_active {
+                Button::primary(&chip_label)
+            } else {
+                Button::ghost(&chip_label)
+            };
+            if ui.add(btn).clicked() {
+                state.active_tag = if is_active { None } else { Some(tag) };
+            }
+        }
+        if let Some(active) = state.active_tag {
+            let clear_label = format!("Clear #{active} filter");
+            if ui.add(Button::new(&clear_label)).clicked() {
+                state.active_tag = None;
+            }
+        }
+    });
+
+    // When a tag filter is active, show a quick cross-chapter jump bar for all chapters with that tag
+    let mut nav_target: Option<usize> = None;
+    if let Some(active_tag) = state.active_tag {
+        ui.add_space(space::S1);
+        egui::Frame::new()
+            .fill(p.bg_panel)
+            .stroke(Stroke::new(1.0_f32, p.accent_default))
+            .corner_radius(egui::CornerRadius::same(radius::SM as u8))
+            .inner_margin(egui::Margin::same(space::S2 as i8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(space::S1, space::S1);
+                    let badge_txt = format!("Filtered by #{active_tag}:");
+                    ui.add(Badge::new(&badge_txt, BadgeType::Accent));
+                    for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
+                        if ch.tags.contains(&active_tag) {
+                            let btn = if idx == page_idx {
+                                Button::primary(ch.title)
+                            } else {
+                                Button::ghost(ch.title)
+                            };
+                            if ui.add(btn).clicked() && idx != page_idx {
+                                nav_target = Some(idx);
+                            }
+                        }
+                    }
+                });
+            });
+    }
+
     ui.add_space(space::S2);
     divider(ui, false);
     ui.add_space(space::S2);
 
-    match state.page {
+    match page_idx {
         0 => chapter_workspace_and_stage(ui, state),
         1 => chapter_drawing_modes_and_objects(ui, state),
         2 => chapter_selection_and_transform(ui, state),
@@ -526,25 +729,104 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
         6 => chapter_timeline_layers_and_masks(ui, state),
         7 => chapter_tweens_motion_and_ik(ui, state),
         8 => chapter_filters_text_and_audio(ui, state),
-        _ => chapter_scripting_import_and_publish(ui, state),
+        9 => chapter_scripting_import_and_publish(ui, state),
+        10 => super::help_as_reference::chapter_as1_as2_fundamentals(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        11 => super::help_as_reference::chapter_as2_core_classes(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        12 => super::help_as_reference::chapter_as3_display_list(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        13 => super::help_as_reference::chapter_as3_events_lifecycle(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        14 => super::help_as_reference::chapter_as3_graphics_filters_sound(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        _ => super::help_as_reference::chapter_as_migration_guide(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+    }
+
+    if page_idx <= 9 {
+        let links: Vec<(usize, &str)> = meta
+            .related
+            .iter()
+            .filter_map(|&idx| HELP_CHAPTERS.get(idx).map(|ch| (idx, ch.title)))
+            .collect();
+        inline_cross_links(ui, &mut nav_target, &links);
+    }
+
+    if let Some(target_idx) = nav_target
+        && target_idx < HELP_CHAPTERS.len()
+        && target_idx != state.page
+    {
+        state.history.push(state.page);
+        if state.history.len() > 24 {
+            state.history.remove(0);
+        }
+        state.page = target_idx;
+        state.diagram_tab = 0;
     }
 }
 
 // ── Shared structural helpers (100% NF2 tokens & components) ──
 
-fn section_overline(ui: &mut Ui, title: &str) {
+pub(crate) fn inline_cross_links(
+    ui: &mut Ui,
+    nav_target: &mut Option<usize>,
+    links: &[(usize, &str)],
+) {
+    if links.is_empty() {
+        return;
+    }
+    let p = neoflash_ui::palette(ui.ctx());
+    ui.add_space(space::S2);
+    divider(ui, false);
+    ui.add_space(space::S1);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(space::S2, space::S1);
+        icons::show(ui, i16::LINK, p.accent_default);
+        ui.label(
+            rich("See also (Cross-References):", TextStyle::SmallStrong).color(p.text_secondary),
+        );
+        for &(target_idx, title) in links {
+            let label = format!("→ {title}");
+            if ui.add(Button::new(&label)).clicked() {
+                *nav_target = Some(target_idx);
+            }
+        }
+    });
+    ui.add_space(space::S2);
+}
+
+pub(crate) fn section_overline(ui: &mut Ui, title: &str) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.add_space(space::S2);
     ui.label(rich(title, TextStyle::Overline).color(p.text_tertiary));
     ui.add_space(space::S1);
 }
 
-fn paragraph(ui: &mut Ui, text: &str) {
+pub(crate) fn paragraph(ui: &mut Ui, text: &str) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.add(egui::Label::new(rich(text, TextStyle::DialogBody).color(p.text_primary)).wrap());
 }
 
-fn sub_bullet(ui: &mut Ui, lead: &str, shortcut: Option<&str>, body: &str) {
+pub(crate) fn sub_bullet(ui: &mut Ui, lead: &str, shortcut: Option<&str>, body: &str) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = space::S1;
@@ -558,7 +840,7 @@ fn sub_bullet(ui: &mut Ui, lead: &str, shortcut: Option<&str>, body: &str) {
     });
 }
 
-fn mode_card(
+pub(crate) fn mode_card(
     ui: &mut Ui,
     icon: Option<Icon>,
     mode_name: &str,
@@ -601,7 +883,7 @@ fn mode_card(
 
 /// Allocates a themed illustration canvas box (`bg_canvas` with `border_subtle` frame) and passes
 /// `(painter, rect)` to `draw`.
-fn illustration_canvas(
+pub(crate) fn illustration_canvas(
     ui: &mut Ui,
     height: f32,
     caption_text: &str,
@@ -2284,5 +2566,73 @@ mod tests {
         assert!(search.x1 <= clear.x0);
         assert!(previous.x1 <= next.x0);
         assert!(footer_close.x1 <= command.x0 && command.x1 <= browser.x0);
+    }
+
+    #[test]
+    fn actionscript_help_chapters_tags_cross_links_and_styled_svg_browser_html_work() {
+        assert_eq!(HELP_CHAPTERS.len(), 16);
+        assert_eq!(
+            HELP_CHAPTERS[10].title,
+            "11. AS1 & AS2 Fundamentals & Timeline"
+        );
+        assert_eq!(HELP_CHAPTERS[11].title, "12. AS2 Core Classes & Built-Ins");
+        assert_eq!(
+            HELP_CHAPTERS[12].title,
+            "13. AS3 Architecture & Display List"
+        );
+        assert_eq!(HELP_CHAPTERS[13].title, "14. AS3 Events, Input & Lifecycle");
+        assert_eq!(
+            HELP_CHAPTERS[14].title,
+            "15. AS3 Graphics, Filters, Sound & Data"
+        );
+        assert_eq!(
+            HELP_CHAPTERS[15].title,
+            "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide"
+        );
+
+        for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
+            assert!(
+                !ch.tags.is_empty(),
+                "chapter {idx} ({}) must have tags",
+                ch.title
+            );
+            assert!(
+                !ch.related.is_empty(),
+                "chapter {idx} ({}) must have cross-links",
+                ch.title
+            );
+            for &rel in ch.related {
+                assert!(rel < HELP_CHAPTERS.len(), "valid cross-link target {rel}");
+            }
+        }
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        open_help_manual(&ctx);
+        for tag in ["AS1", "AS2", "AS3", "Migration", "DisplayList"] {
+            ctx.data_mut(|d| {
+                let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+                s.active_tag = Some(tag);
+                s.page = 10;
+                s.history = vec![9];
+            });
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                editor.help_manual_dialog(ctx);
+            });
+        }
+
+        let html = help_browser_html();
+        assert!(html.contains("--bg-app:rgb("));
+        assert!(html.contains("--accent-default:rgb("));
+        assert!(html.contains("id=\"nf2-tag-AS1\""));
+        assert!(html.contains("id=\"nf2-tag-AS2\""));
+        assert!(html.contains("id=\"nf2-tag-AS3\""));
+        assert!(html.contains("class=\"cross-link\""));
+        assert!(html.contains("class=\"ref-table\""));
+        assert!(html.contains("<pre class=\"code-block\"><code>"));
+        assert!(
+            html.matches("<svg ").count() >= 16,
+            "browser HTML must include inline SVG illustrations for all 16 chapters"
+        );
     }
 }

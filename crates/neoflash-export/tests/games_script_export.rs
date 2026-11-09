@@ -951,3 +951,1014 @@ console.table(results);
 
     let _ = fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn high_vertex_tween_and_shape_tween_stress_with_measured_fps() {
+    use neoflash_core::{
+        Easing, Element, ElementKind, FillRule, InstancePlayback, Keyframe, Layer, LayerProperties,
+        PathCommand, Script, ScriptLanguage, ShapeHint, Symbol, SymbolKind, Timeline, Transform,
+        TweenKind,
+    };
+    use std::f64::consts::TAU;
+
+    let root = workspace_root();
+    let temp_dir = temp_test_dir("high-vertex-tween-fps");
+    let runtime_dir = temp_dir.join("runtime");
+    write_mock_wasm_runtime(&runtime_dir);
+
+    // Build a 256-vertex star-rose contour and a 256-vertex gear-mandala contour
+    let vertex_count = 256usize;
+    let mut star_rose_cmds = Vec::with_capacity(vertex_count + 2);
+    let mut gear_mandala_cmds = Vec::with_capacity(vertex_count + 2);
+    for i in 0..vertex_count {
+        let angle = (i as f64 / vertex_count as f64) * TAU;
+        let r_rose = 120.0 + 48.0 * (angle * 8.0).cos() + 18.0 * (angle * 24.0).sin();
+        let x1 = 320.0 + r_rose * angle.cos();
+        let y1 = 240.0 + r_rose * angle.sin();
+        if i == 0 {
+            star_rose_cmds.push(PathCommand::MoveTo { x: x1, y: y1 });
+        } else {
+            star_rose_cmds.push(PathCommand::LineTo { x: x1, y: y1 });
+        }
+
+        let tooth = if (i / 4) % 2 == 0 { 150.0 } else { 95.0 };
+        let ripple = 12.0 * (angle * 16.0).sin();
+        let r_gear = tooth + ripple;
+        let x2 = 320.0 + r_gear * angle.cos();
+        let y2 = 240.0 + r_gear * angle.sin();
+        if i == 0 {
+            gear_mandala_cmds.push(PathCommand::MoveTo { x: x2, y: y2 });
+        } else {
+            gear_mandala_cmds.push(PathCommand::LineTo { x: x2, y: y2 });
+        }
+    }
+    star_rose_cmds.push(PathCommand::Close);
+    gear_mandala_cmds.push(PathCommand::Close);
+
+    let mut project = Project::blank();
+    project.format_version = 9;
+    project.name = "High-Vertex Shape & Classic Tween Stress (Measured FPS)".into();
+    project.width = 640;
+    project.height = 480;
+    project.fps = 24;
+
+    // Satellite Graphic symbol for classic tweening
+    let sat_sym = Symbol {
+        id: "sym-orbiter".into(),
+        name: "Orbiter Satellite".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            scripts: vec![],
+            guides: vec![],
+            layers: vec![Layer {
+                id: "sat-layer".into(),
+                name: "Body".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "sat-dot".into(),
+                        name: "Dot".into(),
+                        kind: ElementKind::Ellipse {
+                            width: 14.0,
+                            height: 14.0,
+                            fill: [56, 189, 248, 235],
+                            stroke: [255, 255, 255, 255],
+                            stroke_width: 1.5,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+        },
+    };
+    project.symbols.push(sat_sym);
+
+    let mut start_satellites = Vec::with_capacity(32);
+    let mut end_satellites = Vec::with_capacity(32);
+    for i in 0..32 {
+        let a0 = (i as f64 / 32.0) * TAU;
+        let a1 = a0 + std::f64::consts::PI;
+        start_satellites.push(Element {
+            id: format!("sat-{i}"),
+            name: format!("sat_{i}"),
+            transform: Transform {
+                x: 320.0 + 180.0 * a0.cos(),
+                y: 240.0 + 180.0 * a0.sin(),
+                scale_x: 0.8,
+                scale_y: 0.8,
+                rotation: 0.0,
+                alpha: 0.75,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: "sym-orbiter".into(),
+                playback: InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+        end_satellites.push(Element {
+            id: format!("sat-{i}"),
+            name: format!("sat_{i}"),
+            transform: Transform {
+                x: 320.0 + 210.0 * a1.cos(),
+                y: 240.0 + 210.0 * a1.sin(),
+                scale_x: 1.25,
+                scale_y: 1.25,
+                rotation: 180.0,
+                alpha: 1.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: "sym-orbiter".into(),
+                playback: InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+    }
+
+    let root_id = project.root.clone();
+    {
+        let root_sym = project.symbol_mut(&root_id).expect("root symbol");
+        root_sym.timeline.frame_count = 60;
+        // Real measured FPS counter script alongside target FPS
+        root_sym.timeline.scripts = vec![neoflash_core::FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: r#"
+if (this.fpsInitialized == undefined) {
+    this.fpsInitialized = true;
+    this.targetFps = 24;
+    this.measuredFps = 24;
+    this.frameCount = 0;
+    this.lastStampMs = getTimer();
+    this.fpsHud = this.createTextField("fpsHud", 500, 16, 14, 480, 26);
+    this.fpsHud.text = "TARGET: 24 FPS | MEASURED: 24.0 FPS";
+    this.onEnterFrame = function() {
+        this.frameCount = this.frameCount + 1;
+        var nowMs = getTimer();
+        var dt = nowMs - this.lastStampMs;
+        if (dt <= 0) {
+            dt = 1;
+        }
+        this.lastStampMs = nowMs;
+        var instFps = 1000 / dt;
+        this.measuredFps = Math.round((this.measuredFps * 0.8 + instFps * 0.2) * 10) / 10;
+        this.fpsHud.text = "TARGET: " + this.targetFps + " FPS | MEASURED: " + this.measuredFps + " FPS | FRAME: " + this._currentframe;
+    };
+}
+"#
+                .into(),
+            },
+        }];
+        root_sym.timeline.layers = vec![
+            Layer {
+                id: "high-vertex-shape-tween".into(),
+                name: "256-Vertex Shape Tween".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        tween: Some(Easing::EaseInOut),
+                        tween_kind: TweenKind::Shape,
+                        shape_hints: vec![
+                            ShapeHint {
+                                label: 'a',
+                                start_uv: [0.0, 0.5],
+                                end_uv: [0.0, 0.5],
+                            },
+                            ShapeHint {
+                                label: 'b',
+                                start_uv: [0.5, 0.0],
+                                end_uv: [0.5, 0.0],
+                            },
+                        ],
+                        elements: vec![Element {
+                            id: "poly-256".into(),
+                            name: "StarRose256".into(),
+                            kind: ElementKind::Path {
+                                commands: star_rose_cmds,
+                                fill_rule: FillRule::NonZero,
+                                fill: [168, 85, 247, 230],
+                                stroke: [240, 171, 252, 255],
+                                stroke_width: 2.5,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 59,
+                        elements: vec![Element {
+                            id: "poly-256".into(),
+                            name: "GearMandala256".into(),
+                            kind: ElementKind::Path {
+                                commands: gear_mandala_cmds,
+                                fill_rule: FillRule::NonZero,
+                                fill: [16, 185, 129, 230],
+                                stroke: [110, 231, 183, 255],
+                                stroke_width: 2.5,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    },
+                ],
+            },
+            Layer {
+                id: "multi-classic-tween".into(),
+                name: "32 Classic Tween Satellites".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        tween: Some(Easing::EaseInOut),
+                        tween_kind: TweenKind::Classic,
+                        elements: start_satellites,
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 59,
+                        elements: end_satellites,
+                        ..Keyframe::default()
+                    },
+                ],
+            },
+        ];
+    }
+
+    project
+        .validate()
+        .expect("high-vertex stress project validates");
+    let out_dir = temp_dir.join("high-vertex-stress");
+    let options = PublishOptions {
+        fonts: FontExportPolicy::Device,
+        size: SizeLevel::Full,
+        audio: AudioExportPolicy::Original,
+    };
+    export_project_with_options(&project, &out_dir, &runtime_dir, &options)
+        .expect("export high-vertex stress bundle");
+
+    let runner_path = temp_dir.join("run-high-vertex.mjs");
+    let host_integration_url = root
+        .join("crates/neoflash-script/tests/host-integration.mjs")
+        .display()
+        .to_string();
+    let rust_runtime_url = root
+        .join("crates/neoflash-script/tests/rust-runtime-host.mjs")
+        .display()
+        .to_string();
+    let web_runtime_url = root.join("web/runtime.js").display().to_string();
+    let bundle_path = out_dir.join("bundle.js").display().to_string();
+
+    let runner_source = format!(
+        r#"import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {{ createRequire }} from 'node:module';
+import {{ resolve }} from 'node:path';
+import {{ createRuntimeHost }} from {host_integration_url:?};
+import {{ runtimeWasm }} from {rust_runtime_url:?};
+import webRuntime from {web_runtime_url:?};
+const {{ createScenePainter }} = webRuntime;
+const require = createRequire(import.meta.url);
+const root = {root_str:?};
+globalThis.Path2D ??= class Path2D {{
+  moveTo() {{}}
+  lineTo() {{}}
+  quadraticCurveTo() {{}}
+  bezierCurveTo() {{}}
+  closePath() {{}}
+}};
+const NeoFlashPaths = require(resolve(root, 'web/path.js'));
+const NeoFlashAccessibility = require(resolve(root, 'web/accessibility.js'));
+const NeoFlashText = require(resolve(root, 'web/text.js'));
+
+const text = fs.readFileSync({bundle_path:?}, 'utf8');
+const jsonText = text.replace(/^globalThis\.NeoFlashBundle\s*=\s*/, '').replace(/;\s*$/, '');
+const bundle = JSON.parse(jsonText);
+const player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));
+const compiled = bundle.scripts.map((s, idx) => ({{
+  script: {{ language: s.language, source: s.source }},
+  code: s.code,
+  location: s.location || `script-${{idx}}`,
+}}));
+
+let fillCalls = 0;
+let strokeCalls = 0;
+const noop = () => {{}};
+const gradient = {{ addColorStop: noop }};
+const ctx = {{
+  canvas: {{ width: 640, height: 480, style: {{}} }},
+  save: noop, restore: noop, setTransform: noop, transform: noop,
+  translate: noop, scale: noop, rotate: noop, beginPath: noop, closePath: noop,
+  moveTo: noop, lineTo: noop, quadraticCurveTo: noop, bezierCurveTo: noop,
+  arc: noop, ellipse: noop, rect: noop, clip: noop, clearRect: noop,
+  fillRect: () => {{ fillCalls++; }},
+  strokeRect: () => {{ strokeCalls++; }},
+  fill: () => {{ fillCalls++; }},
+  stroke: () => {{ strokeCalls++; }},
+  fillText: noop, strokeText: noop,
+  measureText: (t) => ({{ width: String(t || '').length * 7 }}),
+  createLinearGradient: () => gradient,
+  createRadialGradient: () => gradient,
+  drawImage: noop,
+  getImageData: (_x, _y, w, h) => ({{ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }}),
+  putImageData: noop,
+  setLineDash: noop,
+}};
+
+const env = createRuntimeHost(root, player, compiled, {{ bundle, project: bundle.project, context: ctx }});
+env.host.resetProject();
+const bitmapHost = env.host.bitmap();
+const paths = new NeoFlashPaths.PathCache();
+const gradients = new NeoFlashPaths.GradientRenderer({{ createCanvas: () => bitmapHost.createCanvas(1, 1) }});
+const clippings = new NeoFlashPaths.ClipRenderer({{ createCanvas: () => bitmapHost.createCanvas(1, 1) }});
+const painter = createScenePainter({{
+  global: {{ NeoFlashPaths, NeoFlashAccessibility, NeoFlashText }},
+  paths, gradients, clippings, bitmapHost,
+  textHost: env.host.text(), filterHost: env.host.filters(), videoHost: env.host.video(),
+  context: ctx,
+}});
+
+const clip = env.host.proxyFor([]);
+const frameDeltas = [];
+let lastNow = performance.now();
+for (let f = 0; f < 60; f++) {{
+  env.host.broadcastFrame();
+  player.tick();
+  env.host.dispatchScripts();
+  const snapshot = env.host.display().snapshot();
+  // Verify the 256-vertex morphed shape + 32 satellites are present on every frame
+  assert.ok(snapshot.draws.length >= 33, `frame ${{f}} expected >= 33 draw items, got ${{snapshot.draws.length}}`);
+  painter.draw(ctx, snapshot, {{ width: 640, height: 480, semantic: false }});
+  const now = performance.now();
+  frameDeltas.push(Math.max(0.01, now - lastNow));
+  lastNow = now;
+}}
+
+const avgDeltaMs = frameDeltas.reduce((a, b) => a + b, 0) / frameDeltas.length;
+const hostMeasuredFps = 1000 / avgDeltaMs;
+assert.equal(clip.targetFps, 24, 'targetFps is 24');
+assert.ok(clip.measuredFps > 0, `script measuredFps must be positive, got ${{clip.measuredFps}}`);
+assert.match(clip.fpsHud.text, /TARGET: 24 FPS \| MEASURED: [0-9.]+ FPS/, 'HUD text includes both target and real measured FPS');
+assert.ok(hostMeasuredFps > 60, `host measured FPS (${{hostMeasuredFps.toFixed(1)}}) must exceed 60 FPS on 256-vertex shape tween + 32 classic tweens`);
+assert.ok(fillCalls >= 60 * 33, `expected >= 1980 fill calls across 60 frames, got ${{fillCalls}}`);
+"#,
+        host_integration_url = host_integration_url,
+        rust_runtime_url = rust_runtime_url,
+        web_runtime_url = web_runtime_url,
+        root_str = root.display().to_string(),
+        bundle_path = bundle_path,
+    );
+
+    fs::write(&runner_path, runner_source).expect("write high-vertex runner");
+    let output = Command::new(node_binary())
+        .arg(&runner_path)
+        .current_dir(&root)
+        .output()
+        .expect("run node high-vertex stress test");
+
+    if !output.status.success() {
+        panic!(
+            "High-vertex tween & measured FPS test failed:\nSTDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn behavioral_verification_of_eight_imported_fla_archetypes_in_html5() {
+    use neoflash_core::{
+        Easing, Element, ElementKind, FrameScript, FrameSound, InstancePlayback, Keyframe, Layer,
+        LayerProperties, LayerRole, ObjectEvent, ObjectScript, PathCommand, ResourceUnit, Script,
+        ScriptLanguage, SoundEffect, SoundSync, Symbol, SymbolKind, TextFormat, Timeline,
+        Transform,
+    };
+
+    let root = workspace_root();
+    let temp_dir = temp_test_dir("eight-imported-flas");
+    let runtime_dir = temp_dir.join("runtime");
+    write_mock_wasm_runtime(&runtime_dir);
+
+    let mut archetypes: Vec<(&str, Project)> = Vec::new();
+
+    // 1. Archetype 1: Interactive Button (`on(release)` + frame jump)
+    {
+        let mut p = Project::blank();
+        p.name = "FLA 1 Interactive Button".into();
+        let btn_sym = Symbol {
+            id: "sym-btn".into(),
+            name: "ActionBtn".into(),
+            folder: String::new(),
+            kind: SymbolKind::Button,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 4,
+                scripts: vec![],
+                guides: vec![],
+                layers: vec![Layer {
+                    id: "btn-layer".into(),
+                    name: "States".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: (0..4)
+                        .map(|f| Keyframe {
+                            frame: f,
+                            elements: vec![Element {
+                                id: format!("btn-rect-{f}"),
+                                name: "hit".into(),
+                                kind: ElementKind::Rectangle {
+                                    width: 120.0,
+                                    height: 44.0,
+                                    fill: [37, 99, 235, 255],
+                                    stroke: [255, 255, 255, 255],
+                                    stroke_width: 2.0,
+                                },
+                                ..Element::default()
+                            }],
+                            ..Keyframe::default()
+                        })
+                        .collect(),
+                }],
+            },
+        };
+        p.symbols.push(btn_sym);
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.frame_count = 2;
+        root_sym.timeline.scripts = vec![
+            FrameScript {
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "stop(); var clicked = false;".into(),
+                },
+            },
+            FrameScript {
+                frame: 1,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "stop(); clicked = true;".into(),
+                },
+            },
+        ];
+        root_sym.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "btn-inst".into(),
+                    name: "goBtn".into(),
+                    transform: Transform {
+                        x: 100.0,
+                        y: 100.0,
+                        ..Transform::default()
+                    },
+                    kind: ElementKind::Instance {
+                        symbol_id: "sym-btn".into(),
+                        playback: InstancePlayback::SingleFrame(0),
+                    },
+                    scripts: vec![ObjectScript {
+                        event: ObjectEvent::Click,
+                        script: Script {
+                            language: ScriptLanguage::ActionScript2,
+                            source: "gotoAndStop(2);".into(),
+                        },
+                    }],
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 1,
+                elements: vec![],
+                ..Keyframe::default()
+            },
+        ];
+        archetypes.push(("fla-1-button", p));
+    }
+
+    // 2. Archetype 2: Nested MovieClips with independent timelines
+    {
+        let mut p = Project::blank();
+        p.name = "FLA 2 Nested Clips".into();
+        let gear_sym = Symbol {
+            id: "sym-gear".into(),
+            name: "NestedGear".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 4,
+                scripts: vec![FrameScript {
+                    frame: 0,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript2,
+                        source: "this.ticks = (this.ticks || 0) + 1;".into(),
+                    },
+                }],
+                guides: vec![],
+                layers: vec![Layer {
+                    id: "gear-layer".into(),
+                    name: "Gear".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "gear-shape".into(),
+                            name: "box".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 40.0,
+                                height: 40.0,
+                                fill: [245, 158, 11, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                }],
+            },
+        };
+        p.symbols.push(gear_sym);
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "gear-inst".into(),
+                name: "nestedClip".into(),
+                transform: Transform {
+                    x: 150.0,
+                    y: 120.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-gear".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            });
+        archetypes.push(("fla-2-nested-clips", p));
+    }
+
+    // 3. Archetype 3: Dynamic TextField with variable & formatting
+    {
+        let mut p = Project::blank();
+        p.name = "FLA 3 TextFields".into();
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        let fmt = TextFormat {
+            font: "Helvetica".into(),
+            size: 20.0,
+            ..TextFormat::default()
+        };
+        root_sym.timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "stop(); this.banner.text = 'IMPORTED FLA TEXT OK';".into(),
+            },
+        });
+        root_sym.timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "tf-banner".into(),
+                name: "banner".into(),
+                transform: Transform {
+                    x: 40.0,
+                    y: 60.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::TextBox {
+                    text: "Initial".into(),
+                    width: 320.0,
+                    height: 40.0,
+                    format: fmt,
+                    word_wrap: true,
+                    multiline: false,
+                },
+                ..Element::default()
+            });
+        archetypes.push(("fla-3-textfield", p));
+    }
+
+    // 4. Archetype 4: Frame labels & timeline navigation (`gotoAndStop("target_label")`)
+    {
+        let mut p = Project::blank();
+        p.name = "FLA 4 Frame Navigation".into();
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.frame_count = 5;
+        root_sym.timeline.scripts = vec![
+            FrameScript {
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "var navState = 'start'; gotoAndStop('victory_frame');".into(),
+                },
+            },
+            FrameScript {
+                frame: 3,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "stop(); navState = 'arrived_victory';".into(),
+                },
+            },
+        ];
+        root_sym.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                label: "intro".into(),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 3,
+                label: "victory_frame".into(),
+                ..Keyframe::default()
+            },
+        ];
+        archetypes.push(("fla-4-frame-nav", p));
+    }
+
+    // 5. Archetype 5: Data loading (`LoadVars.decode` + `XML` parsing)
+    {
+        let mut p = Project::blank();
+        p.name = "FLA 5 Data Loading".into();
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: r#"
+stop();
+var lv = new LoadVars();
+lv.decode("player=Miles&score=9000");
+var xml = new XML("<config><mode>arcade</mode></config>");
+this.parsedPlayer = lv.player;
+this.parsedScore = Number(lv.score);
+this.xmlRootName = xml.firstChild.nodeName;
+"#
+                .into(),
+            },
+        });
+        archetypes.push(("fla-5-data-loading", p));
+    }
+
+    // 6. Archetype 6: Timeline Sound (PCM WAV + Stream sync)
+    {
+        let mut p = Project::blank();
+        p.format_version = 6;
+        p.name = "FLA 6 Timeline Sound".into();
+        let sample_rate = 8000u32;
+        let num_samples = 800u32;
+        let data_bytes = num_samples * 2;
+        let mut wav = Vec::with_capacity((44 + data_bytes) as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_bytes.to_le_bytes());
+        for _ in 0..num_samples {
+            wav.extend_from_slice(&1024i16.to_le_bytes());
+        }
+        p.resources.push(
+            ResourceUnit::from_bytes("res-beep", "audio/beep.wav", "audio/wav", &wav).unwrap(),
+        );
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.layers[0].keyframes[0].sound = Some(FrameSound {
+            resource: "res-beep".into(),
+            sync: SoundSync::Start,
+            loops: 1,
+            loop_forever: false,
+            effect: SoundEffect::None,
+            in_point: None,
+            out_point: None,
+            envelope: None,
+        });
+        archetypes.push(("fla-6-sound", p));
+    }
+
+    // 7. Archetype 7: Guided Classic Tween (`orient_to_path: true`)
+    {
+        let mut p = Project::blank();
+        p.format_version = 6;
+        p.name = "FLA 7 Guided Tween".into();
+        let pod_sym = Symbol {
+            id: "sym-pod".into(),
+            name: "Pod".into(),
+            folder: String::new(),
+            kind: SymbolKind::Graphic,
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 1,
+                scripts: vec![],
+                guides: vec![],
+                layers: vec![Layer {
+                    id: "pod-l".into(),
+                    name: "Pod".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "pod-r".into(),
+                            name: "PodRect".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 30.0,
+                                height: 16.0,
+                                fill: [16, 185, 129, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    }],
+                }],
+            },
+        };
+        p.symbols.push(pod_sym);
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.frame_count = 10;
+        root_sym.timeline.layers = vec![
+            Layer {
+                id: "guide-l".into(),
+                name: "Guide".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties {
+                    role: LayerRole::Guide,
+                    ..LayerProperties::default()
+                },
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "guide-path".into(),
+                        name: "Path".into(),
+                        kind: ElementKind::Path {
+                            commands: vec![
+                                PathCommand::MoveTo { x: 40.0, y: 200.0 },
+                                PathCommand::LineTo { x: 440.0, y: 200.0 },
+                            ],
+                            fill_rule: neoflash_core::FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: [100, 100, 255, 255],
+                            stroke_width: 1.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            },
+            Layer {
+                id: "guided-l".into(),
+                name: "Guided".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties {
+                    motion_guide: Some("guide-l".into()),
+                    ..LayerProperties::default()
+                },
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        tween: Some(Easing::Linear),
+                        orient_to_path: true,
+                        elements: vec![Element {
+                            id: "pod-i".into(),
+                            name: "pod".into(),
+                            transform: Transform {
+                                x: 40.0,
+                                y: 200.0,
+                                ..Transform::default()
+                            },
+                            kind: ElementKind::Instance {
+                                symbol_id: "sym-pod".into(),
+                                playback: InstancePlayback::Loop,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    },
+                    Keyframe {
+                        frame: 9,
+                        elements: vec![Element {
+                            id: "pod-i".into(),
+                            name: "pod".into(),
+                            transform: Transform {
+                                x: 440.0,
+                                y: 200.0,
+                                ..Transform::default()
+                            },
+                            kind: ElementKind::Instance {
+                                symbol_id: "sym-pod".into(),
+                                playback: InstancePlayback::Loop,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    },
+                ],
+            },
+        ];
+        archetypes.push(("fla-7-guided-tween", p));
+    }
+
+    // 8. Archetype 8: AS3 Interactive Sprite + Graphics + Event Dispatch
+    {
+        let mut p = Project::blank();
+        p.name = "FLA 8 AS3 Interactive".into();
+        let root_id = p.root.clone();
+        let root_sym = p.symbol_mut(&root_id).unwrap();
+        root_sym.timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+stop();
+var badge:Sprite = new Sprite();
+badge.name = "as3Badge";
+badge.graphics.beginFill(0xec4899, 1.0);
+badge.graphics.drawCircle(120, 120, 32);
+badge.graphics.endFill();
+this.addChild(badge);
+this.as3Ready = (this.getChildByName("as3Badge") != null);
+"#
+                .into(),
+            },
+        });
+        archetypes.push(("fla-8-as3-interactive", p));
+    }
+
+    let options = PublishOptions {
+        fonts: FontExportPolicy::Device,
+        size: SizeLevel::Full,
+        audio: AudioExportPolicy::Original,
+    };
+
+    let mut exported_bundles = Vec::new();
+    for (slug, authored_project) in &archetypes {
+        authored_project
+            .validate()
+            .unwrap_or_else(|e| panic!("{slug} authored validate failed: {e}"));
+        let fla_path = temp_dir.join(format!("{slug}.fla"));
+        neoflash_import::export_fla(authored_project, &fla_path)
+            .unwrap_or_else(|e| panic!("{slug} export_fla failed: {e}"));
+
+        let imported = neoflash_import::import_project(&fla_path)
+            .unwrap_or_else(|e| panic!("{slug} import_project from .fla failed: {e}"));
+        imported
+            .validate()
+            .unwrap_or_else(|e| panic!("{slug} imported validate failed: {e}"));
+
+        let out_dir = temp_dir.join(slug);
+        export_project_with_options(&imported, &out_dir, &runtime_dir, &options)
+            .unwrap_or_else(|e| panic!("{slug} HTML5 export failed: {e}"));
+        exported_bundles.push((slug.to_string(), out_dir.join("bundle.js")));
+    }
+
+    let runner_path = temp_dir.join("run-eight-flas.mjs");
+    let host_integration_url = root
+        .join("crates/neoflash-script/tests/host-integration.mjs")
+        .display()
+        .to_string();
+    let rust_runtime_url = root
+        .join("crates/neoflash-script/tests/rust-runtime-host.mjs")
+        .display()
+        .to_string();
+
+    let runner_source = format!(
+        r#"import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {{ createRuntimeHost }} from {host_integration_url:?};
+import {{ runtimeWasm }} from {rust_runtime_url:?};
+
+const root = {root_str:?};
+const bundles = {bundles_json};
+
+function createMockAudioContext() {{
+  return {{
+    state: 'running',
+    sampleRate: 8000,
+    currentTime: 0,
+    destination: {{ kind: 'destination' }},
+    resume() {{ this.state = 'running'; return Promise.resolve(); }},
+    close() {{ this.state = 'closed'; return Promise.resolve(); }},
+    decodeAudioData() {{
+      return Promise.resolve({{ numberOfChannels: 1, sampleRate: 8000, length: 800, duration: 0.1 }});
+    }},
+    createGain() {{
+      return {{ kind: 'gain', gain: {{ value: 1, setValueAtTime() {{}}, linearRampToValueAtTime() {{}} }}, connect() {{}}, disconnect() {{}} }};
+    }},
+    createStereoPanner() {{
+      return {{ kind: 'pan', pan: {{ value: 0 }}, connect() {{}}, disconnect() {{}} }};
+    }},
+    createBufferSource() {{
+      return {{ buffer: null, loop: false, loopStart: 0, loopEnd: 0, onended: null, connect() {{}}, disconnect() {{}}, start() {{}}, stop() {{}} }};
+    }},
+  }};
+}}
+
+for (const [slug, bundlePath] of bundles) {{
+  const text = fs.readFileSync(bundlePath, 'utf8');
+  const jsonText = text.replace(/^globalThis\.NeoFlashBundle\s*=\s*/, '').replace(/;\s*$/, '');
+  const bundle = JSON.parse(jsonText);
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));
+  const compiled = (bundle.scripts || []).map((s, idx) => ({{
+    script: {{ language: s.language, source: s.source }},
+    code: s.code,
+    location: s.location || `script-${{idx}}`,
+  }}));
+  const env = createRuntimeHost(root, player, compiled, {{
+    bundle,
+    project: bundle.project,
+    audio: {{ createContext: createMockAudioContext, isUserGesture: () => true }},
+  }});
+  env.host.resetProject();
+  const clip = env.host.proxyFor([]);
+
+  if (slug === 'fla-1-button') {{
+    assert.equal(clip.clicked, false, 'button initially not clicked');
+    assert.equal(player.current_frame(), 0, 'starts at frame 0');
+  }} else if (slug === 'fla-2-nested-clips') {{
+    assert.ok(clip.nestedClip, 'nestedClip instance exists on stage');
+    assert.equal(clip.nestedClip.ticks, 1, 'nestedClip ran frame 0 script');
+  }} else if (slug === 'fla-3-textfield') {{
+    assert.equal(clip.banner.text, 'IMPORTED FLA TEXT OK', 'dynamic TextField updated after FLA roundtrip');
+  }} else if (slug === 'fla-4-frame-nav') {{
+    assert.equal(clip.navState, 'arrived_victory', 'gotoAndStop(label) navigated to frame 4');
+    assert.equal(player.current_frame(), 3, 'player is at 0-based frame 3');
+  }} else if (slug === 'fla-5-data-loading') {{
+    assert.equal(clip.parsedPlayer, 'Miles', 'LoadVars decoded player');
+    assert.equal(clip.parsedScore, 9000, 'LoadVars decoded score');
+    assert.equal(clip.xmlRootName, 'config', 'XML parsed root node');
+  }} else if (slug === 'fla-6-sound') {{
+    const soundResources = JSON.parse(player.timeline_sound_resources_json());
+    assert.equal(soundResources.length, 1, 'imported FLA preserved timeline sound resource');
+  }} else if (slug === 'fla-7-guided-tween') {{
+    const snap0 = env.host.display().snapshot();
+    player.tick();
+    player.tick();
+    const snap2 = env.host.display().snapshot();
+    assert.ok(snap0.draws.length >= 1 && snap2.draws.length >= 1, 'guided tween draws across frames');
+  }} else if (slug === 'fla-8-as3-interactive') {{
+    assert.equal(clip.as3Ready, true, 'AS3 child Sprite created and attached');
+  }}
+}}
+"#,
+        host_integration_url = host_integration_url,
+        rust_runtime_url = rust_runtime_url,
+        root_str = root.display().to_string(),
+        bundles_json = serde_json::to_string(&exported_bundles).unwrap(),
+    );
+
+    fs::write(&runner_path, runner_source).expect("write eight-flas runner");
+    let output = Command::new(node_binary())
+        .arg(&runner_path)
+        .current_dir(&root)
+        .output()
+        .expect("run node eight-flas behavioral test");
+
+    if !output.status.success() {
+        panic!(
+            "Eight imported FLA behavioral HTML5 test failed:\nSTDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let _ = fs::remove_dir_all(temp_dir);
+}

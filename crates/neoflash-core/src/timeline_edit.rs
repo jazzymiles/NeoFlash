@@ -488,7 +488,15 @@ fn isolate_range_impl(
             } => {
                 let first_key = &original.keyframes[start_idx];
                 let first = first_key.frame;
-                if !(first < cut_end && last >= cut_start) {
+                let touches_span = if bake_interior
+                    || cut_start == cut_end
+                    || first_key.tween_kind == TweenKind::Shape
+                {
+                    first < cut_end && last > cut_start
+                } else {
+                    first < cut_end && last >= cut_start
+                };
+                if !touches_span {
                     continue;
                 }
                 let build_subdivided = || -> Option<Vec<Keyframe>> {
@@ -1338,7 +1346,19 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 layer
                     .keyframes
                     .retain(|key| !(first..=final_frame).contains(&key.frame));
-                let tweens: Vec<_> = inside.iter().map(|key| key.tween).collect();
+                let span_sources: Vec<(Option<Easing>, TweenKind, Vec<ShapeHint>)> = inside
+                    .iter()
+                    .map(|key| {
+                        let effective_kind = if key.keyed_properties.is_some()
+                            || key.tween_kind == TweenKind::Motion
+                        {
+                            TweenKind::Classic
+                        } else {
+                            key.tween_kind
+                        };
+                        (key.tween, effective_kind, key.shape_hints.clone())
+                    })
+                    .collect();
                 let count = inside.len();
                 for (i, key) in inside.iter_mut().enumerate() {
                     // A segment a→b becomes b'→a' and keeps a's tween with time-reversed easing.
@@ -1348,11 +1368,33 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         key.elements = sample_layer_in_at_fps(timeline, &original, key.frame, fps);
                         key.tween_kind = TweenKind::Classic;
                     }
-                    let source_tween = tweens[if i == 0 { count - 1 } else { i - 1 }];
+                    let (source_tween, source_kind, source_hints) =
+                        &span_sources[if i == 0 { count - 1 } else { i - 1 }];
                     key.tween = if i == 0 {
-                        source_tween
+                        *source_tween
                     } else {
                         source_tween.map(reverse_easing)
+                    };
+                    key.tween_kind = if key.tween.is_some() {
+                        *source_kind
+                    } else {
+                        TweenKind::Classic
+                    };
+                    key.shape_hints = if key.tween.is_some() && key.tween_kind == TweenKind::Shape {
+                        if i == 0 {
+                            source_hints.clone()
+                        } else {
+                            source_hints
+                                .iter()
+                                .map(|h| ShapeHint {
+                                    label: h.label,
+                                    start_uv: h.end_uv,
+                                    end_uv: h.start_uv,
+                                })
+                                .collect()
+                        }
+                    } else {
+                        Vec::new()
                     };
                     for (_, ease) in &mut key.property_eases {
                         *ease = reverse_easing(*ease);

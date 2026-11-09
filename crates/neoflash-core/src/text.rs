@@ -2156,6 +2156,25 @@ pub struct TextSurface {
         skip_serializing_if = "is_default_gutter"
     )]
     pub column_gutter: f64,
+    #[serde(default = "default_common_str", skip_serializing_if = "is_common_str")]
+    pub ligatures: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub digit_width: String,
+    #[serde(
+        default = "default_default_str",
+        skip_serializing_if = "is_default_str"
+    )]
+    pub digit_case: String,
+    #[serde(
+        default = "default_locale_str",
+        skip_serializing_if = "is_default_locale_str"
+    )]
+    pub locale: String,
+    #[serde(default = "default_auto_str", skip_serializing_if = "is_auto_str")]
+    pub glyph_rotation: String,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextRun {
@@ -2164,6 +2183,8 @@ pub struct TextRun {
     pub y: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<TextFormat>,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub rotation: f64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextLayout {
@@ -2185,11 +2206,159 @@ struct Part {
     end: u32,
     newline: bool,
 }
-fn apply_typographic_case(text: &str, mode: &str) -> String {
+fn locale_primary_lang(locale: &str) -> String {
+    locale
+        .trim()
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("en")
+        .to_ascii_lowercase()
+}
+fn is_east_asian_locale(locale: &str) -> bool {
+    matches!(locale_primary_lang(locale).as_str(), "ja" | "zh" | "ko")
+}
+fn is_cjk_or_fullwidth(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x1100..=0x11FF
+            | 0x2E80..=0x9FFF
+            | 0xAC00..=0xD7AF
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF01..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x20000..=0x2FA1F
+    )
+}
+fn is_kinsoku_leading_prohibited(ch: char) -> bool {
+    matches!(
+        ch,
+        '。' | '、'
+            | '，'
+            | '．'
+            | '！'
+            | '？'
+            | '：'
+            | '；'
+            | '）'
+            | '］'
+            | '｝'
+            | '」'
+            | '』'
+            | '】'
+            | '》'
+            | '〉'
+            | '≫'
+            | 'ゝ'
+            | 'ゞ'
+            | 'ー'
+            | 'ァ'
+            | 'ィ'
+            | 'ゥ'
+            | 'ェ'
+            | 'ォ'
+            | 'ッ'
+            | 'ャ'
+            | 'ュ'
+            | 'ョ'
+            | 'ヮ'
+            | 'ぁ'
+            | 'ぃ'
+            | 'ぅ'
+            | 'ぇ'
+            | 'ぉ'
+            | 'っ'
+            | 'ゃ'
+            | 'ゅ'
+            | 'ょ'
+            | 'ゎ'
+    )
+}
+fn is_kinsoku_trailing_prohibited(ch: char) -> bool {
+    matches!(
+        ch,
+        '（' | '［' | '｛' | '「' | '『' | '【' | '《' | '〈' | '≪' | '¥' | '＄'
+    )
+}
+pub fn apply_ligatures(text: &str, level: &str) -> String {
+    let mut base = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\u{FB00}' => base.push_str("ff"),
+            '\u{FB01}' => base.push_str("fi"),
+            '\u{FB02}' => base.push_str("fl"),
+            '\u{FB03}' => base.push_str("ffi"),
+            '\u{FB04}' => base.push_str("ffl"),
+            '\u{FB05}' => base.push_str("ft"),
+            '\u{FB06}' => base.push_str("st"),
+            '\u{0132}' => base.push_str("IJ"),
+            '\u{0133}' => base.push_str("ij"),
+            _ => base.push(ch),
+        }
+    }
+    match level {
+        "none" => base,
+        "minimum" => base.replace("fi", "\u{FB01}").replace("fl", "\u{FB02}"),
+        "uncommon" | "discretionary" | "exotic" => base
+            .replace("ffi", "\u{FB03}")
+            .replace("ffl", "\u{FB04}")
+            .replace("ff", "\u{FB00}")
+            .replace("fi", "\u{FB01}")
+            .replace("fl", "\u{FB02}")
+            .replace("st", "\u{FB06}")
+            .replace("ft", "\u{FB05}")
+            .replace("IJ", "\u{0132}")
+            .replace("ij", "\u{0133}"),
+        _ => base
+            .replace("ffi", "\u{FB03}")
+            .replace("ffl", "\u{FB04}")
+            .replace("ff", "\u{FB00}")
+            .replace("fi", "\u{FB01}")
+            .replace("fl", "\u{FB02}"),
+    }
+}
+pub fn glyph_rotation_degrees(ch: char, glyph_rotation: &str, is_vertical: bool) -> f64 {
+    match glyph_rotation {
+        "0" | "rotate0" => 0.0,
+        "90" | "rotate90" => 90.0,
+        "180" | "rotate180" => 180.0,
+        "270" | "rotate270" => 270.0,
+        _ => {
+            if is_vertical && !ch.is_whitespace() && !is_cjk_or_fullwidth(ch) {
+                90.0
+            } else {
+                0.0
+            }
+        }
+    }
+}
+fn apply_typographic_case_for_locale(text: &str, mode: &str, locale: &str) -> String {
+    let lang = locale_primary_lang(locale);
+    let is_turkic = matches!(lang.as_str(), "tr" | "az");
+    let is_greek = lang == "el";
     match mode {
         "uppercase" | "lowercase_to_small_caps" => text
             .chars()
             .map(|ch| {
+                if is_turkic {
+                    match ch {
+                        'i' => return "İ".to_owned(),
+                        'ı' => return "I".to_owned(),
+                        _ => {}
+                    }
+                }
+                if is_greek {
+                    match ch {
+                        'ά' | 'Ά' => return "Α".to_owned(),
+                        'έ' | 'Έ' => return "Ε".to_owned(),
+                        'ή' | 'Ή' => return "Η".to_owned(),
+                        'ί' | 'Ί' => return "Ι".to_owned(),
+                        'ό' | 'Ό' => return "Ο".to_owned(),
+                        'ύ' | 'Ύ' => return "Υ".to_owned(),
+                        'ώ' | 'Ώ' => return "Ω".to_owned(),
+                        _ => {}
+                    }
+                }
                 let up: String = ch.to_uppercase().collect();
                 if up.encode_utf16().count() == ch.len_utf16() {
                     up
@@ -2201,6 +2370,13 @@ fn apply_typographic_case(text: &str, mode: &str) -> String {
         "lowercase" => text
             .chars()
             .map(|ch| {
+                if is_turkic {
+                    match ch {
+                        'I' => return "ı".to_owned(),
+                        'İ' => return "i".to_owned(),
+                        _ => {}
+                    }
+                }
                 let lo: String = ch.to_lowercase().collect();
                 if lo.encode_utf16().count() == ch.len_utf16() {
                     lo
@@ -2228,11 +2404,15 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
                 .any(|r| !r.format.tab_stops.is_empty()));
     let break_all = matches!(field.line_break.as_str(), "all" | "any")
         || matches!(field.orientation.as_str(), "vertical_ltr" | "vertical_rtl");
+    let split_digits = !is_default_str(&field.digit_width) || !is_default_str(&field.digit_case);
+    let enable_kinsoku = field.line_break == "auto"
+        && (is_east_asian_locale(&field.locale) || field.text.chars().any(is_cjk_or_fullwidth));
     let mut result = Vec::new();
     let mut text = String::new();
     let mut start = 0;
     let mut offset = 0;
     let mut space = false;
+    let mut prev_ch: Option<char> = None;
     let displayed;
     let display_source = if field.display_as_password {
         displayed = field
@@ -2248,7 +2428,8 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
             .collect::<String>();
         displayed.as_str()
     } else if !is_default_str(&field.typographic_case) {
-        displayed = apply_typographic_case(&field.text, &field.typographic_case);
+        displayed =
+            apply_typographic_case_for_locale(&field.text, &field.typographic_case, &field.locale);
         displayed.as_str()
     } else {
         field.text.as_str()
@@ -2258,8 +2439,24 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
         let is_tab = split_tabs_for_wrap && ch == '\t';
         let nextspace = ch.is_whitespace();
         let hit_boundary = !run_boundaries.is_empty() && run_boundaries.contains(&offset);
+        let digit_boundary =
+            split_digits && (ch.is_ascii_digit() || prev_ch.is_some_and(|p| p.is_ascii_digit()));
+        let kinsoku_break = enable_kinsoku
+            && prev_ch.is_some_and(|p| {
+                !p.is_whitespace()
+                    && !nextspace
+                    && (is_cjk_or_fullwidth(p) || is_cjk_or_fullwidth(ch))
+                    && !is_kinsoku_trailing_prohibited(p)
+                    && !is_kinsoku_leading_prohibited(ch)
+            });
         if !text.is_empty()
-            && (newline || is_tab || hit_boundary || space != nextspace || break_all)
+            && (newline
+                || is_tab
+                || hit_boundary
+                || space != nextspace
+                || break_all
+                || digit_boundary
+                || kinsoku_break)
         {
             result.push(Part {
                 text: std::mem::take(&mut text),
@@ -2281,6 +2478,7 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
                 newline: field.multiline,
             });
             start = offset + 1;
+            prev_ch = None;
         } else if is_tab {
             result.push(Part {
                 text: "\t".into(),
@@ -2289,9 +2487,11 @@ fn parts(field: &TextFieldState) -> Result<Vec<Part>, TextError> {
                 newline: false,
             });
             start = offset + 1;
+            prev_ch = Some('\t');
         } else {
             text.push(ch);
             space = nextspace;
+            prev_ch = Some(ch);
         }
         offset += ch.len_utf16() as u32;
         if result.len() > MAX_PARTS {
@@ -2394,12 +2594,62 @@ impl TextFieldState {
             || self.superscript
             || self.subscript
             || !is_default_str(&self.typographic_case)
+            || !is_default_str(&self.digit_width)
+            || !is_default_str(&self.digit_case)
+            || !is_common_str(&self.ligatures)
+            || !is_auto_str(&self.glyph_rotation)
+            || !is_default_locale_str(&self.locale)
             || !is_auto_str(&self.line_break)
             || !is_zero_f64(&self.baseline_shift)
             || !is_zero_f64(&self.space_before)
             || !is_zero_f64(&self.space_after)
             || !is_word_spacing_str(&self.text_justify)
             || self.format.effective_align_mode() == "justify_all"
+    }
+}
+
+fn adjust_digit_and_ligature_width(
+    text: &str,
+    base_width: f64,
+    eff_fmt: &TextFormat,
+    field: &TextFieldState,
+) -> f64 {
+    if text.len() == 1
+        && let Some(ch) = text.chars().next()
+        && ch.is_ascii_digit()
+    {
+        match field.digit_width.as_str() {
+            "tabular" => return (eff_fmt.size * 0.60).max(0.0),
+            "proportional" => {
+                let factor = match ch {
+                    '1' => 0.38,
+                    '4' | '7' => 0.52,
+                    _ => 0.58,
+                };
+                return (eff_fmt.size * factor).max(0.0);
+            }
+            _ => {}
+        }
+    }
+    if !is_common_str(&field.ligatures) && field.ligatures != "none" {
+        let shaped = apply_ligatures(text, &field.ligatures);
+        let orig_chars = text.chars().count();
+        let shaped_chars = shaped.chars().count();
+        if shaped_chars < orig_chars && orig_chars > 0 {
+            let saved = (orig_chars - shaped_chars) as f64;
+            let avg = base_width / orig_chars as f64;
+            return (base_width - saved * avg * 0.35).max(0.0);
+        }
+    }
+    base_width
+}
+
+fn old_style_digit_metrics(ch: char, base_size: f64) -> (f64, f64) {
+    match ch {
+        '0' | '1' | '2' => ((base_size * 0.78).max(1.0), base_size * 0.22),
+        '3' | '4' | '5' | '7' | '9' => ((base_size * 0.82).max(1.0), base_size * 0.32),
+        '6' | '8' => ((base_size * 0.92).max(1.0), base_size * 0.08),
+        _ => (base_size, 0.0),
     }
 }
 
@@ -2430,6 +2680,9 @@ where
         let strings: Vec<_> = parts.iter().map(|p| p.text.clone()).collect();
         let eff_fmt = effective_run_format(&field.format, field);
         widths = measured(&strings, &eff_fmt, &mut measure)?;
+        for (part, w) in parts.iter().zip(&mut widths) {
+            *w = adjust_digit_and_ligature_width(&part.text, *w, &eff_fmt, field);
+        }
     } else {
         let mut grouped_indices: Vec<Vec<usize>> = vec![Vec::new(); mat_runs.len()];
         for (idx, part) in parts.iter().enumerate() {
@@ -2445,7 +2698,7 @@ where
             let eff_fmt = effective_run_format(&mat_runs[r_idx].format, field);
             let w = measured(&strings, &eff_fmt, &mut measure)?;
             for (i, width) in indices.into_iter().zip(w) {
-                widths[i] = width;
+                widths[i] = adjust_digit_and_ligature_width(&parts[i].text, width, &eff_fmt, field);
             }
         }
     }
@@ -2958,22 +3211,36 @@ where
             bl.line.y = col_top_y;
             let mut char_y = col_top_y;
             for seg in bl.segs {
-                for ch in seg.text.chars() {
+                let shaped_seg = if !is_common_str(&field.ligatures) {
+                    apply_ligatures(&seg.text, &field.ligatures)
+                } else {
+                    seg.text.clone()
+                };
+                for ch in shaped_seg.chars() {
                     let s = ch.to_string();
+                    let mut char_fmt = seg.fmt.clone();
+                    let mut digit_y_shift = 0.0;
+                    if field.digit_case == "old_style" && ch.is_ascii_digit() {
+                        let (scaled, shift) = old_style_digit_metrics(ch, char_fmt.size);
+                        char_fmt.size = scaled;
+                        digit_y_shift = shift;
+                    }
+                    let rot = glyph_rotation_degrees(ch, &field.glyph_rotation, true);
                     if field.highlight && !ch.is_whitespace() {
                         highlights.push(TextDecoration {
                             x: x_cursor,
                             y: char_y,
-                            width: seg.fmt.size,
-                            height: seg.fmt.size * 1.1,
+                            width: char_fmt.size,
+                            height: char_fmt.size * 1.1,
                             color: Some(field.highlight_color),
                         });
                     }
                     runs.push(TextRun {
                         text: s,
                         x: x_cursor,
-                        y: char_y + baseline_shift,
-                        format: Some(seg.fmt.clone()),
+                        y: char_y + baseline_shift + digit_y_shift,
+                        format: Some(char_fmt),
+                        rotation: rot,
                     });
                     char_y += (seg.fmt.size * 1.05 + seg.fmt.letter_spacing).max(2.0);
                 }
@@ -3002,7 +3269,19 @@ where
             let v_shift = sub_sup_shift(bl.max_size) + baseline_shift;
             for seg in bl.segs {
                 let sx = bl.line.x + seg.rel_x;
-                let sy = bl.line.y + (bl.max_size - seg.fmt.size).max(0.0) + v_shift;
+                let mut run_fmt = seg.fmt;
+                let mut digit_y_shift = 0.0;
+                if field.digit_case == "old_style"
+                    && seg.text.len() == 1
+                    && let Some(ch) = seg.text.chars().next()
+                    && ch.is_ascii_digit()
+                {
+                    let (scaled, shift) = old_style_digit_metrics(ch, run_fmt.size);
+                    run_fmt.size = scaled;
+                    digit_y_shift = shift;
+                }
+                let sy =
+                    bl.line.y + (bl.max_size - run_fmt.size).max(0.0) + v_shift + digit_y_shift;
                 if field.highlight && !seg.text.is_empty() {
                     highlights.push(TextDecoration {
                         x: sx,
@@ -3012,29 +3291,37 @@ where
                         color: Some(field.highlight_color),
                     });
                 }
-                if seg.fmt.underline && !seg.text.is_empty() {
+                if run_fmt.underline && !seg.text.is_empty() {
                     decorations.push(TextDecoration {
                         x: sx,
-                        y: sy + seg.fmt.size * 1.05,
+                        y: sy + run_fmt.size * 1.05,
                         width: seg.width,
-                        height: (seg.fmt.size / 16.).max(1.),
-                        color: Some(seg.fmt.color),
+                        height: (run_fmt.size / 16.).max(1.),
+                        color: Some(run_fmt.color),
                     });
                 }
                 if field.strikethrough && !seg.text.is_empty() {
                     decorations.push(TextDecoration {
                         x: sx,
-                        y: sy + seg.fmt.size * 0.55,
+                        y: sy + run_fmt.size * 0.55,
                         width: seg.width,
-                        height: (seg.fmt.size / 16.).max(1.),
-                        color: Some(seg.fmt.color),
+                        height: (run_fmt.size / 16.).max(1.),
+                        color: Some(run_fmt.color),
                     });
                 }
+                let shaped_text = if !is_common_str(&field.ligatures) {
+                    apply_ligatures(&seg.text, &field.ligatures)
+                } else {
+                    seg.text
+                };
+                let first_ch = shaped_text.chars().next().unwrap_or(' ');
+                let rot = glyph_rotation_degrees(first_ch, &field.glyph_rotation, false);
                 runs.push(TextRun {
-                    text: seg.text,
+                    text: shaped_text,
                     x: sx,
                     y: sy,
-                    format: Some(seg.fmt),
+                    format: Some(run_fmt),
+                    rotation: rot,
                 });
             }
             lines.push(bl.line);
@@ -3064,6 +3351,11 @@ where
         border_width: field.border_width,
         column_count: cols,
         column_gutter: field.column_gutter,
+        ligatures: field.ligatures.clone(),
+        digit_width: field.digit_width.clone(),
+        digit_case: field.digit_case.clone(),
+        locale: field.locale.clone(),
+        glyph_rotation: field.glyph_rotation.clone(),
     };
     Ok(TextLayout {
         lines,
@@ -3385,6 +3677,11 @@ where
         border_width: field.border_width,
         column_count: 1,
         column_gutter: field.column_gutter,
+        ligatures: field.ligatures.clone(),
+        digit_width: field.digit_width.clone(),
+        digit_case: field.digit_case.clone(),
+        locale: field.locale.clone(),
+        glyph_rotation: field.glyph_rotation.clone(),
     };
     let runs = tab_runs
         .into_iter()
@@ -3395,6 +3692,7 @@ where
                 x: line.x + x,
                 y: line.y,
                 format: None,
+                rotation: 0.0,
             })
         })
         .collect();
@@ -5598,5 +5896,101 @@ mod query_tests {
         );
         assert!(auto_field.box_size.unwrap().width > 80.0);
         assert!(x < 100.0);
+    }
+
+    #[test]
+    fn tlf_typography_ligatures_digit_width_digit_case_glyph_rotation_and_locale_execute_in_layout()
+    {
+        // 1. Ligature levels: none, minimum, common, uncommon.
+        let mut lig_field = TextFieldState {
+            text: "fine flag first".into(),
+            ligatures: "minimum".into(),
+            ..TextFieldState::default()
+        };
+        let min_layout = layout_text(&lig_field, fixed_measure).unwrap();
+        let min_joined: String = min_layout.runs.iter().map(|r| r.text.as_str()).collect();
+        assert!(min_joined.contains('\u{FB01}'), "minimum ligatures form fi");
+        assert!(min_joined.contains('\u{FB02}'), "minimum ligatures form fl");
+        assert!(
+            !min_joined.contains('\u{FB06}'),
+            "minimum ligatures do not form st"
+        );
+
+        lig_field.ligatures = "uncommon".into();
+        let unc_layout = layout_text(&lig_field, fixed_measure).unwrap();
+        let unc_joined: String = unc_layout.runs.iter().map(|r| r.text.as_str()).collect();
+        assert!(
+            unc_joined.contains('\u{FB06}'),
+            "uncommon ligatures form st"
+        );
+
+        // 2. Digit width (tabular vs proportional) & digit case (old_style vs lining).
+        let mut num_field = TextFieldState {
+            text: "11111".into(),
+            digit_width: "tabular".into(),
+            digit_case: "old_style".into(),
+            ..TextFieldState::default()
+        };
+        let tab_layout = layout_text(&num_field, fixed_measure).unwrap();
+        num_field.digit_width = "proportional".into();
+        let prop_layout = layout_text(&num_field, fixed_measure).unwrap();
+        assert!(
+            prop_layout.lines[0].width < tab_layout.lines[0].width,
+            "proportional '11111' must be narrower than tabular '11111'"
+        );
+        assert!(
+            tab_layout.runs.iter().all(|r| r.y > 0.0),
+            "old_style digits apply x-height/descender baseline shift"
+        );
+
+        // 3. Glyph rotation in vertical and horizontal modes.
+        let vert_field = TextFieldState {
+            text: "A漢".into(),
+            orientation: "vertical_rtl".into(),
+            glyph_rotation: "auto".into(),
+            ..TextFieldState::default()
+        };
+        let vert_layout = layout_text(&vert_field, fixed_measure).unwrap();
+        assert_eq!(
+            vert_layout.runs[0].rotation, 90.0,
+            "Latin character rotates 90 deg in vertical auto"
+        );
+        assert_eq!(
+            vert_layout.runs[1].rotation, 0.0,
+            "CJK ideograph stays upright 0 deg in vertical auto"
+        );
+
+        // 4. Locale-aware case conversion (Turkish dotted İ) and Japanese Kinsoku Shori wrapping.
+        let tr_field = TextFieldState {
+            text: "istanbul".into(),
+            typographic_case: "uppercase".into(),
+            locale: "tr_TR".into(),
+            ..TextFieldState::default()
+        };
+        let tr_layout = layout_text(&tr_field, fixed_measure).unwrap();
+        assert!(
+            tr_layout.lines[0].text.starts_with('İ'),
+            "tr_TR uppercase maps 'i' to 'İ'"
+        );
+
+        let ja_field = TextFieldState {
+            text: "日本語。テスト".into(),
+            locale: "ja_JP".into(),
+            multiline: true,
+            word_wrap: true,
+            box_size: Some(TextBoxSize {
+                width: 30.0,
+                height: 100.0,
+            }),
+            ..TextFieldState::default()
+        };
+        let ja_layout = layout_text(&ja_field, fixed_measure).unwrap();
+        assert!(ja_layout.lines.len() >= 2);
+        for line in &ja_layout.lines {
+            assert!(
+                !line.text.starts_with('。'),
+                "Kinsoku Shori prevents line from starting with '。'"
+            );
+        }
     }
 }

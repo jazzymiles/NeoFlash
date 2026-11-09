@@ -2,15 +2,159 @@
 use crate::app::Editor;
 use neoflash_core::{
     AuthoredDraw, AuthoredPlayback, AuthoredScene, ElementKind, Id, Project, SoundCommand,
-    evaluate_scene, evaluate_scene_with_buttons, path_commands_fingerprint,
+    VideoCommand, VideoSyncMode, evaluate_scene, evaluate_scene_with_buttons,
+    path_commands_fingerprint,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+const VIDEO_HISTORY: usize = 256;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ActivePreviewVideo {
+    pub(crate) channel: String,
+    pub(crate) target_path: Vec<Id>,
+    pub(crate) layer_id: Id,
+    pub(crate) resource: Id,
+    pub(crate) sync: VideoSyncMode,
+    pub(crate) time_ms: u32,
+    pub(crate) playing: bool,
+    pub(crate) muted: bool,
+    pub(crate) loop_video: bool,
+    pub(crate) last_cue_point: Option<String>,
+}
+
+/// Editor video preview synchronization state (`T-167`), mirroring `TimelineAudio`.
+#[derive(Default)]
+pub(crate) struct TimelineVideoPreview {
+    preview: Option<u64>,
+    pub(crate) channels: HashMap<String, ActivePreviewVideo>,
+    pub(crate) history: Vec<VideoCommand>,
+}
+
+impl TimelineVideoPreview {
+    pub(crate) fn follow_preview(&mut self, epoch: Option<u64>) {
+        if self.preview != epoch {
+            self.channels.clear();
+            self.preview = epoch;
+        }
+    }
+
+    pub(crate) fn apply(&mut self, commands: Vec<VideoCommand>) -> Vec<String> {
+        let mut logs = Vec::new();
+        for command in commands {
+            self.history.push(command.clone());
+            if self.history.len() > VIDEO_HISTORY {
+                self.history.remove(0);
+            }
+            match command {
+                VideoCommand::SeekAndPresent {
+                    channel,
+                    target_path,
+                    layer_id,
+                    resource,
+                    target_time_ms,
+                    playing,
+                    muted,
+                    loop_video,
+                } => {
+                    let prev_cue = self
+                        .channels
+                        .get(&channel)
+                        .and_then(|v| v.last_cue_point.clone());
+                    self.channels.insert(
+                        channel.clone(),
+                        ActivePreviewVideo {
+                            channel,
+                            target_path,
+                            layer_id,
+                            resource,
+                            sync: VideoSyncMode::Stream,
+                            time_ms: target_time_ms,
+                            playing,
+                            muted,
+                            loop_video,
+                            last_cue_point: prev_cue,
+                        },
+                    );
+                }
+                VideoCommand::StartEvent {
+                    channel,
+                    target_path,
+                    layer_id,
+                    resource,
+                    start_offset_ms,
+                    loop_video,
+                    muted,
+                } => {
+                    self.channels.insert(
+                        channel.clone(),
+                        ActivePreviewVideo {
+                            channel,
+                            target_path,
+                            layer_id,
+                            resource,
+                            sync: VideoSyncMode::Event,
+                            time_ms: start_offset_ms,
+                            playing: true,
+                            muted,
+                            loop_video,
+                            last_cue_point: None,
+                        },
+                    );
+                }
+                VideoCommand::Stop { resource } => {
+                    self.channels.retain(|_, v| v.resource != resource);
+                }
+                VideoCommand::StopChannel { channel } => {
+                    self.channels.remove(&channel);
+                }
+                VideoCommand::PauseStreams => {
+                    for v in self.channels.values_mut() {
+                        if v.sync == VideoSyncMode::Stream {
+                            v.playing = false;
+                        }
+                    }
+                }
+                VideoCommand::StopAll => {
+                    self.channels.clear();
+                }
+                VideoCommand::CuePointTriggered {
+                    layer_id,
+                    resource,
+                    cue_point,
+                    frame,
+                } => {
+                    for v in self.channels.values_mut() {
+                        if v.layer_id == layer_id && v.resource == resource {
+                            v.last_cue_point = Some(cue_point.name.clone());
+                        }
+                    }
+                    logs.push(format!(
+                        "[video] Cue point '{}' ({} ms, frame {})",
+                        cue_point.name,
+                        cue_point.time_ms,
+                        frame + 1
+                    ));
+                }
+            }
+        }
+        logs
+    }
+
+    pub(crate) fn status_for_path(&self, path: &[Id]) -> Option<&ActivePreviewVideo> {
+        self.channels
+            .values()
+            .find(|v| v.target_path == path)
+            .or_else(|| self.channels.values().next())
+    }
+}
+
 pub(crate) struct AuthoringPreview {
     project: Project,
     symbol: Id,
-    playback: AuthoredPlayback,
+    pub(crate) playback: AuthoredPlayback,
+    pub(crate) swf_player: Option<neoflash_import::SwfBytecodePlayer>,
     /// Distinguishes playback sessions; a new session silences the previous one's sounds.
     epoch: u64,
 }
@@ -57,12 +201,51 @@ impl Editor {
         if self.playing && self.authored_preview.is_none() {
             let symbol = self.symbol_id().to_owned();
             static EPOCH: AtomicU64 = AtomicU64::new(1);
+            let mut playback = AuthoredPlayback::with_live_scripts(
+                &self.project,
+                &symbol,
+                self.frame,
+                self.live_script_preview,
+            );
+            let mut swf_player = if self.live_script_preview {
+                self.import_source
+                    .as_deref()
+                    .filter(|p| {
+                        p.extension()
+                            .and_then(|e| e.to_str())
+                            .is_some_and(|e| e.eq_ignore_ascii_case("swf"))
+                    })
+                    .and_then(|p| neoflash_import::SwfBytecodePlayer::from_path(p).ok())
+            } else {
+                None
+            };
+            self.frame = playback.frame();
+            let mut traces = playback.drain_traces();
+            let mut halted = playback.is_root_halted_by_script();
+            if let Some(swf) = &mut swf_player {
+                let state = swf.step_frame();
+                for t in state.traces {
+                    if !traces.contains(&t) {
+                        traces.push(t);
+                    }
+                }
+                if !state.playing {
+                    halted = true;
+                }
+            }
             self.authored_preview = Some(AuthoringPreview {
-                playback: AuthoredPlayback::new(&self.project, &symbol, self.frame),
+                playback,
+                swf_player,
                 project: self.project.clone(),
                 symbol,
                 epoch: EPOCH.fetch_add(1, Ordering::Relaxed),
             });
+            for line in traces {
+                self.output.push(format!("[trace] {line}"));
+            }
+            if halted {
+                self.playing = false;
+            }
         }
     }
 
@@ -71,9 +254,82 @@ impl Editor {
             return;
         }
         self.sync_authored_preview();
+        if !self.playing {
+            return;
+        }
+        let mut traces = Vec::new();
+        let mut halted = false;
         if let Some(preview) = &mut self.authored_preview {
+            preview.playback.set_live_scripts(self.live_script_preview);
             preview.playback.tick(&self.project);
             self.frame = preview.playback.frame();
+            traces = preview.playback.drain_traces();
+            halted = preview.playback.is_root_halted_by_script();
+            if self.live_script_preview
+                && let Some(swf) = &mut preview.swf_player
+            {
+                let state = swf.step_frame();
+                self.frame = state
+                    .frame
+                    .min(self.symbol().timeline.frame_count.saturating_sub(1));
+                for t in state.traces {
+                    if !traces.contains(&t) {
+                        traces.push(t);
+                    }
+                }
+                if !state.playing {
+                    halted = true;
+                }
+            }
+        }
+        for line in traces {
+            self.output.push(format!("[trace] {line}"));
+        }
+        if halted {
+            self.playing = false;
+        }
+    }
+
+    /// Directly load and execute a `.swf` movie (AVM1 or AVM2 bytecode + display list + timeline)
+    /// inside the editor for `max_frames`, logging all `trace()` output to the Output panel (`T-168`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn play_swf_bytes_in_editor(
+        &mut self,
+        bytes: &[u8],
+        max_frames: usize,
+    ) -> Result<neoflash_import::SwfPlaybackResult, String> {
+        let mut swf_player =
+            neoflash_import::SwfBytecodePlayer::from_bytes(bytes).map_err(|e| e.to_string())?;
+        let result = swf_player.run_frames(max_frames.max(1));
+        for line in &result.trace_output {
+            self.output.push(format!("[trace] {line}"));
+        }
+        if let Some(last) = result.frames_executed.last() {
+            self.frame = last
+                .frame
+                .min(self.symbol().timeline.frame_count.saturating_sub(1));
+            self.playing = last.playing;
+        }
+        Ok(result)
+    }
+
+    /// Dispatch a click event on a placed element path during live authoring preview.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn click_authored_preview(&mut self, path: &[Id]) {
+        let mut traces = Vec::new();
+        let mut halted = false;
+        if let Some(preview) = &mut self.authored_preview {
+            preview.playback.set_live_scripts(self.live_script_preview);
+            preview.playback.click(&self.project, path);
+            self.frame = preview.playback.frame();
+            traces = preview.playback.drain_traces();
+            halted = preview.playback.is_root_halted_by_script();
+        }
+        for line in traces {
+            self.output.push(format!("[trace] {line}"));
+        }
+        if halted {
+            self.playing = false;
         }
     }
 
@@ -90,6 +346,24 @@ impl Editor {
         match &mut self.authored_preview {
             Some(preview) if self.playing => preview.playback.drain_sound_commands(),
             _ => vec![],
+        }
+    }
+
+    /// Timeline video commands of the playing preview since the last call.
+    pub(crate) fn drain_preview_videos(&mut self) -> Vec<VideoCommand> {
+        match &mut self.authored_preview {
+            Some(preview) if self.playing => preview.playback.drain_video_commands(),
+            _ => vec![],
+        }
+    }
+
+    /// Feed editor playback's video commands to the native video preview state.
+    pub(crate) fn pump_timeline_video(&mut self) {
+        let epoch = self.preview_epoch();
+        let commands = self.drain_preview_videos();
+        self.timeline_video.follow_preview(epoch);
+        for log_line in self.timeline_video.apply(commands) {
+            self.output.push(log_line);
         }
     }
 

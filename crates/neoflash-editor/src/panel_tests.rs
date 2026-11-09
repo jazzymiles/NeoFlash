@@ -4882,7 +4882,16 @@ fn compiler_errors_panel_collects_all_diagnostics_and_jumps_to_source() {
 
 #[test]
 fn code_snippets_all_compile_across_every_language_and_insert_with_undo() {
-    use crate::panels::code_snippets::CODE_SNIPPETS;
+    use crate::panels::code_snippets::{CODE_SNIPPETS, SNIPPET_CATEGORIES};
+    use crate::sources::{ScriptAssistTemplate, format_script_assist_snippet};
+    assert_eq!(SNIPPET_CATEGORIES.len(), 11);
+    assert_eq!(CODE_SNIPPETS.len(), 80);
+    for (cat_idx, cat_name) in SNIPPET_CATEGORIES.iter().enumerate() {
+        assert!(
+            CODE_SNIPPETS.iter().any(|s| s.category == cat_idx),
+            "category #{cat_idx} ({cat_name:?}) has no snippets",
+        );
+    }
     let languages = [
         ScriptLanguage::ActionScript3,
         ScriptLanguage::ActionScript2,
@@ -4891,6 +4900,7 @@ fn code_snippets_all_compile_across_every_language_and_insert_with_undo() {
         ScriptLanguage::TypeScript,
     ];
     let blank_program = neoflash_script::compile_project(&Project::blank()).unwrap();
+    let mut failures = Vec::new();
     for (idx, snippet) in CODE_SNIPPETS.iter().enumerate() {
         for language in languages {
             let source = snippet.merge_into("", language, "orbit_mc");
@@ -4901,13 +4911,51 @@ fn code_snippets_all_compile_across_every_language_and_insert_with_undo() {
                 },
                 &blank_program,
             ) {
-                panic!(
+                failures.push(format!(
                     "snippet #{idx} ({:?}) failed to compile in {language:?}: {errors:#?}\nsource:\n{source}",
                     snippet.title
-                );
+                ));
             }
         }
     }
+    let menu_items = ScriptAssistTemplate::default_menu_items();
+    assert_eq!(menu_items.len(), 16);
+    for (label, template) in &menu_items {
+        // OnReleaseHandler in AS1/AS2 is an object-script `on (release)` handler, while all other
+        // default templates are frame/source-compatible statements.
+        for language in languages {
+            let formatted = format_script_assist_snippet(template, language);
+            assert!(
+                !formatted.trim().is_empty(),
+                "ScriptAssistTemplate {label:?} produced empty output for {language:?}"
+            );
+            if matches!(template, ScriptAssistTemplate::OnReleaseHandler { .. })
+                && matches!(
+                    language,
+                    ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+                )
+            {
+                continue;
+            }
+            if let Err(errors) = neoflash_script::compile_with_program(
+                &Script {
+                    language,
+                    source: formatted.clone(),
+                },
+                &blank_program,
+            ) {
+                failures.push(format!(
+                    "ScriptAssistTemplate {label:?} failed to compile in {language:?}: {errors:#?}\nsource:\n{formatted}"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} snippet(s) failed to compile:\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 
     // Insertion assigns an instance name to an unnamed selected symbol instance, merges AS3 imports
     // without duplication, and undoes in one transaction.

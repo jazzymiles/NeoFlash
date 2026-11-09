@@ -501,16 +501,6 @@ impl Editor {
                     self.import_graphics_dialog();
                     ui.close();
                 }
-                if menu_item(
-                    ui,
-                    "Import legacy Flash…",
-                    &self.sc(C::FileImportLegacyFlash),
-                )
-                .clicked()
-                {
-                    self.request(Pending::Import, ctx);
-                    ui.close();
-                }
                 Self::planned_menu_item(ui, "File ▸ Import ▸ Import video…", "");
                 if menu_item_enabled(ui, self.layer_editable(), "Video placeholder", "").clicked() {
                     self.finish_edits();
@@ -864,7 +854,8 @@ impl Editor {
             }
         });
         let mut show_hints = self.timeline_shape_hints.show;
-        if menu_toggle(ui, &mut show_hints, "Show shape hints", "⌥⌘H").changed() {
+        let show_hints_sc = self.sc(C::ViewShowShapeHints);
+        if menu_toggle(ui, &mut show_hints, "Show shape hints", &show_hints_sc).changed() {
             self.toggle_shape_hints();
             ui.close();
         }
@@ -1020,6 +1011,11 @@ impl Editor {
         let simple_sc = self.sc(C::ControlEnableSimpleButtons);
         if menu_toggle(ui, &mut simple, "Enable simple buttons", &simple_sc).changed() {
             self.set_enable_simple_buttons(simple);
+            ui.close();
+        }
+        let mut live_as = self.live_script_preview;
+        if menu_toggle(ui, &mut live_as, "Live ActionScript", "").changed() {
+            self.set_live_script_preview(live_as);
             ui.close();
         }
     }

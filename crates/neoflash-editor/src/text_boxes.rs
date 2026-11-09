@@ -2279,11 +2279,21 @@ pub(crate) fn paint(
                 FontId::new(run_fmt.size as f32, run_family),
                 run_color,
             );
+            let galley_size = galley.size();
             let shape = Shape::Text(egui::epaint::TextShape::new(
                 Pos2::new(run.x as f32, run.y as f32),
                 galley,
                 run_color,
             ));
+            let rot_rad = (run.rotation as f32).to_radians();
+            let has_rot = rot_rad.abs() > 1e-4;
+            let (rot_cos, rot_sin) = if has_rot {
+                (rot_rad.cos(), rot_rad.sin())
+            } else {
+                (1.0, 0.0)
+            };
+            let rot_cx = run.x as f32 + galley_size.x * 0.5;
+            let rot_cy = run.y as f32 + galley_size.y * 0.5;
             for primitive in p.ctx().tessellate(
                 vec![egui::epaint::ClippedShape {
                     clip_rect: Rect::EVERYTHING,
@@ -2291,7 +2301,17 @@ pub(crate) fn paint(
                 }],
                 p.ctx().pixels_per_point(),
             ) {
-                if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
+                    if has_rot {
+                        for vertex in &mut mesh.vertices {
+                            let dx = vertex.pos.x - rot_cx;
+                            let dy = vertex.pos.y - rot_cy;
+                            vertex.pos = Pos2::new(
+                                rot_cx + dx * rot_cos - dy * rot_sin,
+                                rot_cy + dx * rot_sin + dy * rot_cos,
+                            );
+                        }
+                    }
                     let mut mesh = clip_mesh(mesh, clip);
                     for vertex in &mut mesh.vertices {
                         vertex.pos = screen(vertex.pos);

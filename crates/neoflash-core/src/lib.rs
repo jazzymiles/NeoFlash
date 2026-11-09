@@ -50,6 +50,7 @@ mod evaluate;
 mod filters;
 mod geometry;
 mod history;
+pub mod ik_puppet_3d;
 mod library_folders;
 pub mod merge_drawing;
 pub mod model;
@@ -75,6 +76,7 @@ pub use accessibility::{
     ContentAccessibleRole, DocumentAccessibility, ExtendedAccessibility,
     resolve_frame_accessibility_tree, validate_accessibility_tree,
 };
+pub use as3_fte_3d::Display3dPose;
 pub use authored_layers::{
     AuthoredDraw, AuthoredMaskGroup, AuthoredScene, evaluate_scene, evaluate_scene_with_buttons,
     evaluate_scene_with_frozen_clips, layer_effective_blend_mode, layer_effective_outline_color,
@@ -108,7 +110,15 @@ pub use geometry::{
     rectangle_path_commands, solve_ik_armature, subdivide_path_at, validate_path_commands,
 };
 pub use history::{
-    AuthoringCommandStep, History, MAX_COMMAND_STEPS, SavedCommand, apply_command_steps_to_elements,
+    AuthoringCommandStep, AuthoringExtensionManifest, ExtensionPermission, History,
+    MAX_COMMAND_STEPS, SavedCommand, apply_command_steps_to_elements,
+};
+pub use ik_puppet_3d::{
+    DecoEffectKind, IkBoneWeight, IkJointSpec, IkShapeSkin, IkVertexBinding, SprayBrushConfig,
+    WarpMesh, auto_bind_shape_to_armature, bind_vertices_to_bone, build_asset_warp_mesh,
+    compute_bone_world_poses, deform_shape_with_ik_skin, extract_path_control_points,
+    generate_deco_elements, generate_spray_brush_along_points, project_element_3d,
+    solve_ik_armature_fabrik_ccd, step_ik_spring_physics, upsert_warp_pin,
 };
 pub use library_folders::valid_library_folder;
 pub use merge_drawing::{
@@ -159,7 +169,9 @@ pub use scenes::{
     resolve_goto, scene_ranges, scene_step,
 };
 pub use shape_tween::{
-    MAX_SHAPE_TWEEN_SEGMENTS, shape_tween_elements, shape_tween_elements_with_hints,
+    DEFAULT_HINT_VERTEX_SNAP_RADIUS, MAX_SHAPE_TWEEN_SEGMENTS, ShapeHintContour, ShapeHintGeometry,
+    active_shape_hint_labels, default_shape_hint_uv, is_default_unplaced_uv, shape_tween_elements,
+    shape_tween_elements_with_hints, weld_merge_strokes_for_tween,
 };
 pub use text::{
     AuthoredTextFieldOptions, MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError,

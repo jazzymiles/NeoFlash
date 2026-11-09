@@ -217,9 +217,30 @@ impl Editor {
             } else {
                 0.
             };
+            let content_max = groups
+                .iter()
+                .filter_map(|group| {
+                    group
+                        .tabs
+                        .iter()
+                        .copied()
+                        .find(|panel| {
+                            *panel == group.active && self.workspace.is_panel_visible(*panel)
+                        })
+                        .or_else(|| {
+                            group
+                                .tabs
+                                .iter()
+                                .copied()
+                                .find(|panel| self.workspace.is_panel_visible(*panel))
+                        })
+                        .map(|panel| crate::workspace::maximum_window_size(panel)[0] + AREA_GRIP)
+                })
+                .fold(0.0_f32, f32::max)
+                .clamp(min, 1000.);
             (
                 min,
-                (available.width() - MIN_STAGE_WIDTH - reserve).clamp(min, 1000.),
+                (available.width() - MIN_STAGE_WIDTH - reserve).clamp(min, content_max),
             )
         } else {
             let min = if groups.iter().any(|g| g.tabs.contains(&PanelId::Timeline)) {

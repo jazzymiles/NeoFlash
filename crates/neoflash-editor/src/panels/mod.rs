@@ -56,6 +56,7 @@ pub(crate) mod filters;
 pub(crate) mod find_replace;
 pub(crate) mod font_embedding;
 pub(crate) mod function_search;
+pub(crate) mod help_as_reference;
 pub(crate) mod help_manual;
 mod history;
 pub(crate) mod import_video;

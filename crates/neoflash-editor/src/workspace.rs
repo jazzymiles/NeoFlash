@@ -702,6 +702,36 @@ impl FloatingNode {
             }
         }
     }
+    pub fn maximum_size(&self) -> [f32; 2] {
+        match self {
+            Self::Group(group) => {
+                if group.tabs.is_empty() {
+                    return [4096., 2160.];
+                }
+                group.tabs.iter().fold([0.0_f32, 0.0_f32], |size, p| {
+                    let maximum = maximum_window_size(*p);
+                    [size[0].max(maximum[0]), size[1].max(maximum[1])]
+                })
+            }
+            Self::Split {
+                axis,
+                first,
+                second,
+                ..
+            } => {
+                let a = first.maximum_size();
+                let b = second.maximum_size();
+                match axis {
+                    SplitAxis::Horizontal => {
+                        [(a[0] + b[0] + 5.).min(4096.), a[1].max(b[1]).min(2160.)]
+                    }
+                    SplitAxis::Vertical => {
+                        [a[0].max(b[0]).min(4096.), (a[1] + b[1] + 5.).min(2160.)]
+                    }
+                }
+            }
+        }
+    }
     pub fn normalize_active(&mut self, panels: PanelVisibility) -> bool {
         match self {
             Self::Group(group) => group.normalize_active(panels),
@@ -1272,11 +1302,12 @@ impl WindowGeometry {
             return None;
         }
         let min = minimum_window_size(panel);
+        let max = maximum_window_size(panel);
         Some(Self {
             outer_position: self.outer_position,
             inner_size: [
-                self.inner_size[0].clamp(min[0], 4096.),
-                self.inner_size[1].clamp(min[1], 2160.),
+                self.inner_size[0].clamp(min[0], max[0]),
+                self.inner_size[1].clamp(min[1], max[1]),
             ],
         })
     }
@@ -1435,6 +1466,17 @@ pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
         PanelId::Ease => [320., 420.],
         PanelId::MotionEditor => [640., 260.],
         _ => [320., 220.],
+    }
+}
+pub fn maximum_window_size(panel: PanelId) -> [f32; 2] {
+    match panel {
+        PanelId::Tools => [360., 960.],
+        PanelId::Align | PanelId::Transform | PanelId::Color | PanelId::Scene | PanelId::Info => {
+            [640., 900.]
+        }
+        PanelId::Swatches | PanelId::Filters | PanelId::Brushes => [680., 960.],
+        PanelId::Ease => [720., 960.],
+        _ => [4096., 2160.],
     }
 }
 pub fn default_window_size(panel: PanelId) -> [f32; 2] {

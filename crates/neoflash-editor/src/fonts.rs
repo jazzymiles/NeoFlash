@@ -21,6 +21,7 @@ pub(crate) struct TextCharacterPlacement {
     pub ch: char,
     pub bounds: TextCharBox,
     pub format: TextFormat,
+    pub rotation: f64,
 }
 
 #[derive(Clone)]
@@ -418,7 +419,7 @@ impl Fonts {
             layout
                 .lines
                 .into_iter()
-                .map(|line| (line.text, line.x, line.y, field.format.clone()))
+                .map(|line| (line.text, line.x, line.y, field.format.clone(), 0.0))
                 .collect()
         } else {
             layout
@@ -430,12 +431,13 @@ impl Fonts {
                         run.x,
                         run.y,
                         run.format.unwrap_or_else(|| field.format.clone()),
+                        run.rotation,
                     )
                 })
                 .collect()
         };
         let mut placements = Vec::new();
-        for (text, run_x, run_y, format) in positioned_runs {
+        for (text, run_x, run_y, format, rotation) in positioned_runs {
             for (index, (ch, x, advance)) in self
                 .char_x_offsets(&format.font, format.bold, format.italic, format.size, &text)
                 .into_iter()
@@ -450,6 +452,7 @@ impl Fonts {
                         height: (format.size * 1.2).max(0.0),
                     },
                     format: format.clone(),
+                    rotation,
                 });
             }
         }
@@ -469,6 +472,8 @@ impl Fonts {
                 continue;
             }
             let format = placement.format;
+            let cx = placement.bounds.width * 0.5;
+            let cy = placement.bounds.height * 0.5;
             let commands = self
                 .text_outline_commands(
                     &format.font,
@@ -479,7 +484,12 @@ impl Fonts {
                 )?
                 .into_iter()
                 .map(|command| {
-                    translate_path_command(command, placement.bounds.x, placement.bounds.y)
+                    let cmd = if placement.rotation.abs() > 1e-4 {
+                        rotate_path_command(command, cx, cy, placement.rotation)
+                    } else {
+                        command
+                    };
+                    translate_path_command(cmd, placement.bounds.x, placement.bounds.y)
                 })
                 .collect();
             fragments.push(TextOutlineFragment {
@@ -507,6 +517,63 @@ impl Fonts {
             .into_iter()
             .flat_map(|fragment| fragment.commands)
             .collect())
+    }
+}
+
+fn rotate_point(x: f64, y: f64, cx: f64, cy: f64, cos_a: f64, sin_a: f64) -> (f64, f64) {
+    let dx = x - cx;
+    let dy = y - cy;
+    (cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a)
+}
+
+fn rotate_path_command(command: PathCommand, cx: f64, cy: f64, degrees: f64) -> PathCommand {
+    let rad = degrees.to_radians();
+    let (cos_a, sin_a) = (rad.cos(), rad.sin());
+    match command {
+        PathCommand::MoveTo { x, y } => {
+            let (rx, ry) = rotate_point(x, y, cx, cy, cos_a, sin_a);
+            PathCommand::MoveTo { x: rx, y: ry }
+        }
+        PathCommand::LineTo { x, y } => {
+            let (rx, ry) = rotate_point(x, y, cx, cy, cos_a, sin_a);
+            PathCommand::LineTo { x: rx, y: ry }
+        }
+        PathCommand::QuadraticTo {
+            cx: qx,
+            cy: qy,
+            x,
+            y,
+        } => {
+            let (rqx, rqy) = rotate_point(qx, qy, cx, cy, cos_a, sin_a);
+            let (rx, ry) = rotate_point(x, y, cx, cy, cos_a, sin_a);
+            PathCommand::QuadraticTo {
+                cx: rqx,
+                cy: rqy,
+                x: rx,
+                y: ry,
+            }
+        }
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => {
+            let (rcx1, rcy1) = rotate_point(cx1, cy1, cx, cy, cos_a, sin_a);
+            let (rcx2, rcy2) = rotate_point(cx2, cy2, cx, cy, cos_a, sin_a);
+            let (rx, ry) = rotate_point(x, y, cx, cy, cos_a, sin_a);
+            PathCommand::CubicTo {
+                cx1: rcx1,
+                cy1: rcy1,
+                cx2: rcx2,
+                cy2: rcy2,
+                x: rx,
+                y: ry,
+            }
+        }
+        PathCommand::Close => PathCommand::Close,
     }
 }
 

@@ -133,6 +133,7 @@ pub(crate) struct AuthoringToolsState {
     pub oval_options: OvalOptions,
     pub transform_mode: FreeTransformMode,
     pub info_anchor: neoflash_ui::components::RegistrationPoint,
+    pub primitive_drawn_selection: bool,
 }
 impl Default for AuthoringToolsState {
     fn default() -> Self {
@@ -171,6 +172,7 @@ impl Default for AuthoringToolsState {
             oval_options: OvalOptions::default(),
             transform_mode: FreeTransformMode::FreeTransform,
             info_anchor: neoflash_ui::components::RegistrationPoint::TopLeft,
+            primitive_drawn_selection: false,
         }
     }
 }
@@ -1723,6 +1725,13 @@ impl Editor {
                     } else {
                         Vec::new()
                     };
+                    if matches!(tool, Tool::PolyStar | Tool::Line)
+                        || (tool == Tool::Brush
+                            && self.authoring_tools.brush_paint_mode
+                                != BrushPaintMode::PaintSelection)
+                    {
+                        self.clear_selection();
+                    }
                     self.authoring_tools.gesture = Some(Gesture {
                         tool,
                         symbol: self.symbol_id().to_owned(),
@@ -1977,6 +1986,7 @@ impl Editor {
                     },
                     Transform::default(),
                 );
+                self.authoring_tools.primitive_drawn_selection = true;
             }
             Tool::Bucket => {
                 let start = g.points[0];
@@ -2145,6 +2155,7 @@ impl Editor {
                         ..Default::default()
                     },
                 );
+                self.authoring_tools.primitive_drawn_selection = true;
             }
             _ => {}
         }

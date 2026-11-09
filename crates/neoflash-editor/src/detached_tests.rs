@@ -607,6 +607,7 @@ fn borderless_floating_window_moves_by_header_without_self_docking_and_resizes_f
                 PanelId::Align,
                 &[PanelId::Align],
                 [200., 160.],
+                crate::workspace::maximum_window_size(PanelId::Align),
                 1.0,
             );
             editor.finalize_panel_drag(ctx);

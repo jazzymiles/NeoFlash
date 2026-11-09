@@ -2422,6 +2422,15 @@ pub enum ScriptAssistTemplate {
         var_type: String,
         initial_value: String,
     },
+    DegreesRadiansHelpers,
+    DistanceAndAngleHelpers,
+    RandomClampLerpHelpers,
+    EaseAndSpringFollow,
+    ShuffleArrayHelper,
+    RgbHexHelpers,
+    FormatTimeHelper,
+    KeyStateTracker,
+    SharedObjectSaveLoad,
 }
 
 impl ScriptAssistTemplate {
@@ -2456,6 +2465,24 @@ impl ScriptAssistTemplate {
                     initial_value: "0".into(),
                 },
             ),
+            (
+                "Degrees ↔ radians (degToRad / radToDeg)",
+                Self::DegreesRadiansHelpers,
+            ),
+            (
+                "Distance & angle (atan2) helpers",
+                Self::DistanceAndAngleHelpers,
+            ),
+            (
+                "Random range, clamp, lerp & map",
+                Self::RandomClampLerpHelpers,
+            ),
+            ("Ease & spring motion step", Self::EaseAndSpringFollow),
+            ("Shuffle array (Fisher–Yates)", Self::ShuffleArrayHelper),
+            ("RGB ↔ Hex color conversion", Self::RgbHexHelpers),
+            ("Format MM:SS timer (padZero)", Self::FormatTimeHelper),
+            ("Keyboard state tracker (keysDown)", Self::KeyStateTracker),
+            ("Save / load SharedObject", Self::SharedObjectSaveLoad),
         ]
     }
 }
@@ -2566,6 +2593,58 @@ pub fn format_script_assist_snippet(
                 }
             }
         }
+        ScriptAssistTemplate::DegreesRadiansHelpers => match language {
+            ScriptLanguage::ActionScript3 => "var DEG_TO_RAD:Number = Math.PI / 180;\nvar RAD_TO_DEG:Number = 180 / Math.PI;\nfunction degToRad(deg:Number):Number { return deg * DEG_TO_RAD; }\nfunction radToDeg(rad:Number):Number { return rad * RAD_TO_DEG; }\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "var DEG_TO_RAD = Math.PI / 180;\nvar RAD_TO_DEG = 180 / Math.PI;\nfunction degToRad(deg) { return deg * DEG_TO_RAD; }\nfunction radToDeg(rad) { return rad * RAD_TO_DEG; }\n".to_owned(),
+            ScriptLanguage::JavaScript => "const DEG_TO_RAD = Math.PI / 180;\nconst RAD_TO_DEG = 180 / Math.PI;\nfunction degToRad(deg) { return deg * DEG_TO_RAD; }\nfunction radToDeg(rad) { return rad * RAD_TO_DEG; }\n".to_owned(),
+            ScriptLanguage::TypeScript => "const DEG_TO_RAD: number = Math.PI / 180;\nconst RAD_TO_DEG: number = 180 / Math.PI;\nfunction degToRad(deg: number): number { return deg * DEG_TO_RAD; }\nfunction radToDeg(rad: number): number { return rad * RAD_TO_DEG; }\n".to_owned(),
+        },
+        ScriptAssistTemplate::DistanceAndAngleHelpers => match language {
+            ScriptLanguage::ActionScript3 => "function getDistance(x1:Number, y1:Number, x2:Number, y2:Number):Number {\n    var dx:Number = x2 - x1;\n    var dy:Number = y2 - y1;\n    return Math.sqrt(dx * dx + dy * dy);\n}\nfunction getAngleDegrees(x1:Number, y1:Number, x2:Number, y2:Number):Number {\n    return Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);\n}\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "function getDistance(x1, y1, x2, y2) {\n    var dx = x2 - x1;\n    var dy = y2 - y1;\n    return Math.sqrt(dx * dx + dy * dy);\n}\nfunction getAngleDegrees(x1, y1, x2, y2) {\n    return Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);\n}\n".to_owned(),
+            ScriptLanguage::JavaScript => "function getDistance(x1, y1, x2, y2) {\n    const dx = x2 - x1;\n    const dy = y2 - y1;\n    return Math.sqrt(dx * dx + dy * dy);\n}\nfunction getAngleDegrees(x1, y1, x2, y2) {\n    return Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);\n}\n".to_owned(),
+            ScriptLanguage::TypeScript => "function getDistance(x1: number, y1: number, x2: number, y2: number): number {\n    const dx: number = x2 - x1;\n    const dy: number = y2 - y1;\n    return Math.sqrt(dx * dx + dy * dy);\n}\nfunction getAngleDegrees(x1: number, y1: number, x2: number, y2: number): number {\n    return Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);\n}\n".to_owned(),
+        },
+        ScriptAssistTemplate::RandomClampLerpHelpers => match language {
+            ScriptLanguage::ActionScript3 => "function randomRange(min:Number, max:Number):Number { return min + Math.random() * (max - min); }\nfunction randomInt(min:int, max:int):int { return Math.floor(Math.random() * (max - min + 1)) + min; }\nfunction clamp(val:Number, min:Number, max:Number):Number { return val < min ? min : (val > max ? max : val); }\nfunction lerp(start:Number, end:Number, t:Number):Number { return start + (end - start) * t; }\nfunction mapRange(val:Number, inMin:Number, inMax:Number, outMin:Number, outMax:Number):Number { return outMin + (outMax - outMin) * ((val - inMin) / (inMax - inMin)); }\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "function randomRange(min, max) { return min + Math.random() * (max - min); }\nfunction randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }\nfunction clamp(val, min, max) { return val < min ? min : (val > max ? max : val); }\nfunction lerp(start, end, t) { return start + (end - start) * t; }\nfunction mapRange(val, inMin, inMax, outMin, outMax) { return outMin + (outMax - outMin) * ((val - inMin) / (inMax - inMin)); }\n".to_owned(),
+            ScriptLanguage::JavaScript => "function randomRange(min, max) { return min + Math.random() * (max - min); }\nfunction randomInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }\nfunction clamp(val, min, max) { return val < min ? min : (val > max ? max : val); }\nfunction lerp(start, end, t) { return start + (end - start) * t; }\nfunction mapRange(val, inMin, inMax, outMin, outMax) { return outMin + (outMax - outMin) * ((val - inMin) / (inMax - inMin)); }\n".to_owned(),
+            ScriptLanguage::TypeScript => "function randomRange(min: number, max: number): number { return min + Math.random() * (max - min); }\nfunction randomInt(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min; }\nfunction clamp(val: number, min: number, max: number): number { return val < min ? min : (val > max ? max : val); }\nfunction lerp(start: number, end: number, t: number): number { return start + (end - start) * t; }\nfunction mapRange(val: number, inMin: number, inMax: number, outMin: number, outMax: number): number { return outMin + (outMax - outMin) * ((val - inMin) / (inMax - inMin)); }\n".to_owned(),
+        },
+        ScriptAssistTemplate::EaseAndSpringFollow => match language {
+            ScriptLanguage::ActionScript3 => "var vx:Number = 0;\nvar vy:Number = 0;\nvar spring:Number = 0.12;\nvar friction:Number = 0.82;\nvx = (vx + (stage.mouseX - this.x) * spring) * friction;\nvy = (vy + (stage.mouseY - this.y) * spring) * friction;\nthis.x += vx;\nthis.y += vy;\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "var vx = 0;\nvar vy = 0;\nvar spring = 0.12;\nvar friction = 0.82;\nvx = (vx + (_root._xmouse - this._x) * spring) * friction;\nvy = (vy + (_root._ymouse - this._y) * spring) * friction;\nthis._x += vx;\nthis._y += vy;\n".to_owned(),
+            ScriptLanguage::JavaScript => "let vx = 0;\nlet vy = 0;\nconst spring = 0.12;\nconst friction = 0.82;\nvx = (vx + (this.mouseX - this.x) * spring) * friction;\nvy = (vy + (this.mouseY - this.y) * spring) * friction;\nthis.x += vx;\nthis.y += vy;\n".to_owned(),
+            ScriptLanguage::TypeScript => "let vx: number = 0;\nlet vy: number = 0;\nconst spring: number = 0.12;\nconst friction: number = 0.82;\nvx = (vx + (this.mouseX - this.x) * spring) * friction;\nvy = (vy + (this.mouseY - this.y) * spring) * friction;\nthis.x += vx;\nthis.y += vy;\n".to_owned(),
+        },
+        ScriptAssistTemplate::ShuffleArrayHelper => match language {
+            ScriptLanguage::ActionScript3 => "function shuffleArray(arr:Array):Array {\n    var i:int = arr.length;\n    while (--i > 0) {\n        var j:int = Math.floor(Math.random() * (i + 1));\n        var tmp:* = arr[i];\n        arr[i] = arr[j];\n        arr[j] = tmp;\n    }\n    return arr;\n}\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "function shuffleArray(arr) {\n    var i = arr.length;\n    while (--i > 0) {\n        var j = Math.floor(Math.random() * (i + 1));\n        var tmp = arr[i];\n        arr[i] = arr[j];\n        arr[j] = tmp;\n    }\n    return arr;\n}\n".to_owned(),
+            ScriptLanguage::JavaScript => "function shuffleArray(arr) {\n    let i = arr.length;\n    while (--i > 0) {\n        const j = Math.floor(Math.random() * (i + 1));\n        const tmp = arr[i];\n        arr[i] = arr[j];\n        arr[j] = tmp;\n    }\n    return arr;\n}\n".to_owned(),
+            ScriptLanguage::TypeScript => "function shuffleArray(arr: any[]): any[] {\n    let i: number = arr.length;\n    while (--i > 0) {\n        const j: number = Math.floor(Math.random() * (i + 1));\n        const tmp: any = arr[i];\n        arr[i] = arr[j];\n        arr[j] = tmp;\n    }\n    return arr;\n}\n".to_owned(),
+        },
+        ScriptAssistTemplate::RgbHexHelpers => match language {
+            ScriptLanguage::ActionScript3 => "function rgbToHex(r:uint, g:uint, b:uint):uint { return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF); }\nfunction hexToRgb(hex:uint):Object { return { r: (hex >> 16) & 0xFF, g: (hex >> 8) & 0xFF, b: hex & 0xFF }; }\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "function rgbToHex(r, g, b) { return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF); }\nfunction hexToRgb(hex) { return { r: (hex >> 16) & 0xFF, g: (hex >> 8) & 0xFF, b: hex & 0xFF }; }\n".to_owned(),
+            ScriptLanguage::JavaScript => "function rgbToHex(r, g, b) { return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF); }\nfunction hexToRgb(hex) { return { r: (hex >> 16) & 0xFF, g: (hex >> 8) & 0xFF, b: hex & 0xFF }; }\n".to_owned(),
+            ScriptLanguage::TypeScript => "function rgbToHex(r: number, g: number, b: number): number { return ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF); }\nfunction hexToRgb(hex: number): { r: number; g: number; b: number } { return { r: (hex >> 16) & 0xFF, g: (hex >> 8) & 0xFF, b: hex & 0xFF }; }\n".to_owned(),
+        },
+        ScriptAssistTemplate::FormatTimeHelper => match language {
+            ScriptLanguage::ActionScript3 => "function padZero(n:int):String { return (n < 10 ? \"0\" : \"\") + n; }\nfunction formatTimeMMSS(totalSeconds:Number):String {\n    var mins:int = int(Math.floor(totalSeconds / 60));\n    var secs:int = int(Math.floor(totalSeconds % 60));\n    return padZero(mins) + \":\" + padZero(secs);\n}\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "function padZero(n) { return (n < 10 ? \"0\" : \"\") + n; }\nfunction formatTimeMMSS(totalSeconds) {\n    var mins = Math.floor(totalSeconds / 60);\n    var secs = Math.floor(totalSeconds % 60);\n    return padZero(mins) + \":\" + padZero(secs);\n}\n".to_owned(),
+            ScriptLanguage::JavaScript => "function padZero(n) { return (n < 10 ? \"0\" : \"\") + n; }\nfunction formatTimeMMSS(totalSeconds) {\n    const mins = Math.floor(totalSeconds / 60);\n    const secs = Math.floor(totalSeconds % 60);\n    return padZero(mins) + \":\" + padZero(secs);\n}\n".to_owned(),
+            ScriptLanguage::TypeScript => "function padZero(n: number): string { return (n < 10 ? \"0\" : \"\") + n; }\nfunction formatTimeMMSS(totalSeconds: number): string {\n    const mins: number = Math.floor(totalSeconds / 60);\n    const secs: number = Math.floor(totalSeconds % 60);\n    return padZero(mins) + \":\" + padZero(secs);\n}\n".to_owned(),
+        },
+        ScriptAssistTemplate::KeyStateTracker => match language {
+            ScriptLanguage::ActionScript3 => "var keysDown:Object = {};\nstage.addEventListener(KeyboardEvent.KEY_DOWN, function(e:KeyboardEvent):void { keysDown[e.keyCode] = true; });\nstage.addEventListener(KeyboardEvent.KEY_UP, function(e:KeyboardEvent):void { keysDown[e.keyCode] = false; });\n".to_owned(),
+            ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "var keysDown = {};\nvar keyStateListener = {};\nkeyStateListener.onKeyDown = function() { keysDown[Key.getCode()] = true; };\nkeyStateListener.onKeyUp = function() { keysDown[Key.getCode()] = false; };\nKey.addListener(keyStateListener);\n".to_owned(),
+            ScriptLanguage::JavaScript => "const keysDown = {};\nwindow.addEventListener(\"keydown\", (e) => { keysDown[e.keyCode] = true; });\nwindow.addEventListener(\"keyup\", (e) => { keysDown[e.keyCode] = false; });\n".to_owned(),
+            ScriptLanguage::TypeScript => "const keysDown: any = {};\nwindow.addEventListener(\"keydown\", (e: KeyboardEvent): void => { keysDown[e.keyCode] = true; });\nwindow.addEventListener(\"keyup\", (e: KeyboardEvent): void => { keysDown[e.keyCode] = false; });\n".to_owned(),
+        },
+        ScriptAssistTemplate::SharedObjectSaveLoad => match language {
+            ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "var saveStore:SharedObject = SharedObject.getLocal(\"neoflash_save\");\nsaveStore.data.highScore = 1000;\nsaveStore.flush();\n".to_owned(),
+            ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => "window.localStorage.setItem(\"neoflash_highScore\", \"1000\");\n".to_owned(),
+        },
     }
 }
 

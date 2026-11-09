@@ -955,18 +955,33 @@ impl Editor {
             if panels == [PanelId::Tools] {
                 minimum_logical[0] = minimum_logical[0].max(floating_tools_width());
             }
+            let mut maximum_logical = window
+                .root
+                .as_ref()
+                .map_or([4096., 2160.], |root| root.maximum_size());
+            if panels == [PanelId::Tools]
+                && let Some(desired_h) = self.detached.tools_desired_inner_height
+            {
+                maximum_logical[1] = desired_h.max(minimum_logical[1]);
+            }
+            maximum_logical[0] = maximum_logical[0].max(minimum_logical[0]);
+            maximum_logical[1] = maximum_logical[1].max(minimum_logical[1]);
             let minimum = scaled_size(minimum_logical, zoom);
+            let maximum = scaled_size(maximum_logical, zoom);
             let saved = window.geometry;
             let mut desired = saved.unwrap_or(WindowGeometry {
                 outer_position: [fallback.origin[0] + 40., fallback.origin[1] + 40.],
                 inner_size: scaled_size(crate::workspace::default_window_size(panel), zoom),
             });
             desired.inner_size = [
-                desired.inner_size[0].max(minimum[0]),
-                desired.inner_size[1].max(minimum[1]),
+                desired.inner_size[0].clamp(minimum[0], maximum[0]),
+                desired.inner_size[1].clamp(minimum[1], maximum[1]),
             ];
-            if self.detached.drag.is_none()
-                && self.detached.resize.is_none()
+            let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
+                || ctx.input(|i| i.pointer.any_down());
+            let active_resize_or_drag =
+                self.detached.drag.is_some() || self.detached.resize.is_some() || pointer_down;
+            if !active_resize_or_drag
                 && panels == [PanelId::Tools]
                 && let (Some(anchor), Some(stage)) = (window.tools_anchor, tools_stage)
             {
@@ -974,9 +989,12 @@ impl Editor {
             }
             let geometry =
                 recover_geometry(panel, Some(desired), &self.detached.monitors, fallback);
-            let anchored = window.tools_anchor.is_some() && saved != Some(geometry);
-            let recovering = (topology_changed || anchored) && saved != Some(geometry);
-            let growing = saved.is_some_and(|saved| saved.inner_size != geometry.inner_size);
+            let anchored =
+                !active_resize_or_drag && window.tools_anchor.is_some() && saved != Some(geometry);
+            let recovering =
+                !active_resize_or_drag && (topology_changed || anchored) && saved != Some(geometry);
+            let growing = !active_resize_or_drag
+                && saved.is_some_and(|saved| saved.inner_size != geometry.inner_size);
             let title = format!(
                 "{} — NeoFlash",
                 panels
@@ -1002,6 +1020,14 @@ impl Editor {
                         neoflash_ui::metrics::panel_tab()
                     } else {
                         minimum_logical[1]
+                    },
+                ])
+                .with_max_inner_size([
+                    maximum_logical[0],
+                    if collapsed {
+                        neoflash_ui::metrics::panel_tab()
+                    } else {
+                        maximum_logical[1]
                     },
                 ]);
             if initial {
@@ -1136,7 +1162,7 @@ impl Editor {
                         .unwrap_or(false);
                     if !collapsed {
                         self.floating_window_resize_borders(
-                            ctx, window_id, &panels, minimum, zoom,
+                            ctx, window_id, &panels, minimum, maximum, zoom,
                         );
                     }
                     if !collapsed
@@ -1672,11 +1698,20 @@ impl Editor {
         if let Some(position) = ctx.data(|d| d.get_temp::<egui::Pos2>(position_id)) {
             window = window.current_pos(position);
         }
-        if !collapsed
-            && visible.as_slice() == [PanelId::Tools]
-            && let Some(desired_h) = self.detached.tools_desired_inner_height
-        {
-            window = window.max_height(desired_h);
+        if !collapsed {
+            let max_size = self
+                .workspace
+                .floating
+                .iter()
+                .find(|w| w.id == window_id)
+                .and_then(|w| w.root.as_ref())
+                .map_or([4096., 2160.], |root| root.maximum_size());
+            window = window.max_width(max_size[0]).max_height(max_size[1]);
+            if visible.as_slice() == [PanelId::Tools]
+                && let Some(desired_h) = self.detached.tools_desired_inner_height
+            {
+                window = window.max_height(desired_h);
+            }
         }
         window
             .title_bar(false)
@@ -1738,6 +1773,7 @@ impl Editor {
         window_id: PanelId,
         panels: &[PanelId],
         minimum: [f32; 2],
+        maximum: [f32; 2],
         zoom: f32,
     ) {
         let viewport_rect = ctx.viewport_rect();
@@ -1814,21 +1850,23 @@ impl Editor {
             let bottom_px = top_px + resize.start_geometry.inner_size[1];
             let mut width_px = resize.start_geometry.inner_size[0];
             let mut height_px = resize.start_geometry.inner_size[1];
+            let max_w = maximum[0].max(minimum[0]);
+            let max_h = maximum[1].max(minimum[1]);
             if resize.left {
-                width_px = (right_px - (left_px + delta.x)).max(minimum[0]);
+                width_px = (right_px - (left_px + delta.x)).clamp(minimum[0], max_w);
                 left_px = right_px - width_px;
             } else if resize.right {
-                width_px = (width_px + delta.x).max(minimum[0]);
+                width_px = (width_px + delta.x).clamp(minimum[0], max_w);
             }
             if !is_tools_only {
                 if resize.top {
-                    height_px = (bottom_px - (top_px + delta.y)).max(minimum[1]);
+                    height_px = (bottom_px - (top_px + delta.y)).clamp(minimum[1], max_h);
                     top_px = bottom_px - height_px;
                 } else if resize.bottom {
-                    height_px = (height_px + delta.y).max(minimum[1]);
+                    height_px = (height_px + delta.y).clamp(minimum[1], max_h);
                 }
             } else if let Some(desired_h) = self.detached.tools_desired_inner_height {
-                height_px = (desired_h * zoom).max(minimum[1]);
+                height_px = (desired_h * zoom).clamp(minimum[1], max_h);
             }
             let geometry = WindowGeometry {
                 outer_position: [left_px, top_px],
@@ -1896,6 +1934,9 @@ impl Editor {
                 .find(|w| w.id == window_id)
                 .and_then(|w| w.geometry)
         {
+            if is_tools_only {
+                self.workspace.set_tools_stage_anchor(window_id, None);
+            }
             let inner = ctx
                 .input(|i| i.viewport().inner_rect)
                 .unwrap_or(viewport_rect);
@@ -1949,9 +1990,9 @@ impl Editor {
         }
         let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
             || ctx.input(|i| i.pointer.any_down());
-        if pointer_down && self.detached.resize.is_none() {
+        if pointer_down || self.detached.resize.is_some() {
             // Defer sending programmatic window size/position changes while a live native window
-            // resize drag is in progress so macOS AppKit and egui never desync the inner width.
+            // or border resize drag is in progress so macOS AppKit and egui never desync or flicker.
             ctx.request_repaint_after(Duration::from_millis(16));
             return;
         }

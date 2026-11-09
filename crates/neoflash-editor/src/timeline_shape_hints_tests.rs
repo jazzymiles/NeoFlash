@@ -358,3 +358,145 @@ fn transformed_shape_hint_overlay_and_drag_share_the_same_mapping() {
     );
     assert!(editor.timeline_shape_hints.drag.is_none());
 }
+
+#[test]
+fn shape_hints_handle_chained_spans_in_between_jump_single_removal_vertex_snap_and_f1_search() {
+    let (mut editor, ctx, page) = fixture();
+
+    // SH-08: F1 function search & shortcut registry discover all 3 shape hint commands.
+    let search_hits = crate::panels::function_search::function_search_results("shape hint");
+    assert!(search_hits.contains(&crate::commands::CommandId::ModifyAddShapeHint));
+    assert!(search_hits.contains(&crate::commands::CommandId::ViewShowShapeHints));
+    let remove_hits = crate::panels::function_search::function_search_results("remove all hints");
+    assert!(remove_hits.contains(&crate::commands::CommandId::ModifyRemoveAllShapeHints));
+    assert_eq!(
+        editor.sc(crate::commands::CommandId::ModifyAddShapeHint),
+        "⇧⌘H"
+    );
+    assert_eq!(
+        editor.sc(crate::commands::CommandId::ViewShowShapeHints),
+        "⌥⌘H"
+    );
+
+    // SH-09: Adding a shape hint from an in-between frame jumps the playhead to the start keyframe
+    // and reveals the new marker immediately.
+    editor.frame = 5;
+    editor.timeline_shape_hints.show = false;
+    assert_eq!(editor.add_shape_hint(), Some('a'));
+    assert_eq!(editor.frame, 0);
+    assert!(editor.timeline_shape_hints.show);
+    assert_eq!(editor.shape_hint_markers().len(), 1);
+
+    // SH-05: Deleting 'a' after adding 'b' and re-adding 'a' assigns deterministic label-indexed UV
+    // [1/27, 0.5] so 'a' and 'b' never stack at [2/27, 0.5].
+    assert_eq!(editor.add_shape_hint(), Some('b'));
+    assert!(editor.remove_shape_hint('a'));
+    assert_eq!(editor.add_shape_hint(), Some('a'));
+    let hints = &editor.symbol().timeline.layers[0].keyframes[0].shape_hints;
+    let uv_a = hints.iter().find(|h| h.label == 'a').unwrap().start_uv;
+    let uv_b = hints.iter().find(|h| h.label == 'b').unwrap().start_uv;
+    assert!((uv_a[0] - 1.0 / 27.0).abs() < 1e-9);
+    assert!((uv_b[0] - 2.0 / 27.0).abs() < 1e-9);
+    assert_ne!(uv_a, uv_b);
+
+    // SH-06: Magnetic corner snapping snaps a pointer within 5px of the rectangle's (170, 60) corner
+    // directly to the exact corner UV [1.0, 0.0].
+    assert!(editor.begin_shape_hint_drag('a'));
+    editor.drag_shape_hint_to([166.5, 62.0]);
+    editor.finish_shape_hint_drag(false);
+    let snapped_a = editor.symbol().timeline.layers[0].keyframes[0]
+        .shape_hints
+        .iter()
+        .find(|h| h.label == 'a')
+        .unwrap()
+        .start_uv;
+    assert!(
+        (snapped_a[0] - 1.0).abs() < 1e-9 && snapped_a[1].abs() < 1e-9,
+        "expected magnetic corner snap to [1.0, 0.0], got {snapped_a:?}"
+    );
+
+    // SH-07: Pressing Backspace while hovering hint 'b' removes only 'b' in one Undo step.
+    let marker_b = editor
+        .shape_hint_markers()
+        .into_iter()
+        .find(|m| m.label == 'b')
+        .unwrap();
+    let pos_b = page.min + egui::vec2(marker_b.position[0] as f32, marker_b.position[1] as f32);
+    stage_input_frame(&mut editor, &ctx, 1.0, vec![Event::PointerMoved(pos_b)]);
+    assert_eq!(editor.timeline_shape_hints.hover, Some('b'));
+    stage_input_frame(
+        &mut editor,
+        &ctx,
+        1.02,
+        vec![
+            Event::PointerMoved(pos_b),
+            Event::Key {
+                key: egui::Key::Backspace,
+                physical_key: Some(egui::Key::Backspace),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .shape_hints
+            .len(),
+        1
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0].shape_hints[0].label,
+        'a'
+    );
+    editor.undo();
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[0]
+            .shape_hints
+            .len(),
+        2
+    );
+
+    // SH-10: Chained Shape Tweens K0 (0) -> K1 (10) -> K2 (20).
+    // At frame 10 (K1), adding a hint adds 'a' to K1 -> K2 (not 'c' to K0 -> K1),
+    // and both K0 -> K1's End hints and K1 -> K2's Start hints are visible at frame 10.
+    {
+        let timeline = &mut editor.symbol_mut().timeline;
+        timeline.frame_count = 21;
+        timeline.layers[0].keyframes[1].tween = Some(Easing::Linear);
+        timeline.layers[0].keyframes[1].tween_kind = TweenKind::Shape;
+        let k2_elem = timeline.layers[0].keyframes[0].elements.clone();
+        timeline.layers[0].keyframes.push(Keyframe {
+            frame: 20,
+            elements: k2_elem,
+            ..Default::default()
+        });
+    }
+    editor.frame = 10;
+    assert_eq!(editor.shape_hint_add_span(), Some((1, 2)));
+    assert_eq!(editor.add_shape_hint(), Some('a'));
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[1]
+            .shape_hints
+            .len(),
+        1
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes[1].shape_hints[0].label,
+        'a'
+    );
+    let markers_at_k1 = editor.shape_hint_markers();
+    assert!(
+        markers_at_k1
+            .iter()
+            .any(|m| m.start_frame == 0 && m.end && m.label == 'a'),
+        "incoming K0->K1 end hint 'a' must remain visible at K1"
+    );
+    assert!(
+        markers_at_k1
+            .iter()
+            .any(|m| m.start_frame == 10 && !m.end && m.label == 'a'),
+        "outgoing K1->K2 start hint 'a' must be visible at K1"
+    );
+    editor.project.validate().unwrap();
+}

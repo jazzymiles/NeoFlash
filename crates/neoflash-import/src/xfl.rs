@@ -2227,6 +2227,7 @@ impl Parser<'_> {
             type RawKeyframeEntry = (u32, u32, String, Vec<(Id, String)>, Keyframe);
             let mut ends = vec![];
             let mut raw_keys: Vec<RawKeyframeEntry> = vec![];
+            let mut pending_morph_hints: HashMap<u32, Vec<RawXflMorphHint>> = HashMap::new();
             if let Some(frames) = child(layer_node, "frames") {
                 self.audit(frames, file, &[], &["DOMFrame"]);
                 for frame_node in elements(frames).filter(|n| n.has_tag_name("DOMFrame")) {
@@ -2275,6 +2276,7 @@ impl Parser<'_> {
                             "MotionObjectXML",
                             "motionObjectXML",
                             "MorphShape",
+                            "morphHintsList",
                             "betweenFrameMatrixList",
                             "IKTree",
                         ],
@@ -2292,15 +2294,23 @@ impl Parser<'_> {
                             );
                         }
                     }
-                    for morph_tag in ["MorphShape", "betweenFrameMatrixList"] {
+                    let mut warn_morph_ignored = false;
+                    for morph_tag in ["MorphShape", "morphHintsList", "betweenFrameMatrixList"] {
                         if let Some(sub) = child(frame_node, morph_tag) {
                             self.audit_unmodeled_xfl_subtree(sub, file);
-                            self.report.warning(
-                                "xfl_morph_hints_ignored",
-                                self.location(frame_node, file),
-                                "XFL shape-tween MorphShape hints/segments are ignored; NeoFlash resamples contours automatically.",
-                            );
+                            if morph_tag == "betweenFrameMatrixList" {
+                                warn_morph_ignored = true;
+                            }
                         }
+                    }
+                    let (parsed_morph_hints, had_unconverted_morph_data) =
+                        parse_xfl_frame_morph_hints(frame_node);
+                    if warn_morph_ignored || had_unconverted_morph_data {
+                        self.report.warning(
+                            "xfl_morph_hints_ignored",
+                            self.location(frame_node, file),
+                            "XFL shape-tween MorphShape hints/segments are ignored; NeoFlash resamples contours automatically.",
+                        );
                     }
                     if let Some(sub) = child(frame_node, "IKTree") {
                         self.audit_unmodeled_xfl_subtree(sub, file);
@@ -2469,6 +2479,9 @@ impl Parser<'_> {
                         }
                     }
                     if role != LayerRole::Folder {
+                        if !parsed_morph_hints.is_empty() {
+                            pending_morph_hints.insert(frame, parsed_morph_hints);
+                        }
                         raw_keys.push((frame, end, frame_loc, elem_locs, key));
                     }
                 }
@@ -2559,6 +2572,15 @@ impl Parser<'_> {
                                 prev_loc,
                                 "Shape tween requires vector shape elements on both start and end keyframes; tween dropped and poses held.",
                             );
+                        } else if let Some(raw_hints) = pending_morph_hints.get(&raw_keys[idx].0) {
+                            let hints = resolve_xfl_morph_hints(
+                                raw_hints,
+                                &raw_keys[idx].4.elements,
+                                &raw_keys[idx + 1].4.elements,
+                            );
+                            if !hints.is_empty() {
+                                raw_keys[idx].4.shape_hints = hints;
+                            }
                         }
                     }
                     TweenKind::Motion => {}
@@ -5454,6 +5476,279 @@ fn classic_tween_matches(a: &Element, b: &Element) -> bool {
         }
 }
 
+#[derive(Clone, Debug)]
+enum RawXflHintCoord {
+    Uv([f64; 2]),
+    PointCandidates(Vec<[f64; 2]>),
+}
+
+#[derive(Clone, Debug)]
+struct RawXflMorphHint {
+    label: Option<char>,
+    start: RawXflHintCoord,
+    end: RawXflHintCoord,
+}
+
+fn parse_xfl_hex_24_8_token(token: &str) -> Option<i64> {
+    let hex = token.trim().strip_prefix('#')?;
+    let (whole_str, frac_opt) = match hex.split_once('.') {
+        Some((w, f)) => (w, Some(f)),
+        None => (hex, None),
+    };
+    if !(1..=6).contains(&whole_str.len()) || !whole_str.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let raw_whole = u32::from_str_radix(whole_str, 16).ok()?;
+    let signed_whole = if raw_whole > 0x7f_ffff {
+        i64::from(raw_whole) - 0x100_0000
+    } else {
+        i64::from(raw_whole)
+    };
+    let frac = if let Some(frac_str) = frac_opt {
+        if !(1..=2).contains(&frac_str.len()) || !frac_str.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let raw_frac = u8::from_str_radix(frac_str, 16).ok()?;
+        if frac_str.len() == 1 {
+            raw_frac << 4
+        } else {
+            raw_frac
+        }
+    } else {
+        0
+    };
+    Some(signed_whole * 256 + i64::from(frac))
+}
+
+fn parse_xfl_point_candidates(raw: &str) -> Option<Vec<[f64; 2]>> {
+    let trimmed = raw.trim();
+    let (tx, ty) = if let Some((a, b)) = trimmed.split_once(',') {
+        (a.trim(), b.trim())
+    } else {
+        let mut iter = trimmed.split_whitespace();
+        let a = iter.next()?;
+        let b = iter.next()?;
+        if iter.next().is_some() {
+            return None;
+        }
+        (a, b)
+    };
+    if tx.starts_with('#') || ty.starts_with('#') {
+        let vx = parse_xfl_hex_24_8_token(tx)?;
+        let vy = parse_xfl_hex_24_8_token(ty)?;
+        return Some(vec![
+            [vx as f64 / 20.0, vy as f64 / 20.0],
+            [vx as f64 / 256.0, vy as f64 / 256.0],
+            [vx as f64 / 5120.0, vy as f64 / 5120.0],
+        ]);
+    }
+    let fx = tx.parse::<f64>().ok().filter(|v| v.is_finite())?;
+    let fy = ty.parse::<f64>().ok().filter(|v| v.is_finite())?;
+    Some(vec![
+        [fx, fy],
+        [fx / 20.0, fy / 20.0],
+        [fx * 256.0 / 20.0, fy * 256.0 / 20.0],
+    ])
+}
+
+fn parse_xfl_hint_label(node: Node<'_, '_>) -> Option<char> {
+    for attr in ["label", "key", "hintIndex", "index", "name"] {
+        let Some(val) = node
+            .attribute(attr)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        if val.len() == 1 {
+            let ch = val.as_bytes()[0];
+            if ch.is_ascii_lowercase() {
+                return Some(ch as char);
+            }
+            if ch.is_ascii_uppercase() {
+                return Some(ch.to_ascii_lowercase() as char);
+            }
+        }
+        if let Ok(idx) = val.parse::<i64>()
+            && (0..26).contains(&idx)
+        {
+            return Some((b'a' + idx as u8) as char);
+        }
+    }
+    None
+}
+
+fn parse_xfl_single_morph_hint(node: Node<'_, '_>) -> Option<RawXflMorphHint> {
+    let label = parse_xfl_hint_label(node);
+    let parse_f64 = |names: &[&str]| -> Option<f64> {
+        for &name in names {
+            if let Some(v) = node
+                .attribute(name)
+                .and_then(|s| s.trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite())
+            {
+                return Some(v);
+            }
+        }
+        None
+    };
+    if let (Some(su), Some(sv), Some(eu), Some(ev)) = (
+        parse_f64(&["startU", "start_u", "u"]),
+        parse_f64(&["startV", "start_v", "v"]),
+        parse_f64(&["endU", "end_u", "u"]),
+        parse_f64(&["endV", "end_v", "v"]),
+    ) {
+        return Some(RawXflMorphHint {
+            label,
+            start: RawXflHintCoord::Uv([su.clamp(0.0, 1.0), sv.clamp(0.0, 1.0)]),
+            end: RawXflHintCoord::Uv([eu.clamp(0.0, 1.0), ev.clamp(0.0, 1.0)]),
+        });
+    }
+    let start_str = node
+        .attribute("startPoint")
+        .or_else(|| node.attribute("startPointA"))
+        .or_else(|| node.attribute("pointA"))?;
+    let end_str = node
+        .attribute("endPoint")
+        .or_else(|| node.attribute("endPointB"))
+        .or_else(|| node.attribute("pointB"))?;
+    let start_candidates = parse_xfl_point_candidates(start_str)?;
+    let end_candidates = parse_xfl_point_candidates(end_str)?;
+    Some(RawXflMorphHint {
+        label,
+        start: RawXflHintCoord::PointCandidates(start_candidates),
+        end: RawXflHintCoord::PointCandidates(end_candidates),
+    })
+}
+
+fn inspect_xfl_hint_list(
+    list_node: Node<'_, '_>,
+    hints: &mut Vec<RawXflMorphHint>,
+    had_unconverted: &mut bool,
+) {
+    for item in elements(list_node) {
+        if item.tag_name().name().eq_ignore_ascii_case("MorphHint") {
+            if let Some(parsed) = parse_xfl_single_morph_hint(item) {
+                hints.push(parsed);
+            } else {
+                *had_unconverted = true;
+            }
+        } else {
+            *had_unconverted = true;
+        }
+    }
+}
+
+fn parse_xfl_frame_morph_hints(frame_node: Node<'_, '_>) -> (Vec<RawXflMorphHint>, bool) {
+    let mut hints = Vec::new();
+    let mut had_unconverted = false;
+
+    if let Some(morph_node) = child(frame_node, "MorphShape") {
+        let mut saw_hint_container = false;
+        for sub in elements(morph_node) {
+            let tag = sub.tag_name().name();
+            if tag.eq_ignore_ascii_case("morphHintsList") {
+                saw_hint_container = true;
+                inspect_xfl_hint_list(sub, &mut hints, &mut had_unconverted);
+            } else if tag.eq_ignore_ascii_case("MorphHint") {
+                saw_hint_container = true;
+                if let Some(parsed) = parse_xfl_single_morph_hint(sub) {
+                    hints.push(parsed);
+                } else {
+                    had_unconverted = true;
+                }
+            }
+        }
+        if hints.is_empty()
+            && (!saw_hint_container
+                || elements(morph_node).any(|n| n.has_tag_name("morphSegments")))
+        {
+            had_unconverted = true;
+        }
+    }
+    if let Some(direct_list) = child(frame_node, "morphHintsList") {
+        inspect_xfl_hint_list(direct_list, &mut hints, &mut had_unconverted);
+    }
+
+    (hints, had_unconverted)
+}
+
+fn resolve_xfl_hint_coord(geom: Option<&ShapeHintGeometry>, coord: &RawXflHintCoord) -> [f64; 2] {
+    match coord {
+        RawXflHintCoord::Uv(uv) => [uv[0].clamp(0.0, 1.0), uv[1].clamp(0.0, 1.0)],
+        RawXflHintCoord::PointCandidates(candidates) => {
+            let mut best_pt = candidates.first().copied().unwrap_or([0.0, 0.0]);
+            if let Some(g) = geom {
+                let mut best_d2 = f64::INFINITY;
+                for &cand in candidates {
+                    let near = g.nearest_with_snap(cand, DEFAULT_HINT_VERTEX_SNAP_RADIUS);
+                    let dx = cand[0] - near[0];
+                    let dy = cand[1] - near[1];
+                    let d2 = dx * dx + dy * dy;
+                    if d2 + 1e-6 < best_d2 {
+                        best_d2 = d2;
+                        best_pt = cand;
+                    }
+                }
+                let diag = (g.high[0] - g.low[0]).hypot(g.high[1] - g.low[1]);
+                let snap_tol = (diag * 0.15).clamp(2.0, 24.0);
+                let snapped = g.nearest_with_snap(best_pt, DEFAULT_HINT_VERTEX_SNAP_RADIUS);
+                let dx = best_pt[0] - snapped[0];
+                let dy = best_pt[1] - snapped[1];
+                if dx * dx + dy * dy <= snap_tol * snap_tol {
+                    return g.snapped_uv(best_pt);
+                }
+                return std::array::from_fn(|axis| {
+                    let size = g.high[axis] - g.low[axis];
+                    if size > 1e-9 {
+                        ((best_pt[axis] - g.low[axis]) / size).clamp(0.0, 1.0)
+                    } else {
+                        0.5
+                    }
+                });
+            }
+            [
+                (best_pt[0] / 550.0).clamp(0.0, 1.0),
+                (best_pt[1] / 400.0).clamp(0.0, 1.0),
+            ]
+        }
+    }
+}
+
+fn resolve_xfl_morph_hints(
+    raw_hints: &[RawXflMorphHint],
+    start_elements: &[Element],
+    end_elements: &[Element],
+) -> Vec<ShapeHint> {
+    if raw_hints.is_empty() {
+        return Vec::new();
+    }
+    let start_geom = ShapeHintGeometry::from_elements(start_elements);
+    let end_geom = ShapeHintGeometry::from_elements(end_elements);
+    let mut seen_labels = HashSet::new();
+    let mut out = Vec::new();
+    for raw in raw_hints {
+        if out.len() >= ShapeHint::MAX_HINTS {
+            break;
+        }
+        let label = raw
+            .label
+            .filter(|c| c.is_ascii_lowercase() && !seen_labels.contains(c))
+            .or_else(|| ('a'..='z').find(|c| !seen_labels.contains(c)));
+        let Some(label) = label else {
+            break;
+        };
+        seen_labels.insert(label);
+        out.push(ShapeHint {
+            label,
+            start_uv: resolve_xfl_hint_coord(start_geom.as_ref(), &raw.start),
+            end_uv: resolve_xfl_hint_coord(end_geom.as_ref(), &raw.end),
+        });
+    }
+    out.sort_by_key(|h| h.label);
+    out
+}
+
 const SYNTHETIC_1X1_PNG: &[u8] = &[
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
     0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
@@ -5798,5 +6093,88 @@ mod tests {
         assert_eq!(normalize_filter_strength(150.0, false), 1.5);
         assert_eq!(normalize_filter_strength(1.2, true), 1.2);
         assert_eq!(normalize_filter_strength(30_000.0, false), 255.0);
+    }
+
+    #[test]
+    fn xfl_morph_hints_list_populates_keyframe_shape_hints() {
+        let mut files = BTreeMap::new();
+        files.insert(
+            "DOMDocument.xml".into(),
+            r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" xflVersion="2.2">
+  <timelines>
+    <DOMTimeline name="Scene 1">
+      <layers>
+        <DOMLayer name="Morph">
+          <frames>
+            <DOMFrame index="0" duration="10" tweenType="shape">
+              <MorphShape>
+                <morphHintsList>
+                  <MorphHint startPoint="#0.00, #0.00" endPoint="#7.D0, #0.00" key="0"/>
+                  <MorphHint startPoint="100, 0" endPoint="100, 100" key="1"/>
+                </morphHintsList>
+              </MorphShape>
+              <elements>
+                <DOMRectangleObject objectWidth="100" objectHeight="100"/>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="10" duration="1">
+              <elements>
+                <DOMRectangleObject objectWidth="100" objectHeight="100"/>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timelines>
+</DOMDocument>"##
+                .into(),
+        );
+        let mut report = ImportReport {
+            source: "xfl-morph-hints".into(),
+            format: crate::ImportFormat::XflDirectory,
+            version: Some("2.2".into()),
+            can_import: false,
+            statistics: crate::Statistics::default(),
+            diagnostics: vec![],
+            binary_fla: None,
+            swf: None,
+            swc: None,
+        };
+        let project = convert(&files, &BTreeMap::new(), &mut report).expect("XFL converts");
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == crate::Severity::Error),
+            "{:?}",
+            report.diagnostics
+        );
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "xfl_morph_hints_ignored"),
+            "valid morph hints should not emit xfl_morph_hints_ignored: {:?}",
+            report.diagnostics
+        );
+        project.validate().expect("project validates");
+        assert_eq!(project.format_version, 7);
+
+        let root = project.symbol(&project.root).unwrap();
+        let k0 = &root.timeline.layers[0].keyframes[0];
+        assert_eq!(k0.tween_kind, TweenKind::Shape);
+        assert_eq!(k0.shape_hints.len(), 2);
+        assert_eq!(k0.shape_hints[0].label, 'a');
+        assert!((k0.shape_hints[0].start_uv[0] - 0.0).abs() < 1e-4);
+        assert!((k0.shape_hints[0].start_uv[1] - 0.0).abs() < 1e-4);
+        assert!((k0.shape_hints[0].end_uv[0] - 1.0).abs() < 1e-4);
+        assert!((k0.shape_hints[0].end_uv[1] - 0.0).abs() < 1e-4);
+
+        assert_eq!(k0.shape_hints[1].label, 'b');
+        assert!((k0.shape_hints[1].start_uv[0] - 1.0).abs() < 1e-4);
+        assert!((k0.shape_hints[1].start_uv[1] - 0.0).abs() < 1e-4);
+        assert!((k0.shape_hints[1].end_uv[0] - 1.0).abs() < 1e-4);
+        assert!((k0.shape_hints[1].end_uv[1] - 1.0).abs() < 1e-4);
     }
 }

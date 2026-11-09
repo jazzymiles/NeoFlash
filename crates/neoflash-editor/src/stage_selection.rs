@@ -2755,6 +2755,7 @@ impl Editor {
                         .is_none_or(|layer| layer == ui.layer_id()) =>
                 {
                     self.finish_edits();
+                    self.clear_selection();
                     self.playing = false;
                     let start = self.snap_screen(mapping, origin, pos);
                     self.shape_draft = Some(ShapeDraft {
@@ -2816,6 +2817,9 @@ impl Editor {
                                 }
                             };
                             self.add_element_transformed(kind, transform);
+                            self.authoring_tools.primitive_drawn_selection = true;
+                        } else {
+                            self.clear_selection();
                         }
                     }
                 }

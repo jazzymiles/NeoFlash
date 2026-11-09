@@ -2474,15 +2474,27 @@ impl Editor {
                 }
             });
             Self::unavailable_submenu(ui, "Symbol");
-            menu_popup(ui, "Shape", "Add shape hint", "⇧⌘H", |ui| {
-                if menu_item_enabled(ui, self.can_add_shape_hint(), "Add shape hint", "⇧⌘H")
-                    .clicked()
+            let add_hint_sc = self.sc(C::ModifyAddShapeHint);
+            let remove_hints_sc = self.sc(C::ModifyRemoveAllShapeHints);
+            menu_popup(ui, "Shape", "Add shape hint", &add_hint_sc, |ui| {
+                if menu_item_enabled(
+                    ui,
+                    self.can_add_shape_hint(),
+                    "Add shape hint",
+                    &add_hint_sc,
+                )
+                .clicked()
                 {
                     self.add_shape_hint();
                     ui.close();
                 }
-                if menu_item_enabled(ui, self.can_remove_shape_hints(), "Remove all hints", "")
-                    .clicked()
+                if menu_item_enabled(
+                    ui,
+                    self.can_remove_shape_hints(),
+                    "Remove all hints",
+                    &remove_hints_sc,
+                )
+                .clicked()
                 {
                     self.remove_all_shape_hints();
                     ui.close();

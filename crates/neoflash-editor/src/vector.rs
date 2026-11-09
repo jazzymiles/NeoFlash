@@ -1681,6 +1681,10 @@ impl Editor {
             self.finish_edits();
             self.timeline_key_drag = None;
             self.vector = Default::default();
+            if self.authoring_tools.primitive_drawn_selection && tool != Tool::Select {
+                self.clear_selection();
+            }
+            self.authoring_tools.primitive_drawn_selection = false;
         }
         self.tool = tool;
     }

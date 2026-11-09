@@ -878,3 +878,143 @@ fn converts_legacy_filters_and_blend_modes_with_approximations_reported() {
             .any(|d| d.code == "fla_filter_approximated" && d.location == "inst-filters")
     );
 }
+
+#[test]
+fn converts_binary_morph_shape_hints_into_keyframe_shape_hints() {
+    let make_rect_shape = |x0: i32, y0: i32, x1: i32, y1: i32| -> LocatedBinaryShape {
+        let pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+        let edges = (0..4)
+            .map(|i| edge(pts[i], pts[(i + 1) % 4], 0, 0x8001, 0, None))
+            .collect();
+        LocatedBinaryShape {
+            offset: 0,
+            record: BinaryShapeRecord {
+                shape_revision: 6,
+                data_revision: 5,
+                matrix_words: [65536, 0, 0, 65536, 0, 0],
+                metadata: 0,
+                fills: vec![BinaryFill {
+                    packed_value: 0xffff0000,
+                    encoding: BinaryFillEncoding::Extended {
+                        flags: 0,
+                        secondary_flags: 0,
+                        payload: BinaryFillPayload::Plain,
+                    },
+                }],
+                strokes: vec![],
+                edges,
+                auxiliary: vec![],
+                original_bytes: vec![],
+            },
+        }
+    };
+
+    let mut f0 = record(
+        10,
+        TimelineClass::Frame,
+        TimelinePayload::Frame(Box::new(TimelineFrame {
+            duration: Some(10),
+            key_mode: Some(2),
+            morph_shape: Some(30),
+            ..Default::default()
+        })),
+        &[],
+    );
+    f0.shape_index = Some(0);
+
+    let mut f1 = record(
+        11,
+        TimelineClass::Frame,
+        TimelinePayload::Frame(Box::new(TimelineFrame {
+            duration: Some(1),
+            key_mode: Some(0),
+            ..Default::default()
+        })),
+        &[],
+    );
+    f1.shape_index = Some(1);
+
+    let morph = record(
+        30,
+        TimelineClass::Morph,
+        TimelinePayload::Morph(Box::new(TimelineMorphShape {
+            revision: Some(2),
+            matrix_words_start: Some([65536, 0, 0, 65536, 0, 0]),
+            matrix_words_end: Some([65536, 0, 0, 65536, 0, 0]),
+            hints: vec![Some(31), Some(32)],
+            ..Default::default()
+        })),
+        &[],
+    );
+    // Shape 0 is [0..100, 0..100] px (0..2000 twips); Shape 1 is [0..200, 0..100] px (0..4000, 0..2000 twips).
+    // Hint 'a' (index 0): top-left (0, 0) twips -> top-right (4000, 0) twips => start_uv [0, 0], end_uv [1, 0].
+    // Hint 'b' (index 1): top-right (2000, 0) twips -> bottom-right (4000, 2000) twips => start_uv [1, 0], end_uv [1, 1].
+    let hint_a = record(
+        31,
+        TimelineClass::MorphHint,
+        TimelinePayload::MorphHint(TimelineMorphHint {
+            point_a: Some([0, 0]),
+            point_b: Some([4000, 0]),
+            index: Some(0),
+        }),
+        &[],
+    );
+    let hint_b = record(
+        32,
+        TimelineClass::MorphHint,
+        TimelinePayload::MorphHint(TimelineMorphHint {
+            point_a: Some([2000, 0]),
+            point_b: Some([4000, 2000]),
+            index: Some(1),
+        }),
+        &[],
+    );
+
+    let stream = BinaryTimelineStream {
+        index: 1,
+        stream_kind: Some(1),
+        root: Some(1),
+        references: vec![],
+        pointers: vec![],
+        objects: vec![
+            record(
+                1,
+                TimelineClass::Page,
+                TimelinePayload::Page(TimelinePage::default()),
+                &[2],
+            ),
+            record(
+                2,
+                TimelineClass::Layer,
+                TimelinePayload::Layer(TimelineLayer::default()),
+                &[10, 11],
+            ),
+            f0,
+            f1,
+            morph,
+            hint_a,
+            hint_b,
+        ],
+        shapes: vec![
+            make_rect_shape(0, 0, 100, 100),
+            make_rect_shape(0, 0, 200, 100),
+        ],
+        original_bytes: vec![],
+    };
+
+    let timeline = convert_timeline(&stream).unwrap();
+    let k0 = &timeline.layers[0].keyframes[0];
+    assert_eq!(k0.tween_kind, TweenKind::Shape);
+    assert_eq!(k0.shape_hints.len(), 2);
+    assert_eq!(k0.shape_hints[0].label, 'a');
+    assert!((k0.shape_hints[0].start_uv[0] - 0.0).abs() < 1e-4);
+    assert!((k0.shape_hints[0].start_uv[1] - 0.0).abs() < 1e-4);
+    assert!((k0.shape_hints[0].end_uv[0] - 1.0).abs() < 1e-4);
+    assert!((k0.shape_hints[0].end_uv[1] - 0.0).abs() < 1e-4);
+
+    assert_eq!(k0.shape_hints[1].label, 'b');
+    assert!((k0.shape_hints[1].start_uv[0] - 1.0).abs() < 1e-4);
+    assert!((k0.shape_hints[1].start_uv[1] - 0.0).abs() < 1e-4);
+    assert!((k0.shape_hints[1].end_uv[0] - 1.0).abs() < 1e-4);
+    assert!((k0.shape_hints[1].end_uv[1] - 1.0).abs() < 1e-4);
+}

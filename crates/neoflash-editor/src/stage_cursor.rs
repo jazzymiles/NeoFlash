@@ -82,6 +82,48 @@ pub(crate) fn resize_cursor(dir: egui::Vec2) -> Cursor {
 }
 
 impl Editor {
+    /// Returns true if any visible detached floating panel window covers `pos` (in root viewport
+    /// logical coordinates) or if a floating viewport currently owns the pointer.
+    pub(crate) fn pointer_over_floating_panel(&self, ctx: &egui::Context, pos: egui::Pos2) -> bool {
+        if self.panels_hidden {
+            return false;
+        }
+        let zoom = ctx.zoom_factor().max(0.1);
+        let root_origin = self
+            .detached
+            .root_inner
+            .or_else(|| ctx.input(|i| i.viewport().inner_rect))
+            .map_or(egui::Pos2::ZERO, |r| r.min);
+        let global_px = (root_origin + pos.to_vec2()) * zoom;
+        for window in &self.workspace.floating {
+            if !window
+                .panels()
+                .iter()
+                .any(|p| self.workspace.is_panel_visible(*p))
+            {
+                continue;
+            }
+            if let Some(geom) = window.geometry {
+                let rect = egui::Rect::from_min_size(
+                    egui::pos2(geom.outer_position[0], geom.outer_position[1]),
+                    egui::vec2(geom.inner_size[0], geom.inner_size[1]),
+                )
+                .expand(6.0 * zoom);
+                if rect.contains(global_px) {
+                    return true;
+                }
+            }
+            let embedded_id = egui::Id::new(("floating-dock", window.id));
+            if ctx
+                .memory(|m| m.area_rect(embedded_id))
+                .is_some_and(|r| r.expand(4.0).contains(pos))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Paint the frame's NF2 cursor over `canvas` (the stage's own layer `stage_layer`) and forget it.
     pub(crate) fn show_stage_cursor(
         &mut self,
@@ -93,6 +135,13 @@ impl Editor {
         let Some(mut cursor) = self.stage_cursor.take() else {
             return;
         };
+        if self.has_modal_dialog() {
+            return;
+        }
+        #[cfg(not(test))]
+        if !ctx.input(|i| i.focused) {
+            return;
+        }
         // Motion path key points sit above every tool's hover target.
         if self.timeline_motion.curve_drag.is_some() || self.timeline_motion.curve_hover.is_some() {
             cursor = nf::ARROW_RESHAPE_CURVE;
@@ -106,10 +155,49 @@ impl Editor {
         let Some(pos) = ctx.pointer_hover_pos() else {
             return;
         };
+        if self.pointer_over_floating_panel(ctx, pos) {
+            return;
+        }
         let over_canvas = canvas.contains(pos) && ctx.layer_id_at(pos) == Some(stage_layer);
         let system_requested = ctx.output(|o| o.cursor_icon) != egui::CursorIcon::Default;
         if over_canvas && !system_requested && nf::show(ctx, canvas, cursor) {
             self.shown_stage_cursor = Some(cursor);
+        }
+    }
+
+    /// Reconcile the software Stage cursor at the end of `Editor::update`, after dialogs, pills,
+    /// floating panels, and notifications have rendered. Ensures the OS cursor and NF2 software
+    /// cursor are never both visible simultaneously.
+    pub(crate) fn reconcile_stage_cursor_after_overlays(&mut self, ctx: &egui::Context) {
+        if self.shown_stage_cursor.is_none() {
+            return;
+        }
+        let cursor_layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("nf2_cursor"));
+        let Some(pos) = ctx.pointer_hover_pos() else {
+            ctx.graphics_mut(|g| *g.entry(cursor_layer) = Default::default());
+            self.shown_stage_cursor = None;
+            return;
+        };
+        let current_icon = ctx.output(|o| o.cursor_icon);
+        let overlay_requested_system = !matches!(
+            current_icon,
+            egui::CursorIcon::None | egui::CursorIcon::Default
+        );
+        let top_layer_changed = ctx
+            .layer_id_at(pos)
+            .is_some_and(|layer| layer.order != egui::Order::Background && layer != cursor_layer);
+        if self.has_modal_dialog()
+            || self.pointer_over_floating_panel(ctx, pos)
+            || overlay_requested_system
+            || top_layer_changed
+        {
+            ctx.graphics_mut(|g| *g.entry(cursor_layer) = Default::default());
+            self.shown_stage_cursor = None;
+            if current_icon == egui::CursorIcon::None {
+                ctx.set_cursor_icon(egui::CursorIcon::Default);
+            }
+        } else {
+            ctx.set_cursor_icon(egui::CursorIcon::None);
         }
     }
 }

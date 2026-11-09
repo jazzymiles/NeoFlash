@@ -141,7 +141,16 @@
       const boxH=hasChrome?h:(field.multiline?Math.max(h,lineH+padT+padB):Math.min(Math.max(h,lineH+padT+padB),lineH+padT+padB));
       const dec=[field.format.underline?'underline':'',field.strikethrough?'line-through':''].filter(Boolean).join(' ')||'none';
       Object.assign(record.control.style,{width:w+'px',height:boxH+'px',font:global.NeoFlashText?.cssFont?.(field.format)||`${field.format.italic?'italic ':''}${field.format.bold?'bold ':''}${field.format.size}px ${JSON.stringify(field.format.font)},sans-serif`,lineHeight:lineH+'px',textAlign:field.format.alignMode||field.format.align_mode||field.format.align||'left',color:`rgba(${c>>>16},${c>>>8&255},${c&255},${field.alpha/255*(draw?.alpha??1)})`,caretColor:`rgb(${c>>>16},${c>>>8&255},${c&255})`,transform:`matrix(${node.world.join(',')})`,whiteSpace:field.word_wrap?'pre-wrap':'pre'});
-      Object.assign(record.control.style,{paddingTop:padT+'px',paddingBottom:padB+'px',paddingLeft:(padL+(field.format.leftMargin??field.format.left_margin??0)+(field.format.blockIndent??field.format.block_indent??0))+'px',paddingRight:(padR+(field.format.rightMargin??field.format.right_margin??0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:dec,letterSpacing:((field.format.letterSpacing??field.format.letter_spacing)||0)+'px',fontKerning:field.format.kerning===null||field.format.kerning===undefined?'auto':field.format.kerning?'normal':'none'});
+      const lig=field.ligatures||'common';
+      const fontVariantLig=lig==='none'?'none':(lig==='uncommon'||lig==='discretionary')?'common-ligatures discretionary-ligatures':lig==='exotic'?'common-ligatures discretionary-ligatures historical-ligatures':'common-ligatures';
+      const numParts=[];
+      if(field.digit_case==='lining')numParts.push('lining-nums');
+      else if(field.digit_case==='old_style')numParts.push('oldstyle-nums');
+      if(field.digit_width==='tabular')numParts.push('tabular-nums');
+      else if(field.digit_width==='proportional')numParts.push('proportional-nums');
+      const fontVariantNum=numParts.length?numParts.join(' '):'normal';
+      if(field.locale)record.control.lang=String(field.locale).replace('_','-');
+      Object.assign(record.control.style,{paddingTop:padT+'px',paddingBottom:padB+'px',paddingLeft:(padL+(field.format.leftMargin??field.format.left_margin??0)+(field.format.blockIndent??field.format.block_indent??0))+'px',paddingRight:(padR+(field.format.rightMargin??field.format.right_margin??0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:dec,letterSpacing:((field.format.letterSpacing??field.format.letter_spacing)||0)+'px',fontKerning:field.format.kerning===null||field.format.kerning===undefined?'auto':field.format.kerning?'normal':'none',fontVariantLigatures:fontVariantLig,fontVariantNumeric:fontVariantNum});
       if(view&&(view.active||view.background||view.border)){
         const rgb=value=>`rgba(${value>>>16},${value>>>8&255},${value&255},${field.alpha/255*(draw?.alpha??1)})`;
         const bw=Number(field.border_width)||1;

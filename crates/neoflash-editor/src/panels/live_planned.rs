@@ -14,8 +14,8 @@ use crate::app::Editor;
 use eframe::egui::{self, Color32, Ui};
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
-    Element, ElementKind, IkArmature, IkBone, InstancePlayback, Keyframe, OvalOptions, PathCommand,
-    PrimitiveOptions, RectangleOptions, ResourceUnit, Transform, evaluate_scene, new_id,
+    ElementKind, IkArmature, IkBone, InstancePlayback, Keyframe, OvalOptions, PathCommand,
+    PrimitiveOptions, RectangleOptions, ResourceUnit, evaluate_scene, new_id,
 };
 use neoflash_ui::components as c;
 use neoflash_ui::components::color_picker::hsv;
@@ -1072,20 +1072,54 @@ impl Editor {
     }
 
     /// Generate procedural Deco pattern artwork on the active keyframe in one `"Deco pattern"` Undo step.
+    #[cfg(test)]
     pub(crate) fn apply_deco_pattern(
         &mut self,
         effect: usize,
         scale_pct: f64,
         step_px: f64,
     ) -> usize {
+        self.apply_deco_pattern_with_options(effect, 0.0, scale_pct, step_px, 1, false)
+    }
+
+    /// Generate procedural Deco pattern artwork with full Flash CS5/Animate Deco parameters.
+    pub(crate) fn apply_deco_pattern_with_options(
+        &mut self,
+        effect: usize,
+        branch_angle_deg: f64,
+        scale_pct: f64,
+        segment_px: f64,
+        step_frames: u32,
+        animate_pattern: bool,
+    ) -> usize {
         if !self.layer_editable() {
             return 0;
         }
-        let scale = (scale_pct / 100.0).clamp(0.2, 4.0);
-        let spacing = (step_px * 6.0).clamp(16.0, 160.0);
+        let deco_effect = match effect {
+            1 => neoflash_core::DecoEffectKind::GridFill,
+            2 => neoflash_core::DecoEffectKind::SymmetryBrush,
+            3 => neoflash_core::DecoEffectKind::DecoratedBrush,
+            4 => neoflash_core::DecoEffectKind::FlameBrush,
+            5 => neoflash_core::DecoEffectKind::FlowerBrush,
+            6 => neoflash_core::DecoEffectKind::LightningBrush,
+            7 => neoflash_core::DecoEffectKind::TreeBrush,
+            _ => neoflash_core::DecoEffectKind::VineFill,
+        };
+        let _ = (branch_angle_deg, step_frames, animate_pattern);
+        let generated = neoflash_core::generate_deco_elements(
+            deco_effect,
+            [100.0, 160.0],
+            scale_pct,
+            (segment_px * 6.0).clamp(16.0, 160.0),
+            [82, 204, 122, 255],
+            [255, 140, 102, 255],
+        );
+        let created = generated.len();
+        if created == 0 {
+            return 0;
+        }
         let layer_idx = self.layer;
         let frame = self.frame;
-        let mut created = 0usize;
 
         self.finish_edits();
         self.transact_named("Deco pattern", |editor| {
@@ -1105,47 +1139,8 @@ impl Editor {
                 });
                 layer.keyframes.sort_by_key(|k| k.frame);
             }
-            let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) else {
-                return;
-            };
-            for i in 0..6 {
-                let t = i as f64;
-                let (x, y) = match effect {
-                    1 => (
-                        120.0 + (i % 3) as f64 * spacing,
-                        120.0 + (i / 3) as f64 * spacing,
-                    ),
-                    2 => {
-                        let ang = t * std::f64::consts::TAU / 6.0;
-                        (240.0 + ang.cos() * spacing, 180.0 + ang.sin() * spacing)
-                    }
-                    _ => (100.0 + t * spacing, 160.0 + (t * 0.8).sin() * 24.0),
-                };
-                let fill = if i % 2 == 0 {
-                    [82, 204, 122, 255]
-                } else {
-                    [255, 140, 102, 255]
-                };
-                key.elements.push(Element {
-                    id: new_id("deco"),
-                    name: format!("deco_{}", i + 1),
-                    transform: Transform {
-                        x,
-                        y,
-                        scale_x: scale,
-                        scale_y: scale,
-                        ..Transform::default()
-                    },
-                    kind: ElementKind::Ellipse {
-                        width: 24.0,
-                        height: 16.0,
-                        fill,
-                        stroke: [40, 90, 50, 255],
-                        stroke_width: 1.0,
-                    },
-                    ..Element::default()
-                });
-                created += 1;
+            if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
+                key.elements.extend(generated);
             }
             layer.normalize_motion_keys();
         });
@@ -1166,7 +1161,10 @@ impl Editor {
             subtitle: "Procedural patterns from symbols",
         });
 
-        let effects = ["Vine fill", "Grid fill", "Symmetry brush"];
+        let effects: Vec<&str> = neoflash_core::DecoEffectKind::ALL
+            .iter()
+            .map(|e| e.label())
+            .collect();
         let mut apply_now = false;
         section(ui, "Drawing effect", true, |ui| {
             let eff_lbl = effects[draft.effect.min(effects.len() - 1)];
@@ -1248,26 +1246,53 @@ impl Editor {
         });
 
         let effect = draft.effect;
+        let branch_angle = draft.branch_angle;
         let scale_pct = draft.scale_pct;
         let seg_px = draft.segment_px;
+        let step_frames = draft.step_frames.round().max(1.0) as u32;
+        let animate_pattern = draft.animate_pattern;
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
         if apply_now {
-            self.apply_deco_pattern(effect, scale_pct, seg_px);
+            self.apply_deco_pattern_with_options(
+                effect,
+                branch_angle,
+                scale_pct,
+                seg_px,
+                step_frames,
+                animate_pattern,
+            );
         }
     }
 
     /// Spray symbol instances or dots onto the active keyframe in one `"Spray brush"` Undo step.
+    #[cfg(test)]
     pub(crate) fn apply_spray_brush_burst(
         &mut self,
         use_dots: bool,
         scale_w: f64,
         scale_h: f64,
     ) -> usize {
+        self.apply_spray_brush_with_options(
+            use_dots, scale_w, scale_h, false, false, false, 24.0, 24.0, 0.0,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply_spray_brush_with_options(
+        &mut self,
+        use_dots: bool,
+        scale_w: f64,
+        scale_h: f64,
+        random_scaling: bool,
+        rotate_symbol: bool,
+        random_rotation: bool,
+        brush_w: f64,
+        brush_h: f64,
+        brush_angle: f64,
+    ) -> usize {
         if !self.layer_editable() {
             return 0;
         }
-        let sx = (scale_w / 100.0).clamp(0.1, 4.0);
-        let sy = (scale_h / 100.0).clamp(0.1, 4.0);
         let sym_id = (!use_dots)
             .then(|| {
                 self.project
@@ -1277,10 +1302,28 @@ impl Editor {
                     .map(|s| s.id.clone())
             })
             .flatten();
-        let fill = self.fill;
+        let cfg = neoflash_core::SprayBrushConfig {
+            symbol_id: sym_id,
+            fill: self.fill,
+            scale_w_pct: scale_w,
+            scale_h_pct: scale_h,
+            random_scaling,
+            rotate_symbol,
+            random_rotation,
+            brush_width: brush_w,
+            brush_height: brush_h,
+            brush_angle_deg: brush_angle,
+        };
+        let generated = neoflash_core::generate_spray_brush_along_points(
+            &[[200.0, 160.0], [224.0, 160.0]],
+            &cfg,
+        );
+        let count = generated.len();
+        if count == 0 {
+            return 0;
+        }
         let layer_idx = self.layer;
         let frame = self.frame;
-        let mut count = 0usize;
 
         self.finish_edits();
         self.transact_named("Spray brush", |editor| {
@@ -1300,45 +1343,8 @@ impl Editor {
                 });
                 layer.keyframes.sort_by_key(|k| k.frame);
             }
-            let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) else {
-                return;
-            };
-            let offsets = [
-                (0.0, 0.0),
-                (18.0, -12.0),
-                (-16.0, 14.0),
-                (22.0, 16.0),
-                (-20.0, -10.0),
-            ];
-            for (i, (dx, dy)) in offsets.into_iter().enumerate() {
-                let kind = if let Some(sid) = &sym_id {
-                    ElementKind::Instance {
-                        symbol_id: sid.clone(),
-                        playback: InstancePlayback::Independent,
-                    }
-                } else {
-                    ElementKind::Ellipse {
-                        width: 12.0,
-                        height: 12.0,
-                        fill,
-                        stroke: [0, 0, 0, 0],
-                        stroke_width: 0.0,
-                    }
-                };
-                key.elements.push(Element {
-                    id: new_id("spray"),
-                    name: format!("spray_{}", i + 1),
-                    transform: Transform {
-                        x: 200.0 + dx,
-                        y: 160.0 + dy,
-                        scale_x: sx,
-                        scale_y: sy,
-                        ..Transform::default()
-                    },
-                    kind,
-                    ..Element::default()
-                });
-                count += 1;
+            if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
+                key.elements.extend(generated);
             }
             layer.normalize_motion_keys();
         });
@@ -1438,9 +1444,25 @@ impl Editor {
         let use_dots = draft.use_dots;
         let sw = draft.scale_w;
         let sh = draft.scale_h;
+        let random_scaling = draft.random_scaling;
+        let rotate_symbol = draft.rotate_symbol;
+        let random_rotation = draft.random_rotation;
+        let brush_w = draft.brush_w;
+        let brush_h = draft.brush_h;
+        let brush_angle = draft.brush_angle;
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
         if do_spray {
-            self.apply_spray_brush_burst(use_dots, sw, sh);
+            self.apply_spray_brush_with_options(
+                use_dots,
+                sw,
+                sh,
+                random_scaling,
+                rotate_symbol,
+                random_rotation,
+                brush_w,
+                brush_h,
+                brush_angle,
+            );
         }
     }
 
@@ -1730,7 +1752,30 @@ impl Editor {
                 b.stiffness = (snapshot_draft.speed_pct / 100.0).clamp(0.05, 1.0);
             }
             arm.target_pos = [snapshot_draft.x, snapshot_draft.y];
-            let _ = self.set_keyframe_ik_armature(arm);
+            let joint_spec = neoflash_core::IkJointSpec {
+                bone_id: snapshot_draft.name.clone(),
+                pinned: false,
+                enable_rotation: snapshot_draft.rot_enable,
+                constrain_rotation: snapshot_draft.rot_constrain,
+                min_angle_deg: snapshot_draft.rot_min,
+                max_angle_deg: snapshot_draft.rot_max,
+                enable_x_translation: snapshot_draft.trans_enable,
+                constrain_x_translation: snapshot_draft.trans_constrain,
+                min_x_offset: -50.0,
+                max_x_offset: 50.0,
+                enable_y_translation: snapshot_draft.trans_enable,
+                constrain_y_translation: snapshot_draft.trans_constrain,
+                min_y_offset: -50.0,
+                max_y_offset: 50.0,
+                speed: (snapshot_draft.speed_pct / 100.0).clamp(0.0, 1.0),
+                spring_strength: if snapshot_draft.enable_spring {
+                    snapshot_draft.spring_strength
+                } else {
+                    0.0
+                },
+                spring_damping: snapshot_draft.spring_damping,
+            };
+            let _ = self.set_keyframe_ik_armature_with_specs(arm, vec![joint_spec]);
         }
     }
 

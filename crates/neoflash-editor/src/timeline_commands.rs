@@ -111,14 +111,102 @@ impl Editor {
             })
     }
 
-    /// Tween kind of the span under the playhead on the current layer; `None` = not tweened.
-    pub(crate) fn current_tween(&self) -> Option<TweenKind> {
-        let layer = self.symbol().timeline.layers.get(self.layer)?;
-        if motion_span(layer, self.frame).is_some() {
-            return Some(TweenKind::Motion);
+    /// Collect `(layer_index, span_start_frames)` for all editable spans intersecting the active
+    /// timeline frame range (or the playhead frame when no range is selected).
+    pub(crate) fn target_tween_spans(&self) -> Vec<(usize, Vec<u32>)> {
+        let timeline = &self.symbol().timeline;
+        let Some(range) = self.frame_range_or_current() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for layer_id in &range.layers {
+            let Some(layer_idx) = timeline.layers.iter().position(|l| &l.id == layer_id) else {
+                continue;
+            };
+            let layer = &timeline.layers[layer_idx];
+            if layer.properties.role == LayerRole::Folder
+                || neoflash_core::layer_effectively_locked(timeline, layer)
+                || !neoflash_core::layer_effectively_visible(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
+            {
+                continue;
+            }
+            let ord_frames: Vec<u32> = layer
+                .keyframes
+                .iter()
+                .filter(|k| k.keyed_properties.is_none())
+                .map(|k| k.frame)
+                .collect();
+            if ord_frames.is_empty() {
+                continue;
+            }
+            let layer_end = layer
+                .properties
+                .end_frame
+                .unwrap_or(timeline.frame_count)
+                .min(timeline.frame_count)
+                .saturating_sub(1);
+            let mut starts = Vec::new();
+            for (idx, &kf) in ord_frames.iter().enumerate() {
+                let span_end = ord_frames
+                    .get(idx + 1)
+                    .map_or(layer_end, |next_f| next_f.saturating_sub(1))
+                    .max(kf);
+                if kf <= range.end && span_end >= range.start {
+                    // When selecting a range that ends on a 1-frame closing keyframe at the end
+                    // of the layer, do not treat that closing endpoint as a new span start if an
+                    // earlier span in the selection already precedes it.
+                    let is_single_frame_tail_cap = idx + 1 == ord_frames.len()
+                        && kf == span_end
+                        && !starts.is_empty()
+                        && range.start < kf;
+                    // Also when selecting exact keyframe-to-keyframe `[f_prev..=kf]` where `range.end == kf`
+                    // and `range.start == starts[0]`, `kf` is the closing keyframe of the previous span.
+                    let is_exact_closing_key =
+                        !starts.is_empty() && range.end == kf && range.start == starts[0];
+                    if !is_single_frame_tail_cap && !is_exact_closing_key {
+                        starts.push(kf);
+                    }
+                }
+            }
+            if !starts.is_empty() {
+                out.push((layer_idx, starts));
+            }
         }
-        let key = layer.key_at(self.frame)?;
+        out
+    }
+
+    fn span_tween_kind(layer: &Layer, start_frame: u32) -> Option<TweenKind> {
+        let key = layer.keyframes.iter().find(|k| k.frame == start_frame)?;
         key.tween.map(|_| key.tween_kind)
+    }
+
+    /// Tween kind of the span(s) under the selection or playhead; `Some(kind)` when all targeted
+    /// spans share `kind`, otherwise `None`.
+    pub(crate) fn current_tween(&self) -> Option<TweenKind> {
+        let targets = self.target_tween_spans();
+        if targets.is_empty() {
+            let layer = self.symbol().timeline.layers.get(self.layer)?;
+            if motion_span(layer, self.frame).is_some() {
+                return Some(TweenKind::Motion);
+            }
+            let key = layer.key_at(self.frame)?;
+            return key.tween.map(|_| key.tween_kind);
+        }
+        let timeline = &self.symbol().timeline;
+        let mut common: Option<TweenKind> = None;
+        for (layer_idx, starts) in targets {
+            let layer = &timeline.layers[layer_idx];
+            for start in starts {
+                let kind = Self::span_tween_kind(layer, start)?;
+                match common {
+                    None => common = Some(kind),
+                    Some(prev) if prev == kind => {}
+                    Some(_) => return None,
+                }
+            }
+        }
+        common
     }
 
     /// First frame of the span under the playhead (◆ property keys belong to their motion span).
@@ -130,124 +218,183 @@ impl Editor {
         layer.key_at(self.frame).map(|key| key.frame)
     }
 
-    /// Whether a tween of `kind` can be created on the span under the playhead.
+    /// Whether a tween of `kind` can be created on the span(s) under the selection or playhead.
     pub(crate) fn can_create_tween(&self) -> bool {
-        self.layer_editable() && self.span_start().is_some()
+        !self.target_tween_spans().is_empty()
+            || (self.layer_editable() && self.span_start().is_some())
     }
 
-    /// Create a tween of `kind` on the span under the playhead, or switch its kind. One Undo step.
+    /// Create a tween of `kind` on all spans intersecting the selected frame range (or the span
+    /// under the playhead), or switch their kind. One Undo step.
     /// Switching away from a motion tween keeps each ◆ pose as an ordinary keyframe.
     pub(crate) fn create_tween(&mut self, kind: TweenKind) {
         self.finish_edits();
-        if !self.layer_editable() {
-            return;
+        let mut targets = self.target_tween_spans();
+        if targets.is_empty() {
+            if !self.layer_editable() {
+                return;
+            }
+            let Some(start) = self.span_start() else {
+                self.message("Insert a keyframe (F6) before creating a tween.");
+                return;
+            };
+            targets.push((self.layer, vec![start]));
         }
-        let Some(start) = self.span_start() else {
-            self.message("Insert a keyframe (F6) before creating a tween.");
-            return;
-        };
-        let layer = &self.symbol().timeline.layers[self.layer];
-        let key = layer.keyframes.iter().find(|k| k.frame == start).unwrap();
+
+        let timeline = &self.symbol().timeline;
         match kind {
             TweenKind::Shape => {
                 let shapes = |key: &Keyframe| key.elements.iter().filter(|e| is_shape(e)).count();
-                let next = layer
-                    .keyframes
-                    .iter()
-                    .filter(|k| k.frame > start && k.keyed_properties.is_none())
-                    .min_by_key(|k| k.frame);
-                if shapes(key) == 0 || next.is_none_or(|next| shapes(next) == 0) {
+                let mut valid_targets = Vec::new();
+                let mut any_non_shape = false;
+                for (layer_idx, starts) in targets {
+                    let layer = &timeline.layers[layer_idx];
+                    let mut valid_starts = Vec::new();
+                    for start in starts {
+                        let Some(key) = layer.keyframes.iter().find(|k| k.frame == start) else {
+                            continue;
+                        };
+                        let next = layer
+                            .keyframes
+                            .iter()
+                            .filter(|k| k.frame > start && k.keyed_properties.is_none())
+                            .min_by_key(|k| k.frame);
+                        if shapes(key) > 0 && next.is_some_and(|next| shapes(next) > 0) {
+                            if key.elements.iter().any(|e| !is_shape(e)) {
+                                any_non_shape = true;
+                            }
+                            valid_starts.push(start);
+                        }
+                    }
+                    if !valid_starts.is_empty() {
+                        valid_targets.push((layer_idx, valid_starts));
+                    }
+                }
+                if valid_targets.is_empty() {
                     self.message("Shape tweens need shapes on both keyframes. Break symbols and text apart (⌘B), or use a classic tween.");
                     return;
                 }
-                if key.elements.iter().any(|e| !is_shape(e)) {
+                if any_non_shape {
                     self.message("Only shapes morph in a shape tween; symbols, text and bitmaps on this layer hold still.");
                 }
+                targets = valid_targets;
             }
             TweenKind::Motion => {
-                // Motion tracks are keyed by stable element ID, so every object on the layer can
-                // carry an independent transform through the same span. Keeping the old
-                // single-object restriction here made the UI reject a graph the evaluator and
-                // property-key recorder already support.
-                if key.elements.is_empty() {
+                let mut valid_targets = Vec::new();
+                for (layer_idx, starts) in targets {
+                    let layer = &timeline.layers[layer_idx];
+                    let valid_starts: Vec<u32> = starts
+                        .into_iter()
+                        .filter(|&start| {
+                            layer
+                                .keyframes
+                                .iter()
+                                .find(|k| k.frame == start)
+                                .is_some_and(|k| !k.elements.is_empty())
+                        })
+                        .collect();
+                    if !valid_starts.is_empty() {
+                        valid_targets.push((layer_idx, valid_starts));
+                    }
+                }
+                if valid_targets.is_empty() {
                     self.message("A motion tween needs at least one object on its keyframe.");
                     return;
                 }
+                targets = valid_targets;
             }
             TweenKind::Classic => {}
         }
+
         let tween_label = match kind {
             TweenKind::Classic => "Classic tween",
             TweenKind::Shape => "Shape tween",
             TweenKind::Motion => "Motion tween",
         };
         let classic_ease = self.workspace.default_ease;
-        self.transact_named(tween_label, |s| {
-            let l = s.layer;
-            let layer = &mut s.symbol_mut().timeline.layers[l];
-            let mut in_span = false;
-            for key in &mut layer.keyframes {
-                if key.frame == start {
-                    in_span = true;
-                    let default = match kind {
-                        TweenKind::Classic => classic_ease,
-                        _ => Easing::Linear,
-                    };
-                    key.tween = Some(key.tween.unwrap_or(default));
-                    key.tween_kind = kind;
-                    if kind != TweenKind::Motion {
-                        key.property_eases.clear();
-                        key.sync_symbols = false;
-                        key.snap_to_guide = false;
+        self.transact_named(tween_label, move |s| {
+            let layers = &mut s.symbol_mut().timeline.layers;
+            for (layer_idx, starts) in &targets {
+                let Some(layer) = layers.get_mut(*layer_idx) else {
+                    continue;
+                };
+                for &start in starts {
+                    let mut in_span = false;
+                    for key in &mut layer.keyframes {
+                        if key.frame == start {
+                            in_span = true;
+                            let default = match kind {
+                                TweenKind::Classic => classic_ease,
+                                _ => Easing::Linear,
+                            };
+                            key.tween = Some(key.tween.unwrap_or(default));
+                            key.tween_kind = kind;
+                            if kind != TweenKind::Motion {
+                                key.property_eases.clear();
+                                key.sync_symbols = false;
+                                key.snap_to_guide = false;
+                            }
+                        } else if in_span && key.frame > start && key.keyed_properties.is_some() {
+                            if kind != TweenKind::Motion {
+                                key.keyed_properties = None;
+                                key.tween_kind = kind;
+                                key.property_eases.clear();
+                                key.sync_symbols = false;
+                                key.snap_to_guide = false;
+                            }
+                        } else if key.frame > start {
+                            in_span = false;
+                        }
                     }
-                } else if in_span && key.frame > start && key.keyed_properties.is_some() {
-                    if kind != TweenKind::Motion {
-                        key.keyed_properties = None;
-                        key.tween_kind = kind;
-                        key.property_eases.clear();
-                        key.sync_symbols = false;
-                        key.snap_to_guide = false;
-                    }
-                } else if key.frame > start {
-                    in_span = false;
                 }
+                layer.keyframes.sort_by_key(|k| k.frame);
             }
-            layer.keyframes.sort_by_key(|k| k.frame);
             s.project.upgrade_format_for_features();
         });
     }
 
-    /// Remove the tween of the span under the playhead; a motion tween also drops its ◆ keys.
+    /// Remove the tween of all spans intersecting the selected frame range (or under the playhead);
+    /// a motion tween also drops its ◆ keys.
     pub(crate) fn remove_tween(&mut self) {
         self.finish_edits();
-        if !self.layer_editable() {
-            return;
+        let mut targets = self.target_tween_spans();
+        if targets.is_empty() {
+            if !self.layer_editable() {
+                return;
+            }
+            let Some(start) = self.span_start() else {
+                return;
+            };
+            targets.push((self.layer, vec![start]));
         }
-        let Some(start) = self.span_start() else {
-            return;
-        };
-        self.transact_named("Remove tween", |s| {
-            let l = s.layer;
-            let layer = &mut s.symbol_mut().timeline.layers[l];
-            layer.keyframes.sort_by_key(|k| k.frame);
-            let mut in_span = false;
-            layer.keyframes.retain(|key| {
-                if key.frame == start {
-                    in_span = true;
-                    return true;
+        self.transact_named("Remove tween", move |s| {
+            let layers = &mut s.symbol_mut().timeline.layers;
+            for (layer_idx, starts) in &targets {
+                let Some(layer) = layers.get_mut(*layer_idx) else {
+                    continue;
+                };
+                layer.keyframes.sort_by_key(|k| k.frame);
+                for &start in starts {
+                    let mut in_span = false;
+                    layer.keyframes.retain(|key| {
+                        if key.frame == start {
+                            in_span = true;
+                            return true;
+                        }
+                        if key.keyed_properties.is_none() {
+                            in_span = false;
+                        }
+                        !(in_span && key.frame > start)
+                    });
+                    if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == start) {
+                        key.tween = None;
+                        key.tween_kind = TweenKind::Classic;
+                        key.orient_to_path = false;
+                        key.property_eases.clear();
+                        key.sync_symbols = false;
+                        key.snap_to_guide = false;
+                    }
                 }
-                if key.keyed_properties.is_none() {
-                    in_span = false;
-                }
-                !(in_span && key.frame > start)
-            });
-            if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == start) {
-                key.tween = None;
-                key.tween_kind = TweenKind::Classic;
-                key.orient_to_path = false;
-                key.property_eases.clear();
-                key.sync_symbols = false;
-                key.snap_to_guide = false;
             }
         });
     }
@@ -1002,23 +1149,69 @@ impl Editor {
             );
             return None;
         }
-        let (key_idx, _) = self.shape_hint_span()?;
+        let (key_idx, end_idx) = self.shape_hint_add_span()?;
         let layer_idx = self.layer;
+        let start_frame = self.symbol().timeline.layers[layer_idx].keyframes[key_idx].frame;
+        let end_frame = self.symbol().timeline.layers[layer_idx].keyframes[end_idx].frame;
         let key = &self.symbol().timeline.layers[layer_idx].keyframes[key_idx];
         let label = ('a'..='z').find(|&ch| !key.shape_hints.iter().any(|h| h.label == ch))?;
-        let step = (key.shape_hints.len() as f64 + 1.0) / 27.0;
+        let uv = default_shape_hint_uv(label);
         let hint = ShapeHint {
             label,
-            start_uv: [step, 0.5],
-            end_uv: [step, 0.5],
+            start_uv: uv,
+            end_uv: uv,
         };
         self.transact_named("Add shape hint", |editor| {
             editor.symbol_mut().timeline.layers[layer_idx].keyframes[key_idx]
                 .shape_hints
                 .push(hint);
         });
+        if self.frame != start_frame && self.frame != end_frame {
+            self.frame = start_frame;
+            self.normalize_targets();
+            self.reset_authored_preview();
+        }
         self.timeline_shape_hints.show = true;
         Some(label)
+    }
+
+    /// Remove a single shape hint by label on the active shape span in one Undo step.
+    #[cfg(test)]
+    pub(crate) fn remove_shape_hint(&mut self, label: char) -> bool {
+        self.finish_edits();
+        let Some((key_idx, _)) = self.shape_hint_span() else {
+            return false;
+        };
+        let start_frame = self.symbol().timeline.layers[self.layer].keyframes[key_idx].frame;
+        self.remove_shape_hint_in_span(start_frame, label)
+    }
+
+    /// Remove a single shape hint by label on the span starting at `start_frame` in one Undo step.
+    pub(crate) fn remove_shape_hint_in_span(&mut self, start_frame: u32, label: char) -> bool {
+        self.finish_edits();
+        let layer_idx = self.layer;
+        let Some(key_idx) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.keyframes.iter().position(|k| k.frame == start_frame))
+        else {
+            return false;
+        };
+        if !self.symbol().timeline.layers[layer_idx].keyframes[key_idx]
+            .shape_hints
+            .iter()
+            .any(|h| h.label == label)
+        {
+            return false;
+        }
+        self.transact_named("Remove shape hint", |editor| {
+            editor.symbol_mut().timeline.layers[layer_idx].keyframes[key_idx]
+                .shape_hints
+                .retain(|h| h.label != label);
+        });
+        true
     }
 
     /// Remove both endpoints of every hint on the current shape span in one Undo step.
@@ -1027,7 +1220,23 @@ impl Editor {
         let Some((key_idx, _)) = self.shape_hint_span() else {
             return false;
         };
+        let start_frame = self.symbol().timeline.layers[self.layer].keyframes[key_idx].frame;
+        self.remove_shape_hints_in_span(start_frame)
+    }
+
+    /// Remove all shape hints on the span starting at `start_frame` in one Undo step.
+    pub(crate) fn remove_shape_hints_in_span(&mut self, start_frame: u32) -> bool {
+        self.finish_edits();
         let layer_idx = self.layer;
+        let Some(key_idx) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.keyframes.iter().position(|k| k.frame == start_frame))
+        else {
+            return false;
+        };
         if self.symbol().timeline.layers[layer_idx].keyframes[key_idx]
             .shape_hints
             .is_empty()
@@ -1458,6 +1667,15 @@ impl Editor {
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_keyframe_ik_armature(&mut self, armature: neoflash_core::IkArmature) -> bool {
+        self.set_keyframe_ik_armature_with_specs(armature, Vec::new())
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn set_keyframe_ik_armature_with_specs(
+        &mut self,
+        armature: neoflash_core::IkArmature,
+        joint_specs: Vec<neoflash_core::IkJointSpec>,
+    ) -> bool {
         self.finish_edits();
         if !self.layer_editable() {
             return false;
@@ -1477,11 +1695,154 @@ impl Editor {
         self.transact_named("Set IK armature", |editor| {
             let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
             if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                neoflash_core::solve_ik_armature_fabrik_ccd(
+                    &mut k.elements,
+                    &armature,
+                    &joint_specs,
+                );
                 if let Some(slot) = k.ik_armatures.iter_mut().find(|a| a.id == armature.id) {
                     *slot = armature;
                 } else {
                     k.ik_armatures.push(armature);
                 }
+            }
+        });
+        true
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn bind_shape_to_armature_command(
+        &mut self,
+        shape_element_id: &str,
+        armature_id: &str,
+    ) -> Option<neoflash_core::IkShapeSkin> {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return None;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let key = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))?;
+        let shape = key.elements.iter().find(|e| e.id == shape_element_id)?;
+        let armature = key.ik_armatures.iter().find(|a| a.id == armature_id)?;
+        let binding = neoflash_core::auto_bind_shape_to_armature(shape, armature, &key.elements)?;
+        let key_frame = key.frame;
+        let shape_id = shape_element_id.to_owned();
+        let arm_clone = armature.clone();
+        let binding_clone = binding.clone();
+        self.transact_named("Bind shape to IK armature", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                let posed_elements = k.elements.clone();
+                if let Some(el) = k.elements.iter_mut().find(|e| e.id == shape_id) {
+                    *el = neoflash_core::deform_shape_with_ik_skin(
+                        el,
+                        &binding_clone,
+                        &arm_clone,
+                        &posed_elements,
+                    );
+                }
+            }
+        });
+        Some(binding)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn apply_asset_warp_pins_command(
+        &mut self,
+        element_id: &str,
+        pins: Vec<neoflash_core::WarpPin>,
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let Some(el) = key.elements.iter().find(|e| e.id == element_id) else {
+            return false;
+        };
+        let rig = neoflash_core::AssetWarpRig {
+            element_id: element_id.to_owned(),
+            pins,
+            envelop_subdivisions: 4,
+        };
+        if neoflash_core::build_asset_warp_mesh(el, &rig).is_none() {
+            return false;
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        let mut applied = false;
+        self.transact_named("Puppet asset warp", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                if let Some(slot) = k.asset_warps.iter_mut().find(|r| r.element_id == eid) {
+                    *slot = rig.clone();
+                } else {
+                    k.asset_warps.push(rig.clone());
+                }
+                if let Some(target_el) = k.elements.iter_mut().find(|e| e.id == eid) {
+                    neoflash_core::apply_asset_warp_to_element(target_el, &rig);
+                }
+                applied = true;
+            }
+        });
+        applied
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn apply_3d_pose_to_element_command(
+        &mut self,
+        element_id: &str,
+        pose: neoflash_core::Display3dPose,
+        focal_length: f64,
+        projection_center: [f64; 2],
+    ) -> bool {
+        self.finish_edits();
+        if !self.layer_editable() {
+            return false;
+        }
+        let frame = self.frame;
+        let layer_idx = self.layer;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        if !key.elements.iter().any(|e| e.id == element_id) {
+            return false;
+        }
+        let key_frame = key.frame;
+        let eid = element_id.to_owned();
+        self.transact_named("Apply 3D transform", |editor| {
+            let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
+            if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame)
+                && let Some(target_el) = k.elements.iter_mut().find(|e| e.id == eid)
+            {
+                *target_el = neoflash_core::project_element_3d(
+                    target_el,
+                    &pose,
+                    focal_length,
+                    projection_center,
+                );
             }
         });
         true

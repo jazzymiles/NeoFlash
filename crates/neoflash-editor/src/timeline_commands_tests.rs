@@ -3443,3 +3443,510 @@ fn t122_palette_interchange_fxg_and_screens_migration_commands() {
     editor.undo();
     undo_restores(&mut editor, &before);
 }
+
+#[test]
+fn create_tween_on_selected_range_spans_both_sides_of_interior_keyframe() {
+    let mut editor = editor_with(
+        vec![element("box", rectangle(), 10.0)],
+        vec![element("box", rectangle(), 120.0)],
+    );
+    editor.symbol_mut().timeline.frame_count = 120;
+    editor.symbol_mut().timeline.layers[0].keyframes[1].frame = 57;
+    editor.symbol_mut().timeline.layers[0]
+        .keyframes
+        .push(Keyframe {
+            frame: 119,
+            elements: vec![element("box", rectangle(), 240.0)],
+            ..Default::default()
+        });
+    let before = editor.project.clone();
+    let layer_id = editor.symbol().timeline.layers[0].id.clone();
+
+    // Select range 50..=61 across interior keyframe 57, playhead at 54
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer_id],
+        start: 50,
+        end: 61,
+    });
+    editor.frame = 54;
+
+    let expected_ease = editor.workspace.default_ease;
+    editor.create_tween(TweenKind::Classic);
+    let layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(layer.keyframes[0].tween, Some(expected_ease));
+    assert_eq!(layer.keyframes[0].tween_kind, TweenKind::Classic);
+    assert_eq!(layer.keyframes[1].tween, Some(expected_ease));
+    assert_eq!(layer.keyframes[1].tween_kind, TweenKind::Classic);
+
+    editor.remove_tween();
+    let layer = &editor.symbol().timeline.layers[0];
+    assert_eq!(layer.keyframes[0].tween, None);
+    assert_eq!(layer.keyframes[1].tween, None);
+
+    editor.undo();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn live_timeline_preview_logs_traces_and_syncs_video_commands() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.output.clear();
+    editor.set_playing(true);
+    editor.sync_authored_preview();
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("[trace] NeoFlash: the stage is ready")),
+        "expected demo trace in Output log, got: {:?}",
+        editor.output
+    );
+
+    let root = editor.project.root.clone();
+    let orbit_id = editor
+        .project
+        .symbol(&root)
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .flat_map(|k| &k.elements)
+        .find(|e| e.name == "mainOrbit")
+        .unwrap()
+        .id
+        .clone();
+    editor.click_authored_preview(std::slice::from_ref(&orbit_id));
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("[trace] Orbit rotated")),
+        "expected click trace in Output log, got: {:?}",
+        editor.output
+    );
+    editor.set_playing(false);
+}
+
+#[test]
+fn ik_bone_bind_puppet_warp_deco_spray_and_3d_commands_roundtrip_undo() {
+    let mut editor = editor_with(
+        vec![
+            element("b1", rectangle(), 40.0),
+            element(
+                "mesh_path",
+                ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 40.0, y: 0.0 },
+                        PathCommand::LineTo { x: 140.0, y: 0.0 },
+                        PathCommand::LineTo { x: 140.0, y: 30.0 },
+                        PathCommand::LineTo { x: 40.0, y: 30.0 },
+                        PathCommand::Close,
+                    ],
+                    fill: [255, 120, 80, 255],
+                    fill_rule: FillRule::NonZero,
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                0.0,
+            ),
+        ],
+        vec![element("b1", rectangle(), 120.0)],
+    );
+    let before = editor.project.clone();
+
+    let arm = IkArmature {
+        id: "arm_1".into(),
+        name: "Arm".into(),
+        bones: vec![IkBone {
+            id: "bone_1".into(),
+            element_id: "b1".into(),
+            parent_bone_id: None,
+            length: 80.0,
+            min_angle: None,
+            max_angle: None,
+            stiffness: 1.0,
+        }],
+        effector_bone_id: "bone_1".into(),
+        target_pos: [100.0, 60.0],
+        pole_pos: None,
+    };
+    let spec = IkJointSpec {
+        bone_id: "bone_1".into(),
+        enable_rotation: true,
+        ..Default::default()
+    };
+    assert!(editor.set_keyframe_ik_armature_with_specs(arm, vec![spec]));
+    assert!(
+        editor
+            .bind_shape_to_armature_command("mesh_path", "arm_1")
+            .is_some()
+    );
+    assert!(editor.apply_asset_warp_pins_command(
+        "mesh_path",
+        vec![WarpPin {
+            id: "pin1".into(),
+            kind: WarpPinKind::Open,
+            rest_pos: [40.0, 0.0],
+            pos: [55.0, 12.0],
+            rotation: 10.0,
+            stiffness: 1.0,
+        }]
+    ));
+    assert!(editor.apply_3d_pose_to_element_command(
+        "b1",
+        Display3dPose {
+            x: 40.0,
+            y: 0.0,
+            z: 80.0,
+            rotation_x: 15.0,
+            rotation_y: 25.0,
+            rotation_z: 5.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            scale_z: 1.0,
+        },
+        480.0,
+        [275.0, 200.0],
+    ));
+    assert!(editor.apply_deco_pattern_with_options(4, 25.0, 100.0, 8.0, 2, true) >= 5);
+    assert!(
+        editor
+            .apply_spray_brush_with_options(true, 100.0, 100.0, true, true, true, 32.0, 24.0, 15.0)
+            == 6
+    );
+
+    for _ in 0..6 {
+        editor.undo();
+    }
+    undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. 9-slice guide nudging (`T-166`)
+    let root_id = editor.project.root.clone();
+    editor
+        .set_symbol_scale9_grid(&root_id, Some([10.0, 10.0, 80.0, 60.0]))
+        .expect("enable 9-slice");
+    let nudged = editor
+        .nudge_symbol_scale9_guide(&root_id, 1, 110.0)
+        .expect("nudge right 9-slice guide");
+    assert_eq!(nudged, [10.0, 10.0, 100.0, 60.0]);
+    editor.undo();
+    assert_eq!(
+        editor.project.symbol(&root_id).unwrap().scale9_grid(),
+        Some([10.0, 10.0, 80.0, 60.0])
+    );
+
+    // 2. External / Donor Library symbol import with transitive nested symbol (`T-166`)
+    let mut donor = Project::blank();
+    let leaf_id = new_id("leaf_sym");
+    let mut leaf = donor.symbols[0].clone();
+    leaf.id = leaf_id.clone();
+    leaf.name = "LeafBadge".into();
+    leaf.folder = "UI/Badges".into();
+    donor.symbols.push(leaf);
+
+    let card_id = new_id("card_sym");
+    let mut card = donor.symbols[0].clone();
+    card.id = card_id.clone();
+    card.name = "HeroCard".into();
+    card.folder = "UI".into();
+    card.timeline.layers[0].keyframes[0].elements.push(Element {
+        id: new_id("inst"),
+        name: "badge_inst".into(),
+        kind: ElementKind::Instance {
+            symbol_id: leaf_id.clone(),
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    });
+    donor.symbols.push(card);
+
+    editor.open_external_library_project("UIKit.nflash", donor.clone());
+    let imported_id = editor
+        .import_symbol_from_donor_project(&donor, &card_id)
+        .expect("import card with nested leaf");
+    assert_eq!(imported_id, card_id);
+    assert!(editor.project.symbol(&card_id).is_some());
+    assert!(editor.project.symbol(&leaf_id).is_some());
+
+    // 3. Save / Manage / Run Commands & Safe Extension API (`T-167`)
+    editor.add_element(rectangle(), 20.0, 30.0);
+    editor
+        .execute_command_steps(
+            "Move Step",
+            &[AuthoringCommandStep::Translate { dx: 15.0, dy: -5.0 }],
+        )
+        .expect("execute translate step");
+    let last_step_idx = editor.history.undo_len() - 1;
+    let saved = editor
+        .save_history_command("Nudge Right", &[last_step_idx])
+        .expect("save history command");
+    assert_eq!(saved.name, "Nudge Right");
+    editor
+        .rename_saved_command("Nudge Right", "Slide Right")
+        .expect("rename saved command");
+    assert_eq!(
+        editor
+            .run_saved_command_by_name("Slide Right")
+            .expect("run saved command by name"),
+        1
+    );
+    assert!(editor.delete_saved_command("Slide Right"));
+    assert!(editor.saved_commands().is_empty());
+
+    // Safe Extension Manifest: missing permission is rejected; granted permission runs cleanly
+    let bad_manifest = AuthoringExtensionManifest {
+        schema_version: 1,
+        id: "neoflash.bad.ext".into(),
+        name: "Bad Extension".into(),
+        version: "1.0.0".into(),
+        author: "NeoFlash".into(),
+        permissions: vec![ExtensionPermission::StageTransform],
+        commands: vec![SavedCommand {
+            name: "Unauthorized Delete".into(),
+            steps: vec![AuthoringCommandStep::DeleteSelection],
+        }],
+    };
+    assert!(bad_manifest.validate().is_err());
+
+    let good_manifest = AuthoringExtensionManifest {
+        schema_version: 1,
+        id: "neoflash.transform.pack".into(),
+        name: "Transform Pack".into(),
+        version: "1.0.0".into(),
+        author: "NeoFlash".into(),
+        permissions: vec![
+            ExtensionPermission::StageTransform,
+            ExtensionPermission::StyleMutation,
+        ],
+        commands: vec![SavedCommand {
+            name: "Spin and Dim".into(),
+            steps: vec![
+                AuthoringCommandStep::Rotate { degrees: 45.0 },
+                AuthoringCommandStep::SetAlpha { alpha: 0.75 },
+            ],
+        }],
+    };
+    let manifest_json = good_manifest.to_json().expect("serialize extension");
+    editor
+        .install_extension_manifest(&manifest_json)
+        .expect("install valid extension");
+    assert_eq!(
+        editor
+            .run_extension_command("neoflash.transform.pack", "Spin and Dim")
+            .expect("run extension command"),
+        2
+    );
+    editor.project.validate().expect("project remains valid");
+}
+
+#[test]
+fn modern_fla_save_reopen_and_direct_swf_playback_work() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+
+    // Save a command so internal JSON resources are present in `project.resources`
+    let _ = editor.register_saved_command(SavedCommand {
+        name: "Test Macro".into(),
+        steps: vec![AuthoringCommandStep::Translate { dx: 4.0, dy: 4.0 }],
+    });
+
+    let dir = std::env::temp_dir().join(format!("neoflash_t168_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let fla_path = dir.join("modern_roundtrip.fla");
+    assert!(editor.save_to_path(fla_path.clone()));
+    assert!(fla_path.exists());
+
+    // Inspect and reopen the saved `.fla` via `File ▸ Open…` (`try_open_path`)
+    let report = neoflash_import::inspect(&fla_path).expect("inspect exported .fla");
+    assert_eq!(report.format, neoflash_import::ImportFormat::XflArchive);
+    assert!(report.can_import);
+
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    assert!(reopened.try_open_path(fla_path.clone(), &ctx));
+    reopened
+        .project
+        .validate()
+        .expect("reopened .fla project validates");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Build a minimal uncompressed FWS (SWF v7) with DoAction -> ActionTrace("swf-live-trace") + ShowFrame + End
+    let mut swf: Vec<u8> = Vec::new();
+    swf.extend_from_slice(b"FWS\x07");
+    swf.extend_from_slice(&0u32.to_le_bytes()); // file length placeholder
+    // RECT: Nbits=0 -> 1 byte (0x00)
+    swf.push(0x00);
+    // FrameRate: 24.0 (8.8 fixed point = 0x00, 0x18), FrameCount: 1 (0x01, 0x00)
+    swf.extend_from_slice(&[0x00, 0x18, 0x01, 0x00]);
+    // DoAction tag (code = 12): ActionPush string "swf-live-trace\0", ActionTrace (0x26), ActionEnd (0x00)
+    let mut actions: Vec<u8> = Vec::new();
+    let msg = b"swf-live-trace\0";
+    actions.push(0x96); // ActionPush
+    let push_len = (1 + msg.len()) as u16;
+    actions.extend_from_slice(&push_len.to_le_bytes());
+    actions.push(0x00); // Type 0 = string
+    actions.extend_from_slice(msg);
+    actions.push(0x26); // ActionTrace
+    actions.push(0x00); // ActionEnd
+    let tag_code_and_len = (12u16 << 6) | (actions.len() as u16);
+    swf.extend_from_slice(&tag_code_and_len.to_le_bytes());
+    swf.extend_from_slice(&actions);
+    // ShowFrame tag (code = 1, len = 0) -> 0x0040
+    swf.extend_from_slice(&((1u16 << 6).to_le_bytes()));
+    // End tag (code = 0, len = 0) -> 0x0000
+    swf.extend_from_slice(&[0x00, 0x00]);
+    let total_len = swf.len() as u32;
+    swf[4..8].copy_from_slice(&total_len.to_le_bytes());
+
+    reopened.output.clear();
+    let play_res = reopened
+        .play_swf_bytes_in_editor(&swf, 2)
+        .expect("play synthetic SWF in editor");
+    assert_eq!(play_res.vm_kind, neoflash_import::SwfVmKind::Avm1);
+    assert!(
+        reopened
+            .output
+            .iter()
+            .any(|line| line.contains("[trace] swf-live-trace")),
+        "expected SWF trace in editor output, got {:?}",
+        reopened.output
+    );
+}
+
+#[test]
+fn end_to_end_live_authoring_workflow_from_scratch_to_reopen() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. Vector drawing: Rectangle, Ellipse, and Pen/PaintedPath
+    editor.add_element(rectangle(), 40.0, 40.0);
+    let rect_id = editor.selection.targets[0].element.clone();
+    editor.add_element(
+        ElementKind::Ellipse {
+            width: 64.0,
+            height: 64.0,
+            fill: [60, 140, 240, 255],
+            stroke: [20, 40, 80, 255],
+            stroke_width: 2.0,
+        },
+        140.0,
+        40.0,
+    );
+    let oval_id = editor.selection.targets[0].element.clone();
+    editor.add_element(
+        ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 80.0, y: 0.0 },
+                PathCommand::LineTo { x: 80.0, y: 60.0 },
+                PathCommand::LineTo { x: 0.0, y: 60.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [220, 120, 60, 255],
+            stroke: [40, 20, 10, 255],
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: 2.0,
+        },
+        240.0,
+        40.0,
+    );
+    let path_id = editor.selection.targets[0].element.clone();
+
+    // 2. Text block with CS5 typography settings
+    let mut fmt = neoflash_core::TextFormat {
+        font: "Helvetica".into(),
+        size: 22.0,
+        ..neoflash_core::TextFormat::default()
+    };
+    let mut opts = fmt.field_options().unwrap_or_default();
+    opts.ligatures = "common".into();
+    opts.digit_width = "tabular".into();
+    fmt.set_field_options(Some(opts));
+    editor.add_element(
+        ElementKind::TextBox {
+            width: 200.0,
+            height: 44.0,
+            text: "Hello NeoFlash 123".into(),
+            format: fmt,
+            multiline: false,
+            word_wrap: true,
+        },
+        40.0,
+        140.0,
+    );
+    let text_id = editor.selection.targets[0].element.clone();
+    assert!(!text_id.is_empty());
+
+    // 3. Group & Convert to Symbol + Edit in Place
+    let mut targets = Vec::new();
+    targets.extend(editor.target_for_id(&rect_id));
+    targets.extend(editor.target_for_id(&oval_id));
+    editor.set_selection(targets);
+    editor.group_selection();
+    editor.convert_to_symbol();
+    let mut draft = editor
+        .symbol_conversion
+        .take()
+        .expect("symbol dialog opened");
+    draft.name = "HeroBadge".into();
+    draft.kind = SymbolKind::MovieClip;
+    let bounds = egui::Rect::from_min_size(egui::pos2(40.0, 40.0), egui::vec2(164.0, 64.0));
+    editor
+        .commit_symbol_conversion(&draft, bounds)
+        .expect("commit symbol conversion");
+    let sym_id = editor
+        .project
+        .symbols
+        .iter()
+        .find(|s| s.name == "HeroBadge")
+        .expect("created symbol")
+        .id
+        .clone();
+
+    // Enter symbol in place, add a keyframe, exit back to root
+    assert!(editor.enter_symbol_in_place_by_id(&sym_id));
+    editor.frame = 5;
+    editor.convert_to_keyframes(false);
+    assert!(editor.leave_symbol_to_level(0));
+    assert_eq!(editor.symbol_id(), editor.project.root);
+
+    // 4. Keyframes and Tween on root timeline
+    editor.frame = 0;
+    editor.select_single_id(path_id);
+    editor.frame = 10;
+    editor.convert_to_keyframes(false);
+    editor.frame = 0;
+    editor.create_tween(TweenKind::Classic);
+
+    // 5. Undo and Redo verification
+    let snapshot_with_tween = editor.project.clone();
+    editor.undo();
+    assert_ne!(editor.project, snapshot_with_tween);
+    editor.redo();
+    assert_eq!(editor.project, snapshot_with_tween);
+
+    // 6. Save to `.nflash` and reopen
+    let dir = std::env::temp_dir().join(format!("neoflash_t169_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let nflash_path = dir.join("live_authoring_e2e.nflash");
+    assert!(editor.save_to_path(nflash_path.clone()));
+
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    assert!(reopened.try_open_path(nflash_path, &ctx));
+    reopened
+        .project
+        .validate()
+        .expect("reopened project validates");
+    assert_eq!(reopened.project, snapshot_with_tween);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -682,6 +682,7 @@ pub enum CommandId {
     ViewGuidesShow,
     ViewGuidesLock,
     ViewGuidesSnap,
+    ViewShowShapeHints,
     // Insert
     InsertNewSymbol,
     InsertLayer,
@@ -722,6 +723,8 @@ pub enum CommandId {
     ModifyArrangeBack,
     ModifyGroup,
     ModifyUngroup,
+    ModifyAddShapeHint,
+    ModifyRemoveAllShapeHints,
     // Control
     ControlPlay,
     ControlRewind,
@@ -833,6 +836,8 @@ const S_ALT_CMD_G: &[Shortcut] = &[Shortcut::alt_cmd(Key::G)];
 const S_CMD_SEMI: &[Shortcut] = &[Shortcut::cmd(Key::Semicolon)];
 const S_ALT_CMD_SEMI: &[Shortcut] = &[Shortcut::alt_cmd(Key::Semicolon)];
 const S_SHIFT_CMD_SEMI: &[Shortcut] = &[Shortcut::shift_cmd(Key::Semicolon)];
+const S_ALT_CMD_H: &[Shortcut] = &[Shortcut::alt_cmd(Key::H)];
+const S_SHIFT_CMD_H: &[Shortcut] = &[Shortcut::shift_cmd(Key::H)];
 
 const S_CMD_F8: &[Shortcut] = &[Shortcut::cmd(Key::F8)];
 const S_F5: &[Shortcut] = &[Shortcut::none(Key::F5)];
@@ -965,6 +970,7 @@ impl CommandId {
         Self::ViewGuidesShow,
         Self::ViewGuidesLock,
         Self::ViewGuidesSnap,
+        Self::ViewShowShapeHints,
         Self::InsertNewSymbol,
         Self::InsertLayer,
         Self::InsertLayerFolder,
@@ -1003,6 +1009,8 @@ impl CommandId {
         Self::ModifyArrangeBack,
         Self::ModifyGroup,
         Self::ModifyUngroup,
+        Self::ModifyAddShapeHint,
+        Self::ModifyRemoveAllShapeHints,
         Self::ControlPlay,
         Self::ControlRewind,
         Self::ControlGoToEnd,
@@ -1123,8 +1131,8 @@ impl CommandId {
             Self::FileImportLegacyFlash => CommandMeta {
                 id: "file.import.legacy_flash",
                 category: C::File,
-                title: "File ▸ Import ▸ Import legacy Flash…",
-                keywords: "fla xfl swf",
+                title: "File ▸ Open… (Legacy FLA / XFL / SWF)",
+                keywords: "fla xfl swf import legacy open",
                 defaults: &[],
                 allow_when_typing: false,
             },
@@ -1448,6 +1456,14 @@ impl CommandId {
                 defaults: S_SHIFT_CMD_SEMI,
                 allow_when_typing: false,
             },
+            Self::ViewShowShapeHints => CommandMeta {
+                id: "view.show_shape_hints",
+                category: C::View,
+                title: "View ▸ Show shape hints",
+                keywords: "morph tween hints",
+                defaults: S_ALT_CMD_H,
+                allow_when_typing: false,
+            },
             Self::InsertNewSymbol => CommandMeta {
                 id: "insert.new_symbol",
                 category: C::Insert,
@@ -1753,6 +1769,22 @@ impl CommandId {
                 keywords: "",
                 defaults: S_SHIFT_CMD_G,
                 allow_when_typing: true,
+            },
+            Self::ModifyAddShapeHint => CommandMeta {
+                id: "modify.shape.add_shape_hint",
+                category: C::Modify,
+                title: "Modify ▸ Shape ▸ Add shape hint",
+                keywords: "morph tween hint",
+                defaults: S_SHIFT_CMD_H,
+                allow_when_typing: false,
+            },
+            Self::ModifyRemoveAllShapeHints => CommandMeta {
+                id: "modify.shape.remove_all_hints",
+                category: C::Modify,
+                title: "Modify ▸ Shape ▸ Remove all hints",
+                keywords: "clear delete shape hints morph",
+                defaults: &[],
+                allow_when_typing: false,
             },
             Self::ControlPlay => CommandMeta {
                 id: "control.play",

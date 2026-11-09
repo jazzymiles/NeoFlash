@@ -1680,3 +1680,304 @@ fn layer_blend_mode_and_timeline_sync_crop_evaluate_and_roundtrip() {
     let reloaded = Project::from_json(&proj.to_json().unwrap()).unwrap();
     assert_eq!(reloaded, proj);
 }
+
+#[test]
+fn shape_hints_ignore_unplaced_partition_contours_weld_merge_strokes_and_survive_reverse() {
+    use neoflash_core::{
+        FillRule, FrameRange, ShapeHint, ShapeHintGeometry, TimelineEdit, active_shape_hint_labels,
+        default_shape_hint_uv, edit_frames, shape_tween_elements, shape_tween_elements_with_hints,
+    };
+
+    let square_path = |x0: f64, y0: f64, size: f64| Element {
+        id: "sq".into(),
+        name: "sq".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: x0, y: y0 },
+                PathCommand::LineTo {
+                    x: x0 + size,
+                    y: y0,
+                },
+                PathCommand::LineTo {
+                    x: x0 + size,
+                    y: y0 + size,
+                },
+                PathCommand::LineTo {
+                    x: x0,
+                    y: y0 + size,
+                },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [200, 40, 40, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Default::default()
+    };
+    let on_curve = |el: &Element| -> Vec<[f64; 2]> {
+        let (cmds, _) = el.to_path_commands().unwrap();
+        cmds.into_iter()
+            .filter_map(|c| match c {
+                PathCommand::MoveTo { x, y }
+                | PathCommand::LineTo { x, y }
+                | PathCommand::QuadraticTo { x, y, .. }
+                | PathCommand::CubicTo { x, y, .. } => Some([x, y]),
+                PathCommand::Close => None,
+            })
+            .collect()
+    };
+
+    let from = [square_path(0.0, 0.0, 100.0)];
+    let to = [square_path(0.0, 0.0, 100.0)];
+
+    // SH-01: Unplaced (Red) hints or half-placed hints must not alter the morphed output.
+    let unplaced = [
+        ShapeHint {
+            label: 'a',
+            start_uv: default_shape_hint_uv('a'),
+            end_uv: default_shape_hint_uv('a'),
+        },
+        ShapeHint {
+            label: 'b',
+            start_uv: [0.0, 0.0],
+            end_uv: default_shape_hint_uv('b'),
+        },
+    ];
+    assert!(active_shape_hint_labels(&from, &to, &unplaced).is_empty());
+    assert_eq!(
+        shape_tween_elements_with_hints(&from, &to, &unplaced, 0.5),
+        shape_tween_elements(&from, &to, 0.5),
+        "unplaced Red hints must not distort shape tween"
+    );
+
+    // SH-02: Piecewise contour partitioning between 2+ hints at asymmetric perimeter fractions.
+    // Pin 'a' at (0,0)->(0,0) (0% -> 0%) and 'b' at (100,0)->(100,100) (25% -> 50%).
+    // At t = 0.5, 'a' must be at (0,0) and 'b' must be at (100,50) simultaneously with zero slip.
+    let two_hints = [
+        ShapeHint {
+            label: 'a',
+            start_uv: [0.0, 0.0],
+            end_uv: [0.0, 0.0],
+        },
+        ShapeHint {
+            label: 'b',
+            start_uv: [1.0, 0.0],
+            end_uv: [1.0, 1.0],
+        },
+    ];
+    assert_eq!(
+        active_shape_hint_labels(&from, &to, &two_hints),
+        vec!['a', 'b']
+    );
+    let mid_two = &shape_tween_elements_with_hints(&from, &to, &two_hints, 0.5)[0];
+    let pts_two = on_curve(mid_two);
+    assert!(
+        pts_two
+            .iter()
+            .any(|p| (p[0] - 0.0).hypot(p[1] - 0.0) < 1e-5),
+        "expected hint 'a' pinned at (0, 0), got {pts_two:?}"
+    );
+    assert!(
+        pts_two
+            .iter()
+            .any(|p| (p[0] - 100.0).hypot(p[1] - 50.0) < 1e-5),
+        "expected hint 'b' pinned at (100, 50), got {pts_two:?}"
+    );
+
+    // Out-of-order 3rd hint 'c' (placed at (100,100) on start [50%] but at (50,0) on end [12.5% < 50%])
+    // is rejected as inactive while 'a' and 'b' stay active.
+    let crossed_hints = [
+        two_hints[0],
+        two_hints[1],
+        ShapeHint {
+            label: 'c',
+            start_uv: [1.0, 1.0],
+            end_uv: [0.5, 0.0],
+        },
+    ];
+    assert_eq!(
+        active_shape_hint_labels(&from, &to, &crossed_hints),
+        vec!['a', 'b']
+    );
+
+    // Open contour with an interior hint mapping x=20 (0.2) to x=80 (0.8) on a horizontal stroke.
+    let open_line = |id: &str| Element {
+        id: id.into(),
+        name: id.into(),
+        transform: Transform::default(),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 50.0 },
+                PathCommand::LineTo { x: 100.0, y: 50.0 },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 2.0,
+        },
+        ..Default::default()
+    };
+    let open_from = [open_line("line")];
+    let open_to = [open_line("line")];
+    let open_hint = [ShapeHint {
+        label: 'a',
+        start_uv: [0.2, 0.0],
+        end_uv: [0.8, 0.0],
+    }];
+    assert_eq!(
+        active_shape_hint_labels(&open_from, &open_to, &open_hint),
+        vec!['a']
+    );
+    let open_mid = &shape_tween_elements_with_hints(&open_from, &open_to, &open_hint, 0.5)[0];
+    assert!(
+        on_curve(open_mid)
+            .iter()
+            .any(|p| (p[0] - 50.0).abs() < 1e-4 && (p[1] - 50.0).abs() < 1e-4),
+        "open contour interior hint should interpolate 20 -> 80 through 50"
+    );
+
+    // SH-03: Merge Drawing stroke segments weld into a unified closed contour and rotate with fill.
+    let merge_edge = |id: &str, a: [f64; 2], b: [f64; 2]| Element {
+        id: id.into(),
+        name: id.into(),
+        merge: true,
+        transform: Transform::default(),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: a[0], y: a[1] },
+                PathCommand::LineTo { x: b[0], y: b[1] },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 2.0,
+        },
+        ..Default::default()
+    };
+    let mut merge_fill = square_path(0.0, 0.0, 100.0);
+    merge_fill.merge = true;
+    let merge_rect = vec![
+        merge_fill,
+        merge_edge("s0", [0.0, 0.0], [100.0, 0.0]),
+        merge_edge("s1", [100.0, 0.0], [100.0, 100.0]),
+        merge_edge("s2", [100.0, 100.0], [0.0, 100.0]),
+        merge_edge("s3", [0.0, 100.0], [0.0, 0.0]),
+    ];
+    let rot_hint = [ShapeHint {
+        label: 'a',
+        start_uv: [0.0, 0.0],
+        end_uv: [1.0, 1.0],
+    }];
+    let morphed_merge = shape_tween_elements_with_hints(&merge_rect, &merge_rect, &rot_hint, 0.5);
+    assert_eq!(
+        morphed_merge.len(),
+        2,
+        "4 merge stroke edges must weld into 1 closed stroke alongside the fill"
+    );
+    for elem in &morphed_merge {
+        let pts = on_curve(elem);
+        assert!(
+            pts.iter().any(|p| (p[0] - 50.0).hypot(p[1] - 50.0) < 1e-4),
+            "both fill and welded merge stroke must rotate corner (0,0)->(100,100) through (50,50)"
+        );
+    }
+
+    // SH-04: Multi-contour compound shape (outer ring + inner hole) applies hints per contour.
+    let compound = Element {
+        id: "donut".into(),
+        name: "donut".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 100.0, y: 0.0 },
+                PathCommand::LineTo { x: 100.0, y: 100.0 },
+                PathCommand::LineTo { x: 0.0, y: 100.0 },
+                PathCommand::Close,
+                PathCommand::MoveTo { x: 30.0, y: 30.0 },
+                PathCommand::LineTo { x: 70.0, y: 30.0 },
+                PathCommand::LineTo { x: 70.0, y: 70.0 },
+                PathCommand::LineTo { x: 30.0, y: 70.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::EvenOdd,
+            fill: [50, 120, 200, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        ..Default::default()
+    };
+    let geom = ShapeHintGeometry::from_elements(std::slice::from_ref(&compound)).unwrap();
+    assert_eq!(geom.contours.len(), 2);
+    assert_eq!((geom.low, geom.high), ([0.0, 0.0], [100.0, 100.0]));
+    let hole_hint = [ShapeHint {
+        label: 'a',
+        start_uv: [0.3, 0.3],
+        end_uv: [0.7, 0.7],
+    }];
+    let compound_mid = &shape_tween_elements_with_hints(
+        std::slice::from_ref(&compound),
+        std::slice::from_ref(&compound),
+        &hole_hint,
+        0.5,
+    )[0];
+    let compound_pts = on_curve(compound_mid);
+    assert!(
+        compound_pts
+            .iter()
+            .any(|p| (p[0] - 0.0).hypot(p[1] - 0.0) < 1e-5),
+        "outer contour corner (0,0) stays stationary when hint is on inner hole"
+    );
+    assert!(
+        compound_pts
+            .iter()
+            .any(|p| (p[0] - 50.0).hypot(p[1] - 50.0) < 1e-5),
+        "inner hole corner (30,30)->(70,70) passes through (50,50)"
+    );
+
+    // SH-11: TimelineEdit::Reverse preserves TweenKind::Shape and swaps start_uv <-> end_uv.
+    let mut k0 = key(0, vec![square_path(0.0, 0.0, 100.0)]);
+    k0.tween = Some(Easing::Linear);
+    k0.tween_kind = TweenKind::Shape;
+    k0.shape_hints = vec![ShapeHint {
+        label: 'a',
+        start_uv: [0.0, 0.0],
+        end_uv: [1.0, 1.0],
+    }];
+    let k10 = key(10, vec![square_path(20.0, 10.0, 80.0)]);
+    let mut proj = project(11, vec![layer("morph", vec![k0, k10])]);
+    proj.upgrade_format_for_features();
+    proj.validate().unwrap();
+    let root = proj.root.clone();
+    edit_frames(
+        &mut proj,
+        &root,
+        TimelineEdit::Reverse {
+            range: FrameRange {
+                layers: vec!["morph".into()],
+                start: 0,
+                end: 10,
+            },
+        },
+    )
+    .unwrap();
+    proj.validate().unwrap();
+    let reversed_keys = &proj.symbols[0].timeline.layers[0].keyframes;
+    assert_eq!(
+        reversed_keys.len(),
+        2,
+        "reversing a shape tween must keep 2 keyframes instead of baking frame-by-frame"
+    );
+    assert_eq!(reversed_keys[0].tween_kind, TweenKind::Shape);
+    assert_eq!(
+        reversed_keys[0].shape_hints,
+        vec![ShapeHint {
+            label: 'a',
+            start_uv: [1.0, 1.0],
+            end_uv: [0.0, 0.0],
+        }]
+    );
+    assert!(reversed_keys[1].shape_hints.is_empty());
+}

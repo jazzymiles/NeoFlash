@@ -1119,6 +1119,7 @@ impl Context<'_> {
                 properties,
             };
             let mut cursor = 0u32;
+            let mut pending_morphs: Vec<(usize, u32)> = Vec::new();
             for frame_id in &o.children {
                 let frame = object(s, *frame_id)?;
                 let Some(TimelinePayload::Frame(f)) = &frame.payload else {
@@ -1232,6 +1233,9 @@ impl Context<'_> {
                         script,
                     })
                 }
+                if let Some(morph_id) = f.morph_shape {
+                    pending_morphs.push((layer.keyframes.len(), morph_id));
+                }
                 layer.keyframes.push(Keyframe {
                     frame: cursor,
                     elements,
@@ -1252,6 +1256,22 @@ impl Context<'_> {
                 // Flash shows an unterminated tween as a held pose.
                 last.tween = None;
                 last.tween_kind = TweenKind::Classic;
+            }
+            for (key_idx, morph_id) in pending_morphs {
+                if key_idx + 1 < layer.keyframes.len()
+                    && layer.keyframes[key_idx].tween.is_some()
+                    && layer.keyframes[key_idx].tween_kind == TweenKind::Shape
+                {
+                    let hints = resolve_fla_morph_hints(
+                        s,
+                        morph_id,
+                        &layer.keyframes[key_idx].elements,
+                        &layer.keyframes[key_idx + 1].elements,
+                    );
+                    if !hints.is_empty() {
+                        layer.keyframes[key_idx].shape_hints = hints;
+                    }
+                }
             }
             if layer.keyframes.is_empty() && layer.properties.role != LayerRole::Folder {
                 self.report.warning("fla_layer_skipped",format!("stream #{} layer {}",s.index,layer.name),"No complete frame could be read for this layer; it remains in the embedded source.");
@@ -1854,6 +1874,7 @@ fn ease(f: &TimelineFrame) -> Result<(Option<Easing>, TweenKind), String> {
         acceleration: f.acceleration.unwrap_or(0) as i16 as f64,
     };
     match f.key_mode.unwrap_or(0) & 255 {
+        0 if f.morph_shape.is_some() => Ok((Some(classic()), TweenKind::Shape)),
         0 => Ok((None, TweenKind::Classic)),
         1 => {
             if f.custom_ease_present.unwrap_or(0) != 0 {
@@ -1884,6 +1905,131 @@ fn ease(f: &TimelineFrame) -> Result<(Option<Easing>, TweenKind), String> {
         // Motion-object and IK spans keep their stored keyframe poses.
         _ => Ok((None, TweenKind::Classic)),
     }
+}
+
+fn apply_affine_point(m: [f64; 6], pt: [f64; 2]) -> [f64; 2] {
+    [
+        m[0] * pt[0] + m[2] * pt[1] + m[4],
+        m[1] * pt[0] + m[3] * pt[1] + m[5],
+    ]
+}
+
+fn point_dist_sq(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    dx * dx + dy * dy
+}
+
+fn best_hint_stage_point(
+    geom: Option<&ShapeHintGeometry>,
+    raw_px: [f64; 2],
+    matrix: Option<[f64; 6]>,
+) -> [f64; 2] {
+    let (Some(g), Some(m)) = (geom, matrix) else {
+        return raw_px;
+    };
+    let transformed = apply_affine_point(m, raw_px);
+    if (transformed[0] - raw_px[0]).abs() < 1e-6 && (transformed[1] - raw_px[1]).abs() < 1e-6 {
+        return raw_px;
+    }
+    let d_raw = point_dist_sq(
+        raw_px,
+        g.nearest_with_snap(raw_px, DEFAULT_HINT_VERTEX_SNAP_RADIUS),
+    );
+    let d_xform = point_dist_sq(
+        transformed,
+        g.nearest_with_snap(transformed, DEFAULT_HINT_VERTEX_SNAP_RADIUS),
+    );
+    if d_xform + 1e-6 < d_raw {
+        transformed
+    } else {
+        raw_px
+    }
+}
+
+fn point_to_hint_uv(geom: Option<&ShapeHintGeometry>, pt: [f64; 2]) -> [f64; 2] {
+    if !pt[0].is_finite() || !pt[1].is_finite() {
+        return [0.5, 0.5];
+    }
+    if let Some(g) = geom {
+        let diag = (g.high[0] - g.low[0]).hypot(g.high[1] - g.low[1]);
+        let snap_tol = (diag * 0.15).clamp(2.0, 24.0);
+        let snapped = g.nearest_with_snap(pt, DEFAULT_HINT_VERTEX_SNAP_RADIUS);
+        if point_dist_sq(pt, snapped) <= snap_tol * snap_tol {
+            return g.snapped_uv(pt);
+        }
+        return std::array::from_fn(|axis| {
+            let size = g.high[axis] - g.low[axis];
+            if size > 1e-9 {
+                ((pt[axis] - g.low[axis]) / size).clamp(0.0, 1.0)
+            } else {
+                0.5
+            }
+        });
+    }
+    [
+        (pt[0] / 550.0).clamp(0.0, 1.0),
+        (pt[1] / 400.0).clamp(0.0, 1.0),
+    ]
+}
+
+fn resolve_fla_morph_hints(
+    s: &BinaryTimelineStream,
+    morph_id: u32,
+    start_elements: &[Element],
+    end_elements: &[Element],
+) -> Vec<ShapeHint> {
+    let Ok(morph_obj) = object(s, morph_id) else {
+        return Vec::new();
+    };
+    let Some(TimelinePayload::Morph(morph)) = &morph_obj.payload else {
+        return Vec::new();
+    };
+    if morph.hints.is_empty() {
+        return Vec::new();
+    }
+    let start_geom = ShapeHintGeometry::from_elements(start_elements);
+    let end_geom = ShapeHintGeometry::from_elements(end_elements);
+    let mat_a = morph.matrix_words_start.map(shape::matrix);
+    let mat_b = morph.matrix_words_end.map(shape::matrix);
+
+    let mut seen_labels = std::collections::HashSet::new();
+    let mut hints = Vec::new();
+    for hint_id in morph.hints.iter().flatten() {
+        if hints.len() >= ShapeHint::MAX_HINTS {
+            break;
+        }
+        let Ok(hint_obj) = object(s, *hint_id) else {
+            continue;
+        };
+        let Some(TimelinePayload::MorphHint(hint)) = &hint_obj.payload else {
+            continue;
+        };
+        let (Some(pa), Some(pb)) = (hint.point_a, hint.point_b) else {
+            continue;
+        };
+        let label = hint
+            .index
+            .and_then(|idx| (idx < 26).then(|| (b'a' + idx as u8) as char))
+            .filter(|c| !seen_labels.contains(c))
+            .or_else(|| ('a'..='z').find(|c| !seen_labels.contains(c)));
+        let Some(label) = label else {
+            break;
+        };
+        seen_labels.insert(label);
+
+        let raw_a = [pa[0] as f64 / 20.0, pa[1] as f64 / 20.0];
+        let raw_b = [pb[0] as f64 / 20.0, pb[1] as f64 / 20.0];
+        let pt_a = best_hint_stage_point(start_geom.as_ref(), raw_a, mat_a);
+        let pt_b = best_hint_stage_point(end_geom.as_ref(), raw_b, mat_b);
+        hints.push(ShapeHint {
+            label,
+            start_uv: point_to_hint_uv(start_geom.as_ref(), pt_a),
+            end_uv: point_to_hint_uv(end_geom.as_ref(), pt_b),
+        });
+    }
+    hints.sort_by_key(|h| h.label);
+    hints
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

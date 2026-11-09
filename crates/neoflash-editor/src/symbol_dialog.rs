@@ -28,6 +28,8 @@ pub(crate) struct SymbolConversion {
     pub export_enabled: bool,
     pub linkage_id: String,
     pub class_name: String,
+    pub scale9_enabled: bool,
+    pub scale9_grid: [f64; 4],
     focus_name: bool,
     error: Option<String>,
 }
@@ -59,6 +61,8 @@ impl Editor {
             export_enabled: false,
             linkage_id: name,
             class_name: String::new(),
+            scale9_enabled: false,
+            scale9_grid: [10.0, 10.0, 80.0, 80.0],
             focus_name: true,
             error: None,
         });
@@ -142,6 +146,8 @@ impl Editor {
             export_enabled: false,
             linkage_id: unique_name,
             class_name: String::new(),
+            scale9_enabled: false,
+            scale9_grid: [10.0, 10.0, 80.0, 80.0],
             focus_name: true,
             error: None,
         });
@@ -232,6 +238,18 @@ impl Editor {
                     });
                     crate::panels::properties::hint(ui, "Define the optional class and its base class in Project files.");
                 }).response.on_disabled_hover_text("Graphic symbols follow their parent timeline and have no runtime export linkage.");
+                ui.add_enabled_ui_semantic(draft.kind != SymbolKind::Button, |ui| {
+                    ui.add(Checkbox::new(&mut draft.scale9_enabled, "Enable guides for 9-slice scaling"));
+                    if draft.scale9_enabled {
+                        ui.horizontal(|ui| {
+                            let fw = ((ui.available_width() - space::S2 * 3.0) / 4.0).max(48.0);
+                            ui.add(neoflash_ui::components::Field::new(&mut draft.scale9_grid[0], "9-slice X").prefix("X").decimals(1).width(fw));
+                            ui.add(neoflash_ui::components::Field::new(&mut draft.scale9_grid[1], "9-slice Y").prefix("Y").decimals(1).width(fw));
+                            ui.add(neoflash_ui::components::Field::new(&mut draft.scale9_grid[2], "9-slice W").prefix("W").range(1.0..=10000.0).decimals(1).width(fw));
+                            ui.add(neoflash_ui::components::Field::new(&mut draft.scale9_grid[3], "9-slice H").prefix("H").range(1.0..=10000.0).decimals(1).width(fw));
+                        });
+                    }
+                });
             });
             if let Some(error) = &draft.error {
                 ui.add(egui::Label::new(rich(error, TextStyle::Body).color(p.danger_default)).wrap());
@@ -506,6 +524,13 @@ fn symbol_from_draft(
             layers: vec![Layer {
                 properties: LayerProperties {
                     groups,
+                    scale9_grid: (draft.scale9_enabled && draft.kind != SymbolKind::Button)
+                        .then_some([
+                            draft.scale9_grid[0],
+                            draft.scale9_grid[1],
+                            draft.scale9_grid[2].max(1.0),
+                            draft.scale9_grid[3].max(1.0),
+                        ]),
                     ..Default::default()
                 },
                 id: new_id("layer"),

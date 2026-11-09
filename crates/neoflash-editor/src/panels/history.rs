@@ -7,11 +7,17 @@ use crate::selection::SelectionTarget;
 use crate::theme::ScrollTheme as _;
 use crate::workspace::PanelId;
 use eframe::egui::{self, Ui};
-use neoflash_core::{AuthoringCommandStep, SavedCommand, apply_command_steps_to_elements};
+use neoflash_core::{
+    AuthoringCommandStep, AuthoringExtensionManifest, ResourceUnit, SavedCommand,
+    apply_command_steps_to_elements, new_id,
+};
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
 use std::collections::{HashMap, HashSet};
+
+pub const SAVED_COMMANDS_RESOURCE_PATH: &str = "commands/saved_commands.json";
+pub const EXTENSIONS_RESOURCE_PATH: &str = "commands/extensions.json";
 
 impl Editor {
     /// Replay a slice of `AuthoringCommandStep`s on the current stage selection in one Undo step.
@@ -132,6 +138,226 @@ impl Editor {
         self.execute_command_steps(&command.name, &command.steps)
     }
 
+    /// Return all `SavedCommand`s stored in the active project (`T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn saved_commands(&self) -> Vec<SavedCommand> {
+        let Some(unit) = self
+            .project
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(SAVED_COMMANDS_RESOURCE_PATH))
+        else {
+            return Vec::new();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return Vec::new();
+        };
+        serde_json::from_slice::<Vec<SavedCommand>>(&bytes).unwrap_or_default()
+    }
+
+    fn write_saved_commands_to_project(
+        project: &mut neoflash_core::Project,
+        commands: &[SavedCommand],
+    ) -> Result<(), String> {
+        if commands.is_empty() {
+            project
+                .resources
+                .retain(|r| !r.path.eq_ignore_ascii_case(SAVED_COMMANDS_RESOURCE_PATH));
+            return Ok(());
+        }
+        let bytes = serde_json::to_vec(commands).map_err(|e| e.to_string())?;
+        let existing_id = project
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(SAVED_COMMANDS_RESOURCE_PATH))
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let unit = ResourceUnit::from_bytes(
+            existing_id,
+            SAVED_COMMANDS_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        )
+        .map_err(|e| e.to_string())?;
+        if let Some(slot) = project
+            .resources
+            .iter_mut()
+            .find(|r| r.path.eq_ignore_ascii_case(SAVED_COMMANDS_RESOURCE_PATH))
+        {
+            *slot = unit;
+        } else {
+            project.resources.push(unit);
+        }
+        project.format_version = project.format_version.max(3);
+        Ok(())
+    }
+
+    /// Save the specified 0-based History undo steps into the project's `SavedCommand` registry (`T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn save_history_command(
+        &mut self,
+        name: impl Into<String>,
+        step_indices: &[usize],
+    ) -> Result<SavedCommand, String> {
+        let cmd = self.save_history_steps_as_command(name, step_indices)?;
+        self.register_saved_command(cmd.clone())?;
+        Ok(cmd)
+    }
+
+    /// Insert or replace a `SavedCommand` in the project's command registry (`T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn register_saved_command(&mut self, command: SavedCommand) -> Result<(), String> {
+        command.validate()?;
+        let mut list = self.saved_commands();
+        if let Some(existing) = list
+            .iter_mut()
+            .find(|c| c.name.eq_ignore_ascii_case(&command.name))
+        {
+            *existing = command;
+        } else {
+            list.push(command);
+        }
+        Self::write_saved_commands_to_project(&mut self.project, &list)
+    }
+
+    /// Rename a saved command in the project's command registry (`Manage Saved Commands`, `T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn rename_saved_command(
+        &mut self,
+        old_name: &str,
+        new_name: impl Into<String>,
+    ) -> Result<(), String> {
+        let new_name = new_name.into();
+        let trimmed = new_name.trim();
+        if trimmed.is_empty() || trimmed.len() > 128 || trimmed.chars().any(char::is_control) {
+            return Err("Command name must be 1..=128 non-control characters.".into());
+        }
+        let mut list = self.saved_commands();
+        if list
+            .iter()
+            .any(|c| c.name.eq_ignore_ascii_case(trimmed) && !c.name.eq_ignore_ascii_case(old_name))
+        {
+            return Err(format!("A command named '{trimmed}' already exists."));
+        }
+        let Some(target) = list
+            .iter_mut()
+            .find(|c| c.name.eq_ignore_ascii_case(old_name))
+        else {
+            return Err(format!("Saved command '{old_name}' not found."));
+        };
+        target.name = trimmed.to_owned();
+        target.validate()?;
+        Self::write_saved_commands_to_project(&mut self.project, &list)
+    }
+
+    /// Delete a saved command by name (`Manage Saved Commands`, `T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn delete_saved_command(&mut self, name: &str) -> bool {
+        let mut list = self.saved_commands();
+        let before = list.len();
+        list.retain(|c| !c.name.eq_ignore_ascii_case(name));
+        if list.len() == before {
+            return false;
+        }
+        Self::write_saved_commands_to_project(&mut self.project, &list).is_ok()
+    }
+
+    /// Run a saved command by name on the current selection in one Undo step (`Run Command`, `T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn run_saved_command_by_name(&mut self, name: &str) -> Result<usize, String> {
+        let cmd = self
+            .saved_commands()
+            .into_iter()
+            .find(|c| c.name.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("Saved command '{name}' not found."))?;
+        self.run_saved_command(&cmd)
+    }
+
+    /// Return all installed `AuthoringExtensionManifest`s in the active project (`T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn installed_extensions(&self) -> Vec<AuthoringExtensionManifest> {
+        let Some(unit) = self
+            .project
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(EXTENSIONS_RESOURCE_PATH))
+        else {
+            return Vec::new();
+        };
+        let Ok(bytes) = unit.decoded_bytes() else {
+            return Vec::new();
+        };
+        serde_json::from_slice::<Vec<AuthoringExtensionManifest>>(&bytes).unwrap_or_default()
+    }
+
+    /// Validate and install a capability-bounded `AuthoringExtensionManifest` (`T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn install_extension_manifest(
+        &mut self,
+        manifest_json: &str,
+    ) -> Result<AuthoringExtensionManifest, String> {
+        let manifest = AuthoringExtensionManifest::from_json(manifest_json)?;
+        let mut exts = self.installed_extensions();
+        if let Some(slot) = exts
+            .iter_mut()
+            .find(|e| e.id.eq_ignore_ascii_case(&manifest.id))
+        {
+            *slot = manifest.clone();
+        } else {
+            exts.push(manifest.clone());
+        }
+        let bytes = serde_json::to_vec(&exts).map_err(|e| e.to_string())?;
+        let existing_id = self
+            .project
+            .resources
+            .iter()
+            .find(|r| r.path.eq_ignore_ascii_case(EXTENSIONS_RESOURCE_PATH))
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| new_id("resource"));
+        let unit = ResourceUnit::from_bytes(
+            existing_id,
+            EXTENSIONS_RESOURCE_PATH,
+            "application/json",
+            &bytes,
+        )
+        .map_err(|e| e.to_string())?;
+        if let Some(slot) = self
+            .project
+            .resources
+            .iter_mut()
+            .find(|r| r.path.eq_ignore_ascii_case(EXTENSIONS_RESOURCE_PATH))
+        {
+            *slot = unit;
+        } else {
+            self.project.resources.push(unit);
+        }
+        self.project.format_version = self.project.format_version.max(3);
+        Ok(manifest)
+    }
+
+    /// Execute a command from an installed `AuthoringExtensionManifest` after verifying its permissions (`T-167`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn run_extension_command(
+        &mut self,
+        extension_id: &str,
+        command_name: &str,
+    ) -> Result<usize, String> {
+        let ext = self
+            .installed_extensions()
+            .into_iter()
+            .find(|e| e.id.eq_ignore_ascii_case(extension_id))
+            .ok_or_else(|| format!("Extension '{extension_id}' is not installed."))?;
+        ext.validate()?;
+        let cmd = ext
+            .commands
+            .into_iter()
+            .find(|c| c.name.eq_ignore_ascii_case(command_name))
+            .ok_or_else(|| {
+                format!("Command '{command_name}' not found in extension '{extension_id}'.")
+            })?;
+        self.run_saved_command(&cmd)
+    }
+
     pub(crate) fn history_panel_ui(&mut self, ui: &mut Ui) {
         self.panel_title(ui, PanelId::History, "History");
         let undo_labels: Vec<String> = self.history.undo_labels().map(str::to_owned).collect();
@@ -142,6 +368,10 @@ impl Editor {
         let mut target_step = None;
         let mut replay_step = None;
         let mut copy_step = None;
+        let mut save_step_as_cmd = None;
+        let mut run_saved_cmd_name = None;
+        let mut delete_saved_cmd_name = None;
+        let saved_cmds = self.saved_commands();
 
         egui::ScrollArea::vertical()
             .id_salt("history-steps")
@@ -183,6 +413,35 @@ impl Editor {
                             copy_step = Some(i);
                             ui.close();
                         }
+                        if ui
+                            .add_enabled(can_replay, c::MenuItem::new("Save step as Command"))
+                            .clicked()
+                        {
+                            save_step_as_cmd = Some((i, label.clone()));
+                            ui.close();
+                        }
+                        if !saved_cmds.is_empty() {
+                            c::menu_separator(ui);
+                            for scmd in &saved_cmds {
+                                if ui
+                                    .add_enabled(
+                                        !self.selection.is_empty(),
+                                        c::MenuItem::new(&format!("Run “{}”", scmd.name)),
+                                    )
+                                    .clicked()
+                                {
+                                    run_saved_cmd_name = Some(scmd.name.clone());
+                                    ui.close();
+                                }
+                                if ui
+                                    .add(c::MenuItem::new(&format!("Delete “{}”", scmd.name)))
+                                    .clicked()
+                                {
+                                    delete_saved_cmd_name = Some(scmd.name.clone());
+                                    ui.close();
+                                }
+                            }
+                        }
                     });
                 }
                 for (offset, label) in redo_labels.iter().enumerate() {
@@ -217,6 +476,20 @@ impl Editor {
                 }
                 Err(err) => self.message(err),
             }
+        }
+        if let Some((idx, lbl)) = save_step_as_cmd {
+            match self.save_history_command(lbl, &[idx]) {
+                Ok(cmd) => self.message(format!("Saved command “{}”.", cmd.name)),
+                Err(err) => self.message(err),
+            }
+        }
+        if let Some(name) = run_saved_cmd_name
+            && let Err(err) = self.run_saved_command_by_name(&name)
+        {
+            self.message(err);
+        }
+        if let Some(name) = delete_saved_cmd_name {
+            self.delete_saved_command(&name);
         }
 
         ui.add_space(space::S2);

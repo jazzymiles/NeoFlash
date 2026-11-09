@@ -543,6 +543,81 @@ impl crate::app::Editor {
         Ok(())
     }
 
+    /// Move one of the four 9-slice guide lines (`0 = left`, `1 = right`, `2 = top`, `3 = bottom`)
+    /// on `symbol_id` in symbol coordinates in one `"9-slice scaling"` Undo step (`T-166`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn nudge_symbol_scale9_guide(
+        &mut self,
+        symbol_id: &str,
+        edge_index: usize,
+        new_coord: f64,
+    ) -> Result<[f64; 4], String> {
+        if !new_coord.is_finite() {
+            return Err("9-slice guide coordinate must be finite.".into());
+        }
+        let current = self
+            .project
+            .symbol(symbol_id)
+            .ok_or_else(|| format!("Symbol {symbol_id} not found."))?
+            .scale9_grid()
+            .unwrap_or([10.0, 10.0, 80.0, 80.0]);
+        let mut x0 = current[0];
+        let mut x1 = current[0] + current[2].max(1.0);
+        let mut y0 = current[1];
+        let mut y1 = current[1] + current[3].max(1.0);
+        match edge_index {
+            0 => x0 = new_coord.min(x1 - 1.0),
+            1 => x1 = new_coord.max(x0 + 1.0),
+            2 => y0 = new_coord.min(y1 - 1.0),
+            3 => y1 = new_coord.max(y0 + 1.0),
+            _ => return Err(format!("Invalid 9-slice guide edge index {edge_index}.")),
+        }
+        let next = [x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)];
+        self.set_symbol_scale9_grid(symbol_id, Some(next))?;
+        Ok(next)
+    }
+
+    /// Paint the 4 dashed 9-slice scaling guide lines when editing a symbol that has `scale9_grid` enabled (`T-166`).
+    pub(crate) fn paint_scale9_guides(
+        &self,
+        painter: &egui::Painter,
+        stage_rect: egui::Rect,
+        origin: egui::Pos2,
+        mapping: crate::stage_mapping::StageMapping,
+    ) {
+        let Some([gx, gy, gw, gh]) = self.symbol().scale9_grid() else {
+            return;
+        };
+        let p0 = mapping.edit_to_screen(origin, self.zoom, egui::pos2(gx as f32, gy as f32));
+        let p1 = mapping.edit_to_screen(
+            origin,
+            self.zoom,
+            egui::pos2((gx + gw) as f32, (gy + gh) as f32),
+        );
+        let color = neoflash_ui::palette(painter.ctx()).guide;
+        let stroke = egui::Stroke::new(1.0_f32, color);
+        for sx in [p0.x, p1.x] {
+            if sx >= stage_rect.left() && sx <= stage_rect.right() {
+                let mut y = stage_rect.top();
+                while y < stage_rect.bottom() {
+                    let y_end = (y + 5.0).min(stage_rect.bottom());
+                    painter.line_segment([egui::pos2(sx, y), egui::pos2(sx, y_end)], stroke);
+                    y += 9.0;
+                }
+            }
+        }
+        for sy in [p0.y, p1.y] {
+            if sy >= stage_rect.top() && sy <= stage_rect.bottom() {
+                let mut x = stage_rect.left();
+                while x < stage_rect.right() {
+                    let x_end = (x + 5.0).min(stage_rect.right());
+                    painter.line_segment([egui::pos2(x, sy), egui::pos2(x_end, sy)], stroke);
+                    x += 9.0;
+                }
+            }
+        }
+    }
+
     pub(crate) fn bitmap_properties_dialog(&mut self, ctx: &egui::Context) {
         use crate::panels::planned::caption;
         use neoflash_core::{BitmapCompression, VALID_JPEG_QUALITY_RANGE};

@@ -1011,7 +1011,7 @@ impl Editor {
                     StrokeKind::Outside,
                 );
                 self.paint_motion_path(&p, origin, mapping);
-                self.paint_shape_hints(&p, origin, mapping);
+                self.paint_scale9_guides(&p, rect, origin, mapping);
                 self.paint_stage_guides(&p, rect, mapping, origin);
                 let quick_stage_exit = !simple_button_consumed
                     && (self.take_empty_stage_double_click(
@@ -1095,6 +1095,7 @@ impl Editor {
                 if !simple_button_consumed && !quick_stage_exit {
                     self.remember_empty_stage_click(ui, &p, origin, mapping, &scene, &response);
                 }
+                self.paint_shape_hints(&p, origin, mapping);
                 self.paint_snap_ring(&p);
                 self.stage_context_menu(&response, &scene, &p, mapping, origin);
                 self.stage_rulers(ctx, rect, mapping, origin);
@@ -1692,6 +1693,24 @@ impl Editor {
                 &draw.item.kind,
                 draw.item.color_transform,
             );
+            let video_status_badge = if matches!(draw.item.kind, ElementKind::Video { .. }) {
+                self.timeline_video
+                    .status_for_path(&draw.item.instance_path)
+                    .map(|status| {
+                        format!(
+                            "{:?} · {:.2}s{}",
+                            status.sync,
+                            f64::from(status.time_ms) / 1000.0,
+                            if status.playing {
+                                " · LIVE"
+                            } else {
+                                " · PAUSED"
+                            }
+                        )
+                    })
+            } else {
+                None
+            };
             let result = clips.paint(painter, &draw.clip_ids, |target| {
                 draw_item(
                     target,
@@ -1708,7 +1727,48 @@ impl Editor {
                         bitmap_texture,
                     },
                     draw.clip_ids.is_empty(),
-                )
+                );
+                if let (Some(badge), ElementKind::Video { width, height }) =
+                    (&video_status_badge, &draw.item.kind)
+                    && !outlines
+                    && draw.outline_color.is_none()
+                    && *width > 0.0
+                    && *height > 0.0
+                {
+                    let palette = UiPalette::current(target.ctx());
+                    let fg = color(
+                        draw.item
+                            .color_transform
+                            .apply(palette.muted_text.to_array()),
+                        opacity,
+                        tint,
+                    );
+                    let w = *width as f32;
+                    let h = *height as f32;
+                    let screen =
+                        |pt: Pos2| origin + affine(draw.item.transform, pt).to_vec2() * zoom;
+                    let galley = target.layout_no_wrap(
+                        badge.clone(),
+                        FontId::proportional((w / 22.).min(h / 11.).clamp(1., 13.)),
+                        fg,
+                    );
+                    let position = Pos2::new((w - galley.size().x) * 0.5, h * 0.84);
+                    let primitives = target.ctx().tessellate(
+                        vec![egui::epaint::ClippedShape {
+                            clip_rect: Rect::EVERYTHING,
+                            shape: Shape::Text(egui::epaint::TextShape::new(position, galley, fg)),
+                        }],
+                        target.ctx().pixels_per_point(),
+                    );
+                    for primitive in primitives {
+                        if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
+                            for vertex in &mut mesh.vertices {
+                                vertex.pos = screen(vertex.pos);
+                            }
+                            target.add(Shape::mesh(mesh));
+                        }
+                    }
+                }
             });
             if let Err(error) = result {
                 self.message(error);
