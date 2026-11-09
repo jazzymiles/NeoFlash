@@ -120,7 +120,7 @@ if the preview frame differs from the modal frame in any visible way, file a req
 | W0.10 swatches chip | Approval to replace the egui RGB picker in the Tools fill/stroke popover with `SwatchesPopover` (changes the component used). |
 | W0.2 frame view | Resolved: Placement, Preview / Preview in context, Help and Close panel rows are in the frame-view ⋯ menu; Timeline Help, global F1 and the first main Help row `Search functions…` open the immediate focused fuzzy command palette. |
 | W0.15 menus | Confirm order/grouping for absent §8 menu items and View ▸ Grid/Guides/Snapping submenus. |
-| v2.2 tool/command/brush panels | R-038 flyouts, Brushes, Brush/Pencil controls and Customize are connected; the compact 36 pt TypeHeader still needs a shared API (current component is 48 pt). Commands awaits a `.nfsl` execution contract. R-022 Trace bitmap is connected; Bitmap properties remains unavailable. |
+| v2.2 tool/command/brush panels | R-038 flyouts, Brushes, Brush/Pencil controls and Customize are connected; the compact 36 pt TypeHeader still needs a shared API (current component is 48 pt). History replays/copies/saves supported structured Commands; arbitrary `.nfsl` execution remains undefined. R-022 Trace bitmap and the Library-menu Bitmap Properties dialog are connected; exact bitmap/resource context actions remain open. |
 | W2.x canvas chrome | Painters exist and are used for selection/transform boxes, anchors and marquee; open R-011 (rotated box, contrast over artwork, Light transformation point) and a gradient-transform gesture model. |
 | W1.1 History | Visual state for "steps after current" (dimmed?) in the History list. |
 | W3.6 Preferences | Accent colour / language / custom syntax colours imply new token behaviour — confirm or keep disabled. |
@@ -361,9 +361,11 @@ content. Shape hints are §7.4.
 - Tests: `panel_tests::t152_flash_cs5_text_properties_columns_padding_vertical_align_and_highlights_work_with_undo`, `neoflash_core::text::tests::multi_column_layout_splits_lines_across_columns_with_padding_and_vertical_align`, `web/tests/text-input.test.cjs`, `web/tests/as2-text-rendering.test.cjs`.
 - Registry: `editor-text`.
 
-**W1.12 · Loop/scene-agnostic playback option + document script default** — E-01 — **done** (editor Loop playback and Play all scenes in W0.1 plus `AuthoredPlayback::set_looping(bool)` / `is_looping()` in `crates/neoflash-core/src/authored_playback.rs` so preview and Test Movie share loop/non-loop playback semantics)
-- Engine: `AuthoredPlayback::set_looping(bool)` so preview and Test Movie share semantics.
-- Registry: `animation-lifecycle`.
+**W1.12 · Loop/scene-agnostic playback option + live-script default** — E-01 — **done** (editor Loop playback and Play all scenes in W0.1 plus `AuthoredPlayback::set_looping(bool)` / `is_looping()` in `crates/neoflash-core/src/authored_playback.rs` so preview and Test Movie share loop/non-loop playback semantics)
+- Engine: `AuthoredPlayback::set_looping(bool)` shares loop semantics. Native Play has `Control ▸ Live ActionScript`
+  enabled by default for the bounded initial/frame/click source profile; disabling it drains pending dispatches and
+  clears script-owned preview variables/overrides without erasing trace output already emitted.
+- Registry: `animation-lifecycle`, items `authoring-play` and `live-actionscript-preview`.
 
 ### Phase 2 — Major features
 
@@ -419,9 +421,11 @@ warnings/severity, peek, quick fixes and full formatting remain.
 - UI: `panels/actions.rs` toolbar groups 1 and 4; sidebar.
 - Engine: `neoflash-script` completion/symbol API + formatter. Registry: `web-project-toolchain`.
 
-**W2.9 · Debugger + breakpoints + Output trace bridge + Test Movie window (PP-04, AC-03, OU-02, DL-12)** — E-21
-- UI: new `panels/debugger.rs` from `planned_panels::debugger`; gutter breakpoints; Output Trace level.
-- Engine: debug protocol from the HTML5 runtime to the editor; source maps. Registry: `web-project-toolchain`.
+**W2.9 · Debugger + breakpoints + Output trace bridge + Test Movie window (PP-04, AC-03, OU-02, DL-12)** — E-21 — **partial**
+- Done: native Play's `Control ▸ Live ActionScript` path drains bounded `trace()` output into Output; the connected
+  debugger, source maps and existing Test Movie routes retain their current coverage.
+- Open: browser Test Movie trace still stays in the page `#trace` element; the browser → editor Output bridge and
+  native Test Movie host remain pending. Registry: `web-project-toolchain`.
 
 **W2.10 · Edit multiple frames + Preview thumbnails + transformation point (TL-08, TL-10, PR-07, ST-11)** — editor —
 **partial**. Done: Edit multiple frames selecting objects across every keyframe in `onion_range` (including objects that
@@ -442,8 +446,8 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
 | W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | TextBox Properties exposes `Embed font` / `Embedding…`; `panels/font_embedding.rs` opens on the exact selected Family/Style, stores ranges/custom characters, and commits the field flag plus technically validated standalone font in one Undo. NeoFlash does not infer the author's licence rights, so compliance remains the author's responsibility. Browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
-| W3.9 Deco, Spray, Bone/IK — done | TO-03…05 | `panels/live_planned.rs` (`apply_deco_pattern`, `apply_spray_brush_burst`, `live_bone_properties`) | E-27, E-28 | `editor-advanced-drawing` |
-| W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. 9-slice/shared-library/accessibility engines have tested commands, but their complete authoring controls remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
+| W3.9 Deco, Spray, Bone/IK — partial | TO-03…05 | Bone target/length/degree-limit/stiffness fields and bounded solving are connected; its other fields remain drafts. Deco/Spray settings drafts and the binding/warp/generator paths have tested internal commands, but no user Apply gesture. Sticky pointer-driven Stage tools, editable live weights and persisted skin/spring state remain open. | E-27, E-28 | `editor-advanced-drawing` |
+| W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. Library Properties edits 9-slice/shared linkage, Stage paints 9-slice guides, and open documents can supply donor symbols; direct guide drag, separate external-file mounting and accessibility extras remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
 **W3.6 · Preferences (DL-01) & W3.7 · Shortcut editor** — **done** across all 8 active pages (`panels/preferences.rs`,
 `commands.rs`, `recovery.rs`): modal dialog with per-page draft groups and `Reset to defaults`, live theme preview,
@@ -591,7 +595,7 @@ model change follows §1.7: serde default, one format bump per batch (current fo
 | 7 | ~~Sync graphic symbols and Snap to motion guide options (PR-10)~~ | Done: format-7 `Keyframe.sync_symbols` (chained continuous Graphic playback in `evaluate::placement_start` + `sync_layer_symbols`) and `Keyframe.snap_to_guide` (guide endpoint snapping in `evaluate::sample_layer_in` + `snap_motion_span_to_guide`), enabled in `panels/motion_tween.rs` (`timeline_tweens.rs`, `timeline_motion_tests.rs`). | | | |
 | 8 | ~~Paste motion special~~ | Done: R-006 dialog, property selection and relative scale/rotation options; unticked animation and surrounding content preserved by materializing affected spans, Ease-only keeps keys (`timeline_motion_tests.rs`). | | | |
 | 9 | ~~Bézier motion path editing~~ | Done: format-8 `motion_path`, shared arc-length sampler, segment bending, mirrored handles / Option corner gestures and Undo (`timeline_tweens.rs`, `timeline_motion_curve_tests.rs`, `wasm.test.cjs`). Range cuts/reverse bake curves. | | | |
-| 10 | ~~Shape hints~~ | Done: existing format-7 model wired to R-009 markers on current-layer endpoint keys; add/drag/offstage remove, Show shape hints and shortcuts (`timeline_shape_hints_tests.rs`). | | | |
+| 10 | ~~Shape hints~~ | Done: format-7 a–z model wired to R-009 endpoint markers; add/drag/offstage remove, Show shape hints and shortcuts. Core uses ordered piecewise de Casteljau correspondence and compatible Merge-stroke welding; binary FLA/XFL hints import with bounded diagnostics (`timeline_shape_hints_tests.rs`, `timeline_tweens.rs`). | | | |
 | 11 | ~~Edit envelope (DL-09)~~ | Done: format-7 `SoundEffect::Custom` + `FrameSound.envelope: Option<Vec<[f64; 3]>>` (`1..=8` stereo `[position, left, right]` points), modal `panels/edit_envelope.rs` (`EnvelopeLane`, time/frames unit, zoom, presets, Play/Stop, one Undo), native rodio preview and WASM/Web Audio scheduling (`timeline_sound.rs`, `web/tests/wasm.test.cjs`, `timeline_sound_tests.rs`). | | | |
 | 12 | ~~Sound properties (DL-08) & Export audio (DL-06)~~ | Done: modal `panels/sound_properties.rs` opened from `Properties ▸ Sound ▸ Sound properties…` and Library audio menus for name, decoded audio stats, per-resource `Export` compression (`Compression`, `Bit rate`, `Quality`, `Convert stereo to mono`, live `"Result: …"`, `ResourceUnit.audio_export` in format 9), transcoded `Test`/`Stop` audition, `Update` and `Import…` byte replacement in one Undo step; and modal `panels/export_audio.rs` (`File ▸ Export ▸ Export audio…` `⌥⇧⌘A`, `Library ▸ Export audio…`, CLI `--audio`) exporting timeline mixes, layers or resources to WAV/MP3/OGG/AAC (`timeline_sound_tests.rs`, `panel_tests.rs`). | | | |
 | 13 | ~~Decoded waveform peaks~~ | Done: background decode/reduction, resource/zoom cache and real mono/stereo timeline/Sound Properties peaks (`timeline_sound_tests.rs`); scrubbing reuses cache. | | | |

@@ -4,6 +4,7 @@
 //! & `Spray Brush` generators, and 3D perspective projection (`3D Rotation` & `3D Translation`) (`T-164`).
 
 use crate::as3_fte_3d::{Display3dPose, compose_display_matrix3d, local3d_to_global};
+use crate::evaluate::transform_matrix;
 use crate::geometry::{deform_point_with_pins, path_bounds};
 use crate::{
     AssetWarpRig, Color, Element, ElementKind, FillRule, Id, IkArmature, IkBone, InstancePlayback,
@@ -65,6 +66,33 @@ impl Default for IkJointSpec {
     }
 }
 
+fn valid_joint_spec(spec: &IkJointSpec) -> bool {
+    !spec.bone_id.is_empty()
+        && [
+            spec.min_angle_deg,
+            spec.max_angle_deg,
+            spec.min_x_offset,
+            spec.max_x_offset,
+            spec.min_y_offset,
+            spec.max_y_offset,
+            spec.speed,
+            spec.spring_strength,
+            spec.spring_damping,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+        && (!spec.constrain_rotation || spec.min_angle_deg <= spec.max_angle_deg)
+        && (!spec.constrain_x_translation || spec.min_x_offset <= spec.max_x_offset)
+        && (!spec.constrain_y_translation || spec.min_y_offset <= spec.max_y_offset)
+}
+
+fn joint_spec<'a>(specs: &'a [IkJointSpec], bone_id: &str) -> Option<&'a IkJointSpec> {
+    specs
+        .iter()
+        .take(IkBone::MAX_BONES)
+        .find(|spec| spec.bone_id == bone_id && valid_joint_spec(spec))
+}
+
 /// Weight of one bone on a control point of an IK Shape (`Bind Tool`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IkBoneWeight {
@@ -86,7 +114,43 @@ pub struct IkShapeSkin {
     pub armature_id: Id,
     /// Rest-pose bone head positions and world angles `(bone_id, [head_x, head_y], world_angle_deg)`.
     pub rest_bones: Vec<(Id, [f64; 2], f64)>,
+    /// Rest-pose local control points in the same deterministic order as `bindings`.
+    ///
+    /// Older transient bindings did not retain these points, so deserialization keeps a
+    /// compatibility fallback to the supplied shape geometry when this is empty.
+    #[serde(default)]
+    pub rest_points: Vec<[f64; 2]>,
     pub bindings: Vec<IkVertexBinding>,
+}
+
+fn map_affine(matrix: [f64; 6], point: [f64; 2]) -> [f64; 2] {
+    [
+        matrix[0] * point[0] + matrix[2] * point[1] + matrix[4],
+        matrix[1] * point[0] + matrix[3] * point[1] + matrix[5],
+    ]
+}
+
+fn inverse_affine(matrix: [f64; 6]) -> Option<[f64; 6]> {
+    if matrix.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+    let det = matrix[0] * matrix[3] - matrix[1] * matrix[2];
+    if !det.is_finite() || det.abs() <= 1e-12 {
+        return None;
+    }
+    let inv_det = det.recip();
+    let a = matrix[3] * inv_det;
+    let b = -matrix[1] * inv_det;
+    let c = -matrix[2] * inv_det;
+    let d = matrix[0] * inv_det;
+    Some([
+        a,
+        b,
+        c,
+        d,
+        -(a * matrix[4] + c * matrix[5]),
+        -(b * matrix[4] + d * matrix[5]),
+    ])
 }
 
 /// Extract all control points (anchors and Bézier handles) from a `PathCommand` slice in deterministic order.
@@ -139,8 +203,8 @@ pub fn compute_bone_world_poses(
     armature: &IkArmature,
     elements: &[Element],
 ) -> Vec<(Id, [f64; 2], [f64; 2], f64)> {
-    let mut out = Vec::with_capacity(armature.bones.len());
-    for bone in &armature.bones {
+    let mut out = Vec::with_capacity(armature.bones.len().min(IkBone::MAX_BONES));
+    for bone in armature.bones.iter().take(IkBone::MAX_BONES) {
         let (hx, hy, angle) = elements
             .iter()
             .find(|e| e.id == bone.element_id)
@@ -161,6 +225,13 @@ pub fn auto_bind_shape_to_armature(
     armature: &IkArmature,
     elements: &[Element],
 ) -> Option<IkShapeSkin> {
+    if shape.id.is_empty()
+        || armature.id.is_empty()
+        || armature.bones.is_empty()
+        || armature.bones.len() > IkBone::MAX_BONES
+    {
+        return None;
+    }
     let (commands, _) = shape.to_path_commands()?;
     let bone_poses = compute_bone_world_poses(armature, elements);
     if bone_poses.is_empty() {
@@ -171,10 +242,11 @@ pub fn auto_bind_shape_to_armature(
         .map(|(id, head, _, ang)| (id.clone(), *head, *ang))
         .collect();
     let local_pts = extract_path_control_points(&commands);
+    let shape_matrix = transform_matrix(shape.transform);
     let mut bindings = Vec::with_capacity(local_pts.len());
 
-    for (vertex_index, lp) in local_pts.into_iter().enumerate() {
-        let wp = [lp[0] + shape.transform.x, lp[1] + shape.transform.y];
+    for (vertex_index, &lp) in local_pts.iter().enumerate() {
+        let wp = map_affine(shape_matrix, lp);
         let mut raw_weights: Vec<(Id, f64)> = bone_poses
             .iter()
             .map(|(bid, head, tail, _)| {
@@ -211,6 +283,7 @@ pub fn auto_bind_shape_to_armature(
         shape_element_id: shape.id.clone(),
         armature_id: armature.id.clone(),
         rest_bones,
+        rest_points: local_pts,
         bindings,
     })
 }
@@ -223,6 +296,9 @@ pub fn bind_vertices_to_bone(
     weight: f64,
     exclusive: bool,
 ) {
+    if bone_id.is_empty() || !weight.is_finite() {
+        return;
+    }
     let clamped = weight.clamp(0.01, 1.0);
     for &v_idx in vertex_indices {
         let Some(binding) = skin.bindings.iter_mut().find(|b| b.vertex_index == v_idx) else {
@@ -259,6 +335,9 @@ pub fn deform_shape_with_ik_skin(
     armature: &IkArmature,
     posed_elements: &[Element],
 ) -> Element {
+    if skin.shape_element_id != shape.id || skin.armature_id != armature.id {
+        return shape.clone();
+    }
     let Some((commands, fill_rule)) = shape.to_path_commands() else {
         return shape.clone();
     };
@@ -267,15 +346,29 @@ pub fn deform_shape_with_ik_skin(
         return shape.clone();
     }
 
-    let transform_point = |v_idx: usize, lp: [f64; 2]| -> [f64; 2] {
-        let wp = [lp[0] + shape.transform.x, lp[1] + shape.transform.y];
-        let Some(binding) = skin.bindings.get(v_idx) else {
+    let shape_matrix = transform_matrix(shape.transform);
+    let Some(shape_inverse) = inverse_affine(shape_matrix) else {
+        return shape.clone();
+    };
+    let bindings_by_vertex: std::collections::HashMap<usize, &IkVertexBinding> = skin
+        .bindings
+        .iter()
+        .map(|binding| (binding.vertex_index, binding))
+        .collect();
+
+    let transform_point = |v_idx: usize, fallback_lp: [f64; 2]| -> [f64; 2] {
+        let lp = skin.rest_points.get(v_idx).copied().unwrap_or(fallback_lp);
+        let wp = map_affine(shape_matrix, lp);
+        let Some(binding) = bindings_by_vertex.get(&v_idx) else {
             return lp;
         };
         let mut acc_x = 0.0;
         let mut acc_y = 0.0;
         let mut w_sum = 0.0;
         for bw in &binding.weights {
+            if !bw.weight.is_finite() || bw.weight <= 0.0 {
+                continue;
+            }
             let Some((_, rest_head, rest_ang)) =
                 skin.rest_bones.iter().find(|(id, _, _)| id == &bw.bone_id)
             else {
@@ -292,17 +385,22 @@ pub fn deform_shape_with_ik_skin(
             let ry = wp[1] - rest_head[1];
             let tx = posed_head[0] + (c * rx - s * ry);
             let ty = posed_head[1] + (s * rx + c * ry);
+            if !tx.is_finite() || !ty.is_finite() {
+                continue;
+            }
             acc_x += bw.weight * tx;
             acc_y += bw.weight * ty;
             w_sum += bw.weight;
         }
-        if w_sum <= 1e-12 {
+        if w_sum <= 1e-12 || !w_sum.is_finite() || !acc_x.is_finite() || !acc_y.is_finite() {
             lp
         } else {
-            [
-                acc_x / w_sum - shape.transform.x,
-                acc_y / w_sum - shape.transform.y,
-            ]
+            let mapped = map_affine(shape_inverse, [acc_x / w_sum, acc_y / w_sum]);
+            if mapped.iter().all(|value| value.is_finite()) {
+                mapped
+            } else {
+                lp
+            }
         }
     };
 
@@ -414,7 +512,28 @@ pub fn solve_ik_armature_fabrik_ccd(
     armature: &IkArmature,
     joint_specs: &[IkJointSpec],
 ) {
-    if armature.bones.is_empty() {
+    if armature.bones.is_empty()
+        || armature.bones.len() > IkBone::MAX_BONES
+        || !armature.target_pos.iter().all(|value| value.is_finite())
+        || armature
+            .bones
+            .iter()
+            .any(|bone| !bone.length.is_finite() || bone.length <= 0.0)
+        || armature.bones.iter().any(|bone| {
+            elements
+                .iter()
+                .find(|element| element.id == bone.element_id)
+                .is_none_or(|element| {
+                    ![
+                        element.transform.x,
+                        element.transform.y,
+                        element.transform.rotation,
+                    ]
+                    .iter()
+                    .all(|value| value.is_finite())
+                })
+        })
+    {
         return;
     }
     let mut chain_indices = Vec::new();
@@ -456,7 +575,7 @@ pub fn solve_ik_armature_fabrik_ccd(
 
     for (k, &b_idx) in chain_indices.iter().enumerate() {
         let bone = &armature.bones[b_idx];
-        let spec = joint_specs.iter().find(|s| s.bone_id == bone.id);
+        let spec = joint_spec(joint_specs, &bone.id);
         let rot = elements
             .iter()
             .find(|e| e.id == bone.element_id)
@@ -478,10 +597,7 @@ pub fn solve_ik_armature_fabrik_ccd(
     let target = armature.target_pos;
 
     // If root bone allows X/Y translation, translate root toward target within translation limits before rotational solve.
-    if let Some(root_spec) = joint_specs
-        .iter()
-        .find(|s| s.bone_id == armature.bones[chain_indices[0]].id)
-    {
+    if let Some(root_spec) = joint_spec(joint_specs, &armature.bones[chain_indices[0]].id) {
         let total_reach: f64 = lengths.iter().sum();
         let dx = target[0] - joint_pos[0][0];
         let dy = target[1] - joint_pos[0][1];
@@ -524,7 +640,7 @@ pub fn solve_ik_armature_fabrik_ccd(
                 continue;
             }
             let bone = &armature.bones[chain_indices[k]];
-            let spec = joint_specs.iter().find(|s| s.bone_id == bone.id);
+            let spec = joint_spec(joint_specs, &bone.id);
             if spec.is_some_and(|s| !s.enable_rotation || s.speed <= 1e-6) {
                 continue;
             }
@@ -548,11 +664,11 @@ pub fn solve_ik_armature_fabrik_ccd(
             let min_a = spec
                 .filter(|s| s.constrain_rotation)
                 .map(|s| s.min_angle_deg)
-                .or_else(|| bone.min_angle.map(f64::to_degrees));
+                .or(bone.min_angle);
             let max_a = spec
                 .filter(|s| s.constrain_rotation)
                 .map(|s| s.max_angle_deg)
-                .or_else(|| bone.max_angle.map(f64::to_degrees));
+                .or(bone.max_angle);
             if let Some(lo) = min_a {
                 rel_angle = rel_angle.max(lo);
             }
@@ -596,12 +712,15 @@ pub fn step_ik_spring_physics(
     rest_angles: &[f64],
     dt_sec: f64,
 ) {
+    if !dt_sec.is_finite() {
+        return;
+    }
     let dt = dt_sec.clamp(1.0 / 240.0, 0.1);
-    for (idx, bone) in armature.bones.iter().enumerate() {
+    for (idx, bone) in armature.bones.iter().take(IkBone::MAX_BONES).enumerate() {
         let Some(el) = elements.iter_mut().find(|e| e.id == bone.element_id) else {
             continue;
         };
-        let spec = joint_specs.iter().find(|s| s.bone_id == bone.id);
+        let spec = joint_spec(joint_specs, &bone.id);
         let strength = spec
             .map(|s| s.spring_strength)
             .unwrap_or(0.0)
@@ -616,12 +735,16 @@ pub fn step_ik_spring_physics(
         let target_angle = rest_angles
             .get(idx)
             .copied()
+            .filter(|angle| angle.is_finite())
             .unwrap_or(el.transform.rotation);
         let vel = angular_velocities.get_mut(idx);
         let disp = target_angle - el.transform.rotation;
         let stiffness_k = strength * 1.8;
         let damping_c = (damping / 100.0) * 12.0;
         if let Some(v) = vel {
+            if !v.is_finite() {
+                *v = 0.0;
+            }
             *v += (stiffness_k * disp - damping_c * (*v)) * dt;
             el.transform.rotation += (*v) * dt;
         }
@@ -643,6 +766,23 @@ pub struct WarpMesh {
 
 /// Build a structured triangulated [`WarpMesh`] over `element`'s local bounding box and `rig`.
 pub fn build_asset_warp_mesh(element: &Element, rig: &AssetWarpRig) -> Option<WarpMesh> {
+    if rig.element_id != element.id
+        || rig.pins.len() > WarpPin::MAX_PINS
+        || rig.pins.iter().any(|pin| {
+            [
+                pin.rest_pos[0],
+                pin.rest_pos[1],
+                pin.pos[0],
+                pin.pos[1],
+                pin.rotation,
+                pin.stiffness,
+            ]
+            .iter()
+            .any(|value| !value.is_finite())
+        })
+    {
+        return None;
+    }
     let bounds = match &element.kind {
         ElementKind::Rectangle { width, height, .. }
         | ElementKind::Ellipse { width, height, .. }
@@ -656,6 +796,9 @@ pub fn build_asset_warp_mesh(element: &Element, rig: &AssetWarpRig) -> Option<Wa
             [b.x_min, b.y_min, b.x_max, b.y_max]
         }
     };
+    if bounds.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
     let w = (bounds[2] - bounds[0]).max(1.0);
     let h = (bounds[3] - bounds[1]).max(1.0);
     let cols = usize::from(rig.envelop_subdivisions.clamp(2, 16));
@@ -719,6 +862,10 @@ pub fn upsert_warp_pin(
     hit_radius: f64,
     kind: WarpPinKind,
 ) -> Id {
+    if local_pt.iter().any(|value| !value.is_finite()) || !hit_radius.is_finite() {
+        return String::new();
+    }
+    let hit_radius = hit_radius.max(0.0);
     if let Some(pin) = rig
         .pins
         .iter_mut()
@@ -798,6 +945,12 @@ pub fn generate_deco_elements(
     primary_color: Color,
     secondary_color: Color,
 ) -> Vec<Element> {
+    if !origin.iter().all(|value| value.is_finite())
+        || !scale_pct.is_finite()
+        || !spacing_px.is_finite()
+    {
+        return Vec::new();
+    }
     let scale = (scale_pct / 100.0).clamp(0.1, 5.0);
     let step = spacing_px.clamp(6.0, 200.0) * scale;
     let [ox, oy] = origin;
@@ -1171,7 +1324,17 @@ pub fn generate_spray_brush_along_points(
     stroke_points: &[[f64; 2]],
     config: &SprayBrushConfig,
 ) -> Vec<Element> {
-    if stroke_points.is_empty() {
+    if stroke_points.is_empty()
+        || ![
+            config.scale_w_pct,
+            config.scale_h_pct,
+            config.brush_width,
+            config.brush_height,
+            config.brush_angle_deg,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+    {
         return Vec::new();
     }
     let base_sx = (config.scale_w_pct / 100.0).clamp(0.1, 4.0);
@@ -1180,7 +1343,7 @@ pub fn generate_spray_brush_along_points(
     let ry = (config.brush_height * 0.5).clamp(1.0, 200.0);
     let (ang_s, ang_c) = config.brush_angle_deg.to_radians().sin_cos();
 
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(stroke_points.len().saturating_mul(3));
     let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
     let mut next_unit = || -> f64 {
         seed ^= seed << 13;
@@ -1190,6 +1353,9 @@ pub fn generate_spray_brush_along_points(
     };
 
     for (pt_idx, &[px, py]) in stroke_points.iter().enumerate() {
+        if !px.is_finite() || !py.is_finite() {
+            continue;
+        }
         for sub in 0..3 {
             let r = next_unit().sqrt();
             let theta = next_unit() * std::f64::consts::TAU;
@@ -1256,6 +1422,26 @@ pub fn project_element_3d(
     focal_length: f64,
     projection_center: [f64; 2],
 ) -> Element {
+    if ![
+        pose.x,
+        pose.y,
+        pose.z,
+        pose.scale_x,
+        pose.scale_y,
+        pose.scale_z,
+        pose.rotation_x,
+        pose.rotation_y,
+        pose.rotation_z,
+        focal_length,
+        projection_center[0],
+        projection_center[1],
+    ]
+    .iter()
+    .all(|value| value.is_finite())
+        || focal_length <= 1e-6
+    {
+        return element.clone();
+    }
     let is_identity = pose.z.abs() <= 1e-6
         && pose.rotation_x.abs() <= 1e-6
         && pose.rotation_y.abs() <= 1e-6
@@ -1482,8 +1668,56 @@ mod tests {
         solve_ik_armature_fabrik_ccd(&mut elements, &armature, &specs);
         assert!(elements[0].transform.rotation.abs() <= 60.0 + 1e-6);
 
+        // Persisted IkBone constraints are already stored in degrees. They must not be
+        // converted as radians when the richer transient joint spec is absent.
+        let mut constrained_armature = armature.clone();
+        constrained_armature.bones[0].min_angle = Some(-5.0);
+        constrained_armature.bones[0].max_angle = Some(5.0);
+        let mut constrained_elements = elements.clone();
+        constrained_elements[0].transform.rotation = 0.0;
+        constrained_elements[1].transform.rotation = 0.0;
+        solve_ik_armature_fabrik_ccd(&mut constrained_elements, &constrained_armature, &[]);
+        assert!(constrained_elements[0].transform.rotation.abs() <= 5.0 + 1e-6);
+
+        // Malformed transient constraints fail closed instead of panicking in f64::clamp.
+        let invalid_specs = [IkJointSpec {
+            bone_id: "bone_1".into(),
+            enable_x_translation: true,
+            constrain_x_translation: true,
+            min_x_offset: 10.0,
+            max_x_offset: -10.0,
+            ..IkJointSpec::default()
+        }];
+        solve_ik_armature_fabrik_ccd(&mut constrained_elements, &armature, &invalid_specs);
+        assert!(constrained_elements.iter().all(|element| {
+            [
+                element.transform.x,
+                element.transform.y,
+                element.transform.rotation,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        }));
+
         let deformed = deform_shape_with_ik_skin(&elements[0], &skin, &armature, &elements);
         assert!(matches!(deformed.kind, ElementKind::Path { .. }));
+
+        // Binding lookup follows the persisted vertex index rather than assuming vector order,
+        // and retained rest points prevent a second live-pose evaluation from double-warping.
+        let mut reordered_skin = skin.clone();
+        reordered_skin.bindings.reverse();
+        let reordered =
+            deform_shape_with_ik_skin(&elements[0], &reordered_skin, &armature, &elements);
+        assert_eq!(reordered.kind, deformed.kind);
+        let deformed_again = deform_shape_with_ik_skin(&deformed, &skin, &armature, &elements);
+        assert_eq!(deformed_again.kind, deformed.kind);
+
+        let mut wrong_skin = skin.clone();
+        wrong_skin.shape_element_id = "another-shape".into();
+        assert_eq!(
+            deform_shape_with_ik_skin(&elements[0], &wrong_skin, &armature, &elements),
+            elements[0]
+        );
 
         let mut vels = vec![0.0, 0.0];
         step_ik_spring_physics(
@@ -1495,6 +1729,22 @@ mod tests {
             1.0 / 24.0,
         );
         assert!(vels[0].abs() > 0.0);
+
+        let mut project = crate::Project::blank();
+        project.symbols[0].timeline.layers[0].keyframes[0].elements = elements.clone();
+        project.symbols[0].timeline.layers[0].keyframes[0].ik_armatures = vec![armature.clone()];
+        project.upgrade_format_for_features();
+        project.validate().unwrap();
+
+        let mut invalid_project = project.clone();
+        invalid_project.symbols[0].timeline.layers[0].keyframes[0].ik_armatures[0].bones[1]
+            .parent_bone_id = Some("missing".into());
+        assert!(invalid_project.validate().is_err());
+
+        let mut invalid_pole = project;
+        invalid_pole.symbols[0].timeline.layers[0].keyframes[0].ik_armatures[0].pole_pos =
+            Some([f64::NAN, 0.0]);
+        assert!(invalid_pole.validate().is_err());
     }
 
     #[test]
@@ -1524,6 +1774,9 @@ mod tests {
         let p1 = upsert_warp_pin(&mut rig, [10.0, 10.0], 8.0, WarpPinKind::Fixed);
         let p2 = upsert_warp_pin(&mut rig, [90.0, 70.0], 8.0, WarpPinKind::Open);
         assert_ne!(p1, p2);
+        let pins_before_invalid = rig.pins.clone();
+        assert!(upsert_warp_pin(&mut rig, [f64::NAN, 0.0], 8.0, WarpPinKind::Open).is_empty());
+        assert_eq!(rig.pins, pins_before_invalid);
         rig.pins[1].pos = [110.0, 95.0];
 
         let mesh = build_asset_warp_mesh(&rect, &rig).unwrap();

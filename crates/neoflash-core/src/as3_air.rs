@@ -1316,10 +1316,11 @@ fn derive_sql_subkeys(master_key: &[u8; 16], salt: &[u8; 16]) -> ([u8; 32], [u8;
     (enc_key, mac_key)
 }
 
-/// Generate a fresh, non-repeating 16-byte salt and 12-byte RFC 8439 nonce across
-/// all runtime instances by mixing OS CSPRNG (`/dev/urandom` where available),
-/// `RandomState` OS seed, high-resolution clock, stack address entropy, and a
-/// process-global atomic counter.
+/// Generate fresh 16-byte salt and 12-byte RFC 8439 nonce material by mixing an
+/// OS CSPRNG (`/dev/urandom` where available), `RandomState` OS seed, a
+/// high-resolution clock, stack address entropy, and a process-global counter.
+/// This makes accidental reuse extremely unlikely; it is not a mathematical
+/// uniqueness guarantee across every process and host.
 fn generate_sql_salt_and_nonce(
     key: &[u8; 16],
     instance_seed: u64,
@@ -1329,7 +1330,10 @@ fn generate_sql_salt_and_nonce(
     use std::hash::{BuildHasher, Hasher};
 
     let global_seq = SQL_CRYPTO_GLOBAL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(unix)]
     let mut os_entropy = [0u8; 32];
+    #[cfg(not(unix))]
+    let os_entropy = [0u8; 32];
     #[cfg(unix)]
     {
         use std::io::Read;
@@ -1397,14 +1401,9 @@ fn decrypt_sql_payload(
     encrypted_body: &[u8],
     operation: &str,
 ) -> Result<Vec<u8>, AirSqlError> {
-    if let Some(v2_body) = encrypted_body.strip_prefix(SQL_ENC_V2_HEADER) {
-        if v2_body.len() < 16 + 12 + 32 {
-            return Err(AirSqlError::new(
-                operation,
-                "Encrypted database header is truncated or corrupt.",
-                3138,
-            ));
-        }
+    if let Some(v2_body) = encrypted_body.strip_prefix(SQL_ENC_V2_HEADER)
+        && v2_body.len() >= 16 + 12 + 32
+    {
         let mut salt = [0u8; 16];
         salt.copy_from_slice(&v2_body[..16]);
         let mut nonce = [0u8; 12];
@@ -1424,14 +1423,12 @@ fn decrypt_sql_payload(
         for (&a, &b) in tag.iter().zip(expected_tag.iter()) {
             diff |= a ^ b;
         }
-        if diff != 0 {
-            return Err(AirSqlError::new(
-                operation,
-                "File is encrypted or is not a database.",
-                3138,
-            ));
+        if diff == 0 {
+            return Ok(chacha20_xor(&enc_key, &nonce, 1, ciphertext));
         }
-        return Ok(chacha20_xor(&enc_key, &nonce, 1, ciphertext));
+        // A legacy payload has no explicit version byte: its 16-byte salt can begin with
+        // `CV2\0` by chance. Only accept the v2 interpretation after its MAC verifies, then
+        // fall through to the authenticated legacy decoder for compatibility.
     }
 
     if encrypted_body.len() < 48 {
@@ -8383,5 +8380,35 @@ mod tests {
         assert_ne!(&body_a[4..32], &body_b[4..32]);
         assert_eq!(decrypt_sql_payload(&key, body_a, "open").unwrap(), payload);
         assert_eq!(decrypt_sql_payload(&key, body_b, "open").unwrap(), payload);
+    }
+
+    #[test]
+    fn legacy_sql_payload_with_v2_like_salt_still_decrypts() {
+        let key: [u8; 16] = *b"0123456789abcdef";
+        let plaintext = b"legacy collision";
+        let mut salt = [0u8; 16];
+        salt[..4].copy_from_slice(SQL_ENC_V2_HEADER);
+        salt[4..].copy_from_slice(b"legacy-salt!");
+
+        let mut ciphertext = Vec::with_capacity(plaintext.len());
+        for (block_idx, chunk) in plaintext.chunks(32).enumerate() {
+            let mut ctr_msg = [0u8; 28];
+            ctr_msg[..4].copy_from_slice(b"enc\0");
+            ctr_msg[4..20].copy_from_slice(&salt);
+            ctr_msg[20..28].copy_from_slice(&(block_idx as u64).to_be_bytes());
+            let stream = hmac_sha256(&key, &ctr_msg);
+            ciphertext.extend(chunk.iter().enumerate().map(|(i, byte)| byte ^ stream[i]));
+        }
+        let mut mac_msg = Vec::new();
+        mac_msg.extend_from_slice(b"mac\0");
+        mac_msg.extend_from_slice(&salt);
+        mac_msg.extend_from_slice(&ciphertext);
+        let tag = hmac_sha256(&key, &mac_msg);
+        let mut body = salt.to_vec();
+        body.extend_from_slice(&ciphertext);
+        body.extend_from_slice(&tag);
+
+        assert!(body.starts_with(SQL_ENC_V2_HEADER));
+        assert_eq!(decrypt_sql_payload(&key, &body, "open").unwrap(), plaintext);
     }
 }

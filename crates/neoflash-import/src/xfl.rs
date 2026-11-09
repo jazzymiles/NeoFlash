@@ -2309,7 +2309,7 @@ impl Parser<'_> {
                         self.report.warning(
                             "xfl_morph_hints_ignored",
                             self.location(frame_node, file),
-                            "XFL shape-tween MorphShape hints/segments are ignored; NeoFlash resamples contours automatically.",
+                            "Compatible XFL shape hints were retained; malformed, unsupported, or excess MorphShape data was ignored, and remaining contours are resampled automatically.",
                         );
                     }
                     if let Some(sub) = child(frame_node, "IKTree") {
@@ -5487,6 +5487,7 @@ struct RawXflMorphHint {
     label: Option<char>,
     start: RawXflHintCoord,
     end: RawXflHintCoord,
+    approximated: bool,
 }
 
 fn parse_xfl_hex_24_8_token(token: &str) -> Option<i64> {
@@ -5602,6 +5603,9 @@ fn parse_xfl_single_morph_hint(node: Node<'_, '_>) -> Option<RawXflMorphHint> {
             label,
             start: RawXflHintCoord::Uv([su.clamp(0.0, 1.0), sv.clamp(0.0, 1.0)]),
             end: RawXflHintCoord::Uv([eu.clamp(0.0, 1.0), ev.clamp(0.0, 1.0)]),
+            approximated: [su, sv, eu, ev]
+                .into_iter()
+                .any(|value| !(0.0..=1.0).contains(&value)),
         });
     }
     let start_str = node
@@ -5618,7 +5622,25 @@ fn parse_xfl_single_morph_hint(node: Node<'_, '_>) -> Option<RawXflMorphHint> {
         label,
         start: RawXflHintCoord::PointCandidates(start_candidates),
         end: RawXflHintCoord::PointCandidates(end_candidates),
+        approximated: false,
     })
+}
+
+fn retain_xfl_morph_hint(
+    parsed: Option<RawXflMorphHint>,
+    hints: &mut Vec<RawXflMorphHint>,
+    had_unconverted: &mut bool,
+) {
+    let Some(parsed) = parsed else {
+        *had_unconverted = true;
+        return;
+    };
+    *had_unconverted |= parsed.approximated;
+    if hints.len() < ShapeHint::MAX_HINTS {
+        hints.push(parsed);
+    } else {
+        *had_unconverted = true;
+    }
 }
 
 fn inspect_xfl_hint_list(
@@ -5628,11 +5650,7 @@ fn inspect_xfl_hint_list(
 ) {
     for item in elements(list_node) {
         if item.tag_name().name().eq_ignore_ascii_case("MorphHint") {
-            if let Some(parsed) = parse_xfl_single_morph_hint(item) {
-                hints.push(parsed);
-            } else {
-                *had_unconverted = true;
-            }
+            retain_xfl_morph_hint(parse_xfl_single_morph_hint(item), hints, had_unconverted);
         } else {
             *had_unconverted = true;
         }
@@ -5652,11 +5670,11 @@ fn parse_xfl_frame_morph_hints(frame_node: Node<'_, '_>) -> (Vec<RawXflMorphHint
                 inspect_xfl_hint_list(sub, &mut hints, &mut had_unconverted);
             } else if tag.eq_ignore_ascii_case("MorphHint") {
                 saw_hint_container = true;
-                if let Some(parsed) = parse_xfl_single_morph_hint(sub) {
-                    hints.push(parsed);
-                } else {
-                    had_unconverted = true;
-                }
+                retain_xfl_morph_hint(
+                    parse_xfl_single_morph_hint(sub),
+                    &mut hints,
+                    &mut had_unconverted,
+                );
             }
         }
         if hints.is_empty()
@@ -5821,6 +5839,14 @@ fn strip_neoflash_language_marker(source: &str) -> Option<(ScriptLanguage, Strin
             "/* neoflash:language=actionscript1 */\n",
             ScriptLanguage::ActionScript1,
         ),
+        (
+            "/* neoflash:language=actionscript2 */\n",
+            ScriptLanguage::ActionScript2,
+        ),
+        (
+            "/* neoflash:language=actionscript3 */\n",
+            ScriptLanguage::ActionScript3,
+        ),
     ] {
         if let Some(rest) = source.strip_prefix(prefix) {
             return Some((lang, rest.to_owned()));
@@ -5829,14 +5855,48 @@ fn strip_neoflash_language_marker(source: &str) -> Option<(ScriptLanguage, Strin
     None
 }
 
+fn flash_handler_event(source: &str) -> Option<ObjectEvent> {
+    let trimmed = source.trim_start();
+    let open = trimmed.find('(')?;
+    let handler = trimmed[..open].trim();
+    let close = trimmed[open + 1..].find(')')? + open + 1;
+    let event = trimmed[open + 1..close].trim();
+    if handler.eq_ignore_ascii_case("on") {
+        // NeoFlash currently models the Flash mouse-handler family as Click. `release` is the
+        // canonical form emitted by this exporter, while preserving other wrapped `on(...)`
+        // sources is still less lossy than silently converting them to Load.
+        Some(ObjectEvent::Click)
+    } else if handler.eq_ignore_ascii_case("onClipEvent") {
+        if event.eq_ignore_ascii_case("enterFrame") {
+            Some(ObjectEvent::EnterFrame)
+        } else if event.eq_ignore_ascii_case("load") {
+            Some(ObjectEvent::Load)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
 fn parse_neoflash_object_scripts(source: &str) -> Vec<ObjectScript> {
     if !source.contains("/* neoflash:language=") {
         return Vec::new();
     }
     let trimmed = source.trim();
     if let Some((lang, clean)) = strip_neoflash_language_marker(trimmed) {
+        let event = if matches!(
+            lang,
+            ScriptLanguage::ActionScript1
+                | ScriptLanguage::ActionScript2
+                | ScriptLanguage::ActionScript3
+        ) {
+            flash_handler_event(&clean).unwrap_or(ObjectEvent::Load)
+        } else {
+            ObjectEvent::Load
+        };
         return vec![ObjectScript {
-            event: ObjectEvent::Load,
+            event,
             script: Script {
                 language: lang,
                 source: clean,
@@ -6093,6 +6153,24 @@ mod tests {
         assert_eq!(normalize_filter_strength(150.0, false), 1.5);
         assert_eq!(normalize_filter_strength(1.2, true), 1.2);
         assert_eq!(normalize_filter_strength(30_000.0, false), 255.0);
+    }
+
+    #[test]
+    fn xfl_morph_hint_parser_bounds_retained_records_and_reports_approximation() {
+        let items = (0..=ShapeHint::MAX_HINTS)
+            .map(|index| {
+                format!(r#"<MorphHint startU="0" startV="0" endU="1" endV="1" key="{index}"/>"#)
+            })
+            .collect::<String>();
+        let xml = format!("<DOMFrame><morphHintsList>{items}</morphHintsList></DOMFrame>");
+        let document = Document::parse(&xml).expect("bounded hint fixture parses");
+
+        let (hints, had_unconverted) = parse_xfl_frame_morph_hints(document.root_element());
+        assert_eq!(hints.len(), ShapeHint::MAX_HINTS);
+        assert!(
+            had_unconverted,
+            "the excess hint must not be dropped silently"
+        );
     }
 
     #[test]

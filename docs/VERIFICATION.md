@@ -51,22 +51,20 @@ the cartoon tests with the real browser runtime. Requested artifacts go under `d
 
 ### Dense vector and post-delivery regression
 
-The 8 November 2026 `T-129` audit completed one uninterrupted `./scripts/check.sh` pass with local loopback enabled.
-It included the 786-file NF2 lock, strict workspace Clippy, all workspace Rust tests (including 122 core, 396 editor,
-42 export and 169 import tests), the 21-case public FLA corpus, 122 Node/WASM host tests, 97 emitted-script/actual-host
-fixtures, all 26 project workflow families, the five browser-batch checks and the demo HTML5 export. Two editor tests
-that require an isolated headless browser and two UI doc examples remained explicitly ignored by their harnesses.
-The private legacy survey imported 105 of 106 documents; the remaining input was an unrecognized container. The
-release-only private legacy sample test also passed. No native visual comparison was rerun because this audit did not
-change the locked NF2 presentation.
+The 9 November 2026 `T-176` audit completed one uninterrupted `./scripts/check.sh` pass with local loopback enabled.
+It included the 905-file NF2 lock, strict workspace Clippy, all workspace Rust tests (including 150 core, 488 editor
+and 44 export library tests), the 21-case public FLA corpus, 125 Node/WASM host tests, 97 emitted-script/actual-host
+fixtures, every project workflow family, the five browser-batch checks and the demo HTML5 export. Harness-declared
+browser and UI documentation tests remained explicitly ignored. The private legacy survey imported 105 of 106
+documents; the remaining input was an unrecognized container. The release-only private legacy sample test passed.
+No native visual comparison was rerun because this audit did not change the locked NF2 presentation.
 
 The release Merge movement benchmark retained exact IDs, contour count and area while remerging 60,000 transformed
-rectangles in 144.44 ms and 99,967 rectangles in 277.58 ms on the recorded Apple Silicon host. The latter is the
-largest benchmark document that fits below the current 100,000-expanded-node validation budget; 200,000 independent
-Stage objects are intentionally outside that document contract. The unchanged HTML5 stress workload issued 12,500
-`Graphics` calls across 120 frames: `stress-graphics-as3` measured 1.962 ms/frame and the slowest stress family measured
-2.480 ms/frame against the existing 3.5 ms/frame ceiling. These synthetic results establish the guarded workloads,
-not a universal frame-rate guarantee.
+rectangles in 141.61 ms on the recorded Apple Silicon host. A preceding audit reached 99,967 rectangles in 277.58 ms;
+that is the largest benchmark document below the current 100,000-expanded-node validation budget, so 200,000
+independent Stage objects remain intentionally outside that document contract. The HTML5 high-vertex stress scenario
+also completed its 60-frame guarded workload within the shared check. These synthetic results establish the guarded
+workloads, not a universal frame-rate guarantee.
 
 ### Stage grid and main-menu controls
 

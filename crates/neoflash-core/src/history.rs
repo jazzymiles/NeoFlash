@@ -1160,8 +1160,12 @@ impl History {
 
     pub fn set_capacity(&mut self, capacity: usize) {
         self.capacity = capacity;
-        if self.undo.len() > capacity {
-            let excess = self.undo.len() - capacity;
+        self.trim_undo_to_capacity();
+    }
+
+    fn trim_undo_to_capacity(&mut self) {
+        if self.undo.len() > self.capacity {
+            let excess = self.undo.len() - self.capacity;
             self.undo.drain(..excess);
         }
     }
@@ -1267,9 +1271,7 @@ impl History {
                 label: pending.label,
                 command_step: pending.command_step,
             });
-            if self.undo.len() > self.capacity {
-                self.undo.remove(0);
-            }
+            self.trim_undo_to_capacity();
         }
         true
     }
@@ -1314,11 +1316,14 @@ impl History {
         if let Some(prev_base) = self.clean_baseline.take() {
             self.clean_baseline = Some(CachedProjectBaseline::capture(project, Some(&prev_base)));
         }
-        self.undo.push(HistoryEntry {
-            delta: undo_delta,
-            label: entry.label,
-            command_step: entry.command_step,
-        });
+        if self.capacity > 0 {
+            self.undo.push(HistoryEntry {
+                delta: undo_delta,
+                label: entry.label,
+                command_step: entry.command_step,
+            });
+            self.trim_undo_to_capacity();
+        }
         self.revision = next_revision();
         true
     }
@@ -1588,5 +1593,30 @@ mod tests {
                 expected as f64
             );
         }
+    }
+
+    #[test]
+    fn redo_respects_reduced_history_capacity() {
+        let mut project = Project::blank();
+        let mut history = History::new(3);
+        for step in 1..=3 {
+            history.begin(&project);
+            project.name = format!("Step {step}");
+            assert!(history.commit(&project));
+        }
+        for _ in 0..3 {
+            assert!(history.undo(&mut project));
+        }
+        assert_eq!(history.undo_len(), 0);
+        assert_eq!(history.redo_len(), 3);
+
+        history.set_capacity(1);
+        for _ in 0..3 {
+            assert!(history.redo(&mut project));
+            assert!(history.undo_len() <= 1);
+        }
+        assert_eq!(project.name, "Step 3");
+        assert_eq!(history.undo_len(), 1);
+        assert_eq!(history.redo_len(), 0);
     }
 }

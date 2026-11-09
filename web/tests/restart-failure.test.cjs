@@ -10,7 +10,7 @@ test('the actual host keeps scheduling after a startup script failure so Restart
   const context2d = { setTransform() {}, clearRect() {}, fillRect() {} };
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
-      style: {}, textContent: '', getContext: () => context2d,
+      style: {}, dataset: {}, title: '', textContent: '', getContext: () => context2d,
       addEventListener: (name, fn) => listeners.set(`${id}:${name}`, fn),
       removeAttribute() {}, setAttribute() {},
     });
@@ -61,6 +61,12 @@ test('the actual host keeps scheduling after a startup script failure so Restart
   animation.shift()(100);
   animation.shift()(150);
   assert.equal(player.frame, 1, 'Restart resumes ticking after the original cause is resolved');
+  animation.shift()(200);
+  assert.ok(context.NeoFlashPlayer.measuredFps > 0, 'the recovered player reports measured FPS');
+  context.NeoFlashPlayer.pause();
+  assert.equal(context.NeoFlashPlayer.measuredFps, 0, 'Pause clears the stale FPS window');
+  context.NeoFlashPlayer.resume();
+  assert.equal(context.NeoFlashPlayer.measuredFps, 0, 'Resume starts a fresh FPS window');
   assert.equal(errors.length, 1);
   assert.equal(animation.length, 1, 'recovery does not install a duplicate animation loop');
 });

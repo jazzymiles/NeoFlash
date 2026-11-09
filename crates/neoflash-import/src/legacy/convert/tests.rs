@@ -941,7 +941,7 @@ fn converts_binary_morph_shape_hints_into_keyframe_shape_hints() {
             revision: Some(2),
             matrix_words_start: Some([65536, 0, 0, 65536, 0, 0]),
             matrix_words_end: Some([65536, 0, 0, 65536, 0, 0]),
-            hints: vec![Some(31), Some(32)],
+            hints: vec![Some(31), None, Some(32)],
             ..Default::default()
         })),
         &[],
@@ -1002,7 +1002,15 @@ fn converts_binary_morph_shape_hints_into_keyframe_shape_hints() {
         original_bytes: vec![],
     };
 
-    let timeline = convert_timeline(&stream).unwrap();
+    let (timeline, report) = convert_timeline_reporting(&stream).unwrap();
+    assert!(
+        report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "fla_morph_hints_approximated"
+                && diagnostic.location == "stream #1 layer <unnamed> frame 0"
+        }),
+        "{:?}",
+        report.diagnostics
+    );
     let k0 = &timeline.layers[0].keyframes[0];
     assert_eq!(k0.tween_kind, TweenKind::Shape);
     assert_eq!(k0.shape_hints.len(), 2);

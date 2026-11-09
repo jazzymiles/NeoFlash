@@ -1797,7 +1797,7 @@ impl Editor {
             },
         );
     }
-    pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, symbol_id: &str) {
+    pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, scene: &AuthoredScene) {
         let (rect, _) = ui.allocate_exact_size(
             Vec2::new(
                 ui.available_width()
@@ -1809,7 +1809,6 @@ impl Editor {
         );
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 2., UiPalette::current(ui.ctx()).window_fill);
-        let scene = evaluate_scene(&self.project, symbol_id, 0, false, true);
         let bounds = scene.draws.iter().fold(Rect::NOTHING, |bounds, draw| {
             bounds.union(world_bounds(&draw.item, &painter))
         });
@@ -1829,7 +1828,7 @@ impl Editor {
         let origin = rect.center() - bounds.center().to_vec2() * zoom;
         self.paint_authored_scene(
             &painter,
-            &scene,
+            scene,
             DrawStyle {
                 origin,
                 zoom,

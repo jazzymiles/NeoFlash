@@ -1222,6 +1222,9 @@ test('Wave 6 Areas 4-7 conformance: SoftKeyboardEvent, drawWithQuality supersamp
   const drawCalls = [];
   const mockCtx = {
     font: '',
+    fontVariantLigatures: '',
+    fontVariantNumeric: '',
+    lang: '',
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
@@ -1237,7 +1240,8 @@ test('Wave 6 Areas 4-7 conformance: SoftKeyboardEvent, drawWithQuality supersamp
     strokeRect() {},
     measureText(s) { return { width: s.length * 8 }; },
     fillText(text, x, y) {
-      drawCalls.push({ op: 'fillText', text, x, y, font: this.font, fillStyle: this.fillStyle });
+      drawCalls.push({ op: 'fillText', text, x, y, font: this.font, fillStyle: this.fillStyle,
+        fontVariantLigatures: this.fontVariantLigatures, fontVariantNumeric: this.fontVariantNumeric, lang: this.lang });
     },
     strokeText(text, x, y) {
       drawCalls.push({ op: 'strokeText', text, x, y, lineWidth: this.lineWidth, strokeStyle: this.strokeStyle });
@@ -1256,6 +1260,10 @@ test('Wave 6 Areas 4-7 conformance: SoftKeyboardEvent, drawWithQuality supersamp
     alpha: 1,
     revision: '1',
     embed_fonts: true,
+    ligatures: 'none',
+    digit_case: 'old_style',
+    digit_width: 'tabular',
+    locale: 'zh_Hans_CN',
     anti_alias_type: 'advanced',
     grid_fit_type: 'pixel',
     thickness: 100,
@@ -1277,6 +1285,22 @@ test('Wave 6 Areas 4-7 conformance: SoftKeyboardEvent, drawWithQuality supersamp
   assert.equal(drawCalls.some(c => c.op === 'strokeText' && c.lineWidth > 0), true);
   // When embedFonts is true, generic sans-serif fallback is omitted
   assert.equal(drawCalls[0].font.includes('sans-serif'), false);
+  assert.equal(drawCalls[0].fontVariantLigatures, 'none');
+  assert.equal(drawCalls[0].fontVariantNumeric, 'oldstyle-nums tabular-nums');
+  assert.equal(drawCalls[0].lang, 'zh-Hans-CN');
+
+  // Canvas implementations that expose the optional language/font-variant properties reuse one
+  // context across fields. Returning to defaults must clear the previous field's values.
+  drawCalls.length = 0;
+  textHost.draw(mockCtx, {
+    box: { width: 200, height: 40 }, text: 'Default', multiline: false, word_wrap: false,
+    alpha: 255, revision: '2', embed_fonts: false,
+    format: { font: 'Arial', size: 16, color: 0x336699, align: 'left' },
+    default_format: { font: 'Arial', size: 16, color: 0x336699, align: 'left' },
+  });
+  assert.equal(drawCalls[0].fontVariantLigatures, 'common-ligatures');
+  assert.equal(drawCalls[0].fontVariantNumeric, 'normal');
+  assert.equal(drawCalls[0].lang, '');
 
   // Authored embedding metadata, not the resource filename, owns the exact family/style match.
   // Registering any runtime Font activates embedded-only filtering; an unrelated registered Font

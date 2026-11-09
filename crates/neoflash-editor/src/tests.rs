@@ -1458,6 +1458,60 @@ fn preview_transport_keeps_nested_clocks_through_pause_and_resets_after_edits_or
 }
 
 #[test]
+fn switching_live_scripts_rebuilds_the_editor_preview_tree() {
+    let mut project = Project::blank();
+    let root = project.root.clone();
+    let mut child = project.symbol(&root).unwrap().clone();
+    child.id = "editor-live-toggle-child".into();
+    child.name = "Editor live toggle child".into();
+    child.timeline.frame_count = 3;
+    child.timeline.layers[0].id = "editor-live-toggle-child-layer".into();
+    child.timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "stop();".into(),
+        },
+    }];
+    project.symbols.push(child);
+    project.symbol_mut(&root).unwrap().timeline.frame_count = 1;
+    project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "editor-live-toggle-instance".into(),
+        name: "liveToggleClip".into(),
+        kind: ElementKind::Instance {
+            symbol_id: "editor-live-toggle-child".into(),
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    }];
+    project.validate().unwrap();
+
+    let instance_id: Id = "editor-live-toggle-instance".into();
+    let mut editor = Editor::from_project(&egui::Context::default(), project);
+    editor.set_live_script_preview(true);
+    editor.set_playing(true);
+    editor.tick_authored_preview();
+    assert!(
+        editor.playing,
+        "a child stop() must not pause the root transport"
+    );
+    assert_eq!(editor.presented_instance_frame(&instance_id), Some(0));
+
+    editor.set_live_script_preview(false);
+    assert_eq!(editor.frame, 0, "mode changes retain the authored playhead");
+    assert!(
+        editor.playing,
+        "mode changes retain ordinary transport state"
+    );
+    editor.tick_authored_preview();
+    assert_eq!(
+        editor.presented_instance_frame(&instance_id),
+        Some(1),
+        "classic preview starts with a fresh nested clock and ignores stop()"
+    );
+}
+
+#[test]
 fn open_path_imports_swf_and_save_to_path_exports_fla_and_nflash() {
     let ctx = egui::Context::default();
     let mut editor = Editor::from_project(&ctx, Project::blank());

@@ -579,6 +579,32 @@ impl Editor {
         })
     }
 
+    /// Whether the current object selection or layer contains an editable symbol instance. This
+    /// is used by read-only donor Libraries before their target symbol has been imported locally.
+    pub(crate) fn has_swappable_instance_or_layer(&self, layer_index: usize) -> bool {
+        if self.sampled_targets().into_iter().any(|(target, element)| {
+            self.target_editable(&target) && matches!(&element.kind, ElementKind::Instance { .. })
+        }) {
+            return true;
+        }
+        let timeline = &self.symbol().timeline;
+        let Some(layer) = timeline.layers.get(layer_index) else {
+            return false;
+        };
+        if layer.properties.role == LayerRole::Folder
+            || layer_effectively_locked(timeline, layer)
+            || !layer_effectively_visible(timeline, layer)
+        {
+            return false;
+        }
+        let sampled =
+            sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps));
+        sampled
+            .iter()
+            .chain(layer.keyframes.iter().flat_map(|key| &key.elements))
+            .any(|element| matches!(&element.kind, ElementKind::Instance { .. }))
+    }
+
     /// AE-style symbol replacement on `layer_index` (or the current selection when `layer_index ==
     /// self.layer` and swappable instances are explicitly selected): replaces the symbol instance(s)
     /// on the layer across their keyframe track while preserving transform, instance name, scripts,

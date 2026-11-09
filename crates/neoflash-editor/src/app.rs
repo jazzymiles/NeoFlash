@@ -3,7 +3,13 @@ use crate::theme::ThemeMode;
 use crate::workspace::{PanelId, WorkspacePrefs};
 use eframe::egui::{self, Key, Modifiers, Vec2};
 use neoflash_core::*;
-use std::{path::PathBuf, time::Instant};
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tool {
@@ -39,6 +45,41 @@ pub enum ScriptTarget {
     Frame,
     Object,
     Source,
+}
+
+fn atomic_save_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static TEMP_ID: AtomicU64 = AtomicU64::new(1);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("document");
+    for _ in 0..64 {
+        let temp = parent.join(format!(
+            ".{name}.neoflash-save-{}-{}.tmp",
+            std::process::id(),
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let write_result = (|| {
+            file.write_all(bytes)?;
+            file.sync_all()
+        })();
+        drop(file);
+        let result = write_result.and_then(|()| std::fs::rename(&temp, path));
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        return result;
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not reserve a unique temporary save file",
+    ))
 }
 
 pub struct Editor {
@@ -603,10 +644,15 @@ impl Editor {
         }
     }
     pub fn set_live_script_preview(&mut self, enabled: bool) {
-        self.live_script_preview = enabled;
-        if let Some(preview) = &mut self.authored_preview {
-            preview.playback.set_live_scripts(enabled);
+        if self.live_script_preview == enabled {
+            return;
         }
+        self.live_script_preview = enabled;
+        // Recreate the complete authoring session (including nested clocks and SWF state) at the
+        // current authored playhead. AuthoredPlayback also makes its direct toggle safe, while the
+        // editor-level reset gives native previews a new epoch and silences the previous session.
+        self.reset_authored_preview();
+        self.sync_authored_preview();
     }
     pub(crate) fn clear_simple_button_state(&mut self) {
         self.hovered_simple_button = None;
@@ -1188,12 +1234,19 @@ impl Editor {
                             ));
                             if report.format == neoflash_import::ImportFormat::Swf
                                 && let Ok(swf_bytes) = std::fs::read(&path)
-                                && let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 1)
                             {
-                                messages.push(format!(
-                                    "SWF player ready ({:?} VM, SWF v{}, {} frames).",
-                                    play_res.vm_kind, play_res.swf_version, play_res.total_frames
-                                ));
+                                let previous_frame = self.frame;
+                                let previous_playing = self.playing;
+                                if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 1) {
+                                    self.frame = previous_frame;
+                                    self.playing = previous_playing;
+                                    messages.push(format!(
+                                        "SWF bytecode inspected headlessly ({:?} VM, SWF v{}, {} frames). Imported artwork is shown on Stage; live display-list states are not projected yet.",
+                                        play_res.vm_kind,
+                                        play_res.swf_version,
+                                        play_res.total_frames
+                                    ));
+                                }
                             }
                             imported = true;
                         }
@@ -1201,14 +1254,23 @@ impl Editor {
                     }
                 } else if report.format == neoflash_import::ImportFormat::Swf
                     && let Ok(swf_bytes) = std::fs::read(&path)
-                    && let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60)
                 {
-                    messages.push(format!(
-                        "Played SWF movie directly ({:?} VM, {} frames executed).",
-                        play_res.vm_kind,
-                        play_res.frames_executed.len()
-                    ));
-                    imported = true;
+                    let previous_frame = self.frame;
+                    let previous_playing = self.playing;
+                    if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60) {
+                        self.frame = previous_frame;
+                        self.playing = previous_playing;
+                        messages.push(format!(
+                            "Inspected SWF bytecode headlessly ({:?} VM, {} frames executed). The display list could not be imported, so Stage preview is unavailable and the current document was left unchanged.",
+                            play_res.vm_kind,
+                            play_res.frames_executed.len()
+                        ));
+                    } else {
+                        messages.push(
+                            "Import stopped: this SWF could not be represented or executed safely."
+                                .into(),
+                        );
+                    }
                 } else {
                     messages.push("Import stopped: this source contains features the current importer cannot preserve.".into());
                 }
@@ -1325,21 +1387,13 @@ impl Editor {
         let result = if is_fla {
             neoflash_import::export_fla_bytes(&self.project)
                 .map_err(|e| e.to_string())
-                .and_then(|bytes| {
-                    let tmp = path.with_extension("fla.tmp");
-                    std::fs::write(&tmp, bytes)
-                        .and_then(|_| std::fs::rename(&tmp, &path))
-                        .map_err(|e| e.to_string())
-                })
+                .and_then(|bytes| atomic_save_file(&path, &bytes).map_err(|e| e.to_string()))
         } else {
             self.project
                 .to_json()
                 .map_err(|e| e.to_string())
                 .and_then(|json| {
-                    let tmp = path.with_extension("nflash.tmp");
-                    std::fs::write(&tmp, json)
-                        .and_then(|_| std::fs::rename(&tmp, &path))
-                        .map_err(|e| e.to_string())
+                    atomic_save_file(&path, json.as_bytes()).map_err(|e| e.to_string())
                 })
         };
         match result {

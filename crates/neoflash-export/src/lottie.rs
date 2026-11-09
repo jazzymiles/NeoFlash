@@ -3186,6 +3186,32 @@ mod tests {
         }
     }
 
+    fn heart_puff_commands(cx: f64, cy: f64, size: f64) -> Vec<PathCommand> {
+        vec![
+            PathCommand::MoveTo {
+                x: cx,
+                y: cy + size * 0.85,
+            },
+            PathCommand::CubicTo {
+                cx1: cx - size * 1.15,
+                cy1: cy + size * 0.2,
+                cx2: cx - size * 0.95,
+                cy2: cy - size * 0.85,
+                x: cx,
+                y: cy - size * 0.3,
+            },
+            PathCommand::CubicTo {
+                cx1: cx + size * 0.95,
+                cy1: cy - size * 0.85,
+                cx2: cx + size * 1.15,
+                cy2: cy + size * 0.2,
+                x: cx,
+                y: cy + size * 0.85,
+            },
+            PathCommand::Close,
+        ]
+    }
+
     #[test]
     fn property_expression_sampling_uses_source_document_fps() {
         let mut project = Project::blank();
@@ -5351,33 +5377,6 @@ mod tests {
             ]
         }
 
-        // Helper 9: Vector Heart Puff contour around (cx, cy).
-        fn heart_puff_commands(cx: f64, cy: f64, size: f64) -> Vec<PathCommand> {
-            vec![
-                PathCommand::MoveTo {
-                    x: cx,
-                    y: cy + size * 0.85,
-                },
-                PathCommand::CubicTo {
-                    cx1: cx - size * 1.15,
-                    cy1: cy + size * 0.2,
-                    cx2: cx - size * 0.95,
-                    cy2: cy - size * 0.85,
-                    x: cx,
-                    y: cy - size * 0.3,
-                },
-                PathCommand::CubicTo {
-                    cx1: cx + size * 0.95,
-                    cy1: cy - size * 0.85,
-                    cx2: cx + size * 1.15,
-                    cy2: cy + size * 0.2,
-                    x: cx,
-                    y: cy + size * 0.85,
-                },
-                PathCommand::Close,
-            ]
-        }
-
         // 1. Build a rich 8 kHz mono 16-bit PCM WAV nocturnal chime + train whistle (1.5s = 12000 samples).
         let sample_rate = 8000u32;
         let num_samples = 12000u32;
@@ -7257,33 +7256,6 @@ mod tests {
                     cy2: cy - hh * 1.2,
                     x: cx - hw,
                     y: cy + hh * 0.8,
-                },
-                PathCommand::Close,
-            ]
-        }
-
-        // Heart puff contour
-        fn heart_puff_commands(cx: f64, cy: f64, size: f64) -> Vec<PathCommand> {
-            vec![
-                PathCommand::MoveTo {
-                    x: cx,
-                    y: cy + size * 0.85,
-                },
-                PathCommand::CubicTo {
-                    cx1: cx - size * 1.15,
-                    cy1: cy + size * 0.2,
-                    cx2: cx - size * 0.95,
-                    cy2: cy - size * 0.85,
-                    x: cx,
-                    y: cy - size * 0.3,
-                },
-                PathCommand::CubicTo {
-                    cx1: cx + size * 0.95,
-                    cy1: cy - size * 0.85,
-                    cx2: cx + size * 1.15,
-                    cy2: cy + size * 0.2,
-                    x: cx,
-                    y: cy + size * 0.85,
                 },
                 PathCommand::Close,
             ]

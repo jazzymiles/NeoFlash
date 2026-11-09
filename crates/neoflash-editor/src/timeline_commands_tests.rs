@@ -3612,16 +3612,79 @@ fn ik_bone_bind_puppet_warp_deco_spray_and_3d_commands_roundtrip_undo() {
         [275.0, 200.0],
     ));
     assert!(editor.apply_deco_pattern_with_options(4, 25.0, 100.0, 8.0, 2, true) >= 5);
+    let active_layer = &editor.symbol().timeline.layers[0];
+    assert!(active_layer.keyframes.iter().any(|key| key.frame == 2));
+    assert!(active_layer.keyframes.iter().any(|key| key.frame == 4));
     assert!(
-        editor
-            .apply_spray_brush_with_options(true, 100.0, 100.0, true, true, true, 32.0, 24.0, 15.0)
-            == 6
+        active_layer.keyframes[0]
+            .elements
+            .iter()
+            .any(|element| element.name.starts_with("deco_flame_")
+                && (element.transform.rotation - 25.0).abs() < 1.0e-9)
+    );
+    assert!(
+        editor.apply_spray_brush_with_options(
+            None, true, 100.0, 100.0, true, true, true, 32.0, 24.0, 15.0
+        ) == 6
     );
 
     for _ in 0..6 {
         editor.undo();
     }
     undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn spray_brush_uses_the_requested_library_symbol_and_fails_closed_when_missing() {
+    let mut editor = editor_with(vec![], vec![]);
+    for (id, name) in [("first-symbol", "First"), ("target-symbol", "Target")] {
+        let mut symbol = editor.project.symbols[0].clone();
+        symbol.id = id.into();
+        symbol.name = name.into();
+        symbol.timeline.layers[0].id = format!("{id}-layer");
+        symbol.timeline.layers[0].keyframes[0].elements.clear();
+        editor.project.symbols.push(symbol);
+    }
+    editor.project.validate().expect("library setup validates");
+
+    assert_eq!(
+        editor.apply_spray_brush_with_options(
+            Some("Target"),
+            false,
+            100.0,
+            100.0,
+            false,
+            false,
+            false,
+            24.0,
+            24.0,
+            0.0,
+        ),
+        6
+    );
+    let placed = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+    assert!(placed.iter().all(|element| matches!(
+        &element.kind,
+        ElementKind::Instance { symbol_id, .. } if symbol_id == "target-symbol"
+    )));
+    let before_missing = editor.project.clone();
+    assert_eq!(
+        editor.apply_spray_brush_with_options(
+            Some("Missing"),
+            false,
+            100.0,
+            100.0,
+            false,
+            false,
+            false,
+            24.0,
+            24.0,
+            0.0,
+        ),
+        0
+    );
+    assert_eq!(editor.project, before_missing);
+    assert!(editor.status.contains("was not found"));
 }
 
 #[test]
@@ -3646,11 +3709,14 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
 
     // 2. External / Donor Library symbol import with transitive nested symbol (`T-166`)
     let mut donor = Project::blank();
+    donor.name = "UIKit donor".into();
+    donor.format_version = 4;
     let leaf_id = new_id("leaf_sym");
     let mut leaf = donor.symbols[0].clone();
     leaf.id = leaf_id.clone();
     leaf.name = "LeafBadge".into();
     leaf.folder = "UI/Badges".into();
+    crate::panels::scene::refresh_timeline_ids(&mut leaf.timeline);
     donor.symbols.push(leaf);
 
     let card_id = new_id("card_sym");
@@ -3658,6 +3724,7 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
     card.id = card_id.clone();
     card.name = "HeroCard".into();
     card.folder = "UI".into();
+    crate::panels::scene::refresh_timeline_ids(&mut card.timeline);
     card.timeline.layers[0].keyframes[0].elements.push(Element {
         id: new_id("inst"),
         name: "badge_inst".into(),
@@ -3668,14 +3735,31 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
         ..Element::default()
     });
     donor.symbols.push(card);
+    donor.validate().expect("donor library validates");
 
     editor.open_external_library_project("UIKit.nflash", donor.clone());
+    assert_eq!(editor.library_source_project().name, donor.name);
+    assert!(editor.library_source_project().symbol(&card_id).is_some());
+    assert!(editor.project.symbol(&card_id).is_none());
     let imported_id = editor
-        .import_symbol_from_donor_project(&donor, &card_id)
+        .import_symbol_from_current_library_source(&card_id)
         .expect("import card with nested leaf");
     assert_eq!(imported_id, card_id);
     assert!(editor.project.symbol(&card_id).is_some());
     assert!(editor.project.symbol(&leaf_id).is_some());
+
+    let mut tab_editor = Editor::from_project(&ctx, Project::blank());
+    let donor_tab = tab_editor.open_new_session_tab(&ctx, donor.clone(), None);
+    assert!(tab_editor.switch_session_tab(&ctx, 0));
+    tab_editor.library_panel.source = crate::library::LibrarySource::Session(donor_tab);
+    assert_eq!(tab_editor.library_source_project().name, donor.name);
+    assert_eq!(
+        tab_editor
+            .import_symbol_from_current_library_source(&card_id)
+            .expect("import from another open document tab"),
+        card_id
+    );
+    assert!(tab_editor.project.symbol(&leaf_id).is_some());
 
     // 3. Save / Manage / Run Commands & Safe Extension API (`T-167`)
     editor.add_element(rectangle(), 20.0, 30.0);
@@ -3690,9 +3774,18 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
         .save_history_command("Nudge Right", &[last_step_idx])
         .expect("save history command");
     assert_eq!(saved.name, "Nudge Right");
+    assert_eq!(editor.saved_commands().len(), 1);
+    editor.undo();
+    assert!(editor.saved_commands().is_empty());
+    editor.redo();
+    assert_eq!(editor.saved_commands()[0].name, "Nudge Right");
     editor
         .rename_saved_command("Nudge Right", "Slide Right")
         .expect("rename saved command");
+    editor.undo();
+    assert_eq!(editor.saved_commands()[0].name, "Nudge Right");
+    editor.redo();
+    assert_eq!(editor.saved_commands()[0].name, "Slide Right");
     assert_eq!(
         editor
             .run_saved_command_by_name("Slide Right")
@@ -3700,6 +3793,10 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
         1
     );
     assert!(editor.delete_saved_command("Slide Right"));
+    assert!(editor.saved_commands().is_empty());
+    editor.undo();
+    assert_eq!(editor.saved_commands()[0].name, "Slide Right");
+    editor.redo();
     assert!(editor.saved_commands().is_empty());
 
     // Safe Extension Manifest: missing permission is rejected; granted permission runs cleanly
@@ -3739,6 +3836,11 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
     editor
         .install_extension_manifest(&manifest_json)
         .expect("install valid extension");
+    assert_eq!(editor.installed_extensions().len(), 1);
+    editor.undo();
+    assert!(editor.installed_extensions().is_empty());
+    editor.redo();
+    assert_eq!(editor.installed_extensions().len(), 1);
     assert_eq!(
         editor
             .run_extension_command("neoflash.transform.pack", "Spin and Dim")
@@ -3746,6 +3848,321 @@ fn professional_library_scale9_donor_import_and_commands_extension_api_work() {
         2
     );
     editor.project.validate().expect("project remains valid");
+}
+
+#[test]
+fn corrupt_command_registries_fail_closed_without_overwriting_project_resources() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let corrupt = ResourceUnit::from_bytes(
+        new_id("resource"),
+        "commands/saved_commands.json",
+        "application/json",
+        br#"[{"name":"broken""#,
+    )
+    .expect("construct corrupt saved-command resource");
+    let original = corrupt.decoded_bytes().expect("decode original bytes");
+    editor.project.resources.push(corrupt);
+
+    assert!(
+        editor
+            .register_saved_command(SavedCommand {
+                name: "Must Not Replace".into(),
+                steps: vec![AuthoringCommandStep::Translate { dx: 1.0, dy: 2.0 }],
+            })
+            .is_err()
+    );
+    let retained = editor
+        .project
+        .resources
+        .iter()
+        .find(|unit| {
+            unit.path
+                .eq_ignore_ascii_case("commands/saved_commands.json")
+        })
+        .expect("corrupt registry is retained")
+        .decoded_bytes()
+        .expect("decode retained bytes");
+    assert_eq!(retained, original);
+    assert!(editor.saved_commands().is_empty());
+    assert!(
+        editor
+            .run_saved_command_by_name("Must Not Replace")
+            .expect_err("corrupt registries must not look like an empty valid registry")
+            .contains("Invalid saved-command registry")
+    );
+}
+
+#[test]
+fn donor_library_import_remaps_colliding_symbols_resources_layers_and_elements() {
+    let ctx = egui::Context::default();
+    let png = |rgba: [u8; 4]| {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(rgba));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode PNG fixture");
+        bytes.into_inner()
+    };
+    let destination_png = png([0, 0, 255, 255]);
+    let donor_png = png([255, 0, 0, 255]);
+    let mut destination = Project::blank();
+    destination.format_version = 3;
+    destination.resources.push(
+        ResourceUnit::from_bytes(
+            "shared-resource",
+            "images/existing.bin",
+            "image/png",
+            &destination_png,
+        )
+        .expect("destination resource"),
+    );
+    destination.set_global_swatches(&[GlobalSwatch {
+        id: "shared-swatch".into(),
+        name: "Destination blue".into(),
+        color: [0, 0, 255, 255],
+    }]);
+    destination.set_vector_styles(&[VectorStyle {
+        id: "shared-style".into(),
+        name: "Destination style".into(),
+        fill: [0, 0, 255, 255],
+        stroke: [0, 0, 0, 255],
+        stroke_width: 1.0,
+        modifiers: Vec::new(),
+    }]);
+    let mut existing = destination.symbols[0].clone();
+    existing.id = "shared-symbol".into();
+    existing.name = "Existing Symbol".into();
+    existing.linkage_id = Some("shared.export".into());
+    existing.class_name = Some("shared.ExportedSymbol".into());
+    existing.timeline.layers[0].id = "shared-layer".into();
+    existing.timeline.layers[0].keyframes[0].elements = vec![
+        Element {
+            id: "shared-element".into(),
+            name: "existing artwork".into(),
+            kind: rectangle(),
+            ..Element::default()
+        },
+        Element {
+            id: "shared-target".into(),
+            name: "existing blend target".into(),
+            kind: rectangle(),
+            ..Element::default()
+        },
+    ];
+    destination.symbols.push(existing.clone());
+    destination.validate().expect("destination validates");
+
+    let mut donor = Project::blank();
+    donor.format_version = 9;
+    donor.resources.push(
+        ResourceUnit::from_bytes(
+            "shared-resource",
+            "images/donor.bin",
+            "image/png",
+            &donor_png,
+        )
+        .expect("donor resource"),
+    );
+    donor.set_global_swatches(&[GlobalSwatch {
+        id: "shared-swatch".into(),
+        name: "Donor red".into(),
+        color: [255, 0, 0, 255],
+    }]);
+    donor.set_vector_styles(&[VectorStyle {
+        id: "shared-style".into(),
+        name: "Donor style".into(),
+        fill: [255, 0, 0, 255],
+        stroke: [255, 255, 255, 255],
+        stroke_width: 2.0,
+        modifiers: Vec::new(),
+    }]);
+    let mut imported = donor.symbols[0].clone();
+    imported.id = "shared-symbol".into();
+    imported.name = "Donor Symbol".into();
+    imported.linkage_id = Some("shared.export".into());
+    imported.class_name = Some("shared.ExportedSymbol".into());
+    imported.folder = "Imported".into();
+    imported.timeline.layers[0].id = "shared-layer".into();
+    imported.timeline.layers[0].keyframes[0].elements = vec![
+        Element {
+            id: "shared-element".into(),
+            name: "donor bitmap".into(),
+            kind: ElementKind::Bitmap {
+                resource_id: "shared-resource".into(),
+                width: 1,
+                height: 1,
+                smoothing: true,
+            },
+            ..Element::default()
+        },
+        Element {
+            id: "shared-target".into(),
+            name: "donor blend target".into(),
+            kind: rectangle(),
+            ..Element::default()
+        },
+    ];
+    imported.timeline.layers[0].keyframes[0].appearances = vec![ElementAppearance {
+        element_id: "shared-element".into(),
+        fill_swatch_id: Some("shared-swatch".into()),
+        style_id: Some("shared-style".into()),
+        entries: vec![AppearancePaintEntry::Fill {
+            color: [255, 0, 0, 255],
+            gradient: None,
+            swatch_id: Some("shared-swatch".into()),
+            offset: [0.0, 0.0],
+            opacity: 1.0,
+        }],
+        ..ElementAppearance::default()
+    }];
+    imported.timeline.layers[0].keyframes[0].vector_effects = vec![ElementVectorEffects {
+        element_id: "shared-element".into(),
+        vector_blend: Some(VectorBlendSpec {
+            target_element_id: "shared-target".into(),
+            spacing: VectorBlendSpacing::SpecifiedSteps(3),
+            align_to_path: false,
+            spine: None,
+        }),
+        ..ElementVectorEffects::default()
+    }];
+    donor.symbols.push(imported);
+    donor.validate().expect("donor validates");
+
+    let mut editor = Editor::from_project(&ctx, destination);
+    let before = editor.project.clone();
+    let imported_id = editor
+        .import_symbol_from_donor_project(&donor, "shared-symbol")
+        .expect("collision-free donor import");
+    assert_ne!(imported_id, "shared-symbol");
+    assert_eq!(
+        editor.project.symbol("shared-symbol"),
+        Some(&existing),
+        "the existing symbol definition is never replaced"
+    );
+    let imported = editor
+        .project
+        .symbol(&imported_id)
+        .expect("remapped donor symbol exists");
+    assert_eq!(imported.name, "Donor Symbol");
+    assert_ne!(imported.linkage_id.as_deref(), Some("shared.export"));
+    assert_ne!(
+        imported.class_name.as_deref(),
+        Some("shared.ExportedSymbol")
+    );
+    assert_ne!(imported.timeline.layers[0].id, "shared-layer");
+    let bitmap = &imported.timeline.layers[0].keyframes[0].elements[0];
+    assert_ne!(bitmap.id, "shared-element");
+    let ElementKind::Bitmap { resource_id, .. } = &bitmap.kind else {
+        panic!("donor bitmap kind is retained")
+    };
+    let appearance = &imported.timeline.layers[0].keyframes[0].appearances[0];
+    let effects = &imported.timeline.layers[0].keyframes[0].vector_effects[0];
+    let imported_target_id = &imported.timeline.layers[0].keyframes[0].elements[1].id;
+    assert_ne!(imported_target_id, "shared-target");
+    assert_eq!(
+        effects
+            .vector_blend
+            .as_ref()
+            .expect("imported vector blend")
+            .target_element_id,
+        *imported_target_id,
+        "nested vector-blend targets follow the remapped donor element"
+    );
+    let imported_swatch_id = appearance
+        .fill_swatch_id
+        .as_deref()
+        .expect("imported swatch link");
+    let imported_style_id = appearance.style_id.as_deref().expect("imported style link");
+    assert_ne!(imported_swatch_id, "shared-swatch");
+    assert_ne!(imported_style_id, "shared-style");
+    assert_eq!(
+        editor
+            .project
+            .global_swatches()
+            .iter()
+            .find(|swatch| swatch.id == imported_swatch_id)
+            .expect("remapped donor swatch")
+            .color,
+        [255, 0, 0, 255]
+    );
+    assert_eq!(
+        editor
+            .project
+            .vector_styles()
+            .iter()
+            .find(|style| style.id == imported_style_id)
+            .expect("remapped donor style")
+            .fill,
+        [255, 0, 0, 255]
+    );
+    assert_ne!(resource_id, "shared-resource");
+    assert_eq!(
+        editor
+            .project
+            .resources
+            .iter()
+            .find(|resource| resource.id == *resource_id)
+            .expect("remapped donor resource exists")
+            .decoded_bytes()
+            .expect("decode donor bytes"),
+        donor_png
+    );
+    assert_eq!(
+        editor.project.resources[0]
+            .decoded_bytes()
+            .expect("decode destination bytes"),
+        destination_png
+    );
+    editor
+        .project
+        .validate()
+        .expect("combined project validates");
+    editor.undo();
+    assert_eq!(editor.project, before);
+    editor.redo();
+    assert!(editor.project.symbol(&imported_id).is_some());
+}
+
+#[test]
+fn donor_library_metadata_collisions_follow_case_sensitive_runtime_identity() {
+    let ctx = egui::Context::default();
+    let mut destination = Project::blank();
+    destination.format_version = 2;
+    let mut existing = destination.symbols[0].clone();
+    existing.id = "destination-case-symbol".into();
+    existing.name = "Destination case symbol".into();
+    existing.linkage_id = Some("Hero".into());
+    existing.class_name = Some("pkg.Hero".into());
+    existing.timeline.layers[0].id = "destination-case-layer".into();
+    destination.symbols.push(existing);
+    destination.validate().expect("destination validates");
+
+    let mut donor = Project::blank();
+    donor.format_version = 2;
+    let mut imported = donor.symbols[0].clone();
+    imported.id = "donor-case-symbol".into();
+    imported.name = "Donor case symbol".into();
+    imported.linkage_id = Some("hero".into());
+    imported.class_name = Some("pkg.hero".into());
+    imported.timeline.layers[0].id = "donor-case-layer".into();
+    donor.symbols.push(imported);
+    donor.validate().expect("donor validates");
+
+    let mut editor = Editor::from_project(&ctx, destination);
+    let imported_id = editor
+        .import_symbol_from_donor_project(&donor, "donor-case-symbol")
+        .expect("case-distinct metadata remains valid");
+    let imported = editor
+        .project
+        .symbol(&imported_id)
+        .expect("imported case-distinct symbol");
+    assert_eq!(imported.linkage_id.as_deref(), Some("hero"));
+    assert_eq!(imported.class_name.as_deref(), Some("pkg.hero"));
+    editor
+        .project
+        .validate()
+        .expect("combined project validates");
 }
 
 #[test]

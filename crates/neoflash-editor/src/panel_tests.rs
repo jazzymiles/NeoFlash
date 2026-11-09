@@ -4184,15 +4184,31 @@ fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
     d.editor.workspace.publish.output_folder = Some(on_save_dir.to_string_lossy().into_owned());
     d.editor.workspace.publish.publish_on_save = true;
     let fla_path = temp_root.join("archive.fla");
-    assert!(d.editor.save_to_path_with_runtime(fla_path, &runtime_dir));
+    let stale_fla_temp = fla_path.with_extension("fla.tmp");
+    std::fs::write(&stale_fla_temp, "unrelated stale file").unwrap();
+    assert!(
+        d.editor
+            .save_to_path_with_runtime(fla_path.clone(), &runtime_dir)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&stale_fla_temp).unwrap(),
+        "unrelated stale file",
+        "saving uses a reserved unique sibling and never clobbers a legacy fixed temp"
+    );
     assert!(
         !on_save_dir.exists(),
         ".fla export does not trigger .nflash publish_on_save"
     );
     let nflash_path = temp_root.join("movie.nflash");
+    let stale_nflash_temp = nflash_path.with_extension("nflash.tmp");
+    std::fs::write(&stale_nflash_temp, "unrelated stale file").unwrap();
     assert!(
         d.editor
             .save_to_path_with_runtime(nflash_path.clone(), &runtime_dir)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&stale_nflash_temp).unwrap(),
+        "unrelated stale file"
     );
     assert!(on_save_dir.join("index.html").is_file());
 
@@ -6319,7 +6335,7 @@ fn t126_planned_dialogs_panels_and_menus_work_with_undo() {
     editor.undo();
 
     let spray_added = editor.apply_spray_brush_burst(true, 100.0, 100.0);
-    assert_eq!(spray_added, 5);
+    assert_eq!(spray_added, 6);
     assert_eq!(editor.history.undo_label(), Some("Spray brush"));
     editor.project.validate().expect("valid after spray brush");
     editor.undo();

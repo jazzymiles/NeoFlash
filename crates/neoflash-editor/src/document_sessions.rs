@@ -199,6 +199,13 @@ impl Editor {
             self.sessions[self.active_session] = Some(incoming);
             self.active_session += 1;
             self.sessions.insert(self.active_session, None);
+            self.library_panel
+                .rebase_session_source_after_insert(self.active_session);
+            for session in self.sessions.iter_mut().flatten() {
+                session
+                    .library_panel
+                    .rebase_session_source_after_insert(self.active_session);
+            }
         } else {
             self.active_session = 0;
             self.sessions.push(None);
@@ -317,6 +324,12 @@ impl Editor {
             return;
         }
         self.sessions.remove(index);
+        self.library_panel.rebase_session_source_after_remove(index);
+        for session in self.sessions.iter_mut().flatten() {
+            session
+                .library_panel
+                .rebase_session_source_after_remove(index);
+        }
         let next = if origin != index {
             origin - usize::from(origin > index)
         } else {

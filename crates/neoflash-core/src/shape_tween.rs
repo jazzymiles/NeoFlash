@@ -124,10 +124,14 @@ impl ShapeHintGeometry {
 
     pub fn from_elements(elements: &[Element]) -> Option<Self> {
         let welded = weld_merge_strokes_for_tween(elements);
+        Self::from_welded_elements(&welded)
+    }
+
+    fn from_welded_elements(elements: &[Element]) -> Option<Self> {
         let mut contours = Vec::new();
         let mut low = [f64::INFINITY; 2];
         let mut high = [f64::NEG_INFINITY; 2];
-        for element in &welded {
+        for element in elements {
             let Some(shape) = parent_shape(element) else {
                 continue;
             };
@@ -299,6 +303,20 @@ fn project_on_segment(p: P, a: P, b: P) -> (P, f64) {
 
 fn is_weldable_merge_stroke(element: &Element, shape: &Shape) -> bool {
     element.merge
+        // Welding collapses several Elements to one. Restrict it to anonymous raw fragments with
+        // no addressable identity, authoring metadata or per-object compositing semantics; those
+        // channels cannot be represented faithfully by the welded Element.
+        && element.name.is_empty()
+        && element.scripts.is_empty()
+        && element.accessibility.is_none()
+        && element.visible
+        && !element.cache_as_bitmap
+        && element.blend_mode == crate::BlendMode::Normal
+        && element.filters.is_empty()
+        && (element.transform.alpha - 1.0).abs() <= 1e-6
+        && element.transform.color_transform.is_identity()
+        && element.transform.pivot.is_none()
+        && element.transform.primitive.is_none()
         && shape.paint.fill[3] == 0
         && shape.paint.fill_gradient.is_none()
         && shape.paint.stroke_width > 0.0
@@ -314,6 +332,7 @@ fn merge_strokes_compatible(a: &Element, sa: &Shape, b: &Element, sb: &Shape) ->
         && a.visible == b.visible
         && a.blend_mode == b.blend_mode
         && a.filters == b.filters
+        && a.cache_as_bitmap == b.cache_as_bitmap
         && (a.transform.alpha - b.transform.alpha).abs() <= 1e-6
         && a.transform.color_transform == b.transform.color_transform
 }
@@ -518,8 +537,8 @@ pub fn active_shape_hint_labels(
     let from = weld_merge_strokes_for_tween(from);
     let to = weld_merge_strokes_for_tween(to);
     let (Some(from_geom), Some(to_geom)) = (
-        ShapeHintGeometry::from_elements(&from),
-        ShapeHintGeometry::from_elements(&to),
+        ShapeHintGeometry::from_welded_elements(&from),
+        ShapeHintGeometry::from_welded_elements(&to),
     ) else {
         return Vec::new();
     };
@@ -571,8 +590,8 @@ pub fn shape_tween_elements_with_hints(
     let t = if t.is_finite() { t } else { 0. };
     let from = weld_merge_strokes_for_tween(from);
     let to = weld_merge_strokes_for_tween(to);
-    let from_bounds = ShapeHintGeometry::from_elements(&from).map(|g| (g.low, g.high));
-    let to_bounds = ShapeHintGeometry::from_elements(&to).map(|g| (g.low, g.high));
+    let from_bounds = ShapeHintGeometry::from_welded_elements(&from).map(|g| (g.low, g.high));
+    let to_bounds = ShapeHintGeometry::from_welded_elements(&to).map(|g| (g.low, g.high));
     let (partner, to_used) = pair_shape_elements(&from, &to);
     let to_shapes: Vec<usize> = (0..to.len()).filter(|&i| is_shape(&to[i].kind)).collect();
 

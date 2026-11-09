@@ -136,6 +136,72 @@ impl Default for BoneDraft {
     }
 }
 
+impl BoneDraft {
+    fn load_persisted_bone_fields(&mut self, armature: &IkArmature, bone_index: usize) {
+        let Some(bone) = armature.bones.get(bone_index) else {
+            return;
+        };
+        self.name = bone.id.clone();
+        self.length = bone.length;
+        self.speed_pct = bone.stiffness.clamp(0.0, 1.0) * 100.0;
+        self.rot_constrain = bone.min_angle.is_some() || bone.max_angle.is_some();
+        if let Some(min_angle_deg) = bone.min_angle {
+            self.rot_min = min_angle_deg;
+        }
+        if let Some(max_angle_deg) = bone.max_angle {
+            self.rot_max = max_angle_deg;
+        }
+        self.x = armature.target_pos[0];
+        self.y = armature.target_pos[1];
+    }
+
+    fn persist_supported_bone_fields(&self, armature: &mut IkArmature, bone_index: usize) {
+        let Some(bone) = armature.bones.get_mut(bone_index) else {
+            return;
+        };
+        bone.length = self.length.max(4.0);
+        if self.rot_constrain {
+            // IkBone constraints use the same degree unit as Transform::rotation and both
+            // core IK solvers. Keep the panel/model boundary unit-free.
+            bone.min_angle = Some(self.rot_min);
+            bone.max_angle = Some(self.rot_max);
+        } else {
+            bone.min_angle = None;
+            bone.max_angle = None;
+        }
+        bone.stiffness = (self.speed_pct / 100.0).clamp(0.05, 1.0);
+        armature.target_pos = [self.x, self.y];
+    }
+
+    fn transient_joint_spec(&self, persisted_bone_id: &str) -> neoflash_core::IkJointSpec {
+        neoflash_core::IkJointSpec {
+            // The name field is not a persisted rename workflow. Always target the actual
+            // armature bone so editing that draft cannot silently disable this one-shot solve.
+            bone_id: persisted_bone_id.to_owned(),
+            pinned: false,
+            enable_rotation: self.rot_enable,
+            constrain_rotation: self.rot_constrain,
+            min_angle_deg: self.rot_min,
+            max_angle_deg: self.rot_max,
+            enable_x_translation: self.trans_enable,
+            constrain_x_translation: self.trans_constrain,
+            min_x_offset: -50.0,
+            max_x_offset: 50.0,
+            enable_y_translation: self.trans_enable,
+            constrain_y_translation: self.trans_constrain,
+            min_y_offset: -50.0,
+            max_y_offset: 50.0,
+            speed: (self.speed_pct / 100.0).clamp(0.0, 1.0),
+            spring_strength: if self.enable_spring {
+                self.spring_strength
+            } else {
+                0.0
+            },
+            spring_damping: self.spring_damping,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct TestMovieDraft {
     pub(crate) frame: u32,
@@ -1083,6 +1149,7 @@ impl Editor {
     }
 
     /// Generate procedural Deco pattern artwork with full Flash CS5/Animate Deco parameters.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn apply_deco_pattern_with_options(
         &mut self,
         effect: usize,
@@ -1105,8 +1172,7 @@ impl Editor {
             7 => neoflash_core::DecoEffectKind::TreeBrush,
             _ => neoflash_core::DecoEffectKind::VineFill,
         };
-        let _ = (branch_angle_deg, step_frames, animate_pattern);
-        let generated = neoflash_core::generate_deco_elements(
+        let mut generated = neoflash_core::generate_deco_elements(
             deco_effect,
             [100.0, 160.0],
             scale_pct,
@@ -1114,6 +1180,22 @@ impl Editor {
             [82, 204, 122, 255],
             [255, 140, 102, 255],
         );
+        let branch_angle_deg = if branch_angle_deg.is_finite() {
+            branch_angle_deg.clamp(-180.0, 180.0)
+        } else {
+            0.0
+        };
+        if branch_angle_deg.abs() > f64::EPSILON {
+            let [origin_x, origin_y] = [100.0, 160.0];
+            let (sin, cos) = branch_angle_deg.to_radians().sin_cos();
+            for element in &mut generated {
+                let dx = element.transform.x - origin_x;
+                let dy = element.transform.y - origin_y;
+                element.transform.x = origin_x + dx * cos - dy * sin;
+                element.transform.y = origin_y + dx * sin + dy * cos;
+                element.transform.rotation += branch_angle_deg;
+            }
+        }
         let created = generated.len();
         if created == 0 {
             return 0;
@@ -1122,27 +1204,62 @@ impl Editor {
         let frame = self.frame;
 
         self.finish_edits();
+        let step_frames = step_frames.clamp(1, 30);
         self.transact_named("Deco pattern", |editor| {
-            let sym = editor.symbol_mut();
-            let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
+            let timeline = &mut editor.symbol_mut().timeline;
+            let Some(layer) = timeline.layers.get_mut(layer_idx) else {
                 return;
             };
-            if !layer.keyframes.iter().any(|k| k.frame == frame) {
-                let prev = layer
-                    .key_at(frame)
-                    .map(|k| k.elements.clone())
-                    .unwrap_or_default();
-                layer.keyframes.push(Keyframe {
-                    frame,
-                    elements: prev,
-                    ..Keyframe::default()
-                });
-                layer.keyframes.sort_by_key(|k| k.frame);
-            }
-            if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame) {
-                key.elements.extend(generated);
+            let mut final_frame = frame;
+            if animate_pattern {
+                for (index, element) in generated.into_iter().enumerate() {
+                    let target_frame = frame
+                        .saturating_add(
+                            u32::try_from(index)
+                                .unwrap_or(u32::MAX)
+                                .saturating_mul(step_frames),
+                        )
+                        .min(999_999);
+                    final_frame = final_frame.max(target_frame);
+                    if !layer.keyframes.iter().any(|key| key.frame == target_frame) {
+                        let previous = layer
+                            .key_at(target_frame)
+                            .map(|key| key.elements.clone())
+                            .unwrap_or_default();
+                        layer.keyframes.push(Keyframe {
+                            frame: target_frame,
+                            elements: previous,
+                            ..Keyframe::default()
+                        });
+                        layer.keyframes.sort_by_key(|key| key.frame);
+                    }
+                    if let Some(key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|key| key.frame == target_frame)
+                    {
+                        key.elements.push(element);
+                    }
+                }
+            } else {
+                if !layer.keyframes.iter().any(|key| key.frame == frame) {
+                    let previous = layer
+                        .key_at(frame)
+                        .map(|key| key.elements.clone())
+                        .unwrap_or_default();
+                    layer.keyframes.push(Keyframe {
+                        frame,
+                        elements: previous,
+                        ..Keyframe::default()
+                    });
+                    layer.keyframes.sort_by_key(|key| key.frame);
+                }
+                if let Some(key) = layer.keyframes.iter_mut().find(|key| key.frame == frame) {
+                    key.elements.extend(generated);
+                }
             }
             layer.normalize_motion_keys();
+            timeline.frame_count = timeline.frame_count.max(final_frame.saturating_add(1));
         });
         created
     }
@@ -1165,7 +1282,7 @@ impl Editor {
             .iter()
             .map(|e| e.label())
             .collect();
-        let mut apply_now = false;
+        let mut edit_default_shape = false;
         section(ui, "Drawing effect", true, |ui| {
             let eff_lbl = effects[draft.effect.min(effects.len() - 1)];
             c::Select::new(ui.id().with("deco-effect"), eff_lbl)
@@ -1192,7 +1309,7 @@ impl Editor {
                     neoflash_ui::components::display::paint_swatch(ui, chip, color, radius::SM);
                     ui.label(rich("Default shape", TextStyle::Body).color(nf.text_secondary));
                     if ui.add(c::Button::ghost("Edit…")).clicked() {
-                        apply_now = true;
+                        edit_default_shape = true;
                     }
                 });
             }
@@ -1245,21 +1362,10 @@ impl Editor {
             ));
         });
 
-        let effect = draft.effect;
-        let branch_angle = draft.branch_angle;
-        let scale_pct = draft.scale_pct;
-        let seg_px = draft.segment_px;
-        let step_frames = draft.step_frames.round().max(1.0) as u32;
-        let animate_pattern = draft.animate_pattern;
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
-        if apply_now {
-            self.apply_deco_pattern_with_options(
-                effect,
-                branch_angle,
-                scale_pct,
-                seg_px,
-                step_frames,
-                animate_pattern,
+        if edit_default_shape {
+            self.message(
+                "Default Deco shapes are procedural and cannot be edited as Library symbols; no artwork was changed.",
             );
         }
     }
@@ -1273,13 +1379,15 @@ impl Editor {
         scale_h: f64,
     ) -> usize {
         self.apply_spray_brush_with_options(
-            use_dots, scale_w, scale_h, false, false, false, 24.0, 24.0, 0.0,
+            None, use_dots, scale_w, scale_h, false, false, false, 24.0, 24.0, 0.0,
         )
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_spray_brush_with_options(
         &mut self,
+        symbol_name: Option<&str>,
         use_dots: bool,
         scale_w: f64,
         scale_h: f64,
@@ -1293,15 +1401,27 @@ impl Editor {
         if !self.layer_editable() {
             return 0;
         }
-        let sym_id = (!use_dots)
-            .then(|| {
-                self.project
-                    .symbols
-                    .iter()
-                    .find(|s| s.id != self.project.root && !self.project.is_scene(&s.id))
-                    .map(|s| s.id.clone())
-            })
-            .flatten();
+        let sym_id = if use_dots {
+            None
+        } else {
+            let requested = symbol_name.map(str::trim).filter(|name| !name.is_empty());
+            let found = self.project.symbols.iter().find(|symbol| {
+                symbol.id != self.project.root
+                    && !self.project.is_scene(&symbol.id)
+                    && requested.is_none_or(|name| {
+                        symbol.name.eq_ignore_ascii_case(name)
+                            || symbol.id.eq_ignore_ascii_case(name)
+                    })
+            });
+            let Some(found) = found else {
+                self.message(match requested {
+                    Some(name) => format!("Spray brush: symbol '{name}' was not found."),
+                    None => "Spray brush: the document has no sprayable library symbol.".into(),
+                });
+                return 0;
+            };
+            Some(found.id.clone())
+        };
         let cfg = neoflash_core::SprayBrushConfig {
             symbol_id: sym_id,
             fill: self.fill,
@@ -1357,7 +1477,7 @@ impl Editor {
             .ctx()
             .data(|d| d.get_temp::<SprayDraft>(id))
             .unwrap_or_default();
-        let mut do_spray = false;
+        let mut edit_symbol = false;
 
         ui.add(c::TypeHeader {
             icon: i20::TOOL_SPRAY,
@@ -1368,7 +1488,7 @@ impl Editor {
             ui.horizontal(|ui| {
                 ui.add(c::TextField::new(&mut draft.symbol_name, "Symbol").width(200.0));
                 if ui.add(c::Button::new("Edit…")).clicked() {
-                    do_spray = true;
+                    edit_symbol = true;
                 }
             });
             ui.add(c::Checkbox::new(
@@ -1441,28 +1561,30 @@ impl Editor {
             );
         });
 
-        let use_dots = draft.use_dots;
-        let sw = draft.scale_w;
-        let sh = draft.scale_h;
-        let random_scaling = draft.random_scaling;
-        let rotate_symbol = draft.rotate_symbol;
-        let random_rotation = draft.random_rotation;
-        let brush_w = draft.brush_w;
-        let brush_h = draft.brush_h;
-        let brush_angle = draft.brush_angle;
+        let symbol_name = draft.symbol_name.clone();
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
-        if do_spray {
-            self.apply_spray_brush_with_options(
-                use_dots,
-                sw,
-                sh,
-                random_scaling,
-                rotate_symbol,
-                random_rotation,
-                brush_w,
-                brush_h,
-                brush_angle,
-            );
+        if edit_symbol {
+            let requested = symbol_name.trim();
+            let symbol_id = self
+                .project
+                .symbols
+                .iter()
+                .find(|symbol| {
+                    symbol.id != self.project.root
+                        && !self.project.is_scene(&symbol.id)
+                        && (symbol.name.eq_ignore_ascii_case(requested)
+                            || symbol.id.eq_ignore_ascii_case(requested))
+                })
+                .map(|symbol| symbol.id.clone());
+            match symbol_id {
+                Some(symbol_id) => {
+                    self.enter_symbol_isolated(symbol_id);
+                }
+                None => self.message(format!(
+                    "Spray brush: symbol '{}' was not found; no artwork was changed.",
+                    requested
+                )),
+            }
         }
     }
 
@@ -1487,20 +1609,8 @@ impl Editor {
             .map(|a| (a.name.clone(), a.bones.len().max(1)))
             .unwrap_or_else(|| ("arm".to_owned(), 3));
         draft.bone_index = draft.bone_index.min(bone_total.saturating_sub(1));
-        if let Some(arm) = &existing_armature
-            && let Some(b) = arm.bones.get(draft.bone_index)
-        {
-            draft.name = b.id.clone();
-            draft.length = b.length;
-            draft.rot_constrain = b.min_angle.is_some() || b.max_angle.is_some();
-            if let Some(min_a) = b.min_angle {
-                draft.rot_min = min_a.to_degrees();
-            }
-            if let Some(max_a) = b.max_angle {
-                draft.rot_max = max_a.to_degrees();
-            }
-            draft.x = arm.target_pos[0];
-            draft.y = arm.target_pos[1];
+        if let Some(armature) = &existing_armature {
+            draft.load_persisted_bone_fields(armature, draft.bone_index);
         }
 
         let mut changed = false;
@@ -1740,41 +1850,12 @@ impl Editor {
             let b_idx = snapshot_draft
                 .bone_index
                 .min(arm.bones.len().saturating_sub(1));
-            if let Some(b) = arm.bones.get_mut(b_idx) {
-                b.length = snapshot_draft.length.max(4.0);
-                if snapshot_draft.rot_constrain {
-                    b.min_angle = Some(snapshot_draft.rot_min.to_radians());
-                    b.max_angle = Some(snapshot_draft.rot_max.to_radians());
-                } else {
-                    b.min_angle = None;
-                    b.max_angle = None;
-                }
-                b.stiffness = (snapshot_draft.speed_pct / 100.0).clamp(0.05, 1.0);
-            }
-            arm.target_pos = [snapshot_draft.x, snapshot_draft.y];
-            let joint_spec = neoflash_core::IkJointSpec {
-                bone_id: snapshot_draft.name.clone(),
-                pinned: false,
-                enable_rotation: snapshot_draft.rot_enable,
-                constrain_rotation: snapshot_draft.rot_constrain,
-                min_angle_deg: snapshot_draft.rot_min,
-                max_angle_deg: snapshot_draft.rot_max,
-                enable_x_translation: snapshot_draft.trans_enable,
-                constrain_x_translation: snapshot_draft.trans_constrain,
-                min_x_offset: -50.0,
-                max_x_offset: 50.0,
-                enable_y_translation: snapshot_draft.trans_enable,
-                constrain_y_translation: snapshot_draft.trans_constrain,
-                min_y_offset: -50.0,
-                max_y_offset: 50.0,
-                speed: (snapshot_draft.speed_pct / 100.0).clamp(0.0, 1.0),
-                spring_strength: if snapshot_draft.enable_spring {
-                    snapshot_draft.spring_strength
-                } else {
-                    0.0
-                },
-                spring_damping: snapshot_draft.spring_damping,
-            };
+            snapshot_draft.persist_supported_bone_fields(&mut arm, b_idx);
+            let persisted_bone_id = arm
+                .bones
+                .get(b_idx)
+                .map_or(snapshot_draft.name.as_str(), |bone| bone.id.as_str());
+            let joint_spec = snapshot_draft.transient_joint_spec(persisted_bone_id);
             let _ = self.set_keyframe_ik_armature_with_specs(arm, vec![joint_spec]);
         }
     }
@@ -2381,4 +2462,60 @@ impl Editor {
 
 fn y_ref(v: &mut f64) -> &mut f64 {
     v
+}
+
+#[cfg(test)]
+mod bone_panel_tests {
+    use super::*;
+
+    #[test]
+    fn bone_panel_reads_writes_and_solves_constraints_in_degrees() {
+        let mut armature = IkArmature {
+            id: "arm".into(),
+            name: "Arm".into(),
+            bones: vec![IkBone {
+                id: "bone".into(),
+                element_id: "bone-element".into(),
+                parent_bone_id: None,
+                length: 100.0,
+                min_angle: Some(-5.0),
+                max_angle: Some(5.0),
+                stiffness: 0.4,
+            }],
+            effector_bone_id: "bone".into(),
+            target_pos: [0.0, 100.0],
+            pole_pos: None,
+        };
+        let mut draft = BoneDraft::default();
+
+        draft.load_persisted_bone_fields(&armature, 0);
+        assert_eq!(draft.rot_min, -5.0);
+        assert_eq!(draft.rot_max, 5.0);
+        assert_eq!(draft.speed_pct, 40.0);
+
+        draft.rot_min = -7.5;
+        draft.rot_max = 6.5;
+        draft.length = 80.0;
+        draft.x = 0.0;
+        draft.y = 100.0;
+        draft.speed_pct = 5.0;
+        draft.name = "draft-only-rename".into();
+        draft.persist_supported_bone_fields(&mut armature, 0);
+        assert_eq!(armature.bones[0].min_angle, Some(-7.5));
+        assert_eq!(armature.bones[0].max_angle, Some(6.5));
+        assert_eq!(armature.bones[0].length, 80.0);
+        assert_eq!(armature.bones[0].id, "bone");
+
+        let spec = draft.transient_joint_spec(&armature.bones[0].id);
+        assert_eq!(spec.bone_id, "bone");
+
+        let mut elements = vec![neoflash_core::Element {
+            id: "bone-element".into(),
+            ..neoflash_core::Element::default()
+        }];
+        neoflash_core::solve_ik_armature_fabrik_ccd(&mut elements, &armature, &[spec]);
+        assert!(elements[0].transform.rotation >= -7.5 - 1e-6);
+        assert!(elements[0].transform.rotation <= 6.5 + 1e-6);
+        assert!((elements[0].transform.rotation - 6.5).abs() <= 1e-6);
+    }
 }

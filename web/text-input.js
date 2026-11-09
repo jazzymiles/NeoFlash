@@ -149,7 +149,7 @@
       if(field.digit_width==='tabular')numParts.push('tabular-nums');
       else if(field.digit_width==='proportional')numParts.push('proportional-nums');
       const fontVariantNum=numParts.length?numParts.join(' '):'normal';
-      if(field.locale)record.control.lang=String(field.locale).replace('_','-');
+      record.control.lang=field.locale?String(field.locale).replaceAll('_','-'):'';
       Object.assign(record.control.style,{paddingTop:padT+'px',paddingBottom:padB+'px',paddingLeft:(padL+(field.format.leftMargin??field.format.left_margin??0)+(field.format.blockIndent??field.format.block_indent??0))+'px',paddingRight:(padR+(field.format.rightMargin??field.format.right_margin??0))+'px',textIndent:(field.format.indent||0)+'px',textDecoration:dec,letterSpacing:((field.format.letterSpacing??field.format.letter_spacing)||0)+'px',fontKerning:field.format.kerning===null||field.format.kerning===undefined?'auto':field.format.kerning?'normal':'none',fontVariantLigatures:fontVariantLig,fontVariantNumeric:fontVariantNum});
       if(view&&(view.active||view.background||view.border)){
         const rgb=value=>`rgba(${value>>>16},${value>>>8&255},${value&255},${field.alpha/255*(draw?.alpha??1)})`;

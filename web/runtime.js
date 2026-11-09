@@ -1595,6 +1595,11 @@
     let measuredFps = 0;
     let lastTickNow = null;
     const fpsIntervals = [];
+    function resetMeasuredFps() {
+      measuredFps = 0;
+      lastTickNow = null;
+      fpsIntervals.length = 0;
+    }
     function render() {
       flushStageRender();
       let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
@@ -1630,6 +1635,10 @@
         status.dataset.measuredFps = measuredFps.toFixed(1);
         status.dataset.targetFps = String(runtimeFrameRate);
         status.title = `Measured: ${measuredFps.toFixed(1)} fps · Target: ${runtimeFrameRate} fps`;
+      } else {
+        delete status.dataset.measuredFps;
+        delete status.dataset.targetFps;
+        status.removeAttribute('title');
       }
       const traceText = lastTrace + (lastTraceLocation ? ` (${lastTraceLocation})` : '');
       if (traceElement.textContent !== traceText) traceElement.textContent = traceText;
@@ -1684,12 +1693,13 @@
       try { drainSounds();drainVideos(); } catch (error) { fail(error); }
       lastTime = null;
       accumulated = 0;
+      resetMeasuredFps();
       render();
     });
     document.getElementById('restart').addEventListener('click', () => {
       failed = false;
       errorElement.style.display = 'none';
-      accumulated = 0; lastTime = null;
+      accumulated = 0; lastTime = null; resetMeasuredFps();
       try { gradients.clear();clippings.clear();resetProject(); render(); } catch (error) { fail(error); }
     });
     document.getElementById('audio-toggle')?.addEventListener('click',()=>{
@@ -1698,7 +1708,7 @@
       Promise.all(services.map(host=>mute?host.setMuted(true):host.resumeFromGesture())).catch(audioFailure);
     });
     global.addEventListener('resize', () => { resize(); render(); });
-    document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; });
+    document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
     document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
     const panButton = document.getElementById('pan');
     panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
@@ -1774,7 +1784,7 @@
       global.requestAnimationFrame(animate);
     }
     global.requestAnimationFrame(animate);
-    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, pause: () => { player.set_playing(false); drainSounds();drainVideos(); }, resume: () => {player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
+    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, pause: () => { player.set_playing(false); resetMeasuredFps(); drainSounds();drainVideos(); }, resume: () => {resetMeasuredFps();player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
   }
   boot().catch(fail);
 })(globalThis);

@@ -141,18 +141,27 @@ impl Editor {
     /// Return all `SavedCommand`s stored in the active project (`T-167`).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn saved_commands(&self) -> Vec<SavedCommand> {
+        self.read_saved_commands().unwrap_or_default()
+    }
+
+    fn read_saved_commands(&self) -> Result<Vec<SavedCommand>, String> {
         let Some(unit) = self
             .project
             .resources
             .iter()
             .find(|r| r.path.eq_ignore_ascii_case(SAVED_COMMANDS_RESOURCE_PATH))
         else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let Ok(bytes) = unit.decoded_bytes() else {
-            return Vec::new();
-        };
-        serde_json::from_slice::<Vec<SavedCommand>>(&bytes).unwrap_or_default()
+        let bytes = unit
+            .decoded_bytes()
+            .map_err(|e| format!("Cannot decode saved-command registry '{}': {e}", unit.path))?;
+        let commands = serde_json::from_slice::<Vec<SavedCommand>>(&bytes)
+            .map_err(|e| format!("Invalid saved-command registry '{}': {e}", unit.path))?;
+        for command in &commands {
+            command.validate()?;
+        }
+        Ok(commands)
     }
 
     fn write_saved_commands_to_project(
@@ -208,7 +217,7 @@ impl Editor {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn register_saved_command(&mut self, command: SavedCommand) -> Result<(), String> {
         command.validate()?;
-        let mut list = self.saved_commands();
+        let mut list = self.read_saved_commands()?;
         if let Some(existing) = list
             .iter_mut()
             .find(|c| c.name.eq_ignore_ascii_case(&command.name))
@@ -217,7 +226,14 @@ impl Editor {
         } else {
             list.push(command);
         }
-        Self::write_saved_commands_to_project(&mut self.project, &list)
+        let mut candidate = self.project.clone();
+        Self::write_saved_commands_to_project(&mut candidate, &list)?;
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Save command", |editor| {
+            editor.project = candidate;
+        });
+        Ok(())
     }
 
     /// Rename a saved command in the project's command registry (`Manage Saved Commands`, `T-167`).
@@ -232,7 +248,7 @@ impl Editor {
         if trimmed.is_empty() || trimmed.len() > 128 || trimmed.chars().any(char::is_control) {
             return Err("Command name must be 1..=128 non-control characters.".into());
         }
-        let mut list = self.saved_commands();
+        let mut list = self.read_saved_commands()?;
         if list
             .iter()
             .any(|c| c.name.eq_ignore_ascii_case(trimmed) && !c.name.eq_ignore_ascii_case(old_name))
@@ -247,26 +263,46 @@ impl Editor {
         };
         target.name = trimmed.to_owned();
         target.validate()?;
-        Self::write_saved_commands_to_project(&mut self.project, &list)
+        let mut candidate = self.project.clone();
+        Self::write_saved_commands_to_project(&mut candidate, &list)?;
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Rename command", |editor| {
+            editor.project = candidate;
+        });
+        Ok(())
     }
 
     /// Delete a saved command by name (`Manage Saved Commands`, `T-167`).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn delete_saved_command(&mut self, name: &str) -> bool {
-        let mut list = self.saved_commands();
+        let Ok(mut list) = self.read_saved_commands() else {
+            return false;
+        };
         let before = list.len();
         list.retain(|c| !c.name.eq_ignore_ascii_case(name));
         if list.len() == before {
             return false;
         }
-        Self::write_saved_commands_to_project(&mut self.project, &list).is_ok()
+        let mut candidate = self.project.clone();
+        if Self::write_saved_commands_to_project(&mut candidate, &list).is_err() {
+            return false;
+        }
+        candidate.upgrade_format_for_features();
+        if candidate.validate().is_err() {
+            return false;
+        }
+        self.transact_named("Delete command", |editor| {
+            editor.project = candidate;
+        });
+        true
     }
 
     /// Run a saved command by name on the current selection in one Undo step (`Run Command`, `T-167`).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn run_saved_command_by_name(&mut self, name: &str) -> Result<usize, String> {
         let cmd = self
-            .saved_commands()
+            .read_saved_commands()?
             .into_iter()
             .find(|c| c.name.eq_ignore_ascii_case(name))
             .ok_or_else(|| format!("Saved command '{name}' not found."))?;
@@ -276,18 +312,30 @@ impl Editor {
     /// Return all installed `AuthoringExtensionManifest`s in the active project (`T-167`).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn installed_extensions(&self) -> Vec<AuthoringExtensionManifest> {
+        self.read_installed_extensions().unwrap_or_default()
+    }
+
+    fn read_installed_extensions(&self) -> Result<Vec<AuthoringExtensionManifest>, String> {
         let Some(unit) = self
             .project
             .resources
             .iter()
             .find(|r| r.path.eq_ignore_ascii_case(EXTENSIONS_RESOURCE_PATH))
         else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let Ok(bytes) = unit.decoded_bytes() else {
-            return Vec::new();
-        };
-        serde_json::from_slice::<Vec<AuthoringExtensionManifest>>(&bytes).unwrap_or_default()
+        let bytes = unit.decoded_bytes().map_err(|e| {
+            format!(
+                "Cannot decode authoring-extension registry '{}': {e}",
+                unit.path
+            )
+        })?;
+        let manifests = serde_json::from_slice::<Vec<AuthoringExtensionManifest>>(&bytes)
+            .map_err(|e| format!("Invalid authoring-extension registry '{}': {e}", unit.path))?;
+        for manifest in &manifests {
+            manifest.validate()?;
+        }
+        Ok(manifests)
     }
 
     /// Validate and install a capability-bounded `AuthoringExtensionManifest` (`T-167`).
@@ -297,7 +345,7 @@ impl Editor {
         manifest_json: &str,
     ) -> Result<AuthoringExtensionManifest, String> {
         let manifest = AuthoringExtensionManifest::from_json(manifest_json)?;
-        let mut exts = self.installed_extensions();
+        let mut exts = self.read_installed_extensions()?;
         if let Some(slot) = exts
             .iter_mut()
             .find(|e| e.id.eq_ignore_ascii_case(&manifest.id))
@@ -307,8 +355,8 @@ impl Editor {
             exts.push(manifest.clone());
         }
         let bytes = serde_json::to_vec(&exts).map_err(|e| e.to_string())?;
-        let existing_id = self
-            .project
+        let mut candidate = self.project.clone();
+        let existing_id = candidate
             .resources
             .iter()
             .find(|r| r.path.eq_ignore_ascii_case(EXTENSIONS_RESOURCE_PATH))
@@ -321,17 +369,21 @@ impl Editor {
             &bytes,
         )
         .map_err(|e| e.to_string())?;
-        if let Some(slot) = self
-            .project
+        if let Some(slot) = candidate
             .resources
             .iter_mut()
             .find(|r| r.path.eq_ignore_ascii_case(EXTENSIONS_RESOURCE_PATH))
         {
             *slot = unit;
         } else {
-            self.project.resources.push(unit);
+            candidate.resources.push(unit);
         }
-        self.project.format_version = self.project.format_version.max(3);
+        candidate.format_version = candidate.format_version.max(3);
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        self.transact_named("Install extension", |editor| {
+            editor.project = candidate;
+        });
         Ok(manifest)
     }
 
@@ -343,7 +395,7 @@ impl Editor {
         command_name: &str,
     ) -> Result<usize, String> {
         let ext = self
-            .installed_extensions()
+            .read_installed_extensions()?
             .into_iter()
             .find(|e| e.id.eq_ignore_ascii_case(extension_id))
             .ok_or_else(|| format!("Extension '{extension_id}' is not installed."))?;

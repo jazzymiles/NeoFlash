@@ -1047,6 +1047,15 @@ test('TextInput: clicking Dynamic/Static text keeps Canvas text visible without 
   };
   walk(surface.children[1]);
   assert.ok(control, 'Found mounted [data-neoflash-text-input] control');
+  const localizedScene = JSON.parse(player.runtime_snapshot_json());
+  const localizedDraw = localizedScene.draws.find((draw) => JSON.stringify(draw.owner_ref) === JSON.stringify(inputNode.object_ref));
+  Object.assign(localizedDraw.kind.field, {
+    locale: 'zh_Hans_CN',
+    ligatures: 'none',
+    digit_case: 'old_style',
+    digit_width: 'tabular',
+  });
+  textInput.update(localizedScene);
   assert.equal(control.style.outline, 'none', 'No blue #2780e3 outline around focused text input');
   assert.equal(control.style.overflow, 'hidden', 'No native browser scrollbars around focused text input');
   assert.equal(control.style.scrollbarWidth, 'none');
@@ -1055,10 +1064,20 @@ test('TextInput: clicking Dynamic/Static text keeps Canvas text visible without 
   assert.equal(control.style.fontKerning, 'normal');
   assert.equal(control.style.textIndent, '10px');
   assert.equal(control.style.textDecoration, 'underline');
+  assert.equal(control.style.fontVariantLigatures, 'none');
+  assert.equal(control.style.fontVariantNumeric, 'oldstyle-nums tabular-nums');
+  assert.equal(control.lang, 'zh-Hans-CN');
   assert.equal(control.style.paddingLeft, '12px'); // 2px pad + 6px leftMargin + 4px blockIndent
   assert.equal(control.style.paddingRight, '10px'); // 2px pad + 8px rightMargin
   assert.match(control.style.border, /1px solid rgba\(17,\s*34,\s*51/);
   assert.match(control.style.background, /rgba\(254,\s*254,\s*254/);
+
+  // Reusing the active native control after returning to the default locale must not retain
+  // language or OpenType settings from the previous authored field state.
+  textInput.update(JSON.parse(player.runtime_snapshot_json()));
+  assert.equal(control.lang, '');
+  assert.equal(control.style.fontVariantLigatures, 'common-ligatures');
+  assert.equal(control.style.fontVariantNumeric, 'normal');
 
   textInput.dispose();
   player.free();

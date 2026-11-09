@@ -133,7 +133,7 @@
       context.fontVariantNumeric=numParts.length?numParts.join(' '):'normal';
     }
     const loc=surface?.locale||field?.locale;
-    if(loc&&'lang' in context)context.lang=String(loc).replace('_','-');
+    if('lang' in context)context.lang=loc?String(loc).replaceAll('_','-'):'';
   }
   function string(value){
     if(typeof value!=='string')throw new TypeError('TextField text requires a string; convert other values explicitly with String().');

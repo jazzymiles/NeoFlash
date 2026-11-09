@@ -455,3 +455,39 @@ fn document_insert_order_close_others_and_all_are_lossless_until_every_decision(
     assert!(!editor.history.can_undo());
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn library_donor_session_tracks_tab_insertions_and_removals() {
+    use crate::library::LibrarySource;
+
+    let (mut editor, ctx, _dir) = setup("library-donor-rebase");
+    editor.project.name = "A".into();
+    let mut b = Project::blank();
+    b.name = "B".into();
+    editor.open_new_session_tab(&ctx, b, None);
+    let mut c = Project::blank();
+    c.name = "C donor".into();
+    editor.open_new_session_tab(&ctx, c, None);
+    assert_eq!(editor.active_session, 2);
+
+    assert!(editor.switch_session_tab(&ctx, 0));
+    editor.library_panel.source = LibrarySource::Session(2);
+    assert_eq!(editor.library_source_project().name, "C donor");
+
+    let mut inserted = Project::blank();
+    inserted.name = "Inserted".into();
+    assert_eq!(editor.open_new_session_tab(&ctx, inserted, None), 1);
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_eq!(editor.library_panel.source, LibrarySource::Session(3));
+    assert_eq!(editor.library_source_project().name, "C donor");
+
+    assert!(editor.close_session_tab(&ctx, 1));
+    assert_eq!(editor.project.name, "A");
+    assert_eq!(editor.library_panel.source, LibrarySource::Session(2));
+    assert_eq!(editor.library_source_project().name, "C donor");
+
+    assert!(editor.close_session_tab(&ctx, 2));
+    assert_eq!(editor.project.name, "A");
+    assert_eq!(editor.library_panel.source, LibrarySource::ActiveDocument);
+    assert_eq!(editor.library_source_project().name, "A");
+}

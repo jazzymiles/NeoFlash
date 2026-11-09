@@ -342,7 +342,12 @@ fn encode_script_with_language_tag(script: &Script) -> String {
         ScriptLanguage::ActionScript1 => {
             format!("/* neoflash:language=actionscript1 */\n{}", script.source)
         }
-        ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript3 => script.source.clone(),
+        ScriptLanguage::ActionScript2 => {
+            format!("/* neoflash:language=actionscript2 */\n{}", script.source)
+        }
+        ScriptLanguage::ActionScript3 => {
+            format!("/* neoflash:language=actionscript3 */\n{}", script.source)
+        }
     }
 }
 
@@ -4138,7 +4143,7 @@ mod tests {
                 name: "box1".into(),
                 transform: Transform::default(),
                 kind: ElementKind::Instance {
-                    symbol_id: child_sym_id,
+                    symbol_id: child_sym_id.clone(),
                     playback: InstancePlayback::Independent,
                 },
                 visible: false,
@@ -4160,6 +4165,38 @@ mod tests {
                         source: "this.x += 10;".into(),
                     },
                 }],
+            },
+            Element {
+                id: "el-wrapped-as2".into(),
+                name: "wrappedAs2".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: child_sym_id.clone(),
+                    playback: InstancePlayback::Independent,
+                },
+                scripts: vec![ObjectScript {
+                    event: ObjectEvent::Click,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript2,
+                        source: "on (release) { trace('as2 click'); }".into(),
+                    },
+                }],
+                ..Default::default()
+            },
+            Element {
+                id: "el-wrapped-as3".into(),
+                name: "wrappedAs3".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: child_sym_id,
+                    playback: InstancePlayback::Independent,
+                },
+                scripts: vec![ObjectScript {
+                    event: ObjectEvent::EnterFrame,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript3,
+                        source: "onClipEvent (enterFrame) { trace('as3 frame'); }".into(),
+                    },
+                }],
+                ..Default::default()
             },
             Element {
                 id: "el-txt".into(),
@@ -4282,6 +4319,34 @@ mod tests {
             ScriptLanguage::JavaScript
         );
         assert_eq!(imp_inst.scripts[0].script.source, "this.x += 10;");
+
+        for (name, event, language, source) in [
+            (
+                "wrappedAs2",
+                ObjectEvent::Click,
+                ScriptLanguage::ActionScript2,
+                "on (release) { trace('as2 click'); }",
+            ),
+            (
+                "wrappedAs3",
+                ObjectEvent::EnterFrame,
+                ScriptLanguage::ActionScript3,
+                "onClipEvent (enterFrame) { trace('as3 frame'); }",
+            ),
+        ] {
+            let script = imp_root
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|layer| &layer.keyframes)
+                .flat_map(|keyframe| &keyframe.elements)
+                .find(|element| element.name == name)
+                .and_then(|element| element.scripts.first())
+                .unwrap_or_else(|| panic!("wrapped handler {name} preserved"));
+            assert_eq!(script.event, event);
+            assert_eq!(script.script.language, language);
+            assert_eq!(script.script.source, source);
+        }
 
         let imp_txt = imp_root
             .timeline

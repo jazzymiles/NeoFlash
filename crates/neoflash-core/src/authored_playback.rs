@@ -58,11 +58,22 @@ impl AuthoredPlayback {
         preview
     }
 
-    pub fn set_live_scripts(&mut self, live_scripts: bool) {
-        self.live_scripts = live_scripts;
-        if !live_scripts {
-            self.script_halted_root = false;
+    pub fn set_live_scripts(&mut self, project: &Project, live_scripts: bool) {
+        if self.live_scripts == live_scripts {
+            return;
         }
+        // A script can pause or seek any nested MovieClip clock. Clearing only the root halt bit,
+        // interpreter variables and display overrides leaves those child clocks contaminated.
+        // Rebuild the complete scoped player at the same authored root frame so both directions of
+        // the toggle start with clean placement lifetimes.
+        let frame = self.frame();
+        let looping = self.looping;
+        let mut prior_traces = std::mem::take(&mut self.traces);
+        let mut reset = Self::with_live_scripts(project, &self.symbol, frame, live_scripts);
+        reset.looping = looping;
+        prior_traces.append(&mut reset.traces);
+        reset.traces = prior_traces;
+        *self = reset;
     }
 
     pub fn is_live_scripts(&self) -> bool {
@@ -171,6 +182,9 @@ impl AuthoredPlayback {
     fn process_scripts(&mut self, project: &Project) {
         let dispatches = self.player.drain_scripts();
         self.player.runtime_scripts.clear();
+        if !self.live_scripts {
+            return;
+        }
         for dispatch in dispatches {
             if !self.player.is_dispatch_current(project, &dispatch) {
                 continue;
@@ -204,9 +218,6 @@ impl AuthoredPlayback {
             if let Some(inner) = extract_call_arg(stmt, "trace") {
                 let text = self.eval_preview_expr(project, path, inner);
                 self.traces.push(text);
-                continue;
-            }
-            if !self.live_scripts {
                 continue;
             }
             // 3. Timeline control functions when live_scripts is enabled
@@ -715,5 +726,137 @@ mod tests {
 
         preview.click(&project, std::slice::from_ref(&orbit_id));
         assert_eq!(preview.drain_traces(), vec!["Orbit rotated".to_string()]);
+    }
+
+    #[test]
+    fn classic_preview_ignores_initial_tick_and_click_scripts() {
+        let mut project = Project::demo();
+        let root = project.root.clone();
+        project
+            .symbol_mut(&root)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(crate::FrameScript {
+                frame: 1,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::JavaScript,
+                    source: "trace(\"tick\"); this.x = 99;".into(),
+                },
+            });
+        let orbit_id = project
+            .symbol(&root)
+            .unwrap()
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|layer| &layer.keyframes)
+            .flat_map(|keyframe| &keyframe.elements)
+            .find(|element| element.name == "mainOrbit")
+            .unwrap()
+            .id
+            .clone();
+
+        let mut preview = AuthoredPlayback::new(&project, &root, 0);
+        assert!(preview.drain_traces().is_empty());
+        assert!(preview.vars.is_empty());
+        assert!(preview.player.overrides.is_empty());
+
+        preview.click(&project, std::slice::from_ref(&orbit_id));
+        assert!(preview.drain_traces().is_empty());
+        assert!(preview.vars.is_empty());
+        assert!(preview.player.overrides.is_empty());
+
+        preview.tick(&project);
+        assert_eq!(preview.frame(), 1);
+        assert!(preview.drain_traces().is_empty());
+        assert!(preview.vars.is_empty());
+        assert!(preview.player.overrides.is_empty());
+    }
+
+    #[test]
+    fn disabling_live_scripts_clears_runtime_state_and_resumes_root() {
+        let mut project = Project::demo();
+        let root = project.root.clone();
+        project.symbol_mut(&root).unwrap().timeline.scripts = vec![
+            crate::FrameScript {
+                frame: 0,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::JavaScript,
+                    source: "var count = 1; this.x = 12; stop(); trace(\"live\");".into(),
+                },
+            },
+            crate::FrameScript {
+                frame: 1,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::JavaScript,
+                    source: "trace(\"ignored after toggle\"); this.x = 99;".into(),
+                },
+            },
+        ];
+
+        let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        assert!(preview.is_root_halted_by_script());
+        assert!(!preview.vars.is_empty());
+        assert!(!preview.player.overrides.is_empty());
+
+        preview.set_live_scripts(&project, false);
+        assert!(!preview.is_root_halted_by_script());
+        assert!(preview.vars.is_empty());
+        assert!(preview.player.overrides.is_empty());
+        // Trace output already emitted while live remains observable; disabling only prevents
+        // subsequent authored statements from running.
+        assert_eq!(preview.drain_traces(), vec!["live".to_string()]);
+
+        preview.tick(&project);
+        assert_eq!(preview.frame(), 1);
+        assert!(preview.drain_traces().is_empty());
+        assert!(preview.vars.is_empty());
+        assert!(preview.player.overrides.is_empty());
+    }
+
+    #[test]
+    fn switching_live_scripts_rebuilds_a_stopped_child_clock() {
+        let mut project = Project::blank();
+        let root = project.root.clone();
+        let mut child = project.symbol(&root).unwrap().clone();
+        child.id = "live-toggle-child".into();
+        child.name = "Live toggle child".into();
+        child.timeline.frame_count = 3;
+        child.timeline.layers[0].id = "live-toggle-child-layer".into();
+        child.timeline.scripts = vec![crate::FrameScript {
+            frame: 0,
+            script: crate::Script {
+                language: crate::ScriptLanguage::JavaScript,
+                source: "stop();".into(),
+            },
+        }];
+        project.symbols.push(child);
+        project.symbol_mut(&root).unwrap().timeline.frame_count = 1;
+        project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0].elements =
+            vec![crate::Element {
+                id: "live-toggle-instance".into(),
+                name: "liveToggleClip".into(),
+                kind: crate::ElementKind::Instance {
+                    symbol_id: "live-toggle-child".into(),
+                    playback: crate::InstancePlayback::Independent,
+                },
+                ..crate::Element::default()
+            }];
+        project.validate().unwrap();
+
+        let path = vec!["live-toggle-instance".into()];
+        let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        preview.tick(&project);
+        assert_eq!(preview.clip_frame(&path), Some(0));
+
+        preview.set_live_scripts(&project, false);
+        assert_eq!(preview.frame(), 0, "the authored root playhead is retained");
+        preview.tick(&project);
+        assert_eq!(
+            preview.clip_frame(&path),
+            Some(1),
+            "classic preview gets a fresh child clock and ignores stop()"
+        );
     }
 }

@@ -1686,6 +1686,7 @@ fn shape_hints_ignore_unplaced_partition_contours_weld_merge_strokes_and_survive
     use neoflash_core::{
         FillRule, FrameRange, ShapeHint, ShapeHintGeometry, TimelineEdit, active_shape_hint_labels,
         default_shape_hint_uv, edit_frames, shape_tween_elements, shape_tween_elements_with_hints,
+        weld_merge_strokes_for_tween,
     };
 
     let square_path = |x0: f64, y0: f64, size: f64| Element {
@@ -1841,7 +1842,8 @@ fn shape_hints_ignore_unplaced_partition_contours_weld_merge_strokes_and_survive
     // SH-03: Merge Drawing stroke segments weld into a unified closed contour and rotate with fill.
     let merge_edge = |id: &str, a: [f64; 2], b: [f64; 2]| Element {
         id: id.into(),
-        name: id.into(),
+        // Raw Merge fragments have document IDs but no user-addressable object identity.
+        name: String::new(),
         merge: true,
         transform: Transform::default(),
         kind: ElementKind::Path {
@@ -1883,6 +1885,89 @@ fn shape_hints_ignore_unplaced_partition_contours_weld_merge_strokes_and_survive
             "both fill and welded merge stroke must rotate corner (0,0)->(100,100) through (50,50)"
         );
     }
+    let mut scripted_edges = vec![
+        merge_edge("scripted-0", [0.0, 0.0], [100.0, 0.0]),
+        merge_edge("scripted-1", [100.0, 0.0], [100.0, 100.0]),
+    ];
+    scripted_edges[1].scripts.push(neoflash_core::ObjectScript {
+        event: neoflash_core::ObjectEvent::Click,
+        script: neoflash_core::Script {
+            language: neoflash_core::ScriptLanguage::JavaScript,
+            source: "trace('keep me')".into(),
+        },
+    });
+    let original_ids = |elements: &[Element]| {
+        elements
+            .iter()
+            .map(|element| element.id.clone())
+            .collect::<Vec<_>>()
+    };
+    let assert_ids_preserved = |elements: Vec<Element>, reason: &str| {
+        let expected = original_ids(&elements);
+        let actual = original_ids(&weld_merge_strokes_for_tween(&elements));
+        assert_eq!(actual, expected, "{reason}");
+    };
+    assert_ids_preserved(
+        scripted_edges,
+        "welding must not discard authored object-handler IDs",
+    );
+
+    let mut named_edges = vec![
+        merge_edge("named-0", [0.0, 0.0], [100.0, 0.0]),
+        merge_edge("named-1", [100.0, 0.0], [100.0, 100.0]),
+    ];
+    named_edges[0].name = "firstEdge".into();
+    named_edges[1].name = "secondEdge".into();
+    assert_ids_preserved(
+        named_edges,
+        "user-addressable Merge strokes keep each authored ID",
+    );
+
+    let effect_edges = || {
+        vec![
+            merge_edge("effect-0", [0.0, 0.0], [100.0, 0.0]),
+            merge_edge("effect-1", [100.0, 0.0], [100.0, 100.0]),
+        ]
+    };
+    let mut cached = effect_edges();
+    cached
+        .iter_mut()
+        .for_each(|edge| edge.cache_as_bitmap = true);
+    assert_ids_preserved(cached, "cached Merge strokes keep their object boundaries");
+
+    let mut blended = effect_edges();
+    blended
+        .iter_mut()
+        .for_each(|edge| edge.blend_mode = neoflash_core::BlendMode::Multiply);
+    assert_ids_preserved(blended, "blend groups must not be collapsed by welding");
+
+    let mut filtered = effect_edges();
+    filtered.iter_mut().for_each(|edge| {
+        edge.filters = vec![neoflash_core::FilterSpec::Blur {
+            blur_x: 4.0,
+            blur_y: 4.0,
+            quality: 1,
+        }]
+    });
+    assert_ids_preserved(filtered, "per-object filters must remain per object");
+
+    let mut translucent = effect_edges();
+    translucent
+        .iter_mut()
+        .for_each(|edge| edge.transform.alpha = 0.5);
+    assert_ids_preserved(
+        translucent,
+        "per-object alpha compositing must not be replaced by one welded alpha",
+    );
+
+    let mut metadata = effect_edges();
+    metadata
+        .iter_mut()
+        .for_each(|edge| edge.transform.pivot = Some([12.0, 8.0]));
+    assert_ids_preserved(
+        metadata,
+        "authoring transform metadata must retain the IDs it addresses",
+    );
 
     // SH-04: Multi-contour compound shape (outer ring + inner hole) applies hints per contour.
     let compound = Element {

@@ -54,9 +54,9 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | TL-14 | Button symbol state labels Up/Over/Down/Hit | Timeline | verify | editor | P2 |
 | TO-01 | Rectangle / Oval primitive tools | Tools | done (options on Rectangle/Oval + Properties) | yes | P2 |
 | TO-02 | PolyStar tool + settings | Tools | done | editor (+small) | P2 |
-| TO-03 | Deco tool | Tools | absent | yes | P3 |
-| TO-04 | Spray brush | Tools | absent | editor | P3 |
-| TO-05 | Bone / Bind (IK) | Tools | absent | yes | P3 |
+| TO-03 | Deco tool | Tools | partial (generator + settings draft/internal command; user apply gesture pending) | yes | P3 |
+| TO-04 | Spray brush | Tools | partial (seeded generator + settings draft/internal command; user apply gesture pending) | editor | P3 |
+| TO-05 | Bone / Bind (IK) | Tools | partial (target/length/rotation-limit/stiffness solver fields + transient binding command; direct Stage tool pending) | yes | P3 |
 | TO-06 | Snap toggle (tools rail) | Tools | done | editor | P1 |
 | TO-07 | Tool options: Object drawing, smooth / straighten | Tools | partial | editor | P2 |
 | TO-08 | Fill/stroke chip → Swatches popover | Tools | partial | UI-only | P1 |
@@ -96,7 +96,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | AC-07 | Script assist | Actions | done (`sources.rs` + `panels/actions.rs`) | yes | P3 |
 | AC-08 | Gutter markers (warning, breakpoint, fold), inline error peek + Quick fix, overview ruler | Actions | done (`sources.rs`) | yes | P2 |
 | OU-01 | Output: Show All / Errors / Warnings / Trace, timestamps | Output | done | editor | P1 |
-| OU-02 | Output: trace() from Test Movie | Output | done | yes | P2 |
+| OU-02 | Output: trace() from native Play / Test Movie | Output | partial (native Live ActionScript done; browser Test Movie bridge pending) | yes | P2 |
 | PP-01 | Ease panel | Planned panel | done | editor | P1 |
 | PP-02 | Motion editor | Planned panel | partial | yes | P2 |
 | PP-03 | Properties — Motion tween | Planned panel | done | yes | P2 (= PR-10) |
@@ -125,7 +125,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-12 | Test Movie window | Window | done (`panels/live_planned.rs` + browser host) | yes | P2 |
 | DL-13 | Find and replace | Dialog | done (`panels/find_replace.rs`) | editor | P2 |
 | DL-14 | Movie Explorer | Panel | done (`panels/movie_explorer.rs`) | editor | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | partial (tested engine/editor commands; full authoring controls remain) | yes | P3 |
+| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | partial (Library fields, painted guides and open-document sharing work; direct guide drag/external-file chooser remain) | yes | P3 |
 | DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | done (Armature disabled) | editor / yes | P2 |
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
@@ -285,7 +285,8 @@ its remembered tool. The R-038 shared flyout rows, Brushes panel, Brush/Pencil p
 connected. Customize lists implemented tools only and edits a draft: Add appends to the selected slot, Remove
 returns a tool to Available, drag reorders, Restore default resets the draft, Cancel/Escape discards and OK saves.
 Empty slots drop on OK. The saved tool layout is global, outside named workspace presets; changing these controls
-preserves the selected tool and document Undo. Commands remains unavailable until a `.nfsl` execution contract exists.
+preserves the selected tool and document Undo. History can replay, copy and save supported structured authoring steps
+as project Commands; arbitrary `.nfsl` source execution and a stable public extension contract remain unavailable.
 The approved 36 pt Brush/Pencil type header still needs a compact shared API; the existing locked `TypeHeader`
 remains 48 pt.
 
@@ -297,7 +298,8 @@ placement and the selected tool and creates one Undo; multicolour output is grou
 path preserves holes and islands. Limits are 4096×4096 source pixels, 20,000 contours, 1,000,000 boundary edges and
 100,000 commands per colour. Full palette retains at most 20,000 exact RGBA colours. Unsupported scripts, filters,
 non-Normal blending, bitmap caching and guided automatic-key insertion produce actionable errors without changing
-the document. The separate Bitmap properties dialog remains unavailable.
+the document. Bitmap Properties is available from the Library menu; exact resource-row and placed-bitmap context
+actions are tracked separately.
 
 **TO-01 · Rectangle primitive / Oval primitive** — done (parametric options on `Rectangle` / `Oval` in Tool options and Properties PR-02)
 - Done: `Transform.primitive: Option<PrimitiveOptions>` stores Rectangle `corner_radii: [f64; 4]` (linked by default)
@@ -321,21 +323,30 @@ the document. The separate Bitmap properties dialog remains unavailable.
 - Data: produces existing `ElementKind::Path`.
 - Acceptance: 5-point star with 0.5 point size matches expected vertices; one Undo.
 
-**TO-03 · Deco** — absent
-- Purpose: procedural fills (Vine fill, Grid fill, Symmetry brush …) using leaf/flower symbols (§6 Deco panel).
-- Data/Depends on: engine (procedural generators producing instances/paths). P3.
-- Acceptance: Grid fill fills a closed area with instances of the chosen symbol; deterministic with a seed.
+**TO-03 · Deco** — partial (`ik_puppet_3d.rs`, `panels/live_planned.rs`)
+- Available: eight deterministic procedural generators, a settings draft, and a tested internal command applying
+  effect, scale, segments, branch angle, step-frame and Animate-pattern settings in one Undo step.
+- Missing: an approved user Apply affordance or sticky `Tool::Deco` Stage gesture using the actual pointer location
+  and selected Library symbols. The Deco draft currently has no author-visible seed field.
+- Acceptance remaining: Grid fill through a recorded Stage gesture fills the intended area deterministically and
+  remains selected for the next gesture.
 
-**TO-04 · Spray brush** — absent
-- Purpose: spray dots or symbol instances with random scale/rotation (§6 Spray brush panel).
-- Data: produces existing `Path` dots or `Instance` elements. Depends on: editor (seeded random placement). P3.
-- Acceptance: spraying produces N elements per second with settings honoured; one Undo per stroke.
+**TO-04 · Spray brush** — partial (`ik_puppet_3d.rs`, `panels/live_planned.rs`)
+- Available: a seeded dot/symbol burst engine, settings draft, and tested internal command honoring the requested
+  Library symbol, ellipse, angle, scale and rotation settings.
+- Missing: an approved user Apply affordance or sticky `Tool::Spray` gesture, pointer sampling and selected-symbol
+  authoring on Stage.
+- Acceptance remaining: a recorded stroke produces deterministic elements at its real coordinates with one Undo.
 
-**TO-05 · Bone / Bind (IK)** — absent
-- Purpose: armatures linking instances or shape points; poses as ◆ on an Armature layer; joint limits, springs.
-- Data: none. **NEW** armature, bones, joint constraints, pose keyframes. Depends on: engine (IK solver, runtime
-  armatures). P3.
-- Acceptance: dragging the end bone solves the chain within joint limits; poses interpolate in HTML5.
+**TO-05 · Bone / Bind (IK)** — partial (`ik_puppet_3d.rs`, `panels/live_planned.rs`)
+- Available: persisted format-9 armatures, bounded FABRIK/constrained-CCD solving, joint limits, spring helpers,
+  and a Bone panel path that persists target, length, degree-based rotation limits and stiffness and runs the solver.
+  Full-affine transient vertex binding and WarpMesh deformation have tested internal command paths.
+- Missing: direct Bone/Bind Stage gestures, editable live skin weights and persisted spring/skin state. Binding is
+  currently baked into path geometry; transient `IkShapeSkin`/joint specs do not survive reload. Bone name, direct
+  angle, authortime/runtime type, display style and spring fields in this preview panel are draft-only.
+- Acceptance remaining: Stage bone creation/dragging, editable weights and saved poses must solve within limits and
+  evaluate consistently in HTML5.
 
 **TO-06 · Snap toggle** — done (`panels/tools.rs`, `ViewPrefs.snap_to_objects`)
 - Done: Snap to objects (magnet) toggle at the bottom of the Tools rail (`Selected` state when active, persisted in view
@@ -714,10 +725,11 @@ AC-03 connects to the Test Movie debugger; AC-04 and AC-07 stay disabled; AC-08 
 - Data: `Editor.output: Vec<String>`. **NEW (editor)** structured entries `{time, level, source, text}`.
 - Depends on: editor. Acceptance: filter "Errors" shows only error lines; copy keeps timestamps.
 
-**OU-02 · trace() from Test Movie** — absent (trace goes to the browser page `#trace` element in `web/runtime.js`)
-- Purpose: Test Movie traces appear in Output (and in the Test Movie window drawer, DL-12).
-- Depends on: engine/host bridge (browser → editor channel, or an embedded preview). Acceptance: `trace("x")` in a
-  frame script appears in Output within one second of Test Movie.
+**OU-02 · trace() from native Play / Test Movie** — partial
+- Available: native Play with `Control ▸ Live ActionScript` enabled drains bounded frame/object-script `trace()`
+  output into Output.
+- Missing: browser Test Movie still writes trace to the page `#trace` element; it has no browser → editor Output
+  bridge. Acceptance remaining: `trace("x")` in a Test Movie frame script appears in editor Output within one second.
 
 ## 9. Planned panels (`panels/planned.rs` enum `PlannedPanel`, 22 remaining previews in `planned_panels.rs` / `planned_dialogs.rs` / `planned_documents.rs`; PP-01, PP-02, PP-03, PP-05, PP-08, PP-09, PP-10, PP-11, PP-12, ST-08, DL-02, DL-08, DL-09 and DL-16 are real panels/dialogs/popovers now)
 
@@ -963,7 +975,7 @@ audition). P3.
 | DL-12 | Test Movie window | Native window: stage, transport, speed, fps/memory badge, Output drawer | Embedded runtime host (today Test Movie opens a browser) | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced — **partial** | Tested 9-slice and shared-library model/editor commands exist; the complete Advanced dialog controls are not connected | authoring controls remain | P3 |
+| DL-15 | Convert to Symbol ▸ Advanced — **partial** | Library Properties edits the 9-slice rectangle and shared linkage; Stage paints guides; open documents can act as collision-safe donor libraries and synchronize shared symbols | direct guide dragging and a separate external-library file chooser remain | P3 |
 | DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), `Mask mode` (`Geometry`, `Alpha`, `Luminance`) + `Invert mask` (`R-048`), Outline colour + outlines toggle, Layer height `Compact`/`Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 
@@ -994,7 +1006,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |
 | Modify | Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup and Bitmap ▸ Trace bitmap | Other Bitmap operations and Symbol submenu remain unavailable; shape hints need a shape-tween endpoint |
-| Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
+| Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Live ActionScript, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
 | Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
 | Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |

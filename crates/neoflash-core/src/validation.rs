@@ -530,7 +530,21 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         );
                     }
                 }
+                let mut warped_element_ids = HashSet::new();
                 for (wi, warp) in key.asset_warps.iter().enumerate() {
+                    if warp.element_id.is_empty()
+                        || !key
+                            .elements
+                            .iter()
+                            .any(|element| element.id == warp.element_id)
+                        || !warped_element_ids.insert(warp.element_id.as_str())
+                    {
+                        add(
+                            format!("{kp}.asset_warps[{wi}].element_id"),
+                            "asset warp element_id must uniquely reference an element on the keyframe"
+                                .into(),
+                        );
+                    }
                     if !(1..=WarpPin::MAX_PINS).contains(&warp.pins.len()) {
                         add(
                             format!("{kp}.asset_warps[{wi}].pins"),
@@ -621,7 +635,14 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                         cursor = key.parent_of(cur);
                     }
                 }
+                let mut armature_ids = HashSet::new();
                 for (iki, arm) in key.ik_armatures.iter().enumerate() {
+                    if arm.id.is_empty() || !armature_ids.insert(arm.id.as_str()) {
+                        add(
+                            format!("{kp}.ik_armatures[{iki}].id"),
+                            "IK armature IDs must be nonempty and unique within a keyframe".into(),
+                        );
+                    }
                     if !(1..=IkBone::MAX_BONES).contains(&arm.bones.len()) {
                         add(
                             format!("{kp}.ik_armatures[{iki}].bones"),
@@ -641,7 +662,56 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             "IK target_pos must be finite and within +-1e6".into(),
                         );
                     }
+                    if arm.pole_pos.is_some_and(|pole| {
+                        !pole
+                            .iter()
+                            .all(|value| value.is_finite() && value.abs() <= 1e6)
+                    }) {
+                        add(
+                            format!("{kp}.ik_armatures[{iki}].pole_pos"),
+                            "IK pole_pos must be finite and within +-1e6".into(),
+                        );
+                    }
+                    let bone_ids: HashSet<&str> =
+                        arm.bones.iter().map(|bone| bone.id.as_str()).collect();
+                    if arm.effector_bone_id.is_empty()
+                        || !bone_ids.contains(arm.effector_bone_id.as_str())
+                    {
+                        add(
+                            format!("{kp}.ik_armatures[{iki}].effector_bone_id"),
+                            "IK effector_bone_id must reference a bone in the armature".into(),
+                        );
+                    }
+                    let mut seen_bone_ids = HashSet::new();
                     for (bi, bone) in arm.bones.iter().enumerate() {
+                        let bp = format!("{kp}.ik_armatures[{iki}].bones[{bi}]");
+                        if bone.id.is_empty() || !seen_bone_ids.insert(bone.id.as_str()) {
+                            add(
+                                format!("{bp}.id"),
+                                "IK bone IDs must be nonempty and unique within an armature".into(),
+                            );
+                        }
+                        if bone.element_id.is_empty()
+                            || !key
+                                .elements
+                                .iter()
+                                .any(|element| element.id == bone.element_id)
+                        {
+                            add(
+                                format!("{bp}.element_id"),
+                                "IK bone element_id must reference an element on the keyframe"
+                                    .into(),
+                            );
+                        }
+                        if bone.parent_bone_id.as_ref().is_some_and(|parent| {
+                            parent == &bone.id || !bone_ids.contains(parent.as_str())
+                        }) {
+                            add(
+                                format!("{bp}.parent_bone_id"),
+                                "IK parent_bone_id must reference a different bone in the armature"
+                                    .into(),
+                            );
+                        }
                         if !bone.length.is_finite()
                             || bone.length <= 0.0
                             || bone.length > 1e6
@@ -649,9 +719,35 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             || !(0.0..=1.0).contains(&bone.stiffness)
                         {
                             add(
-                                format!("{kp}.ik_armatures[{iki}].bones[{bi}]"),
+                                bp.clone(),
                                 "IK bone length must be in (0, 1e6] and stiffness in 0..=1".into(),
                             );
+                        }
+                        if bone.min_angle.is_some_and(|value| !value.is_finite())
+                            || bone.max_angle.is_some_and(|value| !value.is_finite())
+                            || matches!((bone.min_angle, bone.max_angle), (Some(min), Some(max)) if min > max)
+                        {
+                            add(
+                                format!("{bp}.angle_constraints"),
+                                "IK angle constraints must be finite and min_angle <= max_angle"
+                                    .into(),
+                            );
+                        }
+                        let mut parents = HashSet::new();
+                        let mut cursor = bone.parent_bone_id.as_deref();
+                        while let Some(parent_id) = cursor {
+                            if !parents.insert(parent_id) {
+                                add(
+                                    format!("{bp}.parent_bone_id"),
+                                    "cyclic IK bone parent chain".into(),
+                                );
+                                break;
+                            }
+                            cursor = arm
+                                .bones
+                                .iter()
+                                .find(|candidate| candidate.id == parent_id)
+                                .and_then(|candidate| candidate.parent_bone_id.as_deref());
                         }
                     }
                 }

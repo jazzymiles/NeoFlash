@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 146 of 157 | 10 | 1 | 7 / 5 / 0 |
-| Timelines and animation | 75 of 78 | 3 | 0 | 7 / 3 / 0 |
+| Editor and graphics | 145 of 158 | 12 | 1 | 7 / 5 / 0 |
+| Timelines and animation | 76 of 79 | 3 | 0 | 7 / 3 / 0 |
 | HTML5 and interactivity | 83 of 93 | 9 | 1 | 8 / 4 / 0 |
-| Import and file compatibility | 57 of 68 | 11 | 0 | 4 / 6 / 0 |
+| Import and file compatibility | 56 of 68 | 12 | 0 | 3 / 7 / 0 |
 | Platform and quality | 38 of 54 | 4 | 12 | 3 / 6 / 1 |
-| **All areas** | 399 of 450 | 37 | 14 | 29 / 24 / 1 |
+| **All areas** | 398 of 452 | 40 | 14 | 28 / 25 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -89,7 +89,7 @@ Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks
 4. Press **F6** to insert a keyframe, move the object, and create a classic, shape or motion tween from the Timeline controls or the frame menu; edit its curve in Properties or **Window → Panels → Ease**. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it. [timeline-tweens.nflash](examples/timeline-tweens.nflash) shows shape, motion and guided tweens in two scenes.
 5. Select artwork and press **F8**. Choose a name, Movie Clip / Graphic / Button, a library folder, a registration point, and optional ActionScript linkage. Confirm to create a reusable symbol without moving its artwork; Cancel leaves the document unchanged. Drag more instances from the Library onto the Stage.
 6. Select a timeline frame and press **F9**, use its context menu, or click **Actions · F9** to edit that frame's script. The editor shows the current symbol/frame and focuses the code field. Object events and project source files remain available in Actions. JavaScript/TypeScript (with static type checking, ES module bundling and Source Map v3 debugging) and ActionScript 1/2/3 are supported; see the audited declaration catalogue above. **Actions → Debug options** starts the connected Chromium debugger for source breakpoints, pause/step and read-only locals; see [setup and limits](docs/NF2-ACTIONS-EDITOR.md#56-source-maps-and-test-movie).
-7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish** (or the Publish button in the top bar) writes a self-contained HTML5 folder. The editor's Enter playback is a side-effect-free authoring preview with independent nested MovieClip clocks, including one-frame parent timelines. Pause retains the current pose; Rewind or scrubbing resets the preview.
+7. **⌘Enter / Test Movie** exports and opens a browser preview with scripts. **File → Publish** (or the Publish button in the top bar) writes a self-contained HTML5 folder. The editor's Enter playback is a transient authoring preview with independent nested MovieClip clocks, including one-frame parent timelines. **Control → Live ActionScript** is on by default and runs the bounded frame/object-script profile, including `trace()`, timeline controls and supported property overrides; turn it off for script-free animation preview. Pause retains the current pose; Rewind or scrubbing resets the preview.
 8. Save a `.nflash` project with **⌘S**. Source files are versioned JSON and round-trip through validation.
 
 ## Editing and publishing
@@ -122,7 +122,7 @@ System fonts are discovered through CoreText and author-selected standalone font
 | Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
 | Browser integration and dragging | [Web integration](examples/web-integration.nflash), [Drag and drop](examples/drag-drop.nflash) |
 
-**File → Import → Import legacy Flash…** opens binary FLA files saved by Flash 3 through CS4, XFL and ZIP-based FLA documents (CS5+/Animate), published SWF movies (with AVM1/AVM2 bytecode playback and source reconstruction) and SWC libraries, and **File → Save as…** exports round-trip `.fla` (XFL 2.2) archives. Scenes, nested symbols, layers, masks, motion guides, classic/shape/motion tweens, filters, blend modes, bitmap fills, rich text, sounds and scripts are preserved; any unrepresented legacy records are approximated or kept as visible placeholders with a located diagnostic in the import report. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
+**File → Open…** opens binary FLA files saved by Flash 3 through CS4, XFL and ZIP-based FLA documents (CS5+/Animate), published SWF movies (with source reconstruction and a bounded AVM1/AVM2 interpreter) and SWC libraries, and **File → Save as…** exports `.fla` (XFL 2.2) archives. Supported scenes, nested symbols, layers, masks, motion guides, tweens, filters, blend modes, bitmap fills, text, sounds and scripts are preserved; unrepresented legacy records are approximated or kept as visible placeholders with a located diagnostic. The SWF interpreter can drive timeline state and trace output but does not render its dynamic display list onto Stage, so it is not a full visual legacy player. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
 
 The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) and seven external XFL/FLA sources import through the native converter with 21 imports and 0 refusals, and an Adobe CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; see [legacy import support and limits](docs/IMPORTS.md).
 

@@ -260,7 +260,9 @@ impl Editor {
         let mut traces = Vec::new();
         let mut halted = false;
         if let Some(preview) = &mut self.authored_preview {
-            preview.playback.set_live_scripts(self.live_script_preview);
+            preview
+                .playback
+                .set_live_scripts(&self.project, self.live_script_preview);
             preview.playback.tick(&self.project);
             self.frame = preview.playback.frame();
             traces = preview.playback.drain_traces();
@@ -290,8 +292,8 @@ impl Editor {
         }
     }
 
-    /// Directly load and execute a `.swf` movie (AVM1 or AVM2 bytecode + display list + timeline)
-    /// inside the editor for `max_frames`, logging all `trace()` output to the Output panel (`T-168`).
+    /// Execute a `.swf` movie's AVM1/AVM2 bytecode and timeline headlessly for `max_frames`,
+    /// logging `trace()` output. The returned display-list states are not projected onto Stage.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn play_swf_bytes_in_editor(
         &mut self,
@@ -319,7 +321,9 @@ impl Editor {
         let mut traces = Vec::new();
         let mut halted = false;
         if let Some(preview) = &mut self.authored_preview {
-            preview.playback.set_live_scripts(self.live_script_preview);
+            preview
+                .playback
+                .set_live_scripts(&self.project, self.live_script_preview);
             preview.playback.click(&self.project, path);
             self.frame = preview.playback.frame();
             traces = preview.playback.drain_traces();

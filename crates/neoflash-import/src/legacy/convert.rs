@@ -1262,12 +1262,28 @@ impl Context<'_> {
                     && layer.keyframes[key_idx].tween.is_some()
                     && layer.keyframes[key_idx].tween_kind == TweenKind::Shape
                 {
-                    let hints = resolve_fla_morph_hints(
+                    let (hints, had_unconverted_hints) = resolve_fla_morph_hints(
                         s,
                         morph_id,
                         &layer.keyframes[key_idx].elements,
                         &layer.keyframes[key_idx + 1].elements,
                     );
+                    if had_unconverted_hints {
+                        self.report.warning(
+                            "fla_morph_hints_approximated",
+                            format!(
+                                "stream #{} layer {} frame {}",
+                                s.index,
+                                if layer.name.is_empty() {
+                                    "<unnamed>"
+                                } else {
+                                    &layer.name
+                                },
+                                layer.keyframes[key_idx].frame
+                            ),
+                            "One or more binary FLA shape-hint records were incomplete or unsupported; compatible hints were retained and the original morph records remain embedded.",
+                        );
+                    }
                     if !hints.is_empty() {
                         layer.keyframes[key_idx].shape_hints = hints;
                     }
@@ -1978,15 +1994,15 @@ fn resolve_fla_morph_hints(
     morph_id: u32,
     start_elements: &[Element],
     end_elements: &[Element],
-) -> Vec<ShapeHint> {
+) -> (Vec<ShapeHint>, bool) {
     let Ok(morph_obj) = object(s, morph_id) else {
-        return Vec::new();
+        return (Vec::new(), true);
     };
     let Some(TimelinePayload::Morph(morph)) = &morph_obj.payload else {
-        return Vec::new();
+        return (Vec::new(), true);
     };
     if morph.hints.is_empty() {
-        return Vec::new();
+        return (Vec::new(), false);
     }
     let start_geom = ShapeHintGeometry::from_elements(start_elements);
     let end_geom = ShapeHintGeometry::from_elements(end_elements);
@@ -1995,17 +2011,26 @@ fn resolve_fla_morph_hints(
 
     let mut seen_labels = std::collections::HashSet::new();
     let mut hints = Vec::new();
-    for hint_id in morph.hints.iter().flatten() {
+    let mut had_unconverted = morph.hints.len() > ShapeHint::MAX_HINTS;
+    for raw_hint_id in &morph.hints {
         if hints.len() >= ShapeHint::MAX_HINTS {
+            had_unconverted = true;
             break;
         }
+        let Some(hint_id) = raw_hint_id else {
+            had_unconverted = true;
+            continue;
+        };
         let Ok(hint_obj) = object(s, *hint_id) else {
+            had_unconverted = true;
             continue;
         };
         let Some(TimelinePayload::MorphHint(hint)) = &hint_obj.payload else {
+            had_unconverted = true;
             continue;
         };
         let (Some(pa), Some(pb)) = (hint.point_a, hint.point_b) else {
+            had_unconverted = true;
             continue;
         };
         let label = hint
@@ -2029,7 +2054,7 @@ fn resolve_fla_morph_hints(
         });
     }
     hints.sort_by_key(|h| h.label);
-    hints
+    (hints, had_unconverted)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

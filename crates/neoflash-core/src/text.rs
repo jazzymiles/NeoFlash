@@ -2281,25 +2281,12 @@ fn is_kinsoku_trailing_prohibited(ch: char) -> bool {
     )
 }
 pub fn apply_ligatures(text: &str, level: &str) -> String {
-    let mut base = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '\u{FB00}' => base.push_str("ff"),
-            '\u{FB01}' => base.push_str("fi"),
-            '\u{FB02}' => base.push_str("fl"),
-            '\u{FB03}' => base.push_str("ffi"),
-            '\u{FB04}' => base.push_str("ffl"),
-            '\u{FB05}' => base.push_str("ft"),
-            '\u{FB06}' => base.push_str("st"),
-            '\u{0132}' => base.push_str("IJ"),
-            '\u{0133}' => base.push_str("ij"),
-            _ => base.push(ch),
-        }
-    }
     match level {
-        "none" => base,
-        "minimum" => base.replace("fi", "\u{FB01}").replace("fl", "\u{FB02}"),
-        "uncommon" | "discretionary" | "exotic" => base
+        // Explicit Unicode presentation characters are authored content, not OpenType
+        // substitutions. Disabling ligatures must not decompose them or change UTF-16 indices.
+        "none" => text.to_owned(),
+        "minimum" => text.replace("fi", "\u{FB01}").replace("fl", "\u{FB02}"),
+        "uncommon" | "discretionary" | "exotic" => text
             .replace("ffi", "\u{FB03}")
             .replace("ffl", "\u{FB04}")
             .replace("ff", "\u{FB00}")
@@ -2309,7 +2296,7 @@ pub fn apply_ligatures(text: &str, level: &str) -> String {
             .replace("ft", "\u{FB05}")
             .replace("IJ", "\u{0132}")
             .replace("ij", "\u{0133}"),
-        _ => base
+        _ => text
             .replace("ffi", "\u{FB03}")
             .replace("ffl", "\u{FB04}")
             .replace("ff", "\u{FB00}")
@@ -5922,6 +5909,15 @@ mod query_tests {
         assert!(
             unc_joined.contains('\u{FB06}'),
             "uncommon ligatures form st"
+        );
+
+        lig_field.text = "explicit \u{FB01}".into();
+        lig_field.ligatures = "none".into();
+        let none_layout = layout_text(&lig_field, fixed_measure).unwrap();
+        let none_joined: String = none_layout.runs.iter().map(|r| r.text.as_str()).collect();
+        assert!(
+            none_joined.contains('\u{FB01}'),
+            "disabling substitutions preserves an explicitly authored ligature glyph"
         );
 
         // 2. Digit width (tabular vs proportional) & digit case (old_style vs lining).
