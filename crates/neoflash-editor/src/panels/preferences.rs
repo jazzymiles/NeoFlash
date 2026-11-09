@@ -7,8 +7,7 @@
 //! current page. Controls whose engine or NF2 design role is not yet defined stay disabled (see
 //! `docs/NF2-WIRING-PLAN.md` W3.6/W3.7 and `docs/NF2-REQUESTS.md`).
 use super::planned::{
-    FooterClick, body_text, caption, check, footer_clicked, form_label, segmented, select, slider,
-    switch,
+    FooterClick, body_text, caption, footer_clicked, form_label, segmented, select, switch,
 };
 use crate::app::Editor;
 use crate::theme::{ScrollTheme as _, ThemeMode};
@@ -1724,10 +1723,7 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             280.0,
         );
         if draft.publish.default_target != prev {
-            match draft.publish.default_target {
-                PublishTarget::Html5 => draft.publish.html5_enabled = true,
-                PublishTarget::VideoMp4 => draft.publish.video_enabled = true,
-            }
+            draft.publish.enable_target(draft.publish.default_target);
         }
     });
     row(ui, "Output folder", |ui| {
@@ -1750,17 +1746,67 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             draft.publish.output_folder = Some(dir.to_string_lossy().into_owned());
         }
     });
-    disabled(ui, |ui| {
-        ui.horizontal(|ui| {
-            check(ui, true, "HTML wrapper");
-            check(ui, true, "Assets folder");
-            check(ui, false, "Source maps");
+    ui.horizontal(|ui| {
+        ui.add(c::Checkbox::new(
+            &mut draft.publish.html_wrapper,
+            "HTML wrapper",
+        ));
+        ui.add(c::Checkbox::new(
+            &mut draft.publish.assets_folder,
+            "Assets folder",
+        ));
+        ui.add(c::Checkbox::new(
+            &mut draft.publish.source_maps,
+            "Source maps",
+        ));
+    });
+    section(ui, "Preview & publish");
+    row(ui, "Preview mode", |ui| {
+        c::Segmented::show(
+            ui,
+            &mut draft.publish.preview_chrome.clean,
+            &[(false, "Technical bar"), (true, "Clean stage")],
+            false,
+        );
+        ui.add(c::Checkbox::new(
+            &mut draft.publish.publish_clean,
+            "Clean publish output",
+        ));
+    });
+    ui.add_enabled_ui(!draft.publish.preview_chrome.clean, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.add(c::Checkbox::new(
+                &mut draft.publish.preview_chrome.show_fps,
+                "FPS & frames",
+            ));
+            ui.add(c::Checkbox::new(
+                &mut draft.publish.preview_chrome.show_dimensions,
+                "Stage size (W×H)",
+            ));
+            ui.add(c::Checkbox::new(
+                &mut draft.publish.preview_chrome.show_controls,
+                "Playback controls",
+            ));
+            ui.add(c::Checkbox::new(
+                &mut draft.publish.preview_chrome.show_load_summary,
+                "Weight & size report",
+            ));
+            ui.add(c::Checkbox::new(
+                &mut draft.publish.preview_chrome.show_trace,
+                "Trace & diagnostics",
+            ));
         });
-        section(ui, "Compression");
-        row(ui, "Images", |ui| {
-            slider(ui, 80.0, "JPEG quality", 200.0);
-            caption(ui, "JPEG 80");
-        });
+    });
+    section(ui, "Compression");
+    row(ui, "Images", |ui| {
+        let mut q = f64::from(draft.publish.jpeg_quality.clamp(1, 100));
+        if ui
+            .add(c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality").width(200.0))
+            .changed()
+        {
+            draft.publish.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
+        }
+        caption(ui, &format!("JPEG {}", draft.publish.jpeg_quality));
     });
     row(ui, "Audio", |ui| {
         c::Select::new(
@@ -1783,12 +1829,30 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
             }
         });
     });
-    disabled(ui, |ui| {
-        row(ui, "Acceleration", |ui| select(ui, "GPU (WebGL)", 180.0));
-        section(ui, "Scripts");
+    row(ui, "Acceleration", |ui| {
+        c::Select::new(
+            ui.id().with("prefs-publish-acceleration"),
+            draft.publish.acceleration.label(),
+        )
+        .width(180.0)
+        .show(ui, |ui| {
+            for accel in neoflash_export::HtmlAcceleration::ALL {
+                if ui
+                    .add(
+                        c::MenuItem::new(accel.label())
+                            .checked(draft.publish.acceleration == accel),
+                    )
+                    .clicked()
+                {
+                    draft.publish.acceleration = accel;
+                    ui.close();
+                }
+            }
+        });
     });
+    section(ui, "Scripts");
     ui.horizontal(|ui| {
-        disabled(ui, |ui| switch(ui, true, "Strict mode"));
+        bound_switch(ui, &mut draft.publish.strict, "Strict mode");
         bound_switch(
             ui,
             &mut draft.publish.warnings_as_errors,

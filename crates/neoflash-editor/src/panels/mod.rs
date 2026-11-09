@@ -92,4 +92,6 @@ mod view_settings;
 
 mod brushes;
 mod customize_tools;
+pub mod productivity_tools;
 mod trace_bitmap;
+pub mod ui_studio;

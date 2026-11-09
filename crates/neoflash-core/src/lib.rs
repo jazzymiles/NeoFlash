@@ -51,6 +51,7 @@ mod filters;
 mod geometry;
 mod history;
 pub mod ik_puppet_3d;
+pub mod jsfl;
 mod library_folders;
 pub mod merge_drawing;
 pub mod model;
@@ -119,6 +120,14 @@ pub use ik_puppet_3d::{
     compute_bone_world_poses, deform_shape_with_ik_skin, extract_path_control_points,
     generate_deco_elements, generate_spray_brush_along_points, project_element_3d,
     solve_ik_armature_fabrik_ccd, step_ik_spring_physics, upsert_warp_pin,
+};
+pub use jsfl::{
+    BatchRenameOptions, BatchRenameReport, BatchRenameScope, CHANGE_COLOR_JSFL_SCRIPT,
+    ChangeColorOptions, ChangeColorReport, DocHandle, ElementHandle, FlFileCapabilities,
+    FrameHandle, ItemHandle, JsflAuthoringState, JsflDiagnostic, JsflLimits, JsflResult,
+    JsflSandbox, JsflValue, LayerHandle, ProjectColorEntry, TimelineHandle,
+    batch_rename_library_and_instances, change_project_color, collect_project_colors,
+    collect_project_colors_scoped, run_change_color_jsfl,
 };
 pub use library_folders::valid_library_folder;
 pub use merge_drawing::{

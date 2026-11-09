@@ -647,6 +647,8 @@ impl Editor {
             validate_path_commands(&shape.commands).map_err(|e| e.to_string())?;
         }
         let count = trace.path_count;
+        let region_count = trace.region_count;
+        let colour_count = trace.colour_count;
         self.transact_named("Trace bitmap", |editor| {
             // The shared history hook upgrades formats 6+, while authoring groups still
             // require the explicit legacy format-4 bump used by Group / Break apart.
@@ -733,7 +735,9 @@ impl Editor {
                     .collect(),
             );
         });
-        self.message(format!("Traced bitmap: {count} paths."));
+        self.message(format!(
+            "Traced bitmap: {count} paths across {region_count} regions ({colour_count} colours)."
+        ));
         Ok(())
     }
 }
@@ -772,3 +776,371 @@ fn scale_commands(commands: &mut [PathCommand], scale: [f64; 2]) {
 #[cfg(test)]
 #[path = "bitmap_trace_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod region_break_apart_tests {
+    use super::*;
+    use neoflash_core::{FlattenOptions, Symbol, SymbolKind, hit_test_path};
+    use std::{
+        io::Cursor,
+        time::{Duration, Instant},
+    };
+
+    fn wait_trace(e: &mut Editor, ctx: &egui::Context) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while e.bitmap_trace.busy() {
+            e.poll_bitmap_trace(ctx);
+            assert!(Instant::now() < deadline, "trace worker timed out");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn element_fill_color(element: &Element) -> Option<Color> {
+        match &element.kind {
+            ElementKind::Path { fill, .. } | ElementKind::PaintedPath { fill, .. } => Some(*fill),
+            _ => None,
+        }
+    }
+
+    fn recolour_selected_fill(editor: &mut Editor, new_fill: Color) {
+        let selected: Vec<_> = editor.selection.targets.clone();
+        let frame = editor.frame;
+        editor.transact(|ed| {
+            for target in &selected {
+                if let Some(layer) = ed
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == target.layer)
+                    && let Some(key) = layer.key_at_mut(frame)
+                    && let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element)
+                {
+                    match &mut el.kind {
+                        ElementKind::Path { fill, .. } | ElementKind::PaintedPath { fill, .. } => {
+                            *fill = new_fill;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+    }
+
+    #[allow(clippy::if_same_then_else)]
+    fn photo_high_project() -> Project {
+        const RED: [u8; 4] = [220, 50, 40, 255];
+        const BLUE: [u8; 4] = [30, 110, 220, 255];
+        let image = image::RgbaImage::from_fn(40, 24, |x, y| {
+            let px = if (2..8).contains(&x) && (2..8).contains(&y) {
+                RED
+            } else if (2..8).contains(&x) && (12..18).contains(&y) {
+                RED
+            } else if ((10..16).contains(&x) && (2..10).contains(&y))
+                || ((14..20).contains(&x) && (6..10).contains(&y))
+            {
+                RED
+            } else if (22..32).contains(&x)
+                && (12..22).contains(&y)
+                && !((25..29).contains(&x) && (15..19).contains(&y))
+            {
+                RED
+            } else if ((32..35).contains(&x) && (2..5).contains(&y))
+                || ((35..38).contains(&x) && (5..8).contains(&y))
+            {
+                RED
+            } else if (20..26).contains(&x) && (4..10).contains(&y) {
+                BLUE
+            } else {
+                [0; 4]
+            };
+            image::Rgba(px)
+        });
+        let mut bytes = Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        let mut project = Project::blank();
+        let resource = ResourceUnit::from_bytes(
+            new_id("bitmap"),
+            "photo-high-regions.png",
+            "image/png",
+            bytes.get_ref(),
+        )
+        .unwrap();
+        let element = Element {
+            id: new_id("bitmap"),
+            name: "Photo High Fixture".into(),
+            kind: ElementKind::Bitmap {
+                resource_id: resource.id.clone(),
+                width: 40,
+                height: 24,
+                smoothing: true,
+            },
+            transform: Transform {
+                x: 10.,
+                y: 20.,
+                alpha: 0.85,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(element);
+        project.resources.push(resource);
+        project.format_version = project.format_version.max(3);
+        project.upgrade_format_for_features();
+        project.validate().unwrap();
+        project
+    }
+
+    fn element_contains_local_point(element: &Element, local_pt: [f64; 2]) -> bool {
+        let Some((commands, fill_rule)) = element.to_path_commands() else {
+            return false;
+        };
+        let query = if element.merge && element.transform.x == 0.0 && element.transform.y == 0.0 {
+            [local_pt[0] + 10.0, local_pt[1] + 20.0]
+        } else {
+            local_pt
+        };
+        hit_test_path(
+            &commands,
+            fill_rule,
+            query,
+            true,
+            0.0,
+            FlattenOptions::default(),
+        )
+        .unwrap_or(false)
+    }
+
+    #[test]
+    fn photo_high_trace_break_apart_keeps_each_region_and_hole_independently_editable() {
+        for method in [TraceMethod::Abutting, TraceMethod::Overlapping] {
+            for break_apart_steps in [1usize, 2usize] {
+                let ctx = egui::Context::default();
+                let mut editor = Editor::from_project(&ctx, photo_high_project());
+                let bmp_id = editor.project.symbols[0].timeline.layers[0].keyframes[0].elements[0]
+                    .id
+                    .clone();
+                editor.set_selection(vec![editor.target_for_id(&bmp_id).unwrap()]);
+
+                let mut options = preset(1);
+                options.method = method;
+                let before_trace = editor.project.clone();
+                editor.open_trace_bitmap(&ctx);
+                wait_trace(&mut editor, &ctx);
+                editor.bitmap_trace.dialog.as_mut().unwrap().options = options;
+                editor.bitmap_trace.request(true);
+                wait_trace(&mut editor, &ctx);
+                assert!(!editor.bitmap_trace.is_open());
+                editor.project.validate().unwrap();
+
+                let layer = &editor.project.symbols[0].timeline.layers[0];
+                assert_eq!(
+                    layer.properties.groups.len(),
+                    1,
+                    "Trace Bitmap must group traced regions"
+                );
+                let traced_elements = &layer.keyframes[0].elements;
+                assert_eq!(
+                    traced_elements.len(),
+                    7,
+                    "method={method:?} must produce 7 independent region elements"
+                );
+                assert!(
+                    traced_elements.iter().any(|el| {
+                        el.to_path_commands().is_some_and(|(cmds, _)| {
+                            cmds.iter()
+                                .any(|c| matches!(c, PathCommand::QuadraticTo { .. }))
+                        })
+                    }),
+                    "Photo — high trace must preserve simplified QuadraticTo curves"
+                );
+
+                // Undo/Redo across Trace Bitmap restores original bitmap and re-applies trace:
+                editor.undo();
+                assert_eq!(editor.project, before_trace);
+                editor.redo();
+                editor.project.validate().unwrap();
+
+                // Break Apart (1 step = ungroup into independent Path elements;
+                // 2 steps = ungroup + decompose into independent merge-fill elements):
+                for _ in 0..break_apart_steps {
+                    editor.break_apart_selection();
+                    editor.project.validate().unwrap();
+                }
+                assert!(
+                    editor.project.symbols[0].timeline.layers[0]
+                        .properties
+                        .groups
+                        .is_empty(),
+                    "Break Apart must ungroup the traced regions"
+                );
+
+                // Deselect All:
+                editor.clear_selection();
+                assert!(editor.selection.is_empty());
+
+                // Locate Island A ([5, 5]), Island B ([5, 15]), Donut ring ([24, 14], hole [27, 17]):
+                let elements = &editor.project.symbols[0].timeline.layers[0].keyframes[0].elements;
+                let island_a_id = elements
+                    .iter()
+                    .find(|el| element_contains_local_point(el, [5.0, 5.0]))
+                    .expect("island A element")
+                    .id
+                    .clone();
+                let island_b_id = elements
+                    .iter()
+                    .find(|el| element_contains_local_point(el, [5.0, 15.0]))
+                    .expect("island B element")
+                    .id
+                    .clone();
+                let donut_el = elements
+                    .iter()
+                    .find(|el| element_contains_local_point(el, [24.0, 14.0]))
+                    .expect("donut element");
+                let donut_id = donut_el.id.clone();
+                assert_ne!(island_a_id, island_b_id);
+                assert_ne!(island_a_id, donut_id);
+                assert!(
+                    !element_contains_local_point(donut_el, [27.0, 17.0]),
+                    "Donut hole must remain unfilled after {break_apart_steps} Break Apart step(s)"
+                );
+
+                // Click/select ONLY Island A and recolour + move it:
+                let island_a_before_t = elements
+                    .iter()
+                    .find(|el| el.id == island_a_id)
+                    .unwrap()
+                    .transform;
+                let island_b_before_t = elements
+                    .iter()
+                    .find(|el| el.id == island_b_id)
+                    .unwrap()
+                    .transform;
+                let target_a = editor.target_for_id(&island_a_id).unwrap();
+                editor.set_selection(vec![target_a]);
+                assert_eq!(editor.selection.len(), 1);
+                recolour_selected_fill(&mut editor, [20, 210, 90, 255]);
+                assert!(editor.nudge_selection(100.0, 50.0));
+                editor.project.validate().unwrap();
+
+                let elements_after =
+                    &editor.project.symbols[0].timeline.layers[0].keyframes[0].elements;
+                let island_a_after = elements_after
+                    .iter()
+                    .find(|el| el.id == island_a_id)
+                    .expect("moved island A");
+                let island_b_after = elements_after
+                    .iter()
+                    .find(|el| el.id == island_b_id)
+                    .expect("untouched island B");
+                let donut_after = elements_after
+                    .iter()
+                    .find(|el| el.id == donut_id)
+                    .expect("untouched donut");
+
+                assert_eq!(
+                    element_fill_color(island_a_after),
+                    Some([20, 210, 90, 255]),
+                    "Selected island A must take the new fill colour"
+                );
+                assert_eq!(
+                    element_fill_color(island_b_after),
+                    Some([220, 50, 40, 255]),
+                    "Unselected same-colour island B must keep its original colour"
+                );
+                assert!(
+                    (island_a_after.transform.x - (island_a_before_t.x + 100.0)).abs() < 1e-6
+                        && (island_a_after.transform.y - (island_a_before_t.y + 50.0)).abs() < 1e-6,
+                    "Selected island A must move independently"
+                );
+                assert!(
+                    (island_b_after.transform.x - island_b_before_t.x).abs() < 1e-6
+                        && (island_b_after.transform.y - island_b_before_t.y).abs() < 1e-6,
+                    "Unselected island B must not move"
+                );
+                assert!(
+                    element_contains_local_point(donut_after, [24.0, 14.0])
+                        && !element_contains_local_point(donut_after, [27.0, 17.0]),
+                    "Donut ring and hole must remain intact"
+                );
+
+                // Save and reopen round-trip:
+                let json = editor.project.to_json().unwrap();
+                let reopened = Project::from_json(&json).unwrap();
+                reopened.validate().unwrap();
+                assert_eq!(reopened, editor.project);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_edit_in_place_trace_and_break_apart_preserves_independent_regions() {
+        let ctx = egui::Context::default();
+        let mut project = photo_high_project();
+        let bitmap_el = project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .pop()
+            .unwrap();
+        let child_sym_id = new_id("symbol");
+        let mut child_timeline = Project::blank().symbols.remove(0).timeline;
+        child_timeline.layers[0].keyframes[0]
+            .elements
+            .push(bitmap_el);
+        project.symbols.push(Symbol {
+            id: child_sym_id.clone(),
+            name: "Nested Trace Clip".into(),
+            folder: String::new(),
+            kind: SymbolKind::MovieClip,
+            timeline: child_timeline,
+            class_name: None,
+            linkage_id: None,
+        });
+        let inst_id = new_id("instance");
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: inst_id,
+                name: "Nested Instance".into(),
+                kind: ElementKind::Instance {
+                    symbol_id: child_sym_id.clone(),
+                    playback: InstancePlayback::Loop,
+                },
+                transform: Transform::default(),
+                ..Default::default()
+            });
+        project.validate().unwrap();
+
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.enter_symbol(child_sym_id.clone());
+        assert_eq!(editor.symbol_id(), child_sym_id);
+
+        let nested_bmp_id = editor.symbol().timeline.layers[0].keyframes[0].elements[0]
+            .id
+            .clone();
+        editor.set_selection(vec![editor.target_for_id(&nested_bmp_id).unwrap()]);
+        editor.open_trace_bitmap(&ctx);
+        wait_trace(&mut editor, &ctx);
+        editor.bitmap_trace.dialog.as_mut().unwrap().options = preset(1);
+        editor.bitmap_trace.request(true);
+        wait_trace(&mut editor, &ctx);
+        editor.break_apart_selection();
+        editor.clear_selection();
+
+        let nested_elements = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        assert_eq!(nested_elements.len(), 7);
+        let first_region_id = nested_elements[0].id.clone();
+        editor.set_selection(vec![editor.target_for_id(&first_region_id).unwrap()]);
+        recolour_selected_fill(&mut editor, [10, 200, 120, 255]);
+        editor.project.validate().unwrap();
+        assert_eq!(
+            element_fill_color(&editor.symbol().timeline.layers[0].keyframes[0].elements[0]),
+            Some([10, 200, 120, 255])
+        );
+        assert_ne!(
+            element_fill_color(&editor.symbol().timeline.layers[0].keyframes[0].elements[1]),
+            Some([10, 200, 120, 255])
+        );
+    }
+}

@@ -172,6 +172,11 @@ impl Editor {
             self.clipboard.session.clone(),
         );
         ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
+            let full_rect = ui.max_rect();
+            if full_rect.is_positive() {
+                ui.painter()
+                    .rect_filled(full_rect, 0.0, neoflash_ui::palette(ui.ctx()).bg_panel);
+            }
             ui.spacing_mut().item_spacing = Vec2::splat(TOOL_GAP);
             let cols = if stage_anchor.is_some_and(|anchor| anchor.vertical()) {
                 1
@@ -201,7 +206,30 @@ impl Editor {
                     Some((panel_top + content_h + space::S2).ceil());
                 return;
             }
-            self.detached.tools_desired_inner_height = None;
+            let panel_top = ui.cursor().top().max(0.0);
+            let groups = self.tool_groups();
+            let entries = rail_entries(
+                &groups,
+                self.workspace.tools.slots == crate::tool_preferences::default_slots(),
+            );
+            let rail_total: f32 = entries.iter().map(|entry| entry.height()).sum();
+            let bottom_h = space::S1
+                + neoflash_ui::metrics::tool_button()
+                + TOOL_GAP
+                + COLOR_ACTION
+                + TOOL_GAP
+                + 36.0
+                + TOOL_GAP
+                + (1.0 + space::S2 + TOOL_GAP);
+            let desired_1col = (panel_top + rail_total + bottom_h + space::S2)
+                .ceil()
+                .min(crate::workspace::maximum_window_size(PanelId::Tools)[1]);
+            self.detached.tools_desired_inner_height =
+                if stage_anchor.is_some_and(|anchor| anchor.vertical()) {
+                    None
+                } else {
+                    Some(desired_1col)
+                };
             // Rail: paint colours and snap modifier stay pinned while only the tools scroll.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.add_space(space::S1);
@@ -525,12 +553,17 @@ impl Editor {
 
     /// Black-and-white and swap, under the Fill Stroke Chip.
     fn color_actions(&mut self, ui: &mut egui::Ui) {
+        let gap = if ui.available_width() < 2. * COLOR_ACTION + TOOL_GAP {
+            0.0
+        } else {
+            TOOL_GAP
+        };
         let (reset, swap) = ui
             .allocate_ui_with_layout(
-                Vec2::new(2. * COLOR_ACTION + TOOL_GAP, COLOR_ACTION),
+                Vec2::new(2. * COLOR_ACTION + gap, COLOR_ACTION),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
-                    ui.spacing_mut().item_spacing.x = TOOL_GAP;
+                    ui.spacing_mut().item_spacing.x = gap;
                     let reset = ui
                         .add(
                             nf::IconButton::new(i20::COLOR_DEFAULT, "Black and white")

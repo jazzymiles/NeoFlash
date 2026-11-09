@@ -2,8 +2,13 @@
 (function(global){
   'use strict';
   function layout(width,height,viewportWidth,viewportHeight,mode,gutter=16){
-    const fit=Math.min(1,Math.max(1,viewportWidth-2*gutter)/width,Math.max(1,viewportHeight-2*gutter)/height);
-    const scale=mode==='fit'?fit:Number(mode);
+    const availW=Math.max(1,viewportWidth-2*gutter),availH=Math.max(1,viewportHeight-2*gutter);
+    const fit=Math.min(1,availW/width,availH/height);
+    if(mode==='stretch'){
+      const scale=availW/width,scaleY=availH/height,stageWidth=width*scale,stageHeight=height*scaleY;
+      return {scale,scaleY,stageWidth,stageHeight,left:Math.max(gutter,(viewportWidth-stageWidth)/2),top:Math.max(gutter,(viewportHeight-stageHeight)/2),spaceWidth:Math.max(viewportWidth,stageWidth+2*gutter),spaceHeight:Math.max(viewportHeight,stageHeight+2*gutter)};
+    }
+    const scale=mode==='fit'?fit:mode==='fill'?Math.max(availW/width,availH/height):Number(mode);
     if(!Number.isFinite(scale)||scale<=0)throw new Error('Invalid preview scale');
     const stageWidth=width*scale,stageHeight=height*scale;
     return {scale,stageWidth,stageHeight,left:Math.max(gutter,(viewportWidth-stageWidth)/2),top:Math.max(gutter,(viewportHeight-stageHeight)/2),spaceWidth:Math.max(viewportWidth,stageWidth+2*gutter),spaceHeight:Math.max(viewportHeight,stageHeight+2*gutter)};

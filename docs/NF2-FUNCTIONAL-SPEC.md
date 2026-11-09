@@ -607,15 +607,20 @@ their own layout.
 - Depends on: editor. Acceptance: Tint 50 % red shows in editor and HTML5; Undo restores; tween between two
   tints interpolates.
 
-**PR-05 · Movie clip — Display & Filters** — done (`panels/filters.rs::display_and_filters_sections_ui`, wired into `panels/properties.rs` for selected symbol instances and `Window ▸ Panels ▸ Filters`)
+**PR-05 · Movie clip & Layer — Display & Filters** — partial (`panels/filters.rs::display_and_filters_sections_ui`, wired into `panels/properties.rs` for selected symbol instances and `Window ▸ Panels ▸ Filters`; complete Flash 8–CS6 / Animate filter controls, presets, layer/frame filters, full tween interpolation, and live Stage rendering tracked in `T-193`)
 - Controls: Display: Visible, Cache as bitmap, Blending (Normal, Layer, Multiply, Screen, Lighten, Darken,
   Difference, Add, Subtract, Invert, Alpha, Erase, Overlay, Hardlight), Render Original / Export as bitmap. Filters
-  table (Drop shadow, Blur, Glow, Bevel, Gradient glow/bevel, Adjust color) with add / duplicate / remove, per-filter
-  fields (Blur X/Y, Strength, Quality …), enable checkbox. Every semantically paired value row uses the shared grid;
-  asymmetric action rows remain intentional exceptions.
-- Data: `Element.{filters, blend_mode, cache_as_bitmap, visible}` in format 7 reusing `FilterSpec` (max 8 per object).
-- Depends on: engine (authored → runtime display graph, native editor preview raster). Acceptance: drop shadow on
-  an instance appears in editor and HTML5; filters order preserved; max-8 limit reported as a diagnostic.
+  table (`Drop shadow`, `Blur`, `Glow`, `Bevel`, `Gradient glow`, `Gradient bevel`, `Adjust color`) with add / duplicate / remove, reorder up/down, per-filter `Enable`/`Disable` toggle (`Enable All` / `Disable All`, `Reset Filter`, `Remove All`, `Copy` / `Paste` filters), named **Filter Presets** (`Save Preset…`, apply, delete), and full per-filter parameters:
+  - `Drop shadow`: `Blur X` / `Blur Y` + `Lock X/Y`, `Strength %`, `Quality` (`Low` / `Medium` / `High`), `Angle °`, `Distance px`, `Color` + `Alpha %`, `Knockout`, `Inner shadow`, `Hide object`.
+  - `Blur`: `Blur X` / `Blur Y` + `Lock X/Y`, `Quality` (`Low` / `Medium` / `High`).
+  - `Glow`: `Blur X` / `Blur Y` + `Lock X/Y`, `Strength %`, `Quality`, `Color` + `Alpha %`, `Knockout`, `Inner glow`.
+  - `Bevel`: `Blur X` / `Blur Y` + `Lock X/Y`, `Strength %`, `Quality`, `Shadow` & `Highlight` `Color` + `Alpha %`, `Angle °`, `Distance px`, `Knockout`, `Type` (`Inner` / `Outer` / `Full`).
+  - `Gradient glow` & `Gradient bevel`: interactive multi-stop gradient bar (`colors` / `alphas` / `ratios`), `Blur X` / `Blur Y` + `Lock X/Y`, `Strength %`, `Quality`, `Angle °`, `Distance px`, `Knockout`, `Type` (`Inner` / `Outer` / `Full`).
+  - `Adjust color`: `Brightness`, `Contrast`, `Saturation`, `Hue` (`-180°..+180°`), `Preset`, and `Reset`, persisted/recovered across save & reopen.
+  - **Layer / Keyframe Filters** (Flash CS5.5 / CS6 / Animate): when a Timeline Layer or Keyframe is selected without a single Stage object, `Filters` and `Blending` apply directly to the layer/keyframe span.
+  Every semantically paired value row uses the shared grid; asymmetric action rows remain intentional exceptions.
+- Data: `Element.{filters, blend_mode, cache_as_bitmap, visible}` plus per-filter `enabled` and layer/keyframe filters reusing `FilterSpec` (max 8 per target), with full Classic & Motion Tween interpolation (including `GradientGlow`/`GradientBevel` stops and automatic zero-strength dummy filter matching when a filter exists on only one keyframe of a tween).
+- Depends on: engine (authored → runtime display graph, native editor Stage raster preview). Acceptance: Drop Shadow, Blur, Glow, Bevel, Gradient Glow/Bevel, and Adjust Color render live on the native Editor Stage and in HTML5; filter order, enable state, presets, and tween interpolation are preserved; max-8 limit is reported as a diagnostic.
 
 **PR-06 · Movie clip — Swap…, Parameters tab** — partial (`Properties ▸ Swap…` symbol-picker popover, Library and Stage context `Swap symbol…` plus AE-style `⌥`-drag replacement work; component `Parameters` tab remains absent)
 - Done: selecting an instance on Stage (or selecting a layer with a symbol instance) and clicking `Swap…` in `Properties`,
@@ -846,7 +851,11 @@ refused.
 - Done: `SwatchesPopover` panel with hex + alpha readout, eyedropper, no colour, wheel → Color panel, Recent colours,
   Document colours (derived from `Project` paints + user-added swatches in `WorkspacePrefs.swatches`, also populated by
   Color panel ⋯ `Add swatch`), switchable Palette (`Default`, `Web 216`, `Grayscale`, `Pastels`) and Gradients (default +
-  document `GradientPaint`s, preserving primitive geometry when applied). Persistent file-stored swatches remain W1.9.
+  document `GradientPaint`s, preserving primitive geometry when applied), plus the Figma-style **Project colours** section
+  (`Editor::project_colors_section_ui`, `T-197`) listing every unique colour in the project with its live RGBA popover swatch,
+  `#HEX`, `α %`, usage count & roles (`fill, stroke, gradient, text, swatch`), stage-frame selection button (`Select elements with this colour`),
+  and batch JSFL `change_color.jsfl` replacement bar (`Replace colour across project (JSFL)`). Multi-selection in `Properties`
+  also exposes `Selection colours` (`selection_only = true`) and `Project colours`. Persistent file-stored swatches remain W1.9.
 - Controls: hex + alpha, eyedropper, no colour, wheel → Color panel; Recent; Document (+ add); Palette (switchable);
   Gradients.
 - Acceptance: clicking a swatch applies to the active well (drawing colour or selection fill/stroke with one Undo);
@@ -900,7 +909,7 @@ Enter applies and persists; Reset to defaults resets the active page's group. Wi
   tooltips; shortcut set selector (`NeoFlash default` + user sets with `Duplicate` / `Delete`), live Search and
   category filter, click-to-record `"Press keys…"` (`Esc` cancels, `Backspace`/`Delete` clears), `Conflicts with …`
   warning badge, `Reset command`, and `Export as HTML…`.
-- **Publish:** Default target (`HTML5 · Rust / WebAssembly` or `Video (MP4)`), Output folder + `Browse…` (reused by HTML5 and Video Publish), `Compression ▸ Audio` policy, Treat warnings as errors, Publish on save.
+- **Publish:** Default target (`HTML5 · Rust / WebAssembly`, `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet`, or `SVG animation`), Output folder + `Browse…`, `HTML wrapper`, `Assets folder`, `Source maps`, `Preview & publish` (`Preview mode`: `Technical bar` vs `Clean stage`, `Clean publish output` checkbox, and individual `FPS & frames`, `Stage size (W×H)`, `Playback controls`, `Weight & size report` and `Trace & diagnostics` checkboxes), `Compression` (`Images` JPEG quality slider `1..=100`, `Audio` policy, `Acceleration`: `GPU (WebGL)`, `Canvas 2D`, `Software`), `Strict mode`, `Treat warnings as errors`, and `Publish on save` (`T-198`).
 - **Updates** and controls waiting on NF2 design tokens (`R-013`–`R-020`) or standalone subsystems (merge drawing, font
   embedding `E-26`, spell check, vertical text, native OS bitmap/SVG clipboard, asset re-encoding, WebGL) stay disabled.
 Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
@@ -930,35 +939,12 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   picker); Units; Background; Frame rate (→ "N frames · s"); Script version; Make default · Cancel · OK.
 - Acceptance: OK applies everything as one Undo; Cancel changes nothing.
 
-**DL-03 · Publish settings (⇧F12)** — `publish_settings`
-- Controls: profile; targets HTML5 · Rust / WebAssembly, Desktop app, Video MP4, Image sequence / sprite sheet, SVG
-  animation; output file; HTML wrapper + template; Full/Balanced/Compact/Shared runtime size selector; scale mode; loop; autoplay; preloader; source
-  maps; JPEG quality; audio; sprite sheets; embed fonts; strict / include trace() / minify; estimated size; Cancel ·
-  OK · Publish.
-- Data: `neoflash_export::export_project_with_options(project, output_dir, runtime_dir, &PublishOptions { fonts, size })`
-  publishes at a `SizeLevel` (Full · Balanced · Compact · Shared runtime URL); `estimate_publish_sizes` returns per-level
-  files, bytes, gzip bytes, breakdown and trade-offs for the estimated size and the size scale (design: R-032).
-  Available controller: persisted `PublishPrefs.options`, draft-aware publication and a bounded background estimate
-  using the same parameters; stale project/options/runtime results are discarded. R-032 is wired: on-disk weight
-  bar/legend, exact total gzip/files, Computing, Failed/Retry, Compact omissions and Shared URL errors/runtime
-  folder export. `Assets ▸ Audio` (`AudioExportPolicy`: `Original`, `MP3 64`–`320 kbps`, `WAV 16-bit`, `Disabled`)
-  is wired in both `Publish settings` (`Assets`) and `Preferences ▸ Publish` (`Compression ▸ Audio`), transcoding or
-  stripping embedded `audio/*` resources during HTML5 export and updating the live package weight estimate.
-  Publish uses the draft; OK saves workspace defaults; Cancel/Escape or document switch discards
-  and cancels demand. Non-default font or audio policy shows Custom; Reset restores Embed/Original at the nearest size level.
-  Full/Embed/Original remain defaults; Test Movie remains Full. Other designed settings remain disabled.
-  Bodymovin v5.7.14 Lottie JSON and dotLottie (`.lottie` ZIP) export (`neoflash_export::export_project_lottie_with_progress`,
-  `export_lottie_with_progress`, `LottieOptions`, `LottieExportReport`, `LottieNote`, `LottieProgress`, CLI `--lottie`)
-  and the approved R-043 760 pt `Export Lottie` modal dialog + `Lottie export — N notes` compatibility report modal
-  (`panels/export_lottie.rs`, opened from `File ▸ Export ▸ Export Lottie…` `⌥⇧⌘L` and `Library ▸ Export symbol as Lottie…`)
-  are also available; the Publish settings target checkbox remains tracked with `DL-03` / `R-043`.
-  `Video (MP4)` is wired as a second real target in `Publish settings` (`PublishTarget::VideoMp4` + `PublishPrefs.{enable_html5, enable_video_mp4, video_output_file, video_options}`): ticking `Video (MP4)` or clicking its target row opens the right-column `Video (MP4)` settings pane (`Output file` + `Browse…`, `W × H` linked + `Scale`, `FPS`, `Codec: H.264 / H.265`, `Quality` slider `0..=100`, `Range`, `Render nested movie clip animation and scripts`, `Stop at last frame` / `Stop after N s`, `Include audio` + `AAC 128/192/256 kbps`, and live footer summary), and `Publish` / `Publish on save` exports `.mp4` alongside or instead of HTML5.
-  Future: `PublishSettings`
-  stored in the document (Flash stores publish profiles in the document). HTML5 and Video (MP4) are real targets in `Publish settings`;
-  others must stay disabled until wired.
-- Current acceptance: draft/default separation, real estimates, invalid URL actions, modal input isolation and
-  same-root document cancellation. Future acceptance: settings persist in the file; Loop off stops playback; trace stripped when
-  "Include trace()" is off.
+**DL-03 · Publish settings (⇧F12)** — done (`panels/publish_settings.rs`, `T-198`)
+- Controls: `Profile` preset (`Default`, `Web Compact`, `Web Balanced`, `High Quality`, `Preview / Debug`); targets `HTML5 · Rust / WebAssembly` (enabled by default), `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet` (PNG frame sequence or Sprite sheet JSON + PNG), and `SVG animation`; output folder/file + `Browse…`; `Include HTML wrapper` + `Template` (`Responsive`, `Fixed stage`, `Centered card`, `Fullscreen`); Full/Balanced/Compact/Shared runtime size selector; `Scale` mode (`Fit, keep ratio`, `100% (No scale)`, `Exact fit (stretch)`, `Fill, crop`); `Loop`, `Autoplay`, `Preloader`, `Source maps` (`bundle.js.map`); `JPEG quality` (`1..=100`), `Audio` (`AudioExportPolicy`), `Sprite sheets for bitmaps` (`sprite_sheet.json`), `Embed fonts (subset)` (`FontExportPolicy::Subset`); `Strict mode`, `Include trace()`, `Minify`; estimated size; `Cancel` · `OK` · `Publish`.
+- Data: `neoflash_export::export_project_with_config(project, output_dir, runtime_dir, &PublishOptions { fonts, size, audio }, &HtmlPublishConfig)`
+  publishes at a `SizeLevel` (Full · Balanced · Compact · Shared runtime URL) with `HtmlPublishConfig::clean_publish_default()` (clean stage output without technical HUD by default), while `Test Movie` and `Test Scene` use `PublishPrefs::preview_html_config()` (`PlayerChromeConfig` from `Preferences ▸ Publish`). `Balanced`, `Compact`, and local `Shared` packages embed `globalThis.NeoFlashWasmBase64` in `neoflash_web.js` so they open directly from `file://` without browser `fetch` CORS failure while preserving HTTP(S) streaming. `estimate_publish_options_cancellable_with_config` returns exact on-disk files, bytes and gzip bytes across all `HtmlPublishConfig` options.
+  Both `OK` and `Publish` persist `self.workspace.publish = draft.settings.clone()` so settings never reset after publishing; if all target checkboxes are unchecked when `Publish` is invoked from the toolbar/menu, the editor opens `Publish settings` instead of a no-op folder picker.
+- Acceptance: draft/default persistence across both `OK` and `Publish`, clean publish vs configurable preview HUD, direct `file://` execution for `Compact`/`Balanced`/`Full`, exact background size estimates, all 5 targets and 5 profiles verified in `publish_settings_tests.rs`, `neoflash-export`, and `web/tests/runtime.test.cjs`.
 
 **DL-04 · Export image (`⌥⇧⌘S`)** — partial (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
 - Working: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; and `Background` (`Stage colour`, `Transparent`). PNG and SVG are direct exports. PSD writes a layered v1 document when supported. AI is an EPS-compatible PostScript subset and uses a raster fallback for unsupported scene features; PDF is currently raster-backed. Every destination file is written atomically.

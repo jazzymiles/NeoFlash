@@ -457,6 +457,24 @@ impl WebPlayer {
     pub fn video_commands_json(&mut self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.drain_video_commands()).map_err(display_error)
     }
+    /// Resolved deployment sources (`[(resource_id, VideoSourceSpec)]`) for all timeline videos.
+    pub fn timeline_video_sources_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&neoflash_core::timeline_video_sources(&self.project))
+            .map_err(display_error)
+    }
+    /// Resolved deployment source (`Option<VideoSourceSpec>`) for a video resource by ID.
+    pub fn video_source_spec_json(&self, resource_id: &str) -> Result<String, JsValue> {
+        serde_json::to_string(&neoflash_core::resolve_video_resource_source(
+            &self.project,
+            resource_id,
+        ))
+        .map_err(display_error)
+    }
+    /// Package manifest entries (`[VideoManifestEntry]`) for all video resources in the project.
+    pub fn video_manifest_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&neoflash_core::video_manifest_entries(&self.project))
+            .map_err(display_error)
+    }
     /// Audio resource IDs used by timeline sounds (decoded ahead of their keyframes).
     pub fn timeline_sound_resources_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(&neoflash_core::timeline_sound_resources(&self.project))

@@ -112,6 +112,27 @@ fn main() -> eframe::Result {
     // `NEOFLASH_WINDOW=1920x1080` fixes the window size (screenshots, design comparison) and stops
     // eframe from restoring the last window geometry.
     let fixed = shell::fixed_window_size();
+    let is_ui_studio_standalone = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|s| s.to_string_lossy().into_owned()))
+        .is_some_and(|name| name.contains("ui-studio"))
+        || std::env::var_os("NEOFLASH_UI_STUDIO").is_some();
+
+    if is_ui_studio_standalone {
+        return eframe::run_native(
+            "NeoFlash UI Studio",
+            eframe::NativeOptions {
+                viewport: eframe::egui::ViewportBuilder::default()
+                    .with_title("NeoFlash UI Studio — Interactive Layout & Design System")
+                    .with_inner_size(fixed.unwrap_or([1480.0, 920.0]))
+                    .with_min_inner_size([1024.0, 680.0]),
+                persist_window: fixed.is_none(),
+                ..Default::default()
+            },
+            Box::new(|cc| Ok(Box::new(panels::ui_studio::StandaloneUiStudioApp::new(cc)))),
+        );
+    }
+
     eframe::run_native(
         "NeoFlash",
         eframe::NativeOptions {

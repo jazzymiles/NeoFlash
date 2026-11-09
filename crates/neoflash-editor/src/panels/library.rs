@@ -339,6 +339,13 @@ enum Action {
     DeleteSymbol(String),
     EditFolder(String),
     NewFolder(String),
+    BatchRenameSymbol(String, String),
+    BatchRenameFolder(String),
+    BatchLinkageSymbol(String, String),
+    BatchLinkage,
+    BatchBitmapCompression,
+    SelectUnusedItems,
+    DeleteUnusedItems,
 }
 
 impl Editor {
@@ -470,6 +477,11 @@ impl Editor {
                     {
                         *c += 1;
                     }
+                    if let Some(vid) = &key.video
+                        && let Some(c) = counts.get_mut(&vid.resource)
+                    {
+                        *c += 1;
+                    }
                     for bf in &key.bitmap_fills {
                         if let Some(c) = counts.get_mut(&bf.resource_id) {
                             *c += 1;
@@ -496,8 +508,7 @@ impl Editor {
             .iter()
             .filter(|s| {
                 !self.project.is_scene(&s.id)
-                    && s.linkage_id.is_none()
-                    && s.class_name.is_none()
+                    && !crate::panels::productivity_tools::symbol_has_linkage(&self.project, &s.id)
                     && counts.get(&s.id).copied().unwrap_or(0) == 0
             })
             .map(|s| s.id.clone())
@@ -510,7 +521,10 @@ impl Editor {
         self.project
             .resources
             .iter()
-            .filter(|r| counts.get(&r.id).copied().unwrap_or(0) == 0)
+            .filter(|r| {
+                !crate::panels::productivity_tools::is_internal_system_resource_path(&r.path)
+                    && counts.get(&r.id).copied().unwrap_or(0) == 0
+            })
             .map(|r| r.id.clone())
             .collect()
     }
@@ -530,6 +544,29 @@ impl Editor {
             self.resource_panel.selected = Some(first_res.clone());
             self.library_selected = None;
         }
+        let total = unused_syms.len() + unused_res.len();
+        if total == 0 {
+            self.message("No unused Library items found.");
+        } else {
+            let mut names: Vec<String> = unused_syms
+                .iter()
+                .filter_map(|id| self.project.symbol(id).map(|s| s.name.clone()))
+                .collect();
+            names.extend(
+                unused_res
+                    .iter()
+                    .filter_map(|id| self.project.resource(id).map(|r| r.path.clone())),
+            );
+            let preview = if names.len() <= 4 {
+                names.join(", ")
+            } else {
+                format!("{}, +{} more", names[..4].join(", "), names.len() - 4)
+            };
+            self.message(format!(
+                "Found {total} unused Library item{}: {preview}",
+                if total == 1 { "" } else { "s" }
+            ));
+        }
         (unused_syms, unused_res)
     }
 
@@ -539,6 +576,7 @@ impl Editor {
         let unused_syms: HashSet<String> = self.unused_library_symbol_ids().into_iter().collect();
         let unused_res: HashSet<String> = self.unused_library_resource_ids().into_iter().collect();
         if unused_syms.is_empty() && unused_res.is_empty() {
+            self.message("No unused Library items to delete.");
             return (0, 0);
         }
         let mut candidate = self.project.clone();
@@ -569,6 +607,13 @@ impl Editor {
             {
                 self.resource_panel.selected = None;
             }
+            let total = removed_syms + removed_res;
+            self.message(format!(
+                "Deleted {total} unused Library item{} ({removed_syms} symbol{}, {removed_res} resource{}).",
+                if total == 1 { "" } else { "s" },
+                if removed_syms == 1 { "" } else { "s" },
+                if removed_res == 1 { "" } else { "s" },
+            ));
             (removed_syms, removed_res)
         } else {
             (0, 0)
@@ -1123,6 +1168,7 @@ impl Editor {
         if crate::bitmaps::has_bitmap_properties_dialog(ui.ctx()) {
             self.bitmap_properties_dialog(ui.ctx());
         }
+        crate::panels::productivity_tools::show_productivity_modals(self, ui.ctx());
         if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
             self.library_panel.drag = None;
         }
@@ -1559,6 +1605,49 @@ impl Editor {
                                 {
                                     action = Some(Action::EditFolder(path.clone()));
                                 }
+                                nf::menu_separator(ui);
+                                if ui
+                                    .add_enabled(source_active, nf::MenuItem::new("Batch rename…"))
+                                    .clicked()
+                                {
+                                    action = Some(Action::BatchRenameFolder(path.clone()));
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Batch linkage (ActionScript)…"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::BatchLinkage);
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Batch bitmap compression & smoothing…"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::BatchBitmapCompression);
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Select unused items"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::SelectUnusedItems);
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Delete unused items"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::DeleteUnusedItems);
+                                }
                             });
                         }
                         LibraryRow::Symbol { symbol, depth } => {
@@ -1621,6 +1710,55 @@ impl Editor {
                                     .clicked()
                                 {
                                     action = Some(Action::ExportSymbolLottie(symbol.id.clone()));
+                                }
+                                nf::menu_separator(ui);
+                                if ui
+                                    .add_enabled(source_active, nf::MenuItem::new("Batch rename…"))
+                                    .clicked()
+                                {
+                                    action = Some(Action::BatchRenameSymbol(
+                                        symbol.id.clone(),
+                                        symbol.folder.clone(),
+                                    ));
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Batch linkage (ActionScript)…"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::BatchLinkageSymbol(
+                                        symbol.id.clone(),
+                                        symbol.folder.clone(),
+                                    ));
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Batch bitmap compression & smoothing…"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::BatchBitmapCompression);
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Select unused items"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::SelectUnusedItems);
+                                }
+                                if ui
+                                    .add_enabled(
+                                        source_active,
+                                        nf::MenuItem::new("Delete unused items"),
+                                    )
+                                    .clicked()
+                                {
+                                    action = Some(Action::DeleteUnusedItems);
                                 }
                                 nf::menu_separator(ui);
                                 if ui
@@ -1749,6 +1887,33 @@ impl Editor {
                 }
                 Action::NewFolder(parent) => {
                     self.start_library_edit(EditTarget::NewFolder, &parent)
+                }
+                Action::BatchRenameSymbol(id, folder) => {
+                    self.library_selected = Some(id);
+                    self.library_panel.selected_folder = folder;
+                    self.open_batch_rename_library_modal(ui.ctx());
+                }
+                Action::BatchRenameFolder(folder) => {
+                    self.library_selected = None;
+                    self.library_panel.selected_folder = folder;
+                    self.open_batch_rename_library_modal(ui.ctx());
+                }
+                Action::BatchLinkageSymbol(id, folder) => {
+                    self.library_selected = Some(id);
+                    self.library_panel.selected_folder = folder;
+                    self.open_batch_linkage_modal(ui.ctx());
+                }
+                Action::BatchLinkage => {
+                    self.open_batch_linkage_modal(ui.ctx());
+                }
+                Action::BatchBitmapCompression => {
+                    self.open_batch_bitmap_compression_modal(ui.ctx());
+                }
+                Action::SelectUnusedItems => {
+                    self.select_unused_library_items();
+                }
+                Action::DeleteUnusedItems => {
+                    self.delete_unused_library_items();
                 }
             }
         }
@@ -1963,10 +2128,59 @@ impl Editor {
         }
         let has_bitmap = source_active && self.project.resources.iter().any(|u| u.is_image());
         if ui
+            .add_enabled(has_bitmap, nf::MenuItem::new("Trace bitmap…"))
+            .clicked()
+        {
+            self.trace_selected_or_library_bitmap(ui.ctx(), None);
+            ui.close();
+        }
+        if ui
             .add_enabled(has_bitmap, nf::MenuItem::new("Bitmap properties…"))
             .clicked()
         {
             self.open_bitmap_properties(ui.ctx(), None);
+            ui.close();
+        }
+        nf::menu_separator(ui);
+        let has_any_items = source_active
+            && (self
+                .project
+                .symbols
+                .iter()
+                .any(|s| !self.project.is_scene(&s.id))
+                || !self.project.resources.is_empty());
+        let has_linkage_items = source_active
+            && (self
+                .project
+                .symbols
+                .iter()
+                .any(|s| !self.project.is_scene(&s.id))
+                || has_audio);
+        if ui
+            .add_enabled(has_any_items, nf::MenuItem::new("Batch rename…"))
+            .clicked()
+        {
+            self.open_batch_rename_library_modal(ui.ctx());
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                has_linkage_items,
+                nf::MenuItem::new("Batch linkage (ActionScript)…"),
+            )
+            .clicked()
+        {
+            self.open_batch_linkage_modal(ui.ctx());
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                has_bitmap,
+                nf::MenuItem::new("Batch bitmap compression & smoothing…"),
+            )
+            .clicked()
+        {
+            self.open_batch_bitmap_compression_modal(ui.ctx());
             ui.close();
         }
         let has_unused = source_active

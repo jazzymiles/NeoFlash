@@ -8,7 +8,8 @@ use crate::app::Editor;
 use eframe::egui::{self, Ui};
 use neoflash_core::{
     Element, ElementKind, Id, Keyframe, ResourceUnit, SymbolKind, TimelineVideoSpan, Transform,
-    VideoSyncMode, new_id,
+    VideoDeploymentMode, VideoSyncMode, new_id, validate_external_video_path,
+    validate_progressive_video_url,
 };
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline as tl;
@@ -204,101 +205,177 @@ impl Editor {
         let duration_sec = (out_sec - in_sec).clamp(0.1, 600.0);
         let start_offset_ms = (in_sec * 1000.0).round().max(0.0) as u32;
 
-        if draft.file_path.trim().is_empty() {
-            return Err("Choose a video file to import.".into());
+        let raw_input = draft.file_path.trim();
+        if raw_input.is_empty() {
+            return Err("Choose a video file or URL to import.".into());
         }
-        let expanded_path = expand_import_path(&draft.file_path);
-        let path_obj = expanded_path.as_path();
-        let file = std::fs::File::open(path_obj)
-            .map_err(|error| format!("Could not read video '{}': {error}", path_obj.display()))?;
-        let byte_limit = neoflash_core::MAX_RESOURCE_BYTES;
-        let file_len = file
-            .metadata()
-            .map_err(|error| format!("Could not inspect video '{}': {error}", path_obj.display()))?
-            .len();
-        if file_len > byte_limit as u64 {
-            return Err(format!(
-                "Video '{}' exceeds the {} MiB resource limit.",
-                path_obj.display(),
-                byte_limit / (1024 * 1024)
-            ));
-        }
-        let mut raw_bytes = Vec::with_capacity(file_len.min(byte_limit as u64) as usize);
-        file.take(byte_limit as u64 + 1)
-            .read_to_end(&mut raw_bytes)
-            .map_err(|error| format!("Could not read video '{}': {error}", path_obj.display()))?;
-        if raw_bytes.len() > byte_limit {
-            return Err(format!(
-                "Video '{}' exceeds the {} MiB resource limit.",
-                path_obj.display(),
-                byte_limit / (1024 * 1024)
-            ));
-        }
-        let ext = path_obj
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("mp4")
-            .to_ascii_lowercase();
-        let media_type = if raw_bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
-            "video/webm"
-        } else if raw_bytes.starts_with(b"OggS") {
-            "video/ogg"
-        } else if raw_bytes.len() >= 12 && &raw_bytes[4..8] == b"ftyp" {
-            "video/mp4"
-        } else if ext == "webm" {
-            "video/webm"
-        } else if ext == "ogv" || ext == "ogg" {
-            "video/ogg"
-        } else {
-            "video/mp4"
-        };
-        let file_name = path_obj
-            .file_name()
-            .and_then(|n| n.to_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("intro.mp4");
-        let diagnostics =
-            neoflash_core::inspect_video_resource(file_name, media_type, &raw_bytes, None);
-        let errors: Vec<_> = diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.is_error)
-            .map(|diagnostic| diagnostic.message.as_str())
-            .collect();
-        if !errors.is_empty() {
-            return Err(errors.join(" "));
-        }
-        let preferred_path = format!("video/{file_name}");
+
         let mut candidate = self.project.clone();
-        let identical = candidate.resources.iter().find(|resource| {
-            resource.is_video()
-                && resource.media_type.eq_ignore_ascii_case(media_type)
-                && resource
-                    .decoded_bytes()
-                    .is_ok_and(|existing| existing.as_slice() == raw_bytes.as_slice())
-        });
-        let (res_id, rel_path, resource) = if let Some(existing) = identical {
-            (existing.id.clone(), existing.path.clone(), None)
-        } else {
-            let rel_path =
-                unique_video_resource_path(&candidate.resources, &preferred_path, &raw_bytes);
+        let (res_id, rel_path, file_name, resource, video_span) = if draft.deployment == 2 {
+            validate_progressive_video_url(raw_input)?;
+            let url_no_query = raw_input.split(['?', '#']).next().unwrap_or(raw_input);
+            let url_file_name = url_no_query
+                .rsplit('/')
+                .next()
+                .filter(|name| !name.is_empty() && name.contains('.'))
+                .unwrap_or("stream.mp4");
+            let ext = Path::new(url_file_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("mp4")
+                .to_ascii_lowercase();
+            let media_type = if ext == "webm" || draft.codec.contains("VP9") {
+                "video/webm"
+            } else if ext == "ogv" || ext == "ogg" {
+                "video/ogg"
+            } else {
+                "video/mp4"
+            };
+            let preferred_path = format!("video/{url_file_name}");
+            let rel_path = unique_video_resource_path(
+                &candidate.resources,
+                &preferred_path,
+                raw_input.as_bytes(),
+            );
             let res_id = new_id("res");
-            let resource =
-                ResourceUnit::from_bytes(res_id.clone(), rel_path.clone(), media_type, &raw_bytes)
-                    .map_err(|e| e.to_string())?;
-            (res_id, rel_path, Some(resource))
-        };
-        let sync = if draft.deployment == 0 {
-            VideoSyncMode::Stream
+            let resource = ResourceUnit {
+                id: res_id.clone(),
+                path: rel_path.clone(),
+                media_type: media_type.to_owned(),
+                data_base64: String::new().into(),
+                bitmap_export: None,
+                audio_export: None,
+            };
+            let span = TimelineVideoSpan {
+                resource: res_id.clone(),
+                sync: VideoSyncMode::Event,
+                deployment: VideoDeploymentMode::Progressive,
+                external_path: None,
+                stream_url: Some(raw_input.to_owned()),
+                start_offset_ms,
+                loop_video: false,
+                muted: !draft.include_audio,
+                cue_points: Vec::new(),
+            };
+            (
+                res_id,
+                rel_path,
+                url_file_name.to_owned(),
+                Some(resource),
+                span,
+            )
         } else {
-            VideoSyncMode::Event
-        };
-        let video_span = TimelineVideoSpan {
-            resource: res_id.clone(),
-            sync,
-            start_offset_ms,
-            loop_video: false,
-            muted: !draft.include_audio,
-            cue_points: Vec::new(),
+            let expanded_path = expand_import_path(raw_input);
+            let path_obj = expanded_path.as_path();
+            let file = std::fs::File::open(path_obj).map_err(|error| {
+                format!("Could not read video '{}': {error}", path_obj.display())
+            })?;
+            let byte_limit = neoflash_core::MAX_RESOURCE_BYTES;
+            let file_len = file
+                .metadata()
+                .map_err(|error| {
+                    format!("Could not inspect video '{}': {error}", path_obj.display())
+                })?
+                .len();
+            if file_len > byte_limit as u64 {
+                return Err(format!(
+                    "Video '{}' exceeds the {} MiB resource limit.",
+                    path_obj.display(),
+                    byte_limit / (1024 * 1024)
+                ));
+            }
+            let mut raw_bytes = Vec::with_capacity(file_len.min(byte_limit as u64) as usize);
+            file.take(byte_limit as u64 + 1)
+                .read_to_end(&mut raw_bytes)
+                .map_err(|error| {
+                    format!("Could not read video '{}': {error}", path_obj.display())
+                })?;
+            if raw_bytes.len() > byte_limit {
+                return Err(format!(
+                    "Video '{}' exceeds the {} MiB resource limit.",
+                    path_obj.display(),
+                    byte_limit / (1024 * 1024)
+                ));
+            }
+            let ext = path_obj
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("mp4")
+                .to_ascii_lowercase();
+            let media_type = if raw_bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+                "video/webm"
+            } else if raw_bytes.starts_with(b"OggS") {
+                "video/ogg"
+            } else if raw_bytes.len() >= 12 && &raw_bytes[4..8] == b"ftyp" {
+                "video/mp4"
+            } else if ext == "webm" {
+                "video/webm"
+            } else if ext == "ogv" || ext == "ogg" {
+                "video/ogg"
+            } else {
+                "video/mp4"
+            };
+            let file_name = path_obj
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("intro.mp4")
+                .to_owned();
+            let diagnostics =
+                neoflash_core::inspect_video_resource(&file_name, media_type, &raw_bytes, None);
+            let errors: Vec<_> = diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.is_error)
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect();
+            if !errors.is_empty() {
+                return Err(errors.join(" "));
+            }
+            let preferred_path = format!("video/{file_name}");
+            let identical = candidate.resources.iter().find(|resource| {
+                resource.is_video()
+                    && resource.media_type.eq_ignore_ascii_case(media_type)
+                    && resource
+                        .decoded_bytes()
+                        .is_ok_and(|existing| existing.as_slice() == raw_bytes.as_slice())
+            });
+            let (res_id, rel_path, resource) = if let Some(existing) = identical {
+                (existing.id.clone(), existing.path.clone(), None)
+            } else {
+                let rel_path =
+                    unique_video_resource_path(&candidate.resources, &preferred_path, &raw_bytes);
+                let res_id = new_id("res");
+                let resource = ResourceUnit::from_bytes(
+                    res_id.clone(),
+                    rel_path.clone(),
+                    media_type,
+                    &raw_bytes,
+                )
+                .map_err(|e| e.to_string())?;
+                (res_id, rel_path, Some(resource))
+            };
+            let (deployment, sync, external_path) = if draft.deployment == 1 {
+                validate_external_video_path(&rel_path)?;
+                (
+                    VideoDeploymentMode::External,
+                    VideoSyncMode::Event,
+                    Some(rel_path.clone()),
+                )
+            } else {
+                (VideoDeploymentMode::Embedded, VideoSyncMode::Stream, None)
+            };
+            let span = TimelineVideoSpan {
+                resource: res_id.clone(),
+                sync,
+                deployment,
+                external_path,
+                stream_url: None,
+                start_offset_ms,
+                loop_video: false,
+                muted: !draft.include_audio,
+                cue_points: Vec::new(),
+            };
+            (res_id, rel_path, file_name, resource, span)
         };
 
         let layer_idx = self.layer;

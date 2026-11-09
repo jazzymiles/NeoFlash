@@ -1,20 +1,21 @@
-//! Comprehensive ActionScript 1.0, 2.0 & 3.0 Language & API Reference chapters
-//! (`Chapters 11–16` of `Help ▸ NeoFlash Help & Reference…`), interactive cross-links,
-//! tag filters, and the full NF2-styled + SVG-illustrated HTML5 browser manual generator.
+//! Comprehensive ActionScript 1.0, 2.0 & 3.0 plus JavaScript (ES2023+), TypeScript, and
+//! Browser / Web API Language & API Reference chapters (`Chapters 11–19` of
+//! `Help ▸ Scripting Reference…`), interactive cross-links, tag filters, shared JS/TS
+//! Actions toolbox catalog, and the full NF2-styled + SVG-illustrated HTML5 browser manual.
 //!
 //! Built strictly from `neoflash_ui` (NF2) tokens, typography, icons, and components.
 
 use super::help_manual::{
-    HELP_BROWSER_TOPICS, HELP_CHAPTERS, illustration_canvas, mode_card, paragraph,
-    section_overline, sub_bullet,
+    AUTHORING_CHAPTER_COUNT, HELP_BROWSER_TOPICS, HELP_CHAPTERS, illustration_canvas, mode_card,
+    paint_clipped_text, paragraph, section_overline, sub_bullet,
 };
-use eframe::egui::{self, Pos2, Rect, Stroke, StrokeKind, Ui, vec2};
+use eframe::egui::{self, Rect, Stroke, StrokeKind, Ui, vec2};
 use neoflash_ui::{
     Palette, TextStyle,
     components::{self as c, Badge, BadgeType, Button},
     icons::{self, i16},
     tokens::{DARK, LIGHT, radius, space},
-    typography::{font, rich},
+    typography::rich,
 };
 use std::fmt::Write as _;
 
@@ -29,7 +30,7 @@ pub(crate) fn css_rgb(color: egui::Color32) -> String {
     }
 }
 
-/// All filterable topic tags across the 16 Help & Reference chapters.
+/// All filterable topic tags across the 19 Help & Scripting Reference chapters.
 pub(crate) const HELP_ALL_TAGS: &[&str] = &[
     "Authoring",
     "Stage",
@@ -44,11 +45,544 @@ pub(crate) const HELP_ALL_TAGS: &[&str] = &[
     "AS1",
     "AS2",
     "AS3",
-    "JS/TS",
+    "JavaScript",
+    "TypeScript",
+    "WebAPI",
+    "Migration",
     "DisplayList",
     "Events",
     "Graphics",
 ];
+
+/// Provenance and item kind for the shared JavaScript / TypeScript / Web API toolbox and manual.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JsTsEntryKind {
+    Binding,
+    Function,
+    Keyword,
+    TypeConstruct,
+    Class,
+    Member(&'static str),
+}
+
+/// Single source-of-truth entry for JavaScript, TypeScript, NeoFlash runtime bindings, and
+/// Browser / Web APIs used by both the `Actions` toolbox tree (`actions.rs`) and the
+/// `Scripting Reference` chapters (`help_as_reference.rs`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct JsTsApiEntry {
+    pub category: &'static str,
+    pub name: &'static str,
+    pub signature: &'static str,
+    pub provenance: &'static str,
+    pub availability: &'static str,
+    pub summary: &'static str,
+    pub insertion: &'static str,
+    pub ts_only: bool,
+    pub kind: JsTsEntryKind,
+}
+
+pub(crate) const JS_TS_CATEGORIES: &[(&str, &str, bool)] = &[
+    (
+        "NeoFlash Context & Timeline",
+        "Frame/object script bindings (this, event, trace, timeline & display controls)",
+        false,
+    ),
+    (
+        "Modules & JSX",
+        "Deterministic project modules (import/export) and JSX/TSX (__nfJsx)",
+        false,
+    ),
+    (
+        "ECMAScript & Async",
+        "ES2023+ classes, collections, JSON, Promise, async/await, and Error handling",
+        false,
+    ),
+    (
+        "TypeScript & Checker",
+        "Interfaces, type aliases, generics, unions, and built-in ts_check utilities",
+        true,
+    ),
+    (
+        "Browser DOM & Canvas 2D",
+        "Published HTML5 host DOM, CanvasRenderingContext2D, timers & input events",
+        false,
+    ),
+    (
+        "Web Fetch, Audio & Storage",
+        "Browser fetch, Web Audio (AudioContext), HTMLMediaElement & localStorage",
+        false,
+    ),
+];
+
+pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
+    // ── Category 1: NeoFlash Context & Timeline ──
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "this",
+        signature: "this: MovieClip | DisplayObject",
+        provenance: "NeoFlash binding",
+        availability: "Frame scripts (owning MovieClip) & Object scripts (attached instance)",
+        summary: "Implicit receiver in NeoFlash frame and object scripts; exposes x, y, scaleX, scaleY, rotation, alpha, visible, currentFrame, totalFrames, and child instances.",
+        insertion: "this.",
+        ts_only: false,
+        kind: JsTsEntryKind::Binding,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "event",
+        signature: "event: NeoFlashEvent ({ type, target, currentTarget, keyCode, stageX, stageY })",
+        provenance: "NeoFlash binding",
+        availability: "Object event handlers & addEventListener callbacks",
+        summary: "Structured event payload passed to object scripts and listener callbacks with target, currentTarget, pointer coordinates, and key state.",
+        insertion: "event.target",
+        ts_only: false,
+        kind: JsTsEntryKind::Binding,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "trace",
+        signature: "trace(...values: unknown[]): void",
+        provenance: "NeoFlash binding",
+        availability: "Authoring Test Movie (Output panel F2) & HTML5 browser console",
+        summary: "Formats and appends diagnostic output to the NeoFlash Output panel (F2) and forwards to console.log in published HTML5 bundles.",
+        insertion: "trace(\"\");",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "play",
+        signature: "play(): void",
+        provenance: "NeoFlash binding",
+        availability: "Global frame script helper & MovieClip.play() method",
+        summary: "Resumes playhead advancement on the active timeline or target MovieClip.",
+        insertion: "play();",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "stop",
+        signature: "stop(): void",
+        provenance: "NeoFlash binding",
+        availability: "Global frame script helper & MovieClip.stop() method",
+        summary: "Halts playhead advancement on the active timeline while nested child MovieClips continue running on their own clocks.",
+        insertion: "stop();",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "gotoAndPlay",
+        signature: "gotoAndPlay(frameOrLabel: number | string, scene?: string): void",
+        provenance: "NeoFlash binding",
+        availability: "Global frame script helper & MovieClip.gotoAndPlay() (1-based frame index)",
+        summary: "Jumps the timeline playhead to a 1-based frame number or authored frame label (optionally in a named Scene) and continues playback.",
+        insertion: "gotoAndPlay(1);",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "gotoAndStop",
+        signature: "gotoAndStop(frameOrLabel: number | string, scene?: string): void",
+        provenance: "NeoFlash binding",
+        availability: "Global frame script helper & MovieClip.gotoAndStop() (1-based frame index)",
+        summary: "Moves the timeline playhead to a 1-based frame number or authored frame label and stops immediately.",
+        insertion: "gotoAndStop(1);",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "nextFrame",
+        signature: "nextFrame(): void",
+        provenance: "NeoFlash binding",
+        availability: "Global frame script helper & MovieClip.nextFrame()",
+        summary: "Advances the timeline playhead by one frame and stops playback.",
+        insertion: "nextFrame();",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "prevFrame",
+        signature: "prevFrame(): void",
+        provenance: "NeoFlash binding",
+        availability: "Global frame script helper & MovieClip.prevFrame()",
+        summary: "Steps the timeline playhead back by one frame and stops playback.",
+        insertion: "prevFrame();",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "stopAllSounds",
+        signature: "stopAllSounds(): void",
+        provenance: "NeoFlash binding",
+        availability: "Authoring preview & HTML5 Web Audio scheduler",
+        summary: "Immediately silences all active Event, Start, and Stream timeline sounds.",
+        insertion: "stopAllSounds();",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "getChildByName",
+        signature: "this.getChildByName(name: string): DisplayObject | null",
+        provenance: "NeoFlash binding",
+        availability: "DisplayObjectContainer / MovieClip instances",
+        summary: "Looks up a named child instance on the current timeline or container.",
+        insertion: "this.getChildByName(\"instanceName\")",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
+        name: "addEventListener",
+        signature: "target.addEventListener(type: string, listener: (event: any) => void): void",
+        provenance: "NeoFlash binding",
+        availability: "MovieClip, Sprite, Button, Stage & DOM EventTargets",
+        summary: "Registers an event listener for frame lifecycle (\"enterFrame\"), pointer (\"click\", \"pointerdown\"), or keyboard events.",
+        insertion: "this.addEventListener(\"enterFrame\", (event) => {\n    \n});",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    // ── Category 2: Modules & JSX ──
+    JsTsApiEntry {
+        category: "Modules & JSX",
+        name: "import",
+        signature: "import { symbol } from \"./module\";",
+        provenance: "Project module",
+        availability: "Project .js/.jsx/.ts/.tsx files (relative paths ./ and ../ only; no Node/npm packages)",
+        summary: "Imports bindings from another script module in the NeoFlash project graph; bundled deterministically in topological order.",
+        insertion: "import { } from \"./module\";",
+        ts_only: false,
+        kind: JsTsEntryKind::Keyword,
+    },
+    JsTsApiEntry {
+        category: "Modules & JSX",
+        name: "export",
+        signature: "export function name() { ... } | export class Name { ... }",
+        provenance: "Project module",
+        availability: "Project .js/.jsx/.ts/.tsx module files",
+        summary: "Exports functions, classes, constants, or types so other project modules and timeline scripts can import them.",
+        insertion: "export function helper() {\n    \n}",
+        ts_only: false,
+        kind: JsTsEntryKind::Keyword,
+    },
+    JsTsApiEntry {
+        category: "Modules & JSX",
+        name: "__nfJsx",
+        signature: "__nfJsx(tag: string | Function, props: Record<string, any> | null, ...children: any[])",
+        provenance: "NeoFlash binding",
+        availability: "Compiled automatically from <Tag prop={val}>...</Tag> in .jsx and .tsx files",
+        summary: "NeoFlash's built-in JSX/TSX factory; lowers declarative element trees without requiring React or external bundlers.",
+        insertion: "const view = <hud-panel title=\"Score\">{score}</hud-panel>;",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    // ── Category 3: ECMAScript & Async ──
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Promise",
+        signature: "new Promise<T>((resolve, reject) => { ... }) | Promise.all(iterable)",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ runtime & browser host microtask queue",
+        summary: "Represents the eventual completion or failure of an asynchronous operation; works seamlessly with async/await and fetch().",
+        insertion: "new Promise((resolve, reject) => {\n    resolve(true);\n})",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Promise.all",
+        signature: "Promise.all(values: Iterable<Promise<T>>): Promise<T[]>",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ Promise combinator",
+        summary: "Awaits multiple promises in parallel and resolves to an array of their results.",
+        insertion: "await Promise.all([])",
+        ts_only: false,
+        kind: JsTsEntryKind::Member("Promise"),
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "async / await",
+        signature: "async function loadData(): Promise<void> { const res = await task(); }",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ asynchronous functions and arrow functions",
+        summary: "Suspends execution until a Promise settles without blocking the main animation or rendering loop.",
+        insertion: "async function run() {\n    \n}",
+        ts_only: false,
+        kind: JsTsEntryKind::Keyword,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Map",
+        signature: "new Map<K, V>()",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ keyed collection",
+        summary: "Insertion-ordered key-value dictionary supporting any key type (.get, .set, .has, .delete).",
+        insertion: "new Map()",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Set",
+        signature: "new Set<T>()",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ unique value collection",
+        summary: "Insertion-ordered set of unique values (.add, .has, .delete, .size).",
+        insertion: "new Set()",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "JSON",
+        signature: "JSON.parse(text: string) | JSON.stringify(value: any, replacer?, space?)",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ & NeoFlash runtime",
+        summary: "Parses and serializes structured JSON payloads for save states, level descriptors, and network APIs.",
+        insertion: "JSON.stringify({})",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Math",
+        signature: "Math.sin(x) | Math.cos(x) | Math.atan2(y, x) | Math.hypot(dx, dy) | Math.random()",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ & deterministic NeoFlash math intrinsics",
+        summary: "IEEE-754 floating-point trigonometry, clamping, rounding, and pseudo-random generation.",
+        insertion: "Math.hypot(dx, dy)",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "ECMAScript & Async",
+        name: "Error",
+        signature: "throw new Error(message: string) | try { ... } catch (err) { ... }",
+        provenance: "ECMAScript",
+        availability: "Standard ES2023+ structured exception handling",
+        summary: "Constructs and catches runtime errors with stack traces mapped back via NeoFlash source maps.",
+        insertion: "throw new Error(\"\");",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    // ── Category 4: TypeScript & Checker ──
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "interface",
+        signature: "interface Name { readonly id: string; x: number; y?: number; }",
+        provenance: "TypeScript",
+        availability: "Built-in NeoFlash TypeScript checker (ts_check); erased at runtime",
+        summary: "Declares a structural object contract checked for property existence, optionality (?), and member types before stripping.",
+        insertion: "interface ActorState {\n    id: string;\n    x: number;\n    y: number;\n}",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "type",
+        signature: "type Alias<T> = string | number | T;",
+        provenance: "TypeScript",
+        availability: "Built-in NeoFlash TypeScript checker (ts_check); erased at runtime",
+        summary: "Defines a named union, intersection, tuple, function signature, or generic type alias.",
+        insertion: "type FrameTarget = number | string;",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "enum",
+        signature: "enum State { Idle = \"idle\", Running = \"running\" }",
+        provenance: "TypeScript",
+        availability: "TypeScript numeric & string enums lowered to runtime lookup objects",
+        summary: "Declares a set of named numeric or string constants accessible at both compile time and runtime.",
+        insertion: "enum GamePhase {\n    Title = \"title\",\n    Playing = \"playing\",\n}",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "Record",
+        signature: "Record<K extends string | number, V>",
+        provenance: "TypeScript",
+        availability: "Built-in ts_check utility type",
+        summary: "Constructs an object type whose property keys are K and whose property values are V.",
+        insertion: "Record<string, number>",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "Partial",
+        signature: "Partial<T> | Required<T> | Readonly<T>",
+        provenance: "TypeScript",
+        availability: "Built-in ts_check utility type",
+        summary: "Marks all properties of interface or object type T as optional (or required/readonly).",
+        insertion: "Partial<ActorState>",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
+    JsTsApiEntry {
+        category: "TypeScript & Checker",
+        name: "Pick / Omit",
+        signature: "Pick<T, K extends keyof T> | Omit<T, K extends keyof T>",
+        provenance: "TypeScript",
+        availability: "Built-in ts_check utility type",
+        summary: "Projects a subset of properties from type T by selecting or excluding keys K.",
+        insertion: "Pick<ActorState, \"x\" | \"y\">",
+        ts_only: true,
+        kind: JsTsEntryKind::TypeConstruct,
+    },
+    // ── Category 5: Browser DOM & Canvas 2D ──
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "CanvasRenderingContext2D",
+        signature: "ctx: CanvasRenderingContext2D (canvas.getContext(\"2d\"))",
+        provenance: "Browser host",
+        availability: "Published HTML5 browser host (requires DOM <canvas> element)",
+        summary: "HTML5 2D rendering context for immediate-mode paths, fills, strokes, text, images, transforms, and pixel buffers.",
+        insertion: "/** @type {CanvasRenderingContext2D} */\nconst ctx = canvas.getContext(\"2d\");",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "fillRect",
+        signature: "ctx.fillRect(x: number, y: number, width: number, height: number): void",
+        provenance: "Browser host",
+        availability: "CanvasRenderingContext2D in HTML5 browser host",
+        summary: "Paints a filled axis-aligned rectangle using the current ctx.fillStyle.",
+        insertion: "ctx.fillRect(0, 0, 100, 60);",
+        ts_only: false,
+        kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "beginPath / arc / fill",
+        signature: "ctx.beginPath(); ctx.arc(x, y, radius, startAngle, endAngle); ctx.fill();",
+        provenance: "Browser host",
+        availability: "CanvasRenderingContext2D in HTML5 browser host",
+        summary: "Starts a sub-path, appends a circular arc in radians, and fills the contour.",
+        insertion: "ctx.beginPath();\nctx.arc(60, 60, 24, 0, Math.PI * 2);\nctx.fill();",
+        ts_only: false,
+        kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "drawImage",
+        signature: "ctx.drawImage(image: CanvasImageSource, dx: number, dy: number, dw?: number, dh?: number): void",
+        provenance: "Browser host",
+        availability: "CanvasRenderingContext2D in HTML5 browser host (subject to CORS taint rules)",
+        summary: "Draws an HTMLImageElement, HTMLCanvasElement, HTMLVideoElement, or ImageBitmap onto the 2D canvas.",
+        insertion: "ctx.drawImage(image, 0, 0);",
+        ts_only: false,
+        kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "save / restore / setTransform",
+        signature: "ctx.save(); ctx.setTransform(a, b, c, d, e, f); ctx.restore();",
+        provenance: "Browser host",
+        availability: "CanvasRenderingContext2D in HTML5 browser host",
+        summary: "Pushes/pops the 2D drawing state stack and applies a 2×3 affine transformation matrix.",
+        insertion: "ctx.save();\nctx.translate(x, y);\nctx.restore();",
+        ts_only: false,
+        kind: JsTsEntryKind::Member("CanvasRenderingContext2D"),
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "document.querySelector",
+        signature: "document.querySelector(selector: string): Element | null",
+        provenance: "Browser host",
+        availability: "Published HTML5 browser host DOM (not available in headless non-browser tests)",
+        summary: "Returns the first DOM Element matching a CSS selector for custom HTML overlays or canvas host lookup.",
+        insertion: "document.querySelector(\"#stage-canvas\")",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "requestAnimationFrame",
+        signature: "requestAnimationFrame(callback: (timestampMs: number) => void): number",
+        provenance: "Browser host",
+        availability: "Published HTML5 browser host & NeoFlash frame scheduler",
+        summary: "Schedules a callback before the browser's next display repaint, passing a high-resolution DOMHighResTimeStamp.",
+        insertion: "requestAnimationFrame((nowMs) => {\n    \n});",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "Browser DOM & Canvas 2D",
+        name: "setTimeout / clearTimeout",
+        signature: "setTimeout(handler: () => void, delayMs: number): number",
+        provenance: "Browser host",
+        availability: "Published HTML5 browser host & NeoFlash timer queue",
+        summary: "Schedules a one-shot callback after delayMs milliseconds; cancel with clearTimeout(id).",
+        insertion: "setTimeout(() => {\n    \n}, 250);",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    // ── Category 6: Web Fetch, Audio & Storage ──
+    JsTsApiEntry {
+        category: "Web Fetch, Audio & Storage",
+        name: "fetch",
+        signature: "fetch(input: string | Request, init?: RequestInit): Promise<Response>",
+        provenance: "Browser host",
+        availability: "HTML5 browser host (requires CORS headers & CSP connect-src permission)",
+        summary: "Performs an asynchronous HTTP/HTTPS request and returns a Promise resolving to a Response (.json(), .text(), .arrayBuffer()).",
+        insertion: "const response = await fetch(\"./data/level.json\");\nconst data = await response.json();",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "Web Fetch, Audio & Storage",
+        name: "localStorage",
+        signature: "localStorage.getItem(key: string): string | null | localStorage.setItem(key, value)",
+        provenance: "Browser host",
+        availability: "HTML5 browser host (same-origin ~5 MB quota; may throw in strict private mode)",
+        summary: "Reads and writes persistent key-value strings scoped to the published page's origin.",
+        insertion: "localStorage.setItem(\"neoflash.save\", JSON.stringify({ score: 100 }));",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+    JsTsApiEntry {
+        category: "Web Fetch, Audio & Storage",
+        name: "AudioContext",
+        signature: "new AudioContext() | audioCtx.resume(): Promise<void>",
+        provenance: "Browser host",
+        availability: "HTML5 browser host (requires user gesture click/key press before audio unmutes)",
+        summary: "Web Audio API graph context used by web/audio.js and custom procedural audio nodes.",
+        insertion: "const audioCtx = new AudioContext();\nawait audioCtx.resume();",
+        ts_only: false,
+        kind: JsTsEntryKind::Class,
+    },
+];
+
+/// Filters `JS_TS_API_ENTRIES` by language (`include_ts`) and case-insensitive substring query.
+pub(crate) fn search_js_ts_entries(query: &str, include_ts: bool) -> Vec<&'static JsTsApiEntry> {
+    let q = query.trim().to_ascii_lowercase();
+    JS_TS_API_ENTRIES
+        .iter()
+        .filter(|entry| {
+            if entry.ts_only && !include_ts {
+                return false;
+            }
+            if q.is_empty() {
+                return true;
+            }
+            entry.name.to_ascii_lowercase().contains(&q)
+                || entry.signature.to_ascii_lowercase().contains(&q)
+                || entry.category.to_ascii_lowercase().contains(&q)
+                || entry.provenance.to_ascii_lowercase().contains(&q)
+                || entry.summary.to_ascii_lowercase().contains(&q)
+        })
+        .collect()
+}
 
 /// A copyable, syntax-tinted code block for ActionScript 1.0 / 2.0 / 3.0 and JS/TS examples.
 pub(crate) struct CodeSample {
@@ -67,21 +601,25 @@ pub(crate) fn code_block(ui: &mut Ui, sample: &CodeSample) {
         .inner_margin(egui::Margin::same(space::S3 as i8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
                 icons::show(ui, i16::CODE, p.accent_default);
-                ui.label(rich(sample.title, TextStyle::BodyStrong).color(p.text_primary));
+                ui.add(
+                    egui::Label::new(
+                        rich(sample.title, TextStyle::BodyStrong).color(p.text_primary),
+                    )
+                    .wrap(),
+                );
                 ui.add(Badge::new(sample.lang_badge, BadgeType::Accent));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(Button::ghost("Copy snippet")).clicked() {
-                        ui.ctx().copy_text(sample.code.to_owned());
-                    }
-                });
+                if ui.add(Button::ghost("Copy snippet")).clicked() {
+                    ui.ctx().copy_text(sample.code.to_owned());
+                }
             });
             ui.add_space(space::S1);
             c::divider(ui, false);
             ui.add_space(space::S1);
             for (line_idx, line) in sample.code.lines().enumerate() {
-                ui.horizontal_wrapped(|ui| {
+                ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = space::S2;
                     let ln = format!("{:>2}", line_idx + 1);
                     ui.label(rich(&ln, TextStyle::MonoSmall).color(p.text_disabled));
@@ -90,8 +628,12 @@ pub(crate) fn code_block(ui: &mut Ui, sample: &CodeSample) {
                         p.syntax_comment
                     } else if trimmed.starts_with("package")
                         || trimmed.starts_with("import ")
+                        || trimmed.starts_with("export ")
                         || trimmed.starts_with("public class")
                         || trimmed.starts_with("class ")
+                        || trimmed.starts_with("interface ")
+                        || trimmed.starts_with("type ")
+                        || trimmed.starts_with("async ")
                         || trimmed.starts_with("function ")
                         || trimmed.starts_with("on(")
                         || trimmed.starts_with("onClipEvent")
@@ -105,7 +647,14 @@ pub(crate) fn code_block(ui: &mut Ui, sample: &CodeSample) {
                     } else {
                         p.text_primary
                     };
-                    ui.label(rich(line, TextStyle::MonoSmall).color(line_color));
+                    let code_w = (ui.available_width() - space::S1).max(80.0);
+                    ui.vertical(|ui| {
+                        ui.set_max_width(code_w);
+                        ui.add(
+                            egui::Label::new(rich(line, TextStyle::MonoSmall).color(line_color))
+                                .wrap(),
+                        );
+                    });
                 });
             }
         });
@@ -113,6 +662,8 @@ pub(crate) fn code_block(ui: &mut Ui, sample: &CodeSample) {
 }
 
 /// Renders a structured 3-column API quick-reference table using NF2 tokens.
+/// Uses dynamic wrapped row heights instead of fixed 18pt slots so multi-line signatures and
+/// descriptions never collide vertically at narrow widths or 1.5×/2.0× UI scales.
 pub(crate) fn api_signature_table(
     ui: &mut Ui,
     title: &str,
@@ -128,18 +679,21 @@ pub(crate) fn api_signature_table(
         .inner_margin(egui::Margin::same(space::S3 as i8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 icons::show(ui, i16::BOOKMARK, p.accent_default);
-                ui.label(rich(title, TextStyle::BodyStrong).color(p.text_primary));
+                ui.add(
+                    egui::Label::new(rich(title, TextStyle::BodyStrong).color(p.text_primary))
+                        .wrap(),
+                );
             });
             ui.add_space(space::S1);
             let avail = ui.available_width();
-            let col0 = (avail * 0.28).max(110.0);
-            let col1 = (avail * 0.28).max(110.0);
-            let col2 = (avail - col0 - col1 - space::S3 * 2.0).max(120.0);
+            let col0 = (avail * 0.27).max(96.0);
+            let col1 = (avail * 0.27).max(96.0);
+            let col2 = (avail - col0 - col1 - space::S3 * 2.0).max(110.0);
             egui::Grid::new(egui::Id::new(("help-api-table", title)))
                 .num_columns(3)
-                .spacing(vec2(space::S2, space::S1))
+                .spacing(vec2(space::S2, space::S2))
                 .striped(true)
                 .show(ui, |ui| {
                     ui.label(rich(headers[0], TextStyle::SmallStrong).color(p.accent_default));
@@ -147,25 +701,36 @@ pub(crate) fn api_signature_table(
                     ui.label(rich(headers[2], TextStyle::SmallStrong).color(p.accent_default));
                     ui.end_row();
                     for (sig, ret_or_target, desc) in rows {
-                        ui.add_sized(
-                            vec2(col0, 18.0),
-                            egui::Label::new(
-                                rich(*sig, TextStyle::MonoSmall).color(p.syntax_function),
-                            )
-                            .wrap(),
-                        );
-                        ui.add_sized(
-                            vec2(col1, 18.0),
-                            egui::Label::new(
-                                rich(*ret_or_target, TextStyle::MonoSmall).color(p.syntax_type),
-                            )
-                            .wrap(),
-                        );
-                        ui.add_sized(
-                            vec2(col2, 18.0),
-                            egui::Label::new(rich(*desc, TextStyle::Small).color(p.text_secondary))
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.set_min_width(col0);
+                            ui.set_max_width(col0);
+                            ui.add(
+                                egui::Label::new(
+                                    rich(*sig, TextStyle::MonoSmall).color(p.syntax_function),
+                                )
                                 .wrap(),
-                        );
+                            );
+                        });
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.set_min_width(col1);
+                            ui.set_max_width(col1);
+                            ui.add(
+                                egui::Label::new(
+                                    rich(*ret_or_target, TextStyle::MonoSmall).color(p.syntax_type),
+                                )
+                                .wrap(),
+                            );
+                        });
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.set_min_width(col2);
+                            ui.set_max_width(col2);
+                            ui.add(
+                                egui::Label::new(
+                                    rich(*desc, TextStyle::Small).color(p.text_secondary),
+                                )
+                                .wrap(),
+                            );
+                        });
                         ui.end_row();
                     }
                 });
@@ -199,33 +764,29 @@ pub(crate) fn chapter_as1_as2_fundamentals(
             "Illustration 11.1: AVM1 Target Path Hierarchy (_level0 / _root → parent MovieClip → nested child MovieClip) and Timeline vs Instance script attachment points.",
             |painter, ctx, rect| {
                 let p = neoflash_ui::palette(ctx);
-                let y_mid = rect.center().y + 4.0;
-                let boxes = [
+                let y_mid = rect.center().y + 6.0;
+                let pad = 12.0;
+                let gap = 22.0;
+                let bw = ((rect.width() - 2.0 * pad - 2.0 * gap) / 3.0).max(90.0);
+                let bh = 86.0;
+                let specs = [
                     (
-                        rect.left() + 18.0,
                         "_level0 / _root",
                         "Main Timeline",
                         "stop(); gotoAndPlay(\"intro\");",
                     ),
                     (
-                        rect.left() + rect.width() * 0.36,
                         "_root.hero_mc",
                         "Parent MovieClip",
                         "this.onEnterFrame = step;",
                     ),
-                    (
-                        rect.left() + rect.width() * 0.70,
-                        "hero_mc.blade_mc",
-                        "Nested Child Clip",
-                        "_parent._x += 4; _root.score++;",
-                    ),
+                    ("hero_mc.blade_mc", "Nested Child Clip", "_parent._x += 4;"),
                 ];
-                let bw = (rect.width() * 0.27).clamp(130.0, 210.0);
-                let bh = 88.0;
-                let mut centers = [Pos2::ZERO; 3];
-                for (i, (x, title, sub, code_line)) in boxes.iter().enumerate() {
-                    let b = Rect::from_min_size(egui::pos2(*x, y_mid - bh * 0.5), vec2(bw, bh));
-                    centers[i] = b.center();
+                let mut boxes = [Rect::NOTHING; 3];
+                for (i, (title, sub, code_line)) in specs.iter().enumerate() {
+                    let x = rect.left() + pad + i as f32 * (bw + gap);
+                    let b = Rect::from_min_size(egui::pos2(x, y_mid - bh * 0.5), vec2(bw, bh));
+                    boxes[i] = b;
                     painter.rect_filled(b, 6.0, p.bg_panel);
                     painter.rect_stroke(
                         b,
@@ -240,48 +801,54 @@ pub(crate) fn chapter_as1_as2_fundamentals(
                         ),
                         StrokeKind::Inside,
                     );
-                    painter.text(
-                        egui::pos2(b.left() + 10.0, b.top() + 18.0),
+                    let inner = b.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), b.top() + 18.0),
                         egui::Align2::LEFT_CENTER,
-                        *title,
-                        font(TextStyle::MonoSmall),
+                        title,
+                        TextStyle::MonoSmall,
                         p.accent_default,
                     );
-                    painter.text(
-                        egui::pos2(b.left() + 10.0, b.top() + 36.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), b.top() + 38.0),
                         egui::Align2::LEFT_CENTER,
-                        *sub,
-                        font(TextStyle::BodyStrong),
+                        sub,
+                        TextStyle::BodyStrong,
                         p.text_primary,
                     );
-                    painter.text(
-                        egui::pos2(b.left() + 10.0, b.top() + 62.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), b.top() + 62.0),
                         egui::Align2::LEFT_CENTER,
-                        *code_line,
-                        font(TextStyle::MonoSmall),
+                        code_line,
+                        TextStyle::MonoSmall,
                         p.syntax_function,
                     );
                 }
                 for i in 0..2 {
-                    let start = egui::pos2(boxes[i].0 + bw + 4.0, y_mid - 10.0);
-                    let end = egui::pos2(boxes[i + 1].0 - 4.0, y_mid - 10.0);
+                    let start = egui::pos2(boxes[i].right() + 2.0, y_mid - 8.0);
+                    let end = egui::pos2(boxes[i + 1].left() - 2.0, y_mid - 8.0);
                     painter.line_segment([start, end], Stroke::new(1.5_f32, p.accent_default));
-                    let rev_s = egui::pos2(boxes[i + 1].0 - 4.0, y_mid + 14.0);
-                    let rev_e = egui::pos2(boxes[i].0 + bw + 4.0, y_mid + 14.0);
+                    let rev_s = egui::pos2(boxes[i + 1].left() - 2.0, y_mid + 12.0);
+                    let rev_e = egui::pos2(boxes[i].right() + 2.0, y_mid + 12.0);
                     painter.line_segment([rev_s, rev_e], Stroke::new(1.2_f32, p.warning_default));
-                    painter.text(
-                        egui::pos2((start.x + end.x) * 0.5, y_mid + 26.0),
-                        egui::Align2::CENTER_CENTER,
-                        "_parent",
-                        font(TextStyle::MonoSmall),
-                        p.warning_default,
-                    );
                 }
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    rect.shrink(6.0),
                     egui::pos2(rect.center().x, rect.top() + 14.0),
                     egui::Align2::CENTER_CENTER,
                     "AVM1 Target Paths: Dot Syntax (_root.hero_mc.blade_mc) & Relative Scope (this / _parent)",
-                    font(TextStyle::Small),
+                    TextStyle::Small,
                     p.text_primary,
                 );
             },
@@ -295,28 +862,28 @@ pub(crate) fn chapter_as1_as2_fundamentals(
                 let p = neoflash_ui::palette(ctx);
                 let zones = [
                     (
-                        "1. Timeline Zone (-16383 to -1)",
-                        "Author-time instances placed on layers",
-                        "swapDepths() moves to Dynamic Zone before removeMovieClip()",
+                        "1. Timeline Zone (-16383..-1)",
+                        "Author-time layer instances",
+                        "swapDepths() before removeMovieClip()",
                         p.timeline_classic_tween,
                     ),
                     (
-                        "2. Dynamic Zone (0 to 1,048,575)",
-                        "attachMovie / duplicateMovieClip / createEmptyMovieClip",
-                        "getNextHighestDepth() returns next free slot >= 0",
+                        "2. Dynamic Zone (0..1,048,575)",
+                        "attachMovie / duplicateMovieClip",
+                        "getNextHighestDepth() >= 0",
                         p.timeline_motion_tween,
                     ),
                     (
                         "3. Reserved Zone (1,048,576+)",
-                        "V2 Components & PopUpManager depth slots",
-                        "removeMovieClip() ignores depths >= 1,048,576",
+                        "V2 Components & PopUpManager",
+                        "removeMovieClip() ignores >= 1,048,576",
                         p.bg_panel,
                     ),
                 ];
                 let pad = 12.0;
-                let h = 36.0;
+                let h = 38.0;
                 for (i, (title, sub, note, fill_c)) in zones.iter().enumerate() {
-                    let y = rect.top() + 26.0 + i as f32 * (h + 8.0);
+                    let y = rect.top() + 22.0 + i as f32 * (h + 8.0);
                     let row = Rect::from_min_max(
                         egui::pos2(rect.left() + pad, y),
                         egui::pos2(rect.right() - pad, y + h),
@@ -328,25 +895,43 @@ pub(crate) fn chapter_as1_as2_fundamentals(
                         Stroke::new(1.0_f32, p.border_default),
                         StrokeKind::Inside,
                     );
-                    painter.text(
-                        egui::pos2(row.left() + 10.0, row.center().y - 6.0),
+                    let split_x = row.left() + row.width() * 0.54;
+                    let left_clip = Rect::from_min_max(
+                        row.min + vec2(8.0, 2.0),
+                        egui::pos2(split_x, row.bottom() - 2.0),
+                    );
+                    let right_clip = Rect::from_min_max(
+                        egui::pos2(split_x + 6.0, row.top() + 2.0),
+                        row.max - vec2(8.0, 2.0),
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        left_clip,
+                        egui::pos2(left_clip.left(), row.center().y - 7.0),
                         egui::Align2::LEFT_CENTER,
-                        *title,
-                        font(TextStyle::BodyStrong),
+                        title,
+                        TextStyle::BodyStrong,
                         p.text_primary,
                     );
-                    painter.text(
-                        egui::pos2(row.left() + 10.0, row.center().y + 8.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        left_clip,
+                        egui::pos2(left_clip.left(), row.center().y + 8.0),
                         egui::Align2::LEFT_CENTER,
-                        *sub,
-                        font(TextStyle::Small),
+                        sub,
+                        TextStyle::Small,
                         p.text_secondary,
                     );
-                    painter.text(
-                        egui::pos2(row.right() - 10.0, row.center().y),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        right_clip,
+                        egui::pos2(right_clip.right(), row.center().y),
                         egui::Align2::RIGHT_CENTER,
-                        *note,
-                        font(TextStyle::MonoSmall),
+                        note,
+                        TextStyle::MonoSmall,
                         p.text_primary,
                     );
                 }
@@ -559,19 +1144,26 @@ pub(crate) fn chapter_as2_core_classes(
                     Stroke::new(1.0_f32, p.border_subtle),
                     StrokeKind::Inside,
                 );
-                painter.text(
-                    egui::pos2(card.left() + 8.0, card.top() + 14.0),
+                let inner = card.shrink(6.0);
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    inner,
+                    egui::pos2(inner.left(), card.top() + 14.0),
                     egui::Align2::LEFT_CENTER,
-                    *heading,
-                    font(TextStyle::BodyStrong),
+                    heading,
+                    TextStyle::BodyStrong,
                     p.accent_default,
                 );
                 for (j, item) in items.iter().enumerate() {
-                    painter.text(
-                        egui::pos2(card.left() + 8.0, card.top() + 36.0 + j as f32 * 20.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 36.0 + j as f32 * 20.0),
                         egui::Align2::LEFT_CENTER,
-                        *item,
-                        font(TextStyle::MonoSmall),
+                        item,
+                        TextStyle::MonoSmall,
                         p.text_primary,
                     );
                 }
@@ -686,56 +1278,54 @@ pub(crate) fn chapter_as3_display_list(
     if *diagram_tab == 0 {
         illustration_canvas(
             ui,
-            168.0,
-            "Illustration 13.1: The ActionScript 3.0 flash.display Inheritance Hierarchy: EventDispatcher → DisplayObject → InteractiveObject → DisplayObjectContainer → Sprite → MovieClip, alongside leaf display nodes (Shape, Bitmap, TextField).",
+            188.0,
+            "Illustration 13.1: The ActionScript 3.0 flash.display Inheritance Hierarchy: EventDispatcher → DisplayObject → InteractiveObject → DisplayObjectContainer → Sprite → MovieClip, alongside leaf display nodes (Shape, Bitmap, TextField, SimpleButton).",
             |painter, ctx, rect| {
                 let p = neoflash_ui::palette(ctx);
-                let chain = [
-                    ("EventDispatcher", "addEventListener / dispatchEvent"),
-                    ("DisplayObject", "x, y, scaleX, rotation, alpha, filters"),
-                    ("InteractiveObject", "mouseEnabled, tabEnabled, focusRect"),
-                    (
-                        "DisplayObjectContainer",
-                        "addChild, removeChild, numChildren",
-                    ),
-                    ("Sprite / MovieClip", "graphics, buttonMode, currentFrame"),
-                ];
                 let pad_x = 12.0;
-                let w = (rect.width() - pad_x * 6.0) / 5.0;
-                let top_y = rect.top() + 18.0;
-                let h = 68.0;
-                for (i, (cls, members)) in chain.iter().enumerate() {
-                    let x = rect.left() + pad_x + i as f32 * (w + pad_x);
-                    let node = Rect::from_min_size(egui::pos2(x, top_y), vec2(w, h));
+                let top_row = [
+                    ("1. EventDispatcher", "addEventListener / dispatchEvent"),
+                    ("2. DisplayObject", "x, y, scaleX, rotation, alpha"),
+                    (
+                        "3. InteractiveObject",
+                        "mouseEnabled, tabEnabled, focusRect",
+                    ),
+                ];
+                let w3 = (rect.width() - pad_x * 4.0) / 3.0;
+                let row1_y = rect.top() + 10.0;
+                let row1_h = 48.0;
+                for (i, (cls, members)) in top_row.iter().enumerate() {
+                    let x = rect.left() + pad_x + i as f32 * (w3 + pad_x);
+                    let node = Rect::from_min_size(egui::pos2(x, row1_y), vec2(w3, row1_h));
                     painter.rect_filled(node, 5.0, p.bg_panel);
                     painter.rect_stroke(
                         node,
                         5.0,
-                        Stroke::new(
-                            1.5_f32,
-                            if i >= 3 {
-                                p.accent_default
-                            } else {
-                                p.border_default
-                            },
-                        ),
+                        Stroke::new(1.2_f32, p.border_default),
                         StrokeKind::Inside,
                     );
-                    painter.text(
-                        egui::pos2(node.center().x, node.top() + 20.0),
+                    let inner = node.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(node.center().x, node.top() + 15.0),
                         egui::Align2::CENTER_CENTER,
-                        *cls,
-                        font(TextStyle::BodyStrong),
+                        cls,
+                        TextStyle::BodyStrong,
                         p.accent_default,
                     );
-                    painter.text(
-                        egui::pos2(node.center().x, node.top() + 44.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(node.center().x, node.top() + 34.0),
                         egui::Align2::CENTER_CENTER,
-                        *members,
-                        font(TextStyle::MonoSmall),
+                        members,
+                        TextStyle::MonoSmall,
                         p.text_secondary,
                     );
-                    if i + 1 < chain.len() {
+                    if i + 1 < top_row.len() {
                         painter.line_segment(
                             [
                                 egui::pos2(node.right() + 2.0, node.center().y),
@@ -745,23 +1335,82 @@ pub(crate) fn chapter_as3_display_list(
                         );
                     }
                 }
-                let leaves = [
-                    "Leaf DisplayObjects: Shape (lightweight vector)",
-                    "Bitmap (wraps BitmapData)",
-                    "TextField (InteractiveObject)",
-                    "SimpleButton (up/over/down/hitTestState)",
+
+                let mid_row = [
+                    (
+                        "4. DisplayObjectContainer",
+                        "addChild, removeChild, numChildren",
+                    ),
+                    (
+                        "5. Sprite → MovieClip",
+                        "graphics, buttonMode, currentFrame",
+                    ),
                 ];
-                let leaf_y = rect.bottom() - 36.0;
+                let w2 = (rect.width() - pad_x * 3.0) / 2.0;
+                let row2_y = row1_y + row1_h + 12.0;
+                let row2_h = 48.0;
+                for (i, (cls, members)) in mid_row.iter().enumerate() {
+                    let x = rect.left() + pad_x + i as f32 * (w2 + pad_x);
+                    let node = Rect::from_min_size(egui::pos2(x, row2_y), vec2(w2, row2_h));
+                    painter.rect_filled(node, 5.0, p.bg_panel);
+                    painter.rect_stroke(
+                        node,
+                        5.0,
+                        Stroke::new(1.5_f32, p.accent_default),
+                        StrokeKind::Inside,
+                    );
+                    let inner = node.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(node.center().x, node.top() + 15.0),
+                        egui::Align2::CENTER_CENTER,
+                        cls,
+                        TextStyle::BodyStrong,
+                        p.accent_default,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(node.center().x, node.top() + 34.0),
+                        egui::Align2::CENTER_CENTER,
+                        members,
+                        TextStyle::MonoSmall,
+                        p.text_secondary,
+                    );
+                    if i == 0 {
+                        painter.line_segment(
+                            [
+                                egui::pos2(node.right() + 2.0, node.center().y),
+                                egui::pos2(node.right() + pad_x - 2.0, node.center().y),
+                            ],
+                            Stroke::new(1.5_f32, p.accent_default),
+                        );
+                    }
+                }
+
+                let leaves = [
+                    "Shape (vector leaf)",
+                    "Bitmap (BitmapData)",
+                    "TextField (text/input)",
+                    "SimpleButton (4-state)",
+                ];
+                let leaf_y = rect.bottom() - 34.0;
                 let lw = (rect.width() - pad_x * 5.0) / 4.0;
                 for (i, ltxt) in leaves.iter().enumerate() {
                     let x = rect.left() + pad_x + i as f32 * (lw + pad_x);
                     let lr = Rect::from_min_size(egui::pos2(x, leaf_y), vec2(lw, 24.0));
                     painter.rect_filled(lr, 4.0, p.accent_subtle);
-                    painter.text(
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        lr.shrink(4.0),
                         lr.center(),
                         egui::Align2::CENTER_CENTER,
-                        *ltxt,
-                        font(TextStyle::MonoSmall),
+                        ltxt,
+                        TextStyle::MonoSmall,
                         p.text_primary,
                     );
                 }
@@ -785,18 +1434,22 @@ pub(crate) fn chapter_as3_display_list(
                     Stroke::new(1.0_f32, p.border_default),
                     StrokeKind::Inside,
                 );
+                let stage_inner = stage_box.shrink(6.0);
                 let g_origin = stage_box.min + vec2(18.0, 18.0);
                 painter.circle_filled(g_origin, 4.0, p.guide);
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    stage_inner,
                     g_origin + vec2(10.0, 0.0),
                     egui::Align2::LEFT_CENTER,
                     "Stage Global (0, 0)",
-                    font(TextStyle::MonoSmall),
+                    TextStyle::MonoSmall,
                     p.guide,
                 );
 
                 let local_box =
-                    Rect::from_center_size(stage_box.center() + vec2(40.0, 8.0), vec2(210.0, 76.0));
+                    Rect::from_center_size(stage_box.center() + vec2(24.0, 4.0), vec2(210.0, 74.0));
                 painter.rect_filled(local_box, 4.0, p.accent_subtle);
                 painter.rect_stroke(
                     local_box,
@@ -805,23 +1458,29 @@ pub(crate) fn chapter_as3_display_list(
                     StrokeKind::Inside,
                 );
                 let l_origin = local_box.min + vec2(16.0, 16.0);
-                let pt = local_box.center() + vec2(36.0, 8.0);
+                let pt = local_box.center() + vec2(32.0, 8.0);
                 painter.circle_filled(l_origin, 4.0, p.warning_default);
                 painter.circle_filled(pt, 4.5, p.success_default);
                 painter.line_segment([g_origin, pt], Stroke::new(1.5_f32, p.guide));
                 painter.line_segment([l_origin, pt], Stroke::new(1.5_f32, p.warning_default));
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    local_box.shrink(4.0),
                     l_origin + vec2(8.0, 0.0),
                     egui::Align2::LEFT_CENTER,
                     "container Local (0, 0)",
-                    font(TextStyle::MonoSmall),
+                    TextStyle::MonoSmall,
                     p.warning_default,
                 );
-                painter.text(
-                    pt + vec2(-10.0, 16.0),
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    stage_inner,
+                    egui::pos2(stage_box.center().x, stage_box.bottom() - 12.0),
                     egui::Align2::CENTER_CENTER,
                     "globalPt = container.localToGlobal(new Point(lx, ly))",
-                    font(TextStyle::MonoSmall),
+                    TextStyle::MonoSmall,
                     p.text_primary,
                 );
             },
@@ -892,7 +1551,7 @@ pub(crate) fn chapter_as3_display_list(
     import flash.geom.Point;
 
     public class Main extends Sprite {
-        private varship:Sprite = new Sprite();
+        private var ship:Sprite = new Sprite();
 
         public function Main() {
             if (stage) init();
@@ -903,16 +1562,18 @@ pub(crate) fn chapter_as3_display_list(
             removeEventListener(Event.ADDED_TO_STAGE, init);
             var hull:Shape = new Shape();
             hull.graphics.beginFill(0x6C93FF, 1.0);
-            hull.graphics.drawTriangles(new <Number>[0,-18, 14,14, -14,14]);
+            hull.graphics.moveTo(0, -18);
+            hull.graphics.lineTo(14, 14);
+            hull.graphics.lineTo(-14, 14);
             hull.graphics.endFill();
 
-            varship.addChild(hull);
-            varship.x = stage.stageWidth * 0.5;
-            varship.y = stage.stageHeight * 0.5;
-            addChild(varship);
+            ship.addChild(hull);
+            ship.x = stage.stageWidth * 0.5;
+            ship.y = stage.stageHeight * 0.5;
+            addChild(ship);
 
             // Convert muzzle tip from local ship coordinates to Stage global coordinates
-            var tipGlobal:Point = varship.localToGlobal(new Point(0, -18));
+            var tipGlobal:Point = ship.localToGlobal(new Point(0, -18));
             trace(\"Ship nose in Stage coordinates:\", tipGlobal.x, tipGlobal.y);
         }
     }
@@ -959,11 +1620,11 @@ pub(crate) fn chapter_as3_events_lifecycle(
                 let p = neoflash_ui::palette(ctx);
                 let nodes = [
                     ("1. Stage", "event.currentTarget"),
-                    ("2.root / HUD_mc", "DisplayObjectContainer"),
+                    ("2. root / HUD_mc", "DisplayObjectContainer"),
                     ("3. dialog_mc", "Parent Sprite"),
                     ("4. play_btn (Target)", "event.target"),
                 ];
-                let pad = 14.0;
+                let pad = 12.0;
                 let w = (rect.width() - pad * 5.0) / 4.0;
                 let mid_y = rect.center().y;
                 for (i, (title, sub)) in nodes.iter().enumerate() {
@@ -992,22 +1653,29 @@ pub(crate) fn chapter_as3_events_lifecycle(
                         ),
                         StrokeKind::Inside,
                     );
-                    painter.text(
+                    let inner = box_r.shrink(5.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
                         egui::pos2(box_r.center().x, box_r.top() + 18.0),
                         egui::Align2::CENTER_CENTER,
-                        *title,
-                        font(TextStyle::BodyStrong),
+                        title,
+                        TextStyle::BodyStrong,
                         if is_target {
                             p.warning_default
                         } else {
                             p.text_primary
                         },
                     );
-                    painter.text(
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
                         egui::pos2(box_r.center().x, box_r.top() + 36.0),
                         egui::Align2::CENTER_CENTER,
-                        *sub,
-                        font(TextStyle::MonoSmall),
+                        sub,
+                        TextStyle::MonoSmall,
                         p.text_secondary,
                     );
                 }
@@ -1018,11 +1686,14 @@ pub(crate) fn chapter_as3_events_lifecycle(
                     ],
                     Stroke::new(2.0_f32, p.guide),
                 );
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    rect.shrink(8.0),
                     egui::pos2(rect.center().x, rect.top() + 14.0),
                     egui::Align2::CENTER_CENTER,
                     "Phase 1: CAPTURING_PHASE (Stage → Parent, useCapture = true) ──►",
-                    font(TextStyle::MonoSmall),
+                    TextStyle::MonoSmall,
                     p.guide,
                 );
                 painter.line_segment(
@@ -1032,11 +1703,14 @@ pub(crate) fn chapter_as3_events_lifecycle(
                     ],
                     Stroke::new(2.0_f32, p.success_default),
                 );
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    rect.shrink(8.0),
                     egui::pos2(rect.center().x, rect.bottom() - 14.0),
                     egui::Align2::CENTER_CENTER,
                     "◄── Phase 3: BUBBLING_PHASE (Target → Stage, useCapture = false, bubbles = true)",
-                    font(TextStyle::MonoSmall),
+                    TextStyle::MonoSmall,
                     p.success_default,
                 );
             },
@@ -1075,18 +1749,25 @@ pub(crate) fn chapter_as3_events_lifecycle(
                         Stroke::new(1.2_f32, p.accent_default),
                         StrokeKind::Inside,
                     );
-                    painter.text(
-                        egui::pos2(cell.left() + 10.0, cell.center().y - 8.0),
+                    let inner = cell.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), cell.center().y - 8.0),
                         egui::Align2::LEFT_CENTER,
-                        *step,
-                        font(TextStyle::MonoSmall),
+                        step,
+                        TextStyle::MonoSmall,
                         p.accent_default,
                     );
-                    painter.text(
-                        egui::pos2(cell.left() + 10.0, cell.center().y + 10.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), cell.center().y + 10.0),
                         egui::Align2::LEFT_CENTER,
-                        *desc,
-                        font(TextStyle::Small),
+                        desc,
+                        TextStyle::Small,
                         p.text_primary,
                     );
                 }
@@ -1250,19 +1931,26 @@ pub(crate) fn chapter_as3_graphics_filters_sound(
                 );
                 painter.rect_filled(cell, 5.0, p.bg_panel);
                 painter.rect_stroke(cell, 5.0, Stroke::new(1.2_f32, *accent), StrokeKind::Inside);
-                painter.text(
-                    egui::pos2(cell.left() + 10.0, cell.top() + 16.0),
+                let inner = cell.shrink(6.0);
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    inner,
+                    egui::pos2(inner.left(), cell.top() + 16.0),
                     egui::Align2::LEFT_CENTER,
-                    *title,
-                    font(TextStyle::BodyStrong),
+                    title,
+                    TextStyle::BodyStrong,
                     *accent,
                 );
                 for (j, ln) in lines.iter().enumerate() {
-                    painter.text(
-                        egui::pos2(cell.left() + 10.0, cell.top() + 38.0 + j as f32 * 20.0),
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), cell.top() + 38.0 + j as f32 * 20.0),
                         egui::Align2::LEFT_CENTER,
-                        *ln,
-                        font(TextStyle::MonoSmall),
+                        ln,
+                        TextStyle::MonoSmall,
                         p.text_primary,
                     );
                 }
@@ -1328,8 +2016,8 @@ orb.graphics.endFill();
 orb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];
 addChild(orb);
 
-// 2. Play a Library Sound with stereo panning
-var sfx:Sound = new LaserSound();
+// 2. Play a Sound with stereo panning
+var sfx:Sound = new Sound();
 var channel:SoundChannel = sfx.play(0, 1, new SoundTransform(0.8, -0.25));
 
 // 3. E4X XML attribute & descendant filtering
@@ -1362,7 +2050,7 @@ pub(crate) fn chapter_as_migration_guide(
 ) {
     paragraph(
         ui,
-        "NeoFlash is uniquely designed to author and publish ActionScript 1.0/2.0, ActionScript 3.0, JavaScript (ES2022), and TypeScript projects side by side. Use this side-by-side equivalence guide when porting legacy FLA scripts to AS3 or modern HTML5 JS/TS.",
+        "NeoFlash is uniquely designed to author and publish ActionScript 1.0/2.0, ActionScript 3.0, JavaScript (ES2023+), and TypeScript projects side by side. Use this side-by-side equivalence guide when porting legacy FLA scripts to AS3 or modern HTML5 JS/TS.",
     );
 
     section_overline(
@@ -1380,7 +2068,7 @@ pub(crate) fn chapter_as_migration_guide(
                 ("AS3 (AVM2)", "stage, x, addEventListener, addChild"),
                 (
                     "JavaScript / TypeScript",
-                    "stage, mc.x, on(\"enterFrame\"), new Symbol()",
+                    "this, mc.x, addEventListener, import",
                 ),
             ];
             let pad = 12.0;
@@ -1395,18 +2083,25 @@ pub(crate) fn chapter_as_migration_guide(
                     Stroke::new(1.2_f32, p.accent_default),
                     StrokeKind::Inside,
                 );
-                painter.text(
+                let inner = top_box.shrink(5.0);
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    inner,
                     egui::pos2(top_box.center().x, top_box.top() + 18.0),
                     egui::Align2::CENTER_CENTER,
-                    *name,
-                    font(TextStyle::BodyStrong),
+                    name,
+                    TextStyle::BodyStrong,
                     p.accent_default,
                 );
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    inner,
                     egui::pos2(top_box.center().x, top_box.top() + 36.0),
                     egui::Align2::CENTER_CENTER,
-                    *ex,
-                    font(TextStyle::MonoSmall),
+                    ex,
+                    TextStyle::MonoSmall,
                     p.text_secondary,
                 );
                 painter.line_segment(
@@ -1428,11 +2123,14 @@ pub(crate) fn chapter_as_migration_guide(
                 Stroke::new(1.5_f32, p.accent_default),
                 StrokeKind::Inside,
             );
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                core_bar.shrink(6.0),
                 core_bar.center(),
                 egui::Align2::CENTER_CENTER,
                 "NeoFlash Shared Rust / WebAssembly Runtime (Display List · Timeline · Vector/Filter Renderer · Web Audio)",
-                font(TextStyle::BodyStrong),
+                TextStyle::BodyStrong,
                 p.text_primary,
             );
         },
@@ -1508,16 +2206,16 @@ pub(crate) fn chapter_as_migration_guide(
     mode_card(
         ui,
         Some(i16::WARNING),
-        "Top 5 Migration Pitfalls When Porting Legacy AS2 FLA Projects to AS3",
+        "Top 5 Migration Pitfalls When Porting Legacy AS2 FLA Projects to AS3 or JS/TS",
         "Checklist",
         BadgeType::Warning,
         "Compiler ⌥F2",
         &[
-            "1) Percentage vs Unit Ranges: AS2 `_alpha = 50` and `_xscale = 200` become `alpha = 0.5` and `scaleX = 2.0` in AS3. Setting `alpha = 50` in AS3 clamps to `1.0` (fully opaque)!",
-            "2) Depth Numbers vs Contiguous Display List Indices: AS2 allows sparse depths (`swapDepths(9999)`), whereas AS3 `addChildAt(child, index)` requires `0 <= index <= numChildren` (out-of-bounds indices throw `RangeError`).",
-            "3) Button Instance Scope (`this`): In an AS1/AS2 Button `on(release)` script, `this` refers to the parent MovieClip timeline; in an AS3 `MouseEvent.CLICK` listener method on a class, `this` is the class instance where the method is defined.",
-            "4) Drawing Target Separation: In AS2, you draw directly on a MovieClip (`mc.beginFill(...)`); in AS3, drawing commands live on the `.graphics` property (`mc.graphics.beginFill(...)`).",
-            "5) Strict Null & Undefined Checks: In AS2, calling a method on an `undefined` target path (`_root.missing_mc.play()`) silently does nothing; in AS3, calling a method on `null` throws `TypeError 1009`.",
+            "1) Percentage vs Unit Ranges: AS2 `_alpha = 50` and `_xscale = 200` become `alpha = 0.5` and `scaleX = 2.0` in AS3 and JS/TS. Setting `alpha = 50` in AS3/JS clamps to `1.0` (fully opaque)!",
+            "2) Depth Numbers vs Contiguous Display List Indices: AS2 allows sparse depths (`swapDepths(9999)`), whereas AS3/JS `addChildAt(child, index)` requires `0 <= index <= numChildren` (out-of-bounds indices throw `RangeError`).",
+            "3) Button Instance Scope (`this`): In an AS1/AS2 Button `on(release)` script, `this` refers to the parent MovieClip timeline; in an AS3 or JS/TS `click` listener method on a class, `this` is the class instance (or arrow-function lexical receiver).",
+            "4) Drawing Target Separation: In AS2, you draw directly on a MovieClip (`mc.beginFill(...)`); in AS3, drawing commands live on `.graphics` (`mc.graphics.beginFill(...)`); in HTML5 Canvas 2D, use `CanvasRenderingContext2D` (`ctx.beginPath(); ctx.fill();`).",
+            "5) Strict Null & Undefined Checks: In AS2, calling a method on an `undefined` target path (`_root.missing_mc.play()`) silently does nothing; in AS3 and JS/TS, calling a method on `null`/`undefined` throws `TypeError` unless guarded with optional chaining (`?.`).",
         ],
     );
 
@@ -1526,11 +2224,12 @@ pub(crate) fn chapter_as_migration_guide(
         neoflash_script::language_service::api(neoflash_core::ScriptLanguage::ActionScript3),
     ) {
         let summary_title = format!(
-            "Built-In ActionScript Catalog Summary — AS1/AS2 ({} Classes · {} Members) & AS3 ({} Classes · {} Members)",
+            "Built-In Scripting Catalog Summary — AS1/AS2 ({} Classes · {} Members), AS3 ({} Classes · {} Members) & JS/TS ({} Entries)",
             as2_api.classes.len(),
             as2_api.members.len(),
             as3_api.classes.len(),
             as3_api.members.len(),
+            JS_TS_API_ENTRIES.len(),
         );
         mode_card(
             ui,
@@ -1542,7 +2241,7 @@ pub(crate) fn chapter_as_migration_guide(
             &[
                 "All 25 Classic AS1/AS2 Variable Suffixes for Automatic Code Hints: `_mc` (MovieClip), `_txt` (TextField), `_btn` (Button), `_array` (Array), `_str` (String), `_sound` (Sound), `_xml` (XML), `_xmlnode` (XMLNode), `_xmlsocket` (XMLSocket), `_so` (SharedObject), `_nc` (NetConnection), `_ns` (NetStream), `_video` (Video), `_fmt` (TextFormat), `_lv` (LoadVars), `_lc` (LocalConnection), `_color` (Color), `_date` (Date), `_err` (Error), `_cam` (Camera), `_mic` (Microphone), `_mcl` (MovieClipLoader), `_pj` (PrintJob), `_cm` (ContextMenu), `_cmi` (ContextMenuItem).",
                 "Comment Type Directives: Place `// MovieClip hero;` or `/* flash.display.Sprite enemy; */` in frame scripts to activate full member completion on untyped variables.",
-                "Actions Toolbox & Code Hints (F9): The Actions panel left toolbox and `⌃Space` completion engine query this exact audited AS2/AS3 declaration catalog plus your project's `.as` / `.ts` source files in real time.",
+                "Actions Toolbox & Code Hints (F9): The Actions panel left toolbox and `⌃Space` completion engine query the audited AS2/AS3 declaration catalog, the curated JS/TS/Web API catalog, and your project's `.as` / `.js` / `.ts` source files in real time.",
             ],
         );
     }
@@ -1561,7 +2260,903 @@ pub(crate) fn chapter_as_migration_guide(
             (9, "10. Scripting, Import & Publish"),
             (10, "11. AS1 & AS2 Fundamentals & Timeline"),
             (12, "13. AS3 Architecture & Display List"),
-            (13, "14. AS3 Events, Input & Lifecycle"),
+            (16, "17. JavaScript (ES2023+ & NeoFlash Runtime)"),
+            (17, "18. TypeScript & Built-In Type Checker"),
+            (
+                18,
+                "19. Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage)",
+            ),
+        ],
+    );
+}
+
+// ── Chapter 17: JavaScript (ES2023+ & NeoFlash Runtime) ──
+
+pub(crate) fn chapter_javascript_runtime(
+    ui: &mut Ui,
+    diagram_tab: &mut usize,
+    nav_target: &mut Option<usize>,
+) {
+    paragraph(
+        ui,
+        "JavaScript in NeoFlash combines modern ECMAScript (ES2023+) with deterministic bindings to the NeoFlash Timeline and Display List. You can write concise frame scripts on timeline keyframes, attach object scripts to Stage instances, or structure multi-file project modules (.js / .jsx) using standard relative ES module imports.",
+    );
+
+    let tabs = [
+        (0, "Frame, Object & Module Contexts (this / event)"),
+        (1, "Project Module Graph & JSX (__nfJsx) Lowering"),
+    ];
+    c::Segmented::show(ui, diagram_tab, &tabs, false);
+    ui.add_space(space::S2);
+
+    if *diagram_tab == 0 {
+        illustration_canvas(
+            ui,
+            168.0,
+            "Illustration 17.1: JavaScript Execution Contexts in NeoFlash: (1) Frame Script (`this` = owning MovieClip timeline), (2) Object / Event Script (`this` = instance, `event` = NeoFlashEvent), and (3) Project Module (`import` / `export` isolated ESM scope).",
+            |painter, ctx, rect| {
+                let p = neoflash_ui::palette(ctx);
+                let pad = 12.0;
+                let w3 = (rect.width() - pad * 4.0) / 3.0;
+                let cards = [
+                    (
+                        "1. Frame Script Context",
+                        "NeoFlash binding",
+                        "this -> owning MovieClip",
+                        "play(); stop(); gotoAndPlay(2);",
+                        p.accent_default,
+                    ),
+                    (
+                        "2. Object / Event Context",
+                        "NeoFlash binding",
+                        "this -> target DisplayObject",
+                        "event.type · event.stageX/Y",
+                        p.warning_default,
+                    ),
+                    (
+                        "3. Project Module (.js/.jsx)",
+                        "Project module",
+                        "Top-level module scope",
+                        "import { step } from \"./ai\";",
+                        p.success_default,
+                    ),
+                ];
+                for (i, (title, prov, line1, line2, accent)) in cards.iter().enumerate() {
+                    let x = rect.left() + pad + i as f32 * (w3 + pad);
+                    let card =
+                        Rect::from_min_size(egui::pos2(x, rect.top() + 12.0), vec2(w3, 102.0));
+                    painter.rect_filled(card, 5.0, p.bg_panel);
+                    painter.rect_stroke(
+                        card,
+                        5.0,
+                        Stroke::new(1.4_f32, *accent),
+                        StrokeKind::Inside,
+                    );
+                    let inner = card.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 16.0),
+                        egui::Align2::LEFT_CENTER,
+                        title,
+                        TextStyle::BodyStrong,
+                        *accent,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 36.0),
+                        egui::Align2::LEFT_CENTER,
+                        prov,
+                        TextStyle::SmallStrong,
+                        p.text_secondary,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 58.0),
+                        egui::Align2::LEFT_CENTER,
+                        line1,
+                        TextStyle::MonoSmall,
+                        p.text_primary,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 80.0),
+                        egui::Align2::LEFT_CENTER,
+                        line2,
+                        TextStyle::MonoSmall,
+                        p.syntax_function,
+                    );
+                }
+                let footer = Rect::from_min_max(
+                    egui::pos2(rect.left() + pad, rect.bottom() - 36.0),
+                    egui::pos2(rect.right() - pad, rect.bottom() - 8.0),
+                );
+                painter.rect_filled(footer, 4.0, p.accent_subtle);
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    footer.shrink(6.0),
+                    footer.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Provenance Tags: [NeoFlash binding] · [ECMAScript] · [Project module] · [Browser host]",
+                    TextStyle::MonoSmall,
+                    p.text_primary,
+                );
+            },
+        );
+    } else {
+        illustration_canvas(
+            ui,
+            168.0,
+            "Illustration 17.2: Deterministic Project Module Graph (`crates/neoflash-script/src/modules.rs`) and JSX/TSX Lowering (`<Hud score={s}/>` → `__nfJsx(\"Hud\", { score: s })`).",
+            |painter, ctx, rect| {
+                let p = neoflash_ui::palette(ctx);
+                let pad = 12.0;
+                let w3 = (rect.width() - pad * 4.0) / 3.0;
+                let stages = [
+                    (
+                        "1. Authored Sources",
+                        "./math.js · ./hud.jsx · frame1.js",
+                        "Relative ESM imports (./, ../)",
+                    ),
+                    (
+                        "2. Module Linker & JSX",
+                        "Topological sort + cycle check",
+                        "<Card x={10}/> -> __nfJsx(...)",
+                    ),
+                    (
+                        "3. Deterministic Bundle",
+                        "Single source-mapped program",
+                        "Runs in Preview & HTML5 WASM",
+                    ),
+                ];
+                for (i, (head, b1, b2)) in stages.iter().enumerate() {
+                    let x = rect.left() + pad + i as f32 * (w3 + pad);
+                    let box_r =
+                        Rect::from_min_size(egui::pos2(x, rect.top() + 26.0), vec2(w3, 96.0));
+                    painter.rect_filled(box_r, 5.0, p.bg_panel);
+                    painter.rect_stroke(
+                        box_r,
+                        5.0,
+                        Stroke::new(1.3_f32, p.accent_default),
+                        StrokeKind::Inside,
+                    );
+                    let inner = box_r.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), box_r.top() + 20.0),
+                        egui::Align2::LEFT_CENTER,
+                        head,
+                        TextStyle::BodyStrong,
+                        p.accent_default,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), box_r.top() + 48.0),
+                        egui::Align2::LEFT_CENTER,
+                        b1,
+                        TextStyle::MonoSmall,
+                        p.text_primary,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), box_r.top() + 72.0),
+                        egui::Align2::LEFT_CENTER,
+                        b2,
+                        TextStyle::Small,
+                        p.text_secondary,
+                    );
+                    if i + 1 < stages.len() {
+                        painter.line_segment(
+                            [
+                                egui::pos2(box_r.right() + 2.0, box_r.center().y),
+                                egui::pos2(box_r.right() + pad - 2.0, box_r.center().y),
+                            ],
+                            Stroke::new(1.5_f32, p.accent_default),
+                        );
+                    }
+                }
+            },
+        );
+    }
+
+    section_overline(ui, "JavaScript Runtime Bindings & Provenance Reference");
+    api_signature_table(
+        ui,
+        "NeoFlash JavaScript Bindings, Modules & ES2023+ Intrinsics",
+        [
+            "Binding / Syntax",
+            "Provenance & Target",
+            "Behavior & Scope",
+        ],
+        &[
+            (
+                "this",
+                "[NeoFlash binding] MovieClip | DisplayObject",
+                "In a frame script, `this` is the timeline's MovieClip (`this.x`, `this.currentFrame`, `this.hero_mc`). In an object script, `this` is the attached instance.",
+            ),
+            (
+                "event",
+                "[NeoFlash binding] NeoFlashEvent",
+                "Passed to object scripts and `addEventListener(type, (event) => ...)` callbacks (`event.type`, `event.target`, `event.currentTarget`, `event.stageX`, `event.stageY`, `event.keyCode`).",
+            ),
+            (
+                "trace(...values)",
+                "[NeoFlash binding] Output (F2) & console",
+                "Logs formatted values to the authoring Output panel (`F2`) during Test Movie and forwards to `console.log` in published HTML5 bundles.",
+            ),
+            (
+                "play / stop / gotoAndPlay / gotoAndStop",
+                "[NeoFlash binding] Timeline & MovieClip",
+                "Available both as top-level frame helpers (`gotoAndPlay(\"start\")`) and as methods on any MovieClip (`this.panel_mc.gotoAndStop(3)`). Frame numbers are 1-based.",
+            ),
+            (
+                "import / export",
+                "[Project module] Relative ESM (./, ../, /)",
+                "Resolves `.js`, `.jsx`, `.ts`, `.tsx`, and `index.*` files inside the project's virtual module graph. Bare `npm` specifiers (`import \"lodash\"`) and Node `require()` are rejected with actionable diagnostics.",
+            ),
+            (
+                "<Tag prop={v}>...</Tag>",
+                "[NeoFlash binding] __nfJsx(tag, props, ...children)",
+                "JSX and TSX elements compile directly to `__nfJsx(...)` calls without needing external Babel/Vite toolchains.",
+            ),
+            (
+                "Promise / async / await",
+                "[ECMAScript] ES2023+ Async & Microtasks",
+                "Full support for `new Promise(...)`, `Promise.all(...)`, `async function`, `await`, `try / catch / finally`, and structured `Error` stack traces.",
+            ),
+            (
+                "Map / Set / JSON / Math",
+                "[ECMAScript] ES2023+ Standard Library",
+                "Includes ES2023 classes, `#private` fields, optional chaining (`?.`), nullish coalescing (`??`), destructuring, spread (`...`), `Map`, `Set`, `JSON`, and `Math`.",
+            ),
+        ],
+    );
+
+    mode_card(
+        ui,
+        Some(i16::CODE),
+        "Provenance & Sandbox Boundaries — What JavaScript in NeoFlash Is (and Is Not)",
+        "Explicit Boundary",
+        BadgeType::Warning,
+        "No Node / npm",
+        &[
+            "[NeoFlash binding]: `this`, `event`, `trace`, `play`, `stop`, `gotoAndPlay`, `gotoAndStop`, `nextFrame`, `prevFrame`, `stopAllSounds`, `getChildByName`, and `__nfJsx` are provided directly by the NeoFlash runtime.",
+            "[Project module]: `import` and `export` link files inside your NeoFlash project (`./utils.js`, `../shared/math.ts`). NeoFlash does not run Node.js, `npm install`, `node_modules` resolution, CommonJS `require()`, `process`, or `fs`.",
+            "[ECMAScript] vs [Browser host]: Pure ECMAScript (`Promise`, `Map`, `Set`, `JSON`, `Math`) runs identically in headless validation and the browser; DOM/Web APIs (`document`, `CanvasRenderingContext2D`, `fetch`, `localStorage`, `AudioContext`) belong to the published HTML5 browser host (see Chapter 19).",
+        ],
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "JavaScript Frame Script — Timeline Control, Event Listeners, Async & JSX",
+            lang_badge: "JavaScript (ES2023+)",
+            code: "// Frame 1 script on 'Actions' layer (JavaScript / JSX mode)
+stop();
+trace(\"Entering level:\", this.currentFrame, \"of\", this.totalFrames);
+
+const state = { score: 0, combo: 1 };
+const badge = <hud-badge label=\"SCORE\" value={state.score} />;
+
+this.start_btn.addEventListener(\"click\", (event) => {
+    trace(\"Clicked target:\", event.target.name, \"at\", event.stageX, event.stageY);
+    gotoAndPlay(\"gameplay\");
+});
+
+this.hero_mc.addEventListener(\"enterFrame\", () => {
+    this.hero_mc.x += 2.5;
+    this.hero_mc.alpha = Math.min(1.0, (this.hero_mc.alpha ?? 0.8) + 0.01);
+});",
+        },
+    );
+
+    super::help_manual::inline_cross_links(
+        ui,
+        nav_target,
+        &[
+            (9, "10. Scripting, Import & Publish"),
+            (15, "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide"),
+            (17, "18. TypeScript & Built-In Type Checker"),
+            (
+                18,
+                "19. Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage)",
+            ),
+        ],
+    );
+}
+
+// ── Chapter 18: TypeScript & Built-In Type Checker ──
+
+pub(crate) fn chapter_typescript_checker(
+    ui: &mut Ui,
+    diagram_tab: &mut usize,
+    nav_target: &mut Option<usize>,
+) {
+    paragraph(
+        ui,
+        "NeoFlash includes a fast, zero-dependency Rust TypeScript front-end and bounded static type checker (`crates/neoflash-script/src/ts_check.rs`). You get immediate compile-time diagnostics in the Compiler Errors panel (`⌥F2`) and source-mapped JavaScript output without installing Node.js or `tsc`.",
+    );
+
+    let tabs = [
+        (0, "TypeScript Pipeline (Parse → ts_check → Strip → Map)"),
+        (1, "Checked Constructs vs Bounded Checker Scope"),
+    ];
+    c::Segmented::show(ui, diagram_tab, &tabs, false);
+    ui.add_space(space::S2);
+
+    if *diagram_tab == 0 {
+        illustration_canvas(
+            ui,
+            168.0,
+            "Illustration 18.1: NeoFlash TypeScript Compilation Pipeline: SWC AST Parse (`.ts`/`.tsx`) → Built-In `ts_check` Static Validation → Type Erasure & Enum Lowering → SourceMap Line/Column Mapping.",
+            |painter, ctx, rect| {
+                let p = neoflash_ui::palette(ctx);
+                let pad = 10.0;
+                let w4 = (rect.width() - pad * 5.0) / 4.0;
+                let steps = [
+                    (
+                        "1. Parse (.ts/.tsx)",
+                        "interface / type / enum",
+                        "Generics & JSX AST",
+                        p.accent_default,
+                    ),
+                    (
+                        "2. Built-In ts_check",
+                        "Assignability & members",
+                        "Arity & return checks",
+                        p.warning_default,
+                    ),
+                    (
+                        "3. Strip & Lower",
+                        "Erase type annotations",
+                        "Lower enums & __nfJsx",
+                        p.success_default,
+                    ),
+                    (
+                        "4. SourceMap + Run",
+                        "1-based line/col spans",
+                        "Compiler Errors (⌥F2)",
+                        p.accent_default,
+                    ),
+                ];
+                for (i, (title, l1, l2, col)) in steps.iter().enumerate() {
+                    let x = rect.left() + pad + i as f32 * (w4 + pad);
+                    let card =
+                        Rect::from_min_size(egui::pos2(x, rect.top() + 24.0), vec2(w4, 98.0));
+                    painter.rect_filled(card, 5.0, p.bg_panel);
+                    painter.rect_stroke(card, 5.0, Stroke::new(1.3_f32, *col), StrokeKind::Inside);
+                    let inner = card.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 18.0),
+                        egui::Align2::LEFT_CENTER,
+                        title,
+                        TextStyle::BodyStrong,
+                        *col,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 46.0),
+                        egui::Align2::LEFT_CENTER,
+                        l1,
+                        TextStyle::MonoSmall,
+                        p.text_primary,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 70.0),
+                        egui::Align2::LEFT_CENTER,
+                        l2,
+                        TextStyle::Small,
+                        p.text_secondary,
+                    );
+                }
+            },
+        );
+    } else {
+        illustration_canvas(
+            ui,
+            168.0,
+            "Illustration 18.2: Comparison of Verified Built-In `ts_check` Rules vs Explicit Bounded Checker Scope.",
+            |painter, ctx, rect| {
+                let p = neoflash_ui::palette(ctx);
+                let pad = 12.0;
+                let w2 = (rect.width() - pad * 3.0) / 2.0;
+                let left = Rect::from_min_size(
+                    egui::pos2(rect.left() + pad, rect.top() + 12.0),
+                    vec2(w2, rect.height() - 24.0),
+                );
+                let right = Rect::from_min_size(
+                    egui::pos2(left.right() + pad, rect.top() + 12.0),
+                    vec2(w2, rect.height() - 24.0),
+                );
+                for (box_r, title, color, rows) in [
+                    (
+                        left,
+                        "Verified by Built-In ts_check [TypeScript]",
+                        p.success_default,
+                        &[
+                            "Primitives: number, string, boolean, null, undefined, void",
+                            "Interfaces (extends, optional ?, readonly), classes & enums",
+                            "Unions (A | B), intersections (A & B), arrays (T[] / Array<T>)",
+                            "Generics & utilities: Promise<T>, Record, Partial, Pick, Omit",
+                            "Function parameter arity, argument types & return types",
+                        ][..],
+                    ),
+                    (
+                        right,
+                        "Explicit Bounded Scope (Not Full tsc)",
+                        p.warning_default,
+                        &[
+                            "No external Node.js, tsc binary, or tsconfig.json required",
+                            "No arbitrary npm @types/* or .d.ts ambient package loading",
+                            "Escape hatches (`any` and `unknown`) bypass member checks",
+                            "Complex recursive conditional/mapped types are erased safely",
+                            "Runtime semantics remain pure standard ECMAScript",
+                        ][..],
+                    ),
+                ] {
+                    painter.rect_filled(box_r, 5.0, p.bg_panel);
+                    painter.rect_stroke(
+                        box_r,
+                        5.0,
+                        Stroke::new(1.3_f32, color),
+                        StrokeKind::Inside,
+                    );
+                    let inner = box_r.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), box_r.top() + 16.0),
+                        egui::Align2::LEFT_CENTER,
+                        title,
+                        TextStyle::BodyStrong,
+                        color,
+                    );
+                    for (j, r_txt) in rows.iter().enumerate() {
+                        paint_clipped_text(
+                            painter,
+                            ctx,
+                            inner,
+                            egui::pos2(inner.left(), box_r.top() + 38.0 + j as f32 * 20.0),
+                            egui::Align2::LEFT_CENTER,
+                            r_txt,
+                            TextStyle::MonoSmall,
+                            p.text_primary,
+                        );
+                    }
+                }
+            },
+        );
+    }
+
+    section_overline(ui, "TypeScript Syntax & Built-In Checker Coverage");
+    api_signature_table(
+        ui,
+        "TypeScript Constructs, Utility Types & Diagnostics",
+        [
+            "Construct / Utility",
+            "Provenance & Erasure",
+            "Static Check Performed by ts_check",
+        ],
+        &[
+            (
+                "interface Name { ... }",
+                "[TypeScript] Erased at compile time",
+                "Verifies required properties, optional `?` fields, `extends` inheritance chains, and structural object literals.",
+            ),
+            (
+                "type Alias<T> = A | B",
+                "[TypeScript] Erased at compile time",
+                "Resolves union (`|`), intersection (`&`), tuple (`[number, string]`), literal, and generic type aliases.",
+            ),
+            (
+                "enum Kind { A, B = \"b\" }",
+                "[TypeScript] Lowered to JS object",
+                "Checks enum member access (`Kind.A`) and emits a self-contained runtime lookup object.",
+            ),
+            (
+                "Array<T> / T[] / Promise<T>",
+                "[TypeScript] Built-in generic types",
+                "Checks element types on array literals/methods and unwraps `Promise<T>` across `async` returns.",
+            ),
+            (
+                "Record<K, V> / Map<K, V> / Set<T>",
+                "[TypeScript] Built-in generic utilities",
+                "Validates dictionary value types and collection type parameters.",
+            ),
+            (
+                "Partial<T> / Required<T> / Readonly<T>",
+                "[TypeScript] Built-in mapped utilities",
+                "Transforms property optionality on object/interface types during assignability checks.",
+            ),
+            (
+                "Pick<T, K> / Omit<T, K>",
+                "[TypeScript] Built-in projection utilities",
+                "Filters interface `T` to only the keys in string-literal union `K` (or excludes `K`).",
+            ),
+            (
+                "as Type / <Type>expr / x!: T",
+                "[TypeScript] Erased assertion syntax",
+                "Type assertions (`as`), non-null assertions (`!`), and parameter properties (`constructor(public x: number)`) compile cleanly.",
+            ),
+        ],
+    );
+
+    mode_card(
+        ui,
+        Some(i16::WARNING),
+        "Source Maps, Compiler Errors (⌥F2) & Bounded Checker Honesty",
+        "Diagnostics",
+        BadgeType::Accent,
+        "⌥F2 Errors",
+        &[
+            "Exact Source Spans & Source Maps: Every TypeScript syntax or type error reports its 1-based line and column in the Compiler Errors panel (`⌥F2`). Double-clicking a diagnostic jumps the Actions editor directly to that line.",
+            "Bounded Checker Honesty: `ts_check` is purpose-built for authoring scripts, interfaces, classes, unions, and utility types inside NeoFlash. It intentionally does not claim to be a full external `tsc` compiler and does not read `tsconfig.json` or `node_modules/@types`.",
+        ],
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "TypeScript Script — Interfaces, Discriminated Unions, Generics & Utility Types",
+            lang_badge: "TypeScript",
+            code: "interface Actor {
+    readonly id: string;
+    x: number;
+    y: number;
+    hp: number;
+}
+
+interface ActorPatch {
+    x?: number;
+    y?: number;
+    hp?: number;
+}
+
+function applyPatch(actor: Actor, patch: ActorPatch): Actor {
+    return {
+        id: actor.id,
+        x: patch.x ?? actor.x,
+        y: patch.y ?? actor.y,
+        hp: patch.hp ?? actor.hp,
+    };
+}
+
+const hero: Actor = { id: \"p1\", x: 120, y: 240, hp: 100 };
+const moved: Actor = applyPatch(hero, { x: 160, hp: 95 });
+trace(\"Updated hero:\", moved.id, moved.x, moved.hp);",
+        },
+    );
+
+    super::help_manual::inline_cross_links(
+        ui,
+        nav_target,
+        &[
+            (9, "10. Scripting, Import & Publish"),
+            (15, "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide"),
+            (16, "17. JavaScript (ES2023+ & NeoFlash Runtime)"),
+            (
+                18,
+                "19. Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage)",
+            ),
+        ],
+    );
+}
+
+// ── Chapter 19: Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage) ──
+
+pub(crate) fn chapter_browser_web_apis(
+    ui: &mut Ui,
+    diagram_tab: &mut usize,
+    nav_target: &mut Option<usize>,
+) {
+    paragraph(
+        ui,
+        "When published to HTML5 (`File ▸ Publish`, `⇧F12`), NeoFlash bundles run inside a standard web browser alongside the WebAssembly runtime (`neoflash_web_bg.wasm`), canvas host (`player.js`), and Web Audio scheduler (`audio.js`). JavaScript and TypeScript scripts can interact with browser Web APIs subject to standard browser security, CORS, CSP, and autoplay policies.",
+    );
+
+    let tabs = [
+        (0, "HTML5 Host Architecture (WASM + Canvas 2D + Web Audio)"),
+        (
+            1,
+            "Browser Security Boundaries (CORS / CSP / Autoplay / Storage)",
+        ),
+    ];
+    c::Segmented::show(ui, diagram_tab, &tabs, false);
+    ui.add_space(space::S2);
+
+    if *diagram_tab == 0 {
+        illustration_canvas(
+            ui,
+            168.0,
+            "Illustration 19.1: Published HTML5 Runtime Architecture: NeoFlash WASM Player + JS/TS Scripts bridging to DOM/CanvasRenderingContext2D, Web Audio (`AudioContext`), `fetch()`, and `localStorage`.",
+            |painter, ctx, rect| {
+                let p = neoflash_ui::palette(ctx);
+                let pad = 12.0;
+                let w3 = (rect.width() - pad * 4.0) / 3.0;
+                let cols = [
+                    (
+                        "1. DOM & Canvas 2D",
+                        "[Browser host]",
+                        "document.querySelector(...)",
+                        "CanvasRenderingContext2D",
+                        p.accent_default,
+                    ),
+                    (
+                        "2. Timers & Input",
+                        "[Browser host]",
+                        "requestAnimationFrame(fn)",
+                        "PointerEvent / KeyboardEvent",
+                        p.warning_default,
+                    ),
+                    (
+                        "3. Fetch, Audio & Storage",
+                        "[Browser host]",
+                        "fetch(url) · localStorage",
+                        "AudioContext · HTMLVideoElement",
+                        p.success_default,
+                    ),
+                ];
+                for (i, (title, prov, l1, l2, col)) in cols.iter().enumerate() {
+                    let x = rect.left() + pad + i as f32 * (w3 + pad);
+                    let card =
+                        Rect::from_min_size(egui::pos2(x, rect.top() + 12.0), vec2(w3, 102.0));
+                    painter.rect_filled(card, 5.0, p.bg_panel);
+                    painter.rect_stroke(card, 5.0, Stroke::new(1.3_f32, *col), StrokeKind::Inside);
+                    let inner = card.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 16.0),
+                        egui::Align2::LEFT_CENTER,
+                        title,
+                        TextStyle::BodyStrong,
+                        *col,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 36.0),
+                        egui::Align2::LEFT_CENTER,
+                        prov,
+                        TextStyle::SmallStrong,
+                        p.text_secondary,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 58.0),
+                        egui::Align2::LEFT_CENTER,
+                        l1,
+                        TextStyle::MonoSmall,
+                        p.text_primary,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), card.top() + 80.0),
+                        egui::Align2::LEFT_CENTER,
+                        l2,
+                        TextStyle::MonoSmall,
+                        p.syntax_function,
+                    );
+                }
+                let bar = Rect::from_min_max(
+                    egui::pos2(rect.left() + pad, rect.bottom() - 36.0),
+                    egui::pos2(rect.right() - pad, rect.bottom() - 8.0),
+                );
+                painter.rect_filled(bar, 4.0, p.accent_subtle);
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    bar.shrink(6.0),
+                    bar.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "HTML5 Bundle: index.html + player.js + audio.js + neoflash_web_bg.wasm + project.json",
+                    TextStyle::MonoSmall,
+                    p.text_primary,
+                );
+            },
+        );
+    } else {
+        illustration_canvas(
+            ui,
+            168.0,
+            "Illustration 19.2: Browser Host Security & Policy Boundaries: CORS & CSP for `fetch`/Canvas images, User-Gesture Autoplay for Web Audio/Video, and Same-Origin Quota for `localStorage`.",
+            |painter, ctx, rect| {
+                let p = neoflash_ui::palette(ctx);
+                let pad = 10.0;
+                let cols = 2;
+                let rows = 2;
+                let cw = (rect.width() - pad * 3.0) / cols as f32;
+                let ch = (rect.height() - pad * 3.0) / rows as f32;
+                let rules = [
+                    (
+                        "1. CORS & Tainted Canvas",
+                        "Cross-origin fetch/drawImage requires Access-Control-Allow-Origin",
+                    ),
+                    (
+                        "2. Content-Security-Policy (CSP)",
+                        "connect-src governs fetch(); script-src 'wasm-unsafe-eval' for WASM",
+                    ),
+                    (
+                        "3. Audio/Video User Gesture",
+                        "AudioContext.resume() & video.play() require a click/key gesture",
+                    ),
+                    (
+                        "4. Origin Storage Sandbox",
+                        "localStorage is ~5 MB per origin; no direct disk (fs) access",
+                    ),
+                ];
+                for (idx, (head, body)) in rules.iter().enumerate() {
+                    let r_i = idx / cols;
+                    let c_i = idx % cols;
+                    let x = rect.left() + pad + c_i as f32 * (cw + pad);
+                    let y = rect.top() + pad + r_i as f32 * (ch + pad);
+                    let cell = Rect::from_min_size(egui::pos2(x, y), vec2(cw, ch));
+                    painter.rect_filled(cell, 5.0, p.bg_panel);
+                    painter.rect_stroke(
+                        cell,
+                        5.0,
+                        Stroke::new(1.2_f32, p.warning_default),
+                        StrokeKind::Inside,
+                    );
+                    let inner = cell.shrink(6.0);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), cell.center().y - 9.0),
+                        egui::Align2::LEFT_CENTER,
+                        head,
+                        TextStyle::BodyStrong,
+                        p.warning_default,
+                    );
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        inner,
+                        egui::pos2(inner.left(), cell.center().y + 10.0),
+                        egui::Align2::LEFT_CENTER,
+                        body,
+                        TextStyle::Small,
+                        p.text_primary,
+                    );
+                }
+            },
+        );
+    }
+
+    section_overline(ui, "Browser & Web API Reference (HTML5 Host)");
+    api_signature_table(
+        ui,
+        "DOM, CanvasRenderingContext2D, Fetch, Web Audio, Timers & Storage",
+        [
+            "Web API / Interface",
+            "Provenance & Signature",
+            "Availability & Browser Boundary",
+        ],
+        &[
+            (
+                "CanvasRenderingContext2D",
+                "[Browser host] canvas.getContext(\"2d\")",
+                "`fillRect`, `strokeRect`, `clearRect`, `beginPath`, `moveTo`, `lineTo`, `quadraticCurveTo`, `bezierCurveTo`, `arc`, `fill`, `stroke`, `drawImage`, `save`, `restore`, `setTransform`. Cross-origin images without `crossOrigin = \"anonymous\"` taint `getImageData`.",
+            ),
+            (
+                "document & DOM Elements",
+                "[Browser host] document.querySelector(sel)",
+                "`getElementById`, `querySelector`, `createElement`, `classList`, `style`, and `getBoundingClientRect()`. Available in published HTML5 pages; guard with `typeof document !== \"undefined\"` if sharing code with headless tests.",
+            ),
+            (
+                "fetch & Response",
+                "[Browser host] await fetch(url, init)",
+                "Asynchronous HTTP/HTTPS requests returning `Promise<Response>` (`.json()`, `.text()`, `.arrayBuffer()`). Must satisfy browser CORS headers and `Content-Security-Policy: connect-src`.",
+            ),
+            (
+                "localStorage & sessionStorage",
+                "[Browser host] localStorage.getItem / setItem",
+                "Synchronous string key-value storage scoped to the page origin (~5 MB limit). Wrap in `try { ... } catch` because strict browser privacy modes or `file://` origins may block storage.",
+            ),
+            (
+                "setTimeout / requestAnimationFrame",
+                "[Browser host] Timer & Frame Callbacks",
+                "`setTimeout(fn, ms)`, `setInterval(fn, ms)`, and `requestAnimationFrame((nowMs) => ...)` schedule async callbacks. Background browser tabs throttle timers and pause `requestAnimationFrame`.",
+            ),
+            (
+                "AudioContext & HTMLMediaElement",
+                "[Browser host] Web Audio & <audio>/<video>",
+                "Modern browsers block unmuted audio/video autoplay until the user interacts with the page (`pointerdown`, `click`, or `keydown`). Call `audioCtx.resume()` inside a user-gesture handler.",
+            ),
+            (
+                "Pointer, Mouse & Keyboard Events",
+                "[Browser host] window / canvas EventTarget",
+                "`pointerdown`, `pointermove`, `pointerup`, `wheel`, `keydown`, `keyup`, and `resize` map cleanly to Stage coordinates via `canvas.getBoundingClientRect()`.",
+            ),
+        ],
+    );
+
+    mode_card(
+        ui,
+        Some(i16::WARNING),
+        "Browser Sandbox Rules — CORS, CSP, User Gestures & Headless Guarding",
+        "Web Boundaries",
+        BadgeType::Warning,
+        "HTML5 Publish",
+        &[
+            "Serve Over HTTP/HTTPS (Not file://): Opening a published `index.html` via `file://` blocks `fetch(\"./project.json\")` and WebAssembly streaming in most browsers. Use a local HTTP server or NeoFlash's Test Movie / Open in Browser command.",
+            "User Gesture Required for Audio & Fullscreen: Always trigger `audioCtx.resume()`, `video.play()`, or `element.requestFullscreen()` inside a click or key press callback.",
+            "Guarding Browser-Only Globals: When writing shared utility modules imported by both frame scripts and browser overlays, check `if (typeof window !== \"undefined\")` before touching `window`, `document`, or `localStorage`.",
+        ],
+    );
+
+    code_block(
+        ui,
+        &CodeSample {
+            title: "TypeScript Browser Host — CanvasRenderingContext2D, Fetch JSON & LocalStorage",
+            lang_badge: "TypeScript + Web API",
+            code: "interface HighScoreEntry {
+    player: string;
+    score: number;
+}
+
+async function syncHighScore(canvas: HTMLCanvasElement, url: string) {
+    const ctx = canvas.getContext(\"2d\");
+    if (ctx) {
+        ctx.save();
+        ctx.fillStyle = \"rgb(31, 42, 72)\";
+        ctx.fillRect(0, 0, 240, 48);
+        ctx.beginPath();
+        ctx.arc(24, 24, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    try {
+        const res = await fetch(url);
+        const top: HighScoreEntry = await res.json();
+        window.localStorage.setItem(\"neoflash.topScore\", JSON.stringify(top));
+        trace(\"Synced top score:\", top.player, top.score);
+    } catch (err) {
+        trace(\"Offline or blocked by CORS; using cached score:\", err);
+    }
+}",
+        },
+    );
+
+    super::help_manual::inline_cross_links(
+        ui,
+        nav_target,
+        &[
+            (9, "10. Scripting, Import & Publish"),
+            (15, "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide"),
+            (16, "17. JavaScript (ES2023+ & NeoFlash Runtime)"),
+            (17, "18. TypeScript & Built-In Type Checker"),
         ],
     );
 }
@@ -1609,12 +3204,76 @@ fn write_palette_css_vars(p: &Palette, out: &mut String) {
 }
 
 fn write_chapter_svg_illustration(index: usize, out: &mut String) {
+    let caption = match index {
+        0 => {
+            "Illustration 1.1: Stage inside Pasteboard overlaid with NF2 Rulers, Ruler Corner (0,0), Cyan Guides, Stage Grid, and Selection Snap Ring."
+        }
+        1 => {
+            "Illustration 2.1: Visual comparison of selection chrome across the 5 Stage object regimes: Merge Shape, Object (J), Primitive, Symbol (F8), and Text Block."
+        }
+        2 => {
+            "Illustration 3.1–3.3: Selection (V) curve reshaping, Subselection (A) Bézier anchor/tangent handles, Free Transform (Q) 4 sub-modes, and Lasso / Magic Wand."
+        }
+        3 => {
+            "Illustration 4.1: All 9 Pen Tool (P) pointer badges and how each modifies the active or selected Bézier path."
+        }
+        4 => {
+            "Illustration 5.1: NF2 Brush calligraphic stroke, Gradient Transform Tool (F) 5 handles, and the 5 Brush Paint Modes."
+        }
+        5 => {
+            "Illustration 6.1: Button Symbol 4 interaction frames (Up, Over, Down, Hit) and 9-Slice Scaling (scale9Grid) guides."
+        }
+        6 => {
+            "Illustration 7.1: Authentic NF2 Timeline spans (Static, Motion ◆, Classic, Shape) and keyframe markers."
+        }
+        7 => {
+            "Illustration 8.1: Stage Motion Path with ◆ property keyframes, Shape Hints (a–z), and Cubic-Bézier Ease Curve."
+        }
+        8 => {
+            "Illustration 9.1: Timeline Sound stereo waveform with 8-handle volume envelope and live filter / TLF text pipeline."
+        }
+        9 => {
+            "Illustration 10.1: Multi-format Import pipeline, 4-language Scripting compiler/debugger, and HTML5 + WASM + Sprite Sheet publishing."
+        }
+        10 => {
+            "Illustration 11.1–11.2: AVM1 Target Path Hierarchy (_level0 / _root → parent → child) and Flash Player Depth Zones (-16383..1048575)."
+        }
+        11 => {
+            "Illustration 12.1: The 4 pillars of the ActionScript 2.0 runtime library: Display & Text, flash.geom & BitmapData, Input & Audio, and Data/Persistence."
+        }
+        12 => {
+            "Illustration 13.1–13.2: ActionScript 3.0 flash.display 2-tier Inheritance Hierarchy (EventDispatcher → DisplayObject → InteractiveObject → DisplayObjectContainer → Sprite → MovieClip) and Local ↔ Global coordinate spaces."
+        }
+        13 => {
+            "Illustration 14.1–14.2: W3C 3-Phase Event Propagation (Capture → Target → Bubbling) and deterministic 6-step Frame Tick Lifecycle."
+        }
+        14 => {
+            "Illustration 15.1: AS3 flash.display.Graphics vector stream, live Filters/BitmapData pass, and SoundChannel / ByteArray / E4X pipeline."
+        }
+        15 => {
+            "Illustration 16.1: Multi-Language Execution Bridge mapping AS1/AS2, AS3, JavaScript, and TypeScript to the shared Rust / WebAssembly runtime."
+        }
+        16 => {
+            "Illustration 17.1–17.2: JavaScript execution contexts (Frame `this`, Object `event`, Project Module `import`/`export`) and deterministic JSX (`__nfJsx`) lowering."
+        }
+        17 => {
+            "Illustration 18.1–18.2: NeoFlash TypeScript compilation pipeline (Parse → Built-In `ts_check` → Strip & Lower → SourceMap) and verified vs bounded checker scope."
+        }
+        _ => {
+            "Illustration 19.1–19.2: Published HTML5 Browser Host architecture (DOM, CanvasRenderingContext2D, fetch, Web Audio, localStorage) and CORS/CSP/Autoplay security boundaries."
+        }
+    };
+    let view_h = if index == 12 { 156 } else { 136 };
     let _ = write!(
         out,
-        "<figure class=\"diagram-card\"><svg class=\"chapter-svg\" viewBox=\"0 0 680 136\" role=\"img\" aria-label=\"Chapter {} illustration\">",
+        "<figure class=\"diagram-card\"><svg class=\"chapter-svg\" viewBox=\"0 0 680 {view_h}\" role=\"img\" aria-label=\"Chapter {} illustration\">",
         index + 1
     );
-    out.push_str("<rect x=\"1\" y=\"1\" width=\"678\" height=\"134\" rx=\"8\" fill=\"var(--bg-canvas)\" stroke=\"var(--border-subtle)\"/>");
+    let _ = write!(
+        out,
+        "<rect x=\"1\" y=\"1\" width=\"678\" height=\"{}\" rx=\"8\" fill=\"var(--bg-canvas)\" stroke=\"var(--border-subtle)\"/>",
+        view_h - 2
+    );
     match index {
         0 => {
             out.push_str(
@@ -1829,28 +3488,65 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
             }
         }
         12 => {
-            for (i, cls) in [
-                "EventDispatcher",
-                "DisplayObject",
-                "InteractiveObj",
-                "DOC Container",
-                "Sprite / MC",
+            // 2-tier non-overlapping AS3 Display List Hierarchy + 4 leaf pills
+            for (i, (cls, mem)) in [
+                ("1. EventDispatcher", "addEventListener / dispatchEvent"),
+                ("2. DisplayObject", "x, y, scaleX, rotation, alpha"),
+                ("3. InteractiveObject", "mouseEnabled, tabEnabled"),
             ]
             .iter()
             .enumerate()
             {
-                let x = 14 + i * 132;
+                let x = 14 + i * 218;
                 let _ = write!(
                     out,
-                    "<rect x=\"{x}\" y=\"20\" width=\"120\" height=\"52\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
-                     <text x=\"{}\" y=\"48\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"11\" font-family=\"monospace\">{cls}</text>",
-                    x + 60
+                    "<rect x=\"{x}\" y=\"12\" width=\"206\" height=\"42\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--border-default)\"/>\
+                     <text x=\"{}\" y=\"29\" text-anchor=\"middle\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">{cls}</text>\
+                     <text x=\"{}\" y=\"45\" text-anchor=\"middle\" fill=\"var(--text-secondary)\" font-size=\"9.5\" font-family=\"monospace\">{mem}</text>",
+                    x + 103,
+                    x + 103
                 );
             }
-            out.push_str(
-                "<rect x=\"14\" y=\"84\" width=\"652\" height=\"34\" rx=\"4\" fill=\"var(--accent-subtle)\"/>\
-                 <text x=\"340\" y=\"105\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"11\" font-family=\"monospace\">addChild · removeChild · getBounds · hitTestPoint · localToGlobal · globalToLocal</text>",
-            );
+            for (i, (cls, mem)) in [
+                (
+                    "4. DisplayObjectContainer",
+                    "addChild, removeChild, numChildren",
+                ),
+                (
+                    "5. Sprite → MovieClip",
+                    "graphics, buttonMode, currentFrame",
+                ),
+            ]
+            .iter()
+            .enumerate()
+            {
+                let x = 14 + i * 332;
+                let _ = write!(
+                    out,
+                    "<rect x=\"{x}\" y=\"62\" width=\"320\" height=\"42\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\" stroke-width=\"1.4\"/>\
+                     <text x=\"{}\" y=\"79\" text-anchor=\"middle\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">{cls}</text>\
+                     <text x=\"{}\" y=\"95\" text-anchor=\"middle\" fill=\"var(--text-secondary)\" font-size=\"9.5\" font-family=\"monospace\">{mem}</text>",
+                    x + 160,
+                    x + 160
+                );
+            }
+            for (i, leaf) in [
+                "Shape (vector leaf)",
+                "Bitmap (BitmapData)",
+                "TextField (text/input)",
+                "SimpleButton (4-state)",
+            ]
+            .iter()
+            .enumerate()
+            {
+                let x = 14 + i * 166;
+                let _ = write!(
+                    out,
+                    "<rect x=\"{x}\" y=\"114\" width=\"154\" height=\"28\" rx=\"4\" fill=\"var(--accent-subtle)\"/>\
+                     <text x=\"{}\" y=\"132\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">{leaf}</text>",
+                    x + 77
+                );
+            }
         }
         13 => {
             out.push_str(
@@ -1882,7 +3578,7 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
                  <text x=\"470\" y=\"86\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">ByteArray / JSON / XML E4X</text>",
             );
         }
-        _ => {
+        15 => {
             out.push_str(
                 "<rect x=\"18\" y=\"18\" width=\"204\" height=\"52\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
                  <text x=\"120\" y=\"40\" text-anchor=\"middle\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">AS1 / AS2 (AVM1)</text>\
@@ -1892,13 +3588,69 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
                  <text x=\"340\" y=\"58\" text-anchor=\"middle\" fill=\"var(--text-secondary)\" font-size=\"10\" font-family=\"monospace\">x · alpha(1.0) · addEventListener</text>\
                  <rect x=\"458\" y=\"18\" width=\"204\" height=\"52\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
                  <text x=\"560\" y=\"40\" text-anchor=\"middle\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">JavaScript / TypeScript</text>\
-                 <text x=\"560\" y=\"58\" text-anchor=\"middle\" fill=\"var(--text-secondary)\" font-size=\"10\" font-family=\"monospace\">mc.x · mc.alpha · on(\"click\")</text>\
+                 <text x=\"560\" y=\"58\" text-anchor=\"middle\" fill=\"var(--text-secondary)\" font-size=\"10\" font-family=\"monospace\">this · mc.x · addEventListener</text>\
                  <rect x=\"18\" y=\"82\" width=\"644\" height=\"36\" rx=\"5\" fill=\"var(--accent-subtle)\" stroke=\"var(--accent-default)\"/>\
                  <text x=\"340\" y=\"104\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"11\" font-weight=\"600\">Shared NeoFlash Rust / WebAssembly Scene Graph &amp; Timeline Engine</text>",
             );
         }
+        16 => {
+            out.push_str(
+                "<rect x=\"18\" y=\"18\" width=\"204\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
+                 <text x=\"30\" y=\"38\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">1. Frame &amp; Object Context</text>\
+                 <text x=\"30\" y=\"56\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">this · event · trace()</text>\
+                 <text x=\"30\" y=\"74\" fill=\"var(--syn-fn)\" font-size=\"10\" font-family=\"monospace\">play / stop / gotoAndPlay</text>\
+                 <rect x=\"238\" y=\"18\" width=\"204\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--warning-default)\"/>\
+                 <text x=\"250\" y=\"38\" fill=\"var(--warning-default)\" font-size=\"11\" font-weight=\"600\">2. Project Modules &amp; JSX</text>\
+                 <text x=\"250\" y=\"56\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">import / export (./module)</text>\
+                 <text x=\"250\" y=\"74\" fill=\"var(--syn-fn)\" font-size=\"10\" font-family=\"monospace\">&lt;Tag/&gt; -&gt; __nfJsx(...)</text>\
+                 <rect x=\"458\" y=\"18\" width=\"204\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--success-default)\"/>\
+                 <text x=\"470\" y=\"38\" fill=\"var(--success-default)\" font-size=\"11\" font-weight=\"600\">3. ES2023+ &amp; Async</text>\
+                 <text x=\"470\" y=\"56\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">Promise · async / await</text>\
+                 <text x=\"470\" y=\"74\" fill=\"var(--syn-fn)\" font-size=\"10\" font-family=\"monospace\">Map · Set · JSON · Math</text>\
+                 <rect x=\"18\" y=\"94\" width=\"644\" height=\"28\" rx=\"4\" fill=\"var(--accent-subtle)\"/>\
+                 <text x=\"340\" y=\"112\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"10.5\" font-family=\"monospace\">Provenance: [NeoFlash binding] · [Project module] · [ECMAScript] · [Browser host]</text>",
+            );
+        }
+        17 => {
+            out.push_str(
+                "<rect x=\"16\" y=\"18\" width=\"152\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
+                 <text x=\"26\" y=\"40\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">1. Parse (.ts/.tsx)</text>\
+                 <text x=\"26\" y=\"60\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">interface / type / enum</text>\
+                 <rect x=\"180\" y=\"18\" width=\"152\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--warning-default)\"/>\
+                 <text x=\"190\" y=\"40\" fill=\"var(--warning-default)\" font-size=\"11\" font-weight=\"600\">2. Built-In ts_check</text>\
+                 <text x=\"190\" y=\"60\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">Members / Unions / Arity</text>\
+                 <rect x=\"344\" y=\"18\" width=\"152\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--success-default)\"/>\
+                 <text x=\"354\" y=\"40\" fill=\"var(--success-default)\" font-size=\"11\" font-weight=\"600\">3. Strip &amp; Lower</text>\
+                 <text x=\"354\" y=\"60\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">Erase types + lower enum</text>\
+                 <rect x=\"508\" y=\"18\" width=\"154\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
+                 <text x=\"518\" y=\"40\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">4. SourceMap (⌥F2)</text>\
+                 <text x=\"518\" y=\"60\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">1-based line &amp; col</text>\
+                 <rect x=\"16\" y=\"94\" width=\"646\" height=\"28\" rx=\"4\" fill=\"var(--accent-subtle)\"/>\
+                 <text x=\"340\" y=\"112\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"10.5\" font-family=\"monospace\">Utilities: Array&lt;T&gt; · Promise&lt;T&gt; · Record&lt;K,V&gt; · Partial&lt;T&gt; · Pick&lt;T,K&gt; · Omit&lt;T,K&gt;</text>",
+            );
+        }
+        _ => {
+            out.push_str(
+                "<rect x=\"18\" y=\"18\" width=\"204\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--accent-default)\"/>\
+                 <text x=\"30\" y=\"38\" fill=\"var(--accent-default)\" font-size=\"11\" font-weight=\"600\">1. DOM &amp; Canvas 2D</text>\
+                 <text x=\"30\" y=\"56\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">CanvasRenderingContext2D</text>\
+                 <text x=\"30\" y=\"74\" fill=\"var(--syn-fn)\" font-size=\"10\" font-family=\"monospace\">fillRect · arc · drawImage</text>\
+                 <rect x=\"238\" y=\"18\" width=\"204\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--warning-default)\"/>\
+                 <text x=\"250\" y=\"38\" fill=\"var(--warning-default)\" font-size=\"11\" font-weight=\"600\">2. Fetch &amp; Storage</text>\
+                 <text x=\"250\" y=\"56\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">await fetch(url) (CORS)</text>\
+                 <text x=\"250\" y=\"74\" fill=\"var(--syn-fn)\" font-size=\"10\" font-family=\"monospace\">localStorage.getItem/setItem</text>\
+                 <rect x=\"458\" y=\"18\" width=\"204\" height=\"68\" rx=\"5\" fill=\"var(--bg-panel)\" stroke=\"var(--success-default)\"/>\
+                 <text x=\"470\" y=\"38\" fill=\"var(--success-default)\" font-size=\"11\" font-weight=\"600\">3. Web Audio &amp; Timers</text>\
+                 <text x=\"470\" y=\"56\" fill=\"var(--text-primary)\" font-size=\"10\" font-family=\"monospace\">AudioContext (user gesture)</text>\
+                 <text x=\"470\" y=\"74\" fill=\"var(--syn-fn)\" font-size=\"10\" font-family=\"monospace\">requestAnimationFrame</text>\
+                 <rect x=\"18\" y=\"94\" width=\"644\" height=\"28\" rx=\"4\" fill=\"var(--warning-subtle)\"/>\
+                 <text x=\"340\" y=\"112\" text-anchor=\"middle\" fill=\"var(--text-primary)\" font-size=\"10.5\" font-family=\"monospace\">Browser Boundaries: HTTP/HTTPS CORS · CSP connect-src · Autoplay Gesture · ~5 MB Origin Quota</text>",
+            );
+        }
     }
-    out.push_str("</svg></figure>");
+    out.push_str("</svg><figcaption class=\"diagram-caption\">");
+    super::help_manual::escape_html(caption, out);
+    out.push_str("</figcaption></figure>");
 }
 
 fn write_as_chapter_reference_html(index: usize, out: &mut String) {
@@ -1930,7 +3682,7 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
         14 => {
             out.push_str(
                 "<h3>AS3 Graphics, GlowFilter, SoundChannel &amp; E4X XML Example</h3>\
-                 <pre class=\"code-block\"><code>import flash.display.Sprite;\nimport flash.filters.GlowFilter;\nimport flash.media.SoundTransform;\nvar orb:Sprite = new Sprite();\norb.graphics.beginFill(0x3C6BF0, 0.85);\norb.graphics.drawCircle(0, 0, 36);\norb.graphics.endFill();\norb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];\naddChild(orb);\nvar xml:XML = &lt;items&gt;&lt;weapon id=\"railgun\" dmg=\"90\"/&gt;&lt;/items&gt;;\ntrace(xml.weapon.(Number(@dmg) &gt;= 50).@id);</code></pre>",
+                 <pre class=\"code-block\"><code>import flash.display.Sprite;\nimport flash.filters.GlowFilter;\nimport flash.media.Sound;\nimport flash.media.SoundTransform;\nvar orb:Sprite = new Sprite();\norb.graphics.beginFill(0x3C6BF0, 0.85);\norb.graphics.drawCircle(0, 0, 36);\norb.graphics.endFill();\norb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];\naddChild(orb);\nvar xml:XML = &lt;items&gt;&lt;weapon id=\"railgun\" dmg=\"90\"/&gt;&lt;/items&gt;;\ntrace(xml.weapon.(Number(@dmg) &gt;= 50).@id);</code></pre>",
             );
         }
         15 => {
@@ -1946,13 +3698,56 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
                  </tbody></table>",
             );
         }
+        16 => {
+            out.push_str(
+                "<h3>JavaScript (ES2023+) Runtime Bindings &amp; Provenance Table</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Binding / Syntax</th><th>Provenance</th><th>Behavior &amp; Scope</th></tr></thead><tbody>\
+                 <tr><td><code>this</code></td><td><code>[NeoFlash binding]</code></td><td>Owning <code>MovieClip</code> in frame scripts; attached <code>DisplayObject</code> in object scripts.</td></tr>\
+                 <tr><td><code>event</code></td><td><code>[NeoFlash binding]</code></td><td>Structured event payload (<code>type</code>, <code>target</code>, <code>currentTarget</code>, <code>stageX</code>, <code>stageY</code>, <code>keyCode</code>).</td></tr>\
+                 <tr><td><code>trace(...values)</code></td><td><code>[NeoFlash binding]</code></td><td>Writes to Output panel (F2) in authoring and <code>console.log</code> in published HTML5.</td></tr>\
+                 <tr><td><code>play / stop / gotoAndPlay / gotoAndStop</code></td><td><code>[NeoFlash binding]</code></td><td>1-based frame and label navigation on the active timeline or target MovieClip.</td></tr>\
+                 <tr><td><code>import / export</code></td><td><code>[Project module]</code></td><td>Relative ESM imports (<code>./</code>, <code>../</code>) across project <code>.js/.jsx/.ts/.tsx</code> files (no Node/npm).</td></tr>\
+                 <tr><td><code>&lt;Tag prop={v}/&gt;</code></td><td><code>[NeoFlash binding]</code></td><td>Compiled deterministically to <code>__nfJsx(tag, props, ...children)</code>.</td></tr>\
+                 <tr><td><code>Promise / async / await</code></td><td><code>[ECMAScript]</code></td><td>Standard ES2023+ promises, async functions, <code>Map</code>, <code>Set</code>, <code>JSON</code>, and <code>Math</code>.</td></tr>\
+                 </tbody></table>\
+                 <h3>JavaScript Frame Script &amp; JSX Example</h3>\
+                 <pre class=\"code-block\"><code>stop();\ntrace(\"Entering level:\", this.currentFrame, \"of\", this.totalFrames);\nconst badge = &lt;hud-badge label=\"SCORE\" value={0} /&gt;;\nthis.start_btn.addEventListener(\"click\", (event) =&gt; {\n    trace(\"Clicked:\", event.target.name);\n    gotoAndPlay(\"gameplay\");\n});</code></pre>",
+            );
+        }
+        17 => {
+            out.push_str(
+                "<h3>TypeScript &amp; Built-In Checker (<code>ts_check</code>) Reference Table</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Construct / Utility</th><th>Provenance</th><th>Static Verification &amp; Runtime Lowering</th></tr></thead><tbody>\
+                 <tr><td><code>interface Name { ... }</code></td><td><code>[TypeScript]</code></td><td>Checked for required/optional (<code>?</code>) members and inheritance; erased at runtime.</td></tr>\
+                 <tr><td><code>type Alias&lt;T&gt; = A | B</code></td><td><code>[TypeScript]</code></td><td>Unions (<code>|</code>), intersections (<code>&amp;</code>), tuples, and generic aliases; erased at runtime.</td></tr>\
+                 <tr><td><code>enum Kind { A, B }</code></td><td><code>[TypeScript]</code></td><td>Checked for member access and lowered to a runtime lookup object.</td></tr>\
+                 <tr><td><code>Record / Partial / Pick / Omit</code></td><td><code>[TypeScript]</code></td><td>Built-in utility types validated by <code>ts_check</code> without external <code>tsc</code> or <code>node_modules</code>.</td></tr>\
+                 </tbody></table>\
+                 <h3>TypeScript Interfaces, Unions &amp; Utility Types Example</h3>\
+                 <pre class=\"code-block\"><code>interface Actor {\n    readonly id: string;\n    x: number;\n    y: number;\n    hp: number;\n}\ntype ActorPatch = Partial&lt;Pick&lt;Actor, \"x\" | \"y\" | \"hp\"&gt;&gt;;\nfunction applyPatch(actor: Actor, patch: ActorPatch): Actor {\n    return { id: actor.id, x: patch.x ?? actor.x, y: patch.y ?? actor.y, hp: patch.hp ?? actor.hp };\n}</code></pre>",
+            );
+        }
+        18 => {
+            out.push_str(
+                "<h3>Browser &amp; Web APIs Reference Table (Published HTML5 Host)</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Web API</th><th>Provenance</th><th>Availability &amp; Browser Security Boundary</th></tr></thead><tbody>\
+                 <tr><td><code>CanvasRenderingContext2D</code></td><td><code>[Browser host]</code></td><td><code>fillRect</code>, <code>beginPath</code>, <code>arc</code>, <code>fill</code>, <code>drawImage</code>, <code>setTransform</code>; subject to CORS canvas taint rules.</td></tr>\
+                 <tr><td><code>document.querySelector</code></td><td><code>[Browser host]</code></td><td>DOM lookup and overlay styling in published HTML5 pages; guard with <code>typeof document !== \"undefined\"</code>.</td></tr>\
+                 <tr><td><code>fetch(url, init)</code></td><td><code>[Browser host]</code></td><td>Async HTTP/HTTPS requests returning <code>Promise&lt;Response&gt;</code>; requires HTTP(S) CORS headers &amp; CSP <code>connect-src</code>.</td></tr>\
+                 <tr><td><code>localStorage</code></td><td><code>[Browser host]</code></td><td>Same-origin key-value persistence (~5 MB quota; wrap in <code>try/catch</code> for private browsing).</td></tr>\
+                 <tr><td><code>AudioContext &amp; video.play()</code></td><td><code>[Browser host]</code></td><td>Requires a user gesture (click / keydown) before unmuted audio playback starts.</td></tr>\
+                 </tbody></table>\
+                 <h3>TypeScript + Browser Host Example</h3>\
+                 <pre class=\"code-block\"><code>async function syncHighScore(canvas: HTMLCanvasElement, url: string): Promise&lt;void&gt; {\n    const ctx = canvas.getContext(\"2d\");\n    if (ctx) { ctx.fillRect(0, 0, 240, 48); }\n    const res = await fetch(url);\n    const top = await res.json();\n    localStorage.setItem(\"neoflash.topScore\", JSON.stringify(top));\n}</code></pre>",
+            );
+        }
         _ => {}
     }
 }
 
 pub(crate) fn render_full_browser_help_html() -> String {
     let hash = char::from(35u8);
-    let mut html = String::with_capacity(65_536);
+    let mut html = String::with_capacity(81_920);
     html.push_str(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
@@ -1980,11 +3775,12 @@ pub(crate) fn render_full_browser_help_html() -> String {
          .tag-bar-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-tertiary);margin-right:4px}\
          .tag-pill{cursor:pointer;padding:3px 10px;border-radius:999px;background:var(--bg-raised);border:1px solid var(--border-subtle);color:var(--text-secondary);font-size:11px;font-weight:500;user-select:none;text-decoration:none}\
          .tag-pill:hover{background:var(--bg-hover);color:var(--text-primary)}\
-         .layout{display:grid;grid-template-columns:270px 1fr;gap:24px;max-width:1360px;width:100%;margin:0 auto;padding:20px 24px}\
+         .layout{display:grid;grid-template-columns:280px 1fr;gap:24px;max-width:1380px;width:100%;margin:0 auto;padding:20px 24px}\
          @media (max-width:860px){.layout{grid-template-columns:1fr}}\
          nav.sidebar{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;align-self:start;position:sticky;top:76px;max-height:calc(100vh - 96px);overflow-y:auto}\
          nav.sidebar ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}\
-         nav.sidebar a{display:block;padding:6px 10px;border-radius:6px;color:var(--text-primary);text-decoration:none;font-size:12px;font-weight:500}\
+         nav.sidebar .nav-group{margin:8px 6px 4px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-tertiary)}\
+         nav.sidebar a{display:block;padding:6px 10px;border-radius:6px;color:var(--text-primary);text-decoration:none;font-size:12px;font-weight:500;overflow-wrap:anywhere}\
          nav.sidebar a:hover{background:var(--bg-hover);color:var(--accent-default)}\
          main{display:flex;flex-direction:column;gap:20px;min-width:0}\
          section.chapter-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;scroll-margin-top:84px}\
@@ -1996,11 +3792,12 @@ pub(crate) fn render_full_browser_help_html() -> String {
          .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;background:var(--accent-subtle);color:var(--accent-default);font-size:11px;font-weight:500;cursor:pointer}\
          .diagram-card{margin:12px 0;padding:0}\
          .chapter-svg{width:100%;height:auto;display:block;border-radius:8px}\
+         .diagram-caption{margin-top:6px;font-size:11.5px;color:var(--text-secondary)}\
          ul.topic-list{margin:10px 0;padding-left:20px;color:var(--text-primary)}\
          ul.topic-list li{margin-bottom:6px}\
          pre.code-block{background:var(--bg-field);border:1px solid var(--border-subtle);border-radius:6px;padding:12px;overflow-x:auto;font-family:'Roboto Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.45;color:var(--text-primary)}\
          table.ref-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}\
-         table.ref-table th,table.ref-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border-subtle)}\
+         table.ref-table th,table.ref-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:top}\
          table.ref-table th{color:var(--accent-default);font-weight:600;background:var(--bg-raised)}\
          .cross-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:10px;border-top:1px solid var(--border-subtle)}\
          .cross-link{display:inline-block;padding:4px 10px;border-radius:6px;background:var(--bg-raised);border:1px solid var(--border-default);color:var(--accent-default);text-decoration:none;font-size:11.5px;font-weight:500}\
@@ -2014,7 +3811,7 @@ pub(crate) fn render_full_browser_help_html() -> String {
             html,
             ".help-shell:has(input[data-tag=\"{tag}\"]:checked) label[data-tag-pill=\"{tag}\"]{{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}}\
              .help-shell:has(input[data-tag=\"{tag}\"]:checked) section.chapter-card:not([data-tags~=\"{tag}\"]){{display:none}}\
-             .help-shell:has(input[data-tag=\"{tag}\"]:checked) nav.sidebar li:not([data-tags~=\"{tag}\"]){{display:none}}"
+             .help-shell:has(input[data-tag=\"{tag}\"]:checked) nav.sidebar li.chapter-nav-item:not([data-tags~=\"{tag}\"]){{display:none}}"
         );
     }
     html.push_str(
@@ -2038,7 +3835,7 @@ pub(crate) fn render_full_browser_help_html() -> String {
     html.push_str(
         "<header class=\"top-header\" id=\"top\"><div>\
          <h1>NeoFlash Help &amp; Reference</h1>\
-         <p>Illustrated NF2 manual &amp; ActionScript 1.0 / 2.0 / 3.0 Language Reference.</p>\
+         <p>Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19).</p>\
          </div>\
          <label for=\"nf2-theme-toggle\" class=\"theme-btn\">Switch Dark / Light Theme</label>\
          </header>",
@@ -2046,8 +3843,10 @@ pub(crate) fn render_full_browser_help_html() -> String {
 
     // Interactive Tag Filter Bar
     html.push_str("<div class=\"tag-bar\" role=\"toolbar\" aria-label=\"Filter by topic tag\"><span class=\"tag-bar-label\">Filter by Tag:</span>");
-    html.push_str(
-        "<label for=\"nf2-tag-ALL\" data-tag-pill=\"ALL\" class=\"tag-pill\">All (16)</label>",
+    let _ = write!(
+        html,
+        "<label for=\"nf2-tag-ALL\" data-tag-pill=\"ALL\" class=\"tag-pill\">All ({})</label>",
+        HELP_CHAPTERS.len()
     );
     for tag in HELP_ALL_TAGS {
         let _ = write!(
@@ -2059,10 +3858,17 @@ pub(crate) fn render_full_browser_help_html() -> String {
 
     html.push_str("<div class=\"layout\"><nav class=\"sidebar\" aria-label=\"Chapters\"><ol>");
     for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
+        if index == 0 {
+            html.push_str("<li class=\"nav-group\">Authoring Help (1–10)</li>");
+        } else if index == AUTHORING_CHAPTER_COUNT {
+            html.push_str("<li class=\"nav-group\">Scripting Ref — ActionScript</li>");
+        } else if index == 16 {
+            html.push_str("<li class=\"nav-group\">Scripting Ref — JS / TS / Web</li>");
+        }
         let tags_joined = chapter.tags.join(" ");
         let _ = write!(
             html,
-            "<li data-tags=\"{tags_joined}\"><a href=\"{hash}chapter-{}\">",
+            "<li class=\"chapter-nav-item\" data-tags=\"{tags_joined}\"><a href=\"{hash}chapter-{}\">",
             index + 1
         );
         super::help_manual::escape_html(chapter.title, &mut html);
@@ -2072,6 +3878,15 @@ pub(crate) fn render_full_browser_help_html() -> String {
 
     for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
         let tags_joined = chapter.tags.join(" ");
+        let mode_badge = if index < AUTHORING_CHAPTER_COUNT {
+            format!("Help Ch. {} of {}", index + 1, AUTHORING_CHAPTER_COUNT)
+        } else {
+            format!(
+                "Scripting Ref Ch. {} of {}",
+                index - AUTHORING_CHAPTER_COUNT + 1,
+                HELP_CHAPTERS.len() - AUTHORING_CHAPTER_COUNT
+            )
+        };
         let _ = write!(
             html,
             "<section class=\"chapter-card\" id=\"chapter-{}\" data-tags=\"{tags_joined}\"><div class=\"chapter-head\"><h2>",
@@ -2080,7 +3895,7 @@ pub(crate) fn render_full_browser_help_html() -> String {
         super::help_manual::escape_html(chapter.title, &mut html);
         let _ = write!(
             html,
-            "</h2><span class=\"badge\">Chapter {} of {}</span></div><p class=\"chapter-sub\">",
+            "</h2><span class=\"badge\">{mode_badge} · Chapter {} of {}</span></div><p class=\"chapter-sub\">",
             index + 1,
             HELP_CHAPTERS.len()
         );
@@ -2105,7 +3920,7 @@ pub(crate) fn render_full_browser_help_html() -> String {
         }
         html.push_str("</ul>");
 
-        // Extended ActionScript code blocks & tables for chapters 11..=16
+        // Extended ActionScript / JavaScript / TypeScript / Web API code blocks & tables for chapters 11..=19
         write_as_chapter_reference_html(index, &mut html);
 
         // Interactive Cross-Links to related chapters
@@ -2132,4 +3947,280 @@ pub(crate) fn render_full_browser_help_html() -> String {
     }
     html.push_str("</main></div></div></body></html>");
     html
+}
+
+#[cfg(test)]
+pub(crate) fn verify_all_reference_code_samples_compile() {
+    use neoflash_core::ScriptLanguage;
+
+    let samples: &[(&str, ScriptLanguage, &str)] = &[
+        (
+            "Ch.11 AS2 Frame Script",
+            ScriptLanguage::ActionScript2,
+            "stop();
+var score:Number = 0;
+var gravity:Number = 0.65;
+var depth:Number = this.getNextHighestDepth();
+var coin:MovieClip = this.attachMovie(\"CoinSymbol\", \"coin_\" + depth, depth, {_x: 320, _y: 180});
+hero_mc.vy = 0;
+hero_mc.onEnterFrame = function():Void {
+    this.vy += _root.gravity;
+    this._y += this.vy;
+    if (Key.isDown(Key.RIGHT)) { this._x += 5; this._xscale = 100; }
+    if (Key.isDown(Key.LEFT))  { this._x -= 5; this._xscale = -100; }
+    if (this.hitTest(_root.coin._x, _root.coin._y, true)) {
+        _root.score += 100;
+        _root.score_txt.text = \"Score: \" + _root.score;
+        _root.coin.removeMovieClip();
+    }
+};",
+        ),
+        (
+            "Ch.12 AS2 Core Classes",
+            ScriptLanguage::ActionScript2,
+            "import flash.display.BitmapData;
+import flash.geom.Matrix;
+var canvas:MovieClip = this.createEmptyMovieClip(\"badge_mc\", this.getNextHighestDepth());
+canvas.lineStyle(2, 0x6C93FF, 100);
+canvas.beginFill(0x1F2A48, 95);
+canvas.moveTo(20, 20);
+canvas.lineTo(180, 20);
+canvas.lineTo(180, 70);
+canvas.lineTo(20, 70);
+canvas.endFill();
+this.createTextField(\"label_txt\", this.getNextHighestDepth(), 32, 32, 140, 28);
+label_txt.text = \"READY PLAYER ONE\";
+var fmt:TextFormat = new TextFormat(\"Inter\", 14, 0xFFFFFF, true);
+label_txt.setTextFormat(fmt);
+var bmp:BitmapData = new BitmapData(200, 90, true, 0x00000000);
+bmp.draw(canvas, new Matrix());",
+        ),
+        (
+            "Ch.13 AS3 Display List",
+            ScriptLanguage::ActionScript3,
+            "package {
+    import flash.display.Sprite;
+    import flash.display.Shape;
+    import flash.events.Event;
+    import flash.geom.Point;
+
+    public class Main extends Sprite {
+        private var ship:Sprite = new Sprite();
+
+        public function Main() {
+            if (stage) init();
+            else addEventListener(Event.ADDED_TO_STAGE, init);
+        }
+
+        private function init(e:Event = null):void {
+            removeEventListener(Event.ADDED_TO_STAGE, init);
+            var hull:Shape = new Shape();
+            hull.graphics.beginFill(0x6C93FF, 1.0);
+            hull.graphics.moveTo(0, -18);
+            hull.graphics.lineTo(14, 14);
+            hull.graphics.lineTo(-14, 14);
+            hull.graphics.endFill();
+
+            ship.addChild(hull);
+            ship.x = stage.stageWidth * 0.5;
+            ship.y = stage.stageHeight * 0.5;
+            addChild(ship);
+
+            var tipGlobal:Point = ship.localToGlobal(new Point(0, -18));
+            trace(\"Ship nose in Stage coordinates:\", tipGlobal.x, tipGlobal.y);
+        }
+    }
+}",
+        ),
+        (
+            "Ch.14 AS3 Events",
+            ScriptLanguage::ActionScript3,
+            "import flash.events.Event;
+import flash.events.MouseEvent;
+import flash.events.KeyboardEvent;
+import flash.events.TimerEvent;
+import flash.ui.Keyboard;
+import flash.utils.Timer;
+
+card_mc.buttonMode = true;
+card_mc.mouseChildren = false;
+card_mc.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent):void {
+    card_mc.startDrag();
+});
+stage.addEventListener(MouseEvent.MOUSE_UP, function(e:MouseEvent):void {
+    card_mc.stopDrag();
+});
+stage.addEventListener(KeyboardEvent.KEY_DOWN, function(e:KeyboardEvent):void {
+    if (e.keyCode == Keyboard.SPACE) {
+        trace(\"Spacebar pressed! Shift held:\", e.shiftKey);
+    }
+});
+var spawner:Timer = new Timer(500, 10);
+spawner.addEventListener(TimerEvent.TIMER, function(e:TimerEvent):void {
+    trace(\"Wave tick:\", spawner.currentCount);
+});
+spawner.start();",
+        ),
+        (
+            "Ch.15 AS3 Graphics & E4X",
+            ScriptLanguage::ActionScript3,
+            "import flash.display.Sprite;
+import flash.filters.GlowFilter;
+import flash.media.Sound;
+import flash.media.SoundChannel;
+import flash.media.SoundTransform;
+
+var orb:Sprite = new Sprite();
+orb.graphics.lineStyle(2, 0x86A5FF, 1.0);
+orb.graphics.beginFill(0x3C6BF0, 0.85);
+orb.graphics.drawCircle(0, 0, 36);
+orb.graphics.endFill();
+orb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];
+addChild(orb);
+
+var sfx:Sound = new Sound();
+var channel:SoundChannel = sfx.play(0, 1, new SoundTransform(0.8, -0.25));
+
+var inventory:XML = <items>
+    <weapon id=\"plasma\" dmg=\"45\"/>
+    <weapon id=\"railgun\" dmg=\"90\"/>
+</items>;
+var heavy:XMLList = inventory.weapon.(Number(@dmg) >= 50);
+trace(\"Selected weapon:\", heavy.@id);",
+        ),
+        (
+            "Ch.17 JavaScript Runtime & JSX",
+            ScriptLanguage::JavaScript,
+            "stop();
+trace(\"Entering level:\", this.currentFrame, \"of\", this.totalFrames);
+
+const state = { score: 0, combo: 1 };
+const badge = <hud-badge label=\"SCORE\" value={state.score} />;
+
+this.start_btn.addEventListener(\"click\", (event) => {
+    trace(\"Clicked target:\", event.target.name, \"at\", event.stageX, event.stageY);
+    gotoAndPlay(\"gameplay\");
+});
+
+this.hero_mc.addEventListener(\"enterFrame\", () => {
+    this.hero_mc.x += 2.5;
+    this.hero_mc.alpha = Math.min(1.0, (this.hero_mc.alpha ?? 0.8) + 0.01);
+});",
+        ),
+        (
+            "Ch.18 TypeScript & Built-In Checker",
+            ScriptLanguage::TypeScript,
+            "interface Actor {
+    readonly id: string;
+    x: number;
+    y: number;
+    hp: number;
+}
+
+interface ActorPatch {
+    x?: number;
+    y?: number;
+    hp?: number;
+}
+
+function applyPatch(actor: Actor, patch: ActorPatch): Actor {
+    return {
+        id: actor.id,
+        x: patch.x ?? actor.x,
+        y: patch.y ?? actor.y,
+        hp: patch.hp ?? actor.hp,
+    };
+}
+
+const hero: Actor = { id: \"p1\", x: 120, y: 240, hp: 100 };
+const moved: Actor = applyPatch(hero, { x: 160, hp: 95 });
+trace(\"Updated hero:\", moved.id, moved.x, moved.hp);",
+        ),
+        (
+            "Ch.19 TypeScript + Web APIs",
+            ScriptLanguage::TypeScript,
+            "interface HighScoreEntry {
+    player: string;
+    score: number;
+}
+
+async function syncHighScore(canvas: HTMLCanvasElement, url: string) {
+    const ctx = canvas.getContext(\"2d\");
+    if (ctx) {
+        ctx.save();
+        ctx.fillStyle = \"rgb(31, 42, 72)\";
+        ctx.fillRect(0, 0, 240, 48);
+        ctx.beginPath();
+        ctx.arc(24, 24, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    try {
+        const res = await fetch(url);
+        const top: HighScoreEntry = await res.json();
+        window.localStorage.setItem(\"neoflash.topScore\", JSON.stringify(top));
+        trace(\"Synced top score:\", top.player, top.score);
+    } catch (err) {
+        trace(\"Offline or blocked by CORS; using cached score:\", err);
+    }
+}",
+        ),
+    ];
+
+    let base_project = neoflash_core::Project::blank();
+    let base_program = neoflash_script::compile_project(&base_project)
+        .expect("blank project should compile cleanly");
+
+    for (name, lang, code) in samples {
+        if code.trim_start().starts_with("package") {
+            let mut pkg_project = neoflash_core::Project::blank();
+            pkg_project.sources.push(neoflash_core::SourceUnit {
+                id: "src-main".to_string(),
+                path: "Main.as".to_string(),
+                language: *lang,
+                source: (*code).to_owned(),
+            });
+            let compiled = neoflash_script::compile_project(&pkg_project);
+            assert!(
+                compiled.is_ok(),
+                "{name} ({lang:?}) package source produced compile errors: {:?}",
+                compiled.err()
+            );
+        } else {
+            let script = neoflash_core::Script {
+                language: *lang,
+                source: (*code).to_owned(),
+            };
+            let compiled = neoflash_script::compile_with_program(&script, &base_program);
+            assert!(
+                compiled.is_ok(),
+                "{name} ({lang:?}) produced compile errors: {:?}",
+                compiled.err()
+            );
+        }
+    }
+
+    // Also verify multi-file JS/TS module bundling (`import` / `export`) from Chapter 17
+    let mut project = neoflash_core::Project::blank();
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "src-math".to_string(),
+        path: "math.ts".to_string(),
+        language: ScriptLanguage::TypeScript,
+        source: "export function clamp(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, v)); }".to_string(),
+    });
+    let program = neoflash_script::compile_project(&project)
+        .expect("Ch.17/18 module project should compile cleanly");
+    let handler_script = neoflash_core::Script {
+        language: ScriptLanguage::TypeScript,
+        source:
+            "import { clamp } from \"./math\";\nconst x: number = clamp(140, 0, 100);\ntrace(x);"
+                .to_string(),
+    };
+    let module_res = neoflash_script::compile_with_program(&handler_script, &program);
+    assert!(
+        module_res.is_ok(),
+        "Ch.17/18 module graph example produced errors: {:?}",
+        module_res.err()
+    );
 }

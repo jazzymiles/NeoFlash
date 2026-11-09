@@ -1519,7 +1519,11 @@ impl Editor {
         self.transact_named("Set Asset Warp", |editor| {
             let layer = &mut editor.symbol_mut().timeline.layers[layer_idx];
             if let Some(k) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
-                k.set_asset_warp(rig);
+                if rig.pins.is_empty() {
+                    k.asset_warps.retain(|w| w.element_id != rig.element_id);
+                } else {
+                    k.set_asset_warp(rig);
+                }
             }
         });
         true
@@ -2447,4 +2451,1349 @@ impl Editor {
         });
         Ok(report)
     }
+
+    pub fn move_key(&mut self, layer: usize, from: u32, to: u32, copy: bool) -> bool {
+        let symbol_id = self.symbol_id().to_owned();
+        let timeline = &self.symbol().timeline;
+        let Some(l) = timeline.layers.get(layer) else {
+            return false;
+        };
+        let layer_editable =
+            !layer_effectively_locked(timeline, l) && layer_effectively_visible(timeline, l);
+        let is_button = self.symbol().kind == SymbolKind::Button;
+        let max_frames = if is_button {
+            timeline.frame_count
+        } else {
+            1_000_000
+        };
+        if !layer_editable
+            || l.properties.role == LayerRole::Folder
+            || to >= max_frames
+            || from == to
+        {
+            if self.frame == to && from != to && from < timeline.frame_count {
+                self.frame = from;
+                self.reset_authored_preview();
+            }
+            return false;
+        }
+        if l.keyframes.iter().any(|k| k.frame == to) {
+            if self.frame == to && from < timeline.frame_count {
+                self.frame = from;
+                self.reset_authored_preview();
+            }
+            self.message("A keyframe already exists at the destination.");
+            return false;
+        }
+        if !l.keyframes.iter().any(|k| k.frame == from) {
+            if self.frame == to && from < timeline.frame_count {
+                self.frame = from;
+                self.reset_authored_preview();
+            }
+            return false;
+        }
+        if timeline.key_carries_frame_script(layer, from) && timeline.has_frame_script(to) {
+            if self.frame == to && from < timeline.frame_count {
+                self.frame = from;
+                self.reset_authored_preview();
+            }
+            self.message(
+                "A frame script already exists at the destination. The key and script were not moved.",
+            );
+            return false;
+        }
+        let step_label = if copy {
+            "Copy keyframe"
+        } else {
+            "Move keyframe"
+        };
+        self.transact_named(step_label, |s| {
+            let _ = s
+                .project
+                .move_keyframe(&symbol_id, layer, from, to, copy, true);
+            s.frame = to;
+            s.layer = layer;
+            s.clear_selection();
+        });
+        self.reset_authored_preview();
+        true
+    }
+
+    pub(crate) fn can_distribute_to_keyframes(&self) -> bool {
+        if self.selection.symbol != self.symbol_id() {
+            return false;
+        }
+        self.sampled_targets()
+            .into_iter()
+            .filter(|(target, _)| self.target_editable(target))
+            .count()
+            >= 2
+    }
+
+    /// `Modify ▸ Timeline ▸ Distribute to keyframes`: takes the 2+ selected Stage elements in their
+    /// current selection/layer order, keeps the first element on `self.frame`, removes the 2nd..Nth
+    /// selected elements from the starting keyframe at `self.frame`, and places each onto its own
+    /// consecutive keyframe (`start_frame + 1`, `start_frame + 2`, ...) on that layer, extending
+    /// `timeline.frame_count` if needed, in one Undo step.
+    pub fn distribute_selection_to_keyframes(&mut self) -> bool {
+        self.finish_edits();
+        if !self.can_distribute_to_keyframes() {
+            return false;
+        }
+        let sampled_map: std::collections::HashMap<crate::selection::SelectionTarget, Element> =
+            self.sampled_targets()
+                .into_iter()
+                .filter(|(target, _)| self.target_editable(target))
+                .collect();
+        let mut ordered: Vec<(crate::selection::SelectionTarget, Element)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for target in &self.selection.targets {
+            if seen.insert(target.clone())
+                && let Some(el) = sampled_map.get(target)
+            {
+                ordered.push((target.clone(), el.clone()));
+            }
+        }
+        if ordered.len() < 2 {
+            return false;
+        }
+        let target_layer_id = ordered[0].0.layer.clone();
+        let start_frame = self.frame;
+        self.playing = false;
+        self.transact_named("Distribute to keyframes", move |editor| {
+            let mut touched_layers: Vec<Id> =
+                ordered.iter().map(|(t, _)| t.layer.clone()).collect();
+            touched_layers.sort();
+            touched_layers.dedup();
+            for lid in &touched_layers {
+                editor.ensure_key_for(lid, false);
+            }
+            let removed_from_start: std::collections::HashSet<(Id, Id)> = ordered
+                .iter()
+                .skip(1)
+                .map(|(t, _)| (t.layer.clone(), t.element.clone()))
+                .collect();
+            for lid in &touched_layers {
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| &l.id == lid)
+                {
+                    if let Some(key) = layer.key_at_mut(start_frame) {
+                        key.elements
+                            .retain(|e| !removed_from_start.contains(&(lid.clone(), e.id.clone())));
+                    }
+                    layer.normalize_motion_keys();
+                }
+            }
+
+            let last_frame = start_frame + (ordered.len() as u32 - 1);
+            let old_count = editor.symbol().timeline.frame_count;
+            let new_count = old_count.max(last_frame + 1);
+            {
+                let timeline = &mut editor.symbol_mut().timeline;
+                timeline.frame_count = new_count;
+                for layer in &mut timeline.layers {
+                    if layer.id == target_layer_id {
+                        if let Some(end) = &mut layer.properties.end_frame {
+                            *end = (*end).max(last_frame + 1);
+                        }
+                    } else if layer.properties.role == LayerRole::Folder
+                        && let Some(end) = &mut layer.properties.end_frame
+                    {
+                        *end = (*end).max(new_count);
+                    }
+                }
+            }
+
+            let mut new_selection = Vec::with_capacity(ordered.len());
+            let mut needs_format_5 = false;
+            if let Some(target_layer) = editor
+                .symbol_mut()
+                .timeline
+                .layers
+                .iter_mut()
+                .find(|l| l.id == target_layer_id)
+            {
+                new_selection.push(crate::selection::SelectionTarget {
+                    layer: target_layer_id.clone(),
+                    element: ordered[0].1.id.clone(),
+                });
+                for (offset, (_, mut el)) in ordered.into_iter().enumerate().skip(1) {
+                    let dest_frame = start_frame + offset as u32;
+                    if el.transform.skew != 0.0
+                        || !el.transform.color_transform.is_identity()
+                        || matches!(el.kind, ElementKind::PaintedPath { .. })
+                    {
+                        needs_format_5 = true;
+                    }
+                    if target_layer
+                        .keyframes
+                        .iter()
+                        .any(|k| k.frame != dest_frame && k.elements.iter().any(|e| e.id == el.id))
+                    {
+                        el.id = new_id("object");
+                    }
+                    new_selection.push(crate::selection::SelectionTarget {
+                        layer: target_layer_id.clone(),
+                        element: el.id.clone(),
+                    });
+                    if let Some(existing) = target_layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == dest_frame)
+                    {
+                        existing.elements = vec![el];
+                        existing.keyed_properties = None;
+                        existing.motion_keys = None;
+                    } else {
+                        target_layer.keyframes.push(Keyframe {
+                            frame: dest_frame,
+                            elements: vec![el],
+                            ..Default::default()
+                        });
+                    }
+                }
+                target_layer.keyframes.sort_by_key(|k| k.frame);
+                target_layer.normalize_motion_keys();
+            }
+            if needs_format_5 {
+                editor.project.format_version = editor.project.format_version.max(5);
+            }
+            editor.prune_authoring_groups();
+            editor.set_selection(new_selection);
+        });
+        true
+    }
+
+    fn stepped_keyframe_ranges(&self) -> Vec<(usize, u32, u32)> {
+        let timeline = &self.symbol().timeline;
+        if let Some(range) = self.frame_range()
+            && range.end > range.start
+        {
+            return range
+                .layers
+                .iter()
+                .filter_map(|id| timeline.layers.iter().position(|l| &l.id == id))
+                .filter(|&idx| {
+                    let l = &timeline.layers[idx];
+                    l.properties.role != LayerRole::Folder
+                        && !neoflash_core::layer_effectively_locked(timeline, l)
+                        && neoflash_core::layer_effectively_visible(timeline, l)
+                })
+                .map(|idx| (idx, range.start, range.end))
+                .collect();
+        }
+
+        let mut spans = self.target_tween_spans();
+        if spans.is_empty()
+            && self.layer_editable()
+            && let Some(start) = self.span_start()
+        {
+            spans.push((self.layer, vec![start]));
+        }
+        let mut out = Vec::new();
+        for (layer_idx, starts) in spans {
+            let Some(layer) = timeline.layers.get(layer_idx) else {
+                continue;
+            };
+            let layer_end = layer
+                .properties
+                .end_frame
+                .unwrap_or(timeline.frame_count)
+                .min(timeline.frame_count)
+                .saturating_sub(1);
+            let ord_frames: Vec<u32> = layer
+                .keyframes
+                .iter()
+                .filter(|k| k.keyed_properties.is_none())
+                .map(|k| k.frame)
+                .collect();
+            for start in starts {
+                let end = ord_frames
+                    .iter()
+                    .copied()
+                    .find(|&f| f > start)
+                    .unwrap_or(layer_end)
+                    .max(start);
+                if end > start {
+                    out.push((layer_idx, start, end));
+                }
+            }
+        }
+        out
+    }
+
+    pub(crate) fn can_convert_to_keyframes_stepped(&self) -> bool {
+        !self.stepped_keyframe_ranges().is_empty()
+    }
+
+    fn apply_stepped_keyframes_on_layer(
+        timeline: &Timeline,
+        layer: &mut Layer,
+        start: u32,
+        end: u32,
+        step: u32,
+        strip_tween: bool,
+        fps: f64,
+    ) -> usize {
+        let step = step.max(1);
+        if start > end {
+            return 0;
+        }
+        layer.keyframes.sort_by_key(|key| key.frame);
+        let original = layer.clone();
+        let effective_end = original
+            .properties
+            .end_frame
+            .unwrap_or(timeline.frame_count)
+            .max(end + 1);
+        if layer.properties.end_frame.is_some() {
+            layer.properties.end_frame = Some(effective_end);
+        }
+
+        let mut stepped_frames: Vec<u32> = Vec::new();
+        let mut f = start;
+        while f <= end {
+            stepped_frames.push(f);
+            match f.checked_add(step) {
+                Some(next) if next > f => f = next,
+                _ => break,
+            }
+        }
+        if stepped_frames.last().copied() != Some(end)
+            && original
+                .keyframes
+                .iter()
+                .any(|k| k.frame == end && k.keyed_properties.is_none())
+        {
+            stepped_frames.push(end);
+        }
+
+        let active_ease_at = |frame: u32| -> Option<(Easing, TweenKind)> {
+            if let Some((span_start, _, span_end)) = motion_span(&original, frame) {
+                let end_limit = span_end.unwrap_or(effective_end);
+                if frame < end_limit {
+                    return span_start.tween.map(|ease| (ease, TweenKind::Classic));
+                }
+            }
+            let idx = original.keyframes.partition_point(|k| k.frame <= frame);
+            let key = idx.checked_sub(1).and_then(|i| original.keyframes.get(i))?;
+            let next_frame = original
+                .keyframes
+                .get(idx)
+                .map_or(effective_end, |next| next.frame);
+            if frame < next_frame {
+                key.tween.map(|ease| {
+                    let kind = if key.tween_kind == TweenKind::Shape {
+                        TweenKind::Shape
+                    } else {
+                        TweenKind::Classic
+                    };
+                    (ease, kind)
+                })
+            } else {
+                None
+            }
+        };
+
+        let mut replacement = Vec::with_capacity(stepped_frames.len());
+        for (idx, &frame) in stepped_frames.iter().enumerate() {
+            let mut key = Keyframe {
+                frame,
+                elements: sample_layer_in_at_fps(timeline, &original, frame, fps),
+                ..Default::default()
+            };
+            if let Some(old) = original.keyframes.iter().find(|k| k.frame == frame) {
+                key.label = old.label.clone();
+                key.sound = old.sound.clone();
+            }
+            if strip_tween {
+                key.tween = None;
+                key.tween_kind = TweenKind::Classic;
+                key.keyed_properties = None;
+                key.motion_keys = None;
+                key.motion_tracks.clear();
+                key.motion_path = None;
+                key.property_eases.clear();
+                key.shape_hints.clear();
+            } else {
+                let is_last_in_range = idx + 1 == stepped_frames.len() && frame == end;
+                if is_last_in_range {
+                    if let Some(old_end) = original
+                        .keyframes
+                        .iter()
+                        .find(|k| k.frame == frame && k.keyed_properties.is_none())
+                    {
+                        key.tween = old_end.tween;
+                        key.tween_kind =
+                            if key.tween.is_some() && old_end.tween_kind == TweenKind::Shape {
+                                TweenKind::Shape
+                            } else {
+                                TweenKind::Classic
+                            };
+                    } else if let Some((ease, kind)) = active_ease_at(frame) {
+                        key.tween = Some(ease);
+                        key.tween_kind = kind;
+                    }
+                } else if let Some((ease, kind)) = active_ease_at(frame) {
+                    key.tween = Some(ease);
+                    key.tween_kind = kind;
+                }
+                key.keyed_properties = None;
+                key.motion_keys = None;
+                key.motion_tracks.clear();
+                key.motion_path = None;
+                key.property_eases.clear();
+            }
+            replacement.push(key);
+        }
+
+        if strip_tween
+            && end + 1 < effective_end
+            && !original.keyframes.iter().any(|k| k.frame == end + 1)
+            && active_ease_at(end).is_some()
+        {
+            let mut after_key = Keyframe {
+                frame: end + 1,
+                elements: sample_layer_in_at_fps(timeline, &original, end + 1, fps),
+                ..Default::default()
+            };
+            if let Some((ease, kind)) = active_ease_at(end + 1) {
+                after_key.tween = Some(ease);
+                after_key.tween_kind = kind;
+            }
+            replacement.push(after_key);
+        }
+
+        layer
+            .keyframes
+            .retain(|key| key.frame < start || key.frame > end);
+        layer.keyframes.extend(replacement);
+        layer.keyframes.sort_by_key(|key| key.frame);
+        layer.keyframes.dedup_by_key(|key| key.frame);
+        layer.normalize_motion_keys();
+        stepped_frames.len()
+    }
+
+    /// ToonMonkey `Tween2Keys` (`strip_tween = true`) & Justin Putney `Convert to Keyframes Advanced`
+    /// (`strip_tween = false`): samples the evaluated layer poses at every `step` frames across the
+    /// selected frame range or active tween span(s), inserts keyframes on those stepped frames,
+    /// removes intermediate keyframes, and either clears tween metadata (`strip_tween = true`) so the
+    /// animation plays on 2s / 3s or keeps tween easing on each stepped keyframe (`strip_tween = false`).
+    pub fn convert_to_keyframes_stepped(&mut self, step: u32, strip_tween: bool) -> bool {
+        self.finish_edits();
+        let step = step.max(1);
+        let ranges = self.stepped_keyframe_ranges();
+        if ranges.is_empty() {
+            return false;
+        }
+        let fps = f64::from(self.project.fps);
+        let label = if strip_tween {
+            "Tween2Keys"
+        } else {
+            "Convert to keyframes (stepped)"
+        };
+        let mut changed = false;
+        self.transact_named(label, |editor| {
+            let timeline_snapshot = editor.symbol().timeline.clone();
+            let sym = editor.symbol_mut();
+            for &(layer_idx, start, end) in &ranges {
+                if let Some(layer) = sym.timeline.layers.get_mut(layer_idx) {
+                    let count = Self::apply_stepped_keyframes_on_layer(
+                        &timeline_snapshot,
+                        layer,
+                        start,
+                        end,
+                        step,
+                        strip_tween,
+                        fps,
+                    );
+                    if count > 0 {
+                        changed = true;
+                    }
+                }
+            }
+        });
+        changed
+    }
+
+    /// ToonMonkey `Tween2Keys (On 2s)`.
+    pub fn tween_to_keys_on_twos(&mut self) -> bool {
+        self.convert_to_keyframes_stepped(2, true)
+    }
+
+    /// ToonMonkey `Tween2Keys (On 3s)`.
+    pub fn tween_to_keys_on_threes(&mut self) -> bool {
+        self.convert_to_keyframes_stepped(3, true)
+    }
+
+    fn graphic_synced_frame_at(
+        project: &Project,
+        layer: &Layer,
+        parent_frame: u32,
+        symbol_id: &str,
+        playback: InstancePlayback,
+    ) -> Option<u32> {
+        let sym = project.symbol(symbol_id)?;
+        if sym.kind != SymbolKind::Graphic {
+            return None;
+        }
+        let count = sym.timeline.frame_count.max(1);
+        let key_start = layer.key_at(parent_frame).map_or(parent_frame, |k| k.frame);
+        let elapsed = parent_frame.saturating_sub(key_start);
+        let synced = match playback {
+            InstancePlayback::Loop | InstancePlayback::Independent => elapsed % count,
+            InstancePlayback::LoopFrom(first) => (first + elapsed) % count,
+            InstancePlayback::PlayOnce => elapsed.min(count - 1),
+            InstancePlayback::PlayOnceFrom(first) => (first + elapsed).min(count - 1),
+            InstancePlayback::SingleFrame(first) => first.min(count - 1),
+        };
+        Some(synced)
+    }
+
+    pub(crate) fn can_enter_graphic_at_current_frame(&self) -> bool {
+        let Some(placement) = self.selected_sampled() else {
+            return false;
+        };
+        let ElementKind::Instance { symbol_id, .. } = placement.kind else {
+            return false;
+        };
+        self.project
+            .symbol(&symbol_id)
+            .is_some_and(|sym| sym.kind == SymbolKind::Graphic)
+    }
+
+    /// ToonMonkey `Enter Graphic at Current Frame` (`Edit in Place at Synced Frame`): enters
+    /// Edit in Place for the selected `Graphic` symbol instance and jumps `self.frame` directly
+    /// to the synchronized child frame displayed at the current parent frame.
+    pub fn enter_graphic_at_current_frame(&mut self) -> bool {
+        self.finish_edits();
+        let Some(target) = self.selection.single().cloned() else {
+            return false;
+        };
+        let Some(placement) = self.selected_sampled() else {
+            return false;
+        };
+        let ElementKind::Instance {
+            symbol_id,
+            playback,
+        } = placement.kind
+        else {
+            return false;
+        };
+        let Some(layer) = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .find(|l| l.id == target.layer)
+        else {
+            return false;
+        };
+        let Some(synced_frame) =
+            Self::graphic_synced_frame_at(&self.project, layer, self.frame, &symbol_id, playback)
+        else {
+            return false;
+        };
+        if !self.enter_symbol_at(target, symbol_id) {
+            return false;
+        }
+        self.frame = synced_frame;
+        if let Some(level) = self.edit_session.levels.last_mut() {
+            level.saved_view.frame = synced_frame;
+        }
+        true
+    }
+
+    pub(crate) fn has_selected_graphic_instance(&self) -> bool {
+        self.sampled_targets().into_iter().any(|(target, el)| {
+            self.target_editable(&target)
+                && matches!(
+                    el.kind,
+                    ElementKind::Instance { ref symbol_id, .. }
+                        if self
+                            .project
+                            .symbol(symbol_id)
+                            .is_some_and(|s| s.kind == SymbolKind::Graphic)
+                )
+        })
+    }
+
+    /// ToonMonkey `Set Graphic Playback: Loop / Play Once / Single Frame (Current)`: updates
+    /// `playback` on all selected `Graphic` instances (locking `first_frame` to the currently
+    /// displayed synced child frame when `lock_current_synced_frame` is `true`) in one Undo step.
+    pub fn set_selected_graphic_playback(
+        &mut self,
+        playback: InstancePlayback,
+        lock_current_synced_frame: bool,
+    ) -> bool {
+        self.finish_edits();
+        let frame = self.frame;
+        let timeline = &self.symbol().timeline;
+        let mut updates: Vec<(crate::selection::SelectionTarget, InstancePlayback)> = Vec::new();
+        for (target, el) in self.sampled_targets() {
+            if !self.target_editable(&target) {
+                continue;
+            }
+            let ElementKind::Instance {
+                ref symbol_id,
+                playback: current_playback,
+            } = el.kind
+            else {
+                continue;
+            };
+            let Some(layer) = timeline.layers.iter().find(|l| l.id == target.layer) else {
+                continue;
+            };
+            let Some(synced) = Self::graphic_synced_frame_at(
+                &self.project,
+                layer,
+                frame,
+                symbol_id,
+                current_playback,
+            ) else {
+                continue;
+            };
+            let next_playback = if lock_current_synced_frame {
+                match playback {
+                    InstancePlayback::SingleFrame(_) => InstancePlayback::SingleFrame(synced),
+                    InstancePlayback::Loop | InstancePlayback::LoopFrom(_) => {
+                        if synced == 0 {
+                            InstancePlayback::Loop
+                        } else {
+                            InstancePlayback::LoopFrom(synced)
+                        }
+                    }
+                    InstancePlayback::PlayOnce | InstancePlayback::PlayOnceFrom(_) => {
+                        if synced == 0 {
+                            InstancePlayback::PlayOnce
+                        } else {
+                            InstancePlayback::PlayOnceFrom(synced)
+                        }
+                    }
+                    InstancePlayback::Independent => InstancePlayback::SingleFrame(synced),
+                }
+            } else {
+                playback
+            };
+            updates.push((target, next_playback));
+        }
+        if updates.is_empty() {
+            return false;
+        }
+        self.playing = false;
+        self.transact_named("Set graphic playback", move |editor| {
+            let mut layers: Vec<Id> = updates.iter().map(|(t, _)| t.layer.clone()).collect();
+            layers.sort();
+            layers.dedup();
+            for lid in &layers {
+                editor.ensure_key_for(lid, false);
+            }
+            for (target, next_playback) in updates {
+                if let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == target.layer)
+                    && let Some(key) = layer.key_at_mut(frame)
+                    && let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element)
+                    && let ElementKind::Instance { playback: slot, .. } = &mut el.kind
+                {
+                    *slot = next_playback;
+                }
+            }
+        });
+        true
+    }
+
+    /// ToonMonkey `Swap Multiple Symbols`: swaps `symbol_id` to `new_symbol_id` across all
+    /// currently selected instances, and when `across_selected_frame_range` is `true` (or when
+    /// multiple keyframes in a timeline range are selected), swaps matching instances across every
+    /// keyframe in the selected layer/frame range in one atomic Undo step.
+    pub fn swap_symbol_across_selection_or_range(
+        &mut self,
+        new_symbol_id: &str,
+        across_selected_frame_range: bool,
+    ) -> usize {
+        self.finish_edits();
+        if self.project.symbol(new_symbol_id).is_none() || self.project.is_scene(new_symbol_id) {
+            return 0;
+        }
+        let active_symbol = self.symbol_id().to_owned();
+        let mut seen_symbols = std::collections::HashSet::new();
+        if active_symbol == new_symbol_id
+            || crate::app::reaches(
+                &self.project,
+                new_symbol_id,
+                &active_symbol,
+                &mut seen_symbols,
+            )
+        {
+            return 0;
+        }
+
+        let selected_instances: Vec<(crate::selection::SelectionTarget, Id)> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(target, _)| self.target_editable(target))
+            .filter_map(|(target, el)| match el.kind {
+                ElementKind::Instance { symbol_id, .. } => Some((target, symbol_id)),
+                _ => None,
+            })
+            .collect();
+
+        let range_opt = self.frame_range();
+        let multi_key_range = range_opt.as_ref().is_some_and(|r| {
+            let timeline = &self.symbol().timeline;
+            r.end > r.start
+                && r.layers.iter().any(|lid| {
+                    timeline
+                        .layers
+                        .iter()
+                        .find(|l| &l.id == lid)
+                        .is_some_and(|l| {
+                            l.keyframes
+                                .iter()
+                                .filter(|k| k.frame >= r.start && k.frame <= r.end)
+                                .count()
+                                >= 2
+                        })
+                })
+        });
+        let across_range = across_selected_frame_range || multi_key_range;
+
+        if selected_instances.is_empty() && range_opt.is_none() {
+            return 0;
+        }
+
+        let new_id_owned = new_symbol_id.to_owned();
+        let current_frame = self.frame;
+        let mut swapped = 0usize;
+        self.playing = false;
+        self.transact_named("Swap multiple symbols", |editor| {
+            let selected_elem_ids: std::collections::HashSet<Id> = selected_instances
+                .iter()
+                .map(|(t, _)| t.element.clone())
+                .collect();
+            let selected_old_symbols: std::collections::HashSet<Id> = selected_instances
+                .iter()
+                .map(|(_, sym_id)| sym_id.clone())
+                .collect();
+
+            if !across_range {
+                let mut touched_layers: Vec<Id> = selected_instances
+                    .iter()
+                    .map(|(t, _)| t.layer.clone())
+                    .collect();
+                touched_layers.sort();
+                touched_layers.dedup();
+                for lid in &touched_layers {
+                    editor.ensure_key_for(lid, false);
+                }
+                for (target, _) in &selected_instances {
+                    if let Some(layer) = editor
+                        .symbol_mut()
+                        .timeline
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id == target.layer)
+                        && let Some(key) = layer.key_at_mut(current_frame)
+                        && let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element)
+                        && let ElementKind::Instance { symbol_id, .. } = &mut el.kind
+                    {
+                        *symbol_id = new_id_owned.clone();
+                        swapped += 1;
+                    }
+                }
+            } else {
+                let (target_layers, start_f, end_f): (Vec<Id>, u32, u32) =
+                    if let Some(ref r) = range_opt {
+                        (r.layers.clone(), r.start, r.end)
+                    } else {
+                        let mut lids: Vec<Id> = selected_instances
+                            .iter()
+                            .map(|(t, _)| t.layer.clone())
+                            .collect();
+                        lids.sort();
+                        lids.dedup();
+                        let max_f = editor.symbol().timeline.frame_count.saturating_sub(1);
+                        (lids, 0, max_f)
+                    };
+                let timeline = &mut editor.symbol_mut().timeline;
+                for lid in &target_layers {
+                    let Some(layer) = timeline.layers.iter_mut().find(|l| &l.id == lid) else {
+                        continue;
+                    };
+                    if layer.properties.role == LayerRole::Folder || layer.locked || !layer.visible
+                    {
+                        continue;
+                    }
+                    for key in &mut layer.keyframes {
+                        if key.frame < start_f || key.frame > end_f {
+                            continue;
+                        }
+                        for el in &mut key.elements {
+                            let matches_target = selected_instances.is_empty()
+                                || selected_elem_ids.contains(&el.id)
+                                || matches!(
+                                    &el.kind,
+                                    ElementKind::Instance { symbol_id, .. }
+                                        if selected_old_symbols.contains(symbol_id)
+                                );
+                            if matches_target
+                                && let ElementKind::Instance { symbol_id, .. } = &mut el.kind
+                            {
+                                *symbol_id = new_id_owned.clone();
+                                swapped += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        swapped
+    }
+
+    pub(crate) fn can_copy_active_keyframe_ease(&self) -> bool {
+        if let Some(span) = self.tween_span()
+            && let Some(layer) = self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.id == span.layer_id)
+            && layer
+                .keyframes
+                .iter()
+                .find(|k| k.frame == span.start)
+                .and_then(|k| k.tween)
+                .is_some()
+        {
+            return true;
+        }
+        self.symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .and_then(|l| l.key_at(self.frame))
+            .and_then(|k| k.tween)
+            .is_some()
+    }
+
+    pub(crate) fn has_copied_keyframe_ease(&self) -> bool {
+        COPIED_KEYFRAME_EASE
+            .lock()
+            .ok()
+            .is_some_and(|guard| guard.is_some())
+    }
+
+    /// Justin Putney `Copy Ease`: copies the `Easing` curve from the active keyframe or tween span.
+    pub fn copy_active_keyframe_ease(&mut self) -> bool {
+        let ease = self
+            .tween_span()
+            .and_then(|span| {
+                self.symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|l| l.id == span.layer_id)?
+                    .keyframes
+                    .iter()
+                    .find(|k| k.frame == span.start)?
+                    .tween
+            })
+            .or_else(|| {
+                self.symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)?
+                    .key_at(self.frame)?
+                    .tween
+            });
+        let Some(ease) = ease else {
+            return false;
+        };
+        if let Ok(mut slot) = COPIED_KEYFRAME_EASE.lock() {
+            *slot = Some(ease);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Justin Putney `Apply Ease to Selected Layers / Range`: applies the copied `Easing` across
+    /// all selected layers and frame ranges in one Undo step.
+    pub fn apply_copied_ease_to_selection(&mut self) -> usize {
+        self.finish_edits();
+        let Some(ease) = COPIED_KEYFRAME_EASE.lock().ok().and_then(|g| *g) else {
+            return 0;
+        };
+        let mut targets = self.target_tween_spans();
+        let selected_rows = self.target_layer_indices(self.layer);
+        let timeline = &self.symbol().timeline;
+        for row_idx in selected_rows {
+            if targets.iter().any(|(idx, _)| *idx == row_idx) {
+                continue;
+            }
+            let Some(layer) = timeline.layers.get(row_idx) else {
+                continue;
+            };
+            if layer.properties.role == LayerRole::Folder
+                || neoflash_core::layer_effectively_locked(timeline, layer)
+                || !neoflash_core::layer_effectively_visible(timeline, layer)
+            {
+                continue;
+            }
+            let start = if let Some((s, ..)) = motion_span(layer, self.frame) {
+                Some(s.frame)
+            } else {
+                layer.key_at(self.frame).map(|k| k.frame)
+            };
+            if let Some(st) = start {
+                targets.push((row_idx, vec![st]));
+            }
+        }
+        if targets.is_empty() {
+            return 0;
+        }
+        let mut applied = 0usize;
+        self.transact_named("Apply ease to selection", |editor| {
+            let layers = &mut editor.symbol_mut().timeline.layers;
+            for (layer_idx, starts) in &targets {
+                let Some(layer) = layers.get_mut(*layer_idx) else {
+                    continue;
+                };
+                for &start_frame in starts {
+                    if let Some(key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == start_frame && k.keyed_properties.is_none())
+                    {
+                        key.tween = Some(ease);
+                        if key.tween_kind == TweenKind::Motion {
+                            for (_, prop_ease) in &mut key.property_eases {
+                                *prop_ease = ease;
+                            }
+                            for track in &mut key.motion_tracks {
+                                track.easing = Some(ease);
+                            }
+                        }
+                        applied += 1;
+                    }
+                }
+            }
+            editor.project.upgrade_format_for_features();
+        });
+        applied
+    }
+
+    /// Justin Putney `Pixel Snap (Round Position to Whole Pixels)`: rounds `transform.x` and
+    /// `transform.y` (and vertex coordinates for raw `ElementKind::Path` / `PaintedPath` with zero
+    /// translation) to whole pixels on all selected Stage elements (or all editable elements on
+    /// the current frame if nothing is selected) in one Undo step.
+    pub fn pixel_snap_selection(&mut self) -> usize {
+        self.finish_edits();
+        let targets: Vec<crate::selection::SelectionTarget> = {
+            let sampled: Vec<_> = self
+                .sampled_targets()
+                .into_iter()
+                .filter(|(t, _)| self.target_editable(t))
+                .map(|(t, _)| t)
+                .collect();
+            if !sampled.is_empty() {
+                sampled
+            } else {
+                self.editable_targets()
+            }
+        };
+        if targets.is_empty() {
+            return 0;
+        }
+        let frame = self.frame;
+        let mut count = 0usize;
+        self.playing = false;
+        self.transact_named("Pixel snap", |editor| {
+            let mut layer_ids: Vec<Id> = targets.iter().map(|t| t.layer.clone()).collect();
+            layer_ids.sort();
+            layer_ids.dedup();
+            for lid in &layer_ids {
+                editor.ensure_key_for(lid, false);
+            }
+            for target in &targets {
+                let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == target.layer)
+                else {
+                    continue;
+                };
+                let Some(key) = layer.key_at_mut(frame) else {
+                    continue;
+                };
+                let Some(el) = key.elements.iter_mut().find(|e| e.id == target.element) else {
+                    continue;
+                };
+                let zero_translation = el.transform.x == 0.0 && el.transform.y == 0.0;
+                el.transform.x = el.transform.x.round();
+                el.transform.y = el.transform.y.round();
+                if zero_translation {
+                    match &mut el.kind {
+                        ElementKind::Path { commands, .. }
+                        | ElementKind::PaintedPath { commands, .. } => {
+                            for cmd in commands {
+                                match cmd {
+                                    PathCommand::MoveTo { x, y } | PathCommand::LineTo { x, y } => {
+                                        *x = x.round();
+                                        *y = y.round();
+                                    }
+                                    PathCommand::QuadraticTo { cx, cy, x, y } => {
+                                        *cx = cx.round();
+                                        *cy = cy.round();
+                                        *x = x.round();
+                                        *y = y.round();
+                                    }
+                                    PathCommand::CubicTo {
+                                        cx1,
+                                        cy1,
+                                        cx2,
+                                        cy2,
+                                        x,
+                                        y,
+                                    } => {
+                                        *cx1 = cx1.round();
+                                        *cy1 = cy1.round();
+                                        *cx2 = cx2.round();
+                                        *cy2 = cy2.round();
+                                        *x = x.round();
+                                        *y = y.round();
+                                    }
+                                    PathCommand::Close => {}
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                count += 1;
+            }
+        });
+        count
+    }
+
+    pub(crate) fn can_reverse_selected_elements_order(&self) -> bool {
+        if self.selection.symbol != self.symbol_id() {
+            return false;
+        }
+        let mut counts_by_layer: std::collections::HashMap<Id, usize> =
+            std::collections::HashMap::new();
+        for (target, _) in self.sampled_targets() {
+            if self.target_editable(&target) {
+                *counts_by_layer.entry(target.layer).or_insert(0) += 1;
+            }
+        }
+        counts_by_layer.values().any(|&c| c >= 2)
+    }
+
+    /// Justin Putney `Swap Depth / Reverse Order`: reverses the relative Z-order stacking indices
+    /// of the currently selected elements within their keyframe's `elements` vector in one Undo step.
+    pub fn reverse_selected_elements_order(&mut self) -> bool {
+        self.finish_edits();
+        if !self.can_reverse_selected_elements_order() {
+            return false;
+        }
+        let selected: std::collections::HashSet<crate::selection::SelectionTarget> = self
+            .sampled_targets()
+            .into_iter()
+            .filter(|(t, _)| self.target_editable(t))
+            .map(|(t, _)| t)
+            .collect();
+        let frame = self.frame;
+        let mut changed = false;
+        self.playing = false;
+        self.transact_named("Reverse stacking order", |editor| {
+            let mut layer_ids: Vec<Id> = selected.iter().map(|t| t.layer.clone()).collect();
+            layer_ids.sort();
+            layer_ids.dedup();
+            for lid in layer_ids {
+                let count_on_layer = selected.iter().filter(|t| t.layer == lid).count();
+                if count_on_layer < 2 {
+                    continue;
+                }
+                editor.ensure_key_for(&lid, false);
+                let Some(layer) = editor
+                    .symbol_mut()
+                    .timeline
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == lid)
+                else {
+                    continue;
+                };
+                let Some(key) = layer.key_at_mut(frame) else {
+                    continue;
+                };
+                let positions: Vec<usize> = key
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, el)| {
+                        selected.contains(&crate::selection::SelectionTarget {
+                            layer: lid.clone(),
+                            element: el.id.clone(),
+                        })
+                    })
+                    .map(|(idx, _)| idx)
+                    .collect();
+                if positions.len() < 2 {
+                    continue;
+                }
+                let mut picked: Vec<Element> = positions
+                    .iter()
+                    .map(|&idx| key.elements[idx].clone())
+                    .collect();
+                picked.reverse();
+                for (pos, el) in positions.into_iter().zip(picked) {
+                    key.elements[pos] = el;
+                }
+                changed = true;
+            }
+        });
+        changed
+    }
+
+    /// Removes normal unlocked layers that have no elements, no frame scripts, no labels, no
+    /// comments, and no sounds/videos, keeping at least 1 normal layer, in one Undo step.
+    pub fn delete_empty_layers(&mut self) -> usize {
+        self.finish_edits();
+        let timeline = &self.symbol().timeline;
+        let referenced_ids: std::collections::HashSet<Id> = timeline
+            .layers
+            .iter()
+            .flat_map(|l| {
+                [
+                    l.properties.parent.clone(),
+                    l.properties.mask.clone(),
+                    l.properties.motion_guide.clone(),
+                ]
+                .into_iter()
+                .flatten()
+            })
+            .collect();
+        let script_bearing_layers: std::collections::HashSet<usize> = (0..timeline.frame_count)
+            .filter_map(|f| timeline.action_layer_for_frame(f))
+            .collect();
+
+        let normal_indices: Vec<usize> = timeline
+            .layers
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.properties.role == LayerRole::Normal)
+            .map(|(i, _)| i)
+            .collect();
+        if normal_indices.len() <= 1 {
+            return 0;
+        }
+
+        let mut candidate_empty: Vec<usize> = timeline
+            .layers
+            .iter()
+            .enumerate()
+            .filter(|(idx, l)| {
+                l.properties.role == LayerRole::Normal
+                    && !l.locked
+                    && !neoflash_core::layer_effectively_locked(timeline, l)
+                    && !referenced_ids.contains(&l.id)
+                    && !script_bearing_layers.contains(idx)
+                    && !(l.name.eq_ignore_ascii_case("actions") && !timeline.scripts.is_empty())
+                    && l.keyframes.iter().all(|k| {
+                        k.elements.is_empty()
+                            && k.label.trim().is_empty()
+                            && k.sound.is_none()
+                            && k.camera.is_none()
+                            && k.ik_armatures.is_empty()
+                    })
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+
+        if candidate_empty.len() >= normal_indices.len() {
+            // Keep at least 1 normal layer.
+            candidate_empty.remove(0);
+        }
+        if candidate_empty.is_empty() {
+            return 0;
+        }
+
+        let remove_ids: std::collections::HashSet<Id> = candidate_empty
+            .iter()
+            .map(|&idx| timeline.layers[idx].id.clone())
+            .collect();
+        let removed_count = remove_ids.len();
+        self.transact_named("Delete empty layers", move |editor| {
+            editor
+                .symbol_mut()
+                .timeline
+                .layers
+                .retain(|l| !remove_ids.contains(&l.id));
+            let len = editor.symbol().timeline.layers.len();
+            if editor.layer >= len {
+                editor.layer = len.saturating_sub(1);
+            }
+            editor.normalize_targets();
+        });
+        removed_count
+    }
+
+    /// Renames generic `Layer N` layers after the first symbol instance or named element on that
+    /// layer in one Undo step.
+    pub fn rename_layers_from_content(&mut self) -> usize {
+        self.finish_edits();
+        fn is_generic_layer_name(name: &str) -> bool {
+            let trimmed = name.trim();
+            trimmed
+                .strip_prefix("Layer ")
+                .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+        }
+
+        let mut renames: Vec<(usize, String)> = Vec::new();
+        for (idx, layer) in self.symbol().timeline.layers.iter().enumerate() {
+            if !is_generic_layer_name(&layer.name) {
+                continue;
+            }
+            let derived = layer
+                .keyframes
+                .iter()
+                .flat_map(|k| &k.elements)
+                .find_map(|el| match &el.kind {
+                    ElementKind::Instance { symbol_id, .. } => self
+                        .project
+                        .symbol(symbol_id)
+                        .map(|s| s.name.trim().to_owned())
+                        .filter(|n| !n.is_empty())
+                        .or_else(|| {
+                            let n = el.name.trim();
+                            (!n.is_empty()).then(|| n.to_owned())
+                        }),
+                    _ => None,
+                })
+                .or_else(|| {
+                    layer
+                        .keyframes
+                        .iter()
+                        .flat_map(|k| &k.elements)
+                        .find_map(|el| {
+                            let n = el.name.trim();
+                            (!n.is_empty()).then(|| n.to_owned())
+                        })
+                });
+            if let Some(new_name) = derived
+                && new_name != layer.name
+            {
+                renames.push((idx, new_name));
+            }
+        }
+        if renames.is_empty() {
+            return 0;
+        }
+        let count = renames.len();
+        self.transact_named("Rename layers from symbol", move |editor| {
+            let layers = &mut editor.symbol_mut().timeline.layers;
+            for (idx, new_name) in renames {
+                if let Some(layer) = layers.get_mut(idx) {
+                    layer.name = new_name;
+                }
+            }
+        });
+        count
+    }
+
+    /// Creates or reuses a top locked `"actions"` layer and places a `stop();` `FrameScript` on
+    /// the last frame (`frame_count - 1`) of the active timeline in one Undo step.
+    pub fn add_actions_and_stop_layer(&mut self) -> bool {
+        self.finish_edits();
+        if self.symbol().kind == SymbolKind::Button {
+            return false;
+        }
+        self.transact_named("Add actions & stop() layer", |editor| {
+            let timeline = &mut editor.symbol_mut().timeline;
+            let last_frame = timeline.frame_count.max(1) - 1;
+            let existing_idx = timeline
+                .layers
+                .iter()
+                .position(|l| l.name.eq_ignore_ascii_case("actions"));
+            let actions_idx = if let Some(idx) = existing_idx {
+                let mut layer = timeline.layers.remove(idx);
+                layer.locked = true;
+                layer.visible = true;
+                layer.properties.role = LayerRole::Normal;
+                if layer.keyframes.is_empty() {
+                    layer.keyframes.push(Keyframe {
+                        frame: 0,
+                        ..Default::default()
+                    });
+                }
+                if last_frame > 0 && !layer.keyframes.iter().any(|k| k.frame == last_frame) {
+                    layer.keyframes.push(Keyframe {
+                        frame: last_frame,
+                        ..Default::default()
+                    });
+                    layer.keyframes.sort_by_key(|k| k.frame);
+                }
+                timeline.layers.push(layer);
+                timeline.layers.len() - 1
+            } else {
+                let mut keyframes = vec![Keyframe {
+                    frame: 0,
+                    ..Default::default()
+                }];
+                if last_frame > 0 {
+                    keyframes.push(Keyframe {
+                        frame: last_frame,
+                        ..Default::default()
+                    });
+                }
+                timeline.layers.push(Layer {
+                    id: new_id("layer"),
+                    name: "actions".to_owned(),
+                    visible: true,
+                    locked: true,
+                    keyframes,
+                    properties: LayerProperties {
+                        role: LayerRole::Normal,
+                        ..Default::default()
+                    },
+                });
+                timeline.layers.len() - 1
+            };
+            let _ = actions_idx;
+            if let Some(existing_script) =
+                timeline.scripts.iter_mut().find(|s| s.frame == last_frame)
+            {
+                if existing_script.script.source.trim().is_empty() {
+                    existing_script.script.source = "stop();".to_owned();
+                } else if !existing_script.script.source.contains("stop()") {
+                    existing_script.script.source.push_str("\nstop();");
+                }
+            } else {
+                timeline.scripts.push(FrameScript {
+                    frame: last_frame,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript3,
+                        source: "stop();".to_owned(),
+                    },
+                });
+                timeline.scripts.sort_by_key(|s| s.frame);
+            }
+        });
+        true
+    }
 }
+
+static COPIED_KEYFRAME_EASE: std::sync::LazyLock<std::sync::Mutex<Option<Easing>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));

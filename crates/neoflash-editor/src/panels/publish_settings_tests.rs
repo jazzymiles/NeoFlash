@@ -577,3 +577,299 @@ fn publish_settings_and_preferences_video_target_switch_and_mp4_publish() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[test]
+fn default_target_and_empty_target_guard_route_to_publish_settings_instead_of_noop() {
+    use crate::workspace::{PublishPrefs, PublishTarget, WorkspacePrefs};
+
+    let def = PublishPrefs::default();
+    assert_eq!(def.default_target, PublishTarget::Html5);
+    assert!(def.html5_enabled);
+    assert!(def.has_any_enabled_target());
+
+    // Deserializing a legacy prefs JSON with all target flags false auto-enables default_target.
+    let mut legacy: WorkspacePrefs = serde_json::from_str(
+        r#"{"publish":{"default_target":"html5","html5_enabled":false,"desktop_app_enabled":false,"video_enabled":false,"image_sequence_enabled":false,"svg_enabled":false}}"#,
+    )
+    .expect("parse legacy prefs");
+    assert!(!legacy.publish.has_any_enabled_target());
+    legacy.sanitize_preference_groups();
+    assert!(
+        legacy.publish.html5_enabled,
+        "sanitize_preference_groups restores default HTML5 target when none was enabled"
+    );
+
+    // If all targets are manually unchecked in memory, clicking Publish opens Publish settings
+    // instead of opening a folder picker that does nothing.
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.workspace.publish.html5_enabled = false;
+    d.editor.workspace.publish.desktop_app_enabled = false;
+    d.editor.workspace.publish.video_enabled = false;
+    d.editor.workspace.publish.image_sequence_enabled = false;
+    d.editor.workspace.publish.svg_enabled = false;
+    assert!(d.editor.publish_settings.is_none());
+
+    d.editor.export(false);
+    assert!(
+        d.editor.publish_settings.is_some(),
+        "Publish with no enabled targets must open Publish settings modal"
+    );
+    assert!(
+        d.editor.status.contains("Publish settings"),
+        "informative status set: {}",
+        d.editor.status
+    );
+}
+
+#[test]
+fn publish_button_in_publish_settings_persists_all_edited_settings_without_resetting() {
+    use crate::workspace::PublishTarget;
+    use neoflash_export::{HtmlScaleMode, HtmlTemplate, SizeLevel};
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("neoflash-publish-persist-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let publish_dir = temp_dir.join("published-clean-compact");
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.workspace.publish.warnings_as_errors = false;
+    d.open();
+
+    {
+        let draft = d
+            .editor
+            .publish_settings
+            .as_mut()
+            .expect("publish settings open");
+        // Simulate unchecking html5_enabled while HTML5 tab is selected, and customizing options:
+        draft.settings.html5_enabled = false;
+        draft.selected_target = PublishTarget::Html5;
+        draft.settings.output_folder = Some(publish_dir.to_string_lossy().into_owned());
+        draft.settings.options.size = SizeLevel::Compact;
+        draft.settings.template = HtmlTemplate::Centered;
+        draft.settings.scale_mode = HtmlScaleMode::ExactFit;
+        draft.settings.loop_timeline = false;
+        draft.settings.autoplay = false;
+        draft.settings.preloader = false;
+        draft.settings.source_maps = true;
+        draft.settings.sprite_sheets = true;
+        draft.settings.include_trace = false;
+        draft.settings.minify = false;
+        draft.settings.jpeg_quality = 65;
+        draft.settings.strict = true;
+    }
+    d.settle();
+    d.click("Publish");
+
+    assert!(
+        d.editor.publish_settings.is_none(),
+        "clicking Publish closes the modal after publishing"
+    );
+    if Editor::runtime_dir().join("neoflash_web_bg.wasm").is_file() {
+        assert!(
+            publish_dir.join("index.html").is_file(),
+            "HTML5 package published to configured folder"
+        );
+        let html = std::fs::read_to_string(publish_dir.join("index.html")).unwrap();
+        assert!(
+            html.contains("<body data-clean=\"true\">"),
+            "Publish produces clean stage output without technical preview bar"
+        );
+        let bindings = std::fs::read_to_string(publish_dir.join("neoflash_web.js")).unwrap();
+        assert!(
+            bindings.contains("globalThis.NeoFlashWasmBase64 ="),
+            "Compact publish includes direct file:// WASM fallback"
+        );
+        assert!(publish_dir.join("bundle.js.map").is_file());
+    }
+
+    // Verify settings did NOT reset after clicking Publish!
+    let saved = &d.editor.workspace.publish;
+    assert!(
+        saved.html5_enabled,
+        "clicking Publish auto-enabled the active target and persisted it"
+    );
+    assert_eq!(saved.options.size, SizeLevel::Compact);
+    assert_eq!(saved.template, HtmlTemplate::Centered);
+    assert_eq!(saved.scale_mode, HtmlScaleMode::ExactFit);
+    assert!(!saved.loop_timeline);
+    assert!(!saved.autoplay);
+    assert!(!saved.preloader);
+    assert!(saved.source_maps);
+    assert!(saved.sprite_sheets);
+    assert!(!saved.include_trace);
+    assert!(!saved.minify);
+    assert_eq!(saved.jpeg_quality, 65);
+    assert!(saved.strict);
+
+    // Reopen Publish settings and verify the draft initializes with the persisted settings
+    d.open();
+    let reopened = d.editor.publish_settings.as_ref().unwrap();
+    assert!(reopened.settings.html5_enabled);
+    assert_eq!(reopened.settings.options.size, SizeLevel::Compact);
+    assert_eq!(reopened.settings.jpeg_quality, 65);
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn publish_profiles_and_all_five_targets_desktop_image_sequence_svg_and_html5() {
+    use crate::workspace::{PublishProfilePreset, PublishTarget};
+    use neoflash_export::SizeLevel;
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("neoflash-publish-targets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let rt_dir = temp_dir.join("runtime");
+    std::fs::create_dir_all(&rt_dir).unwrap();
+    std::fs::write(rt_dir.join("neoflash_web.js"), "var NeoFlashWasm;").unwrap();
+    std::fs::write(rt_dir.join("neoflash_web_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.workspace.publish.warnings_as_errors = false;
+
+    // Verify all profile presets apply their expected configurations
+    for preset in PublishProfilePreset::ALL {
+        assert!(!preset.label().is_empty());
+        assert!(preset.select_label().starts_with("Profile: "));
+        d.editor.workspace.publish.apply_profile(preset);
+        assert!(d.editor.workspace.publish.has_any_enabled_target());
+    }
+    d.editor
+        .workspace
+        .publish
+        .apply_profile(PublishProfilePreset::WebCompact);
+    assert_eq!(d.editor.workspace.publish.options.size, SizeLevel::Compact);
+    d.editor
+        .workspace
+        .publish
+        .apply_profile(PublishProfilePreset::DebugPreview);
+    assert!(!d.editor.workspace.publish.publish_clean);
+    assert!(d.editor.workspace.publish.source_maps);
+    d.editor
+        .workspace
+        .publish
+        .apply_profile(PublishProfilePreset::Default);
+    assert!(d.editor.workspace.publish.publish_clean);
+
+    // Verify Desktop app, Image sequence, Sprite sheet, and SVG animation targets publish cleanly
+    let desktop_dir = temp_dir.join("desktop-out");
+    let seq_dir = temp_dir.join("seq-out");
+    let sheet_file = temp_dir.join("sheet-out/sprites.json");
+    let svg_file = temp_dir.join("svg-out/scene.svg");
+
+    let mut settings = d.editor.workspace.publish.clone();
+    settings.desktop_app_folder = Some(desktop_dir.to_string_lossy().into_owned());
+    assert!(
+        d.editor
+            .publish_desktop_app_with_settings(None, &rt_dir, &settings)
+    );
+    assert!(
+        desktop_dir
+            .join(format!("{}.app/Contents/Info.plist", d.editor.project.name))
+            .is_file()
+    );
+
+    settings.image_sequence_sprite_sheet = false;
+    settings.image_sequence_folder = Some(seq_dir.to_string_lossy().into_owned());
+    assert!(
+        d.editor
+            .publish_image_sequence_with_settings(None, &settings)
+    );
+
+    settings.image_sequence_sprite_sheet = true;
+    settings.image_sequence_folder = Some(sheet_file.to_string_lossy().into_owned());
+    assert!(
+        d.editor
+            .publish_image_sequence_with_settings(None, &settings)
+    );
+    assert!(sheet_file.is_file());
+
+    settings.svg_file = Some(svg_file.to_string_lossy().into_owned());
+    assert!(d.editor.publish_svg_with_settings(None, &settings));
+    assert!(svg_file.is_file());
+
+    // Verify switching between all 5 target tabs in Publish settings UI
+    d.open();
+    for target in [
+        PublishTarget::Html5,
+        PublishTarget::DesktopApp,
+        PublishTarget::VideoMp4,
+        PublishTarget::ImageSequence,
+        PublishTarget::SvgAnimation,
+    ] {
+        d.editor.publish_settings.as_mut().unwrap().selected_target = target;
+        d.settle();
+    }
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn preferences_publish_preview_vs_clean_hud_checkboxes_and_test_movie_distinction() {
+    use crate::panels::preferences::PAGE_PUBLISH;
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    d.editor.open_preferences(PAGE_PUBLISH);
+    let mut out = egui::FullOutput::default();
+    for _ in 0..2 {
+        out = d.ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1920., 1080.))),
+                ..Default::default()
+            },
+            |ctx| {
+                d.editor.preferences_dialog(ctx);
+            },
+        );
+    }
+    let texts = painted_text(&out);
+    for expected in [
+        "Preview & publish",
+        "Preview mode",
+        "Technical bar",
+        "Clean stage",
+        "Clean publish output",
+        "FPS & frames",
+        "Stage size (W×H)",
+        "Playback controls",
+        "Weight & size report",
+        "Trace & diagnostics",
+        "Images",
+        "JPEG 80",
+        "Acceleration",
+        "Strict mode",
+    ] {
+        assert!(
+            texts.iter().any(|t| t == expected),
+            "Preferences ▸ Publish missing '{expected}' in {texts:?}"
+        );
+    }
+
+    {
+        let pref = d.editor.preferences.as_mut().expect("prefs open");
+        pref.publish.preview_chrome.clean = false;
+        pref.publish.preview_chrome.show_fps = false;
+        pref.publish.preview_chrome.show_dimensions = true;
+        pref.publish.preview_chrome.show_controls = false;
+        pref.publish.preview_chrome.show_load_summary = false;
+        pref.publish.preview_chrome.show_trace = true;
+        pref.publish.publish_clean = true;
+    }
+    let draft_copy = d.editor.preferences.clone().unwrap();
+    d.editor.save_preferences(&d.ctx, &draft_copy);
+    d.editor.preferences = None;
+
+    let preview_cfg = d.editor.workspace.publish.preview_html_config();
+    let publish_cfg = d.editor.workspace.publish.publish_html_config();
+    assert!(
+        !preview_cfg.chrome.effective_clean(),
+        "Test Movie / Preview uses technical bar according to Preferences ▸ Publish"
+    );
+    assert!(!preview_cfg.chrome.show_fps);
+    assert!(preview_cfg.chrome.show_dimensions);
+    assert!(!preview_cfg.chrome.show_controls);
+    assert!(!preview_cfg.chrome.show_load_summary);
+    assert!(preview_cfg.chrome.show_trace);
+    assert!(
+        publish_cfg.chrome.effective_clean(),
+        "Publish uses clean stage output without technical HUD"
+    );
+}

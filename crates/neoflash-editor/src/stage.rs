@@ -1,5 +1,13 @@
 #[path = "stage_alpha_masks.rs"]
 mod alpha_masks;
+#[path = "../../neoflash-core/src/deco_spray.rs"]
+pub(crate) mod deco_spray;
+#[path = "../../neoflash-core/src/ik.rs"]
+pub(crate) mod ik;
+#[path = "panels/properties_movie_clip.rs"]
+pub(crate) mod properties_movie_clip;
+#[path = "panels/properties_tool.rs"]
+pub(crate) mod properties_tool;
 
 use crate::app::{Editor, Tool};
 use crate::stage_mapping::StageMapping;
@@ -1018,8 +1026,10 @@ impl Editor {
                         ui, &p, origin, mapping, &scene, &response,
                     ) || self.take_empty_stage_exit_release(ui, &response));
                 if !simple_button_consumed && !quick_stage_exit {
-                    let extended_tool =
-                        self.authoring_tool_stage(ui, &p, origin, mapping, rect, &scene);
+                    let sticky_consumed =
+                        self.stage_sticky_workflow_step(ui, &p, origin, mapping, rect, &scene);
+                    let extended_tool = sticky_consumed
+                        || self.authoring_tool_stage(ui, &p, origin, mapping, rect, &scene);
                     if self.tool == Tool::Lasso {
                         // Lasso owns its input, but its completed selection still needs the
                         // shared selection chrome. This path paints only for non-arrow tools.
@@ -1268,7 +1278,9 @@ impl Editor {
         });
     }
 
-    /// Stage object (right-click) menu, design §8. Right-clicking an unselected object selects it.
+    /// Stage object (right-click) menu, design §8. Right-clicking an unselected object selects it
+    /// under any sticky tool so context actions (`Actions…`, `Trace bitmap…`, `Bitmap properties…`)
+    /// target the clicked Stage placement directly.
     fn stage_context_menu(
         &mut self,
         response: &egui::Response,
@@ -1277,22 +1289,97 @@ impl Editor {
         mapping: StageMapping,
         origin: Pos2,
     ) {
-        if response.secondary_clicked()
-            && let Some(pos) = response.interact_pointer_pos()
-            && let Some(target) = self.pick_placement(
+        if (response.secondary_clicked()
+            || response
+                .ctx
+                .input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)))
+            && let Some(pos) = response
+                .interact_pointer_pos()
+                .or_else(|| response.ctx.input(|i| i.pointer.interact_pos()))
+        {
+            self.select_stage_context_target(
                 scene,
                 p,
                 mapping.screen_to_edit(origin, self.zoom, pos),
                 mapping,
-            )
-            && !self.selection.targets.contains(&target)
-        {
-            self.finish_edits();
-            self.set_selection(vec![target]);
+            );
         }
         response.context_menu(|ui| {
             crate::ui_icons::menu_contents(ui, 260., |ui| self.stage_object_commands(ui));
         });
+    }
+
+    /// Hit-test `stage_point` and update the Stage selection for right-click context menus under
+    /// any sticky tool (`T-190`, `T-177`).
+    ///
+    /// - Clicking an unselected placement selects that single placement.
+    /// - Clicking inside an existing selection preserves the selection deterministically.
+    pub(crate) fn select_stage_context_target(
+        &mut self,
+        scene: &[DrawItem],
+        p: &egui::Painter,
+        stage_point: Pos2,
+        mapping: StageMapping,
+    ) -> Option<Id> {
+        let target = self.pick_placement(scene, p, stage_point, mapping)?;
+        self.finish_edits();
+        if !self.selection.targets.contains(&target) {
+            self.set_selection(vec![target.clone()]);
+        }
+        Some(target.element)
+    }
+
+    /// Return the resource ID of the selected Stage bitmap when the selection is a single editable
+    /// placed `ElementKind::Bitmap` on an unlocked, visible `Normal` layer (`T-177`).
+    pub(crate) fn selected_stage_bitmap_resource_id(&self) -> Option<Id> {
+        if self.selection.targets.len() != 1 || self.can_ungroup_selection() {
+            return None;
+        }
+        let target = self.selection.targets.first()?;
+        if !self.target_editable(target) {
+            return None;
+        }
+        let timeline = &self.symbol().timeline;
+        for layer in &timeline.layers {
+            if layer.id != target.layer
+                || layer.properties.role != LayerRole::Normal
+                || layer_effectively_locked(timeline, layer)
+                || !layer_effectively_visible(timeline, layer)
+                || !self.is_layer_id_effectively_soloed(&layer.id)
+            {
+                continue;
+            }
+            for el in
+                sample_layer_in_at_fps(timeline, layer, self.frame, f64::from(self.project.fps))
+            {
+                if el.id == target.element {
+                    if let ElementKind::Bitmap { resource_id, .. } = &el.kind {
+                        return Some(resource_id.clone());
+                    }
+                    return None;
+                }
+            }
+        }
+        None
+    }
+
+    /// Open the Trace Bitmap dialog targeting the currently selected placed Stage bitmap (`T-177`).
+    pub(crate) fn open_trace_bitmap_dialog(&mut self, ctx: &egui::Context) {
+        if self.selected_stage_bitmap_resource_id().is_some() && self.can_trace_bitmap() {
+            self.open_trace_bitmap(ctx);
+        }
+    }
+
+    /// Open the Bitmap Properties dialog for a placed Stage bitmap's resource (`T-177`).
+    pub(crate) fn open_bitmap_properties_dialog(
+        &mut self,
+        ctx: &egui::Context,
+        resource_id: Option<Id>,
+    ) {
+        let res_id = resource_id.or_else(|| self.selected_stage_bitmap_resource_id());
+        if res_id.is_some() {
+            self.open_bitmap_properties(ctx, res_id);
+        }
     }
 
     fn stage_object_commands(&mut self, ui: &mut egui::Ui) {
@@ -1345,13 +1432,81 @@ impl Editor {
             self.enter_selected_symbol_in_place();
             ui.close();
         }
+        if self.can_enter_graphic_at_current_frame()
+            && menu_item_enabled(ui, true, "Edit in place at current frame", "").clicked()
+        {
+            self.enter_graphic_at_current_frame();
+            ui.close();
+        }
+        if self.has_selected_graphic_instance() {
+            if menu_item_enabled(ui, true, "Graphic: Loop", "").clicked() {
+                self.set_selected_graphic_playback(InstancePlayback::Loop, false);
+                ui.close();
+            }
+            if menu_item_enabled(ui, true, "Graphic: Play once", "").clicked() {
+                self.set_selected_graphic_playback(InstancePlayback::PlayOnce, false);
+                ui.close();
+            }
+            if menu_item_enabled(ui, true, "Graphic: Single frame (current)", "").clicked() {
+                self.set_selected_graphic_playback(InstancePlayback::SingleFrame(0), true);
+                ui.close();
+            }
+        }
         Self::unavailable_item(ui, "Edit in new window", "");
         if menu_item_enabled(ui, instance.is_some(), "Swap symbol…", "").clicked() {
             let _ = self.swap_selected_instance_with_library_or_next();
             ui.close();
         }
+        if instance.is_some()
+            && menu_item_enabled(ui, true, "Swap symbol across span", "").clicked()
+        {
+            if let Some(target_sym) = self.library_selected.clone().or_else(|| {
+                let current_sym = instance.as_deref()?;
+                self.project
+                    .symbols
+                    .iter()
+                    .find(|s| !self.project.is_scene(&s.id) && s.id != current_sym)
+                    .map(|s| s.id.clone())
+            }) {
+                let _ = self.swap_symbol_across_selection_or_range(&target_sym, true);
+            }
+            ui.close();
+        }
         if menu_item_enabled(ui, instance.is_some(), "Duplicate symbol…", "").clicked() {
             let _ = self.duplicate_selected_instance_symbol();
+            ui.close();
+        }
+        let actions_sc = {
+            let sc = self.sc(C::WindowActions);
+            if sc.is_empty() { "F9".to_owned() } else { sc }
+        };
+        if menu_item_enabled(
+            ui,
+            self.can_open_selected_object_actions(),
+            "Actions…",
+            &actions_sc,
+        )
+        .clicked()
+        {
+            let _ = self.open_selected_object_actions();
+            ui.close();
+        }
+        let selected_bitmap_res = self.selected_stage_bitmap_resource_id();
+        nf::menu_separator(ui);
+        if menu_item_enabled(
+            ui,
+            selected_bitmap_res.is_some() && self.can_trace_bitmap(),
+            "Trace bitmap…",
+            &self.sc(C::ModifyTraceBitmap),
+        )
+        .clicked()
+        {
+            self.open_trace_bitmap_dialog(&ctx);
+            ui.close();
+        }
+        if menu_item_enabled(ui, selected_bitmap_res.is_some(), "Bitmap properties…", "").clicked()
+        {
+            self.open_bitmap_properties_dialog(&ctx, selected_bitmap_res);
             ui.close();
         }
         nf::menu_separator(ui);
@@ -1377,10 +1532,60 @@ impl Editor {
             self.distribute_to_layers();
             ui.close();
         }
+        if menu_item_enabled(
+            ui,
+            self.can_distribute_to_keyframes(),
+            "Distribute to keyframes",
+            "",
+        )
+        .clicked()
+        {
+            self.distribute_selection_to_keyframes();
+            ui.close();
+        }
         nf::menu_separator(ui);
         self.arrange_menu(ui);
+        if self.can_reverse_selected_elements_order()
+            && menu_item_enabled(ui, true, "Reverse stacking order", "").clicked()
+        {
+            self.reverse_selected_elements_order();
+            ui.close();
+        }
         self.align_menu(ui);
         self.transform_menu(ui);
+        if menu_item_enabled(
+            ui,
+            !self.editable_targets().is_empty(),
+            "Pixel snap (round to whole pixels)",
+            "",
+        )
+        .clicked()
+        {
+            self.pixel_snap_selection();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            instance.is_some() || !self.editable_targets().is_empty(),
+            "Auto Instance Namer…",
+            "",
+        )
+        .clicked()
+        {
+            self.open_auto_instance_namer_modal(&ctx);
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            !self.editable_targets().is_empty(),
+            "Randomize Selection…",
+            "",
+        )
+        .clicked()
+        {
+            self.open_randomize_selection_modal(&ctx);
+            ui.close();
+        }
         nf::menu_separator(ui);
         if menu_item_enabled(
             ui,
@@ -1953,5 +2158,596 @@ mod symbol_context_tests {
                 .iter()
                 .all(|draw| { draw.clip_ids.iter().any(|id| id == "inverted-parent") })
         );
+    }
+}
+
+#[cfg(test)]
+mod stage_tools_and_context_menu_tests {
+    use super::deco_spray::{StageDecoEffect, StageDecoOptions, StageSprayOptions};
+    use super::ik::{Gizmo3dHandle, Stage3dAuthoringState};
+    use super::properties_tool::StageStickyToolMode;
+    use super::*;
+    use crate::app::ScriptTarget;
+    use crate::selection::SelectionTarget;
+
+    fn make_test_editor() -> Editor {
+        let ctx = egui::Context::default();
+        Editor::from_project(&ctx, Project::blank())
+    }
+
+    fn make_test_element(id: &str, name: &str, x: f64, y: f64, kind: ElementKind) -> Element {
+        let mut el = generate_deco_elements(
+            DecoEffectKind::FlowerBrush,
+            [0.0, 0.0],
+            100.0,
+            20.0,
+            [0, 0, 0, 255],
+            [0, 0, 0, 255],
+        )
+        .into_iter()
+        .next()
+        .expect("template element");
+        el.id = id.into();
+        el.name = name.into();
+        el.transform = Transform {
+            x,
+            y,
+            ..Transform::default()
+        };
+        el.merge = false;
+        el.kind = kind;
+        el
+    }
+
+    fn sel_target(editor: &Editor, element_id: &str) -> SelectionTarget {
+        let layer_id = editor.symbol().timeline.layers[0].id.clone();
+        SelectionTarget {
+            layer: layer_id,
+            element: element_id.into(),
+        }
+    }
+
+    fn add_symbol_with_rect(editor: &mut Editor, sym_id: &str, name: &str, kind: SymbolKind) -> Id {
+        let mut sym = editor.project.symbols[0].clone();
+        sym.id = sym_id.into();
+        sym.name = name.into();
+        sym.kind = kind;
+        sym.folder.clear();
+        sym.linkage_id = None;
+        sym.class_name = None;
+        sym.set_scale9_grid(None);
+        sym.timeline.frame_count = if kind == SymbolKind::Button { 4 } else { 1 };
+        sym.timeline.guides.clear();
+        sym.timeline.layers.truncate(1);
+        let layer = &mut sym.timeline.layers[0];
+        layer.id = format!("{sym_id}-layer");
+        layer.properties = LayerProperties::default();
+        layer.keyframes.truncate(1);
+        let kf = &mut layer.keyframes[0];
+        kf.frame = 0;
+        kf.elements = vec![make_test_element(
+            &format!("{sym_id}-rect"),
+            "",
+            0.0,
+            0.0,
+            ElementKind::Rectangle {
+                width: 40.0,
+                height: 30.0,
+                fill: [200, 80, 60, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+        )];
+        editor.project.symbols.push(sym);
+        sym_id.into()
+    }
+
+    fn place_instance_on_root(
+        editor: &mut Editor,
+        el_id: &str,
+        symbol_id: &str,
+        x: f64,
+        y: f64,
+        playback: InstancePlayback,
+    ) {
+        let root_id = editor.project.root.clone();
+        let sym = editor.project.symbol_mut(&root_id).unwrap();
+        sym.timeline.layers[0].keyframes[0]
+            .elements
+            .push(make_test_element(
+                el_id,
+                el_id,
+                x,
+                y,
+                ElementKind::Instance {
+                    symbol_id: symbol_id.into(),
+                    playback,
+                },
+            ));
+    }
+
+    #[test]
+    fn t190_stage_context_actions_eligibility_default_events_and_sticky_right_click() {
+        let mut editor = make_test_editor();
+        let mc_sym = add_symbol_with_rect(&mut editor, "mc-sym", "HeroMC", SymbolKind::MovieClip);
+        let btn_sym = add_symbol_with_rect(&mut editor, "btn-sym", "PlayBtn", SymbolKind::Button);
+        let gfx_sym = add_symbol_with_rect(&mut editor, "gfx-sym", "BadgeGfx", SymbolKind::Graphic);
+
+        let root_id = editor.project.root.clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .clear();
+        place_instance_on_root(
+            &mut editor,
+            "inst-mc",
+            &mc_sym,
+            20.0,
+            20.0,
+            InstancePlayback::Independent,
+        );
+        place_instance_on_root(
+            &mut editor,
+            "inst-btn",
+            &btn_sym,
+            100.0,
+            20.0,
+            InstancePlayback::SingleFrame(0),
+        );
+        place_instance_on_root(
+            &mut editor,
+            "inst-gfx",
+            &gfx_sym,
+            180.0,
+            20.0,
+            InstancePlayback::Loop,
+        );
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .push(make_test_element(
+                "raw-shape",
+                "",
+                260.0,
+                20.0,
+                ElementKind::Rectangle {
+                    width: 30.0,
+                    height: 30.0,
+                    fill: [50, 120, 220, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+            ));
+
+        // Right-clicking under a sticky tool (Brush / Deco) selects the clicked placement.
+        editor.tool = Tool::Brush;
+        editor.set_stage_sticky_tool_mode(StageStickyToolMode::Deco);
+        let ctx = egui::Context::default();
+        let mut picked_under_brush = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let p = ui.painter();
+                let scene = evaluate(&editor.project, &root_id, 0);
+                picked_under_brush = editor.select_stage_context_target(
+                    &scene,
+                    p,
+                    Pos2::new(110.0, 30.0),
+                    StageMapping::identity(),
+                );
+            });
+        });
+        assert_eq!(picked_under_brush.as_deref(), Some("inst-btn"));
+        assert_eq!(
+            editor.selection.targets,
+            vec![sel_target(&editor, "inst-btn")]
+        );
+        assert!(editor.can_open_selected_object_actions());
+
+        // Snapshot project & undo state before opening Actions on empty Button instance.
+        let project_before = editor.project.clone();
+        let undo_len_before = editor.history.undo_len();
+        editor.playing = true;
+        editor.script_event = ObjectEvent::EnterFrame;
+        assert!(editor.open_selected_object_actions());
+        assert!(!editor.playing, "opening Actions must stop playback");
+        assert!(matches!(editor.script_target, ScriptTarget::Object));
+        assert_eq!(
+            editor.script_event,
+            ObjectEvent::Click,
+            "empty Button instance must default to Click"
+        );
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_len_before,
+            "opening Actions on empty Button must not push Undo"
+        );
+        assert_eq!(
+            editor.project, project_before,
+            "opening Actions on empty Button must not create ObjectScript or keyframe"
+        );
+
+        // Selecting an empty MovieClip instance defaults to Load without mutating the project.
+        let t_mc = sel_target(&editor, "inst-mc");
+        editor.set_selection(vec![t_mc.clone()]);
+        assert!(editor.can_open_selected_object_actions());
+        assert!(editor.open_selected_object_actions());
+        assert!(matches!(editor.script_target, ScriptTarget::Object));
+        assert_eq!(
+            editor.script_event,
+            ObjectEvent::Load,
+            "empty MovieClip instance must default to Load"
+        );
+        assert_eq!(editor.history.undo_len(), undo_len_before);
+        assert_eq!(editor.project, project_before);
+
+        // When handlers exist on the instance, preserve matching event or pick first existing handler.
+        let obj_script: ObjectScript = serde_json::from_value(serde_json::json!({
+            "event": "enter_frame",
+            "script": {
+                "id": "script-ef",
+                "name": "onEnterFrame",
+                "language": "action_script2",
+                "source": "this._x += 1;"
+            }
+        }))
+        .expect("deserialize ObjectScript");
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .iter_mut()
+            .find(|e| e.id == "inst-mc")
+            .unwrap()
+            .scripts
+            .push(obj_script);
+        editor.script_event = ObjectEvent::Click;
+        assert!(editor.open_selected_object_actions());
+        assert_eq!(editor.script_event, ObjectEvent::EnterFrame);
+
+        // Disabled for Graphic instances, raw shapes, multi-selection, and locked layers.
+        let t_gfx = sel_target(&editor, "inst-gfx");
+        let t_raw = sel_target(&editor, "raw-shape");
+        let t_btn = sel_target(&editor, "inst-btn");
+        editor.set_selection(vec![t_gfx]);
+        assert!(!editor.can_open_selected_object_actions());
+        editor.set_selection(vec![t_raw.clone()]);
+        assert!(!editor.can_open_selected_object_actions());
+        editor.set_selection(vec![t_mc.clone(), t_btn.clone()]);
+        assert!(!editor.can_open_selected_object_actions());
+
+        editor.set_selection(vec![t_mc]);
+        editor.toggle_selected_layers_lock(0);
+        assert!(!editor.can_open_selected_object_actions());
+        editor.toggle_selected_layers_lock(0);
+
+        // F9 (`open_actions_for_current_context`) opens Object target when eligible instance is selected,
+        // and Frame target when a non-actionable element or nothing is selected.
+        editor.set_selection(vec![t_btn]);
+        editor.open_actions_for_current_context();
+        assert!(matches!(editor.script_target, ScriptTarget::Object));
+        assert_eq!(editor.script_event, ObjectEvent::Click);
+
+        editor.set_selection(vec![t_raw]);
+        editor.open_actions_for_current_context();
+        assert!(matches!(editor.script_target, ScriptTarget::Frame));
+    }
+
+    #[test]
+    fn t177_stage_and_library_trace_bitmap_context_workflow() {
+        let mut editor = make_test_editor();
+        // Minimal valid 4x4 PNG image (red/blue pixels).
+        let mut png_bytes = Vec::new();
+        {
+            let mut img = image::RgbaImage::new(4, 4);
+            for y in 0..4 {
+                for x in 0..4 {
+                    let px = if x < 2 {
+                        image::Rgba([220, 40, 40, 255])
+                    } else {
+                        image::Rgba([40, 90, 220, 255])
+                    };
+                    img.put_pixel(x, y, px);
+                }
+            }
+            let mut cursor = std::io::Cursor::new(&mut png_bytes);
+            image::DynamicImage::ImageRgba8(img)
+                .write_to(&mut cursor, image::ImageFormat::Png)
+                .expect("encode test png");
+        }
+        let res_unit =
+            ResourceUnit::from_bytes("res-bmp", "sprite.png", "image/png", &png_bytes).unwrap();
+        editor.project.resources.push(res_unit);
+        editor.project.format_version = editor.project.format_version.max(3);
+        editor.project.upgrade_format_for_features();
+
+        let root_id = editor.project.root.clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .clear();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .push(make_test_element(
+                "placed-bmp",
+                "",
+                10.0,
+                15.0,
+                ElementKind::Bitmap {
+                    resource_id: "res-bmp".into(),
+                    width: 4,
+                    height: 4,
+                    smoothing: false,
+                },
+            ));
+
+        // Right-clicking placed bitmap under Rectangle tool selects it and enables Stage bitmap commands.
+        editor.tool = Tool::Rectangle;
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let p = ui.painter();
+                let scene = evaluate(&editor.project, &root_id, 0);
+                let picked = editor.select_stage_context_target(
+                    &scene,
+                    p,
+                    Pos2::new(12.0, 17.0),
+                    StageMapping::identity(),
+                );
+                assert_eq!(picked.as_deref(), Some("placed-bmp"));
+            });
+        });
+        assert_eq!(
+            editor.selected_stage_bitmap_resource_id().as_deref(),
+            Some("res-bmp")
+        );
+        assert!(editor.can_trace_bitmap());
+        editor.open_trace_bitmap_dialog(&ctx);
+        assert!(editor.bitmap_trace.dialog.is_some());
+        editor.bitmap_trace.dialog = None;
+
+        editor.open_bitmap_properties_dialog(&ctx, None);
+
+        // Library-only trace creates a new editable vector symbol while preserving the source bitmap resource
+        // in one atomic Undo step.
+        editor.clear_selection();
+        let symbols_before = editor.project.symbols.len();
+        let undo_before = editor.history.undo_len();
+        let created_sym_id = editor
+            .trace_library_bitmap_resource("res-bmp")
+            .expect("library bitmap trace should succeed");
+        assert_eq!(editor.project.symbols.len(), symbols_before + 1);
+        assert_eq!(editor.history.undo_len(), undo_before + 1);
+        assert!(
+            editor.project.resources.iter().any(|u| u.id == "res-bmp"),
+            "source bitmap resource must remain untouched"
+        );
+        let traced_sym = editor
+            .project
+            .symbol(&created_sym_id)
+            .expect("new traced symbol in library");
+        assert_eq!(traced_sym.kind, SymbolKind::Graphic);
+        assert!(
+            traced_sym.timeline.layers[0].keyframes[0]
+                .elements
+                .iter()
+                .all(|el| matches!(el.kind, ElementKind::Path { .. }))
+        );
+        assert!(
+            !traced_sym.timeline.layers[0].keyframes[0]
+                .elements
+                .is_empty()
+        );
+        assert_eq!(
+            editor.library_selected.as_deref(),
+            Some(created_sym_id.as_str())
+        );
+
+        // Single Undo removes the traced symbol and restores the previous state cleanly.
+        editor.undo();
+        assert_eq!(editor.project.symbols.len(), symbols_before);
+        assert!(editor.project.resources.iter().any(|u| u.id == "res-bmp"));
+    }
+
+    #[test]
+    fn t180_stage_deco_and_spray_gestures_respect_transform_lock_and_single_undo() {
+        let mut editor = make_test_editor();
+        let leaf_sym = add_symbol_with_rect(&mut editor, "leaf-sym", "Leaf", SymbolKind::Graphic);
+        let root_id = editor.project.root.clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .clear();
+
+        // Configure animated Deco Vine Fill with step frames and custom branch angle.
+        editor.set_stage_deco_options(StageDecoOptions {
+            effect_index: StageDecoEffect::VineFill.index(),
+            branch_angle_deg: 40.0,
+            scale_pct: 115.0,
+            segment_px: 24.0,
+            step_frames: 2,
+            animate_pattern: true,
+            primary_color: [36, 160, 88, 255],
+            secondary_color: [220, 190, 60, 255],
+        });
+
+        let undo_before = editor.history.undo_len();
+        let created_deco = editor.apply_stage_deco_local_gesture(&[[40.0, 40.0], [120.0, 80.0]]);
+        assert!(!created_deco.is_empty());
+        assert_eq!(
+            editor
+                .selection
+                .targets
+                .iter()
+                .map(|t| t.element.clone())
+                .collect::<Vec<_>>(),
+            created_deco
+        );
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before + 1,
+            "one Deco gesture must commit as one Undo step"
+        );
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes.len() > 1,
+            "animated Deco gesture must step keyframes across the timeline"
+        );
+
+        editor.undo();
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .is_empty()
+        );
+
+        // Spray Brush gesture with Library symbol instances and deterministic seed.
+        editor.set_stage_spray_options(StageSprayOptions {
+            symbol_id: Some(leaf_sym),
+            use_dots: false,
+            fill: [50, 140, 240, 255],
+            scale_w_pct: 90.0,
+            scale_h_pct: 90.0,
+            random_scaling: true,
+            rotate_symbol: true,
+            random_rotation: true,
+            brush_width: 36.0,
+            brush_height: 20.0,
+            brush_angle_deg: 25.0,
+            seed: 42,
+        });
+        let undo_before_spray = editor.history.undo_len();
+        let sprayed =
+            editor.apply_stage_spray_local_gesture(&[[30.0, 30.0], [90.0, 50.0], [150.0, 70.0]]);
+        assert!(!sprayed.is_empty());
+        assert_eq!(
+            editor
+                .selection
+                .targets
+                .iter()
+                .map(|t| t.element.clone())
+                .collect::<Vec<_>>(),
+            sprayed
+        );
+        assert_eq!(
+            editor.history.undo_len(),
+            undo_before_spray + 1,
+            "one Spray Brush drag must commit as one Undo step"
+        );
+
+        // Locked layer refuses both Deco and Spray gestures.
+        editor.symbol_mut().timeline.layers[0].locked = true;
+        assert!(
+            editor
+                .apply_stage_deco_local_gesture(&[[10.0, 10.0]])
+                .is_empty()
+        );
+        assert!(
+            editor
+                .apply_stage_spray_local_gesture(&[[10.0, 10.0]])
+                .is_empty()
+        );
+        editor.symbol_mut().timeline.layers[0].locked = false;
+
+        editor.undo();
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn t186_stage_bone_bind_puppet_warp_and_3d_gizmo_authoring_workflows() {
+        let mut editor = make_test_editor();
+        let part_sym = add_symbol_with_rect(&mut editor, "limb-sym", "Limb", SymbolKind::MovieClip);
+        let root_id = editor.project.root.clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .clear();
+        place_instance_on_root(
+            &mut editor,
+            "upper-arm",
+            &part_sym,
+            20.0,
+            40.0,
+            InstancePlayback::Independent,
+        );
+        place_instance_on_root(
+            &mut editor,
+            "forearm",
+            &part_sym,
+            90.0,
+            40.0,
+            InstancePlayback::Independent,
+        );
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .push(make_test_element(
+                "cape-path",
+                "",
+                0.0,
+                0.0,
+                ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 20.0, y: 40.0 },
+                        PathCommand::LineTo { x: 90.0, y: 40.0 },
+                        PathCommand::LineTo { x: 150.0, y: 40.0 },
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [0, 0, 0, 0],
+                    stroke: [240, 120, 40, 255],
+                    stroke_width: 3.0,
+                },
+            ));
+
+        // 1. Bone & Bind authoring: connect bones, drag CCD effector, bind vertices, and bake to keyframes.
+        let leaf_bone = editor
+            .stage_connect_ik_bone("upper-arm", "forearm")
+            .expect("connect IK bone between upper-arm and forearm");
+        assert!(editor.stage_drag_ik_effector([120.0, 100.0], None));
+
+        assert!(editor.stage_bind_select_vertices("cape-path", vec![0, 1]));
+        assert!(
+            editor
+                .stage_bind_assign_vertices_to_bone("cape-path", &leaf_bone, &[0, 1], 1.0, false)
+                .is_some()
+        );
+
+        let baked = editor.stage_bake_ik_to_keyframes(0, 3);
+        assert_eq!(baked, 4);
+
+        // 2. Puppet / Asset Warp authoring: place pin, drag pin to deform mesh, reset, and delete pin.
+        let pin_id = editor
+            .stage_place_puppet_pin("cape-path", [90.0, 40.0], WarpPinKind::Open)
+            .expect("place puppet pin");
+        assert!(editor.stage_drag_puppet_pin("cape-path", &pin_id, [90.0, 85.0], 15.0));
+        let deformed_cmd = &editor.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .iter()
+            .find(|e| e.id == "cape-path")
+            .unwrap()
+            .kind;
+        if let ElementKind::Path { commands, .. } = deformed_cmd {
+            assert!(
+                matches!(commands[1], PathCommand::LineTo { y, .. } if y > 60.0),
+                "dragging puppet pin must deform the path vertex live"
+            );
+        } else {
+            panic!("expected deformed path");
+        }
+        assert!(editor.stage_reset_puppet_pins("cape-path"));
+        assert!(editor.stage_delete_puppet_pin("cape-path", &pin_id));
+
+        // 3. 3D Translation & 3D Rotation gizmo handles on selected MovieClip instance.
+        let t_upper = sel_target(&editor, "upper-arm");
+        editor.set_selection(vec![t_upper]);
+        let undo_before_3d = editor.history.undo_len();
+        assert!(editor.stage_drag_3d_gizmo("upper-arm", Gizmo3dHandle::TranslateZ, 18.0, -24.0,));
+        assert!(editor.stage_drag_3d_gizmo("upper-arm", Gizmo3dHandle::RotateY, 30.0, 0.0,));
+        assert!(
+            editor.stage_drag_3d_gizmo("upper-arm", Gizmo3dHandle::VanishingPoint, 12.0, -8.0,)
+        );
+        let state_3d: Stage3dAuthoringState = editor.element_3d_state("upper-arm");
+        assert!(state_3d.translate_3d[2].abs() > 1.0);
+        assert!(state_3d.rotate_3d[1].abs() > 1.0);
+        assert_eq!(editor.history.undo_len(), undo_before_3d + 3);
+        let (_, _, geom) = editor
+            .selected_3d_gizmo_screen_geometry(Pos2::ZERO, StageMapping::identity())
+            .expect("3D gizmo screen geometry");
+        assert!(geom.center.distance(geom.x_tip) > 10.0);
+        assert!(editor.project.validate().is_ok());
     }
 }

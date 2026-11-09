@@ -3076,6 +3076,9 @@ fn t118_timeline_video_sync_cue_points_and_codec_diagnostics() {
     let span = TimelineVideoSpan {
         resource: "vid-1".into(),
         sync: VideoSyncMode::Stream,
+        deployment: neoflash_core::VideoDeploymentMode::Embedded,
+        external_path: None,
+        stream_url: None,
         start_offset_ms: 100,
         loop_video: true,
         muted: false,
@@ -4490,4 +4493,768 @@ fn end_to_end_live_authoring_workflow_from_scratch_to_reopen() {
         .expect("reopened project validates");
     assert_eq!(reopened.project, snapshot_with_tween);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn nested_orbit_direct_key_drag_moves_and_copies_frame_script_atomically() {
+    let ctx = egui::Context::default();
+    let nested_orbit =
+        Project::from_json(include_str!("../../../examples/nested-orbit.nflash")).unwrap();
+    let mut editor = Editor::from_project(&ctx, nested_orbit);
+    let root = editor.project.root.clone();
+
+    // Layer 2 is "Orbit instances" (the top visible row in Scene 1).
+    assert_eq!(editor.symbol().timeline.layers[2].name, "Orbit instances");
+    assert!(!editor.timeline_edit.include_scripts);
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(0), Some(2));
+    assert!(editor.symbol().timeline.key_carries_frame_script(2, 0));
+    assert!(!editor.symbol().timeline.key_carries_frame_script(1, 0));
+    assert!(!editor.symbol().timeline.key_carries_frame_script(0, 0));
+
+    // Create a Motion Tween on "Orbit instances" at frame 1 (0).
+    editor.layer = 2;
+    editor.frame = 0;
+    editor.clear_timeline_frame_selection();
+    editor.create_tween(TweenKind::Motion);
+    assert_eq!(
+        editor.symbol().timeline.layers[2].keyframes[0].tween_kind,
+        TweenKind::Motion
+    );
+    assert!(
+        editor.symbol().timeline.layers[2].keyframes[0]
+            .tween
+            .is_some()
+    );
+    let after_tween = editor.project.clone();
+
+    // Drag/move the action-bearing keyframe on "Orbit instances" from frame 1 (0) to frame 14 (13)
+    // while rectangular `include_scripts` is off (`false`).
+    editor.frame = 13;
+    assert!(editor.move_key(2, 0, 13, false));
+    assert_eq!(editor.frame, 13);
+    assert_eq!(
+        editor.symbol().timeline.layers[2]
+            .keyframes
+            .iter()
+            .map(|k| k.frame)
+            .collect::<Vec<_>>(),
+        vec![13]
+    );
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .map(|s| s.frame)
+            .collect::<Vec<_>>(),
+        vec![13]
+    );
+    // Source frame 1 (0) has no script and no orphan ruler `a`; destination frame 14 (13) has the `a` marker on Orbit instances.
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(0), None);
+    assert!(!editor.symbol().timeline.has_frame_script(0));
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(13), Some(2));
+    editor.project.validate().unwrap();
+
+    // Authored preview executes the frame script trace only when reaching frame 14 (13), not on frame 1 (0).
+    editor.frame = 0;
+    editor.output.clear();
+    editor.set_playing(true);
+    editor.sync_authored_preview();
+    assert!(
+        !editor
+            .output
+            .iter()
+            .any(|line| line.contains("NeoFlash: the stage is ready")),
+        "frame 1 (0) must not execute the moved script: {:?}",
+        editor.output
+    );
+    for next_frame in 1..=13 {
+        editor.frame = next_frame;
+        editor.sync_authored_preview();
+        if next_frame < 13 {
+            assert!(
+                !editor
+                    .output
+                    .iter()
+                    .any(|line| line.contains("NeoFlash: the stage is ready")),
+                "frame {} must not execute the moved script early: {:?}",
+                next_frame + 1,
+                editor.output
+            );
+        }
+    }
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|line| line.contains("NeoFlash: the stage is ready")),
+        "frame 14 (13) must execute the moved script: {:?}",
+        editor.output
+    );
+    editor.set_playing(false);
+
+    // Save and reopen retains both moved keyframe and FrameScript.
+    let after_move = editor.project.clone();
+    let dir = std::env::temp_dir().join(format!("neoflash_t183_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("nested-orbit-moved.nflash");
+    assert!(editor.save_to_path(path.clone()));
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    assert!(reopened.try_open_path(path, &ctx));
+    reopened.project.validate().unwrap();
+    assert_eq!(reopened.project, after_move);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // One Undo / Redo restores both keyframe and FrameScript atomically.
+    editor.undo();
+    assert_eq!(editor.project, after_tween);
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(0), Some(2));
+    editor.redo();
+    assert_eq!(editor.project, after_move);
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(13), Some(2));
+    editor.undo();
+    assert_eq!(editor.project, after_tween);
+
+    // Option-drag (`copy = true`) duplicates both the keyframe and the FrameScript to frame 14 (13).
+    assert!(editor.move_key(2, 0, 13, true));
+    assert_eq!(
+        editor.symbol().timeline.layers[2]
+            .keyframes
+            .iter()
+            .map(|k| k.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 13]
+    );
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .map(|s| s.frame)
+            .collect::<Vec<_>>(),
+        vec![0, 13]
+    );
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(0), Some(2));
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(13), Some(2));
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, after_tween);
+
+    // Moving another layer's keyframe at the same global frame (e.g. Accents layer 1 or Typography layer 0)
+    // must NOT steal or duplicate the FrameScript even when `include_scripts` is enabled.
+    editor.timeline_edit.include_scripts = true;
+    assert!(editor.move_key(1, 0, 13, false));
+    assert_eq!(
+        editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .map(|s| s.frame)
+            .collect::<Vec<_>>(),
+        vec![0],
+        "moving non-bearing layer keyframe must not steal the FrameScript"
+    );
+    assert_eq!(editor.symbol().timeline.action_layer_for_frame(0), Some(2));
+    editor.undo();
+    assert_eq!(editor.project, after_tween);
+    editor.timeline_edit.include_scripts = false;
+
+    // Destination key collision (frame 15 / index 14) and script collision refuse the whole gesture
+    // without losing code, keys, markers, playhead, or history.
+    editor.project.symbol_mut(&root).unwrap().timeline.layers[2]
+        .keyframes
+        .push(Keyframe {
+            frame: 14,
+            ..Keyframe::default()
+        });
+    let with_dest_key = editor.project.clone();
+    editor.frame = 14;
+    assert!(!editor.move_key(2, 0, 14, false));
+    assert_eq!(
+        editor.frame, 0,
+        "refused key drag restores playhead to source keyframe"
+    );
+    assert_eq!(editor.project, with_dest_key);
+    editor.project = after_tween.clone();
+
+    editor
+        .project
+        .symbol_mut(&root)
+        .unwrap()
+        .timeline
+        .scripts
+        .push(FrameScript {
+            frame: 13,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "this.stop();".into(),
+            },
+        });
+    let with_dest_script = editor.project.clone();
+    editor.frame = 13;
+    assert!(!editor.move_key(2, 0, 13, false));
+    assert_eq!(
+        editor.frame, 0,
+        "refused script collision restores playhead to source keyframe"
+    );
+    assert_eq!(editor.project, with_dest_script);
+}
+
+#[test]
+fn empty_actions_targets_have_no_placeholder_hint_and_do_not_create_scripts_until_typed() {
+    fn collect_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => {
+                for s in shapes {
+                    collect_texts(s, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::demo());
+    editor.show_panel(crate::workspace::PanelId::Actions);
+
+    // Move to Frame 2 (index 1), which has no FrameScript in `Project::demo()`.
+    editor.frame = 1;
+    editor.script_target = crate::app::ScriptTarget::Frame;
+    let baseline = editor.project.clone();
+    assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+
+    let render = |editor: &mut Editor| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400., 420.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| editor.actions_contents(ui));
+            },
+        )
+    };
+
+    let output = render(&mut editor);
+    let mut painted_texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_texts(&clipped.shape, &mut painted_texts);
+    }
+    assert!(
+        !painted_texts
+            .iter()
+            .any(|t| t.contains("this.stop()") || t.contains("gotoAndPlay")),
+        "empty Frame Actions target must not paint fake this.stop()/gotoAndPlay hint: {painted_texts:?}"
+    );
+    assert_eq!(editor.project, baseline);
+    assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+
+    // Changing the pending language for an empty target updates temp state without creating a script,
+    // splitting a keyframe, dirtying the project, or adding an Undo step.
+    let empty_lang_id = egui::Id::new("neoflash-actions-empty-language");
+    ctx.data_mut(|d| d.insert_temp(empty_lang_id, ScriptLanguage::ActionScript3));
+    let _ = render(&mut editor);
+    assert_eq!(editor.project, baseline);
+    assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+
+    // Typing real code creates the FrameScript in the chosen language (ActionScript3).
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: "trace(\"hello\");".into(),
+        caret: 15,
+        import: None,
+    });
+    let _ = render(&mut editor);
+    let created = editor
+        .symbol()
+        .timeline
+        .scripts
+        .iter()
+        .find(|s| s.frame == 1)
+        .expect("typing real code creates FrameScript");
+    assert_eq!(created.script.language, ScriptLanguage::ActionScript3);
+    assert_eq!(created.script.source, "trace(\"hello\");");
+    assert!(editor.dirty());
+    assert!(editor.history.can_undo());
+
+    // Deleting the last real code removes the FrameScript entry completely even when language != JavaScript.
+    let editor_id = editor.actions_editor_id();
+    let mut state = egui::text_edit::TextEditState::default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0),
+            egui::text::CCursor::new(15),
+        )));
+    state.store(&ctx, editor_id);
+    editor.actions_ui.pending = Some(crate::code_tools::CodeCommand::Insert {
+        text: String::new(),
+        caret: 0,
+        import: None,
+    });
+    let _ = render(&mut editor);
+    assert!(
+        !editor
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .any(|s| s.frame == 1),
+        "clearing the last real code must remove the FrameScript entry"
+    );
+}
+
+#[test]
+fn t196_distribute_to_keyframes_and_toonmonkey_tween2keys_and_graphic_utilities() {
+    let mut project = Project::blank();
+    project.symbols.push(Symbol {
+        id: "viseme-sym".into(),
+        name: "VisemeChart".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 6,
+            layers: vec![Layer {
+                id: "vl".into(),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    project.symbols.push(Symbol {
+        id: "alt-sym".into(),
+        name: "AltGraphic".into(),
+        folder: String::new(),
+        kind: SymbolKind::Graphic,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![Layer {
+                id: "al".into(),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+
+    let el1 = Element {
+        id: "item-1".into(),
+        name: "item_1".into(),
+        transform: Transform {
+            x: 10.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "viseme-sym".into(),
+            playback: InstancePlayback::LoopFrom(1),
+        },
+        ..Element::default()
+    };
+    let el2 = Element {
+        id: "item-2".into(),
+        name: "item_2".into(),
+        transform: Transform {
+            x: 50.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "viseme-sym".into(),
+            playback: InstancePlayback::Loop,
+        },
+        ..Element::default()
+    };
+    let el3 = Element {
+        id: "item-3".into(),
+        name: "item_3".into(),
+        transform: Transform {
+            x: 90.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "viseme-sym".into(),
+            playback: InstancePlayback::Loop,
+        },
+        ..Element::default()
+    };
+    project.symbols[0].timeline.frame_count = 1;
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![el1, el2, el3],
+        ..Keyframe::default()
+    }];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    // 1. Distribute to Keyframes: places 3 selected elements on frames 0, 1, 2 and extends frame_count.
+    editor.select_all();
+    assert!(editor.can_distribute_to_keyframes());
+    assert!(editor.distribute_selection_to_keyframes());
+    assert_eq!(editor.symbol().timeline.frame_count, 3);
+    let kfs = &editor.symbol().timeline.layers[0].keyframes;
+    assert_eq!(kfs.len(), 3);
+    assert_eq!(kfs[0].frame, 0);
+    assert_eq!(kfs[0].elements.len(), 1);
+    assert_eq!(kfs[0].elements[0].id, "item-1");
+    assert_eq!(kfs[1].frame, 1);
+    assert_eq!(kfs[1].elements.len(), 1);
+    assert_eq!(kfs[1].elements[0].id, "item-2");
+    assert_eq!(kfs[2].frame, 2);
+    assert_eq!(kfs[2].elements.len(), 1);
+    assert_eq!(kfs[2].elements[0].id, "item-3");
+    editor.project.validate().unwrap();
+
+    // Swap Multiple Symbols across all keyframes on the layer in one Undo step.
+    editor.frame = 0;
+    editor.select_single_id("item-1".into());
+    assert_eq!(
+        editor.swap_symbol_across_selection_or_range("alt-sym", true),
+        3
+    );
+    for kf in &editor.symbol().timeline.layers[0].keyframes {
+        assert!(matches!(
+            &kf.elements[0].kind,
+            ElementKind::Instance { symbol_id, .. } if symbol_id == "alt-sym"
+        ));
+    }
+    editor.project.validate().unwrap();
+    editor.undo();
+    undo_restores(&mut editor, &before);
+
+    // 2. Enter Graphic at Current Frame & Set Graphic Playback (SingleFrame locked to synced frame).
+    editor.symbol_mut().timeline.frame_count = 10;
+    editor.frame = 3; // key_start = 0, elapsed = 3, LoopFrom(1) on 6-frame graphic -> synced frame = (1 + 3) % 6 = 4
+    let before_playback = editor.project.clone();
+    editor.select_single_id("item-1".into());
+    assert!(editor.can_enter_graphic_at_current_frame());
+    assert!(editor.enter_graphic_at_current_frame());
+    assert_eq!(editor.symbol_id(), "viseme-sym");
+    assert_eq!(editor.frame, 4);
+    let root_id = editor.project.root.clone();
+    editor.switch_scene(&root_id);
+    editor.frame = 3;
+
+    editor.select_single_id("item-1".into());
+    assert!(editor.set_selected_graphic_playback(InstancePlayback::SingleFrame(0), true));
+    let key3 = editor.symbol().timeline.layers[0].key_at(3).unwrap();
+    assert_eq!(
+        key3.elements
+            .iter()
+            .find(|e| e.id == "item-1")
+            .unwrap()
+            .kind,
+        ElementKind::Instance {
+            symbol_id: "viseme-sym".into(),
+            playback: InstancePlayback::SingleFrame(4),
+        }
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before_playback);
+
+    // 3. Tween2Keys (On 2s) and Convert to Keyframes Advanced (step 2, keep ease).
+    let mut tween_project = Project::blank();
+    tween_project.symbols[0].timeline.frame_count = 20;
+    tween_project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![element("a", rectangle(), 0.)],
+            tween: Some(Easing::Linear),
+            ..Default::default()
+        },
+        Keyframe {
+            frame: 10,
+            elements: vec![element("a", rectangle(), 100.)],
+            ..Default::default()
+        },
+    ];
+    let mut tween_editor = Editor::from_project(&ctx, tween_project);
+    tween_editor.set_tween_easing(&tween_editor.tween_span().unwrap(), Easing::EaseInOut);
+    let before_tween2keys = tween_editor.project.clone();
+    assert!(tween_editor.tween_to_keys_on_twos());
+    let frames_2s: Vec<u32> = tween_editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .map(|k| k.frame)
+        .collect();
+    assert_eq!(frames_2s, vec![0, 2, 4, 6, 8, 10]);
+    assert!(
+        tween_editor.symbol().timeline.layers[0]
+            .keyframes
+            .iter()
+            .all(|k| k.tween.is_none() && k.keyed_properties.is_none()),
+        "Tween2Keys must strip tween metadata so animation plays on 2s"
+    );
+    tween_editor.project.validate().unwrap();
+    undo_restores(&mut tween_editor, &before_tween2keys);
+
+    assert!(tween_editor.convert_to_keyframes_stepped(2, false));
+    let kept_ease_kfs = &tween_editor.symbol().timeline.layers[0].keyframes;
+    assert_eq!(
+        kept_ease_kfs.iter().map(|k| k.frame).collect::<Vec<_>>(),
+        vec![0, 2, 4, 6, 8, 10]
+    );
+    assert_eq!(kept_ease_kfs[0].tween, Some(Easing::EaseInOut));
+    assert_eq!(kept_ease_kfs[1].tween, Some(Easing::EaseInOut));
+    assert_eq!(kept_ease_kfs[5].tween, None);
+    tween_editor.project.validate().unwrap();
+    undo_restores(&mut tween_editor, &before_tween2keys);
+}
+
+#[test]
+fn t196_putney_copy_apply_ease_pixel_snap_reverse_order_and_layer_cleanup() {
+    let mut project = Project::blank();
+    project.symbols.push(Symbol {
+        id: "hero-sym".into(),
+        name: "HeroCharacter".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "hl".into(),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+
+    let custom_ease = Easing::CubicBezier {
+        x1: 0.2,
+        y1: 0.8,
+        x2: 0.3,
+        y2: 1.0,
+    };
+    let inst_a = Element {
+        id: "hero-inst".into(),
+        name: String::new(),
+        transform: Transform {
+            x: 12.34,
+            y: 56.78,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "hero-sym".into(),
+            playback: InstancePlayback::Independent,
+        },
+        ..Element::default()
+    };
+    let raw_path = Element {
+        id: "raw-path".into(),
+        name: "ground_line".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 1.2, y: 3.7 },
+                PathCommand::LineTo { x: 10.6, y: 20.1 },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        ..Element::default()
+    };
+    let top_rect = Element {
+        id: "top-rect".into(),
+        name: "badge".into(),
+        transform: Transform {
+            x: 99.6,
+            y: -4.2,
+            ..Transform::default()
+        },
+        kind: rectangle(),
+        ..Element::default()
+    };
+
+    project.symbols[0].timeline.frame_count = 11;
+    project.symbols[0].timeline.layers = vec![
+        Layer {
+            id: "layer-1".into(),
+            name: "Layer 1".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![
+                Keyframe {
+                    frame: 0,
+                    elements: vec![inst_a.clone(), raw_path, top_rect],
+                    tween: Some(custom_ease),
+                    tween_kind: TweenKind::Classic,
+                    ..Keyframe::default()
+                },
+                Keyframe {
+                    frame: 10,
+                    elements: vec![inst_a.clone()],
+                    ..Keyframe::default()
+                },
+            ],
+            properties: LayerProperties::default(),
+        },
+        Layer {
+            id: "layer-2".into(),
+            name: "Layer 2".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![
+                Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "second-el".into(),
+                        name: "PropsBox".into(),
+                        transform: Transform::default(),
+                        kind: rectangle(),
+                        ..Element::default()
+                    }],
+                    tween: Some(Easing::Linear),
+                    tween_kind: TweenKind::Classic,
+                    ..Keyframe::default()
+                },
+                Keyframe {
+                    frame: 10,
+                    elements: vec![Element {
+                        id: "second-el".into(),
+                        name: "PropsBox".into(),
+                        transform: Transform {
+                            x: 40.0,
+                            ..Transform::default()
+                        },
+                        kind: rectangle(),
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                },
+            ],
+            properties: LayerProperties::default(),
+        },
+        Layer {
+            id: "layer-empty".into(),
+            name: "Layer 3".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe::default()],
+            properties: LayerProperties::default(),
+        },
+    ];
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    // 1. Copy Ease from Layer 1 and Apply Ease to Layer 2.
+    editor.layer = 0;
+    editor.frame = 0;
+    assert!(editor.copy_active_keyframe_ease());
+    editor.layer = 1;
+    assert_eq!(editor.apply_copied_ease_to_selection(), 1);
+    assert_eq!(
+        editor.symbol().timeline.layers[1].keyframes[0].tween,
+        Some(custom_ease)
+    );
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // 2. Pixel Snap rounds transform.x/y and raw path vertices with zero transform.
+    editor.layer = 0;
+    editor.frame = 0;
+    editor.clear_selection();
+    assert_eq!(editor.pixel_snap_selection(), 4);
+    let k0 = &editor.symbol().timeline.layers[0].keyframes[0];
+    assert_eq!(k0.elements[0].transform.x, 12.0);
+    assert_eq!(k0.elements[0].transform.y, 57.0);
+    assert_eq!(
+        k0.elements[1].kind,
+        ElementKind::Path {
+            commands: vec![
+                PathCommand::MoveTo { x: 1.0, y: 4.0 },
+                PathCommand::LineTo { x: 11.0, y: 20.0 },
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        }
+    );
+    assert_eq!(k0.elements[2].transform.x, 100.0);
+    assert_eq!(k0.elements[2].transform.y, -4.0);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // 3. Reverse stacking order of selected elements on Layer 1.
+    editor.set_selection(vec![
+        crate::selection::SelectionTarget {
+            layer: "layer-1".into(),
+            element: "hero-inst".into(),
+        },
+        crate::selection::SelectionTarget {
+            layer: "layer-1".into(),
+            element: "top-rect".into(),
+        },
+    ]);
+    assert!(editor.reverse_selected_elements_order());
+    let ids: Vec<&str> = editor.symbol().timeline.layers[0].keyframes[0]
+        .elements
+        .iter()
+        .map(|e| e.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["top-rect", "raw-path", "hero-inst"]);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    // 4. Delete empty layers, Rename layers from content, and Add actions & stop() layer.
+    assert_eq!(editor.delete_empty_layers(), 1);
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    assert_eq!(editor.rename_layers_from_content(), 2);
+    assert_eq!(editor.symbol().timeline.layers[0].name, "HeroCharacter");
+    assert_eq!(editor.symbol().timeline.layers[1].name, "PropsBox");
+    assert_eq!(editor.symbol().timeline.layers[2].name, "Layer 3");
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
+
+    assert!(editor.add_actions_and_stop_layer());
+    let top_layer = editor.symbol().timeline.layers.last().unwrap();
+    assert_eq!(top_layer.name, "actions");
+    assert!(top_layer.locked);
+    let stop_script = editor
+        .symbol()
+        .timeline
+        .scripts
+        .iter()
+        .find(|s| s.frame == 10)
+        .expect("stop() script on last frame");
+    assert_eq!(stop_script.script.source, "stop();");
+    editor.project.validate().unwrap();
+    undo_restores(&mut editor, &before);
 }

@@ -3,6 +3,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+pub use crate::timeline_video::{
+    ExternalVideoAsset, VideoDeploymentMode, VideoManifestEntry, VideoSourceSpec,
+    collect_external_video_assets, inspect_video_deployment, resolve_video_resource_source,
+    resolve_video_source, strip_non_embedded_video_bytes, timeline_video_sources,
+    validate_external_video_path, validate_progressive_video_url, video_manifest_entries,
+};
+
 pub type Color = [u8; 4];
 pub type Id = String;
 
@@ -293,6 +300,9 @@ pub struct LayerProperties {
     /// zoom and rotation do not displace it (format 9).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub attach_to_camera: bool,
+    /// Layer-level display filters applied to all content on this layer (Flash CS5.5+ / Animate, format 7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<crate::FilterSpec>,
 }
 
 impl Symbol {
@@ -440,7 +450,6 @@ impl Project {
                             || !k.controller_elements.is_empty()
                             || !k.ik_armatures.is_empty()
                             || !k.appearances.is_empty()
-                            || k.video.is_some()
                             || !k.extended_accessibility.is_empty()
                             || !k.vector_effects.is_empty()
                             || !k.property_expressions.is_empty()
@@ -482,35 +491,45 @@ impl Project {
 
     /// Document features introduced with format 7 (parametric Rectangle/Oval options, custom
     /// authoring transformation points, Bounce/Elastic and per-property eases, motion sync/snap
-    /// options, custom stereo sound envelopes or trim points, and authored display
-    /// filters/blending/visibility).
+    /// options, custom stereo sound envelopes or trim points, non-Embedded video deployment modes,
+    /// and authored display filters/blending/visibility).
     pub fn uses_format_7(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
-            .flat_map(|l| &l.keyframes)
-            .any(|k| {
-                matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
-                    || !k.property_eases.is_empty()
-                    || !k.shape_hints.is_empty()
-                    || k.sync_symbols
-                    || k.snap_to_guide
-                    || k.sound.as_ref().is_some_and(|s| {
-                        s.effect == SoundEffect::Custom
-                            || s.envelope.is_some()
-                            || s.in_point.is_some()
-                            || s.out_point.is_some()
-                    })
-                    || k.elements.iter().any(|e| {
-                        e.transform.pivot.is_some()
-                            || e.transform.primitive.is_some()
-                            || !e.visible
-                            || e.cache_as_bitmap
-                            || !e.blend_mode.is_normal()
-                            || !e.filters.is_empty()
-                            || e.merge
+            .any(|l| {
+                !l.properties.filters.is_empty()
+                    || l.keyframes.iter().any(|k| {
+                        matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
+                            || !k.property_eases.is_empty()
+                            || !k.shape_hints.is_empty()
+                            || !k.filters.is_empty()
+                            || k.sync_symbols
+                            || k.snap_to_guide
+                            || k.video
+                                .as_ref()
+                                .is_some_and(|v| v.uses_non_embedded_deployment())
+                            || k.sound.as_ref().is_some_and(|s| {
+                                s.effect == SoundEffect::Custom
+                                    || s.envelope.is_some()
+                                    || s.in_point.is_some()
+                                    || s.out_point.is_some()
+                            })
+                            || k.elements.iter().any(|e| {
+                                e.transform.pivot.is_some()
+                                    || e.transform.primitive.is_some()
+                                    || !e.visible
+                                    || e.cache_as_bitmap
+                                    || !e.blend_mode.is_normal()
+                                    || !e.filters.is_empty()
+                                    || e.merge
+                            })
                     })
             })
+            || self
+                .resources
+                .iter()
+                .any(|r| r.is_video() && r.data_base64.is_empty())
     }
 
     /// Scene timelines in play order; a document without scenes has one, `root`.
@@ -1038,6 +1057,9 @@ pub struct Keyframe {
     /// Rich timeline span markers stored on the timeline's primary keyframe (T-121, format 9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<crate::TimelineMarker>,
+    /// Keyframe-level display filters applied to content on this keyframe span and interpolated across tweens (Flash CS5.5+ / Animate, format 7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<crate::FilterSpec>,
 }
 
 impl Default for Keyframe {
@@ -1077,6 +1099,7 @@ impl Default for Keyframe {
             perspective_grid: None,
             work_area: None,
             markers: Vec::new(),
+            filters: Vec::new(),
         }
     }
 }
@@ -2575,6 +2598,21 @@ impl Project {
     }
     pub fn symbol_mut(&mut self, id: &str) -> Option<&mut Symbol> {
         self.symbols.iter_mut().find(|s| s.id == id)
+    }
+    pub fn resource(&self, id: &str) -> Option<&crate::ResourceUnit> {
+        self.resources.iter().find(|r| r.id == id)
+    }
+    pub fn resource_mut(&mut self, id: &str) -> Option<&mut crate::ResourceUnit> {
+        self.resources.iter_mut().find(|r| r.id == id)
+    }
+    pub fn collect_external_video_assets(&self) -> Vec<crate::ExternalVideoAsset> {
+        crate::collect_external_video_assets(self)
+    }
+    pub fn video_manifest_entries(&self) -> Vec<crate::VideoManifestEntry> {
+        crate::video_manifest_entries(self)
+    }
+    pub fn strip_non_embedded_video_bytes(&mut self) -> Vec<crate::ExternalVideoAsset> {
+        crate::strip_non_embedded_video_bytes(self)
     }
 
     pub const SWATCHES_RESOURCE_PATH: &'static str = "palette/swatches.json";

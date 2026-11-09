@@ -3,6 +3,7 @@
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use eframe::egui::{self, Painter, Pos2, Rect, Response, Sense, Stroke, Vec2};
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Icon {
     Select,
@@ -23,11 +24,103 @@ pub(crate) enum Icon {
     Ellipse,
     PolyStar,
     Text,
+    Bone,
+    Bind,
+    Puppet,
+    Deco,
+    SprayBrush,
+    Translate3D,
+    Rotate3D,
     ZoomIn,
     ZoomOut,
     Fit,
     ChevronRight,
 }
+
+const TOOL_BONE_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-bone-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="4" cy="12" r="2" stroke="#9AA3B6" stroke-width="1"/>
+<circle cx="12" cy="4" r="2" stroke="#9AA3B6" stroke-width="1"/>
+<line x1="5.5" y1="10.5" x2="10.5" y2="5.5" stroke="#9AA3B6" stroke-width="1.5" stroke-linecap="round"/>
+</svg>"##,
+};
+
+const TOOL_BIND_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-bind-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<line x1="3" y1="13" x2="13" y2="3" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round"/>
+<circle cx="8" cy="8" r="2.5" stroke="#9AA3B6" stroke-width="1"/>
+<rect x="2" y="2" width="2.5" height="2.5" stroke="#9AA3B6" stroke-width="1"/>
+<rect x="11.5" y="11.5" width="2.5" height="2.5" stroke="#9AA3B6" stroke-width="1"/>
+</svg>"##,
+};
+
+const TOOL_PUPPET_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-puppet-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="8" cy="4.5" r="2.5" stroke="#9AA3B6" stroke-width="1"/>
+<circle cx="8" cy="4.5" r="1" fill="#9AA3B6"/>
+<line x1="8" y1="7" x2="8" y2="12.5" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round"/>
+<path d="M3 13.5L8 10.5L13 13.5" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"##,
+};
+
+const TOOL_PUPPET_20: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 20,
+    name: "tool-puppet",
+    svg: r##"<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="10" cy="5.5" r="3" stroke="#9AA3B6" stroke-width="1.5"/>
+<circle cx="10" cy="5.5" r="1" fill="#9AA3B6"/>
+<line x1="10" y1="8.5" x2="10" y2="15.5" stroke="#9AA3B6" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M3.5 16.5L10 12.5L16.5 16.5" stroke="#9AA3B6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"##,
+};
+
+const TOOL_DECO_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-deco-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M8 2.5C9.5 5 11 6.5 13.5 8C11 9.5 9.5 11 8 13.5C6.5 11 5 9.5 2.5 8C5 6.5 6.5 5 8 2.5Z" stroke="#9AA3B6" stroke-width="1" stroke-linejoin="round"/>
+<circle cx="8" cy="8" r="1.2" fill="#9AA3B6"/>
+</svg>"##,
+};
+
+const TOOL_SPRAY_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-spray-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.5" y="6.5" width="6" height="7" rx="1" stroke="#9AA3B6" stroke-width="1"/>
+<path d="M4.5 6.5V4.5H7.5V6.5" stroke="#9AA3B6" stroke-width="1"/>
+<circle cx="11" cy="4.5" r="1" fill="#9AA3B6"/>
+<circle cx="13.5" cy="3.5" r="1" fill="#9AA3B6"/>
+<circle cx="13.5" cy="6.5" r="1" fill="#9AA3B6"/>
+<circle cx="11.5" cy="7.5" r="1" fill="#9AA3B6"/>
+</svg>"##,
+};
+
+const TOOL_3D_TRANSLATE_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-3d-translate-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M7 9V2.5M7 2.5L5 4.5M7 2.5L9 4.5" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M7 9H13.5M13.5 9L11.5 7M13.5 9L11.5 11" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M7 9L2.5 13.5M2.5 13.5H5M2.5 13.5V11" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"##,
+};
+
+const TOOL_3D_ROTATE_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-3d-rotate-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="8" cy="8" r="5.5" stroke="#9AA3B6" stroke-width="1"/>
+<ellipse cx="8" cy="8" rx="5.5" ry="2.2" stroke="#9AA3B6" stroke-width="1"/>
+<ellipse cx="8" cy="8" rx="2.2" ry="5.5" stroke="#9AA3B6" stroke-width="1"/>
+</svg>"##,
+};
 
 const GRADIENT_TRANSFORM_16: neoflash_ui::Icon = neoflash_ui::Icon {
     size: 16,
@@ -92,6 +185,13 @@ impl Icon {
             Self::Ellipse => pick(i16::OVAL, i20::TOOL_OVAL),
             Self::PolyStar => i20::TOOL_POLYSTAR,
             Self::Text => pick(i16::TEXT, i20::TOOL_TEXT),
+            Self::Bone => pick(TOOL_BONE_16, i20::TOOL_BONE),
+            Self::Bind => pick(TOOL_BIND_16, i20::TOOL_BIND),
+            Self::Puppet => pick(TOOL_PUPPET_16, TOOL_PUPPET_20),
+            Self::Deco => pick(TOOL_DECO_16, i20::TOOL_DECO),
+            Self::SprayBrush => pick(TOOL_SPRAY_16, i20::TOOL_SPRAY),
+            Self::Translate3D => pick(TOOL_3D_TRANSLATE_16, i20::TOOL_3D_TRANSLATE),
+            Self::Rotate3D => pick(TOOL_3D_ROTATE_16, i20::TOOL_3D_ROTATE),
             Self::ZoomIn => pick(i16::ZOOMIN, i20::TOOL_ZOOM),
             Self::ZoomOut => pick(i16::ZOOMOUT, i20::ZOOMOUT),
             Self::Fit => pick(i16::FIT, i20::FIT),
@@ -1206,6 +1306,117 @@ pub(crate) fn text_optional_color_swatch(
     changed
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AuthoringToolIcon {
+    Bone,
+    Bind,
+    Puppet,
+    Deco,
+    SprayBrush,
+    Translate3D,
+    Rotate3D,
+}
+
+/// Optical-grid-aligned (`1pt` on 16px, `1.5pt` on 20px) vector painter for authoring
+/// tools/modifiers (`Bone`, `Bind`, `Puppet / Asset Warp`, `Deco`, `Spray Brush`,
+/// `3D Translate`, `3D Rotate`). Uses approved `neoflash_ui::icons::i20` masters where
+/// available and crisp vector geometry at 16px or for `Puppet` (tracked in R-067).
+#[allow(dead_code)]
+pub(crate) fn paint_authoring_tool_icon(
+    p: &Painter,
+    rect: Rect,
+    icon: AuthoringToolIcon,
+    color: egui::Color32,
+) {
+    let size = rect.width().min(rect.height()).min(20.0);
+    if !size.is_finite() || size <= 0.0 {
+        return;
+    }
+    let grid = if size >= 20.0 { 20.0 } else { 16.0 };
+    let r = Rect::from_center_size(rect.center(), Vec2::splat(grid));
+    let scale = grid / 16.0;
+    let pt = |x: f32, y: f32| Pos2::new(r.left() + x * scale, r.top() + y * scale);
+    let stroke_w = if grid >= 20.0 { 1.5_f32 } else { 1.0_f32 };
+    let stroke = Stroke::new(stroke_w, color);
+    let thin = Stroke::new(1.0_f32, color);
+
+    match icon {
+        AuthoringToolIcon::Bone => {
+            p.circle_stroke(pt(4.0, 12.0), 2.0 * scale, stroke);
+            p.circle_stroke(pt(12.0, 4.0), 2.0 * scale, stroke);
+            p.line_segment([pt(5.5, 10.5), pt(10.5, 5.5)], stroke);
+        }
+        AuthoringToolIcon::Bind => {
+            p.line_segment([pt(3.0, 13.0), pt(13.0, 3.0)], thin);
+            p.circle_stroke(pt(8.0, 8.0), 2.4 * scale, stroke);
+            p.rect_stroke(
+                Rect::from_center_size(pt(3.5, 3.5), Vec2::splat(2.5 * scale)),
+                0.0,
+                thin,
+                egui::StrokeKind::Inside,
+            );
+            p.rect_stroke(
+                Rect::from_center_size(pt(12.5, 12.5), Vec2::splat(2.5 * scale)),
+                0.0,
+                thin,
+                egui::StrokeKind::Inside,
+            );
+        }
+        AuthoringToolIcon::Puppet => {
+            p.circle_stroke(pt(8.0, 4.5), 2.4 * scale, stroke);
+            p.circle_filled(pt(8.0, 4.5), 0.9 * scale, color);
+            p.line_segment([pt(8.0, 7.0), pt(8.0, 12.5)], stroke);
+            p.line_segment([pt(3.0, 13.5), pt(8.0, 10.5)], thin);
+            p.line_segment([pt(8.0, 10.5), pt(13.0, 13.5)], thin);
+            p.line_segment([pt(3.0, 13.5), pt(13.0, 13.5)], thin);
+        }
+        AuthoringToolIcon::Deco => {
+            let pts = [
+                pt(8.0, 2.5),
+                pt(10.0, 6.0),
+                pt(13.5, 8.0),
+                pt(10.0, 10.0),
+                pt(8.0, 13.5),
+                pt(6.0, 10.0),
+                pt(2.5, 8.0),
+                pt(6.0, 6.0),
+            ];
+            for i in 0..pts.len() {
+                p.line_segment([pts[i], pts[(i + 1) % pts.len()]], stroke);
+            }
+            p.circle_filled(pt(8.0, 8.0), 1.1 * scale, color);
+        }
+        AuthoringToolIcon::SprayBrush => {
+            let can = Rect::from_min_max(pt(2.5, 6.5), pt(8.5, 13.5));
+            p.rect_stroke(can, 1.0, stroke, egui::StrokeKind::Inside);
+            p.line_segment([pt(4.5, 6.5), pt(4.5, 4.5)], thin);
+            p.line_segment([pt(4.5, 4.5), pt(7.5, 4.5)], thin);
+            p.line_segment([pt(7.5, 4.5), pt(7.5, 6.5)], thin);
+            for (cx, cy) in [(11.0, 4.5), (13.2, 3.5), (13.2, 6.5), (11.2, 7.5)] {
+                p.circle_filled(pt(cx, cy), 0.9 * scale, color);
+            }
+        }
+        AuthoringToolIcon::Translate3D => {
+            p.line_segment([pt(7.0, 9.0), pt(7.0, 2.5)], stroke);
+            p.line_segment([pt(7.0, 2.5), pt(5.2, 4.3)], thin);
+            p.line_segment([pt(7.0, 2.5), pt(8.8, 4.3)], thin);
+            p.line_segment([pt(7.0, 9.0), pt(13.5, 9.0)], stroke);
+            p.line_segment([pt(13.5, 9.0), pt(11.7, 7.2)], thin);
+            p.line_segment([pt(13.5, 9.0), pt(11.7, 10.8)], thin);
+            p.line_segment([pt(7.0, 9.0), pt(2.8, 13.2)], stroke);
+            p.line_segment([pt(2.8, 13.2), pt(5.2, 13.2)], thin);
+            p.line_segment([pt(2.8, 13.2), pt(2.8, 10.8)], thin);
+        }
+        AuthoringToolIcon::Rotate3D => {
+            p.circle_stroke(pt(8.0, 8.0), 5.2 * scale, stroke);
+            p.line_segment([pt(2.8, 8.0), pt(13.2, 8.0)], thin);
+            p.line_segment([pt(8.0, 2.8), pt(8.0, 13.2)], thin);
+            p.circle_filled(pt(8.0, 8.0), 1.1 * scale, color);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1231,6 +1442,13 @@ mod tests {
             Icon::Ellipse,
             Icon::PolyStar,
             Icon::Text,
+            Icon::Bone,
+            Icon::Bind,
+            Icon::Puppet,
+            Icon::Deco,
+            Icon::SprayBrush,
+            Icon::Translate3D,
+            Icon::Rotate3D,
             Icon::ZoomIn,
             Icon::ZoomOut,
             Icon::Fit,
@@ -1336,6 +1554,27 @@ mod tests {
                 paint_text_property_glyph(&p, rect, text_glyph, Color32::WHITE);
             });
             assert!(!output.shapes.is_empty(), "{text_glyph:?} paints");
+            for shape in &output.shapes {
+                assert!(
+                    rect.expand(1.)
+                        .contains_rect(shape.shape.visual_bounding_rect())
+                );
+            }
+        }
+        for authoring_icon in [
+            AuthoringToolIcon::Bone,
+            AuthoringToolIcon::Bind,
+            AuthoringToolIcon::Puppet,
+            AuthoringToolIcon::Deco,
+            AuthoringToolIcon::SprayBrush,
+            AuthoringToolIcon::Translate3D,
+            AuthoringToolIcon::Rotate3D,
+        ] {
+            let output = ctx.run(Default::default(), |ctx| {
+                let p = ctx.layer_painter(egui::LayerId::background());
+                paint_authoring_tool_icon(&p, rect, authoring_icon, Color32::WHITE);
+            });
+            assert!(!output.shapes.is_empty(), "{authoring_icon:?} paints");
             for shape in &output.shapes {
                 assert!(
                     rect.expand(1.)

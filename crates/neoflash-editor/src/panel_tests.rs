@@ -1536,7 +1536,8 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
             "Help",
             &[
                 "Search functions… (F1)",
-                "NeoFlash Help & Reference…",
+                "Help",
+                "Scripting Reference…",
                 "Open example",
                 "About NeoFlash",
             ],
@@ -3286,7 +3287,7 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
         repeat: false,
         modifiers: egui::Modifiers::SHIFT,
     }]);
-    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "");
+    assert!(d.editor.symbol().timeline.scripts.is_empty());
 
     // Auto-close brackets: `(` -> `()`, `)` skips over closing `)`, Backspace inside `()` deletes both.
     focus_and_caret(&mut d, 0);
@@ -3318,7 +3319,7 @@ fn code_editor_preferences_wire_ui_editing_hints_layout_and_format_on_save() {
         repeat: false,
         modifiers: egui::Modifiers::NONE,
     }]);
-    assert_eq!(d.editor.symbol().timeline.scripts[0].script.source, "");
+    assert!(d.editor.symbol().timeline.scripts.is_empty());
     d.editor.workspace.code_editor.auto_close_brackets = false;
     focus_and_caret(&mut d, 0);
     d.step(vec![Event::Text("(".into())]);

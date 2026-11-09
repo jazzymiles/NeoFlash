@@ -29,11 +29,48 @@
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
     const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
     let generation=1,disposed=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0;
+    const diagnosticsList=[];
     const hub=events.create({weakTargets:true,alive:value=>!disposed&&(connections.get(value)||streams.get(value))?.generation===generation});
     function open(){if(disposed)throw new Error('This video service has been disposed.');}
     function state(value,map){open();const record=map.get(value);if(!record)throw new TypeError('Expected a video object from this publication.');if(record.generation!==generation)throw new Error('This video object belongs to a previous publication session.');return record;}
     function native(name,...args){try{return player[name](...args);}catch(error){if(error instanceof Error)throw error;throw new Error(typeof error==='string'?error:'Video runtime failed.',{cause:error});}}
-    function status(){let pending=0,active=0,loading=0;for(const r of streamRecords){if(r.wanted&&!r.playing)pending++;if(r.playing)active++;if(r.media&&!r.metadata)loading++;}return {state:!used?'idle':errorText?'error':pending&&!unlocked?'awaiting_gesture':muted?'muted':active?'running':loading?'loading':'ready',pending,active,loading,muted,unlocked,error:errorText};}
+    function status(){let pending=0,active=0,loading=0;for(const r of streamRecords){if(r.wanted&&!r.playing)pending++;if(r.playing)active++;if(r.media&&!r.metadata)loading++;}return {state:!used?'idle':errorText?'error':pending&&!unlocked?'awaiting_gesture':muted?'muted':active?'running':loading?'loading':'ready',pending,active,loading,muted,unlocked,error:errorText,diagnostics:diagnosticsList.slice()};}
+    function diagnostics(){open();return diagnosticsList.slice();}
+    function timelineSources(){open();return [...timelineControllers.entries()].map(([channel,ctl])=>({channel,resource:ctl.resource,mode:ctl.mode,source:ctl.record.sourceSpec||null,url:ctl.record.url,mediaSrc:ctl.record.media?.src??null,playing:ctl.record.playing,wanted:ctl.record.wanted,time:ctl.record.time,crossOrigin:ctl.record.media?.crossOrigin??null,preload:ctl.record.media?.preload??null}));}
+    function validateExternalPath(rawPath){
+      if(typeof rawPath!=='string'||!rawPath.trim())throw new TypeError('External video path must be a non-empty relative path.');
+      if(/[\x00-\x1f\x7f]/.test(rawPath))throw new TypeError('External video path cannot contain control characters.');
+      const trimmed=rawPath.trim();
+      if(trimmed.includes('\\'))throw new TypeError('External video path cannot contain backslashes.');
+      if(trimmed.startsWith('/')||/^[A-Za-z]:/.test(trimmed))throw new TypeError('External video path must be relative, not an absolute filesystem path.');
+      if(/^(?:file|http|https|data|javascript|blob):/i.test(trimmed)||trimmed.includes('://'))throw new TypeError('External video path must be a relative bundle path, not a URL.');
+      const firstSlash=trimmed.indexOf('/');
+      if((firstSlash===-1?trimmed:trimmed.slice(0,firstSlash)).includes('@'))throw new TypeError('External video path cannot contain embedded URL credentials.');
+      const normalized=trimmed.startsWith('./')?trimmed.slice(2):trimmed;
+      const segments=normalized.split('/');
+      if(!normalized||segments.some(seg=>!seg||seg==='.'||seg==='..'))throw new TypeError('External video path cannot contain empty or parent traversal (..) segments.');
+      return normalized;
+    }
+    function resolveExternalUrl(rawPath){
+      const relPath=validateExternalPath(rawPath);
+      if(typeof options.resolveExternalPath==='function')return String(options.resolveExternalPath(relPath));
+      const base=options.baseUrl||options.bundleBaseUrl||(typeof global.document?.baseURI==='string'&&global.document.baseURI?global.document.baseURI:'');
+      if(base){try{return new URL(relPath,base).href;}catch(_){}}
+      return relPath;
+    }
+    function validateProgressiveUrl(rawUrl){
+      if(typeof rawUrl!=='string'||!rawUrl.trim())throw new TypeError('Progressive video stream URL must be a non-empty http:// or https:// URL.');
+      if(/[\x00-\x1f\x7f]/.test(rawUrl))throw new TypeError('Progressive video stream URL cannot contain control characters.');
+      const trimmed=rawUrl.trim();
+      if(trimmed.includes('\\'))throw new TypeError('Progressive video stream URL cannot contain backslashes.');
+      if(!/^https?:\/\//i.test(trimmed))throw new TypeError('Progressive video stream URL must use http:// or https://.');
+      let parsed;
+      try{parsed=new URL(trimmed);}catch(_){throw new TypeError('Progressive video stream URL is not a valid URL.');}
+      if((parsed.protocol!=='http:'&&parsed.protocol!=='https:')||!parsed.hostname)throw new TypeError('Progressive video stream URL must specify a non-empty host.');
+      if(parsed.username||parsed.password||trimmed.slice(trimmed.indexOf('://')+3).split(/[/?#]/)[0].includes('@'))throw new TypeError('Progressive video stream URL cannot contain embedded credentials.');
+      if(trimmed.split(/[/?#]/).includes('..')||/%2e%2e/i.test(trimmed))throw new TypeError('Progressive video stream URL cannot contain parent traversal (..) segments.');
+      return trimmed;
+    }
     function changed(){options.onState?.(status());}
     function report(error){errorText=String(error?.message||error);changed();options.onError?.(error);}
     function current(r,media,sequence){return !disposed&&r.generation===generation&&r.media===media&&r.sequence===sequence;}
@@ -115,15 +152,32 @@
       if(!current(r,media,sequence))return;
       if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);seek(r,at);}after(generation);changed();
     }
-    function load(r,url){
+    function load(r,url,sourceSpec=null){
+      const mode=sourceSpec?.mode||r.deploymentMode||'embedded';
       if(typeof url!=='string'||!url)throw new TypeError('NetStream.play requires a media URL string.');
       if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
       if(/\.(?:flv|f4v|swf|gif)(?:[?#]|$)/i.test(url))throw new TypeError('This browser profile supports native MP4/WebM media, not FLV/F4V/SWF/GIF decoding.');
-      const source=net.mediaSource(url);
-      if(source.kind==='resource'&&!['video/mp4','video/webm','video/ogg'].includes(source.mediaType))throw new TypeError(`Bundled video MIME type ${source.mediaType} is unsupported; use a native browser video format.`);
-      stopMedia(r,false);used=true;errorText='';r.wanted=true;r.encodedBytes=source.kind==='resource'?source.length:null;r.url=url;
+      let resolvedUrl=url,source=null,mediaType=sourceSpec?.mime_type||'video/mp4';
+      if(mode==='external'){
+        const relPath=validateExternalPath(sourceSpec?.url_or_path||url);
+        resolvedUrl=resolveExternalUrl(relPath);
+        if(sourceSpec?.mime_type&&!['video/mp4','video/webm','video/ogg'].includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`External video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
+        r.deploymentMode='external';
+        r.sourceSpec={mode:'external',url_or_path:relPath,resolvedUrl,mime_type:mediaType};
+      }else if(mode==='progressive'){
+        resolvedUrl=validateProgressiveUrl(sourceSpec?.url_or_path||url);
+        if(sourceSpec?.mime_type&&!['video/mp4','video/webm','video/ogg'].includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`Progressive video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
+        r.deploymentMode='progressive';
+        r.sourceSpec={mode:'progressive',url_or_path:resolvedUrl,resolvedUrl,mime_type:mediaType};
+      }else{
+        source=net.mediaSource(url);
+        if(source.kind==='resource'&&!['video/mp4','video/webm','video/ogg'].includes(source.mediaType))throw new TypeError(`Bundled video MIME type ${source.mediaType} is unsupported; use a native browser video format.`);
+        r.deploymentMode=source.kind==='resource'?'embedded':'progressive';
+        r.sourceSpec={mode:r.deploymentMode,url_or_path:url,resolvedUrl:source.kind==='resource'?url:source.url,mime_type:source.mediaType||mediaType};
+      }
+      stopMedia(r,false);used=true;errorText='';r.wanted=true;r.encodedBytes=source?.kind==='resource'?source.length:null;r.url=resolvedUrl;
       const media=options.createVideo?options.createVideo():global.document?.createElement('video');if(!media)throw new Error('HTMLVideoElement is unavailable in this environment.');
-      r.media=media;media.muted=true;media.volume=0;media.crossOrigin='anonymous';media.preload='auto';media.playsInline=true;media.loop=false;
+      r.media=media;media.muted=true;media.volume=0;media.crossOrigin=options.crossOrigin!==undefined?options.crossOrigin:'anonymous';media.preload='auto';media.playsInline=true;media.loop=false;
       const sequence=r.sequence;
       function listen(type,fn){const callback=()=>{if(!current(r,media,sequence))return;try{fn();}catch(error){if(current(r,media,sequence)){stopMedia(r,false);report(error);}}};media.addEventListener(type,callback);r.listeners.push([type,callback]);}
       listen('loadedmetadata',()=>metadata(r,media,sequence));
@@ -134,12 +188,28 @@
       listen('timeupdate',()=>{r.serial=++serial;r.time=media.currentTime;observeController(r,'time');repaint();});
       listen('seeked',()=>{r.serial=++serial;r.time=media.currentTime;emit(r,'NetStream.Seek.Notify');observeController(r,'seeked');if(current(r,media,sequence)&&r.legacy)playNative(r);});
       listen('ended',()=>{r.wanted=false;r.playing=false;r.time=media.currentTime;r.serial=++serial;if(!emit(r,'NetStream.Play.Stop'))return;if(r.legacy&&typeof r.receiver.onPlayStatus==='function'){Reflect.apply(r.receiver.onPlayStatus,r.receiver,[{code:'NetStream.Play.Complete',level:'status'}]);if(!current(r,media,sequence))return;after(generation);}observeController(r,'ended');changed();});
-      listen('error',()=>{r.wanted=false;r.playing=false;const code=media.error?.code;emit(r,code===4?'NetStream.Play.FileStructureInvalid':'NetStream.Play.StreamNotFound','error',{description:'Native browser video loading/decoding failed; check format and HTTP CORS access.'});observeController(r,'error','Native browser video loading/decoding failed; check format and HTTP CORS access.');changed();});
+      listen('error',()=>{
+        r.wanted=false;r.playing=false;
+        const code=media.error?.code||0,depMode=r.deploymentMode||'embedded';
+        const diagCode=depMode==='external'?(code===3||code===4?'video-external-codec-error':'video-external-missing-or-http-error'):depMode==='progressive'?(code===3||code===4?'video-progressive-codec-error':'video-progressive-http-or-cors-error'):(code===4?'video-codec-unsupported':'video-stream-error');
+        const desc=depMode==='external'
+          ?(code===3||code===4?`External video asset '${r.sourceSpec?.url_or_path||r.url}' failed codec/container decoding (HTMLMediaError ${code}).`:`External video asset '${r.sourceSpec?.url_or_path||r.url}' failed to load from '${r.url}' (missing file or HTTP error; HTMLMediaError ${code}).`)
+          :depMode==='progressive'
+          ?(code===3||code===4?`Progressive video stream '${r.url}' failed codec/container decoding (HTMLMediaError ${code}).`:`Progressive video stream '${r.url}' failed HTTP/CORS loading; check URL reachability and Access-Control-Allow-Origin headers (HTMLMediaError ${code}).`)
+          :'Native browser video loading/decoding failed; check format and HTTP CORS access.';
+        const diag={code:diagCode,mode:depMode,resource:r.resourceId||null,url:r.url,source:r.sourceSpec||null,mediaErrorCode:code,message:desc};
+        diagnosticsList.push(diag);
+        options.onDiagnostic?.(diag);
+        if(r.timelineOwned)errorText=desc;
+        emit(r,code===4?'NetStream.Play.FileStructureInvalid':'NetStream.Play.StreamNotFound','error',{description:desc});
+        observeController(r,'error',desc);
+        changed();
+      });
       listen('waiting',()=>{if(r.legacy&&r.wanted){streamPolicy(r,{op:'buffer_wait'});r.playing=false;media.pause();}observeController(r,'waiting');});
       listen('progress',()=>{observeController(r,'progress');if(current(r,media,sequence)&&r.legacy)playNative(r);});
       const nextFrame=(now,facts)=>{if(!current(r,media,sequence))return;try{if(r.receivePolicy)streamPolicy(r,{op:"frame",now,presented:facts.presentedFrames});r.serial=++serial;observeController(r,'time');repaint();if(current(r,media,sequence))r.frameCallback=media.requestVideoFrameCallback(nextFrame);}catch(error){if(current(r,media,sequence))report(error);}};
       if(typeof media.requestVideoFrameCallback==='function')r.frameCallback=media.requestVideoFrameCallback(nextFrame);
-      if(source.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=source.url;
+      if(source?.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=resolvedUrl;
       r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}if(!r.timelineOwned)playNative(r);changed();
     }
     function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
@@ -305,14 +375,38 @@
     }
     function timelineTarget(path){const ref=JSON.parse(native('object_ref',JSON.stringify(path)));if(!ref)throw new Error('Authored timeline Video placement is no longer active.');return proxyForRef(ref);}
     function timelinePath(resource){const path=options.resourcePath?.(resource);if(typeof path!=='string'||!path)throw new Error(`Timeline video resource '${resource}' is missing from the publication.`);return path;}
+    function resolveTimelineSource(command){
+      if(command.source&&typeof command.source==='object'&&typeof command.source.mode==='string'){
+        const spec=command.source;
+        if(spec.mode==='embedded'){
+          const customPath=options.resourcePath?.(command.resource);
+          return {mode:'embedded',url_or_path:typeof customPath==='string'&&customPath?customPath:spec.url_or_path,mime_type:spec.mime_type||'video/mp4'};
+        }
+        return {mode:spec.mode,url_or_path:spec.url_or_path,mime_type:spec.mime_type||'video/mp4'};
+      }
+      if(typeof player?.video_source_spec_json==='function'){
+        try{
+          const spec=JSON.parse(player.video_source_spec_json(command.resource));
+          if(spec&&typeof spec.mode==='string'){
+            if(spec.mode==='embedded'){
+              const customPath=options.resourcePath?.(command.resource);
+              return {mode:'embedded',url_or_path:typeof customPath==='string'&&customPath?customPath:spec.url_or_path,mime_type:spec.mime_type||'video/mp4'};
+            }
+            return spec;
+          }
+        }catch(_){}
+      }
+      return {mode:'embedded',url_or_path:timelinePath(command.resource),mime_type:'video/mp4'};
+    }
     function retireTimeline(channel,retain=true){const ctl=timelineControllers.get(channel);if(!ctl)return;timelineControllers.delete(channel);const b=bindings.get(ctl.targetKey);if(b?.stream===ctl.record){b.frozen=retain?freeze(ctl.record):null;b.stream=null;b.revision=++serial;}stopMedia(ctl.record,retain);streamRecords.delete(ctl.record);collectFrames();}
     function timelineRecord(command){
       if(streamRecords.size>=64)throw new RangeError('Video is limited to 64 NetStream instances per publication session.');
       const target=timelineTarget(command.target_path),targetKey=referenceOf(target)?.key;if(!targetKey)throw new Error('Authored timeline Video placement has no stable display reference.');
+      const sourceSpec=resolveTimelineSource(command);
       const connection={generation,sequence:0,local:true,legacy:false};
-      const record={receiver:null,generation,connection,peerID:'timeline',sequence:0,legacy:false,timelineOwned:true,timelineMuted:Boolean(command.muted),timelineLoop:Boolean(command.loop_video),client:null,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};
-      streamRecords.add(record);attachRecord(target,record);load(record,timelinePath(command.resource));record.timelineMuted=Boolean(command.muted);record.timelineLoop=Boolean(command.loop_video);if(record.media)record.media.loop=Boolean(command.loop_video);audio(record);
-      const ctl={record,targetKey,resource:command.resource};timelineControllers.set(command.channel,ctl);return ctl;
+      const record={receiver:null,generation,connection,peerID:'timeline',sequence:0,legacy:false,timelineOwned:true,resourceId:command.resource,deploymentMode:sourceSpec.mode,sourceSpec,timelineMuted:Boolean(command.muted),timelineLoop:Boolean(command.loop_video),client:null,media:null,objectURL:null,listeners:[],frameCallback:null,frozen:null,serial:++serial,metadata:false,wanted:false,playing:false,started:false,pauseRequested:false,pendingSeek:null,width:0,height:0,duration:0,time:0,lastTime:null,volume:1};
+      streamRecords.add(record);attachRecord(target,record);load(record,sourceSpec.url_or_path,sourceSpec);record.timelineMuted=Boolean(command.muted);record.timelineLoop=Boolean(command.loop_video);if(record.media)record.media.loop=Boolean(command.loop_video);audio(record);
+      const ctl={record,targetKey,resource:command.resource,mode:sourceSpec.mode,sourceKey:`${sourceSpec.mode}:${sourceSpec.url_or_path}`};timelineControllers.set(command.channel,ctl);return ctl;
     }
     function timelineSeek(record,milliseconds,loop,force=false){let seconds=Math.max(0,Number(milliseconds)||0)/1000;record.timelineLoop=Boolean(loop);if(record.metadata&&record.duration>0)seconds=loop?seconds%record.duration:Math.min(seconds,record.duration);if(!record.media)throw new Error('Timeline video decoder was retired before seek.');const current=Number(record.media.currentTime)||0,close=record.playing&&Math.abs(current-seconds)<=0.08;if(record.metadata&&(!close||force))seek(record,seconds);else if(!record.metadata)record.pendingSeek=seconds;record.time=close&&!force?current:seconds;}
     function timeline(commands){
@@ -321,7 +415,8 @@
         if(!command||typeof command.op!=='string')throw new TypeError('Invalid timeline video command.');
         if(command.op==='seek_and_present'||command.op==='start_event'){
           let ctl=timelineControllers.get(command.channel);const target=timelineTarget(command.target_path),targetKey=referenceOf(target)?.key;
-          if(!ctl||ctl.resource!==command.resource||ctl.targetKey!==targetKey){if(ctl)retireTimeline(command.channel,false);ctl=timelineRecord(command);}
+          const nextSpec=command.source&&typeof command.source==='object'?`${command.source.mode}:${command.source.url_or_path}`:null;
+          if(!ctl||ctl.resource!==command.resource||ctl.targetKey!==targetKey||(nextSpec&&ctl.sourceKey&&ctl.sourceKey!==nextSpec)){if(ctl)retireTimeline(command.channel,false);ctl=timelineRecord(command);}
           const r=ctl.record;r.timelineMuted=Boolean(command.muted);r.timelineLoop=Boolean(command.loop_video);if(r.media)r.media.loop=Boolean(command.loop_video);audio(r);
           timelineSeek(r,command.op==='start_event'?command.start_offset_ms:command.target_time_ms,command.loop_video,command.op==='start_event'||!command.playing);
           if(command.op==='start_event'||command.playing){r.wanted=true;playNative(r);}else pause(r);
@@ -357,9 +452,9 @@
         r.serial=++serial;
       }
     }
-    function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();timelineControllers.clear();for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
+    function reset(){open();for(const r of streamRecords){stopMedia(r,false);r.receivePolicy?.free();r.receivePolicy=null;}streamRecords.clear();connectionRecords.clear();timelineControllers.clear();diagnosticsList.length=0;for(const b of bindings.values())b.capture?.release();bindings.clear();derived.clear();for(const f of frames)f.canvas.width=f.canvas.height=0;frames.clear();framePixels=0;generation++;hub.clear();unlocked=false;muted=false;used=false;errorText='';changed();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
+    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,timelineSources,diagnostics,syncTimeline,resumeFromGesture,setMuted,status,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
   }
   const api=Object.freeze({create,VideoStatus});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
 })(globalThis);

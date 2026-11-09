@@ -573,6 +573,7 @@ pub(crate) fn switch(ui: &mut Ui, on: bool, label: &str) {
     ui.add(c::Switch::new(&mut v, label));
 }
 
+#[allow(dead_code)]
 pub(crate) fn slider(ui: &mut Ui, value: f64, label: &str, width: f32) {
     let mut v = value;
     ui.add(c::Slider::new(&mut v, 0.0..=100.0, label).width(width));

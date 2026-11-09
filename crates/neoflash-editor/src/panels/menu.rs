@@ -382,14 +382,18 @@ impl Editor {
                         menu_popup(ui, "Window", "Compiler errors", "⇧⌘F9", |ui| {
                             self.window_menu(ui, ctx);
                         });
-                        menu_popup(ui, "Help", "Search functions…", "F1", |ui| {
+                        menu_popup(ui, "Help", "Scripting Reference…", "F1", |ui| {
                             let search = menu_item(ui, "Search functions…", "F1");
                             if search.clicked() {
                                 self.open_function_search_at(ctx, Some(search.rect));
                                 ui.close();
                             }
-                            if menu_item(ui, "NeoFlash Help & Reference…", "").clicked() {
-                                crate::panels::help_manual::open_help_manual(ctx);
+                            if menu_item(ui, "Help", "").clicked() {
+                                self.open_help_manual(ctx);
+                                ui.close();
+                            }
+                            if menu_item(ui, "Scripting Reference…", "").clicked() {
+                                self.open_scripting_reference(ctx);
                                 ui.close();
                             }
                             nf::menu_separator(ui);
@@ -518,7 +522,7 @@ impl Editor {
             menu_popup(
                 ui,
                 "Export",
-                "Export Lottie…",
+                "Export Flash Movie (.swf)…",
                 &self.sc(C::FileExportLottie),
                 |ui| {
                     Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
@@ -537,6 +541,25 @@ impl Editor {
                         self.export_lottie_dialog(None);
                         ui.close();
                     }
+                    if menu_item(ui, "Export Flash Movie (.swf)…", "").clicked() {
+                        self.export_swf_dialog(None);
+                        ui.close();
+                    }
+                    menu_popup(
+                        ui,
+                        "Export FLA / XFL Target",
+                        "Legacy Binary FLA (Flash CS4 / v10)…",
+                        "",
+                        |ui| {
+                            for profile in neoflash_export::FlaTargetProfile::ALL {
+                                let label = format!("{}…", profile.label());
+                                if menu_item(ui, &label, "").clicked() {
+                                    self.export_fla_profile_dialog(profile, None);
+                                    ui.close();
+                                }
+                            }
+                        },
+                    );
                 },
             );
             nf::menu_separator(ui);
@@ -1080,6 +1103,11 @@ impl Editor {
         Self::unavailable_item(ui, "Duplicate window", "⌥⌘K");
         if menu_item(ui, "Customize tools…", "").clicked() {
             self.open_customize_tools(ctx);
+            ui.close();
+        }
+        if menu_item(ui, "UI Layout Studio…", "").clicked() {
+            let open = crate::panels::ui_studio::is_studio_open(ctx);
+            crate::panels::ui_studio::set_studio_open(ctx, !open);
             ui.close();
         }
         menu_popup(ui, "Panels", "Compiler errors", "", |ui| {

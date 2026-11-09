@@ -998,12 +998,70 @@ fn floating_tools_header_fits_its_title_and_window_actions() {
     let mut editor = Editor::from_project(&ctx, Project::blank());
     editor.show_panel(PanelId::Tools);
     editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
-    let width = crate::detached::floating_tools_width();
+
+    // Narrow 1-column (42 pt) and 2-column (88 pt) widths use the compact TOOLS_GRIP + More (⋯) header.
+    for narrow_width in [
+        crate::detached::floating_tools_width(),
+        neoflash_ui::metrics::tools_two_columns(),
+    ] {
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(narrow_width, 680.),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                    .show(ctx, |ui| {
+                        let _ = editor.native_floating_panel(
+                            ui,
+                            PanelId::Tools,
+                            &[PanelId::Tools],
+                            [crate::detached::floating_tools_width(), 160.],
+                            1.0,
+                        );
+                    });
+            },
+        );
+        let nodes = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("narrow floating Tools accessibility tree")
+            .nodes;
+        let bounds = |label: &str| {
+            nodes.iter().find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+        };
+        let tools = bounds("Tools").expect("Tools grip handle");
+        let menu = bounds("Panel menu").expect("More menu button");
+        for label in ["Tools", "Panel menu"] {
+            let rect = bounds(label).unwrap_or_else(|| panic!("missing {label}"));
+            assert!(
+                rect.x0 >= -0.5 && rect.x1 <= f64::from(narrow_width + 0.5),
+                "{label} bounds {rect:?} must fit within narrow width {narrow_width}"
+            );
+            assert!(rect.y1 <= f64::from(neoflash_ui::metrics::panel_tab() + 0.5));
+        }
+        assert!(
+            tools.x1 <= menu.x0 + 0.5,
+            "Tools grip must not overlap More menu button at width {narrow_width}"
+        );
+    }
+
+    // Wide 5-column width fits the full titled FloatingPanelHeader and all 3 action buttons.
+    let wide_width = crate::detached::floating_full_tools_header_width();
     let output = ctx.run(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(width, 260.),
+                egui::vec2(wide_width, 260.),
             )),
             ..Default::default()
         },
@@ -1015,7 +1073,7 @@ fn floating_tools_header_fits_its_title_and_window_actions() {
                         ui,
                         PanelId::Tools,
                         &[PanelId::Tools],
-                        [width, 160.],
+                        [crate::detached::floating_tools_width(), 160.],
                         1.0,
                     );
                 });
@@ -1038,13 +1096,272 @@ fn floating_tools_header_fits_its_title_and_window_actions() {
     let menu = bounds("Panel menu").expect("floating menu");
     for label in ["Tools", "Panel menu", "Collapse panel", "Close panel"] {
         let rect = bounds(label).unwrap_or_else(|| panic!("missing {label}"));
-        assert!(rect.x0 >= -0.5 && rect.x1 <= f64::from(width + 0.5));
+        assert!(rect.x0 >= -0.5 && rect.x1 <= f64::from(wide_width + 0.5));
         assert!(rect.y1 <= f64::from(neoflash_ui::metrics::panel_tab() + 0.5));
     }
     assert!(
         tools.x1 <= menu.x0,
         "Tools title must not overlap window actions"
     );
+}
+
+#[test]
+fn detached_tools_supports_one_two_and_five_column_widths_full_painting_compaction_and_roundtrip() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Tools);
+    editor.set_panel_placement(&ctx, PanelId::Tools, PanelPlacement::Detached);
+
+    let min_w = crate::workspace::minimum_window_size(PanelId::Tools)[0];
+    assert!(
+        (40.0..=44.0).contains(&min_w),
+        "Tools minimum width {min_w} must be 1 tool button + NF2 padding/border (~40-44 pt)"
+    );
+    assert_eq!(min_w, crate::detached::floating_tools_width());
+
+    // Helper that renders `Tools` at `width` (and optional wider `inner_width` to simulate live native resize)
+    // and returns (Select bounds, Subselect bounds, Line bounds, desired_height, max painted bg right edge).
+    let mut inspect_layout = |width: f32, inner_width: f32| {
+        let tools_id = egui::ViewportId::from_hash_of(PanelId::Tools.viewport_key().unwrap());
+        let mut input = egui::RawInput {
+            viewport_id: tools_id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, 720.),
+            )),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            tools_id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(120., 90.),
+                    egui::vec2(inner_width, 720.),
+                )),
+                inner_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(120., 90.),
+                    egui::vec2(inner_width, 720.),
+                )),
+                ..Default::default()
+            },
+        );
+        let bg_color = neoflash_ui::palette(&ctx).bg_panel;
+        let output = ctx.run(input, |ctx| {
+            let viewport_rect = ctx.viewport_rect();
+            let full_rect = egui::Rect::from_min_size(
+                viewport_rect.min,
+                egui::vec2(viewport_rect.width().max(inner_width).max(min_w), 720.),
+            );
+            ctx.layer_painter(egui::LayerId::background())
+                .rect_filled(full_rect, 0.0, bg_color);
+            egui::CentralPanel::default()
+                .frame(neoflash_ui::components::Surface::PanelFlush.frame(ctx))
+                .show(ctx, |ui| {
+                    ui.set_min_size(viewport_rect.size());
+                    let _ = editor.native_floating_panel(
+                        ui,
+                        PanelId::Tools,
+                        &[PanelId::Tools],
+                        [min_w, 160.],
+                        1.0,
+                    );
+                });
+        });
+        let max_bg_right = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(r) if r.fill == bg_color && r.rect.left() <= 0.5 => {
+                    Some(r.rect.right())
+                }
+                _ => None,
+            })
+            .fold(0.0_f32, f32::max);
+        let nodes = &output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("Tools accessibility nodes")
+            .nodes;
+        let tool_bounds = |prefix: &str| {
+            nodes.iter().find_map(|(_, node)| {
+                node.label()
+                    .filter(|l| l.starts_with(prefix))
+                    .and_then(|_| node.bounds())
+            })
+        };
+        (
+            tool_bounds("Select").unwrap_or_else(|| panic!("missing Select at width {width}")),
+            tool_bounds("Subselect"),
+            tool_bounds("Free Transform")
+                .unwrap_or_else(|| panic!("missing Free Transform at width {width}")),
+            tool_bounds("Lasso").unwrap_or_else(|| panic!("missing Lasso at width {width}")),
+            editor
+                .detached
+                .tools_desired_inner_height
+                .expect("desired inner height recorded"),
+            max_bg_right,
+        )
+    };
+
+    // 1) 1-column layout at minimum width (42 pt), also simulating a wider native inner_rect (188 pt)
+    //    to prove the background paint covers 100% of the viewport with no black vertical strip.
+    let (sel_1, sub_1, tr_1, lasso_1, h_1col, bg_right_1) = inspect_layout(min_w, 188.0);
+    assert!(
+        sub_1.is_none(),
+        "1-column tool_rail groups Selection + Subselection into one flyout button"
+    );
+    assert!(
+        (sel_1.x0 - tr_1.x0).abs() < 1.0
+            && (sel_1.x0 - lasso_1.x0).abs() < 1.0
+            && tr_1.y0 > sel_1.y0
+            && lasso_1.y0 > tr_1.y0,
+        "1-column width ({min_w} pt) must stack tool groups in a single vertical column"
+    );
+    assert!(
+        bg_right_1 >= 188.0 - 0.5,
+        "background fill ({bg_right_1}) must cover the full native inner width without any black strip"
+    );
+
+    // 2) 2-column layout (88 pt).
+    let two_col_w = neoflash_ui::metrics::tools_two_columns();
+    let (sel_2, sub_2, tr_2, _lasso_2, h_2col, bg_right_2) = inspect_layout(two_col_w, two_col_w);
+    let sub_2 = sub_2.expect("2-column layout shows Subselection directly");
+    assert!(
+        (sel_2.y0 - sub_2.y0).abs() < 1.0 && sub_2.x0 > sel_2.x0,
+        "2-column width ({two_col_w} pt) must place Select and Subselect side-by-side"
+    );
+    assert!(
+        tr_2.y0 > sel_2.y0,
+        "2-column width wraps subsequent tools onto lower rows"
+    );
+    assert!(bg_right_2 >= two_col_w - 0.5);
+
+    // 3) 3-column (132 pt), 4-column (176 pt), and 5-column (220 pt) layouts.
+    let (_, _, _, _, h_3col, _) = inspect_layout(132.0, 132.0);
+    let (_, _, _, _, h_4col, _) = inspect_layout(176.0, 176.0);
+    let (sel_5, sub_5, _tr_5, lasso_5, h_5col, bg_right_5) = inspect_layout(220.0, 220.0);
+    let sub_5 = sub_5.expect("5-column layout shows Subselection directly");
+    assert!(
+        (sel_5.y0 - sub_5.y0).abs() < 1.0
+            && (sel_5.y0 - lasso_5.y0).abs() < 1.0
+            && lasso_5.x0 > sub_5.x0,
+        "5-column width (220 pt) places Select, Subselect, Line, Lasso, Pen across the first row"
+    );
+    assert!(bg_right_5 >= 220.0 - 0.5);
+    assert!(
+        h_1col > h_2col && h_2col > h_3col && h_3col >= h_4col && h_4col >= h_5col,
+        "desired height must monotonically compact as column count increases: 1col={h_1col}, 2col={h_2col}, 3col={h_3col}, 4col={h_4col}, 5col={h_5col}"
+    );
+
+    // 4) Bottom-up height compaction keeps outer_position[1] (top edge) fixed across 1, 2, 3, 4, and 5 columns.
+    let top_y = 96.0_f32;
+    let tools_id = egui::ViewportId::from_hash_of(PanelId::Tools.viewport_key().unwrap());
+    editor
+        .workspace
+        .set_tools_stage_anchor(PanelId::Tools, None);
+    for (col_w, desired_h) in [
+        (min_w, h_1col),
+        (two_col_w, h_2col),
+        (132.0, h_3col),
+        (176.0, h_4col),
+        (220.0, h_5col),
+        (min_w, h_1col),
+    ] {
+        editor.workspace.remember_floating_geometry(
+            PanelId::Tools,
+            WindowGeometry {
+                outer_position: [140.0, top_y],
+                inner_size: [col_w, 720.0],
+            },
+        );
+        let mut input = egui::RawInput {
+            viewport_id: tools_id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(col_w, 720.0),
+            )),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            tools_id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(140.0, top_y),
+                    egui::vec2(col_w, 720.0),
+                )),
+                inner_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(140.0, top_y),
+                    egui::vec2(col_w, 720.0),
+                )),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run(input, |ctx| {
+            editor.compact_floating_tools_window_bottom_up(
+                ctx,
+                PanelId::Tools,
+                desired_h,
+                min_w,
+                160.0,
+                1.0,
+            );
+        });
+        let compacted = editor
+            .workspace
+            .detached_geometry(PanelId::Tools)
+            .expect("compacted Tools geometry");
+        assert_eq!(
+            compacted.outer_position,
+            [140.0, top_y],
+            "bottom-up compaction at width {col_w} must keep outer_position[1] (top edge) fixed"
+        );
+        assert!(
+            (compacted.inner_size[0] - col_w).abs() < 0.5
+                && (compacted.inner_size[1] - desired_h).abs() < 0.5,
+            "compacted inner_size {:?} must match [{col_w}, {desired_h}]",
+            compacted.inner_size
+        );
+    }
+
+    // 5) Persisted geometry round-trip across serialization, UI scale (zoom), and monitor recovery.
+    let monitors = [crate::workspace::ScreenRect {
+        origin: [0.0, 0.0],
+        size: [2560.0, 1440.0],
+    }];
+    let fallback = monitors[0];
+    for zoom in [1.0_f32, 1.25, 1.5, 2.0] {
+        for logical_w in [min_w, two_col_w, 188.0] {
+            let saved = WindowGeometry {
+                outer_position: [24.0 * zoom, 80.0 * zoom],
+                inner_size: [logical_w * zoom, h_2col * zoom],
+            };
+            editor
+                .workspace
+                .remember_floating_geometry(PanelId::Tools, saved);
+            let json = serde_json::to_string(&editor.workspace).unwrap();
+            let restored: crate::workspace::WorkspacePrefs = serde_json::from_str(&json).unwrap();
+            let roundtrip = restored.detached_geometry(PanelId::Tools).unwrap();
+            let recovered = crate::workspace::recover_geometry_with_bounds(
+                PanelId::Tools,
+                Some(roundtrip),
+                crate::detached::scaled_size([min_w, 160.0], zoom),
+                crate::detached::scaled_size(
+                    crate::workspace::maximum_window_size(PanelId::Tools),
+                    zoom,
+                ),
+                &monitors,
+                fallback,
+            );
+            assert_eq!(
+                recovered, saved,
+                "1-col/2-col/5-col Tools geometry must round-trip cleanly at zoom {zoom}"
+            );
+        }
+    }
 }
 
 #[test]

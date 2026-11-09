@@ -6,7 +6,7 @@ use crate::{
     native_screens::available_work_areas,
     workspace::{
         DockDestination, DockEdge, DockSurface, PanelId, PanelPlacement, ScreenRect,
-        ToolsStageAnchor, WindowGeometry, recover_geometry,
+        ToolsStageAnchor, WindowGeometry, minimum_tools_window_width, recover_geometry_with_bounds,
     },
 };
 use eframe::egui;
@@ -87,9 +87,10 @@ fn floating_collapsed_id(window: PanelId) -> egui::Id {
 
 const TOOLS_ANCHOR_MARGIN: f32 = 16.;
 const TOOLS_ANCHOR_DISTANCE: f32 = 112.;
+pub(crate) const TOOLS_GRIP: f32 = neoflash_ui::metrics::PANEL_TAB;
 
-/// Width required by one `Tools` tab plus the locked floating-header grip,
-/// menu, collapse and close controls. Expressed only in approved NF2 metrics.
+/// Width required by the locked floating-header grip, menu, collapse and close controls.
+/// Expressed only in approved NF2 metrics.
 fn floating_header_chrome_width() -> f32 {
     neoflash_ui::tokens::space::S2
         + neoflash_ui::icons::i16::GRIP.side()
@@ -99,10 +100,31 @@ fn floating_header_chrome_width() -> f32 {
         + neoflash_ui::tokens::space::S1
 }
 
-pub(crate) fn floating_tools_width() -> f32 {
+/// Minimum width for a floating header of `panels`.
+/// A standalone `Tools` window switches to the compact `TOOLS_GRIP` + More (`⋯`)
+/// header at narrow widths so 1-column and 2-column `Tools` rails are never
+/// forced to the 5-column full-chrome width.
+pub(crate) fn floating_header_chrome_width_for(panels: &[PanelId]) -> f32 {
+    if panels == [PanelId::Tools] {
+        minimum_tools_window_width()
+    } else {
+        floating_header_chrome_width()
+    }
+}
+
+/// Width at which a standalone floating `Tools` window has room for the full
+/// titled `FloatingPanelHeader` (grip + `"Tools"` tab + menu/collapse/close).
+pub(crate) fn floating_full_tools_header_width() -> f32 {
     floating_header_chrome_width()
         + neoflash_ui::metrics::CONTROL
         + 2.0 * neoflash_ui::tokens::space::S3
+}
+
+/// Minimum logical width of a standalone floating `Tools` window: one tool
+/// button plus existing NF2 padding and border (`42 pt` in Comfortable,
+/// `40 pt` in Compact/Classic).
+pub(crate) fn floating_tools_width() -> f32 {
+    minimum_tools_window_width()
 }
 
 pub(crate) fn scaled_size(size: [f32; 2], zoom: f32) -> [f32; 2] {
@@ -955,40 +977,58 @@ impl Editor {
             if panels == [PanelId::Tools] {
                 minimum_logical[0] = minimum_logical[0].max(floating_tools_width());
             }
-            let mut maximum_logical = window
+            let root_maximum_logical = window
                 .root
                 .as_ref()
                 .map_or([4096., 2160.], |root| root.maximum_size());
+            let mut maximum_logical = root_maximum_logical;
+            let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
+                || ctx.input(|i| i.pointer.any_down());
+            let active_resize_or_drag =
+                self.detached.drag.is_some() || self.detached.resize.is_some() || pointer_down;
             if panels == [PanelId::Tools]
+                && !initial
+                && !active_resize_or_drag
                 && let Some(desired_h) = self.detached.tools_desired_inner_height
+                && window
+                    .geometry
+                    .is_some_and(|saved| ((saved.inner_size[1] / zoom) - desired_h).abs() <= 1.5)
             {
                 maximum_logical[1] = desired_h.max(minimum_logical[1]);
             }
             maximum_logical[0] = maximum_logical[0].max(minimum_logical[0]);
             maximum_logical[1] = maximum_logical[1].max(minimum_logical[1]);
             let minimum = scaled_size(minimum_logical, zoom);
-            let maximum = scaled_size(maximum_logical, zoom);
+            let root_maximum = scaled_size(
+                [
+                    root_maximum_logical[0].max(minimum_logical[0]),
+                    root_maximum_logical[1].max(minimum_logical[1]),
+                ],
+                zoom,
+            );
             let saved = window.geometry;
             let mut desired = saved.unwrap_or(WindowGeometry {
                 outer_position: [fallback.origin[0] + 40., fallback.origin[1] + 40.],
                 inner_size: scaled_size(crate::workspace::default_window_size(panel), zoom),
             });
             desired.inner_size = [
-                desired.inner_size[0].clamp(minimum[0], maximum[0]),
-                desired.inner_size[1].clamp(minimum[1], maximum[1]),
+                desired.inner_size[0].clamp(minimum[0], root_maximum[0]),
+                desired.inner_size[1].clamp(minimum[1], root_maximum[1]),
             ];
-            let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
-                || ctx.input(|i| i.pointer.any_down());
-            let active_resize_or_drag =
-                self.detached.drag.is_some() || self.detached.resize.is_some() || pointer_down;
             if !active_resize_or_drag
                 && panels == [PanelId::Tools]
                 && let (Some(anchor), Some(stage)) = (window.tools_anchor, tools_stage)
             {
                 desired = apply_tools_stage_anchor(anchor, stage, desired, zoom);
             }
-            let geometry =
-                recover_geometry(panel, Some(desired), &self.detached.monitors, fallback);
+            let geometry = recover_geometry_with_bounds(
+                panel,
+                Some(desired),
+                minimum,
+                root_maximum,
+                &self.detached.monitors,
+                fallback,
+            );
             let anchored =
                 !active_resize_or_drag && window.tools_anchor.is_some() && saved != Some(geometry);
             let recovering =
@@ -1096,24 +1136,61 @@ impl Editor {
                     self.finish_floating_context_menu(ctx);
                     return;
                 }
-                if !collapsed
+                if !initial
+                    && !collapsed
                     && !recovering
                     && !growing
                     && self.detached.drag.is_none()
                     && self.detached.resize.is_none()
-                    && let Some(geometry) = ctx.input(|i| {
+                    && let Some((raw_w, raw_h, mut geometry)) = ctx.input(|i| {
                         let v = i.viewport();
                         if v.minimized == Some(true) {
                             return None;
                         }
                         let outer = v.outer_rect?;
                         let inner = v.inner_rect?;
-                        Some(WindowGeometry {
-                            outer_position: [outer.min.x * zoom, outer.min.y * zoom],
-                            inner_size: [inner.width() * zoom, inner.height() * zoom],
-                        })
+                        let raw_w = inner.width() * zoom;
+                        let raw_h = inner.height() * zoom;
+                        Some((
+                            raw_w,
+                            raw_h,
+                            WindowGeometry {
+                                outer_position: [outer.min.x * zoom, outer.min.y * zoom],
+                                inner_size: [
+                                    raw_w.clamp(minimum[0], root_maximum[0]),
+                                    raw_h.clamp(minimum[1], root_maximum[1]),
+                                ],
+                            },
+                        ))
                     })
                 {
+                    if panels == [PanelId::Tools]
+                        && self
+                            .workspace
+                            .floating
+                            .iter()
+                            .find(|w| w.id == window_id)
+                            .and_then(|w| w.geometry)
+                            .is_some_and(|prev| (prev.inner_size[0] - geometry.inner_size[0]).abs() > 1.5)
+                    {
+                        self.workspace.set_tools_stage_anchor(window_id, None);
+                    }
+                    if (raw_w - geometry.inner_size[0]).abs() > 0.5
+                        || (raw_h - geometry.inner_size[1]).abs() > 0.5
+                    {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                            geometry.inner_size[0] / zoom,
+                            geometry.inner_size[1] / zoom,
+                        )));
+                    }
+                    geometry = recover_geometry_with_bounds(
+                        panel,
+                        Some(geometry),
+                        minimum,
+                        root_maximum,
+                        &self.detached.monitors,
+                        fallback,
+                    );
                     self.workspace
                         .remember_floating_geometry(window_id, geometry);
                 }
@@ -1138,10 +1215,27 @@ impl Editor {
                             .iter()
                             .any(|panel| self.workspace.is_panel_visible(*panel))
                 }) {
+                    let viewport_rect = ctx.viewport_rect();
+                    let inner_size = ctx
+                        .input(|i| i.viewport().inner_rect.map(|r| r.size()))
+                        .unwrap_or(viewport_rect.size());
+                    let full_rect = egui::Rect::from_min_size(
+                        viewport_rect.min,
+                        egui::vec2(
+                            viewport_rect.width().max(inner_size.x).max(minimum_logical[0]),
+                            viewport_rect.height().max(inner_size.y),
+                        ),
+                    );
+                    ctx.layer_painter(egui::LayerId::background()).rect_filled(
+                        full_rect,
+                        0.0,
+                        neoflash_ui::palette(ctx).bg_panel,
+                    );
                     let mut open = true;
                     egui::CentralPanel::default()
-                        .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                        .frame(neoflash_ui::components::Surface::PanelFlush.frame(ctx))
                         .show(ctx, |ui| {
+                            ui.set_min_size(viewport_rect.size());
                             open = self.native_floating_panel(
                                 ui,
                                 window_id,
@@ -1162,7 +1256,7 @@ impl Editor {
                         .unwrap_or(false);
                     if !collapsed {
                         self.floating_window_resize_borders(
-                            ctx, window_id, &panels, minimum, maximum, zoom,
+                            ctx, window_id, &panels, minimum, root_maximum, zoom,
                         );
                     }
                     if !collapsed
@@ -1369,6 +1463,8 @@ impl Editor {
         minimum_logical: [f32; 2],
         zoom: f32,
     ) -> bool {
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, neoflash_ui::palette(ui.ctx()).bg_panel);
         // Each native viewport republishes its live hit geometry every frame. Clear the previous
         // body first so a collapsed 36 pt header cannot leave an invisible full-window docking
         // target behind; expanded bodies register their current targets again below.
@@ -1418,7 +1514,8 @@ impl Editor {
             .unwrap_or_default();
         if let Some(group) = &single_group {
             let palette = neoflash_ui::palette(ui.ctx());
-            let tab_budget = (ui.available_width() - floating_header_chrome_width()).max(1.0);
+            let tab_budget =
+                (ui.available_width() - floating_header_chrome_width_for(panels)).max(1.0);
             let tab_width = |ui: &egui::Ui, panel: PanelId| {
                 ui.fonts_mut(|fonts| {
                     fonts
@@ -1478,111 +1575,214 @@ impl Editor {
             .unwrap_or_else(|| panels.first().copied().unwrap_or(window_id));
         let titles: Vec<&str> = visible_tabs.iter().map(|panel| panel.title()).collect();
         let clipboard_target = self.clipboard_target(ui.ctx());
-        let header = neoflash_ui::components::FloatingPanelHeader {
-            // Single-group windows use these as their only tabs. Split windows
-            // retain the per-group headers below this window-level chrome.
-            tabs: &titles,
-            active: active_index,
-            collapsed,
-        }
-        .show(ui);
-        if let Some(panel) = header.tab.and_then(|index| visible_tabs.get(index)) {
-            self.show_panel(*panel);
-        }
-        // `FloatingPanelHeader` intentionally returns only the clicked index, while docking
-        // also needs per-tab drag/target rectangles. Reconstruct its locked tab geometry and
-        // layer drag responses over the same painted tabs so a single-group window keeps the
-        // individual reorder/tear-off behavior of an ordinary dock header.
-        let tab_safe_right = header.drag.rect.right()
-            - neoflash_ui::tokens::space::S1
-            - 3.0 * neoflash_ui::metrics::MIN_HIT
-            - neoflash_ui::tokens::space::S1;
-        let tab_strip_start = header.drag.rect.left()
-            + neoflash_ui::tokens::space::S2
-            + neoflash_ui::icons::i16::GRIP.side()
-            + neoflash_ui::tokens::space::S1;
-        let mut tab_left = tab_strip_start;
-        let palette = neoflash_ui::palette(ui.ctx());
+        let compact_tools_header = panels == [PanelId::Tools]
+            && ui.available_width() + 0.5 < floating_full_tools_header_width();
         let mut header_tabs = Vec::new();
-        for (panel, title) in visible_tabs.iter().copied().zip(titles.iter().copied()) {
-            let label_width = ui.fonts_mut(|fonts| {
-                fonts
-                    .layout_no_wrap(
-                        title.into(),
-                        neoflash_ui::typography::font(neoflash_ui::TextStyle::SmallStrong),
-                        palette.text_primary,
-                    )
-                    .size()
-                    .x
-            });
-            let width = label_width + 2.0 * neoflash_ui::tokens::space::S3;
-            let painted = egui::Rect::from_min_size(
-                egui::pos2(tab_left, header.drag.rect.top()),
-                egui::vec2(width, neoflash_ui::metrics::panel_tab()),
-            );
-            let interactive = painted.intersect(egui::Rect::from_min_max(
-                header.drag.rect.min,
-                egui::pos2(
-                    tab_safe_right.max(header.drag.rect.left()),
-                    header.drag.rect.bottom(),
-                ),
-            ));
-            tab_left += width;
-            if !interactive.is_positive() {
-                continue;
+        let mut header_collapse = false;
+        let mut header_close = false;
+        let (header_rect, header_menu) = if compact_tools_header {
+            let palette = neoflash_ui::palette(ui.ctx());
+            let width = ui.available_width().max(minimum_logical[0]);
+            let height = TOOLS_GRIP.min(neoflash_ui::metrics::panel_tab());
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+            if ui.is_rect_visible(rect) {
+                ui.painter().rect_filled(rect, 0.0, palette.bg_panel);
+                ui.painter().line_segment(
+                    [rect.left_bottom(), rect.right_bottom()],
+                    egui::Stroke::new(1.0_f32, palette.border_subtle),
+                );
             }
-            let response = ui.interact(
-                interactive,
-                ui.id().with(("native-floating-tab-drag", window_id, panel)),
+            let more_side = if width < 64.0 {
+                neoflash_ui::tokens::space::S5
+            } else {
+                neoflash_ui::metrics::min_hit()
+            };
+            let right_pad = if width < 64.0 {
+                0.5 * neoflash_ui::tokens::space::S1
+            } else {
+                neoflash_ui::tokens::space::S1
+            };
+            let more_rect = egui::Rect::from_center_size(
+                egui::pos2(rect.right() - right_pad - more_side * 0.5, rect.center().y),
+                egui::vec2(more_side, more_side),
+            );
+            let grip_rect = egui::Rect::from_min_max(
+                rect.min,
+                egui::pos2(more_rect.left().max(rect.left()), rect.bottom()),
+            );
+            let grip_response = ui.interact(
+                grip_rect,
+                ui.id().with(("native-floating-tools-grip", window_id)),
                 egui::Sense::click_and_drag(),
             );
-            if response.clicked() {
-                self.show_panel(panel);
-            }
-            self.panel_drag_handle(ui, panel, &response);
-            response.context_menu(|ui| {
-                self.dock_header_menu(
-                    ui,
-                    panel,
-                    crate::workspace::DockSurface::Floating(window_id),
-                    &clipboard_target,
+            grip_response.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    PanelId::Tools.title(),
                 )
             });
-            header_tabs.push((panel, interactive));
-        }
-        // Move the whole window from the grip or genuinely empty header space only. Menu,
-        // collapse and close presses remain buttons; painted tab presses move one panel.
-        let whole_drag_rects = [
-            egui::Rect::from_min_max(
-                header.drag.rect.min,
-                egui::pos2(tab_strip_start, header.drag.rect.bottom()),
-            ),
-            egui::Rect::from_min_max(
-                egui::pos2(
-                    header_tabs
-                        .last()
-                        .map_or(tab_strip_start, |(_, rect)| rect.right()),
-                    header.drag.rect.top(),
-                ),
-                egui::pos2(
-                    tab_safe_right.max(header.drag.rect.left()),
-                    header.drag.rect.bottom(),
-                ),
-            ),
-        ];
-        for (index, rect) in whole_drag_rects.into_iter().enumerate() {
-            if !rect.is_positive() {
-                continue;
+            if ui.is_rect_visible(grip_rect) {
+                let icon_side = neoflash_ui::metrics::ICON_UI.min(grip_rect.width());
+                let icon_rect = egui::Rect::from_center_size(
+                    grip_rect.center(),
+                    egui::vec2(icon_side, icon_side),
+                );
+                let fg = if grip_response.hovered() || grip_response.dragged() {
+                    palette.text_secondary
+                } else {
+                    palette.text_tertiary
+                };
+                neoflash_ui::icons::paint(
+                    ui.painter(),
+                    ui.ctx(),
+                    icon_rect,
+                    neoflash_ui::icons::i16::GRIP_H,
+                    fg,
+                );
             }
-            let response = ui.interact(
-                rect,
-                ui.id()
-                    .with(("native-floating-window-drag", window_id, index)),
-                egui::Sense::click_and_drag(),
+            self.floating_window_drag_handle(ui, window_id, PanelId::Tools, &grip_response);
+            grip_response.context_menu(|ui| {
+                self.dock_header_menu(
+                    ui,
+                    PanelId::Tools,
+                    crate::workspace::DockSurface::Floating(window_id),
+                    &clipboard_target,
+                );
+                ui.separator();
+                let collapse_label = if collapsed {
+                    "Expand panel"
+                } else {
+                    "Collapse panel"
+                };
+                if crate::ui_icons::menu_item(ui, collapse_label, "").clicked() {
+                    header_collapse = true;
+                    ui.close();
+                }
+                if crate::ui_icons::menu_item(ui, "Close panel", "").clicked() {
+                    header_close = true;
+                    ui.close();
+                }
+            });
+            header_tabs.push((PanelId::Tools, grip_rect));
+            let menu = ui.put(
+                more_rect,
+                neoflash_ui::components::IconButton::new(
+                    neoflash_ui::icons::i16::MORE,
+                    "Panel menu",
+                )
+                .side(more_side),
             );
-            self.floating_window_drag_handle(ui, window_id, active, &response);
-        }
-        neoflash_ui::components::popup_below(&header.menu, 240., |ui| {
+            (rect, menu)
+        } else {
+            let header = neoflash_ui::components::FloatingPanelHeader {
+                // Single-group windows use these as their only tabs. Split windows
+                // retain the per-group headers below this window-level chrome.
+                tabs: &titles,
+                active: active_index,
+                collapsed,
+            }
+            .show(ui);
+            if let Some(panel) = header.tab.and_then(|index| visible_tabs.get(index)) {
+                self.show_panel(*panel);
+            }
+            // `FloatingPanelHeader` intentionally returns only the clicked index, while docking
+            // also needs per-tab drag/target rectangles. Reconstruct its locked tab geometry and
+            // layer drag responses over the same painted tabs so a single-group window keeps the
+            // individual reorder/tear-off behavior of an ordinary dock header.
+            let tab_safe_right = header.drag.rect.right()
+                - neoflash_ui::tokens::space::S1
+                - 3.0 * neoflash_ui::metrics::MIN_HIT
+                - neoflash_ui::tokens::space::S1;
+            let tab_strip_start = header.drag.rect.left()
+                + neoflash_ui::tokens::space::S2
+                + neoflash_ui::icons::i16::GRIP.side()
+                + neoflash_ui::tokens::space::S1;
+            let mut tab_left = tab_strip_start;
+            let palette = neoflash_ui::palette(ui.ctx());
+            for (panel, title) in visible_tabs.iter().copied().zip(titles.iter().copied()) {
+                let label_width = ui.fonts_mut(|fonts| {
+                    fonts
+                        .layout_no_wrap(
+                            title.into(),
+                            neoflash_ui::typography::font(neoflash_ui::TextStyle::SmallStrong),
+                            palette.text_primary,
+                        )
+                        .size()
+                        .x
+                });
+                let width = label_width + 2.0 * neoflash_ui::tokens::space::S3;
+                let painted = egui::Rect::from_min_size(
+                    egui::pos2(tab_left, header.drag.rect.top()),
+                    egui::vec2(width, neoflash_ui::metrics::panel_tab()),
+                );
+                let interactive = painted.intersect(egui::Rect::from_min_max(
+                    header.drag.rect.min,
+                    egui::pos2(
+                        tab_safe_right.max(header.drag.rect.left()),
+                        header.drag.rect.bottom(),
+                    ),
+                ));
+                tab_left += width;
+                if !interactive.is_positive() {
+                    continue;
+                }
+                let response = ui.interact(
+                    interactive,
+                    ui.id().with(("native-floating-tab-drag", window_id, panel)),
+                    egui::Sense::click_and_drag(),
+                );
+                if response.clicked() {
+                    self.show_panel(panel);
+                }
+                self.panel_drag_handle(ui, panel, &response);
+                response.context_menu(|ui| {
+                    self.dock_header_menu(
+                        ui,
+                        panel,
+                        crate::workspace::DockSurface::Floating(window_id),
+                        &clipboard_target,
+                    )
+                });
+                header_tabs.push((panel, interactive));
+            }
+            // Move the whole window from the grip or genuinely empty header space only. Menu,
+            // collapse and close presses remain buttons; painted tab presses move one panel.
+            let whole_drag_rects = [
+                egui::Rect::from_min_max(
+                    header.drag.rect.min,
+                    egui::pos2(tab_strip_start, header.drag.rect.bottom()),
+                ),
+                egui::Rect::from_min_max(
+                    egui::pos2(
+                        header_tabs
+                            .last()
+                            .map_or(tab_strip_start, |(_, rect)| rect.right()),
+                        header.drag.rect.top(),
+                    ),
+                    egui::pos2(
+                        tab_safe_right.max(header.drag.rect.left()),
+                        header.drag.rect.bottom(),
+                    ),
+                ),
+            ];
+            for (index, rect) in whole_drag_rects.into_iter().enumerate() {
+                if !rect.is_positive() {
+                    continue;
+                }
+                let response = ui.interact(
+                    rect,
+                    ui.id()
+                        .with(("native-floating-window-drag", window_id, index)),
+                    egui::Sense::click_and_drag(),
+                );
+                self.floating_window_drag_handle(ui, window_id, active, &response);
+            }
+            header_collapse = header.collapse;
+            header_close = header.close;
+            (header.drag.rect, header.menu)
+        };
+        neoflash_ui::components::popup_below(&header_menu, 240., |ui| {
             if let Some(group) = &single_group {
                 let tabs: Vec<_> = group
                     .tabs
@@ -1610,8 +1810,24 @@ impl Editor {
                 crate::workspace::DockSurface::Floating(window_id),
                 &clipboard_target,
             );
+            if compact_tools_header {
+                ui.separator();
+                let collapse_label = if collapsed {
+                    "Expand panel"
+                } else {
+                    "Collapse panel"
+                };
+                if crate::ui_icons::menu_item(ui, collapse_label, "").clicked() {
+                    header_collapse = true;
+                    ui.close();
+                }
+                if crate::ui_icons::menu_item(ui, "Close panel", "").clicked() {
+                    header_close = true;
+                    ui.close();
+                }
+            }
         });
-        if header.collapse {
+        if header_collapse {
             let next = !collapsed;
             ui.ctx()
                 .data_mut(|data| data.insert_temp(collapsed_id, next));
@@ -1641,6 +1857,8 @@ impl Editor {
         } else {
             let body = ui.available_rect_before_wrap();
             if body.is_positive() {
+                ui.painter()
+                    .rect_filled(body, 0.0, neoflash_ui::palette(ui.ctx()).bg_panel);
                 let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
                 body_ui.set_clip_rect(ui.clip_rect().intersect(body));
                 if let Some(group) = &single_group {
@@ -1648,7 +1866,7 @@ impl Editor {
                         &mut body_ui,
                         window_id,
                         group,
-                        header.drag.rect,
+                        header_rect,
                         &header_tabs,
                     );
                 } else {
@@ -1656,7 +1874,7 @@ impl Editor {
                 }
             }
         }
-        !header.close
+        !header_close
     }
 
     /// Embedded fallback of a floating dock window. Returns `false` when the header's close was used.
@@ -1964,7 +2182,18 @@ impl Editor {
         min_h_px: f32,
         zoom: f32,
     ) {
-        let _ = min_w_px;
+        let max_size_logical = self
+            .workspace
+            .floating
+            .iter()
+            .find(|w| w.id == window_id)
+            .and_then(|w| w.root.as_ref())
+            .map_or(
+                crate::workspace::maximum_window_size(PanelId::Tools),
+                |root| root.maximum_size(),
+            );
+        let max_w_px = (max_size_logical[0] * zoom).max(min_w_px);
+        let max_h_px = (max_size_logical[1] * zoom).max(min_h_px);
         let Some(mut geom) = self
             .workspace
             .floating
@@ -1981,11 +2210,17 @@ impl Editor {
             })
         {
             geom.outer_position = [outer.min.x * zoom, outer.min.y * zoom];
-            geom.inner_size = [inner.width() * zoom, inner.height() * zoom];
+            geom.inner_size = [
+                (inner.width() * zoom).clamp(min_w_px, max_w_px),
+                inner.height() * zoom,
+            ];
+        } else {
+            geom.inner_size[0] = geom.inner_size[0].clamp(min_w_px, max_w_px);
         }
-        let target_h_px = (desired_inner_h * zoom).max(min_h_px);
+        let target_h_px = (desired_inner_h * zoom).clamp(min_h_px, max_h_px);
         let target_h_logical = target_h_px / zoom;
         if (geom.inner_size[1] - target_h_px).abs() <= 1.5 {
+            self.workspace.remember_floating_geometry(window_id, geom);
             return;
         }
         let pointer_down = crate::native_screens::pointer_state().is_some_and(|(_, down)| down)
@@ -1996,8 +2231,9 @@ impl Editor {
             ctx.request_repaint_after(Duration::from_millis(16));
             return;
         }
-        // Keep the edge facing away from the Stage fixed: top anchors compact downward,
-        // bottom anchors compact upward.
+        // Keep the edge facing away from the Stage fixed: top anchors (and unanchored windows)
+        // compact bottom-up keeping `outer_position[1]` (the top edge) fixed; bottom anchors
+        // compact upward keeping the bottom edge fixed.
         let anchor = self
             .workspace
             .floating
@@ -2010,6 +2246,10 @@ impl Editor {
             geom.outer_position[1] = old_bottom - target_h_px;
         }
         self.workspace.remember_floating_geometry(window_id, geom);
+        ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(egui::vec2(
+            max_w_px / zoom,
+            target_h_logical,
+        )));
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
             geom.inner_size[0] / zoom,
             target_h_logical,

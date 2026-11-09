@@ -1533,11 +1533,12 @@ impl Editor {
                 return false;
             }
         };
-        match neoflash_export::export_project_with_options(
+        match neoflash_export::export_project_with_config(
             &self.project,
             output,
             runtime_dir,
             &options,
+            &settings.publish_html_config(),
         ) {
             Ok(index) => {
                 self.message(format!("HTML5 exported: {}", index.display()));
@@ -1555,6 +1556,190 @@ impl Editor {
             }
         }
     }
+
+    pub(crate) fn publish_desktop_app_with_settings(
+        &mut self,
+        fallback_parent: Option<&std::path::Path>,
+        runtime_dir: &std::path::Path,
+        settings: &crate::workspace::PublishPrefs,
+    ) -> bool {
+        self.finish_edits();
+        let options = match settings.export_options(&self.project) {
+            Ok(options) => options,
+            Err(error) => {
+                self.message(format!("Publish failed: {error}"));
+                self.show_panel(PanelId::Output);
+                return false;
+            }
+        };
+        let target_dir = if let Some(folder) = settings
+            .desktop_app_folder
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            PathBuf::from(folder)
+        } else if let Some(parent) = fallback_parent {
+            parent.to_path_buf()
+        } else if let Some(configured) = self.configured_publish_folder() {
+            configured
+        } else if let Some(folder) = rfd::FileDialog::new()
+            .set_title("Choose desktop app output folder")
+            .pick_folder()
+        {
+            folder
+        } else {
+            return false;
+        };
+        match neoflash_export::export_desktop_app(
+            &self.project,
+            &target_dir,
+            runtime_dir,
+            &options,
+            &settings.publish_html_config(),
+        ) {
+            Ok(app_path) => {
+                self.message(format!("Desktop app exported: {}", app_path.display()));
+                true
+            }
+            Err(e) => {
+                self.message(format!("Desktop app export failed: {e}"));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
+
+    pub(crate) fn publish_image_sequence_with_settings(
+        &mut self,
+        fallback_parent: Option<&std::path::Path>,
+        settings: &crate::workspace::PublishPrefs,
+    ) -> bool {
+        self.finish_edits();
+        let target_dir = if let Some(folder) = settings
+            .image_sequence_folder
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            PathBuf::from(folder)
+        } else if let Some(parent) = fallback_parent {
+            parent.to_path_buf()
+        } else if let Some(configured) = self.configured_publish_folder() {
+            configured
+        } else if let Some(folder) = rfd::FileDialog::new()
+            .set_title("Choose image sequence / sprite sheet output folder")
+            .pick_folder()
+        {
+            folder
+        } else {
+            return false;
+        };
+        if settings.image_sequence_sprite_sheet {
+            let is_meta_file = target_dir
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("xml"));
+            let meta_path = if is_meta_file {
+                if let Some(parent) = target_dir.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                target_dir
+            } else {
+                let _ = std::fs::create_dir_all(&target_dir);
+                target_dir.join("spritesheet.json")
+            };
+            let opts = neoflash_export::AtlasOptions::default();
+            match neoflash_export::export_project_atlas(&self.project, &meta_path, &opts) {
+                Ok(report) => {
+                    self.message(format!(
+                        "Sprite sheet exported: {}",
+                        report.image_path.display()
+                    ));
+                    true
+                }
+                Err(e) => {
+                    self.message(format!("Sprite sheet export failed: {e}"));
+                    self.show_panel(PanelId::Output);
+                    false
+                }
+            }
+        } else {
+            let _ = std::fs::create_dir_all(&target_dir);
+            let opts = neoflash_export::ImageExportOptions {
+                format: neoflash_export::ImageExportFormat::Png,
+                range: neoflash_export::ImageExportRange::WholeMovie,
+                ..neoflash_export::ImageExportOptions::default()
+            };
+            let out_file = target_dir.join("frame.png");
+            match neoflash_export::export_project_image(&self.project, &out_file, &opts) {
+                Ok(report) => {
+                    let shown = report
+                        .files
+                        .first()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| out_file.display().to_string());
+                    self.message(format!("Image sequence exported: {shown}"));
+                    true
+                }
+                Err(e) => {
+                    self.message(format!("Image sequence export failed: {e}"));
+                    self.show_panel(PanelId::Output);
+                    false
+                }
+            }
+        }
+    }
+
+    pub(crate) fn publish_svg_with_settings(
+        &mut self,
+        fallback_parent: Option<&std::path::Path>,
+        settings: &crate::workspace::PublishPrefs,
+    ) -> bool {
+        self.finish_edits();
+        let svg_path = if let Some(file) = settings
+            .svg_file
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            PathBuf::from(file)
+        } else if let Some(parent) = fallback_parent {
+            parent.join("animation.svg")
+        } else if let Some(configured) = self.configured_publish_folder() {
+            configured.join("animation.svg")
+        } else if let Some(file) = rfd::FileDialog::new()
+            .set_title("Export SVG animation")
+            .add_filter("SVG", &["svg"])
+            .set_file_name("animation.svg")
+            .save_file()
+        {
+            file
+        } else {
+            return false;
+        };
+        if let Some(parent) = svg_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let opts = neoflash_export::SvgOptions::default();
+        match neoflash_export::export_project_svg(&self.project, &svg_path, &opts) {
+            Ok(report) => {
+                let shown = report
+                    .files
+                    .first()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| svg_path.display().to_string());
+                self.message(format!("SVG exported: {shown}"));
+                true
+            }
+            Err(e) => {
+                self.message(format!("SVG export failed: {e}"));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
+
     pub fn export(&mut self, test: bool) {
         if !self.has_document() {
             return;
@@ -1568,7 +1753,14 @@ impl Editor {
                 .join("neoflash-preview")
                 .join(std::process::id().to_string());
             self.finish_edits();
-            match neoflash_export::export_project(&self.project, &output, &Self::runtime_dir()) {
+            let preview_config = self.workspace.publish.preview_html_config();
+            match neoflash_export::export_project_with_config(
+                &self.project,
+                &output,
+                &Self::runtime_dir(),
+                &neoflash_export::PublishOptions::default(),
+                &preview_config,
+            ) {
                 Ok(index) => {
                     self.message(format!("HTML5 exported: {}", index.display()));
                     let project_snapshot = self.project.clone();
@@ -1589,17 +1781,36 @@ impl Editor {
             return;
         }
         let settings = self.workspace.publish.clone();
-        let publish_video = settings.video_enabled
-            || settings.default_target == crate::workspace::PublishTarget::VideoMp4;
-        if publish_video && !settings.html5_enabled {
+        if !settings.has_any_enabled_target() {
+            self.message("Select at least one publish target in Publish settings.");
+            self.open_publish_settings();
+            return;
+        }
+        let publish_video = settings.video_enabled;
+        let needs_shared_output = settings.html5_enabled
+            || (settings.desktop_app_enabled && settings.desktop_app_folder.is_none())
+            || (settings.image_sequence_enabled && settings.image_sequence_folder.is_none())
+            || (settings.svg_enabled && settings.svg_file.is_none());
+        if publish_video && !needs_shared_output {
             self.publish_video_with_settings(None, &settings);
+            if settings.desktop_app_enabled {
+                self.publish_desktop_app_with_settings(None, &Self::runtime_dir(), &settings);
+            }
+            if settings.image_sequence_enabled {
+                self.publish_image_sequence_with_settings(None, &settings);
+            }
+            if settings.svg_enabled {
+                self.publish_svg_with_settings(None, &settings);
+            }
             return;
         }
         let output = if let Some(configured) = self.configured_publish_folder() {
             configured
+        } else if !needs_shared_output {
+            PathBuf::new()
         } else {
             let Some(base) = rfd::FileDialog::new()
-                .set_title("Choose HTML5 output parent folder")
+                .set_title("Choose publish output parent folder")
                 .pick_folder()
             else {
                 return;
@@ -1612,11 +1823,21 @@ impl Editor {
                     .as_secs()
             ))
         };
+        let parent_opt = (!output.as_os_str().is_empty()).then_some(output.as_path());
         if settings.html5_enabled {
             self.publish_html5_to(&output, &Self::runtime_dir());
         }
+        if settings.desktop_app_enabled {
+            self.publish_desktop_app_with_settings(parent_opt, &Self::runtime_dir(), &settings);
+        }
         if publish_video {
-            self.publish_video_with_settings(Some(&output), &settings);
+            self.publish_video_with_settings(parent_opt, &settings);
+        }
+        if settings.image_sequence_enabled {
+            self.publish_image_sequence_with_settings(parent_opt, &settings);
+        }
+        if settings.svg_enabled {
+            self.publish_svg_with_settings(parent_opt, &settings);
         }
     }
     /// Export the document (or a specific `symbol_id`) to a Bodymovin / Lottie `.json` file.
@@ -1635,6 +1856,191 @@ impl Editor {
     }
     pub fn export_lottie_dialog(&mut self, symbol_id: Option<&str>) {
         self.open_export_lottie(symbol_id);
+    }
+
+    /// Export the active project to a standalone Flash Movie (`.swf`) via `publish_swf_to_path` (`T-192`).
+    pub fn export_swf_dialog(&mut self, dest: Option<PathBuf>) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        self.finish_edits();
+        let default_name = format!(
+            "{}.swf",
+            self.project.name.trim().replace(['/', '\\', ':'], "_")
+        );
+        let swf_path = if let Some(path) = dest {
+            path
+        } else if let Some(file) = rfd::FileDialog::new()
+            .set_title("Export Flash Movie (.swf)")
+            .add_filter("SWF Movie", &["swf"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            file
+        } else {
+            return false;
+        };
+        let opts = neoflash_export::SwfPublishOptions::default();
+        match neoflash_export::publish_swf_to_path(&self.project, &swf_path, &opts) {
+            Ok(report) => {
+                self.message(format!(
+                    "SWF exported ({}, {} compatibility items): {}",
+                    report.profile.label(),
+                    report.items.len(),
+                    swf_path.display()
+                ));
+                true
+            }
+            Err(e) => {
+                self.message(format!("SWF export failed: {e}"));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
+
+    /// Export the active project to a versioned XFL/FLA or Legacy Binary FLA target (`T-188`, `T-189`).
+    pub fn export_fla_profile_dialog(
+        &mut self,
+        profile: neoflash_export::FlaTargetProfile,
+        dest: Option<PathBuf>,
+    ) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        self.finish_edits();
+        let stem = self.project.name.trim().replace(['/', '\\', ':'], "_");
+        let target_path = if let Some(path) = dest {
+            path
+        } else if matches!(profile, neoflash_export::FlaTargetProfile::UncompressedXfl) {
+            let Some(folder) = rfd::FileDialog::new()
+                .set_title("Choose output folder for Uncompressed XFL")
+                .pick_folder()
+            else {
+                return false;
+            };
+            folder.join(format!("{stem}-xfl"))
+        } else {
+            let default_name = format!("{stem}.fla");
+            let Some(file) = rfd::FileDialog::new()
+                .set_title(format!("Export {}", profile.label()))
+                .add_filter("Flash Document (.fla)", &["fla"])
+                .set_file_name(&default_name)
+                .save_file()
+            else {
+                return false;
+            };
+            file
+        };
+        let opts = neoflash_export::FlaExportOptions::default();
+        match neoflash_export::export_fla_with_profile(&self.project, profile, &opts, &target_path)
+        {
+            Ok(report) => {
+                self.message(format!(
+                    "Exported {} ({} compatibility items): {}",
+                    profile.label(),
+                    report.items.len(),
+                    target_path.display()
+                ));
+                true
+            }
+            Err(e) => {
+                self.message(format!("FLA/XFL export failed ({}): {e}", profile.label()));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
+
+    /// Execute a JSFL script in the deterministic sandboxed `JsflSandbox` and commit any project
+    /// modifications as a single Undo step (`T-187`).
+    pub fn run_jsfl_script(
+        &mut self,
+        script_name: &str,
+        source: &str,
+    ) -> Result<neoflash_core::JsflResult, String> {
+        self.finish_edits();
+        let mut state = neoflash_core::JsflAuthoringState::for_project(&self.project);
+        state.active_symbol = self.symbol_id().to_owned();
+        state.current_layer = self.layer;
+        state.current_frame = self.frame;
+        state.selected_element_ids = self
+            .selection
+            .targets
+            .iter()
+            .map(|t| t.element.clone())
+            .collect();
+        state.selected_layers = self.target_layer_indices(self.layer);
+        if let Some(lib_id) = &self.library_selected {
+            state.selected_library_items = vec![lib_id.clone()];
+        }
+        let sandbox = neoflash_core::JsflSandbox::new();
+        match sandbox.execute(&self.project, &state, script_name, source) {
+            Ok(result) => {
+                for line in &result.output_lines {
+                    self.message(line.clone());
+                }
+                if result.mutations > 0 && result.project != self.project {
+                    let undo_label = if result.undo_label.trim().is_empty() {
+                        format!("Run JSFL: {script_name}")
+                    } else {
+                        result.undo_label.clone()
+                    };
+                    let next_project = result.project.clone();
+                    self.transact_named(&undo_label, move |editor| {
+                        editor.project = next_project;
+                    });
+                }
+                self.message(format!(
+                    "JSFL '{script_name}' completed ({} step(s), {} mutation(s)).",
+                    result.steps_executed, result.mutations
+                ));
+                Ok(result)
+            }
+            Err(diag) => {
+                let msg = format!(
+                    "JSFL error in {} ({}:{}): {}",
+                    diag.file, diag.line, diag.column, diag.message
+                );
+                self.message(msg.clone());
+                self.show_panel(PanelId::Output);
+                Err(msg)
+            }
+        }
+    }
+
+    /// Pick and run a `.jsfl` script file on the active document (`T-187`).
+    pub fn run_jsfl_script_dialog(&mut self, path: Option<PathBuf>) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        let script_path = if let Some(p) = path {
+            p
+        } else if let Some(file) = rfd::FileDialog::new()
+            .set_title("Run JSFL Script (.jsfl)")
+            .add_filter("JSFL Script", &["jsfl", "js"])
+            .pick_file()
+        {
+            file
+        } else {
+            return false;
+        };
+        let script_name = script_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("script.jsfl")
+            .to_owned();
+        match std::fs::read_to_string(&script_path) {
+            Ok(source) => self.run_jsfl_script(&script_name, &source).is_ok(),
+            Err(e) => {
+                self.message(format!(
+                    "Cannot read JSFL script {}: {e}",
+                    script_path.display()
+                ));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
     }
     /// Single-scene copy of `self.project` rooted at the currently edited scene (`Control ▸ Test scene`).
     pub(crate) fn test_scene_project(&self) -> Project {
@@ -1666,7 +2072,14 @@ impl Editor {
         let output = std::env::temp_dir()
             .join("neoflash-preview-scene")
             .join(std::process::id().to_string());
-        match neoflash_export::export_project(&project, &output, &Self::runtime_dir()) {
+        let preview_config = self.workspace.publish.preview_html_config();
+        match neoflash_export::export_project_with_config(
+            &project,
+            &output,
+            &Self::runtime_dir(),
+            &neoflash_export::PublishOptions::default(),
+            &preview_config,
+        ) {
             Ok(index) => {
                 self.message(format!("HTML5 scene exported: {}", index.display()));
                 self.log_export_report(&project);
@@ -2230,135 +2643,6 @@ impl Editor {
         }
     }
 
-    pub fn move_key(&mut self, layer: usize, from: u32, to: u32, copy: bool) -> bool {
-        let is_button = self.symbol().kind == SymbolKind::Button;
-        let timeline = &self.symbol().timeline;
-        let Some(l) = timeline.layers.get(layer) else {
-            return false;
-        };
-        let max_frames = if is_button {
-            timeline.frame_count
-        } else {
-            1_000_000
-        };
-        if layer_effectively_locked(timeline, l)
-            || !layer_effectively_visible(timeline, l)
-            || l.properties.role == LayerRole::Folder
-            || to >= max_frames
-            || from == to
-        {
-            return false;
-        }
-        if l.keyframes.iter().any(|k| k.frame == to) {
-            self.message("A keyframe already exists at the destination.");
-            return false;
-        }
-        let Some(mut key) = l.keyframes.iter().find(|k| k.frame == from).cloned() else {
-            return false;
-        };
-        let script = self
-            .timeline_edit
-            .include_scripts
-            .then(|| {
-                timeline
-                    .scripts
-                    .iter()
-                    .find(|script| script.frame == from)
-                    .cloned()
-            })
-            .flatten();
-        if script.is_some() && timeline.scripts.iter().any(|script| script.frame == to) {
-            self.message("A frame script already exists at the destination. The key and script were not moved.");
-            return false;
-        }
-        let step_label = if copy {
-            "Copy keyframe"
-        } else {
-            "Move keyframe"
-        };
-        self.transact_named(step_label, |s| {
-            let old_count = s.symbol().timeline.frame_count;
-            let (layer_id, old_layer_end, was_trailing_single) = {
-                let l = &s.symbol().timeline.layers[layer];
-                let old_end = l.properties.end_frame.unwrap_or(old_count);
-                let was_last = l.keyframes.last().is_some_and(|k| k.frame == from);
-                let still_last = l
-                    .keyframes
-                    .iter()
-                    .filter(|k| k.frame != from)
-                    .all(|k| k.frame < to);
-                (
-                    l.id.clone(),
-                    old_end,
-                    !copy && from > 0 && was_last && still_last && old_end == from + 1,
-                )
-            };
-            let new_layer_end = if was_trailing_single {
-                to + 1
-            } else {
-                old_layer_end.max(to + 1)
-            };
-            let l = &mut s.symbol_mut().timeline.layers[layer];
-            if !copy {
-                l.keyframes.retain(|k| k.frame != from);
-            }
-            key.frame = to;
-            if copy {
-                key.label.clear();
-            }
-            l.keyframes.push(key);
-            l.keyframes.sort_by_key(|k| k.frame);
-            l.normalize_motion_keys();
-            if let Some(mut script) = script {
-                let scripts = &mut s.symbol_mut().timeline.scripts;
-                if !copy {
-                    scripts.retain(|item| item.frame != from);
-                }
-                script.frame = to;
-                scripts.push(script);
-                scripts.sort_by_key(|item| item.frame);
-            }
-            if new_layer_end != old_layer_end {
-                let timeline = &mut s.symbol_mut().timeline;
-                for other in &mut timeline.layers {
-                    if other.id == layer_id {
-                        other.properties.end_frame = Some(new_layer_end);
-                    } else if other.properties.role != LayerRole::Folder
-                        && other.properties.end_frame.is_none()
-                    {
-                        other.properties.end_frame = Some(old_count);
-                    }
-                }
-                let next_count = timeline
-                    .layers
-                    .iter()
-                    .filter(|other| other.properties.role != LayerRole::Folder)
-                    .map(|other| other.properties.end_frame.unwrap_or(old_count))
-                    .chain(timeline.scripts.iter().map(|sc| sc.frame + 1))
-                    .max()
-                    .unwrap_or(1)
-                    .max(1);
-                timeline.frame_count = next_count;
-                for other in &mut timeline.layers {
-                    if other.properties.role == LayerRole::Folder
-                        && other.properties.end_frame.is_some()
-                    {
-                        other.properties.end_frame = Some(next_count);
-                    }
-                }
-                s.project.format_version = s.project.format_version.max(5);
-            } else if let Some(end) =
-                &mut s.symbol_mut().timeline.layers[layer].properties.end_frame
-            {
-                *end = (*end).max(to + 1);
-            }
-            s.frame = to;
-            s.layer = layer;
-            s.clear_selection();
-        });
-        true
-    }
-
     pub fn insert_frame(&mut self) {
         if self.timeline_edit.focused && self.selected_frame_range().is_some() {
             self.insert_frame_range();
@@ -2792,6 +3076,7 @@ impl eframe::App for Editor {
             self.no_document_view(ctx);
         }
         self.draw_dialogs(ctx);
+        crate::panels::productivity_tools::show_productivity_modals(self, ctx);
         self.workspace_dialog(ctx);
         self.customize_tools_dialog(ctx);
         self.trace_bitmap_dialog(ctx);
@@ -2800,6 +3085,7 @@ impl eframe::App for Editor {
             self.detached_panels(ctx);
         }
         self.planned_panels(ctx);
+        crate::panels::ui_studio::show_studio_window(ctx);
         self.update_publish_estimate(ctx);
         self.notification_host(ctx, self.has_document().then_some(self.stage_view.canvas));
         self.reconcile_stage_cursor_after_overlays(ctx);

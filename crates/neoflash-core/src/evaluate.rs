@@ -205,7 +205,274 @@ fn color_lerp(a: Color, b: Color, t: f64) -> Color {
     std::array::from_fn(|i| lerp(a[i] as f64, b[i] as f64, t).clamp(0., 255.).round() as u8)
 }
 
+fn zero_dummy_filter(spec: &FilterSpec) -> FilterSpec {
+    let quality = spec.quality_level();
+    match spec {
+        FilterSpec::Blur { .. } => FilterSpec::Blur {
+            blur_x: 0.0,
+            blur_y: 0.0,
+            quality,
+        },
+        FilterSpec::Glow {
+            color,
+            inner,
+            knockout,
+            ..
+        } => FilterSpec::Glow {
+            color: *color,
+            alpha: 0.0,
+            blur_x: 0.0,
+            blur_y: 0.0,
+            strength: 0.0,
+            quality,
+            inner: *inner,
+            knockout: *knockout,
+        },
+        FilterSpec::DropShadow {
+            angle,
+            color,
+            inner,
+            knockout,
+            hide_object,
+            ..
+        } => FilterSpec::DropShadow {
+            distance: 0.0,
+            angle: *angle,
+            color: *color,
+            alpha: 0.0,
+            blur_x: 0.0,
+            blur_y: 0.0,
+            strength: 0.0,
+            quality,
+            inner: *inner,
+            knockout: *knockout,
+            hide_object: *hide_object,
+        },
+        FilterSpec::Bevel {
+            angle,
+            highlight_color,
+            shadow_color,
+            placement,
+            knockout,
+            ..
+        } => FilterSpec::Bevel {
+            distance: 0.0,
+            angle: *angle,
+            highlight_color: *highlight_color,
+            highlight_alpha: 0.0,
+            shadow_color: *shadow_color,
+            shadow_alpha: 0.0,
+            blur_x: 0.0,
+            blur_y: 0.0,
+            strength: 0.0,
+            quality,
+            placement: placement.clone(),
+            knockout: *knockout,
+        },
+        FilterSpec::GradientGlow {
+            angle,
+            colors,
+            alphas,
+            ratios,
+            placement,
+            knockout,
+            ..
+        } => FilterSpec::GradientGlow {
+            distance: 0.0,
+            angle: *angle,
+            colors: colors.clone(),
+            alphas: vec![0.0; alphas.len()],
+            ratios: ratios.clone(),
+            blur_x: 0.0,
+            blur_y: 0.0,
+            strength: 0.0,
+            quality,
+            placement: placement.clone(),
+            knockout: *knockout,
+        },
+        FilterSpec::GradientBevel {
+            angle,
+            colors,
+            alphas,
+            ratios,
+            placement,
+            knockout,
+            ..
+        } => FilterSpec::GradientBevel {
+            distance: 0.0,
+            angle: *angle,
+            colors: colors.clone(),
+            alphas: vec![0.0; alphas.len()],
+            ratios: ratios.clone(),
+            blur_x: 0.0,
+            blur_y: 0.0,
+            strength: 0.0,
+            quality,
+            placement: placement.clone(),
+            knockout: *knockout,
+        },
+        FilterSpec::ColorMatrix { .. } => FilterSpec::ColorMatrix {
+            matrix: crate::IDENTITY_COLOR_MATRIX,
+        },
+        FilterSpec::Convolution {
+            matrix_x,
+            matrix_y,
+            preserve_alpha,
+            clamp,
+            color,
+            alpha,
+            ..
+        } => {
+            let mx = (*matrix_x).max(1);
+            let my = (*matrix_y).max(1);
+            let mut matrix = vec![0.0; (mx * my) as usize];
+            let center = ((my / 2) * mx + (mx / 2)) as usize;
+            if let Some(cell) = matrix.get_mut(center) {
+                *cell = 1.0;
+            }
+            FilterSpec::Convolution {
+                matrix_x: mx,
+                matrix_y: my,
+                matrix,
+                divisor: 1.0,
+                bias: 0.0,
+                preserve_alpha: *preserve_alpha,
+                clamp: *clamp,
+                color: *color,
+                alpha: *alpha,
+            }
+        }
+    }
+}
+
+fn sample_gradient_stop_at(
+    colors: &[u32],
+    alphas: &[f64],
+    ratios: &[u8],
+    ratio: f64,
+) -> (u32, f64) {
+    let n = colors.len().min(alphas.len()).min(ratios.len());
+    if n == 0 {
+        return (0x000000, 0.0);
+    }
+    if ratio <= ratios[0] as f64 || n == 1 {
+        return (colors[0], alphas[0]);
+    }
+    if ratio >= ratios[n - 1] as f64 {
+        return (colors[n - 1], alphas[n - 1]);
+    }
+    for i in 0..(n - 1) {
+        let r0 = ratios[i] as f64;
+        let r1 = ratios[i + 1] as f64;
+        if ratio <= r1 {
+            let local_t = if (r1 - r0).abs() <= 1e-9 {
+                0.0
+            } else {
+                ((ratio - r0) / (r1 - r0)).clamp(0.0, 1.0)
+            };
+            let ch = |c: u32, shift: u32| ((c >> shift) & 0xff) as f64;
+            let r = lerp(ch(colors[i], 16), ch(colors[i + 1], 16), local_t)
+                .round()
+                .clamp(0.0, 255.0) as u32;
+            let g = lerp(ch(colors[i], 8), ch(colors[i + 1], 8), local_t)
+                .round()
+                .clamp(0.0, 255.0) as u32;
+            let b = lerp(ch(colors[i], 0), ch(colors[i + 1], 0), local_t)
+                .round()
+                .clamp(0.0, 255.0) as u32;
+            let a = lerp(alphas[i], alphas[i + 1], local_t).clamp(0.0, 1.0);
+            return ((r << 16) | (g << 8) | b, a);
+        }
+    }
+    (colors[n - 1], alphas[n - 1])
+}
+
+fn interpolate_gradient_stops(
+    ac: &[u32],
+    aa: &[f64],
+    ar: &[u8],
+    bc: &[u32],
+    ba: &[f64],
+    br: &[u8],
+    t: f64,
+) -> (Vec<u32>, Vec<f64>, Vec<u8>) {
+    let lerp_rgb = |ca: u32, cb: u32| -> u32 {
+        let ch = |c: u32, shift: u32| ((c >> shift) & 0xff) as f64;
+        let r = lerp(ch(ca, 16), ch(cb, 16), t).round().clamp(0.0, 255.0) as u32;
+        let g = lerp(ch(ca, 8), ch(cb, 8), t).round().clamp(0.0, 255.0) as u32;
+        let bl = lerp(ch(ca, 0), ch(cb, 0), t).round().clamp(0.0, 255.0) as u32;
+        (r << 16) | (g << 8) | bl
+    };
+    let na = ac.len().min(aa.len()).min(ar.len());
+    let nb = bc.len().min(ba.len()).min(br.len());
+    if na == nb && na > 0 {
+        let colors = (0..na).map(|i| lerp_rgb(ac[i], bc[i])).collect();
+        let alphas = (0..na)
+            .map(|i| lerp(aa[i], ba[i], t).clamp(0.0, 1.0))
+            .collect();
+        let mut ratios: Vec<u8> = (0..na)
+            .map(|i| {
+                lerp(ar[i] as f64, br[i] as f64, t)
+                    .round()
+                    .clamp(0.0, 255.0) as u8
+            })
+            .collect();
+        for i in 1..ratios.len() {
+            ratios[i] = ratios[i].max(ratios[i - 1]);
+        }
+        return (colors, alphas, ratios);
+    }
+    let count = na.max(nb).clamp(2, 16);
+    let mut colors = Vec::with_capacity(count);
+    let mut alphas = Vec::with_capacity(count);
+    let mut ratios = Vec::with_capacity(count);
+    for i in 0..count {
+        let frac = i as f64 / (count - 1) as f64;
+        let ra = if na > 0 {
+            let idx_f = frac * (na - 1) as f64;
+            let i0 = idx_f.floor() as usize;
+            let i1 = (i0 + 1).min(na - 1);
+            lerp(ar[i0] as f64, ar[i1] as f64, idx_f - i0 as f64)
+        } else {
+            frac * 255.0
+        };
+        let rb = if nb > 0 {
+            let idx_f = frac * (nb - 1) as f64;
+            let i0 = idx_f.floor() as usize;
+            let i1 = (i0 + 1).min(nb - 1);
+            lerp(br[i0] as f64, br[i1] as f64, idx_f - i0 as f64)
+        } else {
+            frac * 255.0
+        };
+        let r = lerp(ra, rb, t).round().clamp(0.0, 255.0) as u8;
+        let (ca, alpha_a) = sample_gradient_stop_at(ac, aa, ar, r as f64);
+        let (cb, alpha_b) = sample_gradient_stop_at(bc, ba, br, r as f64);
+        colors.push(lerp_rgb(ca, cb));
+        alphas.push(lerp(alpha_a, alpha_b, t).clamp(0.0, 1.0));
+        ratios.push(r);
+    }
+    for i in 1..ratios.len() {
+        ratios[i] = ratios[i].max(ratios[i - 1]);
+    }
+    (colors, alphas, ratios)
+}
+
 fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSpec> {
+    let a_enabled = a.is_enabled();
+    let b_enabled = b.is_enabled();
+    if !a_enabled && !b_enabled {
+        let a_en = a.clone().with_enabled(true);
+        let b_en = b.clone().with_enabled(true);
+        return interpolate_filter(&a_en, &b_en, t).map(|f| f.with_enabled(false));
+    }
+    if !a_enabled && b_enabled {
+        let dummy = zero_dummy_filter(b);
+        return interpolate_filter(&dummy, b, t);
+    }
+    if a_enabled && !b_enabled {
+        let dummy = zero_dummy_filter(a);
+        return interpolate_filter(a, &dummy, t);
+    }
     let lerp_rgb = |ca: u32, cb: u32| -> u32 {
         let ch = |c: u32, shift: u32| ((c >> shift) & 0xff) as f64;
         let r = lerp(ch(ca, 16), ch(cb, 16), t).round().clamp(0.0, 255.0) as u32;
@@ -342,8 +609,143 @@ fn interpolate_filter(a: &FilterSpec, b: &FilterSpec, t: f64) -> Option<FilterSp
             placement: placement.clone(),
             knockout: *knockout,
         }),
+        (
+            FilterSpec::GradientGlow {
+                distance: ad,
+                angle: aang,
+                colors: ac,
+                alphas: aa,
+                ratios: ar,
+                blur_x: ax,
+                blur_y: ay,
+                strength: ast,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpec::GradientGlow {
+                distance: bd,
+                angle: bang,
+                colors: bc,
+                alphas: ba,
+                ratios: br,
+                blur_x: bx,
+                blur_y: by,
+                strength: bst,
+                ..
+            },
+        ) => {
+            let (colors, alphas, ratios) = interpolate_gradient_stops(ac, aa, ar, bc, ba, br, t);
+            Some(FilterSpec::GradientGlow {
+                distance: lerp(*ad, *bd, t),
+                angle: lerp(*aang, *bang, t),
+                colors,
+                alphas,
+                ratios,
+                blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
+                blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
+                strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
+                quality: *quality,
+                placement: placement.clone(),
+                knockout: *knockout,
+            })
+        }
+        (
+            FilterSpec::GradientBevel {
+                distance: ad,
+                angle: aang,
+                colors: ac,
+                alphas: aa,
+                ratios: ar,
+                blur_x: ax,
+                blur_y: ay,
+                strength: ast,
+                quality,
+                placement,
+                knockout,
+            },
+            FilterSpec::GradientBevel {
+                distance: bd,
+                angle: bang,
+                colors: bc,
+                alphas: ba,
+                ratios: br,
+                blur_x: bx,
+                blur_y: by,
+                strength: bst,
+                ..
+            },
+        ) => {
+            let (colors, alphas, ratios) = interpolate_gradient_stops(ac, aa, ar, bc, ba, br, t);
+            Some(FilterSpec::GradientBevel {
+                distance: lerp(*ad, *bd, t),
+                angle: lerp(*aang, *bang, t),
+                colors,
+                alphas,
+                ratios,
+                blur_x: lerp(*ax, *bx, t).clamp(0.0, 255.0),
+                blur_y: lerp(*ay, *by, t).clamp(0.0, 255.0),
+                strength: lerp(*ast, *bst, t).clamp(0.0, 255.0),
+                quality: *quality,
+                placement: placement.clone(),
+                knockout: *knockout,
+            })
+        }
         _ => None,
     }
+}
+
+/// Interpolates two filter stacks at `t` (`0.0..=1.0`).
+///
+/// When one endpoint has filters that are missing on the other endpoint, synthesizes a matching
+/// zero-strength / zero-blur dummy filter at the opposite endpoint (Flash 8–CS6 tween behavior)
+/// so filters smoothly animate in and out across tweens.
+pub fn interpolate_filter_list(a: &[FilterSpec], b: &[FilterSpec], t: f64) -> Vec<FilterSpec> {
+    if a.is_empty() && b.is_empty() {
+        return Vec::new();
+    }
+    if a.len() == b.len()
+        && let Some(interpolated) = a
+            .iter()
+            .zip(b)
+            .map(|(fa, fb)| interpolate_filter(fa, fb, t))
+            .collect::<Option<Vec<_>>>()
+    {
+        return interpolated;
+    }
+    let mut out = Vec::with_capacity(a.len().max(b.len()));
+    let mut b_cursor = 0usize;
+    for fa in a {
+        if let Some(rel_idx) = b[b_cursor..]
+            .iter()
+            .position(|fb| std::mem::discriminant(fa) == std::mem::discriminant(fb))
+        {
+            let match_idx = b_cursor + rel_idx;
+            for fb in &b[b_cursor..match_idx] {
+                let dummy = zero_dummy_filter(fb);
+                if let Some(interp) = interpolate_filter(&dummy, fb, t) {
+                    out.push(interp);
+                }
+            }
+            if let Some(interp) = interpolate_filter(fa, &b[match_idx], t) {
+                out.push(interp);
+            }
+            b_cursor = match_idx + 1;
+        } else {
+            let dummy = zero_dummy_filter(fa);
+            if let Some(interp) = interpolate_filter(fa, &dummy, t) {
+                out.push(interp);
+            }
+        }
+    }
+    for fb in &b[b_cursor..] {
+        let dummy = zero_dummy_filter(fb);
+        if let Some(interp) = interpolate_filter(&dummy, fb, t) {
+            out.push(interp);
+        }
+    }
+    out.truncate(crate::MAX_OBJECT_FILTERS);
+    out
 }
 
 fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
@@ -401,15 +803,8 @@ fn interpolate(a: &Element, b: &Element, t: f64) -> Element {
         pivot,
         primitive,
     };
-    if a.filters.len() == b.filters.len()
-        && let Some(interpolated) = a
-            .filters
-            .iter()
-            .zip(&b.filters)
-            .map(|(fa, fb)| interpolate_filter(fa, fb, t))
-            .collect::<Option<Vec<_>>>()
-    {
-        e.filters = interpolated;
+    if !a.filters.is_empty() || !b.filters.is_empty() {
+        e.filters = interpolate_filter_list(&a.filters, &b.filters, t);
     }
     match (&a.kind, &b.kind, &mut e.kind) {
         (
@@ -537,6 +932,24 @@ pub fn sample_layer(layer: &Layer, frame: u32) -> Vec<Element> {
     sample_layer_at_fps(layer, frame, 24.0)
 }
 
+fn apply_layer_and_keyframe_filters(
+    mut elements: Vec<Element>,
+    key_filters: &[FilterSpec],
+    layer_filters: &[FilterSpec],
+) -> Vec<Element> {
+    if key_filters.is_empty() && layer_filters.is_empty() {
+        return elements;
+    }
+    for el in &mut elements {
+        for f in key_filters.iter().chain(layer_filters.iter()) {
+            if f.is_enabled() && el.filters.len() < crate::MAX_OBJECT_FILTERS {
+                el.filters.push(f.clone());
+            }
+        }
+    }
+    elements
+}
+
 /// Sample a layer with an explicit document frame rate for property-expression evaluation.
 pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> {
     let Some(key) = layer.key_at(frame) else {
@@ -547,32 +960,42 @@ pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> 
     {
         let elements = sample_motion(layer, frame);
         let start_key = motion_span(layer, frame).map(|(s, _, _)| s).unwrap_or(key);
-        return apply_keyframe_rigs_and_appearances(elements, start_key, None, 0.0, frame, fps);
+        let key_filters = sample_motion_key_filters(layer, frame, start_key);
+        let evaluated =
+            apply_keyframe_rigs_and_appearances(elements, start_key, None, 0.0, frame, fps);
+        return apply_layer_and_keyframe_filters(
+            evaluated,
+            &key_filters,
+            &layer.properties.filters,
+        );
     }
     let Some(ease) = key.tween else {
-        return apply_keyframe_rigs_and_appearances(
-            key.elements.clone(),
-            key,
-            None,
-            0.0,
-            frame,
-            fps,
+        let evaluated =
+            apply_keyframe_rigs_and_appearances(key.elements.clone(), key, None, 0.0, frame, fps);
+        return apply_layer_and_keyframe_filters(
+            evaluated,
+            &key.filters,
+            &layer.properties.filters,
         );
     };
     let Some(next) = next_key(layer, key.frame) else {
-        return apply_keyframe_rigs_and_appearances(
-            key.elements.clone(),
-            key,
-            None,
-            0.0,
-            frame,
-            fps,
+        let evaluated =
+            apply_keyframe_rigs_and_appearances(key.elements.clone(), key, None, 0.0, frame, fps);
+        return apply_layer_and_keyframe_filters(
+            evaluated,
+            &key.filters,
+            &layer.properties.filters,
         );
     };
     let t = easing(
         (frame - key.frame) as f64 / (next.frame - key.frame) as f64,
         ease,
     );
+    let key_filters = if !key.filters.is_empty() || !next.filters.is_empty() {
+        interpolate_filter_list(&key.filters, &next.filters, t)
+    } else {
+        Vec::new()
+    };
     if key.tween_kind == TweenKind::Shape {
         let elements = crate::shape_tween::shape_tween_elements_with_hints(
             &key.elements,
@@ -580,7 +1003,13 @@ pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> 
             &key.shape_hints,
             t,
         );
-        return apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps);
+        let evaluated =
+            apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps);
+        return apply_layer_and_keyframe_filters(
+            evaluated,
+            &key_filters,
+            &layer.properties.filters,
+        );
     }
     let elements: Vec<Element> = key
         .elements
@@ -592,7 +1021,8 @@ pub fn sample_layer_at_fps(layer: &Layer, frame: u32, fps: f64) -> Vec<Element> 
                 .map_or_else(|| e.clone(), |n| interpolate_classic(e, n, t, key))
         })
         .collect();
-    apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps)
+    let evaluated = apply_keyframe_rigs_and_appearances(elements, key, Some(next), t, frame, fps);
+    apply_layer_and_keyframe_filters(evaluated, &key_filters, &layer.properties.filters)
 }
 
 fn interpolate_asset_warp_rig(a: &AssetWarpRig, b: Option<&AssetWarpRig>, t: f64) -> AssetWarpRig {
@@ -1004,6 +1434,48 @@ pub fn effective_property_ease_for(
     start.motion_property_ease_for(element_id, property)
 }
 
+fn sample_motion_key_filters(layer: &Layer, frame: u32, fallback: &Keyframe) -> Vec<FilterSpec> {
+    let Some((start, properties, end)) = motion_span(layer, frame) else {
+        return fallback.filters.clone();
+    };
+    let mut filter_keys: Vec<(u32, &[FilterSpec])> = vec![(start.frame, &start.filters)];
+    for prop_key in &properties {
+        if filter_keys
+            .last()
+            .is_none_or(|(_, last_f)| *last_f != prop_key.filters.as_slice())
+        {
+            filter_keys.push((prop_key.frame, &prop_key.filters));
+        }
+    }
+    if filter_keys.len() <= 1 {
+        return start.filters.clone();
+    }
+    let last = properties.last().map_or(start.frame, |k| k.frame);
+    let span_end = end.unwrap_or(last).max(last).max(start.frame + 1);
+    let length = (span_end - start.frame) as f64;
+    let progress = ((frame - start.frame) as f64 / length).min(1.);
+    let ease = start.tween.unwrap_or(Easing::Linear);
+    let eff_time = start.frame as f64 + easing(progress, ease) * length;
+    let mut prev = filter_keys[0];
+    let mut next_fk = None;
+    for &(kf, kf_filters) in &filter_keys[1..] {
+        if (kf as f64) <= eff_time {
+            prev = (kf, kf_filters);
+        } else {
+            next_fk = Some((kf, kf_filters));
+            break;
+        }
+    }
+    match next_fk {
+        Some((nf, nf_filters)) => {
+            let seg_t =
+                ((eff_time - prev.0 as f64) / ((nf - prev.0).max(1) as f64)).clamp(0.0, 1.0);
+            interpolate_filter_list(prev.1, nf_filters, seg_t)
+        }
+        None => prev.1.to_vec(),
+    }
+}
+
 /// Motion tween: every property has its own track through the ◆ keys that key
 /// it. Each property uses its override in `start.property_eases` (or the span
 /// `start.tween` ease) to remap time over the span; after the last property key
@@ -1025,6 +1497,38 @@ fn sample_motion(layer: &Layer, frame: u32) -> Vec<Element> {
         .map(|element| {
             let mut out = element.clone();
             out.transform = motion_pose(start, &properties, element, progress, length);
+            let mut filter_keys: Vec<(u32, &[FilterSpec])> = vec![(start.frame, &element.filters)];
+            for prop_key in &properties {
+                if let Some(ke) = prop_key.elements.iter().find(|e| e.id == element.id)
+                    && filter_keys
+                        .last()
+                        .is_none_or(|(_, last_f)| *last_f != ke.filters.as_slice())
+                {
+                    filter_keys.push((prop_key.frame, &ke.filters));
+                }
+            }
+            if filter_keys.len() > 1 {
+                let ease = start.tween.unwrap_or(Easing::Linear);
+                let eff_time = start.frame as f64 + easing(progress, ease) * length;
+                let mut prev = filter_keys[0];
+                let mut next_fk = None;
+                for &(kf, kf_filters) in &filter_keys[1..] {
+                    if (kf as f64) <= eff_time {
+                        prev = (kf, kf_filters);
+                    } else {
+                        next_fk = Some((kf, kf_filters));
+                        break;
+                    }
+                }
+                out.filters = match next_fk {
+                    Some((nf, nf_filters)) => {
+                        let seg_t = ((eff_time - prev.0 as f64) / ((nf - prev.0).max(1) as f64))
+                            .clamp(0.0, 1.0);
+                        interpolate_filter_list(prev.1, nf_filters, seg_t)
+                    }
+                    None => prev.1.to_vec(),
+                };
+            }
             if start.motion_orient_to_path_for(&element.id) {
                 let x_ease = effective_property_ease_for(start, &element.id, TweenProperty::X);
                 let y_ease = effective_property_ease_for(start, &element.id, TweenProperty::Y);
@@ -2394,5 +2898,164 @@ impl Walker<'_> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod filter_evaluation_tests {
+    use super::*;
+
+    #[test]
+    fn gradient_glow_and_bevel_interpolate_and_single_side_filters_tween_smoothly() {
+        let gg_start = FilterSpec::GradientGlow {
+            distance: 2.0,
+            angle: 30.0,
+            colors: vec![0xff0000, 0x00ff00],
+            alphas: vec![0.2, 0.8],
+            ratios: vec![0, 200],
+            blur_x: 4.0,
+            blur_y: 6.0,
+            strength: 1.0,
+            quality: 2,
+            placement: "inner".into(),
+            knockout: false,
+        };
+        let gg_end = FilterSpec::GradientGlow {
+            distance: 10.0,
+            angle: 90.0,
+            colors: vec![0x0000ff, 0xffffff],
+            alphas: vec![0.6, 1.0],
+            ratios: vec![20, 255],
+            blur_x: 12.0,
+            blur_y: 14.0,
+            strength: 3.0,
+            quality: 2,
+            placement: "inner".into(),
+            knockout: false,
+        };
+        let mid = interpolate_filter_list(&[gg_start], std::slice::from_ref(&gg_end), 0.5);
+        assert_eq!(mid.len(), 1);
+        match &mid[0] {
+            FilterSpec::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                ratios,
+                blur_x,
+                blur_y,
+                strength,
+                ..
+            } => {
+                assert!((*distance - 6.0).abs() < 1e-6);
+                assert!((*angle - 60.0).abs() < 1e-6);
+                assert!((*blur_x - 8.0).abs() < 1e-6);
+                assert!((*blur_y - 10.0).abs() < 1e-6);
+                assert!((*strength - 2.0).abs() < 1e-6);
+                assert_eq!(colors, &vec![0x800080, 0x80ff80]);
+                assert!((alphas[0] - 0.4).abs() < 1e-6);
+                assert!((alphas[1] - 0.9).abs() < 1e-6);
+                assert_eq!(ratios, &vec![10, 228]);
+            }
+            other => panic!("expected GradientGlow, got {other:?}"),
+        }
+
+        // Single-side filter on start or end keyframe synthesizes a zero-strength/zero-blur dummy filter.
+        let fade_in = interpolate_filter_list(&[], &[gg_end], 0.5);
+        assert_eq!(fade_in.len(), 1);
+        if let FilterSpec::GradientGlow {
+            distance,
+            blur_x,
+            strength,
+            alphas,
+            ..
+        } = &fade_in[0]
+        {
+            assert!((*distance - 5.0).abs() < 1e-6);
+            assert!((*blur_x - 6.0).abs() < 1e-6);
+            assert!((*strength - 1.5).abs() < 1e-6);
+            assert!((alphas[0] - 0.3).abs() < 1e-6);
+            assert!((alphas[1] - 0.5).abs() < 1e-6);
+        } else {
+            panic!("expected GradientGlow fade-in");
+        }
+    }
+
+    #[test]
+    fn keyframe_and_layer_filters_combine_and_interpolate_on_sampled_layer() {
+        let mut project = Project::blank();
+        let layer = &mut project.symbols[0].timeline.layers[0];
+        layer.properties.filters = vec![FilterSpec::Blur {
+            blur_x: 4.0,
+            blur_y: 4.0,
+            quality: 1,
+        }];
+        let base_el = Element {
+            id: "box-1".into(),
+            name: "box".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 30.0,
+                fill: [200, 100, 50, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        layer.keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![base_el.clone()],
+                tween: Some(Easing::Linear),
+                filters: vec![FilterSpec::Glow {
+                    color: 0xff0000,
+                    alpha: 1.0,
+                    blur_x: 10.0,
+                    blur_y: 10.0,
+                    strength: 2.0,
+                    quality: 1,
+                    inner: false,
+                    knockout: false,
+                }],
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 4,
+                elements: vec![base_el],
+                filters: vec![],
+                ..Keyframe::default()
+            },
+        ];
+        project.symbols[0].timeline.frame_count = 5;
+        project.upgrade_format_for_features();
+        assert_eq!(project.format_version, 7);
+        project.validate().unwrap();
+
+        let sampled = sample_layer(&project.symbols[0].timeline.layers[0], 2);
+        assert_eq!(sampled.len(), 1);
+        assert_eq!(sampled[0].filters.len(), 2);
+        // Keyframe filter faded to 50% at frame 2 + layer Blur(4, 4).
+        assert_eq!(
+            sampled[0].filters[0],
+            FilterSpec::Glow {
+                color: 0xff0000,
+                alpha: 0.5,
+                blur_x: 5.0,
+                blur_y: 5.0,
+                strength: 1.0,
+                quality: 1,
+                inner: false,
+                knockout: false,
+            }
+        );
+        assert_eq!(
+            sampled[0].filters[1],
+            FilterSpec::Blur {
+                blur_x: 4.0,
+                blur_y: 4.0,
+                quality: 1,
+            }
+        );
     }
 }

@@ -2,16 +2,20 @@
 //!
 //! NF2 references: `panels/*/png/panel-actions-floating.png`, `interface/*/png/editor-actions-tab.png`
 //! (Actions) and `panels/*/png/panels-more-2.png` (Output).
-use super::actions_sidebar::{SIDEBAR_MIN_PANEL, SIDEBAR_WIDTH};
+use super::actions_sidebar::{SIDEBAR_MIN_PANEL, SIDEBAR_WIDTH, ScriptLocation};
+use super::help_as_reference::{
+    JS_TS_API_ENTRIES, JS_TS_CATEGORIES, JsTsApiEntry, JsTsEntryKind, search_js_ts_entries,
+};
 use crate::app::*;
 use crate::code_tools::CodeCommand;
 use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::workspace::PanelId;
 use eframe::egui;
 use neoflash_core::*;
-use neoflash_ui::components::{self as nf, code::Severity};
-use neoflash_ui::icons::i16;
+use neoflash_ui::components::{self as nf, TreeItemType, code::Severity};
+use neoflash_ui::icons::{Icon, i16};
 use neoflash_ui::tokens::{TextStyle, radius, space};
+use std::collections::HashSet;
 
 /// Toolbar commands of the NF2 Actions panel in Figma order. Commands without an action are not
 /// provided yet and are shown disabled with "Not available yet" (DESIGN-SYSTEM rule 9).
@@ -406,7 +410,8 @@ impl Editor {
         let target_before = self.script_target;
         let event_before = self.script_event;
         let location_before = self.current_script_location();
-        let original = match self.script_target {
+        let empty_lang_id = egui::Id::new("neoflash-actions-empty-language");
+        let stored = match self.script_target {
             ScriptTarget::Source => None,
             ScriptTarget::Frame => self
                 .symbol()
@@ -419,8 +424,19 @@ impl Editor {
                 .selected_element()
                 .and_then(|e| e.scripts.iter().find(|s| s.event == self.script_event))
                 .map(|s| s.script.clone()),
-        }
-        .unwrap_or_default();
+        };
+        let pending_lang = ui
+            .data(|d| d.get_temp::<ScriptLanguage>(empty_lang_id))
+            .or_else(|| stored.as_ref().map(|s| s.language))
+            .unwrap_or(ScriptLanguage::JavaScript);
+        let has_stored_script = stored.as_ref().is_some_and(|s| !s.source.is_empty());
+        let original = match &stored {
+            Some(s) if !s.source.is_empty() => s.clone(),
+            _ => Script {
+                language: pending_lang,
+                source: String::new(),
+            },
+        };
         let mut script = original.clone();
         let context = match self.script_target {
             ScriptTarget::Frame => format!(
@@ -456,6 +472,9 @@ impl Editor {
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(space::S2 as i8, 6))
             .show(ui, |ui| self.actions_toolbar(ui, &mut script, &context));
+        if !has_stored_script && script.language != pending_lang {
+            ui.data_mut(|d| d.insert_temp(empty_lang_id, script.language));
+        }
         let line_y = ui.cursor().top();
         ui.painter().hline(
             ui.max_rect().x_range(),
@@ -478,7 +497,7 @@ impl Editor {
                         .with_max_x(side.right() - 1. - space::S2),
                 ),
             );
-            self.actions_sidebar(&mut side_ui, script.language, &tab);
+            self.actions_sidebar_with_js_ts(&mut side_ui, script.language, &tab);
             ui.painter().vline(
                 side.right() - 0.5,
                 side.y_range(),
@@ -532,13 +551,7 @@ impl Editor {
         let mut text_editing = false;
         let language = script.language;
         ui.add_enabled_ui_semantic(editable, |ui| {
-            let response = self.script_workspace(
-                ui,
-                &mut script.source,
-                language,
-                "this.stop();\n// Use this.gotoAndPlay(1) to control a timeline.",
-                &tab,
-            );
+            let response = self.script_workspace(ui, &mut script.source, language, "", &tab);
             text_editing = response.changed()
                 || response.gained_focus()
                 || (response.has_focus() && ui.input(|input| input.focused));
@@ -546,7 +559,16 @@ impl Editor {
         if text_editing && self.playing {
             self.set_playing(false);
         }
-        if script != original && editable {
+        let has_new_code = !script.source.is_empty();
+        let should_commit = editable
+            && script != original
+            && if has_new_code {
+                !has_stored_script || script != original
+            } else {
+                stored.is_some()
+            };
+        if should_commit {
+            ui.data_mut(|d| d.insert_temp(empty_lang_id, script.language));
             if self.playing {
                 self.set_playing(false);
             }
@@ -560,30 +582,515 @@ impl Editor {
                 ScriptTarget::Source => unreachable!("Project files use their own editor"),
                 ScriptTarget::Frame => {
                     let frame = s.frame;
-                    if frame >= s.symbol().timeline.frame_count {
+                    if has_new_code && frame >= s.symbol().timeline.frame_count {
                         s.ensure_key(false);
                     }
                     let scripts = &mut s.symbol_mut().timeline.scripts;
                     scripts.retain(|fs| fs.frame != frame);
-                    if !script.source.trim().is_empty()
-                        || script.language != ScriptLanguage::JavaScript
-                    {
+                    if has_new_code {
                         scripts.push(FrameScript { frame, script });
                     }
                 }
                 ScriptTarget::Object => {
                     let event = s.script_event;
-                    s.ensure_selected_key();
+                    if has_new_code {
+                        s.ensure_selected_key();
+                    }
                     if let Some(e) = s.selected_element_mut() {
                         e.scripts.retain(|os| os.event != event);
-                        if !script.source.trim().is_empty()
-                            || script.language != ScriptLanguage::JavaScript
-                        {
+                        if has_new_code {
                             e.scripts.push(ObjectScript { event, script });
                         }
                     }
                 }
             });
         }
+    }
+
+    fn effective_sidebar_language(&self, script_language: ScriptLanguage) -> ScriptLanguage {
+        if self.script_target == ScriptTarget::Source {
+            self.project
+                .sources
+                .iter()
+                .find(|s| Some(&s.id) == self.selected_source.as_ref())
+                .map_or(script_language, |s| s.language)
+        } else {
+            script_language
+        }
+    }
+
+    pub(crate) fn actions_sidebar_with_js_ts(
+        &mut self,
+        ui: &mut egui::Ui,
+        script_language: ScriptLanguage,
+        current_label: &str,
+    ) {
+        let language = self.effective_sidebar_language(script_language);
+        if !matches!(
+            language,
+            ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
+        ) {
+            self.actions_sidebar(ui, script_language, current_label);
+            return;
+        }
+        let full = ui.available_rect_before_wrap();
+        let navigator_h = (full.height() * 0.42).clamp(120., 260.);
+        ui.add(nf::Search::new(
+            &mut self.actions_ui.search,
+            "Search toolbox",
+        ));
+        ui.add_space(space::S1);
+        let toolbox_h = (ui.available_height() - navigator_h - space::S2)
+            .max(2. * neoflash_ui::metrics::control());
+        egui::ScrollArea::vertical()
+            .id_salt("actions-toolbox")
+            .max_height(toolbox_h)
+            .min_scrolled_height(toolbox_h)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.;
+                self.js_ts_toolbox_tree(ui, language);
+            });
+        let p = neoflash_ui::palette(ui.ctx());
+        ui.add_space(space::S1);
+        let y = ui.cursor().top();
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            y,
+            egui::Stroke::new(1.0_f32, p.border_subtle),
+        );
+        ui.add_space(space::S3);
+        ui.label(
+            neoflash_ui::typography::rich("Script navigator", TextStyle::Overline)
+                .color(p.text_secondary),
+        );
+        ui.add_space(space::S1);
+        egui::ScrollArea::vertical()
+            .id_salt("actions-navigator")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.;
+                self.js_ts_script_navigator(ui, current_label);
+            });
+    }
+
+    fn js_ts_folder_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        key: &str,
+        label: &str,
+        icon: Icon,
+        depth: usize,
+    ) -> (bool, egui::Response) {
+        let open = self.actions_ui.open.contains(key);
+        let kind = if open {
+            TreeItemType::FolderOpen
+        } else {
+            TreeItemType::FolderClosed
+        };
+        let row = nf::TreeItem::new(label, kind)
+            .icon(icon)
+            .depth(depth)
+            .show(ui);
+        if row.toggle || row.row.clicked() {
+            if open {
+                self.actions_ui.open.remove(key);
+            } else {
+                self.actions_ui.open.insert(key.to_owned());
+            }
+        }
+        (open, row.row)
+    }
+
+    fn js_ts_toolbox_tree(&mut self, ui: &mut egui::Ui, language: ScriptLanguage) {
+        let include_ts = language == ScriptLanguage::TypeScript;
+        let needle = self.actions_ui.search.trim().to_owned();
+        if !needle.is_empty() {
+            let results = search_js_ts_entries(&needle, include_ts);
+            let needle_lower = needle.to_lowercase();
+            let matching_sources: Vec<(String, String)> = self
+                .project
+                .sources
+                .iter()
+                .filter(|s| {
+                    matches!(
+                        s.language,
+                        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
+                    ) && (include_ts || s.language == ScriptLanguage::JavaScript)
+                        && s.path.to_lowercase().contains(&needle_lower)
+                })
+                .map(|s| (s.id.clone(), s.path.clone()))
+                .collect();
+            if results.is_empty() && matching_sources.is_empty() {
+                let p = neoflash_ui::palette(ui.ctx());
+                ui.label(
+                    neoflash_ui::typography::rich(
+                        format!("No toolbox entries match “{needle}”."),
+                        TextStyle::Small,
+                    )
+                    .color(p.text_tertiary),
+                );
+                return;
+            }
+            for entry in results {
+                self.js_ts_toolbox_leaf(ui, entry, 0);
+            }
+            for (id, path) in matching_sources {
+                self.js_ts_project_module_leaf(ui, &id, &path, 0);
+            }
+            return;
+        }
+
+        let project_modules: Vec<(String, String)> = self
+            .project
+            .sources
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.language,
+                    ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
+                ) && (include_ts || s.language == ScriptLanguage::JavaScript)
+            })
+            .map(|s| (s.id.clone(), s.path.clone()))
+            .collect();
+        if !project_modules.is_empty()
+            && self
+                .js_ts_folder_row(ui, "box:jsts:project", "Project Modules", i16::FILE_CODE, 0)
+                .0
+        {
+            for (id, path) in &project_modules {
+                self.js_ts_project_module_leaf(ui, id, path, 1);
+            }
+        }
+
+        for &(cat, cat_desc, cat_ts_only) in JS_TS_CATEGORIES {
+            if cat_ts_only && !include_ts {
+                continue;
+            }
+            let has_entries = JS_TS_API_ENTRIES
+                .iter()
+                .any(|e| e.category == cat && (include_ts || !e.ts_only));
+            if !has_entries {
+                continue;
+            }
+            let key = format!("box:jsts:cat:{cat}");
+            let (cat_open, cat_row) = self.js_ts_folder_row(ui, &key, cat, i16::PACKAGE, 0);
+            cat_row.on_hover_text(cat_desc);
+            if !cat_open {
+                continue;
+            }
+            for class_entry in JS_TS_API_ENTRIES.iter().filter(|e| {
+                e.category == cat && (include_ts || !e.ts_only) && e.kind == JsTsEntryKind::Class
+            }) {
+                let class_key = format!("box:jsts:class:{}", class_entry.name);
+                let (open, row) =
+                    self.js_ts_folder_row(ui, &class_key, class_entry.name, i16::CLASS, 1);
+                let row = row.on_hover_text(js_ts_entry_tooltip(class_entry));
+                if row.double_clicked() {
+                    self.actions_ui.selected = Some(class_key.clone());
+                    self.actions_ui.pending = Some(js_ts_toolbox_insertion(class_entry));
+                }
+                if open {
+                    self.js_ts_toolbox_leaf(ui, class_entry, 2);
+                    for member_entry in JS_TS_API_ENTRIES.iter().filter(|e| {
+                        (include_ts || !e.ts_only)
+                            && e.kind == JsTsEntryKind::Member(class_entry.name)
+                    }) {
+                        self.js_ts_toolbox_leaf(ui, member_entry, 2);
+                    }
+                }
+            }
+            for entry in JS_TS_API_ENTRIES.iter().filter(|e| {
+                e.category == cat
+                    && (include_ts || !e.ts_only)
+                    && !matches!(e.kind, JsTsEntryKind::Class | JsTsEntryKind::Member(_))
+            }) {
+                self.js_ts_toolbox_leaf(ui, entry, 1);
+            }
+        }
+    }
+
+    fn js_ts_toolbox_leaf(
+        &mut self,
+        ui: &mut egui::Ui,
+        entry: &'static JsTsApiEntry,
+        depth: usize,
+    ) {
+        let key = format!("box:jsts:{}:{}", entry.category, entry.name);
+        let row = nf::TreeItem::new(entry.name, TreeItemType::Symbol(js_ts_entry_icon(entry)))
+            .depth(depth)
+            .meta(entry.provenance)
+            .selected(self.actions_ui.selected.as_deref() == Some(&key))
+            .show(ui);
+        let row = row.row.on_hover_text(js_ts_entry_tooltip(entry));
+        if row.clicked() {
+            self.actions_ui.selected = Some(key);
+        }
+        if row.double_clicked() {
+            self.actions_ui.pending = Some(js_ts_toolbox_insertion(entry));
+        }
+    }
+
+    fn js_ts_project_module_leaf(&mut self, ui: &mut egui::Ui, id: &str, path: &str, depth: usize) {
+        let key = format!("box:jsts:module:{id}");
+        let row = nf::TreeItem::new(path, TreeItemType::Symbol(i16::FILE_CODE))
+            .depth(depth)
+            .meta("Project module")
+            .selected(self.actions_ui.selected.as_deref() == Some(&key))
+            .show(ui);
+        let row = row.row.on_hover_text(format!(
+            "import \"./{path}\";\n[Project module]\nProject module ({path})\nDouble-click to insert ES module import."
+        ));
+        if row.clicked() {
+            self.actions_ui.selected = Some(key);
+        }
+        if row.double_clicked() {
+            let text = format!("import \"./{path}\";");
+            let caret = text.chars().count();
+            self.actions_ui.pending = Some(CodeCommand::Insert {
+                text,
+                caret,
+                import: None,
+            });
+        }
+    }
+
+    fn js_ts_script_navigator(&mut self, ui: &mut egui::Ui, current_label: &str) {
+        if self
+            .js_ts_folder_row(ui, "nav:current", "Current selection", i16::TARGET, 0)
+            .0
+        {
+            let icon = if self.script_target == ScriptTarget::Source {
+                i16::FILE_CODE
+            } else {
+                i16::FRAME
+            };
+            nf::TreeItem::new(current_label, TreeItemType::Symbol(icon))
+                .depth(1)
+                .selected(true)
+                .show(ui);
+        }
+        let root = self.project.root.clone();
+        let root_name = self
+            .project
+            .symbol(&root)
+            .map_or("Scene", |s| s.name.as_str())
+            .to_owned();
+        let mut chosen = None;
+        if self
+            .js_ts_folder_row(ui, "nav:root", &root_name, i16::SCENE, 0)
+            .0
+        {
+            for (label, icon, location) in self.js_ts_navigator_entries(&root) {
+                chosen = chosen.or(self.js_ts_navigator_leaf(ui, &label, icon, &location, 1));
+            }
+        }
+        if self
+            .js_ts_folder_row(ui, "nav:symbols", "Symbol definitions", i16::SYMBOL, 0)
+            .0
+        {
+            let symbols: Vec<String> = self
+                .project
+                .symbols
+                .iter()
+                .filter(|s| s.id != root)
+                .map(|s| s.id.clone())
+                .collect();
+            for symbol in symbols {
+                for (label, icon, location) in self.js_ts_navigator_entries(&symbol) {
+                    chosen = chosen.or(self.js_ts_navigator_leaf(ui, &label, icon, &location, 1));
+                }
+            }
+        }
+        if !self.project.sources.is_empty()
+            && self
+                .js_ts_folder_row(ui, "nav:sources", "Project files", i16::FOLDER, 0)
+                .0
+        {
+            let sources: Vec<(String, Icon, ScriptLocation)> = self
+                .project
+                .sources
+                .iter()
+                .map(|s| {
+                    (
+                        s.path.clone(),
+                        i16::FILE_CODE,
+                        ScriptLocation::Source(s.id.clone()),
+                    )
+                })
+                .collect();
+            for (label, icon, location) in sources {
+                chosen = chosen.or(self.js_ts_navigator_leaf(ui, &label, icon, &location, 1));
+            }
+        }
+        if let Some(location) = chosen {
+            self.open_script_location(location);
+        }
+    }
+
+    fn js_ts_navigator_leaf(
+        &self,
+        ui: &mut egui::Ui,
+        label: &str,
+        icon: Icon,
+        location: &ScriptLocation,
+        depth: usize,
+    ) -> Option<ScriptLocation> {
+        let current = self.current_script_location().as_ref() == Some(location);
+        let row = nf::TreeItem::new(label, TreeItemType::Symbol(icon))
+            .depth(depth)
+            .selected(current)
+            .show(ui);
+        row.row.clicked().then(|| location.clone())
+    }
+
+    fn js_ts_navigator_entries(&self, symbol_id: &str) -> Vec<(String, Icon, ScriptLocation)> {
+        let Some(symbol) = self.project.symbol(symbol_id) else {
+            return Vec::new();
+        };
+        let mut frames: Vec<u32> = symbol
+            .timeline
+            .scripts
+            .iter()
+            .filter(|s| !s.script.source.trim().is_empty())
+            .map(|s| s.frame)
+            .collect();
+        frames.sort_unstable();
+        frames.dedup();
+        let mut entries: Vec<(String, Icon, ScriptLocation)> = frames
+            .into_iter()
+            .map(|frame| {
+                (
+                    format!("{} : Frame {}", symbol.name, frame + 1),
+                    i16::FRAME,
+                    ScriptLocation::Frame {
+                        symbol: symbol.id.clone(),
+                        frame,
+                    },
+                )
+            })
+            .collect();
+        let mut seen = HashSet::new();
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    for script in element
+                        .scripts
+                        .iter()
+                        .filter(|s| !s.script.source.trim().is_empty())
+                    {
+                        if !seen.insert((element.id.clone(), format!("{:?}", script.event))) {
+                            continue;
+                        }
+                        let name = if element.name.is_empty() {
+                            "Object"
+                        } else {
+                            &element.name
+                        };
+                        entries.push((
+                            format!("{name} : {:?}", script.event),
+                            i16::MOVIECLIP,
+                            ScriptLocation::Object {
+                                symbol: symbol.id.clone(),
+                                frame: key.frame,
+                                element: element.id.clone(),
+                                event: script.event,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        entries
+    }
+}
+
+fn js_ts_entry_icon(entry: &JsTsApiEntry) -> Icon {
+    match entry.kind {
+        JsTsEntryKind::Class | JsTsEntryKind::TypeConstruct => i16::CLASS,
+        JsTsEntryKind::Binding => i16::VARIABLE,
+        JsTsEntryKind::Function | JsTsEntryKind::Keyword | JsTsEntryKind::Member(_) => i16::CODE,
+    }
+}
+
+pub(crate) fn js_ts_entry_tooltip(entry: &JsTsApiEntry) -> String {
+    format!(
+        "{}\n[{}]\nAvailability: {}\n{}",
+        entry.signature, entry.provenance, entry.availability, entry.summary
+    )
+}
+
+pub(crate) fn js_ts_toolbox_insertion(entry: &JsTsApiEntry) -> CodeCommand {
+    let text = entry.insertion.to_owned();
+    let total = text.chars().count();
+    let caret = if text.ends_with("(\"\");") {
+        total.saturating_sub(3)
+    } else if text.ends_with("();") {
+        total.saturating_sub(2)
+    } else {
+        total
+    };
+    CodeCommand::Insert {
+        text,
+        caret,
+        import: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn js_and_ts_toolbox_queries_and_insertions_cover_required_entries() {
+        let required_queries = [
+            "this",
+            "event",
+            "trace",
+            "gotoAndPlay",
+            "import",
+            "interface",
+            "Promise",
+            "fetch",
+            "CanvasRenderingContext2D",
+        ];
+        for query in required_queries {
+            let ts_results = search_js_ts_entries(query, true);
+            assert!(
+                !ts_results.is_empty(),
+                "expected TypeScript toolbox search results for query `{query}`"
+            );
+            let first = ts_results[0];
+            assert!(!first.signature.is_empty());
+            assert!(!first.provenance.is_empty());
+            assert!(!first.availability.is_empty());
+            assert!(!first.summary.is_empty());
+            let tooltip = js_ts_entry_tooltip(first);
+            assert!(tooltip.contains(first.provenance));
+            assert!(tooltip.contains(first.availability));
+
+            let cmd = js_ts_toolbox_insertion(first);
+            let Some((edited, (caret, _))) = crate::code_tools::apply(&cmd, "", (0, 0)) else {
+                panic!("expected CodeCommand::Insert for `{query}` to produce an edit");
+            };
+            assert!(
+                !edited.is_empty(),
+                "expected non-empty insertion snippet for `{query}`"
+            );
+            assert!(caret <= edited.chars().count());
+        }
+
+        // JavaScript toolbox omits TypeScript-only syntax (`interface`, `type`, `<T>`) while
+        // keeping `// @ts-check` and all ECMAScript/NeoFlash/Web API entries.
+        let js_interface = search_js_ts_entries("interface", false);
+        assert!(
+            js_interface.is_empty(),
+            "JavaScript toolbox should filter out TypeScript-only `interface` entry"
+        );
+        let ts_interface = search_js_ts_entries("interface", true);
+        assert!(
+            ts_interface.iter().any(|e| e.name == "interface"),
+            "TypeScript toolbox should include `interface` entry"
+        );
     }
 }

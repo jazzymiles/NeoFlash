@@ -1062,3 +1062,66 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   now centre on their major ticks in both themes, including multi-digit labels. The design reference, bilingual notes,
   manifest, exports and design-library consumers prefer v2.25 while retaining v2.2/v2 fallbacks. No implemented
   authoring control or colour mode was removed.
+
+### R-067 · Stage context menu Actions…, Trace bitmap… and Bitmap properties… row order
+- **Status:** open
+- **Requested by / for:** implementation track · T-177, T-190 (Stage & Library bitmap tracing and instance `Actions…`)
+- **Where:** `crates/neoflash-editor/src/stage.rs::stage_object_commands`, `crates/neoflash-editor/src/panels/library.rs::library_menu` and `crates/neoflash-editor/src/resources.rs::resource_files_body`
+- **Need:** confirm the exact menu section order in the Stage object context menu (`stage_object_commands`) and Library / Resource context menus:
+  1. Clipboard (`Cut`, `Copy`, `Paste in place`), separator.
+  2. Symbol & instance group (`Convert to symbol…`, `Break apart`, `Edit in place`, `Edit in new window`, `Swap symbol…`, `Duplicate symbol…`, `Actions…` with shortcut `F9`), separator.
+  3. Bitmap group (`Trace bitmap…`, `Bitmap properties…`), separator.
+  4. Timeline / layer group (`Create motion tween`, `Distribute to layers`), separator.
+  5. `Arrange`, `Align`, `Transform`, separator, `Group` / `Ungroup`, separator, `Show in library`.
+- **Why:** `T-190` adds direct `Actions…` (`F9`) on placed Movie Clip / Button instances and `T-177` adds `Trace bitmap…` and `Bitmap properties…` on placed bitmaps and Library image resources using existing `nf::MenuItem` and `nf::menu_separator` components (extending `R-060`).
+- **Checked:** `R-022`, `R-060`, `panels-menus.txt`, `stage.rs::stage_object_commands`, `resources.rs`, `panels/library.rs`.
+- **Proposal (optional):** keep `Actions…` (`F9`) at the end of the symbol/instance block and `Trace bitmap…` + `Bitmap properties…` in a dedicated bitmap block immediately below it, and place `Trace bitmap…` above `Bitmap properties…` in Library / Resource image menus.
+- **Answer:**
+
+### R-067 · Compact 1-column/2-column floating Tools header and Puppet / 16 px Classic Flash tool masters
+- **Status:** open
+- **Requested by / for:** implementation track · T-181 (detached Tools 1-column minimum width & temporary NF2 icon support)
+- **Where:** `crates/neoflash-editor/src/detached.rs::native_floating_panel`, `crates/neoflash-editor/src/ui_icons.rs`,
+  locked `NF2/Floating Panel Header` (`crates/neoflash-ui/src/components/headers.rs`), and `neoflash_ui::icons::{i16, i20}`.
+- **Need:** (1) A narrow-width variant of `NF2/Floating Panel Header` for a standalone `Tools` window below 188 pt
+  (1-column 42 pt and 2-column 88 pt rails) that replaces the 180 pt minimum allocation and 3-button cluster with the
+  existing `TOOLS_GRIP` (`i16::GRIP_H`) drag handle and `More` (`i16::MORE`) menu button; (2) official 16 px and 20 px
+  optical masters for `Puppet / Asset Warp` (`tool-puppet`) and 16 px Classic Flash density (`icon_tool = 16 pt`) masters
+  for `Bone`, `Bind`, `Deco`, `Spray Brush`, `3D Translate` and `3D Rotate` (currently only exported in `i20`).
+- **Why:** `FloatingPanelHeader::show` in locked `neoflash-ui` allocates `.max(180.)` and three 32 pt hit targets, which
+  previously forced floating `Tools` to ~5 columns (188 pt) or caused native/egui surface width mismatches. T-181 lowers
+  the `Tools` minimum width to one tool button plus NF2 padding/border (`42 pt` Comfortable / `40 pt` Compact & Classic)
+  and routes narrow floating `Tools` headers through `TOOLS_GRIP` + `More` (`⋯`), and provides optical-grid-aligned
+  (`1 pt` / `1.5 pt` stroke) temporary NF2 vector icons in `ui_icons.rs` until the Figma export adds those masters.
+- **Checked:** `interface/design-system/outlines/panels-panel-tools-1-column.txt` (`42×664`, `Tools Grip` `42×28`),
+  `panels-panel-tools-docked.txt`, `panels-panel-tools-floating.txt`, `crates/neoflash-ui/src/components/headers.rs`,
+  `crates/neoflash-ui/src/icons.rs`.
+- **Proposal (optional):** adopt the `TOOLS_GRIP` (`i16::GRIP_H`) + `More` (`i16::MORE`) header variant in
+  `FloatingPanelHeader` whenever `available_width < 188 pt`, and export 16 px / 20 px optical SVG masters for
+  `tool-puppet` and 16 px masters for `tool-{bone,bind,deco,spray,3d-translate,3d-rotate}`.
+- **Answer:**
+
+### R-068 · Library batch utilities, Auto Instance Namer and Randomize Selection modal dialogs
+- **Status:** open
+- **Requested by / for:** implementation track · T-196 (Native Built-In Productivity & Animation Suite: Library Batch Suite, Auto Instance Namer & Randomize Selection Dialogs)
+- **Where:** `crates/neoflash-editor/src/panels/productivity_tools.rs`, `crates/neoflash-editor/src/panels/library.rs`,
+  and `crates/neoflash-editor/src/resources.rs`.
+- **Need:** Official NF2 Figma dialog masters and outline specs for five native productivity dialogs:
+  (1) `Batch Rename Library Items…` (prefix, suffix, find/replace, sequential numbering with start index & digit padding,
+  and `"Also rename matching Stage instances"` checkbox);
+  (2) `Batch Linkage (ActionScript)…` (class prefix, export for ActionScript, export in first frame);
+  (3) `Batch Bitmap Compression & Smoothing…` (Lossless PNG/GIF vs Photo JPEG, imported JPEG data / quality, allow smoothing);
+  (4) `Auto Instance Namer…` (prefix + sequential index vs symbol-derived `<symbol_name>_<index>` mode, start index, digit padding);
+  (5) `Randomize Selection…` (deterministic seed, X/Y offset ranges, uniform/independent scale percentage range, rotation range,
+  and color alpha percentage range).
+- **Why:** T-196 integrates classic Flash productivity extensions (Queasy Tools / Trick Or Script Library batch operations and
+  Justin Putney / Ajar Productions Stage instance naming & randomization utilities) directly into the native Rust editor.
+  Until dedicated Figma dialog outlines are exported, `productivity_tools.rs` composes temporary NF2-compliant modals using
+  locked `neoflash_ui` components (`Modal`, `SectionHeader`, `Field`, `TextField`, `Select`, `Checkbox`, `Button`) and
+  semantic palette/spacing tokens with zero raw hex colors or hand-styled egui widgets.
+- **Checked:** `docs/DESIGN-SYSTEM.md`, `interface/design-system/outlines/panels-dialogs.txt`,
+  `crates/neoflash-ui/src/components/overlays.rs`, `crates/neoflash-editor/src/panels/dialog_helpers.rs`.
+- **Proposal (optional):** add `Dialog / Batch Rename Library`, `Dialog / Batch Linkage`, `Dialog / Batch Bitmap Compression`,
+  `Dialog / Auto Instance Namer`, and `Dialog / Randomize Selection` to the `Dialogs` page in Figma (`420 pt` modal width,
+  `NF2/Section Header` + `PropertyRow` + `NF2/Field` / `NF2/Select` / `NF2/Checkbox` rows + right-aligned Cancel/Primary footer).
+- **Answer:**

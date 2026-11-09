@@ -1252,6 +1252,154 @@ fn sync_symbols(
     changed
 }
 
+/// Converts frames in `start..=end` on `layer` to keyframes at every `step` frames
+/// (`start, start + step, start + 2*step, ...` up to `end`), sampling the evaluated poses
+/// via `sample_layer_in_at_fps`, removing intermediate keyframes inside each `step` interval,
+/// and either stripping tween/motion metadata (`strip_tween = true`, ToonMonkey `Tween2Keys`)
+/// or preserving tween easing (`strip_tween = false`, Convert to Keyframes Advanced).
+#[allow(dead_code)]
+pub fn convert_layer_to_keyframes_stepped(
+    timeline: &Timeline,
+    layer: &mut Layer,
+    start: u32,
+    end: u32,
+    step: u32,
+    strip_tween: bool,
+    fps: f64,
+) -> usize {
+    let step = step.max(1);
+    if start > end || end >= MAX_FRAME {
+        return 0;
+    }
+    layer.keyframes.sort_by_key(|key| key.frame);
+    let original = layer.clone();
+    let effective_end = original
+        .properties
+        .end_frame
+        .unwrap_or(timeline.frame_count)
+        .max(end + 1);
+    if layer.properties.end_frame.is_some() {
+        layer.properties.end_frame = Some(effective_end);
+    }
+
+    let mut stepped_frames: Vec<u32> = Vec::new();
+    let mut f = start;
+    while f <= end {
+        stepped_frames.push(f);
+        match f.checked_add(step) {
+            Some(next) if next > f => f = next,
+            _ => break,
+        }
+    }
+    if stepped_frames.last().copied() != Some(end)
+        && original
+            .keyframes
+            .iter()
+            .any(|k| k.frame == end && k.keyed_properties.is_none())
+    {
+        stepped_frames.push(end);
+    }
+
+    let active_ease_at = |frame: u32| -> Option<(Easing, TweenKind)> {
+        if let Some((span_start, _, span_end)) = motion_span(&original, frame) {
+            let end_limit = span_end.unwrap_or(effective_end);
+            if frame < end_limit {
+                return span_start.tween.map(|ease| (ease, TweenKind::Classic));
+            }
+        }
+        let idx = original.keyframes.partition_point(|k| k.frame <= frame);
+        let key = idx.checked_sub(1).and_then(|i| original.keyframes.get(i))?;
+        let next_frame = original
+            .keyframes
+            .get(idx)
+            .map_or(effective_end, |next| next.frame);
+        if frame < next_frame {
+            key.tween.map(|ease| {
+                let kind = if key.tween_kind == TweenKind::Shape {
+                    TweenKind::Shape
+                } else {
+                    TweenKind::Classic
+                };
+                (ease, kind)
+            })
+        } else {
+            None
+        }
+    };
+
+    let mut replacement = Vec::with_capacity(stepped_frames.len());
+    for (idx, &frame) in stepped_frames.iter().enumerate() {
+        let mut key = sampled_key(timeline, &original, frame, fps);
+        if let Some(old) = original.keyframes.iter().find(|k| k.frame == frame) {
+            key.label = old.label.clone();
+            key.sound = old.sound.clone();
+        }
+        if strip_tween {
+            key.tween = None;
+            key.tween_kind = TweenKind::Classic;
+            key.keyed_properties = None;
+            key.motion_keys = None;
+            key.motion_tracks.clear();
+            key.motion_path = None;
+            key.property_eases.clear();
+            key.shape_hints.clear();
+        } else {
+            let is_last_in_range = idx + 1 == stepped_frames.len() && frame == end;
+            if is_last_in_range {
+                if let Some(old_end) = original
+                    .keyframes
+                    .iter()
+                    .find(|k| k.frame == frame && k.keyed_properties.is_none())
+                {
+                    key.tween = old_end.tween;
+                    key.tween_kind =
+                        if key.tween.is_some() && old_end.tween_kind == TweenKind::Shape {
+                            TweenKind::Shape
+                        } else {
+                            TweenKind::Classic
+                        };
+                } else if let Some((ease, kind)) = active_ease_at(frame) {
+                    key.tween = Some(ease);
+                    key.tween_kind = kind;
+                }
+            } else if let Some((ease, kind)) = active_ease_at(frame) {
+                key.tween = Some(ease);
+                key.tween_kind = kind;
+            }
+            key.keyed_properties = None;
+            key.motion_keys = None;
+            key.motion_tracks.clear();
+            key.motion_path = None;
+            key.property_eases.clear();
+        }
+        replacement.push(key);
+    }
+
+    // Preserve pose immediately after `end` if the original layer was mid-tween across `end + 1`
+    // and we stripped tweens inside `start..=end`.
+    if strip_tween
+        && end + 1 < effective_end
+        && !original.keyframes.iter().any(|k| k.frame == end + 1)
+        && active_ease_at(end).is_some()
+    {
+        let mut after_key = sampled_key(timeline, &original, end + 1, fps);
+        if let Some((ease, kind)) = active_ease_at(end + 1) {
+            after_key.tween = Some(ease);
+            after_key.tween_kind = kind;
+        }
+        replacement.push(after_key);
+    }
+
+    layer
+        .keyframes
+        .retain(|key| key.frame < start || key.frame > end);
+    layer.keyframes.extend(replacement);
+    layer.keyframes.sort_by_key(|key| key.frame);
+    layer.keyframes.dedup_by_key(|key| key.frame);
+    layer.normalize_motion_keys();
+    stepped_frames.len()
+}
+
 pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> Result<(), String> {
     let mut candidate = project.clone();
     let fps = f64::from(candidate.fps);
@@ -1674,6 +1822,234 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
     Ok(())
 }
 
+impl Timeline {
+    /// Returns the indices of visible timeline rows in top-to-bottom display order
+    /// (front-to-back sibling order, with folder/mask/guide headers above their children).
+    pub fn visible_layer_indices(&self) -> Vec<usize> {
+        let indices: std::collections::HashMap<_, _> = self
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(index, layer)| (layer.id.as_str(), index))
+            .collect();
+        let mut children = vec![Vec::new(); self.layers.len()];
+        let mut roots = Vec::new();
+        for (index, layer) in self.layers.iter().enumerate() {
+            let parent = layer
+                .properties
+                .mask
+                .as_ref()
+                .or(layer.properties.motion_guide.as_ref())
+                .or(layer.properties.parent.as_ref())
+                .and_then(|id| indices.get(id.as_str()).copied());
+            if let Some(parent) = parent {
+                children[parent].push(index);
+            } else {
+                roots.push(index);
+            }
+        }
+        let mut visible = Vec::with_capacity(self.layers.len());
+        let mut stack = roots;
+        let mut visited = std::collections::HashSet::new();
+        while let Some(index) = stack.pop() {
+            if !visited.insert(index) {
+                continue;
+            }
+            visible.push(index);
+            let layer = &self.layers[index];
+            if layer.properties.role != LayerRole::Folder || !layer.properties.collapsed {
+                stack.extend(children[index].iter().copied());
+            }
+        }
+        visible
+    }
+
+    /// Returns true when the timeline has a non-empty `FrameScript` at `frame`.
+    pub fn has_frame_script(&self, frame: u32) -> bool {
+        self.scripts
+            .iter()
+            .any(|script| script.frame == frame && !script.script.source.trim().is_empty())
+    }
+
+    /// Returns the layer index (`self.layers[index]`) whose keyframe at `frame` displays
+    /// and owns the `a` marker for the timeline's `FrameScript` at `frame`, or `None` when
+    /// there is no non-empty `FrameScript` at `frame` or no visible non-folder layer has an
+    /// ordinary keyframe at `frame` (in which case the `a` marker is shown on the ruler).
+    pub fn action_layer_for_frame(&self, frame: u32) -> Option<usize> {
+        if frame >= self.frame_count || !self.has_frame_script(frame) {
+            return None;
+        }
+        self.visible_layer_indices().into_iter().find(|&index| {
+            let layer = &self.layers[index];
+            if layer.properties.role == LayerRole::Folder {
+                return false;
+            }
+            let layer_end = layer
+                .properties
+                .end_frame
+                .unwrap_or(self.frame_count)
+                .min(self.frame_count);
+            frame < layer_end
+                && layer
+                    .keyframes
+                    .iter()
+                    .any(|key| key.frame == frame && key.keyed_properties.is_none())
+        })
+    }
+
+    /// Returns true if the keyframe on `layer_index` at `frame` is the action-bearing
+    /// keyframe that carries the timeline's `FrameScript` at `frame`.
+    pub fn key_carries_frame_script(&self, layer_index: usize, frame: u32) -> bool {
+        self.action_layer_for_frame(frame) == Some(layer_index)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyMoveError {
+    MissingSymbol,
+    MissingLayer,
+    InvalidLayerOrBounds,
+    MissingSourceKey,
+    DestinationKeyConflict,
+    DestinationScriptConflict,
+}
+
+impl Project {
+    /// Moves or copies a single keyframe on `layer` from `from` to `to` within `symbol_id`.
+    /// When the keyframe at `(layer, from)` is the action-bearing keyframe for the timeline's
+    /// `FrameScript` at `from`, that `FrameScript` moves or copies atomically with the keyframe.
+    pub fn move_keyframe(
+        &mut self,
+        symbol_id: &str,
+        layer: usize,
+        from: u32,
+        to: u32,
+        copy: bool,
+        layer_editable: bool,
+    ) -> Result<bool, KeyMoveError> {
+        let symbol = self.symbol(symbol_id).ok_or(KeyMoveError::MissingSymbol)?;
+        let is_button = symbol.kind == SymbolKind::Button;
+        let timeline = &symbol.timeline;
+        let l = timeline
+            .layers
+            .get(layer)
+            .ok_or(KeyMoveError::MissingLayer)?;
+        let max_frames = if is_button {
+            timeline.frame_count
+        } else {
+            MAX_FRAME
+        };
+        if !layer_editable
+            || l.properties.role == LayerRole::Folder
+            || to >= max_frames
+            || from == to
+        {
+            return Err(KeyMoveError::InvalidLayerOrBounds);
+        }
+        if l.keyframes.iter().any(|k| k.frame == to) {
+            return Err(KeyMoveError::DestinationKeyConflict);
+        }
+        let mut key = l
+            .keyframes
+            .iter()
+            .find(|k| k.frame == from)
+            .cloned()
+            .ok_or(KeyMoveError::MissingSourceKey)?;
+        let carries_script = timeline.key_carries_frame_script(layer, from);
+        let script = carries_script
+            .then(|| {
+                timeline
+                    .scripts
+                    .iter()
+                    .find(|script| script.frame == from && !script.script.source.trim().is_empty())
+                    .cloned()
+            })
+            .flatten();
+        if script.is_some() && timeline.has_frame_script(to) {
+            return Err(KeyMoveError::DestinationScriptConflict);
+        }
+
+        let old_count = timeline.frame_count;
+        let old_end = l.properties.end_frame.unwrap_or(old_count);
+        let was_last = l.keyframes.last().is_some_and(|k| k.frame == from);
+        let still_last = l
+            .keyframes
+            .iter()
+            .filter(|k| k.frame != from)
+            .all(|k| k.frame < to);
+        let layer_id = l.id.clone();
+        let was_trailing_single =
+            !copy && from > 0 && was_last && still_last && old_end == from + 1;
+        let new_layer_end = if was_trailing_single {
+            to + 1
+        } else {
+            old_end.max(to + 1)
+        };
+
+        let symbol_mut = self
+            .symbol_mut(symbol_id)
+            .ok_or(KeyMoveError::MissingSymbol)?;
+        let l = &mut symbol_mut.timeline.layers[layer];
+        if !copy {
+            l.keyframes.retain(|k| k.frame != from);
+        }
+        key.frame = to;
+        if copy {
+            key.label.clear();
+        }
+        l.keyframes.push(key);
+        l.keyframes.sort_by_key(|k| k.frame);
+        l.normalize_motion_keys();
+
+        let moved_script = script.is_some();
+        if let Some(mut script) = script {
+            let scripts = &mut symbol_mut.timeline.scripts;
+            if !copy {
+                scripts.retain(|item| item.frame != from);
+            }
+            scripts.retain(|item| item.frame != to);
+            script.frame = to;
+            scripts.push(script);
+            scripts.sort_by_key(|item| item.frame);
+        }
+
+        if new_layer_end != old_end {
+            let timeline = &mut symbol_mut.timeline;
+            for other in &mut timeline.layers {
+                if other.id == layer_id {
+                    other.properties.end_frame = Some(new_layer_end);
+                } else if other.properties.role != LayerRole::Folder
+                    && other.properties.end_frame.is_none()
+                {
+                    other.properties.end_frame = Some(old_count);
+                }
+            }
+            let next_count = timeline
+                .layers
+                .iter()
+                .filter(|other| other.properties.role != LayerRole::Folder)
+                .map(|other| other.properties.end_frame.unwrap_or(old_count))
+                .chain(timeline.scripts.iter().map(|sc| sc.frame + 1))
+                .max()
+                .unwrap_or(1)
+                .max(1);
+            timeline.frame_count = next_count;
+            for other in &mut timeline.layers {
+                if other.properties.role == LayerRole::Folder
+                    && other.properties.end_frame.is_some()
+                {
+                    other.properties.end_frame = Some(next_count);
+                }
+            }
+            self.format_version = self.format_version.max(5);
+        } else if let Some(end) = &mut symbol_mut.timeline.layers[layer].properties.end_frame {
+            *end = (*end).max(to + 1);
+        }
+        self.upgrade_format_for_features();
+        Ok(moved_script)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1761,5 +2137,197 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn move_keyframe_moves_and_copies_attached_frame_script_without_stealing_from_other_layers() {
+        let demo = Project::demo();
+        let root = demo.root.clone();
+        // In Project::demo() ("Ideas in motion"), Scene 1 has layers:
+        // [0: Typography, 1: Accents, 2: Orbit instances].
+        // Top visible row is layer 2 ("Orbit instances"), which carries the frame 1 (0) script.
+        let timeline = &demo.symbol(&root).unwrap().timeline;
+        assert_eq!(timeline.action_layer_for_frame(0), Some(2));
+        assert!(timeline.key_carries_frame_script(2, 0));
+        assert!(!timeline.key_carries_frame_script(1, 0));
+        assert!(!timeline.key_carries_frame_script(0, 0));
+
+        // Moving a non-bearing layer's keyframe at frame 0 (e.g. Typography or Accents) must not steal the script.
+        let mut non_bearing = demo.clone();
+        let moved_script = non_bearing
+            .move_keyframe(&root, 0, 0, 13, false, true)
+            .unwrap();
+        assert!(!moved_script);
+        assert_eq!(
+            non_bearing.symbol(&root).unwrap().timeline.scripts[0].frame,
+            0
+        );
+        assert_eq!(
+            non_bearing
+                .symbol(&root)
+                .unwrap()
+                .timeline
+                .action_layer_for_frame(0),
+            Some(2)
+        );
+        non_bearing.validate().unwrap();
+
+        // Moving the action-bearing keyframe on Orbit instances (layer 2) from frame 0 to 13
+        // moves the keyframe AND its attached FrameScript atomically.
+        let mut moved = demo.clone();
+        moved.symbol_mut(&root).unwrap().timeline.layers[2].keyframes[0].tween =
+            Some(Easing::Linear);
+        moved.symbol_mut(&root).unwrap().timeline.layers[2].keyframes[0].tween_kind =
+            TweenKind::Motion;
+        let moved_script = moved.move_keyframe(&root, 2, 0, 13, false, true).unwrap();
+        assert!(moved_script);
+        let tl = &moved.symbol(&root).unwrap().timeline;
+        assert_eq!(
+            tl.layers[2]
+                .keyframes
+                .iter()
+                .map(|k| k.frame)
+                .collect::<Vec<_>>(),
+            vec![13]
+        );
+        assert_eq!(
+            tl.scripts.iter().map(|s| s.frame).collect::<Vec<_>>(),
+            vec![13]
+        );
+        assert_eq!(tl.action_layer_for_frame(0), None);
+        assert_eq!(tl.action_layer_for_frame(13), Some(2));
+        moved.validate().unwrap();
+
+        // Option-drag / copy duplicates both the keyframe and the FrameScript.
+        let mut copied = demo.clone();
+        let copied_script = copied.move_keyframe(&root, 2, 0, 13, true, true).unwrap();
+        assert!(copied_script);
+        let tl = &copied.symbol(&root).unwrap().timeline;
+        assert_eq!(
+            tl.layers[2]
+                .keyframes
+                .iter()
+                .map(|k| k.frame)
+                .collect::<Vec<_>>(),
+            vec![0, 13]
+        );
+        assert_eq!(
+            tl.scripts.iter().map(|s| s.frame).collect::<Vec<_>>(),
+            vec![0, 13]
+        );
+        assert_eq!(tl.action_layer_for_frame(0), Some(2));
+        assert_eq!(tl.action_layer_for_frame(13), Some(2));
+        copied.validate().unwrap();
+
+        // Destination key collision or script collision refuses the whole gesture atomically.
+        let before_collision = copied.clone();
+        assert_eq!(
+            copied.move_keyframe(&root, 2, 0, 13, false, true),
+            Err(KeyMoveError::DestinationKeyConflict)
+        );
+        assert_eq!(copied, before_collision);
+
+        let mut script_conflict = demo.clone();
+        script_conflict
+            .symbol_mut(&root)
+            .unwrap()
+            .timeline
+            .scripts
+            .push(FrameScript {
+                frame: 13,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: "this.stop();".into(),
+                },
+            });
+        let before_script_conflict = script_conflict.clone();
+        assert_eq!(
+            script_conflict.move_keyframe(&root, 2, 0, 13, false, true),
+            Err(KeyMoveError::DestinationScriptConflict)
+        );
+        assert_eq!(script_conflict, before_script_conflict);
+    }
+
+    #[test]
+    fn convert_layer_to_keyframes_stepped_samples_on_twos_and_threes_with_or_without_stripping_tween()
+     {
+        let mut p = Project::blank();
+        p.format_version = 6;
+        p.symbols[0].timeline.frame_count = 13;
+        let rect = |x: f64| Element {
+            id: "r".into(),
+            transform: Transform {
+                x,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [0, 0, 0, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Default::default()
+        };
+        p.symbols[0].timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![rect(0.0)],
+                tween: Some(Easing::EaseInOut),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 12,
+                elements: vec![rect(120.0)],
+                ..Keyframe::default()
+            },
+        ];
+
+        // Tween2Keys (on 2s, strip_tween = true)
+        let mut p_twos = p.clone();
+        let tl_snapshot = p_twos.symbols[0].timeline.clone();
+        let count = convert_layer_to_keyframes_stepped(
+            &tl_snapshot,
+            &mut p_twos.symbols[0].timeline.layers[0],
+            0,
+            12,
+            2,
+            true,
+            24.0,
+        );
+        assert_eq!(count, 7);
+        let kfs = &p_twos.symbols[0].timeline.layers[0].keyframes;
+        assert_eq!(
+            kfs.iter().map(|k| k.frame).collect::<Vec<_>>(),
+            vec![0, 2, 4, 6, 8, 10, 12]
+        );
+        assert!(
+            kfs.iter()
+                .all(|k| k.tween.is_none() && k.keyed_properties.is_none())
+        );
+        p_twos.validate().unwrap();
+
+        // Convert to Keyframes Advanced (on 3s, strip_tween = false, preserves easing)
+        let mut p_threes = p;
+        let tl_snapshot = p_threes.symbols[0].timeline.clone();
+        let count = convert_layer_to_keyframes_stepped(
+            &tl_snapshot,
+            &mut p_threes.symbols[0].timeline.layers[0],
+            0,
+            12,
+            3,
+            false,
+            24.0,
+        );
+        assert_eq!(count, 5);
+        let kfs = &p_threes.symbols[0].timeline.layers[0].keyframes;
+        assert_eq!(
+            kfs.iter().map(|k| k.frame).collect::<Vec<_>>(),
+            vec![0, 3, 6, 9, 12]
+        );
+        assert_eq!(kfs[0].tween, Some(Easing::EaseInOut));
+        assert_eq!(kfs[1].tween, Some(Easing::EaseInOut));
+        assert_eq!(kfs[4].tween, None);
+        p_threes.validate().unwrap();
     }
 }

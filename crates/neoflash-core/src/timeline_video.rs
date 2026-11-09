@@ -1,13 +1,93 @@
-//! Authored timeline video scheduling, cue-point evaluation and container/codec diagnostics (`T-118`).
+//! Authored timeline video scheduling, deployment modes, cue-point evaluation and container/codec diagnostics (`T-118`, `T-178`).
 //!
 //! Following NeoFlash's media architecture (`timeline_sound.rs`), Rust owns all timeline
-//! synchronization, frame-to-time mapping, loop wrapping, cue-point crossing and container/CORS
-//! diagnostics. Hosts (native wgpu/egui and HTML5 Canvas/WebGL) only decode and present frames.
+//! synchronization, frame-to-time mapping, loop wrapping, cue-point crossing, deployment source
+//! resolution (`Embedded`, `External`, `Progressive`) and container/CORS diagnostics.
+//! Hosts (native wgpu/egui and HTML5 Canvas/WebGL) only decode and present frames.
 
 use crate::evaluate::{DrawItem, Node};
 use crate::{ElementKind, Id, Keyframe, Layer, LayerRole, Project};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
+
+/// How an authored video resource or span is deployed at publish/runtime (`T-178`, format 7).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoDeploymentMode {
+    /// Embedded video bytes stored in the project resource (`data_base64`), synced to timeline frames.
+    #[default]
+    Embedded,
+    /// Managed relative publish asset (e.g. `assets/video/intro.mp4`) without absolute paths.
+    External,
+    /// HTTP/HTTPS progressive download or streaming URL (`http://` or `https://`) with empty `data_base64`.
+    Progressive,
+}
+
+impl VideoDeploymentMode {
+    pub const ALL: [Self; 3] = [Self::Embedded, Self::External, Self::Progressive];
+
+    pub fn is_embedded(&self) -> bool {
+        matches!(self, Self::Embedded)
+    }
+
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::External)
+    }
+
+    pub fn is_progressive(&self) -> bool {
+        matches!(self, Self::Progressive)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Embedded => "embedded",
+            Self::External => "external",
+            Self::Progressive => "progressive",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Embedded => "Embed video in timeline",
+            Self::External => "Load external video with playback component",
+            Self::Progressive => "Progressive download from a web server",
+        }
+    }
+}
+
+/// Resolved deployment source specification for a timeline video span or resource (`T-178`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoSourceSpec {
+    pub mode: VideoDeploymentMode,
+    pub url_or_path: String,
+    pub mime_type: String,
+}
+
+/// External video asset to copy/stage alongside a published bundle (`T-178`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalVideoAsset {
+    pub resource_id: Id,
+    pub relative_path: String,
+    pub mime_type: String,
+    /// Decoded media bytes if still present in the authoring project, or empty if external-only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bytes: Vec<u8>,
+}
+
+/// Package manifest entry describing how a project video is deployed (`T-178`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoManifestEntry {
+    pub resource_id: Id,
+    pub source: VideoSourceSpec,
+    /// True when the video bytes are embedded inside the project bundle (`Embedded` mode).
+    pub embedded_in_bundle: bool,
+    /// True when the publish pipeline must stage an external relative asset file (`External` mode).
+    pub requires_external_file: bool,
+    /// True when the video streams progressively over HTTP(S) with CORS (`Progressive` mode).
+    pub requires_network_cors: bool,
+    /// Decoded payload size in bytes inside the project bundle (`0` for `External` and `Progressive`).
+    pub bundled_byte_len: usize,
+}
 
 /// How a timeline video span synchronizes with the timeline playhead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,9 +123,10 @@ pub struct VideoCuePoint {
     pub parameters: Vec<(String, String)>,
 }
 
-/// Authored timeline video settings attached to a keyframe or video layer span (`T-118`).
+/// Authored timeline video settings attached to a keyframe or video layer span (`T-118`, `T-178`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineVideoSpan {
+    #[serde(default)]
     pub resource: Id,
     #[serde(default)]
     pub sync: VideoSyncMode,
@@ -57,6 +138,19 @@ pub struct TimelineVideoSpan {
     pub muted: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cue_points: Vec<VideoCuePoint>,
+    /// Deployment mode (`Embedded` default; `External` or `Progressive` in format 7, `T-178`).
+    #[serde(default, skip_serializing_if = "VideoDeploymentMode::is_embedded")]
+    pub deployment: VideoDeploymentMode,
+    /// Validated relative publish asset path when `deployment == External` (e.g. `assets/video/intro.mp4`).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "url_or_path"
+    )]
+    pub external_path: Option<String>,
+    /// Validated `http://` or `https://` progressive stream URL when `deployment == Progressive`.
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "url")]
+    pub stream_url: Option<String>,
 }
 
 impl Default for TimelineVideoSpan {
@@ -68,7 +162,46 @@ impl Default for TimelineVideoSpan {
             loop_video: false,
             muted: false,
             cue_points: Vec::new(),
+            deployment: VideoDeploymentMode::Embedded,
+            external_path: None,
+            stream_url: None,
         }
+    }
+}
+
+impl TimelineVideoSpan {
+    pub fn embedded(resource: impl Into<Id>) -> Self {
+        Self {
+            resource: resource.into(),
+            deployment: VideoDeploymentMode::Embedded,
+            ..Self::default()
+        }
+    }
+
+    pub fn external(resource: impl Into<Id>, relative_path: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+            deployment: VideoDeploymentMode::External,
+            external_path: Some(relative_path.into()),
+            ..Self::default()
+        }
+    }
+
+    pub fn progressive(resource: impl Into<Id>, stream_url: impl Into<String>) -> Self {
+        Self {
+            resource: resource.into(),
+            deployment: VideoDeploymentMode::Progressive,
+            stream_url: Some(stream_url.into()),
+            ..Self::default()
+        }
+    }
+
+    pub fn uses_non_embedded_deployment(&self) -> bool {
+        !self.deployment.is_embedded() || self.external_path.is_some() || self.stream_url.is_some()
+    }
+
+    pub fn source_spec(&self, project: &Project) -> Option<VideoSourceSpec> {
+        resolve_video_source(project, self)
     }
 }
 
@@ -89,6 +222,9 @@ fn deserialize_static_code<'de, D: Deserializer<'de>>(
         "video-empty-bytes" => "video-empty-bytes",
         "video-unknown-container" => "video-unknown-container",
         "video-unsupported-mime" => "video-unsupported-mime",
+        "video-invalid-external-path" => "video-invalid-external-path",
+        "video-invalid-progressive-url" => "video-invalid-progressive-url",
+        "video-progressive-duplicate-bytes" => "video-progressive-duplicate-bytes",
         _ => "video-diagnostic",
     })
 }
@@ -105,7 +241,7 @@ pub struct VideoCodecDiagnostic {
     pub is_error: bool,
 }
 
-/// Host instruction emitted by Rust's timeline video scheduler (`T-118`).
+/// Host instruction emitted by Rust's timeline video scheduler (`T-118`, `T-178`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum VideoCommand {
@@ -115,6 +251,8 @@ pub enum VideoCommand {
         target_path: Vec<Id>,
         layer_id: Id,
         resource: Id,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<VideoSourceSpec>,
         target_time_ms: u32,
         playing: bool,
         muted: bool,
@@ -126,6 +264,8 @@ pub enum VideoCommand {
         target_path: Vec<Id>,
         layer_id: Id,
         resource: Id,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<VideoSourceSpec>,
         start_offset_ms: u32,
         loop_video: bool,
         muted: bool,
@@ -234,6 +374,15 @@ impl TimelineVideoState {
                 continue;
             };
             let channel = video_channel(&item.instance_path, &active.layer.id, active.key.frame);
+            let source = resolve_video_source(project, active.span);
+            let effective_resource = if active.span.resource.is_empty() {
+                source
+                    .as_ref()
+                    .map(|s| s.url_or_path.clone())
+                    .unwrap_or_default()
+            } else {
+                active.span.resource.clone()
+            };
             match active.span.sync {
                 VideoSyncMode::Stream => {
                     let target_time_ms = compute_frame_video_time_ms(
@@ -252,7 +401,7 @@ impl TimelineVideoState {
                         ) {
                             self.push(VideoCommand::CuePointTriggered {
                                 layer_id: active.layer.id.clone(),
-                                resource: active.span.resource.clone(),
+                                resource: effective_resource.clone(),
                                 cue_point,
                                 frame: active.owner.frame,
                             });
@@ -262,7 +411,8 @@ impl TimelineVideoState {
                         channel: channel.clone(),
                         target_path: item.instance_path.clone(),
                         layer_id: active.layer.id.clone(),
-                        resource: active.span.resource.clone(),
+                        resource: effective_resource,
+                        source,
                         target_time_ms,
                         playing: running(&active.owner.path),
                         muted: active.span.muted,
@@ -281,7 +431,8 @@ impl TimelineVideoState {
                             channel: channel.clone(),
                             target_path: item.instance_path.clone(),
                             layer_id: active.layer.id.clone(),
-                            resource: active.span.resource.clone(),
+                            resource: effective_resource,
+                            source,
                             start_offset_ms: active.span.start_offset_ms,
                             loop_video: active.span.loop_video,
                             muted: active.span.muted,
@@ -325,9 +476,14 @@ impl TimelineVideoState {
                 let channel = video_channel(&owner.path, &layer.id, key.frame);
                 let previous = self.entries.get(&channel).copied();
                 if owner.frame == key.frame && previous != Some(owner.frame) {
-                    self.push(VideoCommand::Stop {
-                        resource: span.resource.clone(),
-                    });
+                    let resource = if span.resource.is_empty() {
+                        resolve_video_source(project, span)
+                            .map(|s| s.url_or_path)
+                            .unwrap_or_default()
+                    } else {
+                        span.resource.clone()
+                    };
+                    self.push(VideoCommand::Stop { resource });
                 }
                 self.entries.insert(channel.clone(), owner.frame);
                 alive_entries.insert(channel);
@@ -443,6 +599,479 @@ pub fn collect_crossed_cue_points(
 
 fn contains_fourcc(haystack: &[u8], fourcc: &[u8; 4]) -> bool {
     haystack.windows(4).any(|w| w == fourcc)
+}
+
+/// Infer a canonical browser video MIME type from a filename or URL extension (`T-178`).
+pub fn infer_video_mime_type(path_or_url: &str) -> &'static str {
+    let clean = path_or_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(path_or_url)
+        .trim()
+        .to_ascii_lowercase();
+    if clean.ends_with(".webm") {
+        "video/webm"
+    } else if clean.ends_with(".ogv") || clean.ends_with(".ogg") {
+        "video/ogg"
+    } else {
+        "video/mp4"
+    }
+}
+
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+fn contains_encoded_dot_dot(segment: &str) -> bool {
+    let lower = segment.to_ascii_lowercase();
+    lower == "%2e%2e"
+        || lower == ".%2e"
+        || lower == "%2e."
+        || lower.contains("%2f")
+        || lower.contains("%5c")
+}
+
+/// Strictly validate a managed relative publish asset path for `VideoDeploymentMode::External` (`T-178`).
+///
+/// Rejects empty paths, leading/trailing whitespace, control characters (`\0`, `\r`, `\n`),
+/// backslashes, absolute paths (`/` or Windows drive letters), `file:`/`http:`/`https:`/`data:` URLs,
+/// URL credentials (`user:pass@`), and `.` or `..` traversal segments.
+pub fn validate_external_video_path(path: &str) -> Result<(), String> {
+    if path.is_empty() || path.trim().is_empty() {
+        return Err("external video path must be a non-empty relative path".into());
+    }
+    if path.len() > 1024 {
+        return Err("external video path exceeds 1024 bytes".into());
+    }
+    if path.chars().any(|c| c.is_control()) {
+        return Err("external video path must not contain control characters".into());
+    }
+    if path != path.trim() {
+        return Err("external video path must not have leading or trailing whitespace".into());
+    }
+    if path.contains('\\') {
+        return Err("external video path must use forward slashes and not backslashes".into());
+    }
+    let lower = path.to_ascii_lowercase();
+    if lower.starts_with("file:") {
+        return Err("external video path must be a relative asset path, not a file: URL".into());
+    }
+    if path.contains('@') {
+        return Err("external video path must not contain URL credentials".into());
+    }
+    if path.starts_with('/') || path.starts_with('~') || has_windows_drive_prefix(path) {
+        return Err(
+            "external video path must be relative and not an absolute filesystem path".into(),
+        );
+    }
+    if path.contains(':') {
+        return Err(
+            "external video path must be a relative path without a URL scheme or drive letter"
+                .into(),
+        );
+    }
+    if path.contains(['?', '#']) {
+        return Err("external video path must not contain query or fragment components".into());
+    }
+    for segment in path.split('/') {
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || contains_encoded_dot_dot(segment)
+        {
+            return Err(
+                "external video path must not contain empty, '.' or '..' parent traversal segments"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Strictly validate a progressive download / streaming URL for `VideoDeploymentMode::Progressive` (`T-178`).
+///
+/// Requires a valid `http://` or `https://` URL with a non-empty host; rejects `file:`, `javascript:`,
+/// `data:`, embedded credentials (`user:pass@host`), `..` path traversal, backslashes, and control characters.
+pub fn validate_progressive_video_url(url: &str) -> Result<(), String> {
+    if url.is_empty() || url.trim().is_empty() {
+        return Err("progressive video URL must be a non-empty http:// or https:// URL".into());
+    }
+    if url.len() > 2048 {
+        return Err("progressive video URL exceeds 2048 bytes".into());
+    }
+    if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(
+            "progressive video URL must not contain control characters or whitespace".into(),
+        );
+    }
+    if url.contains('\\') {
+        return Err("progressive video URL must not contain backslashes".into());
+    }
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("file:")
+        || lower.starts_with("javascript:")
+        || lower.starts_with("data:")
+        || lower.starts_with("vbscript:")
+    {
+        return Err(
+            "progressive video URL must use http:// or https:// (file:, javascript: and data: are forbidden)"
+                .into(),
+        );
+    }
+    let rest = if let Some(r) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    {
+        r
+    } else if lower.starts_with("https://") {
+        &url[8..]
+    } else if lower.starts_with("http://") {
+        &url[7..]
+    } else {
+        return Err("progressive video URL must start with http:// or https://".into());
+    };
+
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let tail = &rest[authority_end..];
+
+    if authority.is_empty() {
+        return Err("progressive video URL requires a non-empty host".into());
+    }
+    if authority.contains('@') || lower.contains("%40") {
+        return Err(
+            "progressive video URL must not contain embedded credentials (user:pass@host)".into(),
+        );
+    }
+
+    let host = if let Some(after_bracket) = authority.strip_prefix('[') {
+        let Some(close) = after_bracket.find(']') else {
+            return Err("progressive video URL has an unclosed IPv6 host literal".into());
+        };
+        let ipv6 = &after_bracket[..close];
+        let remainder = &after_bracket[close + 1..];
+        if let Some(port_str) = remainder.strip_prefix(':') {
+            let Ok(port) = port_str.parse::<u16>() else {
+                return Err("progressive video URL has an invalid port".into());
+            };
+            if port == 0 {
+                return Err("progressive video URL port must be in 1..=65535".into());
+            }
+        } else if !remainder.is_empty() {
+            return Err("progressive video URL has invalid characters after IPv6 host".into());
+        }
+        ipv6
+    } else if let Some((h, port_str)) = authority.rsplit_once(':') {
+        let Ok(port) = port_str.parse::<u16>() else {
+            return Err("progressive video URL has an invalid port".into());
+        };
+        if port == 0 {
+            return Err("progressive video URL port must be in 1..=65535".into());
+        }
+        h
+    } else {
+        authority
+    };
+
+    if host.is_empty()
+        || host.starts_with('.')
+        || host.ends_with('.')
+        || host.contains("..")
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':'))
+    {
+        return Err("progressive video URL requires a valid non-empty host".into());
+    }
+
+    let path_part = tail.split(['?', '#']).next().unwrap_or("");
+    let lower_path = path_part.to_ascii_lowercase();
+    if lower_path.contains("%5c") || lower_path.contains("%00") {
+        return Err("progressive video URL path contains forbidden encoded characters".into());
+    }
+    for segment in path_part.split('/') {
+        if segment == "." || segment == ".." || contains_encoded_dot_dot(segment) {
+            return Err(
+                "progressive video URL must not contain '.' or '..' path traversal segments".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Resolve the runtime/publish `VideoSourceSpec` for a `TimelineVideoSpan` (`T-178`).
+pub fn resolve_video_source(
+    project: &Project,
+    span: &TimelineVideoSpan,
+) -> Option<VideoSourceSpec> {
+    let resource = if span.resource.is_empty() {
+        None
+    } else {
+        project.resources.iter().find(|r| r.id == span.resource)
+    };
+    let mode = if !span.deployment.is_embedded() {
+        span.deployment
+    } else if span.stream_url.is_some() {
+        VideoDeploymentMode::Progressive
+    } else if span.external_path.is_some() {
+        VideoDeploymentMode::External
+    } else if let Some(res) = resource
+        && res.data_base64.is_empty()
+    {
+        let lower = res.path.to_ascii_lowercase();
+        if lower.starts_with("http://") || lower.starts_with("https://") {
+            VideoDeploymentMode::Progressive
+        } else {
+            VideoDeploymentMode::External
+        }
+    } else {
+        VideoDeploymentMode::Embedded
+    };
+
+    let url_or_path = match mode {
+        VideoDeploymentMode::Embedded => resource.map(|r| r.path.clone()).unwrap_or_default(),
+        VideoDeploymentMode::External => span
+            .external_path
+            .clone()
+            .or_else(|| span.stream_url.clone())
+            .or_else(|| resource.map(|r| r.path.clone()))
+            .unwrap_or_default(),
+        VideoDeploymentMode::Progressive => span
+            .stream_url
+            .clone()
+            .or_else(|| span.external_path.clone())
+            .or_else(|| resource.map(|r| r.path.clone()))
+            .unwrap_or_default(),
+    };
+
+    if url_or_path.is_empty() && resource.is_none() {
+        return None;
+    }
+
+    let mime_type = resource
+        .map(|r| r.media_type.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| infer_video_mime_type(&url_or_path).to_owned());
+
+    Some(VideoSourceSpec {
+        mode,
+        url_or_path,
+        mime_type,
+    })
+}
+
+/// Resolve the `VideoSourceSpec` for a video resource ID across `project` (`T-178`).
+pub fn resolve_video_resource_source(
+    project: &Project,
+    resource_id: &str,
+) -> Option<VideoSourceSpec> {
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                if let Some(span) = &key.video
+                    && (span.resource == resource_id
+                        || (span.resource.is_empty()
+                            && (span.external_path.as_deref() == Some(resource_id)
+                                || span.stream_url.as_deref() == Some(resource_id))))
+                {
+                    return resolve_video_source(project, span);
+                }
+            }
+        }
+    }
+    let resource = project
+        .resources
+        .iter()
+        .find(|r| r.id == resource_id && r.is_video())?;
+    let mode = if resource.data_base64.is_empty() {
+        let lower = resource.path.to_ascii_lowercase();
+        if lower.starts_with("http://") || lower.starts_with("https://") {
+            VideoDeploymentMode::Progressive
+        } else {
+            VideoDeploymentMode::External
+        }
+    } else {
+        VideoDeploymentMode::Embedded
+    };
+    Some(VideoSourceSpec {
+        mode,
+        url_or_path: resource.path.clone(),
+        mime_type: resource.media_type.trim().to_ascii_lowercase(),
+    })
+}
+
+/// Collect all resolved timeline video sources `(resource_id, VideoSourceSpec)` in deterministic order (`T-178`).
+pub fn timeline_video_sources(project: &Project) -> Vec<(Id, VideoSourceSpec)> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                if let Some(span) = &key.video
+                    && let Some(spec) = resolve_video_source(project, span)
+                {
+                    let key_id = if span.resource.is_empty() {
+                        spec.url_or_path.clone()
+                    } else {
+                        span.resource.clone()
+                    };
+                    if seen.insert(key_id.clone()) {
+                        out.push((key_id, spec));
+                    }
+                }
+            }
+        }
+    }
+    for res in &project.resources {
+        if res.is_video()
+            && seen.insert(res.id.clone())
+            && let Some(spec) = resolve_video_resource_source(project, &res.id)
+        {
+            out.push((res.id.clone(), spec));
+        }
+    }
+    out
+}
+
+/// Collect external video assets (`VideoDeploymentMode::External`) for the export/publish pipeline (`T-178`).
+pub fn collect_external_video_assets(project: &Project) -> Vec<ExternalVideoAsset> {
+    let mut assets = Vec::new();
+    let mut seen = HashSet::new();
+    for (resource_id, spec) in timeline_video_sources(project) {
+        if spec.mode != VideoDeploymentMode::External {
+            continue;
+        }
+        if !seen.insert((resource_id.clone(), spec.url_or_path.clone())) {
+            continue;
+        }
+        let bytes = project
+            .resources
+            .iter()
+            .find(|r| r.id == resource_id)
+            .and_then(|r| {
+                if r.data_base64.is_empty() {
+                    None
+                } else {
+                    r.decoded_bytes().ok()
+                }
+            })
+            .unwrap_or_default();
+        assets.push(ExternalVideoAsset {
+            resource_id,
+            relative_path: spec.url_or_path,
+            mime_type: spec.mime_type,
+            bytes,
+        });
+    }
+    assets
+}
+
+/// Produce package manifest entries for all videos in `project` (`Embedded`, `External`, `Progressive`, `T-178`).
+pub fn video_manifest_entries(project: &Project) -> Vec<VideoManifestEntry> {
+    let mut entries = Vec::new();
+    for (resource_id, source) in timeline_video_sources(project) {
+        let bundled_byte_len = match source.mode {
+            VideoDeploymentMode::Embedded => project
+                .resources
+                .iter()
+                .find(|r| r.id == resource_id)
+                .and_then(|r| r.decoded_bytes().ok())
+                .map_or(0, |b| b.len()),
+            VideoDeploymentMode::External | VideoDeploymentMode::Progressive => 0,
+        };
+        entries.push(VideoManifestEntry {
+            resource_id,
+            embedded_in_bundle: source.mode == VideoDeploymentMode::Embedded,
+            requires_external_file: source.mode == VideoDeploymentMode::External,
+            requires_network_cors: source.mode == VideoDeploymentMode::Progressive,
+            bundled_byte_len,
+            source,
+        });
+    }
+    entries
+}
+
+/// Extract external video assets and clear `data_base64` on all non-Embedded (`External` and `Progressive`)
+/// video resources so the published project JSON does not duplicate raw video bytes (`T-178`).
+pub fn strip_non_embedded_video_bytes(project: &mut Project) -> Vec<ExternalVideoAsset> {
+    let external_assets = collect_external_video_assets(project);
+    let non_embedded_ids: HashSet<Id> = timeline_video_sources(project)
+        .into_iter()
+        .filter(|(_, spec)| !spec.mode.is_embedded())
+        .map(|(id, _)| id)
+        .collect();
+    for res in &mut project.resources {
+        if res.is_video() && non_embedded_ids.contains(&res.id) {
+            res.data_base64 = "".into();
+        }
+    }
+    external_assets
+}
+
+/// Inspect a video resource or span across all three deployment modes (`Embedded`, `External`, `Progressive`, `T-178`).
+pub fn inspect_video_deployment(
+    name: &str,
+    mime: &str,
+    bytes: &[u8],
+    mode: VideoDeploymentMode,
+    url_or_path: Option<&str>,
+) -> Vec<VideoCodecDiagnostic> {
+    match mode {
+        VideoDeploymentMode::Embedded => inspect_video_resource(name, mime, bytes, None),
+        VideoDeploymentMode::External => {
+            let mut diags = Vec::new();
+            let path = url_or_path.unwrap_or("").trim();
+            if let Err(err) = validate_external_video_path(path) {
+                diags.push(VideoCodecDiagnostic {
+                    code: "video-invalid-external-path",
+                    message: format!("Video '{name}' has invalid external path '{path}': {err}"),
+                    is_error: true,
+                });
+            }
+            if !bytes.is_empty() {
+                diags.extend(inspect_video_resource(name, mime, bytes, None));
+            } else {
+                let mime_trimmed = mime.trim().to_ascii_lowercase();
+                if !mime_trimmed.is_empty()
+                    && !mime_trimmed.starts_with("video/")
+                    && mime_trimmed != "application/octet-stream"
+                {
+                    diags.push(VideoCodecDiagnostic {
+                        code: "video-unsupported-mime",
+                        message: format!(
+                            "Video '{name}' has non-video MIME type '{mime}'; expected video/mp4, video/webm or video/ogg."
+                        ),
+                        is_error: true,
+                    });
+                }
+            }
+            diags
+        }
+        VideoDeploymentMode::Progressive => {
+            let mut diags = Vec::new();
+            let url = url_or_path.unwrap_or("").trim();
+            if let Err(err) = validate_progressive_video_url(url) {
+                diags.push(VideoCodecDiagnostic {
+                    code: "video-invalid-progressive-url",
+                    message: format!("Video '{name}' has invalid progressive URL '{url}': {err}"),
+                    is_error: true,
+                });
+            } else {
+                diags.extend(inspect_video_resource(name, mime, &[], Some(url)));
+            }
+            if !bytes.is_empty() {
+                diags.push(VideoCodecDiagnostic {
+                    code: "video-progressive-duplicate-bytes",
+                    message: format!(
+                        "Video '{name}' is in progressive mode and must not embed duplicate raw video bytes."
+                    ),
+                    is_error: true,
+                });
+            }
+            diags
+        }
+    }
 }
 
 /// Inspect a video resource's container header, codec brands and external URL for browser/native
@@ -893,5 +1522,256 @@ mod tests {
         );
         player.sync_timeline_videos(&project);
         assert!(player.drain_video_commands().is_empty());
+    }
+
+    #[test]
+    fn old_document_with_embedded_video_loads_cleanly_while_non_embedded_bumps_format_7() {
+        // Format-6 document with default Embedded video loads cleanly and stays format 6.
+        let mut embedded = runtime_video_project(VideoSyncMode::Stream);
+        embedded.format_version = 6;
+        assert!(!embedded.uses_format_7());
+        assert!(!embedded.uses_format_9());
+        embedded
+            .validate()
+            .expect("format 6 embedded video should validate");
+
+        // Omitted `deployment` in JSON defaults to `Embedded`.
+        let json = embedded.to_json().unwrap();
+        assert!(!json.contains("\"deployment\""));
+        let round_trip = Project::from_json(&json).unwrap();
+        assert_eq!(
+            round_trip.symbols[0].timeline.layers[0].keyframes[0]
+                .video
+                .as_ref()
+                .unwrap()
+                .deployment,
+            VideoDeploymentMode::Embedded
+        );
+
+        // External deployment mode requires format >= 7 and upgrades via upgrade_format_for_features.
+        let mut external = runtime_video_project(VideoSyncMode::Stream);
+        external.format_version = 6;
+        external.resources[0].path = "assets/video/intro.mp4".into();
+        external.resources[0].data_base64 = "".into();
+        external.symbols[0].timeline.layers[0].keyframes[0].video = Some(
+            TimelineVideoSpan::external("movie", "assets/video/intro.mp4"),
+        );
+        assert!(external.uses_format_7());
+        let err = external.validate().unwrap_err().to_string();
+        assert!(err.contains("require document version 7"), "got: {err}");
+        external.upgrade_format_for_features();
+        assert_eq!(external.format_version, 7);
+        external
+            .validate()
+            .expect("upgraded format-7 external video should validate");
+
+        // Progressive deployment mode requires format >= 7 and empty data_base64.
+        let mut progressive = runtime_video_project(VideoSyncMode::Event);
+        progressive.format_version = 6;
+        progressive.resources[0].path = "https://cdn.example.com/media/intro.mp4".into();
+        progressive.resources[0].data_base64 = "".into();
+        progressive.symbols[0].timeline.layers[0].keyframes[0].video = Some(
+            TimelineVideoSpan::progressive("movie", "https://cdn.example.com/media/intro.mp4"),
+        );
+        assert!(progressive.uses_format_7());
+        progressive.upgrade_format_for_features();
+        assert_eq!(progressive.format_version, 7);
+        progressive
+            .validate()
+            .expect("upgraded format-7 progressive video should validate");
+    }
+
+    #[test]
+    fn external_video_path_validation_rejects_unsafe_paths() {
+        assert!(validate_external_video_path("assets/video/intro.mp4").is_ok());
+        assert!(validate_external_video_path("clips/scene_01.webm").is_ok());
+
+        for invalid in [
+            "",
+            "   ",
+            "/Users/miles/Movies/intro.mp4",
+            "C:\\Videos\\intro.mp4",
+            "C:/Videos/intro.mp4",
+            "../secret/intro.mp4",
+            "assets/../../intro.mp4",
+            "assets\\video\\intro.mp4",
+            "file:///Users/miles/intro.mp4",
+            "http://example.com/intro.mp4",
+            "https://user:pass@example.com/intro.mp4",
+            "user:pass@assets/intro.mp4",
+            "assets/intro\0.mp4",
+            "assets/intro\n.mp4",
+        ] {
+            assert!(
+                validate_external_video_path(invalid).is_err(),
+                "expected external path {invalid:?} to be rejected"
+            );
+        }
+
+        let mut project = runtime_video_project(VideoSyncMode::Stream);
+        project.format_version = 7;
+        project.resources[0].data_base64 = "".into();
+        project.symbols[0].timeline.layers[0].keyframes[0].video = Some(
+            TimelineVideoSpan::external("movie", "/Users/miles/Desktop/clip.mp4"),
+        );
+        let err = project.validate().unwrap_err().to_string();
+        assert!(err.contains("video.external_path"), "got: {err}");
+    }
+
+    #[test]
+    fn progressive_video_url_validation_rejects_unsafe_urls_and_duplicate_bytes() {
+        assert!(validate_progressive_video_url("https://cdn.example.com/video/intro.mp4").is_ok());
+        assert!(
+            validate_progressive_video_url("http://localhost:8080/streams/clip.webm?token=1")
+                .is_ok()
+        );
+
+        for invalid in [
+            "",
+            "assets/video/intro.mp4",
+            "file:///Users/miles/intro.mp4",
+            "javascript:alert(1)",
+            "data:video/mp4;base64,AAAA",
+            "https://",
+            "https:///path-only.mp4",
+            "https://user:pass@cdn.example.com/intro.mp4",
+            "https://cdn.example.com/video/../secret.mp4",
+            "https://cdn.example.com/video\\intro.mp4",
+            "https://cdn.example.com/video/intro\r\n.mp4",
+        ] {
+            assert!(
+                validate_progressive_video_url(invalid).is_err(),
+                "expected progressive URL {invalid:?} to be rejected"
+            );
+        }
+
+        // Progressive mode must reject duplicate embedded bytes in data_base64.
+        let mut project = runtime_video_project(VideoSyncMode::Event);
+        project.format_version = 7;
+        project.resources[0].path = "https://cdn.example.com/video/intro.mp4".into();
+        // Leave non-empty data_base64 from runtime_video_project -> should fail validation!
+        project.symbols[0].timeline.layers[0].keyframes[0].video = Some(
+            TimelineVideoSpan::progressive("movie", "https://cdn.example.com/video/intro.mp4"),
+        );
+        let err = project.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("empty data_base64"),
+            "expected duplicate embedded bytes rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn video_manifest_and_external_asset_helpers_distinguish_all_three_modes() {
+        let mut project = runtime_video_project(VideoSyncMode::Stream);
+        project.format_version = 7;
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "ext_vid",
+                "assets/video/cutscene.mp4",
+                "video/mp4",
+                b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2avc1mp41",
+            )
+            .unwrap(),
+        );
+        let mut prog_res =
+            ResourceUnit::from_bytes("prog_vid", "video/stream.webm", "video/webm", b"x").unwrap();
+        prog_res.path = "https://cdn.example.com/live/stream.webm".into();
+        prog_res.data_base64 = "".into();
+        project.resources.push(prog_res);
+
+        project.symbols[0].timeline.layers.push(Layer {
+            id: "ext-layer".into(),
+            name: "External".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![video_element("video-ext")],
+                video: Some(TimelineVideoSpan::external(
+                    "ext_vid",
+                    "assets/video/cutscene.mp4",
+                )),
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        });
+        project.symbols[0].timeline.layers.push(Layer {
+            id: "prog-layer".into(),
+            name: "Progressive".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![video_element("video-prog")],
+                video: Some(TimelineVideoSpan::progressive(
+                    "prog_vid",
+                    "https://cdn.example.com/live/stream.webm",
+                )),
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        });
+
+        let extracted = project.strip_non_embedded_video_bytes();
+        assert_eq!(extracted.len(), 1);
+        assert_eq!(extracted[0].resource_id, "ext_vid");
+        assert_eq!(extracted[0].relative_path, "assets/video/cutscene.mp4");
+        assert!(!extracted[0].bytes.is_empty());
+        assert!(project.resource("ext_vid").unwrap().data_base64.is_empty());
+        assert!(!project.resource("movie").unwrap().data_base64.is_empty());
+
+        project.validate().unwrap();
+
+        let manifest = project.video_manifest_entries();
+        assert_eq!(manifest.len(), 3);
+        let by_id: std::collections::HashMap<_, _> = manifest
+            .into_iter()
+            .map(|e| (e.resource_id.clone(), e))
+            .collect();
+        assert_eq!(by_id["movie"].source.mode, VideoDeploymentMode::Embedded);
+        assert!(by_id["movie"].embedded_in_bundle);
+        assert!(by_id["movie"].bundled_byte_len > 0);
+        assert_eq!(by_id["ext_vid"].source.mode, VideoDeploymentMode::External);
+        assert_eq!(
+            by_id["ext_vid"].source.url_or_path,
+            "assets/video/cutscene.mp4"
+        );
+        assert!(by_id["ext_vid"].requires_external_file);
+        assert_eq!(by_id["ext_vid"].bundled_byte_len, 0);
+        assert_eq!(
+            by_id["prog_vid"].source.mode,
+            VideoDeploymentMode::Progressive
+        );
+        assert_eq!(
+            by_id["prog_vid"].source.url_or_path,
+            "https://cdn.example.com/live/stream.webm"
+        );
+        assert!(by_id["prog_vid"].requires_network_cors);
+        assert_eq!(by_id["prog_vid"].bundled_byte_len, 0);
+
+        let mut player = Player::new(&project);
+        let commands = player.drain_video_commands();
+        assert_eq!(commands.len(), 3);
+        let sources: Vec<_> = commands
+            .iter()
+            .filter_map(|cmd| match cmd {
+                VideoCommand::SeekAndPresent { source, .. }
+                | VideoCommand::StartEvent { source, .. } => source.clone(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sources.len(), 3);
+        assert!(
+            sources
+                .iter()
+                .any(|s| s.mode == VideoDeploymentMode::Embedded)
+        );
+        assert!(sources.iter().any(|s| {
+            s.mode == VideoDeploymentMode::External && s.url_or_path == "assets/video/cutscene.mp4"
+        }));
+        assert!(sources.iter().any(|s| {
+            s.mode == VideoDeploymentMode::Progressive
+                && s.url_or_path == "https://cdn.example.com/live/stream.webm"
+        }));
     }
 }

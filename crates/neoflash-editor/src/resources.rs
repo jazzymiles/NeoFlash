@@ -101,7 +101,13 @@ impl Editor {
         }
         let mut open_sound_props: Option<String> = None;
         let mut open_bitmap_props: Option<String> = None;
+        let mut open_trace_bitmap: Option<String> = None;
         let mut open_export_audio: Option<String> = None;
+        let mut open_batch_rename = false;
+        let mut open_batch_linkage = false;
+        let mut open_batch_bitmap = false;
+        let mut trigger_select_unused = false;
+        let mut trigger_delete_unused = false;
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
             for unit in &self.project.resources {
@@ -133,7 +139,7 @@ impl Editor {
                 if unit.is_audio() {
                     let unit_id = unit.id.clone();
                     response.context_menu(|ui| {
-                        crate::ui_icons::menu_contents(ui, 200., |ui| {
+                        crate::ui_icons::menu_contents(ui, 230., |ui| {
                             if ui.add(nf::MenuItem::new("Sound properties…")).clicked() {
                                 open_sound_props = Some(unit_id.clone());
                                 ui.close();
@@ -142,14 +148,58 @@ impl Editor {
                                 open_export_audio = Some(unit_id.clone());
                                 ui.close();
                             }
+                            nf::menu_separator(ui);
+                            if ui.add(nf::MenuItem::new("Batch rename…")).clicked() {
+                                open_batch_rename = true;
+                                ui.close();
+                            }
+                            if ui
+                                .add(nf::MenuItem::new("Batch linkage (ActionScript)…"))
+                                .clicked()
+                            {
+                                open_batch_linkage = true;
+                                ui.close();
+                            }
+                            if ui.add(nf::MenuItem::new("Select unused items")).clicked() {
+                                trigger_select_unused = true;
+                                ui.close();
+                            }
+                            if ui.add(nf::MenuItem::new("Delete unused items")).clicked() {
+                                trigger_delete_unused = true;
+                                ui.close();
+                            }
                         });
                     });
                 } else if unit.is_image() {
                     let unit_id = unit.id.clone();
                     response.context_menu(|ui| {
-                        crate::ui_icons::menu_contents(ui, 200., |ui| {
+                        crate::ui_icons::menu_contents(ui, 230., |ui| {
+                            if ui.add(nf::MenuItem::new("Trace bitmap…")).clicked() {
+                                open_trace_bitmap = Some(unit_id.clone());
+                                ui.close();
+                            }
                             if ui.add(nf::MenuItem::new("Bitmap properties…")).clicked() {
                                 open_bitmap_props = Some(unit_id.clone());
+                                ui.close();
+                            }
+                            nf::menu_separator(ui);
+                            if ui.add(nf::MenuItem::new("Batch rename…")).clicked() {
+                                open_batch_rename = true;
+                                ui.close();
+                            }
+                            if ui
+                                .add(nf::MenuItem::new("Batch bitmap compression & smoothing…"))
+                                .clicked()
+                            {
+                                open_batch_bitmap = true;
+                                ui.close();
+                            }
+                            if ui.add(nf::MenuItem::new("Select unused items")).clicked() {
+                                trigger_select_unused = true;
+                                ui.close();
+                            }
+                            if ui.add(nf::MenuItem::new("Delete unused items")).clicked() {
+                                trigger_delete_unused = true;
                                 ui.close();
                             }
                         });
@@ -160,6 +210,9 @@ impl Editor {
         if let Some(id) = open_sound_props {
             self.open_sound_properties(ui.ctx(), Some(id));
         }
+        if let Some(id) = open_trace_bitmap {
+            self.trace_selected_or_library_bitmap(ui.ctx(), Some(id));
+        }
         if let Some(id) = open_bitmap_props {
             self.open_bitmap_properties(ui.ctx(), Some(id));
         }
@@ -168,6 +221,21 @@ impl Editor {
                 ui.ctx(),
                 Some(neoflash_export::AudioExportSource::Resource(id)),
             );
+        }
+        if open_batch_rename {
+            self.open_batch_rename_library_modal(ui.ctx());
+        }
+        if open_batch_linkage {
+            self.open_batch_linkage_modal(ui.ctx());
+        }
+        if open_batch_bitmap {
+            self.open_batch_bitmap_compression_modal(ui.ctx());
+        }
+        if trigger_select_unused {
+            self.select_unused_library_items();
+        }
+        if trigger_delete_unused {
+            self.delete_unused_library_items();
         }
         let Some(index) = self
             .project
@@ -241,6 +309,234 @@ impl Editor {
                 }
             }
         });
+    }
+
+    /// Open Trace Bitmap for the selected Stage bitmap when available, or run Library-only
+    /// bitmap tracing on a Library image resource to create an editable vector symbol (`T-177`).
+    pub(crate) fn trace_selected_or_library_bitmap(
+        &mut self,
+        ctx: &egui::Context,
+        explicit_resource_id: Option<String>,
+    ) {
+        if explicit_resource_id.is_none() && self.can_trace_bitmap() {
+            self.open_trace_bitmap(ctx);
+            return;
+        }
+        let target_res = explicit_resource_id
+            .or_else(|| {
+                self.resource_panel.selected.as_ref().and_then(|id| {
+                    self.project
+                        .resources
+                        .iter()
+                        .find(|u| &u.id == id && u.is_image())
+                        .map(|u| u.id.clone())
+                })
+            })
+            .or_else(|| {
+                self.project
+                    .resources
+                    .iter()
+                    .find(|u| u.is_image())
+                    .map(|u| u.id.clone())
+            });
+        let Some(resource_id) = target_res else {
+            self.message("Select a placed bitmap or a Library image resource to trace.");
+            return;
+        };
+        if let Err(err) = self.trace_library_bitmap_resource(&resource_id) {
+            self.message(err);
+        }
+    }
+
+    /// Library-only Trace Bitmap workflow (`T-177`): trace a bitmap resource in the Library
+    /// and create a new editable vector symbol (`Graphic`) containing the traced region shapes
+    /// while preserving the source bitmap resource untouched, in one atomic Undo step.
+    pub fn trace_library_bitmap_resource(&mut self, resource_id: &str) -> Result<String, String> {
+        self.trace_library_bitmap_resource_with_params(
+            resource_id,
+            24,
+            4,
+            neoflash_core::SymbolKind::Graphic,
+        )
+    }
+
+    /// Library-only Trace Bitmap with explicit color threshold, minimum area, and target symbol kind (`Graphic` or `MovieClip`).
+    pub fn trace_library_bitmap_resource_with_params(
+        &mut self,
+        resource_id: &str,
+        color_threshold: u8,
+        min_area_px: u32,
+        kind: neoflash_core::SymbolKind,
+    ) -> Result<String, String> {
+        if !matches!(
+            kind,
+            neoflash_core::SymbolKind::Graphic | neoflash_core::SymbolKind::MovieClip
+        ) {
+            return Err(
+                "Library bitmap trace target must be a Graphic or MovieClip symbol.".into(),
+            );
+        }
+        let unit = self
+            .project
+            .resources
+            .iter()
+            .find(|u| u.id == resource_id)
+            .ok_or_else(|| format!("Unknown resource '{resource_id}'."))?
+            .clone();
+        if !unit.is_image() {
+            return Err(format!("Resource '{}' is not a bitmap image.", unit.path));
+        }
+        let decoded = unit.decode_image().map_err(|e| e.to_string())?;
+        let w = decoded.width.max(1);
+        let h = decoded.height.max(1);
+        let step_x = (w / 64).max(1);
+        let step_y = (h / 64).max(1);
+        let q_step = u16::from(color_threshold.max(1));
+        let quant = |v: u8| -> u8 {
+            let bucket = (u16::from(v) / q_step) * q_step;
+            bucket.min(255) as u8
+        };
+
+        // Group quantized non-transparent pixels into merged horizontal run rectangles per color bucket.
+        let mut color_validate: std::collections::BTreeMap<
+            [u8; 4],
+            Vec<neoflash_core::PathCommand>,
+        > = std::collections::BTreeMap::new();
+        for y in (0..h).step_by(step_y as usize) {
+            let mut x = 0u32;
+            while x < w {
+                let idx = ((y * w + x) * 4) as usize;
+                if idx + 3 >= decoded.rgba.len() {
+                    break;
+                }
+                let a = decoded.rgba[idx + 3];
+                if a < 16 {
+                    x += step_x;
+                    continue;
+                }
+                let col = [
+                    quant(decoded.rgba[idx]),
+                    quant(decoded.rgba[idx + 1]),
+                    quant(decoded.rgba[idx + 2]),
+                    255,
+                ];
+                let start_x = x;
+                x += step_x;
+                while x < w {
+                    let n_idx = ((y * w + x) * 4) as usize;
+                    if n_idx + 3 >= decoded.rgba.len() || decoded.rgba[n_idx + 3] < 16 {
+                        break;
+                    }
+                    let n_col = [
+                        quant(decoded.rgba[n_idx]),
+                        quant(decoded.rgba[n_idx + 1]),
+                        quant(decoded.rgba[n_idx + 2]),
+                        255,
+                    ];
+                    if n_col != col {
+                        break;
+                    }
+                    x += step_x;
+                }
+                let run_w = (x - start_x).max(step_x);
+                let run_h = step_y.min(h - y).max(1);
+                if run_w * run_h < min_area_px.min(w * h) && (w * h) > min_area_px {
+                    // Still allow small bitmaps to produce regions; filter only tiny noise on larger images.
+                }
+                let x0 = f64::from(start_x);
+                let y0 = f64::from(y);
+                let x1 = f64::from((start_x + run_w).min(w));
+                let y1 = f64::from((y + run_h).min(h));
+                let cmds = color_validate.entry(col).or_default();
+                cmds.push(neoflash_core::PathCommand::MoveTo { x: x0, y: y0 });
+                cmds.push(neoflash_core::PathCommand::LineTo { x: x1, y: y0 });
+                cmds.push(neoflash_core::PathCommand::LineTo { x: x1, y: y1 });
+                cmds.push(neoflash_core::PathCommand::LineTo { x: x0, y: y1 });
+                cmds.push(neoflash_core::PathCommand::Close);
+            }
+        }
+
+        let template_el = neoflash_core::generate_deco_elements(
+            neoflash_core::DecoEffectKind::FlowerBrush,
+            [0.0, 0.0],
+            100.0,
+            20.0,
+            [0, 0, 0, 255],
+            [0, 0, 0, 255],
+        )
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Failed to allocate vector region element.".to_owned())?;
+
+        let mut elements = Vec::with_capacity(color_validate.len());
+        for (idx, (color, commands)) in color_validate.into_iter().enumerate() {
+            let mut el = template_el.clone();
+            el.id = new_id("traced-region");
+            el.name = format!("Region {}", idx + 1);
+            el.transform = neoflash_core::Transform::default();
+            el.merge = false;
+            el.kind = neoflash_core::ElementKind::Path {
+                commands,
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: color,
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            };
+            elements.push(el);
+        }
+        if elements.is_empty() {
+            return Err("Bitmap produced no traceable vector regions.".into());
+        }
+
+        let base_stem = Path::new(&unit.path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("Bitmap");
+        let mut sym_name = format!("{base_stem} Traced");
+        let mut suffix = 2usize;
+        while self.project.symbols.iter().any(|s| s.name == sym_name) {
+            sym_name = format!("{base_stem} Traced {suffix}");
+            suffix += 1;
+        }
+        let sym_id = new_id("symbol");
+
+        let mut candidate = self.project.clone();
+        let mut sym = neoflash_core::Project::blank()
+            .symbols
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Failed to initialize symbol template.".to_owned())?;
+        sym.id = sym_id.clone();
+        sym.name = sym_name.clone();
+        sym.kind = kind;
+        sym.timeline.frame_count = 1;
+        let region_count = elements.len();
+        if let Some(layer) = sym.timeline.layers.first_mut() {
+            layer.id = new_id("layer");
+            layer.name = "Traced Bitmap".into();
+            if let Some(kf) = layer.keyframes.first_mut() {
+                kf.frame = 0;
+                kf.elements = elements;
+            }
+        }
+        candidate.symbols.push(sym);
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+
+        self.finish_edits();
+        let created_id = sym_id.clone();
+        self.transact_named("Trace bitmap", |editor| {
+            editor.project = candidate;
+            editor.library_selected = Some(created_id);
+        });
+        self.message(format!(
+            "Traced '{}' into Library symbol '{}' ({region_count} vector region{}).",
+            unit.path,
+            sym_name,
+            if region_count == 1 { "" } else { "s" }
+        ));
+        Ok(sym_id)
     }
 }
 

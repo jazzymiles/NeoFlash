@@ -142,6 +142,8 @@ enum FilterSpecWire {
         blur_x: f64,
         blur_y: f64,
         quality: u8,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     Glow {
         color: u32,
@@ -152,6 +154,8 @@ enum FilterSpecWire {
         quality: u8,
         inner: bool,
         knockout: bool,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     DropShadow {
         distance: f64,
@@ -165,9 +169,13 @@ enum FilterSpecWire {
         inner: bool,
         knockout: bool,
         hide_object: bool,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     ColorMatrix {
         matrix: [f64; 20],
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     Convolution {
         matrix_x: u8,
@@ -179,6 +187,8 @@ enum FilterSpecWire {
         clamp: bool,
         color: u32,
         alpha: f64,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     Bevel {
         distance: f64,
@@ -193,6 +203,8 @@ enum FilterSpecWire {
         quality: u8,
         placement: String,
         knockout: bool,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     GradientGlow {
         distance: f64,
@@ -206,6 +218,8 @@ enum FilterSpecWire {
         quality: u8,
         placement: String,
         knockout: bool,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     GradientBevel {
         distance: f64,
@@ -219,6 +233,8 @@ enum FilterSpecWire {
         quality: u8,
         placement: String,
         knockout: bool,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     Displacement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -237,6 +253,8 @@ enum FilterSpecWire {
         mode: String,
         color: u32,
         alpha: f64,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
     Shader {
         left_extension: i32,
@@ -246,12 +264,187 @@ enum FilterSpecWire {
         bytecode_base64: String,
         precision_hint: String,
         params_json: String,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        enabled: bool,
     },
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
 const RUNTIME_FILTER_BIAS_MAGIC: f64 = -999_999_123.5;
+const FILTER_DISABLED_QUALITY_BIT: u8 = 0x80;
+const COLOR_MATRIX_DISABLED_TAG: f64 = -32_768.25;
 
 impl FilterSpec {
+    /// Whether this filter is active in the stack. Disabled filters remain in the
+    /// document and inspector stack without applying padding or pixel passes.
+    pub fn is_enabled(&self) -> bool {
+        match self {
+            Self::Blur { quality, .. }
+            | Self::Glow { quality, .. }
+            | Self::DropShadow { quality, .. }
+            | Self::Bevel { quality, .. }
+            | Self::GradientGlow { quality, .. }
+            | Self::GradientBevel { quality, .. } => (*quality & FILTER_DISABLED_QUALITY_BIT) == 0,
+            Self::ColorMatrix { matrix } => (matrix[15] - COLOR_MATRIX_DISABLED_TAG).abs() > 1e-9,
+            Self::Convolution { matrix_x, .. } => (*matrix_x & FILTER_DISABLED_QUALITY_BIT) == 0,
+        }
+    }
+
+    /// Enable or disable this filter in-place while preserving all parameters.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        match self {
+            Self::Blur { quality, .. }
+            | Self::Glow { quality, .. }
+            | Self::DropShadow { quality, .. }
+            | Self::Bevel { quality, .. }
+            | Self::GradientGlow { quality, .. }
+            | Self::GradientBevel { quality, .. } => {
+                if enabled {
+                    *quality &= !FILTER_DISABLED_QUALITY_BIT;
+                } else {
+                    *quality |= FILTER_DISABLED_QUALITY_BIT;
+                }
+            }
+            Self::ColorMatrix { matrix } => {
+                if enabled {
+                    if (matrix[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
+                        matrix[15] = 0.0;
+                    }
+                } else {
+                    matrix[15] = COLOR_MATRIX_DISABLED_TAG;
+                }
+            }
+            Self::Convolution { matrix_x, .. } => {
+                if enabled {
+                    *matrix_x &= !FILTER_DISABLED_QUALITY_BIT;
+                } else {
+                    *matrix_x |= FILTER_DISABLED_QUALITY_BIT;
+                }
+            }
+        }
+    }
+
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.set_enabled(enabled);
+        self
+    }
+
+    /// Effective blur quality (`0..=15`) with the authoring enable/disable bit stripped.
+    pub fn quality_level(&self) -> u8 {
+        self.blur().2
+    }
+
+    /// Set the blur quality (`0..=15`) while preserving `is_enabled()`.
+    pub fn set_quality_level(&mut self, new_quality: u8) {
+        let clamped = new_quality.min(15);
+        if let Self::Blur { quality, .. }
+        | Self::Glow { quality, .. }
+        | Self::DropShadow { quality, .. }
+        | Self::Bevel { quality, .. }
+        | Self::GradientGlow { quality, .. }
+        | Self::GradientBevel { quality, .. } = self
+        {
+            *quality = (*quality & FILTER_DISABLED_QUALITY_BIT) | clamped;
+        }
+    }
+
+    /// Reset this filter's parameters to Flash 8–CS6 defaults while preserving its type and enabled state.
+    pub fn reset_to_default(&mut self) {
+        let enabled = self.is_enabled();
+        *self = match self {
+            Self::DropShadow { .. } => Self::DropShadow {
+                distance: 4.0,
+                angle: 45.0,
+                color: 0x000000,
+                alpha: 1.0,
+                blur_x: 4.0,
+                blur_y: 4.0,
+                strength: 1.0,
+                quality: 1,
+                inner: false,
+                knockout: false,
+                hide_object: false,
+            },
+            Self::Blur { .. } => Self::Blur {
+                blur_x: 4.0,
+                blur_y: 4.0,
+                quality: 1,
+            },
+            Self::Glow { .. } => Self::Glow {
+                color: 0xff0000,
+                alpha: 1.0,
+                blur_x: 6.0,
+                blur_y: 6.0,
+                strength: 2.0,
+                quality: 1,
+                inner: false,
+                knockout: false,
+            },
+            Self::Bevel { .. } => Self::Bevel {
+                distance: 4.0,
+                angle: 45.0,
+                highlight_color: 0xffffff,
+                highlight_alpha: 1.0,
+                shadow_color: 0x000000,
+                shadow_alpha: 1.0,
+                blur_x: 4.0,
+                blur_y: 4.0,
+                strength: 1.0,
+                quality: 1,
+                placement: "inner".into(),
+                knockout: false,
+            },
+            Self::GradientGlow { .. } => Self::GradientGlow {
+                distance: 4.0,
+                angle: 45.0,
+                colors: vec![0x000000, 0xffffff],
+                alphas: vec![0.0, 1.0],
+                ratios: vec![0, 255],
+                blur_x: 4.0,
+                blur_y: 4.0,
+                strength: 1.0,
+                quality: 1,
+                placement: "inner".into(),
+                knockout: false,
+            },
+            Self::GradientBevel { .. } => Self::GradientBevel {
+                distance: 4.0,
+                angle: 45.0,
+                colors: vec![0xffffff, 0x000000, 0x000000],
+                alphas: vec![1.0, 0.0, 1.0],
+                ratios: vec![0, 128, 255],
+                blur_x: 4.0,
+                blur_y: 4.0,
+                strength: 1.0,
+                quality: 1,
+                placement: "inner".into(),
+                knockout: false,
+            },
+            Self::ColorMatrix { .. } => Self::ColorMatrix {
+                matrix: IDENTITY_COLOR_MATRIX,
+            },
+            Self::Convolution { .. } => Self::Convolution {
+                matrix_x: 3,
+                matrix_y: 3,
+                matrix: vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                divisor: 1.0,
+                bias: 0.0,
+                preserve_alpha: true,
+                clamp: true,
+                color: 0x000000,
+                alpha: 0.0,
+            },
+        };
+        self.set_enabled(enabled);
+    }
+
     pub fn from_displacement(spec: &DisplacementSpec) -> Self {
         let bytes = serde_json::to_vec(spec).unwrap_or_default();
         Self::Convolution {
@@ -284,12 +477,13 @@ impl FilterSpec {
 
     pub fn as_displacement(&self) -> Option<DisplacementSpec> {
         if let Self::Convolution {
-            matrix_x: 0,
+            matrix_x,
             matrix_y: 254,
             matrix,
             bias,
             ..
         } = self
+            && (*matrix_x & !FILTER_DISABLED_QUALITY_BIT) == 0
             && (*bias - RUNTIME_FILTER_BIAS_MAGIC).abs() < f64::EPSILON
         {
             let bytes: Vec<u8> = matrix.iter().map(|v| *v as u8).collect();
@@ -300,12 +494,13 @@ impl FilterSpec {
 
     pub fn as_shader(&self) -> Option<ShaderSpec> {
         if let Self::Convolution {
-            matrix_x: 0,
+            matrix_x,
             matrix_y: 255,
             matrix,
             bias,
             ..
         } = self
+            && (*matrix_x & !FILTER_DISABLED_QUALITY_BIT) == 0
             && (*bias - RUNTIME_FILTER_BIAS_MAGIC).abs() < f64::EPSILON
         {
             let bytes: Vec<u8> = matrix.iter().map(|v| *v as u8).collect();
@@ -322,11 +517,13 @@ impl From<FilterSpecWire> for FilterSpec {
                 blur_x,
                 blur_y,
                 quality,
+                enabled,
             } => Self::Blur {
                 blur_x,
                 blur_y,
                 quality,
-            },
+            }
+            .with_enabled(enabled),
             FilterSpecWire::Glow {
                 color,
                 alpha,
@@ -336,6 +533,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 inner,
                 knockout,
+                enabled,
             } => Self::Glow {
                 color,
                 alpha,
@@ -345,7 +543,8 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 inner,
                 knockout,
-            },
+            }
+            .with_enabled(enabled),
             FilterSpecWire::DropShadow {
                 distance,
                 angle,
@@ -358,6 +557,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 inner,
                 knockout,
                 hide_object,
+                enabled,
             } => Self::DropShadow {
                 distance,
                 angle,
@@ -370,8 +570,11 @@ impl From<FilterSpecWire> for FilterSpec {
                 inner,
                 knockout,
                 hide_object,
-            },
-            FilterSpecWire::ColorMatrix { matrix } => Self::ColorMatrix { matrix },
+            }
+            .with_enabled(enabled),
+            FilterSpecWire::ColorMatrix { matrix, enabled } => {
+                Self::ColorMatrix { matrix }.with_enabled(enabled)
+            }
             FilterSpecWire::Convolution {
                 matrix_x,
                 matrix_y,
@@ -382,6 +585,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 clamp,
                 color,
                 alpha,
+                enabled,
             } => Self::Convolution {
                 matrix_x,
                 matrix_y,
@@ -392,7 +596,8 @@ impl From<FilterSpecWire> for FilterSpec {
                 clamp,
                 color,
                 alpha,
-            },
+            }
+            .with_enabled(enabled),
             FilterSpecWire::Bevel {
                 distance,
                 angle,
@@ -406,6 +611,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 placement,
                 knockout,
+                enabled,
             } => Self::Bevel {
                 distance,
                 angle,
@@ -419,7 +625,8 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 placement,
                 knockout,
-            },
+            }
+            .with_enabled(enabled),
             FilterSpecWire::GradientGlow {
                 distance,
                 angle,
@@ -432,6 +639,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 placement,
                 knockout,
+                enabled,
             } => Self::GradientGlow {
                 distance,
                 angle,
@@ -444,7 +652,8 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 placement,
                 knockout,
-            },
+            }
+            .with_enabled(enabled),
             FilterSpecWire::GradientBevel {
                 distance,
                 angle,
@@ -457,6 +666,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 placement,
                 knockout,
+                enabled,
             } => Self::GradientBevel {
                 distance,
                 angle,
@@ -469,7 +679,8 @@ impl From<FilterSpecWire> for FilterSpec {
                 quality,
                 placement,
                 knockout,
-            },
+            }
+            .with_enabled(enabled),
             FilterSpecWire::Displacement {
                 map_bitmap,
                 map_width,
@@ -483,6 +694,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 mode,
                 color,
                 alpha,
+                enabled,
             } => Self::from_displacement(&DisplacementSpec {
                 map_bitmap,
                 map_width,
@@ -496,7 +708,8 @@ impl From<FilterSpecWire> for FilterSpec {
                 mode,
                 color,
                 alpha,
-            }),
+            })
+            .with_enabled(enabled),
             FilterSpecWire::Shader {
                 left_extension,
                 top_extension,
@@ -505,6 +718,7 @@ impl From<FilterSpecWire> for FilterSpec {
                 bytecode_base64,
                 precision_hint,
                 params_json,
+                enabled,
             } => Self::from_shader(&ShaderSpec {
                 left_extension,
                 top_extension,
@@ -513,13 +727,15 @@ impl From<FilterSpecWire> for FilterSpec {
                 bytecode_base64,
                 precision_hint,
                 params_json,
-            }),
+            })
+            .with_enabled(enabled),
         }
     }
 }
 
 impl From<FilterSpec> for FilterSpecWire {
     fn from(spec: FilterSpec) -> Self {
+        let enabled = spec.is_enabled();
         if let Some(disp) = spec.as_displacement() {
             return Self::Displacement {
                 map_bitmap: disp.map_bitmap,
@@ -534,6 +750,7 @@ impl From<FilterSpec> for FilterSpecWire {
                 mode: disp.mode,
                 color: disp.color,
                 alpha: disp.alpha,
+                enabled,
             };
         }
         if let Some(shader) = spec.as_shader() {
@@ -545,6 +762,7 @@ impl From<FilterSpec> for FilterSpecWire {
                 bytecode_base64: shader.bytecode_base64,
                 precision_hint: shader.precision_hint,
                 params_json: shader.params_json,
+                enabled,
             };
         }
         match spec {
@@ -555,7 +773,8 @@ impl From<FilterSpec> for FilterSpecWire {
             } => Self::Blur {
                 blur_x,
                 blur_y,
-                quality,
+                quality: quality & !FILTER_DISABLED_QUALITY_BIT,
+                enabled,
             },
             FilterSpec::Glow {
                 color,
@@ -572,9 +791,10 @@ impl From<FilterSpec> for FilterSpecWire {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: quality & !FILTER_DISABLED_QUALITY_BIT,
                 inner,
                 knockout,
+                enabled,
             },
             FilterSpec::DropShadow {
                 distance,
@@ -596,12 +816,18 @@ impl From<FilterSpec> for FilterSpecWire {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: quality & !FILTER_DISABLED_QUALITY_BIT,
                 inner,
                 knockout,
                 hide_object,
+                enabled,
             },
-            FilterSpec::ColorMatrix { matrix } => Self::ColorMatrix { matrix },
+            FilterSpec::ColorMatrix { mut matrix } => {
+                if (matrix[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
+                    matrix[15] = 0.0;
+                }
+                Self::ColorMatrix { matrix, enabled }
+            }
             FilterSpec::Convolution {
                 matrix_x,
                 matrix_y,
@@ -613,7 +839,7 @@ impl From<FilterSpec> for FilterSpecWire {
                 color,
                 alpha,
             } => Self::Convolution {
-                matrix_x,
+                matrix_x: matrix_x & !FILTER_DISABLED_QUALITY_BIT,
                 matrix_y,
                 matrix,
                 divisor,
@@ -622,6 +848,7 @@ impl From<FilterSpec> for FilterSpecWire {
                 clamp,
                 color,
                 alpha,
+                enabled,
             },
             FilterSpec::Bevel {
                 distance,
@@ -646,9 +873,10 @@ impl From<FilterSpec> for FilterSpecWire {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: quality & !FILTER_DISABLED_QUALITY_BIT,
                 placement,
                 knockout,
+                enabled,
             },
             FilterSpec::GradientGlow {
                 distance,
@@ -671,9 +899,10 @@ impl From<FilterSpec> for FilterSpecWire {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: quality & !FILTER_DISABLED_QUALITY_BIT,
                 placement,
                 knockout,
+                enabled,
             },
             FilterSpec::GradientBevel {
                 distance,
@@ -696,9 +925,10 @@ impl From<FilterSpec> for FilterSpecWire {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: quality & !FILTER_DISABLED_QUALITY_BIT,
                 placement,
                 knockout,
+                enabled,
             },
         }
     }
@@ -799,10 +1029,11 @@ impl FilterSpec {
             ..
         } = self
         {
-            if *matrix_x > 15
+            let mx = *matrix_x & !FILTER_DISABLED_QUALITY_BIT;
+            if mx > 15
                 || *matrix_y > 15
                 || matrix.len() > 225
-                || matrix.len() != usize::from(*matrix_x) * usize::from(*matrix_y)
+                || matrix.len() != usize::from(mx) * usize::from(*matrix_y)
                 || !matrix.iter().all(|v| finite(*v, -65536., 65536.))
                 || !finite(*divisor, -65536., 65536.)
                 || !finite(*bias, -65536., 65536.)
@@ -947,7 +1178,7 @@ impl FilterSpec {
                 blur_y,
                 quality,
                 ..
-            } => (*blur_x, *blur_y, *quality),
+            } => (*blur_x, *blur_y, *quality & !FILTER_DISABLED_QUALITY_BIT),
             Self::ColorMatrix { .. } | Self::Convolution { .. } => (0., 0., 0),
         }
     }
@@ -960,6 +1191,9 @@ impl FilterSpec {
         )
     }
     fn work(&self) -> usize {
+        if !self.is_enabled() {
+            return 0;
+        }
         if self.as_displacement().is_some() {
             return 4;
         }
@@ -973,7 +1207,8 @@ impl FilterSpec {
             ..
         } = self
         {
-            return 4 + usize::from(*matrix_x)
+            let mx = *matrix_x & !FILTER_DISABLED_QUALITY_BIT;
+            return 4 + usize::from(mx)
                 * usize::from(*matrix_y)
                 * if *preserve_alpha { 3 } else { 4 };
         }
@@ -1007,6 +1242,9 @@ pub fn filter_padding(filters: &[FilterSpec]) -> Result<FilterPadding, FilterErr
     validate_filters(filters)?;
     let mut result = FilterPadding::default();
     for filter in filters {
+        if !filter.is_enabled() {
+            continue;
+        }
         if let Some(ShaderSpec {
             left_extension,
             top_extension,
@@ -1080,6 +1318,56 @@ pub fn filter_padding(filters: &[FilterSpec]) -> Result<FilterPadding, FilterErr
     Ok(result)
 }
 
+/// Pad `rgba` by [`filter_padding(filters)`], run [`filter_rgba`] across all enabled filters,
+/// and return `(padded_width, padded_height, padding, output_rgba)`.
+pub fn apply_filters_rgba(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    filters: &[FilterSpec],
+) -> Result<(u32, u32, FilterPadding, Vec<u8>), FilterError> {
+    let padding = filter_padding(filters)?;
+    let count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| error("raster size overflow"))?;
+    if width == 0 || height == 0 || rgba.len() != count * 4 {
+        return Err(error(
+            "raster must be 1..8192 per side, at most 4194304 pixels, with exactly width*height*4 RGBA bytes",
+        ));
+    }
+    if padding == FilterPadding::default() {
+        let out = filter_rgba(width, height, rgba, filters)?;
+        return Ok((width, height, padding, out));
+    }
+    let padded_w = width
+        .checked_add(padding.left)
+        .and_then(|w| w.checked_add(padding.right))
+        .ok_or_else(|| error("padded width overflow"))?;
+    let padded_h = height
+        .checked_add(padding.top)
+        .and_then(|h| h.checked_add(padding.bottom))
+        .ok_or_else(|| error("padded height overflow"))?;
+    let padded_count = (padded_w as usize)
+        .checked_mul(padded_h as usize)
+        .ok_or_else(|| error("padded raster size overflow"))?;
+    if padded_w > 8192 || padded_h > 8192 || padded_count > MAX_FILTER_PIXELS {
+        return Err(error(
+            "raster must be 1..8192 per side, at most 4194304 pixels, with exactly width*height*4 RGBA bytes",
+        ));
+    }
+    let mut padded = vec![0u8; padded_count * 4];
+    let row_bytes = (width as usize) * 4;
+    let dst_stride = (padded_w as usize) * 4;
+    let left_bytes = (padding.left as usize) * 4;
+    for y in 0..(height as usize) {
+        let src_off = y * row_bytes;
+        let dst_off = (y + padding.top as usize) * dst_stride + left_bytes;
+        padded[dst_off..dst_off + row_bytes].copy_from_slice(&rgba[src_off..src_off + row_bytes]);
+    }
+    let out = filter_rgba(padded_w, padded_h, &padded, filters)?;
+    Ok((padded_w, padded_h, padding, out))
+}
+
 pub fn filter_rgba(
     width: u32,
     height: u32,
@@ -1109,6 +1397,9 @@ pub fn filter_rgba(
     }
     let mut result = rgba.to_vec();
     for filter in filters {
+        if !filter.is_enabled() {
+            continue;
+        }
         if let Some(disp) = filter.as_displacement() {
             displacement(&mut result, width as usize, height as usize, &disp);
             continue;
@@ -1840,10 +2131,165 @@ pub fn adjust_color_matrix(brightness: f64, contrast: f64, saturation: f64, hue:
         m[14] += off;
     }
 
+    // Preserve saturation/hue across degenerate contrast=-100 or saturation=-100 in sub-epsilon
+    // alpha-row slots without altering any existing test vectors where s=0,h=0 or c>-100,s>-100.
+    if (c <= -100.0 || s <= -100.0)
+        && (s != 0.0 || h != 0.0)
+        && !(c == 0.0 && s == -100.0 && h == 0.0)
+    {
+        m[16] = s * 1e-12;
+        m[17] = h * 1e-12;
+    }
+
     m
 }
 
+/// Recover authoring Adjust Color `(brightness, contrast, saturation, hue)` sliders
+/// from a 4x5 `ColorMatrix` produced by [`adjust_color_matrix`].
+///
+/// Returns `None` if `matrix` does not match the Adjust Color parameterization.
+pub fn recover_adjust_color_sliders(matrix: &[f64; 20]) -> Option<(f64, f64, f64, f64)> {
+    if !matrix.iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    if matrix[3].abs() > 1e-4
+        || matrix[8].abs() > 1e-4
+        || matrix[13].abs() > 1e-4
+        || matrix[16].abs() > 1e-6
+        || matrix[17].abs() > 1e-6
+        || (matrix[18] - 1.0).abs() > 1e-4
+        || matrix[19].abs() > 1e-4
+    {
+        return None;
+    }
+    let mut clean = *matrix;
+    if (clean[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
+        clean[15] = 0.0;
+    } else if clean[15].abs() > 1e-4 {
+        return None;
+    }
+    if clean == IDENTITY_COLOR_MATRIX {
+        return Some((0.0, 0.0, 0.0, 0.0));
+    }
+    let r0 = clean[0] + clean[1] + clean[2];
+    let r1 = clean[5] + clean[6] + clean[7];
+    let r2 = clean[10] + clean[11] + clean[12];
+    if (r0 - r1).abs() > 1e-3 || (r1 - r2).abs() > 1e-3 || r0 < -1e-4 {
+        return None;
+    }
+    if (clean[4] - clean[9]).abs() > 1e-2 || (clean[9] - clean[14]).abs() > 1e-2 {
+        return None;
+    }
+    let gain = ((r0 + r1 + r2) / 3.0).max(0.0);
+    let contrast = if (gain - 1.0).abs() < 1e-9 {
+        0.0
+    } else if gain < 1.0 {
+        ((gain - 1.0) * 100.0).clamp(-100.0, 0.0)
+    } else {
+        let target = gain - 1.0;
+        let mut norm = (target / 9.0).cbrt().clamp(0.0, 1.0);
+        for _ in 0..16 {
+            let f = 6.0 * norm.powi(3) + 3.0 * norm - target;
+            let df = 18.0 * norm.powi(2) + 3.0;
+            norm = (norm - f / df).clamp(0.0, 1.0);
+        }
+        (norm * 100.0).clamp(0.0, 100.0)
+    };
+    let off_con = 127.5 * (1.0 - gain);
+    let avg_off = (clean[4] + clean[9] + clean[14]) / 3.0;
+    let brightness = ((avg_off - off_con) / 2.55).clamp(-100.0, 100.0);
+
+    let (saturation, hue) = if gain <= 1e-6 {
+        let s = if clean[16].abs() > 0.0 {
+            (clean[16] * 1e12).clamp(-100.0, 100.0)
+        } else {
+            0.0
+        };
+        let h = if clean[17].abs() > 0.0 {
+            (clean[17] * 1e12).clamp(-180.0, 180.0)
+        } else {
+            0.0
+        };
+        (s, h)
+    } else {
+        let inv_gain = 1.0 / gain;
+        let sh00 = clean[0] * inv_gain;
+        let sh02 = clean[2] * inv_gain;
+        let sh10 = clean[5] * inv_gain;
+        let sh12 = clean[7] * inv_gain;
+        let sat_sin = (sh02 - sh12) / 1.211;
+        let sat_cos = (sh00 - sh10) + 0.356 * sat_sin;
+        let sat = sat_cos.hypot(sat_sin);
+        if sat <= 1e-6 {
+            let h = if clean[17].abs() > 0.0 {
+                (clean[17] * 1e12).clamp(-180.0, 180.0)
+            } else {
+                0.0
+            };
+            (-100.0, h)
+        } else {
+            let s = if (sat - 1.0).abs() < 1e-9 {
+                0.0
+            } else if sat < 1.0 {
+                ((sat - 1.0) * 100.0).clamp(-100.0, 0.0)
+            } else {
+                (((sat - 1.0) / 3.0) * 100.0).clamp(0.0, 100.0)
+            };
+            let h = if sat_sin.abs() < 1e-9 && sat_cos >= 0.0 {
+                0.0
+            } else {
+                sat_sin.atan2(sat_cos).to_degrees().clamp(-180.0, 180.0)
+            };
+            (s, h)
+        }
+    };
+
+    let snap = |v: f64| {
+        if (v - v.round()).abs() < 1e-5 {
+            let r = v.round();
+            if r == 0.0 { 0.0 } else { r }
+        } else {
+            (v * 1e6).round() / 1e6
+        }
+    };
+    let (b, c, s, h) = (
+        snap(brightness),
+        snap(contrast),
+        snap(saturation),
+        snap(hue),
+    );
+    let check = adjust_color_matrix(b, c, s, h);
+    if (0..15).any(|i| (check[i] - clean[i]).abs() > 1e-2) {
+        return None;
+    }
+    Some((b, c, s, h))
+}
+
 impl FilterSpec {
+    /// Recover authoring Adjust Color `(brightness, contrast, saturation, hue)` sliders from a 4x5 matrix.
+    pub fn recover_adjust_color_sliders(matrix: &[f64; 20]) -> Option<(f64, f64, f64, f64)> {
+        recover_adjust_color_sliders(matrix)
+    }
+
+    /// If this filter is an Adjust Color `ColorMatrix`, recover `(brightness, contrast, saturation, hue)`.
+    pub fn adjust_color_sliders(&self) -> Option<(f64, f64, f64, f64)> {
+        match self {
+            Self::ColorMatrix { matrix } => recover_adjust_color_sliders(matrix),
+            _ => None,
+        }
+    }
+
+    /// Pad `rgba` by [`filter_padding(filters)`], run [`filter_rgba`] across all enabled filters,
+    /// and return `(padded_width, padded_height, padding, output_rgba)`.
+    pub fn apply_filters_rgba(
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        filters: &[FilterSpec],
+    ) -> Result<(u32, u32, FilterPadding, Vec<u8>), FilterError> {
+        apply_filters_rgba(width, height, rgba, filters)
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::DropShadow { .. } => "Drop shadow",
@@ -1865,7 +2311,7 @@ impl FilterSpec {
                 format!("{v:.1}")
             }
         };
-        match self {
+        let base = match self {
             Self::DropShadow {
                 blur_x, distance, ..
             } => format!("{} px · {} px", fmt(*blur_x), fmt(*distance)),
@@ -1889,7 +2335,11 @@ impl FilterSpec {
                 blur_x, distance, ..
             } => format!("{} px · {} px", fmt(*blur_x), fmt(*distance)),
             Self::ColorMatrix { matrix } => {
-                if *matrix == IDENTITY_COLOR_MATRIX {
+                let mut clean = *matrix;
+                if (clean[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
+                    clean[15] = 0.0;
+                }
+                if clean == IDENTITY_COLOR_MATRIX {
                     "Identity".into()
                 } else {
                     "4×5 matrix".into()
@@ -1897,7 +2347,12 @@ impl FilterSpec {
             }
             Self::Convolution {
                 matrix_x, matrix_y, ..
-            } => format!("{matrix_x}×{matrix_y}"),
+            } => format!("{}×{matrix_y}", *matrix_x & !FILTER_DISABLED_QUALITY_BIT),
+        };
+        if self.is_enabled() {
+            base
+        } else {
+            format!("Off · {base}")
         }
     }
 }
@@ -2090,5 +2545,80 @@ mod tests {
             filter_rgba(1, 1, &[10, 20, 30, 200], &[bright]).unwrap(),
             vec![255, 255, 255, 200]
         );
+    }
+
+    #[test]
+    fn adjust_color_slider_recovery_and_disabled_filter_roundtrip() {
+        for &[b, c, s, h] in &[
+            [0.0, 0.0, 0.0, 0.0],
+            [25.0, -35.0, 40.0, -60.0],
+            [-80.0, 75.0, -90.0, 135.0],
+            [15.0, 0.0, -100.0, 45.0],
+            [-40.0, -100.0, 50.0, -120.0],
+            [100.0, 100.0, 100.0, 180.0],
+        ] {
+            let matrix = adjust_color_matrix(b, c, s, h);
+            let spec = FilterSpec::ColorMatrix { matrix };
+            let json = serde_json::to_string(&spec).unwrap();
+            let loaded: FilterSpec = serde_json::from_str(&json).unwrap();
+            let recovered = loaded.adjust_color_sliders().unwrap();
+            assert!(
+                (recovered.0 - b).abs() < 0.05,
+                "brightness {recovered:?} vs {b}"
+            );
+            assert!(
+                (recovered.1 - c).abs() < 0.05,
+                "contrast {recovered:?} vs {c}"
+            );
+            assert!(
+                (recovered.2 - s).abs() < 0.05,
+                "saturation {recovered:?} vs {s}"
+            );
+            let hue_diff = (recovered.3 - h).abs();
+            assert!(
+                hue_diff < 0.05 || (hue_diff - 360.0).abs() < 0.05,
+                "hue {recovered:?} vs {h}"
+            );
+        }
+
+        // Disabled filters serialize `"enabled": false`, validate cleanly, and skip rendering/padding.
+        let mut glow = FilterSpec::Glow {
+            color: 0x00ff00,
+            alpha: 1.0,
+            blur_x: 8.0,
+            blur_y: 8.0,
+            strength: 2.0,
+            quality: 2,
+            inner: false,
+            knockout: false,
+        };
+        assert!(glow.is_enabled());
+        assert!(filter_padding(std::slice::from_ref(&glow)).unwrap().left > 0);
+        glow.set_enabled(false);
+        assert!(!glow.is_enabled());
+        assert_eq!(glow.quality_level(), 2);
+        glow.validate().unwrap();
+        let json = serde_json::to_string(&glow).unwrap();
+        assert!(json.contains("\"enabled\":false"));
+        let roundtrip: FilterSpec = serde_json::from_str(&json).unwrap();
+        assert!(!roundtrip.is_enabled());
+        assert_eq!(roundtrip.quality_level(), 2);
+        assert_eq!(
+            filter_padding(std::slice::from_ref(&roundtrip)).unwrap(),
+            FilterPadding::default()
+        );
+        let src = vec![20u8, 40, 60, 255];
+        assert_eq!(
+            filter_rgba(1, 1, &src, std::slice::from_ref(&roundtrip)).unwrap(),
+            src
+        );
+
+        // `apply_filters_rgba` expands the canvas by `filter_padding` when enabled.
+        let enabled_glow = roundtrip.with_enabled(true);
+        let (out_w, out_h, pad, out_rgba) =
+            FilterSpec::apply_filters_rgba(1, 1, &src, &[enabled_glow]).unwrap();
+        assert_eq!(out_w, 1 + pad.left + pad.right);
+        assert_eq!(out_h, 1 + pad.top + pad.bottom);
+        assert_eq!(out_rgba.len(), (out_w * out_h * 4) as usize);
     }
 }

@@ -92,6 +92,8 @@ pub struct BitmapTrace {
     pub height: u32,
     pub shapes: Vec<TracedShape>,
     pub path_count: usize,
+    pub colour_count: usize,
+    pub region_count: usize,
 }
 
 /// Returns `Ok(None)` on cancellation. `checkpoint` receives monotone progress in 0..=1 and must
@@ -201,6 +203,7 @@ pub fn trace_bitmap(
     }
     let mut shapes = Vec::new();
     let mut path_count = 0usize;
+    let mut colour_count = 0usize;
     let mut done = 0usize;
     for (colour, mut edges) in palette.into_iter().zip(edges) {
         if edges.is_empty() {
@@ -209,7 +212,8 @@ pub fn trace_bitmap(
         edges.sort_unstable();
         edges.dedup();
         let mut visited = vec![false; edges.len()];
-        let mut commands = Vec::new();
+        let mut outers: Vec<TracedContour> = Vec::new();
+        let mut holes: Vec<TracedContour> = Vec::new();
         for first in 0..edges.len() {
             if visited[first] {
                 continue;
@@ -218,7 +222,8 @@ pub fn trace_bitmap(
             if path_count > MAX_TRACE_PATHS {
                 return Err("Trace exceeds 20,000 paths. Increase Noise, reduce Colours, or resize the bitmap.".into());
             }
-            let mut polygon = Vec::new();
+            let first_edge = edges[first];
+            let mut raw_polygon = Vec::new();
             let mut i = first;
             loop {
                 if visited[i] {
@@ -226,7 +231,7 @@ pub fn trace_bitmap(
                 }
                 visited[i] = true;
                 let edge = edges[i];
-                polygon.push(edge.point());
+                raw_polygon.push(edge.point());
                 done += 1;
                 if done.is_multiple_of(1024)
                     && !checkpoint(0.65 + 0.3 * done as f32 / count.max(1) as f32)
@@ -234,7 +239,7 @@ pub fn trace_bitmap(
                     return Ok(None);
                 }
                 let end = edge.end();
-                if end == edges[first].point() {
+                if end == first_edge.point() {
                     break;
                 }
                 // Follow the rightmost continuation at diagonal contacts, keeping disconnected
@@ -262,23 +267,87 @@ pub fn trace_bitmap(
                 };
                 i = next;
             }
+            let area2 = polygon_signed_area2(&raw_polygon);
             let progress = 0.65 + 0.3 * done as f32 / count.max(1) as f32;
-            let Some(polygon) = simplify(
-                &polygon,
+            let Some(simplified) = simplify(
+                &raw_polygon,
                 (1. - options.paths / 100.).powi(2) * 4.,
                 &mut || checkpoint(progress),
             ) else {
                 return Ok(None);
             };
-            append_contour(&mut commands, &polygon, options);
+            let mut commands = Vec::new();
+            append_contour(&mut commands, &simplified, options);
             if commands.len() > crate::MAX_PATH_COMMANDS {
                 return Err("A traced colour exceeds the path-command limit. Reduce Colours or resize the bitmap.".into());
             }
+            if commands.is_empty() {
+                continue;
+            }
+            let bounds = polygon_bounds(&raw_polygon);
+            let contour = TracedContour {
+                raw_polygon,
+                first_edge,
+                area2,
+                bounds,
+                commands,
+            };
+            if area2 >= 0 {
+                outers.push(contour);
+            } else {
+                holes.push(contour);
+            }
         }
-        if !commands.is_empty() {
+        if outers.is_empty() && holes.is_empty() {
+            continue;
+        }
+        colour_count += 1;
+        if outers.is_empty() {
+            let mut commands = Vec::new();
+            for hole in holes {
+                if commands.len() + hole.commands.len() > crate::MAX_PATH_COMMANDS {
+                    return Err("A traced colour exceeds the path-command limit. Reduce Colours or resize the bitmap.".into());
+                }
+                commands.extend(hole.commands);
+            }
             shapes.push(TracedShape {
                 commands,
-                fill_rule: FillRule::EvenOdd,
+                fill_rule: FillRule::NonZero,
+                colour,
+            });
+            continue;
+        }
+        for hole in holes {
+            let sample_2x = edge_interior_pixel_2x(hole.first_edge);
+            let hole_area = hole.area2.unsigned_abs();
+            let owner = outers
+                .iter()
+                .enumerate()
+                .filter(|(_, outer)| {
+                    outer.area2.unsigned_abs() > hole_area
+                        && bounds_contains_2x(outer.bounds, sample_2x)
+                        && polygon_contains_2x(&outer.raw_polygon, sample_2x)
+                })
+                .min_by_key(|(_, outer)| outer.area2.unsigned_abs())
+                .map(|(idx, _)| idx)
+                .or_else(|| {
+                    outers
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, outer)| bounds_contains_2x(outer.bounds, sample_2x))
+                        .min_by_key(|(_, outer)| outer.area2.unsigned_abs())
+                        .map(|(idx, _)| idx)
+                })
+                .unwrap_or(0);
+            if outers[owner].commands.len() + hole.commands.len() > crate::MAX_PATH_COMMANDS {
+                return Err("A traced colour exceeds the path-command limit. Reduce Colours or resize the bitmap.".into());
+            }
+            outers[owner].commands.extend(hole.commands);
+        }
+        for outer in outers {
+            shapes.push(TracedShape {
+                commands: outer.commands,
+                fill_rule: FillRule::NonZero,
                 colour,
             });
         }
@@ -289,12 +358,88 @@ pub fn trace_bitmap(
     if shapes.is_empty() {
         return Err("No paths remain. Lower Noise or turn off Ignore white.".into());
     }
+    let region_count = shapes.len();
     Ok(Some(BitmapTrace {
         width: image.width,
         height: image.height,
         shapes,
         path_count,
+        colour_count,
+        region_count,
     }))
+}
+
+struct TracedContour {
+    raw_polygon: Vec<[f64; 2]>,
+    first_edge: Edge,
+    area2: i64,
+    bounds: [i32; 4],
+    commands: Vec<PathCommand>,
+}
+
+fn polygon_signed_area2(polygon: &[[f64; 2]]) -> i64 {
+    let mut area2 = 0i64;
+    for i in 0..polygon.len() {
+        let a = polygon[i];
+        let b = polygon[(i + 1) % polygon.len()];
+        area2 += (a[0] as i64) * (b[1] as i64) - (b[0] as i64) * (a[1] as i64);
+    }
+    area2
+}
+
+fn polygon_bounds(polygon: &[[f64; 2]]) -> [i32; 4] {
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for &[x, y] in polygon {
+        let ix = x as i32;
+        let iy = y as i32;
+        min_x = min_x.min(ix);
+        min_y = min_y.min(iy);
+        max_x = max_x.max(ix);
+        max_y = max_y.max(iy);
+    }
+    [min_x, min_y, max_x, max_y]
+}
+
+fn edge_interior_pixel_2x(edge: Edge) -> [i32; 2] {
+    let x = (edge.point & 0xffff) as i32;
+    let y = (edge.point >> 16) as i32;
+    match edge.dir {
+        0 => [2 * x + 1, 2 * y + 1],
+        1 => [2 * x - 1, 2 * y + 1],
+        2 => [2 * x - 1, 2 * y - 1],
+        _ => [2 * x + 1, 2 * y - 1],
+    }
+}
+
+fn bounds_contains_2x(bounds: [i32; 4], pt_2x: [i32; 2]) -> bool {
+    pt_2x[0] > 2 * bounds[0]
+        && pt_2x[0] < 2 * bounds[2]
+        && pt_2x[1] > 2 * bounds[1]
+        && pt_2x[1] < 2 * bounds[3]
+}
+
+fn polygon_contains_2x(polygon: &[[f64; 2]], pt_2x: [i32; 2]) -> bool {
+    let [sx, sy] = pt_2x;
+    let mut inside = false;
+    for i in 0..polygon.len() {
+        let a = polygon[i];
+        let b = polygon[(i + 1) % polygon.len()];
+        let ax = a[0] as i32;
+        let bx = b[0] as i32;
+        if ax == bx && 2 * ax > sx {
+            let ay = a[1] as i32;
+            let by = b[1] as i32;
+            let y0 = 2 * ay.min(by);
+            let y1 = 2 * ay.max(by);
+            if y0 < sy && sy < y1 {
+                inside = !inside;
+            }
+        }
+    }
+    inside
 }
 
 fn mapped(mut p: Color, mode: TraceMode) -> Color {
@@ -672,4 +817,213 @@ fn append_contour(commands: &mut Vec<PathCommand>, points: &[[f64; 2]], options:
         }
     }
     commands.push(PathCommand::Close);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{FlattenOptions, hit_test_path, validate_path_commands};
+
+    fn make_image(w: u32, h: u32, pixel: impl Fn(u32, u32) -> Color) -> DecodedImage {
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                rgba.extend(pixel(x, y));
+            }
+        }
+        DecodedImage {
+            width: w,
+            height: h,
+            rgba: rgba.into(),
+        }
+    }
+
+    fn photo_high_options(method: TraceMethod) -> TraceOptions {
+        TraceOptions {
+            colours: 30,
+            paths: 80.,
+            corners: 25.,
+            noise: 2,
+            method,
+            ..Default::default()
+        }
+    }
+
+    fn photo_high_fixture() -> DecodedImage {
+        const RED: Color = [220, 48, 36, 255];
+        const BLUE: Color = [32, 116, 232, 255];
+        make_image(32, 24, |x, y| {
+            // Island A (top-left red 3x3)
+            if (2..5).contains(&x) && (2..5).contains(&y) {
+                return RED;
+            }
+            // Island B (top-middle red 3x3, disconnected from Island A)
+            if (8..11).contains(&x) && (2..5).contains(&y) {
+                return RED;
+            }
+            // Connected L-shape (red)
+            if ((14..16).contains(&x) && (2..8).contains(&y))
+                || ((14..20).contains(&x) && (6..8).contains(&y))
+            {
+                return RED;
+            }
+            // Donut with 3x3 interior hole (red outer 7x7 at 2..9, 10..17, hole at 4..7, 12..15)
+            if (2..9).contains(&x) && (10..17).contains(&y) {
+                if (4..7).contains(&x) && (12..15).contains(&y) {
+                    return [0; 4];
+                }
+                return RED;
+            }
+            // Diagonal contact: two 2x2 red blocks touching only at corner (14, 14)
+            if ((12..14).contains(&x) && (12..14).contains(&y))
+                || ((14..16).contains(&x) && (14..16).contains(&y))
+            {
+                return RED;
+            }
+            // Second colour (blue block at 20..26, 4..10 adjacent to the L-shape at x=20)
+            if (20..26).contains(&x) && (4..10).contains(&y) {
+                return BLUE;
+            }
+            [0; 4]
+        })
+    }
+
+    fn hitting_indices(trace: &BitmapTrace, pt: [f64; 2]) -> Vec<usize> {
+        trace
+            .shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, s)| {
+                hit_test_path(
+                    &s.commands,
+                    s.fill_rule,
+                    pt,
+                    true,
+                    0.,
+                    FlattenOptions::default(),
+                )
+                .unwrap()
+                .then_some(idx)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn photo_high_partitions_same_colour_islands_and_retains_holes() {
+        let img = photo_high_fixture();
+        for method in [TraceMethod::Abutting, TraceMethod::Overlapping] {
+            let trace = trace_bitmap(&img, &photo_high_options(method), |_| true)
+                .unwrap()
+                .unwrap();
+            assert_eq!(trace.colour_count, 2);
+            // 6 red regions (Island A, Island B, L-shape, Donut, Diag-1, Diag-2) + 1 blue region = 7 regions.
+            assert_eq!(trace.region_count, 7);
+            assert_eq!(trace.shapes.len(), 7);
+            // 7 outer contours + 1 donut hole contour = 8 paths.
+            assert_eq!(trace.path_count, 8);
+            for shape in &trace.shapes {
+                validate_path_commands(&shape.commands).unwrap();
+            }
+            assert!(
+                trace
+                    .shapes
+                    .iter()
+                    .flat_map(|s| &s.commands)
+                    .any(|c| matches!(c, PathCommand::QuadraticTo { .. })),
+                "Photo — high corners=25 must preserve simplified quadratic curves"
+            );
+
+            let island_a = hitting_indices(&trace, [3.5, 3.5]);
+            let island_b = hitting_indices(&trace, [9.5, 3.5]);
+            let l_vert = hitting_indices(&trace, [15.0, 3.5]);
+            let l_horiz = hitting_indices(&trace, [18.5, 7.0]);
+            let donut_ring = hitting_indices(&trace, [3.0, 13.5]);
+            let donut_hole = hitting_indices(&trace, [5.5, 13.5]);
+            let diag_tl = hitting_indices(&trace, [13.0, 13.0]);
+            let diag_br = hitting_indices(&trace, [15.0, 15.0]);
+            let blue = hitting_indices(&trace, [23.0, 7.0]);
+
+            assert_eq!(island_a.len(), 1);
+            assert_eq!(island_b.len(), 1);
+            assert_ne!(
+                island_a[0], island_b[0],
+                "disconnected islands must be separate regions"
+            );
+            assert_eq!(
+                l_vert, l_horiz,
+                "connected L-shape must stay a single region"
+            );
+            assert_eq!(donut_ring.len(), 1);
+            assert!(
+                donut_hole.is_empty(),
+                "donut interior hole must remain unfilled ({method:?})"
+            );
+            assert_eq!(diag_tl.len(), 1);
+            assert_eq!(diag_br.len(), 1);
+            assert_ne!(
+                diag_tl[0], diag_br[0],
+                "diagonal corner touch must separate into two regions consistent with contour walk"
+            );
+            match method {
+                TraceMethod::Abutting => assert_eq!(blue.len(), 1),
+                TraceMethod::Overlapping => {
+                    assert_eq!(blue.len(), 2);
+                    assert_eq!(
+                        trace.shapes[*blue.last().unwrap()].colour,
+                        [32, 116, 232, 255]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn high_region_count_and_nested_island_inside_hole_stay_independent() {
+        // Plate with two holes, one containing a nested same-colour island, plus a 8x8 checkerboard of islands.
+        let img = make_image(48, 48, |x, y| {
+            // Top 20 rows: 16x16 plate at (2..18, 2..18) with hole (4..12, 4..12) and inner island (6..10, 6..10),
+            // plus second hole (13..16, 4..12).
+            if (2..18).contains(&x) && (2..18).contains(&y) {
+                if (6..10).contains(&x) && (6..10).contains(&y) {
+                    return [200, 40, 40, 255];
+                }
+                if ((4..12).contains(&x) && (4..12).contains(&y))
+                    || ((13..16).contains(&x) && (4..12).contains(&y))
+                {
+                    return [0; 4];
+                }
+                return [200, 40, 40, 255];
+            }
+            // Rows 20..44: 8x6 grid of 2x2 islands separated by 1px gaps.
+            if (2..34).contains(&x) && (20..44).contains(&y) {
+                let gx = (x - 2) % 4;
+                let gy = (y - 20) % 4;
+                if gx < 2 && gy < 2 {
+                    let cell = ((x - 2) / 4 + (y - 20) / 4) % 2;
+                    return if cell == 0 {
+                        [200, 40, 40, 255]
+                    } else {
+                        [40, 160, 90, 255]
+                    };
+                }
+            }
+            [0; 4]
+        });
+        let trace = trace_bitmap(&img, &photo_high_options(TraceMethod::Abutting), |_| true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(trace.colour_count, 2);
+        // 1 outer plate + 1 inner island + 48 grid islands = 50 regions; 50 outers + 2 holes = 52 paths.
+        assert_eq!(trace.region_count, 50);
+        assert_eq!(trace.path_count, 52);
+        let plate_hit = hitting_indices(&trace, [3.0, 3.0]);
+        let hole_hit = hitting_indices(&trace, [5.0, 5.0]);
+        let hole2_hit = hitting_indices(&trace, [14.5, 8.0]);
+        let inner_island_hit = hitting_indices(&trace, [8.0, 8.0]);
+        assert_eq!(plate_hit.len(), 1);
+        assert!(hole_hit.is_empty());
+        assert!(hole2_hit.is_empty());
+        assert_eq!(inner_island_hit.len(), 1);
+        assert_ne!(plate_hit[0], inner_island_hit[0]);
+    }
 }

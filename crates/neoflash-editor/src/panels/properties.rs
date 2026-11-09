@@ -141,7 +141,6 @@ impl Editor {
             return;
         }
         if self.selection.len() > 1 {
-            self.finish_property_edit();
             ui.add(TypeHeader {
                 icon: i16::SELECT_ALL,
                 title: &format!("{} objects selected", self.selection.len()),
@@ -170,6 +169,12 @@ impl Editor {
                     );
                     self.show_panel(crate::workspace::PanelId::Color);
                 }
+            });
+            inspector_section(ui, "Selection colours", |ui| {
+                self.project_colors_section_ui(ui, true);
+            });
+            inspector_section_with_open(ui, "Project colours", false, |ui| {
+                self.project_colors_section_ui(ui, false);
             });
             return;
         }
@@ -986,6 +991,9 @@ impl Editor {
                         ui.add(Badge::new("HTML5 · Rust / WebAssembly", BadgeType::Accent));
                         // §4: "Publish settings…"; publishing itself is File ▸ Publish and the top-bar Publish button.
                         if ui.add(nf::Button::new("Publish settings…")).on_hover_text("Publish settings (preview). Publish HTML5 with the Publish button or File ▸ Publish.").clicked() { Self::open_planned(ui.ctx(), "Properties ▸ Publish settings…"); }
+                    });
+                    inspector_section_with_open(ui, "Project colours", false, |ui| {
+                        self.project_colors_section_ui(ui, false);
                     });
                 }
                 document.fps = fps;

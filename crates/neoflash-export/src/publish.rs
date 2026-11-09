@@ -72,6 +72,247 @@ impl SizeLevel {
     }
 }
 
+/// HTML wrapper template layout in `Publish settings`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HtmlTemplate {
+    #[default]
+    Responsive,
+    FixedStage,
+    Centered,
+    Fullscreen,
+}
+
+impl HtmlTemplate {
+    pub const ALL: [Self; 4] = [
+        Self::Responsive,
+        Self::FixedStage,
+        Self::Centered,
+        Self::Fullscreen,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Responsive => "Responsive",
+            Self::FixedStage => "Fixed stage",
+            Self::Centered => "Centered card",
+            Self::Fullscreen => "Fullscreen",
+        }
+    }
+
+    pub const fn publish_select_label(self) -> &'static str {
+        match self {
+            Self::Responsive => "Template: Responsive",
+            Self::FixedStage => "Template: Fixed stage",
+            Self::Centered => "Template: Centered card",
+            Self::Fullscreen => "Template: Fullscreen",
+        }
+    }
+}
+
+/// Stage scaling mode in the HTML5 wrapper (`Publish settings`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HtmlScaleMode {
+    #[default]
+    FitKeepRatio,
+    NoScale,
+    ExactFit,
+    FillCrop,
+}
+
+impl HtmlScaleMode {
+    pub const ALL: [Self; 4] = [
+        Self::FitKeepRatio,
+        Self::NoScale,
+        Self::ExactFit,
+        Self::FillCrop,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::FitKeepRatio => "Fit, keep ratio",
+            Self::NoScale => "100% (No scale)",
+            Self::ExactFit => "Exact fit (stretch)",
+            Self::FillCrop => "Fill, crop",
+        }
+    }
+
+    pub const fn publish_select_label(self) -> &'static str {
+        match self {
+            Self::FitKeepRatio => "Scale: Fit, keep ratio",
+            Self::NoScale => "Scale: 100% (No scale)",
+            Self::ExactFit => "Scale: Exact fit (stretch)",
+            Self::FillCrop => "Scale: Fill, crop",
+        }
+    }
+}
+
+/// Hardware acceleration hint for HTML5 rendering (`Preferences ▸ Publish`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HtmlAcceleration {
+    #[default]
+    GpuWebGl,
+    Canvas2d,
+    Software,
+}
+
+impl HtmlAcceleration {
+    pub const ALL: [Self; 3] = [Self::GpuWebGl, Self::Canvas2d, Self::Software];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::GpuWebGl => "GPU (WebGL)",
+            Self::Canvas2d => "Canvas 2D",
+            Self::Software => "Software",
+        }
+    }
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_jpeg_quality() -> u8 {
+    80
+}
+
+/// Controls whether the HTML5 wrapper displays the technical preview footer (`Test Movie`)
+/// or a clean stage (`Publish`), and which individual HUD elements are shown in preview mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlayerChromeConfig {
+    /// When `true`, hides the technical preview footer completely (default for `Publish`).
+    pub clean: bool,
+    /// Show FPS & frame counter (`1 / 120 · 24 fps`) in the preview bar.
+    #[serde(default = "default_true")]
+    pub show_fps: bool,
+    /// Show stage dimensions (`W×H`) next to the document title in the preview bar.
+    #[serde(default = "default_true")]
+    pub show_dimensions: bool,
+    /// Show transport & zoom controls (`Pause`, `Restart`, `Zoom`, `Pan`) in the preview bar.
+    #[serde(default = "default_true")]
+    pub show_controls: bool,
+    /// Show package weight, load summary, and `Size report` toggle in the preview bar.
+    #[serde(default = "default_true")]
+    pub show_load_summary: bool,
+    /// Show `trace()` output and script diagnostics in the preview bar.
+    #[serde(default = "default_true")]
+    pub show_trace: bool,
+}
+
+impl Default for PlayerChromeConfig {
+    fn default() -> Self {
+        Self::preview_default()
+    }
+}
+
+impl PlayerChromeConfig {
+    /// Default technical preview HUD (`Test Movie` / `Test Scene`).
+    pub const fn preview_default() -> Self {
+        Self {
+            clean: false,
+            show_fps: true,
+            show_dimensions: true,
+            show_controls: true,
+            show_load_summary: true,
+            show_trace: true,
+        }
+    }
+
+    /// Clean stage without technical footer (`Publish`).
+    pub const fn clean_publish() -> Self {
+        Self {
+            clean: true,
+            show_fps: false,
+            show_dimensions: false,
+            show_controls: false,
+            show_load_summary: false,
+            show_trace: false,
+        }
+    }
+
+    /// Whether the footer should be completely hidden.
+    pub const fn effective_clean(&self) -> bool {
+        self.clean
+            || (!self.show_fps
+                && !self.show_dimensions
+                && !self.show_controls
+                && !self.show_load_summary
+                && !self.show_trace)
+    }
+}
+
+/// Extended HTML5 wrapper, playback, asset, script, and chrome configuration for
+/// [`crate::export_project_with_config`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HtmlPublishConfig {
+    #[serde(default = "default_true")]
+    pub include_html: bool,
+    #[serde(default)]
+    pub assets_folder: bool,
+    #[serde(default)]
+    pub template: HtmlTemplate,
+    #[serde(default)]
+    pub scale_mode: HtmlScaleMode,
+    #[serde(default = "default_true")]
+    pub loop_timeline: bool,
+    #[serde(default = "default_true")]
+    pub autoplay: bool,
+    #[serde(default = "default_true")]
+    pub preloader: bool,
+    #[serde(default)]
+    pub source_maps: bool,
+    #[serde(default = "default_jpeg_quality")]
+    pub jpeg_quality: u8,
+    #[serde(default)]
+    pub sprite_sheets: bool,
+    #[serde(default = "default_true")]
+    pub strict_mode: bool,
+    #[serde(default = "default_true")]
+    pub include_trace: bool,
+    #[serde(default = "default_true")]
+    pub minify: bool,
+    #[serde(default)]
+    pub acceleration: HtmlAcceleration,
+    #[serde(default)]
+    pub chrome: PlayerChromeConfig,
+}
+
+impl Default for HtmlPublishConfig {
+    fn default() -> Self {
+        Self {
+            include_html: true,
+            assets_folder: false,
+            template: HtmlTemplate::Responsive,
+            scale_mode: HtmlScaleMode::FitKeepRatio,
+            loop_timeline: true,
+            autoplay: true,
+            preloader: true,
+            source_maps: false,
+            jpeg_quality: 80,
+            sprite_sheets: false,
+            strict_mode: true,
+            include_trace: true,
+            minify: true,
+            acceleration: HtmlAcceleration::GpuWebGl,
+            chrome: PlayerChromeConfig::preview_default(),
+        }
+    }
+}
+
+impl HtmlPublishConfig {
+    /// Clean configuration used when publishing an HTML5 package (`Publish`).
+    pub fn clean_publish_default() -> Self {
+        Self {
+            chrome: PlayerChromeConfig::clean_publish(),
+            ..Self::default()
+        }
+    }
+}
+
 /// Options for [`crate::export_project_with_options`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

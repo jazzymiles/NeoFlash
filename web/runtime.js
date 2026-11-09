@@ -324,14 +324,30 @@
     if (bundle.runtime_id && global.NeoFlashRuntimeId !== bundle.runtime_id) {
       throw new Error(`This project was published against NeoFlash runtime ${bundle.runtime_id}, but the shared runtime provides ${global.NeoFlashRuntimeId || 'none'}. Publish the shared runtime again from the NeoFlash build that published this project.`);
     }
+    const playerConfig = bundle.player_config || {};
+    const chromeConfig = playerConfig.chrome || {};
+    if (playerConfig.preloader === false) {
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.style.display = 'none';
+    }
     if (typeof bundle.wasm === 'string') {
       await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0)) });
+    } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '') && typeof global.NeoFlashWasmBase64 === 'string') {
+      await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
     } else {
-      // Smaller size levels ship WebAssembly as its own file, which pages opened from disk cannot fetch.
+      // Smaller size levels ship WebAssembly as its own file, which pages opened from disk cannot fetch without a script fallback.
       if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
         throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
       }
-      await NeoFlashWasm({ module_or_path: bundle.wasm_url });
+      try {
+        await NeoFlashWasm({ module_or_path: bundle.wasm_url });
+      } catch (wasmErr) {
+        if (typeof global.NeoFlashWasmBase64 === 'string') {
+          await NeoFlashWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
+        } else {
+          throw wasmErr;
+        }
+      }
     }
     const project = bundle.project;
     // Published bundles carry a flattened main timeline plus its scene ranges.
@@ -1512,6 +1528,7 @@
       return proxy;
     }
     function trace(...values) {
+      if (typeof bundle !== 'undefined' && bundle?.player_config?.include_trace === false) return;
       const frames = sourceFrames(new Error());
       const location = sourceLocationText(frames[0]);
       console.log('[NeoFlash]', ...values, ...(location ? [location] : []));
@@ -1667,6 +1684,14 @@
       }
       return null;
     }
+    canvas.addEventListener('pointerdown', () => {
+      if (failed) return;
+      for (const host of [audioHost, videoHost]) {
+        if (host && host.status?.().state === 'awaiting_gesture') {
+          host.resumeFromGesture?.().catch(audioFailure);
+        }
+      }
+    });
     canvas.addEventListener('click', event => {
       if (failed || preview.panMode || preview.suppressClick) return;
       try {
@@ -1709,12 +1734,50 @@
     });
     global.addEventListener('resize', () => { resize(); render(); });
     document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
-    document.getElementById('zoom').addEventListener('change', event => preview.setMode(event.target.value));
+    const zoomSelect = document.getElementById('zoom');
+    zoomSelect?.addEventListener('change', event => preview.setMode(event.target.value));
+    if (playerConfig.scale_mode) {
+      const initialMode = playerConfig.scale_mode === 'no_scale' ? '1'
+        : playerConfig.scale_mode === 'exact_fit' ? 'stretch'
+        : playerConfig.scale_mode === 'fill_crop' ? 'fill'
+        : 'fit';
+      preview.mode = initialMode;
+      if (zoomSelect && (initialMode === 'fit' || initialMode === '1')) zoomSelect.value = initialMode;
+    }
     const panButton = document.getElementById('pan');
-    panButton.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
+    panButton?.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
+    const footerElement = document.querySelector?.('footer');
+    const nameElement = document.getElementById('name');
+    const transportElement = document.querySelector?.('.transport');
     const loadInfoElement = document.getElementById('load-info');
     const reportToggle = document.getElementById('report-toggle');
     const sizeReportElement = document.getElementById('size-report');
+    const isCleanChrome = chromeConfig.clean === true || (
+      chromeConfig.show_fps === false &&
+      chromeConfig.show_dimensions === false &&
+      chromeConfig.show_controls === false &&
+      chromeConfig.show_load_summary === false &&
+      chromeConfig.show_trace === false
+    );
+    if (isCleanChrome) {
+      document.body?.setAttribute('data-clean', 'true');
+      if (footerElement) footerElement.hidden = true;
+    } else {
+      if (chromeConfig.show_controls === false && transportElement) transportElement.hidden = true;
+      if (chromeConfig.show_fps === false && status) status.hidden = true;
+      if (chromeConfig.show_load_summary === false) {
+        if (loadInfoElement) loadInfoElement.hidden = true;
+        if (reportToggle) reportToggle.hidden = true;
+      }
+      if (chromeConfig.show_trace === false && traceElement) traceElement.hidden = true;
+      if (nameElement && chromeConfig.show_dimensions !== false && project?.width && project?.height) {
+        const baseTitle = nameElement.textContent || project.name || '';
+        const dimSuffix = `${project.width}×${project.height}`;
+        if (!baseTitle.includes(dimSuffix)) {
+          nameElement.textContent = baseTitle ? `${baseTitle} · ${dimSuffix}` : dimSuffix;
+        }
+      }
+    }
     const fmtBytes = b => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`;
     if (bundle.load_summary) {
       const s = bundle.load_summary;
@@ -1728,13 +1791,13 @@
       const resText = s.resources_count ? `${s.resources_count} res [${resParts.join(', ')}]` : '0 res';
       const scriptsTotal = (s.source_files_count || 0) + (s.handler_scripts_count || 0);
       const summaryText = `${weightText} · Loads: ${s.scenes_count} scene(s) (${s.frames_count}f), ${s.symbols_count} sym (${fmtBytes(s.symbols_bytes)}), ${resText}, ${(s.fonts || []).length} font(s), ${scriptsTotal} script(s) (${fmtBytes(s.scripts_compiled_bytes)})`;
-      if (loadInfoElement) {
+      if (loadInfoElement && chromeConfig.show_load_summary !== false && !isCleanChrome) {
         loadInfoElement.textContent = summaryText;
         loadInfoElement.title = summaryText;
       }
-      console.info(`[NeoFlash] ${summaryText}`);
+      if (!isCleanChrome) console.info(`[NeoFlash] ${summaryText}`);
     }
-    if (bundle.size_report && sizeReportElement && reportToggle) {
+    if (bundle.size_report && sizeReportElement && reportToggle && chromeConfig.show_load_summary !== false && !isCleanChrome) {
       sizeReportElement.textContent = bundle.size_report;
       reportToggle.hidden = false;
       reportToggle.addEventListener('click', () => {
@@ -1749,6 +1812,9 @@
     initializeFamily();
     canvas.tabIndex=-1;
     stageHost?.attach();
+    if (playerConfig.autoplay === false) {
+      player.set_playing(false);
+    }
     resize();
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
@@ -1763,6 +1829,10 @@
             let ticks = 0;
             while (accumulated >= interval && ticks++ < 12) {
               accumulated -= interval;
+              if (playerConfig.loop_timeline === false && player.total_frames() > 1 && player.current_frame() + 1 >= player.total_frames()) {
+                player.set_playing(false);
+                break;
+              }
               if (lastTickNow !== null && now > lastTickNow) {
                 fpsIntervals.push((now - lastTickNow) / ticks);
                 if (fpsIntervals.length > 30) fpsIntervals.shift();

@@ -130,6 +130,7 @@ fn convert_timeline_reporting(
         sounds: BTreeMap::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
+        contents_revision: None,
         generated: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
@@ -408,6 +409,7 @@ fn translated_legacy_actions_become_as1_scripts_and_flag_untranslated_parts() {
         sounds: BTreeMap::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
+        contents_revision: None,
         generated: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
@@ -470,6 +472,7 @@ fn frame_sound_maps_sync_loops_presets_and_warns_on_custom_envelopes_or_missing_
         sounds,
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
+        contents_revision: None,
         generated: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
@@ -1025,4 +1028,276 @@ fn converts_binary_morph_shape_hints_into_keyframe_shape_hints() {
     assert!((k0.shape_hints[1].start_uv[1] - 0.0).abs() < 1e-4);
     assert!((k0.shape_hints[1].end_uv[0] - 1.0).abs() < 1e-4);
     assert!((k0.shape_hints[1].end_uv[1] - 1.0).abs() < 1e-4);
+}
+
+#[test]
+fn flash_mx_dynamic_input_and_mixed_utf16_runs_survive_conversion_save_reopen_and_fla_round_trip() {
+    let mut original_bytes = Vec::new();
+    let mut append_utf16 = |text: &str| {
+        let start = original_bytes.len();
+        original_bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let span = TimelineByteSpan {
+            start,
+            end: original_bytes.len(),
+        };
+        TimelineString {
+            encoded: span,
+            data: span,
+            utf16: true,
+        }
+    };
+
+    let font_arial = append_utf16("Arial");
+    let font_courier = append_utf16("Courier New");
+    let run_prefix = append_utf16("Score: 🎯 ");
+    let run_number = append_utf16("100");
+    let run_suffix = append_utf16(" pts");
+    let var_score = append_utf16("_root.scoreText");
+    let inst_score = append_utf16("score_txt");
+
+    let run_pin = append_utf16("1234");
+    let var_pin = append_utf16("userPin");
+    let inst_pin = append_utf16("pin_txt");
+
+    let run_status = append_utf16("Ready");
+    let inst_status = append_utf16("status_txt");
+
+    let style_blue_bold = TimelineTextStyle {
+        revision: 10,
+        font_family: Some(font_arial),
+        font_size_twips: Some(360),   // 18pt
+        color_rgba: Some(0xffcc6600), // R=0x00, G=0x66, B=0xcc, A=0xff
+        bold: Some(1),
+        italic: Some(0),
+        alignment: Some(2), // Center
+        line_spacing: Some(40),
+        auto_kern: Some(0),
+        ..TimelineTextStyle::default()
+    };
+    let style_red_italic = TimelineTextStyle {
+        revision: 10,
+        font_family: Some(font_courier),
+        font_size_twips: Some(480),   // 24pt
+        color_rgba: Some(0xff1122ee), // R=0xee, G=0x22, B=0x11, A=0xff
+        bold: Some(0),
+        italic: Some(1),
+        alignment: Some(2), // Center
+        line_spacing: Some(40),
+        auto_kern: Some(1),
+        ..TimelineTextStyle::default()
+    };
+
+    // 1. Dynamic text with variable binding, HTML, wordWrap, multiline, border/background,
+    //    auto_expand -> auto_size="center", and 3 mixed UTF-16 style runs (including non-BMP '🎯').
+    let dynamic_text = TimelineText {
+        revision: Some(9),
+        matrix_words: Some([65536, 0, 0, 65536, 400, 600]),
+        bounds_words: Some([0, 4000, 0, 1200]),
+        auto_expand: Some(1),
+        flags: Some(0x0001 | 0x0002 | 0x0008 | 0x0010 | 0x0040 | 0x8000),
+        max_characters: Some(0),
+        variable_name: Some(var_score),
+        instance_name: Some(inst_score),
+        scrollable: Some(1),
+        runs: vec![
+            TimelineTextRun {
+                characters: run_prefix,
+                style: style_blue_bold.clone(),
+            },
+            TimelineTextRun {
+                characters: run_number,
+                style: style_red_italic,
+            },
+            TimelineTextRun {
+                characters: run_suffix,
+                style: style_blue_bold.clone(),
+            },
+        ],
+        ..TimelineText::default()
+    };
+
+    // 2. Input password text field with max_characters=16, variable binding, and border/background.
+    let input_text = TimelineText {
+        revision: Some(9),
+        matrix_words: Some([65536, 0, 0, 65536, 400, 2200]),
+        bounds_words: Some([0, 3200, 0, 600]),
+        auto_expand: Some(0),
+        flags: Some(0x0001 | 0x0004 | 0x0040),
+        max_characters: Some(16),
+        variable_name: Some(var_pin),
+        instance_name: Some(inst_pin),
+        scrollable: Some(1),
+        runs: vec![TimelineTextRun {
+            characters: run_pin,
+            style: style_blue_bold.clone(),
+        }],
+        ..TimelineText::default()
+    };
+
+    // 3. Dynamic non-selectable text with an unknown high archive flag bit (0x8000_0000).
+    let status_text = TimelineText {
+        revision: Some(9),
+        matrix_words: Some([65536, 0, 0, 65536, 400, 3200]),
+        bounds_words: Some([0, 2400, 0, 500]),
+        auto_expand: Some(0),
+        flags: Some(0x0001 | 0x0002 | 0x0080 | 0x8000_0000),
+        max_characters: Some(0),
+        instance_name: Some(inst_status),
+        scrollable: Some(0),
+        runs: vec![TimelineTextRun {
+            characters: run_status,
+            style: style_blue_bold,
+        }],
+        ..TimelineText::default()
+    };
+
+    let stream = BinaryTimelineStream {
+        index: 1,
+        stream_kind: Some(1),
+        root: Some(1),
+        references: vec![],
+        pointers: vec![],
+        objects: vec![
+            record(
+                1,
+                TimelineClass::Page,
+                TimelinePayload::Page(TimelinePage::default()),
+                &[2],
+            ),
+            record(
+                2,
+                TimelineClass::Layer,
+                TimelinePayload::Layer(TimelineLayer::default()),
+                &[10],
+            ),
+            record(
+                10,
+                TimelineClass::Frame,
+                TimelinePayload::Frame(Box::new(TimelineFrame {
+                    duration: Some(1),
+                    key_mode: Some(0),
+                    ..Default::default()
+                })),
+                &[20, 21, 22],
+            ),
+            record(
+                20,
+                TimelineClass::Text,
+                TimelinePayload::Text(Box::new(dynamic_text)),
+                &[],
+            ),
+            record(
+                21,
+                TimelineClass::Text,
+                TimelinePayload::Text(Box::new(input_text)),
+                &[],
+            ),
+            record(
+                22,
+                TimelineClass::Text,
+                TimelinePayload::Text(Box::new(status_text)),
+                &[],
+            ),
+        ],
+        shapes: vec![],
+        original_bytes,
+    };
+
+    let (timeline, report) = convert_timeline_reporting(&stream).unwrap();
+    let elements = &timeline.layers[0].keyframes[0].elements;
+    assert_eq!(elements.len(), 3);
+
+    // Only `status_txt` (with the unknown 0x8000_0000 archive bit) should emit `fla_text_approximated`.
+    let approx: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "fla_text_approximated")
+        .collect();
+    assert_eq!(approx.len(), 1, "{:?}", report.diagnostics);
+    assert_eq!(approx[0].location, "status_txt");
+    assert!(approx[0].message.contains("unrecognized text flag bits"));
+
+    let check_elements = |els: &[Element]| {
+        let score_state = TextFieldState::from_kind(&els[0].kind).expect("score_txt state");
+        assert_eq!(els[0].name, "score_txt");
+        assert_eq!(score_state.text, "Score: 🎯 100 pts");
+        assert_eq!(score_state.field_type, TextFieldType::Dynamic);
+        assert!(score_state.selectable);
+        assert!(!score_state.display_as_password);
+        assert!(score_state.multiline);
+        assert!(score_state.word_wrap);
+        assert!(score_state.html);
+        assert!(score_state.as2_viewport.border);
+        assert!(score_state.as2_viewport.background);
+        assert_eq!(score_state.as2_viewport.auto_size, "center");
+        assert_eq!(score_state.variable.as_deref(), Some("_root.scoreText"));
+        assert_eq!(score_state.format_runs.len(), 3);
+        // "Score: 🎯 " is 10 UTF-16 code units ('🎯' is a surrogate pair).
+        assert_eq!(score_state.format_runs[0].start, 0);
+        assert_eq!(score_state.format_runs[0].end, 10);
+        assert_eq!(score_state.format_runs[0].format.font, "Arial");
+        assert_eq!(score_state.format_runs[0].format.size, 18.0);
+        assert!(score_state.format_runs[0].format.bold);
+        assert_eq!(score_state.format_runs[0].format.color, 0x0066cc);
+
+        assert_eq!(score_state.format_runs[1].start, 10);
+        assert_eq!(score_state.format_runs[1].end, 13);
+        assert_eq!(score_state.format_runs[1].format.font, "Courier New");
+        assert_eq!(score_state.format_runs[1].format.size, 24.0);
+        assert!(score_state.format_runs[1].format.italic);
+        assert_eq!(score_state.format_runs[1].format.color, 0xee2211);
+
+        assert_eq!(score_state.format_runs[2].start, 13);
+        assert_eq!(score_state.format_runs[2].end, 17);
+        assert_eq!(score_state.format_runs[2].format.font, "Arial");
+
+        let pin_state = TextFieldState::from_kind(&els[1].kind).expect("pin_txt state");
+        assert_eq!(els[1].name, "pin_txt");
+        assert_eq!(pin_state.text, "1234");
+        assert_eq!(pin_state.field_type, TextFieldType::Input);
+        assert!(pin_state.selectable);
+        assert!(pin_state.display_as_password);
+        assert!(!pin_state.multiline);
+        assert!(!pin_state.word_wrap);
+        assert_eq!(pin_state.max_chars, 16);
+        assert!(pin_state.as2_viewport.border);
+        assert!(pin_state.as2_viewport.background);
+        assert_eq!(pin_state.variable.as_deref(), Some("userPin"));
+        assert!(pin_state.format_runs.is_empty());
+
+        let status_state = TextFieldState::from_kind(&els[2].kind).expect("status_txt state");
+        assert_eq!(els[2].name, "status_txt");
+        assert_eq!(status_state.field_type, TextFieldType::Dynamic);
+        assert!(!status_state.selectable);
+    };
+
+    check_elements(elements);
+
+    // Verify native `.nflash` save/reopen preserves Dynamic/Input options, variable bindings, and UTF-16 runs.
+    let mut project = Project::blank();
+    project.name = "MX Text Test".into();
+    project.symbols[0].timeline = timeline;
+    project.upgrade_format_for_features();
+    let saved_json = project.to_json().expect("serialize .nflash");
+    let reopened = Project::from_json(&saved_json).expect("reopen .nflash");
+    check_elements(&reopened.symbols[0].timeline.layers[0].keyframes[0].elements);
+
+    // Verify `.fla` archive export and re-import round-trip.
+    let tmp_dir = std::env::temp_dir().join(format!("neoflash-t179-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let fla_path = tmp_dir.join("mx_text_roundtrip.fla");
+    crate::export_fla(&reopened, &fla_path).expect("export .fla");
+    let fla_reimported = crate::import_project(&fla_path).expect("re-import .fla");
+    fla_reimported
+        .validate()
+        .expect("valid re-imported .fla project");
+    let re_els = &fla_reimported.symbols[0].timeline.layers[0].keyframes[0].elements;
+    assert_eq!(re_els.len(), 3);
+    assert_eq!(re_els[0].name, "score_txt");
+    assert_eq!(
+        TextFieldState::from_kind(&re_els[0].kind).unwrap().text,
+        "Score: 🎯 100 pts"
+    );
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 }

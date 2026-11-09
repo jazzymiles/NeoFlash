@@ -504,6 +504,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         sounds,
         language,
         include_hidden,
+        contents_revision: c.revision,
         generated: vec![],
         provenance: vec![],
         missing_bitmaps: BTreeMap::new(),
@@ -755,6 +756,7 @@ struct Context<'a> {
     sounds: BTreeMap<u16, assets::SoundAsset>,
     language: ScriptLanguage,
     include_hidden: bool,
+    contents_revision: Option<u8>,
     generated: Vec<Symbol>,
     provenance: Vec<serde_json::Value>,
     missing_bitmaps: BTreeMap<u16, String>,
@@ -1529,7 +1531,7 @@ impl Context<'_> {
                 }
             }
             Some(TimelinePayload::Text(t)) => {
-                element = text::convert_text(s, t, id, "", self.report)?;
+                element = convert_timeline_text(s, t, id, "", self.contents_revision, self.report)?;
             }
             Some(TimelinePayload::Bitmap(b)) => {
                 let media = b.media_id.ok_or("Missing bitmap identity")?;
@@ -2564,4 +2566,353 @@ fn degrade_excess_vector_shapes(
         }
     }
     saved > 0
+}
+
+const KNOWN_CPIC_TEXT_FLAGS: u32 = 0x0003_ffff;
+
+fn decode_cpic_text_style(
+    stream: &BinaryTimelineStream,
+    style: &TimelineTextStyle,
+    lossy: &mut Vec<&'static str>,
+) -> Result<(TextFormat, f64), String> {
+    if style.revision < 2 {
+        return Err(
+            "Text has no archived font or size; a revision-only style cannot be reconstructed."
+                .into(),
+        );
+    }
+    if style.vertical.unwrap_or(0) != 0 || style.rotation.unwrap_or(0) != 0 {
+        lossy.push("vertical or rotated characters are laid out horizontally");
+    }
+    if style.character_position.unwrap_or(0) != 0 {
+        lossy.push("superscript/subscript is shown on the baseline");
+    }
+    let face = optional_text(&stream.original_bytes, style.font_face.as_ref())?;
+    let family = optional_text(&stream.original_bytes, style.font_family.as_ref())?;
+    let [red, green, blue, alpha] = style
+        .color_rgba
+        .ok_or("Text style has no archived color")?
+        .to_le_bytes();
+    let align = match style.alignment.unwrap_or(0) {
+        0 => TextAlign::Left,
+        1 => TextAlign::Right,
+        2 => TextAlign::Center,
+        _ => {
+            lossy.push("justified alignment is shown left-aligned");
+            TextAlign::Left
+        }
+    };
+    let twips = |value: Option<i16>| f64::from(value.unwrap_or(0)) / 20.;
+    let mut value = TextFormat {
+        font: if face.is_empty() { family } else { face },
+        size: f64::from(
+            style
+                .font_size_twips
+                .ok_or("Text style has no archived size")?,
+        ) / 20.,
+        color: (u32::from(red) << 16) | (u32::from(green) << 8) | u32::from(blue),
+        bold: style.bold.unwrap_or(0) != 0,
+        italic: style.italic.unwrap_or(0) != 0,
+        leading: twips(style.line_spacing),
+        align,
+        left_margin: twips(style.left_margin),
+        right_margin: twips(style.right_margin),
+        indent: twips(style.indent),
+        letter_spacing: twips(style.letter_spacing),
+        kerning: style.auto_kern.map(|value| value != 0),
+        url: optional_text(
+            &stream.original_bytes,
+            style.url_override.as_ref().or(style.url.as_ref()),
+        )?,
+        target: optional_text(&stream.original_bytes, style.target.as_ref())?,
+        ..TextFormat::default()
+    };
+    if value.validate().is_err() {
+        if value.font.trim().is_empty()
+            || value.font.len() > 1024
+            || value.font.chars().any(char::is_control)
+        {
+            let cleaned: String = value
+                .font
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(256)
+                .collect();
+            value.font = if cleaned.trim().is_empty() {
+                "Times New Roman".into()
+            } else {
+                cleaned
+            };
+        }
+        if value.url.len() > 4096 || value.url.chars().any(char::is_control) {
+            value.url = value
+                .url
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(4096)
+                .collect();
+        }
+        if value.target_str().len() > 256 || value.target_str().chars().any(char::is_control) {
+            let cleaned_target: String = value
+                .target_str()
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(256)
+                .collect();
+            value.set_target_str(cleaned_target);
+        }
+        value.size = value.size.clamp(1., 9999.);
+        value.leading = value.leading.clamp(-9999., 9999.);
+        value.left_margin = value.left_margin.clamp(0., 9999.);
+        value.right_margin = value.right_margin.clamp(0., 9999.);
+        value.indent = value.indent.clamp(-9999., 9999.);
+        value.letter_spacing = value.letter_spacing.clamp(-1000., 1000.);
+        if value.size * 1.2 + value.leading <= 0. {
+            value.leading = 0.;
+        }
+        lossy.push("out-of-range size, spacing or margins are clamped");
+    }
+    value.validate().map_err(|error| error.to_string())?;
+    Ok((
+        value,
+        if style.revision < 4 {
+            1.
+        } else {
+            f64::from(alpha) / 255.
+        },
+    ))
+}
+
+pub(super) fn convert_timeline_text(
+    stream: &BinaryTimelineStream,
+    text: &TimelineText,
+    id: &str,
+    name: &str,
+    contents_revision: Option<u8>,
+    report: &mut ImportReport,
+) -> Result<Element, String> {
+    if contents_revision == Some(0x3f) && text.runs.len() <= 1 {
+        return text::convert_text(stream, text, id, name, report);
+    }
+
+    let flags = text.flags.unwrap_or(0);
+    let is_dynamic_or_input = (flags & 0x0001) != 0;
+    let is_input = is_dynamic_or_input && (flags & 0x0002) == 0;
+    let mut lossy = Vec::new();
+    if (flags & !KNOWN_CPIC_TEXT_FLAGS) != 0 {
+        lossy.push("unrecognized text flag bits remain in the embedded source");
+    }
+    let raw_variable = optional_text(&stream.original_bytes, text.variable_name.as_ref())?;
+    let clean_variable: String = raw_variable
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(256)
+        .collect();
+    if !is_dynamic_or_input && !raw_variable.is_empty() {
+        lossy.push("the field's variable binding is not connected");
+    }
+    let instance_name = optional_text(&stream.original_bytes, text.instance_name.as_ref())?;
+    if text
+        .accessibility
+        .as_ref()
+        .is_some_and(|value| value.revision != 0)
+    {
+        lossy.push("text accessibility metadata is not imported");
+    }
+    if !is_dynamic_or_input && text.scrollable.unwrap_or(0) != 0 {
+        lossy.push("scrollable viewport state is not imported");
+    }
+
+    let style = text
+        .runs
+        .first()
+        .map(|run| &run.style)
+        .or(text.default_style.as_ref())
+        .ok_or("Text has no run or default style")?;
+    let (mut format, alpha) = decode_cpic_text_style(stream, style, &mut lossy)?;
+    let normalize_runs_text = is_dynamic_or_input || text.runs.len() > 1 || (flags & 0x8000) != 0;
+    let mut characters = String::new();
+    let mut mixed = false;
+    let mut format_runs: Vec<TextFormatRun> = Vec::new();
+    let mut utf16_cursor = 0u32;
+    for run in &text.runs {
+        let (run_format, run_alpha) = decode_cpic_text_style(stream, &run.style, &mut lossy)?;
+        if (run_alpha - alpha).abs() > 1e-4 {
+            lossy.push("per-run alpha uses the first run's alpha");
+        }
+        if run_format != format {
+            mixed = true;
+        }
+        let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
+        let run_chars = if normalize_runs_text {
+            raw_chars.replace("\r\n", "\n").replace('\r', "\n")
+        } else {
+            raw_chars
+        };
+        let run_units = run_chars.encode_utf16().count() as u32;
+        if run_units > 0 {
+            if let Some(last) = format_runs.last_mut()
+                && last.end == utf16_cursor
+                && last.format == run_format
+            {
+                last.end = utf16_cursor + run_units;
+            } else {
+                format_runs.push(TextFormatRun {
+                    start: utf16_cursor,
+                    end: utf16_cursor + run_units,
+                    format: run_format,
+                });
+            }
+            utf16_cursor += run_units;
+        }
+        characters.push_str(&run_chars);
+    }
+    if mixed && format_runs.len() > 1 {
+        format = format_runs[0].format.clone();
+    } else {
+        format_runs.clear();
+    }
+
+    let name = if name.is_empty() {
+        instance_name.as_str()
+    } else {
+        name
+    };
+    let bounds = text.bounds_words.ok_or("Text has no archived bounds")?;
+    let [left, right, top, bottom] = bounds.map(|value| f64::from(value) / 20.);
+    let dimensions = TextBoxSize {
+        width: right - left,
+        height: bottom - top,
+    };
+    dimensions.validate().map_err(|error| error.to_string())?;
+    let words = text.matrix_words.ok_or("Text has no archived matrix")?;
+    let [a, b, c, d] =
+        [words[0], words[1], words[2], words[3]].map(|value| f64::from(value) / 65536.);
+    let mut transform = Transform::from_matrix([
+        a,
+        b,
+        c,
+        d,
+        f64::from(words[4]) / 20. + a * left + c * top,
+        f64::from(words[5]) / 20. + b * left + d * top,
+    ])
+    .ok_or("Text matrix is outside supported transform bounds")?;
+    transform.alpha = alpha;
+
+    let location = if name.is_empty() { id } else { name };
+    if !lossy.is_empty() {
+        lossy.dedup();
+        let var_suffix = if !is_dynamic_or_input && !raw_variable.is_empty() {
+            format!(" (variable \"{raw_variable}\")")
+        } else {
+            String::new()
+        };
+        report.warning(
+            "fla_text_approximated",
+            location,
+            format!(
+                "Text imported with approximations: {}{var_suffix}. The original text record is retained in the embedded source.",
+                lossy.join("; "),
+            ),
+        );
+    }
+    if !report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "fla_text_metrics")
+    {
+        report.warning(
+            "fla_text_metrics",
+            location,
+            "Text, font names, style, bounds and placement are retained. Shared text layout uses host font metrics and text-box padding, so static glyph placement/antialiasing may differ from Flash.",
+        );
+    }
+    if text
+        .runs
+        .iter()
+        .any(|run| run.style.font_flags.unwrap_or(0) != 0)
+    {
+        report.warning(
+            "fla_text_font_flags",
+            location,
+            "Additional archived font flags remain in the embedded source; named font, size, bold and italic are imported.",
+        );
+    }
+
+    let filters = convert_filters(&text.filters, location, report);
+    let has_newlines = characters.contains(['\r', '\n']);
+    let display_as_password = is_dynamic_or_input && (flags & 0x0004) != 0;
+    let multiline =
+        has_newlines || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0);
+    let word_wrap = is_dynamic_or_input && !display_as_password && (flags & 0x0008) != 0;
+    let html = (flags & 0x8000) != 0;
+
+    if is_dynamic_or_input || !format_runs.is_empty() || html {
+        let mut opts = AuthoredTextFieldOptions {
+            field_type: if is_input {
+                TextFieldType::Input
+            } else {
+                TextFieldType::Dynamic
+            },
+            selectable: if is_input {
+                true
+            } else if is_dynamic_or_input {
+                (flags & 0x10000) != 0 || (flags & 0x0080) == 0
+            } else {
+                true
+            },
+            display_as_password,
+            max_chars: if is_dynamic_or_input {
+                u32::from(text.max_characters.unwrap_or(0))
+            } else {
+                0
+            },
+            variable: if is_dynamic_or_input && !clean_variable.is_empty() {
+                Some(clean_variable)
+            } else {
+                None
+            },
+            auto_size: if is_dynamic_or_input && text.auto_expand.unwrap_or(0) != 0 {
+                match format.align {
+                    TextAlign::Left => "left".into(),
+                    TextAlign::Center => "center".into(),
+                    TextAlign::Right => "right".into(),
+                }
+            } else {
+                "none".into()
+            },
+            border: is_dynamic_or_input && (flags & 0x0040) != 0,
+            background: is_dynamic_or_input && (flags & 0x0040) != 0,
+            html,
+            embed_fonts: is_dynamic_or_input
+                && (flags & 0x20000) == 0
+                && ((flags & (0x0020 | 0x3f00)) != 0
+                    || text.embed_variant_glyphs.unwrap_or(0) != 0),
+            format_runs,
+            ..AuthoredTextFieldOptions::default()
+        };
+        if opts.field_type == TextFieldType::Input && format.bullet {
+            opts.field_type = TextFieldType::Dynamic;
+        }
+        format.set_field_options((!opts.is_default()).then_some(opts));
+    }
+
+    Ok(Element {
+        id: id.into(),
+        name: name.into(),
+        transform,
+        kind: ElementKind::TextBox {
+            text: characters,
+            width: dimensions.width,
+            height: dimensions.height,
+            format,
+            word_wrap,
+            multiline,
+        },
+        scripts: vec![],
+        accessibility: None,
+        filters,
+        ..Element::default()
+    })
 }

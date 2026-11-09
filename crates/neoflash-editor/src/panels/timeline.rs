@@ -224,9 +224,17 @@ impl Editor {
                 layer.keyframes.sort_by_key(|key| key.frame);
             }
             let count = self.symbol().timeline.frame_count;
-            let script_frames: Vec<u32> = self.symbol().timeline.scripts.iter().map(|script| script.frame).collect();
+            let script_frames: Vec<u32> = self
+                .symbol()
+                .timeline
+                .scripts
+                .iter()
+                .filter(|script| !script.script.source.trim().is_empty())
+                .map(|script| script.frame)
+                .collect();
             // Frame scripts belong to the whole timeline. Like Flash's actions layer, they show as
-            // Action keyframes on the top non-folder row where it has a keyframe; otherwise on the ruler.
+            // Action keyframes on the topmost visible non-folder row that has an ordinary keyframe at
+            // that frame; otherwise on the ruler.
             let action_row = layers.iter().position(|layer| layer.properties.role != LayerRole::Folder);
             let content_height = layers.len() as f32 * row_height;
             // Solid scrollbars own a separate strip instead of covering the last
@@ -468,6 +476,21 @@ impl Editor {
                                             rename = Some(LayerRename { layer: layer.id.clone(), text: layer.name.clone(), focus: true });
                                             ui.ctx().request_repaint();
                                         }
+                                        crate::ui_icons::menu_contents(ui, 280., |ui| {
+                                            neoflash_ui::components::menu_separator(ui);
+                                            if crate::ui_icons::menu_item(ui, "Delete empty layers", "").clicked() {
+                                                self.delete_empty_layers();
+                                                ui.close();
+                                            }
+                                            if crate::ui_icons::menu_item(ui, "Rename layers from symbol", "").clicked() {
+                                                self.rename_layers_from_content();
+                                                ui.close();
+                                            }
+                                            if crate::ui_icons::menu_item(ui, "Add actions & stop() layer", "").clicked() {
+                                                self.add_actions_and_stop_layer();
+                                                ui.close();
+                                            }
+                                        });
                                     });
                                 }
                             },
@@ -524,13 +547,33 @@ impl Editor {
                                 if response.dragged_by(egui::PointerButton::Primary)
                                     && let Some((symbol, layer_id, from)) = &self.timeline_key_drag
                                     && symbol == self.symbol_id()
-                                    && let Some(layer) = layers.iter().find(|layer| &layer.id == layer_id)
+                                    && let Some(layer_idx) = self
+                                        .symbol()
+                                        .timeline
+                                        .layers
+                                        .iter()
+                                        .position(|layer| &layer.id == layer_id)
                                 {
-                                    let blocked = self.frame != *from && layer.keyframes.iter().any(|key| key.frame == self.frame);
+                                    let layer = &self.symbol().timeline.layers[layer_idx];
+                                    let key_conflict = self.frame != *from
+                                        && layer.keyframes.iter().any(|key| key.frame == self.frame);
+                                    let script_conflict = self.frame != *from
+                                        && self
+                                            .symbol()
+                                            .timeline
+                                            .key_carries_frame_script(layer_idx, *from)
+                                        && self.symbol().timeline.has_frame_script(self.frame);
+                                    let blocked = key_conflict || script_conflict;
                                     let stroke = Stroke::new(2_f32, if blocked { palette.error_text } else { palette.accent });
                                     painter.rect_stroke(selected_cell.shrink(1.), 0, stroke, egui::StrokeKind::Inside);
                                     ui.ctx().set_cursor_icon(if blocked { egui::CursorIcon::NotAllowed } else { egui::CursorIcon::Grabbing });
-                                    let text = if blocked { "Destination already has a keyframe".to_owned() } else { format!("{} key {} → {}", if ui.input(|i| i.modifiers.alt) { "Copy" } else { "Move" }, from + 1, self.frame + 1) };
+                                    let text = if key_conflict {
+                                        "Destination already has a keyframe".to_owned()
+                                    } else if script_conflict {
+                                        "Destination already has a frame script".to_owned()
+                                    } else {
+                                        format!("{} key {} → {}", if ui.input(|i| i.modifiers.alt) { "Copy" } else { "Move" }, from + 1, self.frame + 1)
+                                    };
                                     painter.text(Pos2::new(grid_clip.left() + space::S1, grid_clip.bottom() - space::S1), Align2::LEFT_BOTTOM, text, typography::font(TextStyle::Small), stroke.color);
                                 }
                                 if response.context_menu_opened()
@@ -756,7 +799,7 @@ impl Editor {
                     tl::paint_ruler(&seconds, &ctx, full_ruler, &geo, fps, view.show_seconds);
                 }
                 for &frame in &script_frames {
-                    let on_row = action_row.is_some_and(|row| layers[row].keyframes.iter().any(|key| key.frame == frame));
+                    let on_row = self.symbol().timeline.action_layer_for_frame(frame).is_some();
                     if !on_row && frame < count {
                         let cell = geo.cell(ruler, frame + 1);
                         rp.text(Pos2::new(cell.center().x, ruler.top() + seconds_row / 2. + space::S1), Align2::CENTER_CENTER, "a", typography::font(TextStyle::MonoSmall), palette.timeline_script);
@@ -999,7 +1042,7 @@ impl Editor {
         clip: Rect,
         cell: f32,
         layers: &[Layer],
-        action_row: Option<usize>,
+        _action_row: Option<usize>,
         script_frames: &[u32],
         tinted: bool,
     ) {
@@ -1167,7 +1210,12 @@ impl Editor {
                     continue;
                 }
                 let key = &layer.keyframes[ki];
-                let action = Some(li) == action_row && script_frames.contains(&start);
+                let action = script_frames.contains(&start)
+                    && self
+                        .symbol()
+                        .timeline
+                        .action_layer_for_frame(start)
+                        .is_some_and(|idx| self.symbol().timeline.layers[idx].id == layer.id);
                 let marker = match (key.elements.is_empty(), action) {
                     _ if key.keyed_properties.is_some() => MarkerKind::PropertyKeyframe,
                     (true, true) => MarkerKind::ActionBlankKeyframe,
@@ -1312,6 +1360,37 @@ impl Editor {
             self.convert_to_keyframes(true);
             ui.close();
         }
+        let can_step_keys = editable && self.can_convert_to_keyframes_stepped();
+        if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 2s)", "").clicked() {
+            self.tween_to_keys_on_twos();
+            ui.close();
+        }
+        if menu_item_enabled(ui, can_step_keys, "Tween2Keys (On 3s)", "").clicked() {
+            self.tween_to_keys_on_threes();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            can_step_keys,
+            "Convert to keyframes (on 2s, keep ease)",
+            "",
+        )
+        .clicked()
+        {
+            self.convert_to_keyframes_stepped(2, false);
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            self.can_distribute_to_keyframes(),
+            "Distribute to keyframes",
+            "",
+        )
+        .clicked()
+        {
+            self.distribute_selection_to_keyframes();
+            ui.close();
+        }
         nf::menu_separator(ui);
         for (label, cmd) in [
             ("Cut frames", F::Cut),
@@ -1380,6 +1459,21 @@ impl Editor {
         }
         if menu_item_enabled(ui, self.tween_span().is_some(), "Ease…", "").clicked() {
             self.show_panel(crate::workspace::PanelId::Ease);
+            ui.close();
+        }
+        if menu_item_enabled(ui, self.can_copy_active_keyframe_ease(), "Copy ease", "").clicked() {
+            self.copy_active_keyframe_ease();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            editable && self.has_copied_keyframe_ease(),
+            "Apply ease",
+            "",
+        )
+        .clicked()
+        {
+            self.apply_copied_ease_to_selection();
             ui.close();
         }
         nf::menu_separator(ui);

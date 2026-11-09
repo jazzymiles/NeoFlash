@@ -65,6 +65,7 @@ impl RuntimeStamp {
 struct Request {
     project: Arc<Project>,
     options: PublishOptions,
+    html_config: neoflash_export::HtmlPublishConfig,
     warnings_as_errors: bool,
     runtime: RuntimeStamp,
 }
@@ -115,9 +116,11 @@ impl PublishController {
             preferences: prefs.clone(),
         });
         let stamp = RuntimeStamp::read(runtime);
+        let html_config = prefs.publish_html_config();
         let matches = self.current.as_ref().is_some_and(|request| {
             request.project.as_ref() == project
                 && request.options == prefs.options
+                && request.html_config == html_config
                 && request.warnings_as_errors == prefs.warnings_as_errors
                 && request.runtime == stamp
         });
@@ -128,6 +131,7 @@ impl PublishController {
             let request = Arc::new(Request {
                 project: Arc::new(project.clone()),
                 options: prefs.options.clone(),
+                html_config,
                 warnings_as_errors: prefs.warnings_as_errors,
                 runtime: stamp,
             });
@@ -220,12 +224,11 @@ impl PublishController {
 
 fn estimate(request: &Request, cancel: &AtomicBool) -> Outcome {
     let options = request.options.validated()?;
-    let result = neoflash_export::estimate_publish_levels_with_audio_cancellable(
+    let result = neoflash_export::estimate_publish_options_cancellable_with_config(
         &request.project,
         &request.runtime.directory,
-        options.fonts,
-        options.audio,
-        &[options.size],
+        &options,
+        &request.html_config,
         || cancel.load(Ordering::Relaxed),
     )
     .map_err(|error| error.to_string())?;
@@ -238,7 +241,7 @@ fn estimate(request: &Request, cancel: &AtomicBool) -> Outcome {
                 .into(),
         );
     }
-    Ok(result.and_then(|mut estimates| estimates.pop()))
+    Ok(result)
 }
 
 impl PublishPrefs {

@@ -2,23 +2,30 @@
 
 pub mod atlas;
 pub mod audio;
+pub mod fla_preflight;
 pub mod fonts;
 pub mod image_export;
+pub mod legacy_fla;
 pub mod lottie;
 pub mod profiles;
 pub mod publish;
 pub mod svg;
+pub mod swf;
 pub mod video;
 pub use atlas::*;
 pub use audio::*;
+pub use fla_preflight::*;
 pub use fonts::*;
 pub use image_export::*;
+pub use legacy_fla::*;
 pub use lottie::*;
 pub use profiles::*;
 pub use publish::{
+    HtmlAcceleration, HtmlPublishConfig, HtmlScaleMode, HtmlTemplate, PlayerChromeConfig,
     PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
 };
 pub use svg::*;
+pub use swf::*;
 pub use video::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -96,6 +103,19 @@ pub enum ExportError {
     InvalidProject(String),
     #[error("Script compilation failed:\n{0}")]
     Scripts(String),
+    #[error("Unsupported script for target profile: {0}")]
+    UnsupportedScript(String),
+    #[error("Missing root symbol: {0}")]
+    MissingRootSymbol(String),
+    #[error(
+        "Compatibility preflight blocked export for {profile} ({blocking_count} blocking item(s))"
+    )]
+    CompatibilityBlocked {
+        profile: &'static str,
+        blocking_count: usize,
+    },
+    #[error("Round-trip verification failed: {0}")]
+    RoundTripVerification(String),
     #[error("HTML5 runtime is missing or incompatible: {0}. Run scripts/build-web.sh first.")]
     MissingRuntime(String),
     #[error(
@@ -325,6 +345,8 @@ struct Bundle<'a> {
     /// Shared level: the runtime build this project was published against.
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    player_config: Option<&'a HtmlPublishConfig>,
     publish: PublishInfo,
     warnings: Vec<String>,
     load_summary: LoadSummary,
@@ -1071,6 +1093,112 @@ pub fn export_project_with_options(
     write_package(output_dir, &package.files, &project.name, "project")
 }
 
+/// Export an HTML5 package with explicit [`PublishOptions`] and [`HtmlPublishConfig`]
+/// (Clean publish vs. Preview chrome, HTML wrapper template, playback flags, source maps,
+/// JPEG quality, sprite sheets, and script minification).
+pub fn export_project_with_config(
+    project: &Project,
+    output_dir: &Path,
+    runtime_dir: &Path,
+    options: &PublishOptions,
+    config: &HtmlPublishConfig,
+) -> Result<PathBuf, ExportError> {
+    let options = options.validated().map_err(ExportError::Options)?;
+    let prepared = prepare_with_config(
+        project,
+        runtime_dir,
+        options.fonts,
+        options.audio,
+        Some(config),
+    )?;
+    let package = assemble_with_config(project, &prepared, &options.size, Some(config))?;
+    write_package(output_dir, &package.files, &project.name, "project")
+}
+
+/// Export a self-contained Desktop application bundle (`.app` on macOS plus a portable Windows
+/// `.bat` launcher) wrapping the Clean HTML5 package in `output_dir`.
+pub fn export_desktop_app(
+    project: &Project,
+    output_dir: &Path,
+    runtime_dir: &Path,
+    options: &PublishOptions,
+    config: &HtmlPublishConfig,
+) -> Result<PathBuf, ExportError> {
+    let mut app_config = config.clone();
+    app_config.include_html = true;
+    app_config.chrome = PlayerChromeConfig::clean_publish();
+    let safe_name: String = project
+        .name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_owned();
+    let app_stem = if safe_name.is_empty() {
+        "NeoFlashApp".to_owned()
+    } else {
+        safe_name
+    };
+    let app_dir = output_dir.join(format!("{app_stem}.app"));
+    let contents_dir = app_dir.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
+    let web_dir = contents_dir.join("Resources").join("web");
+    fs::create_dir_all(&macos_dir)?;
+    fs::create_dir_all(&web_dir)?;
+    export_project_with_config(project, &web_dir, runtime_dir, options, &app_config)?;
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>{}</string>
+  <key>CFBundleIdentifier</key>
+  <string>org.neoflash.published.{}</string>
+  <key>CFBundleName</key>
+  <string>{}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+"#,
+        html_escape(&app_stem),
+        app_stem
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_ascii_lowercase(),
+        html_escape(&project.name),
+    );
+    atomic_write(&contents_dir.join("Info.plist"), plist.as_bytes())?;
+    let launcher = "#!/bin/sh\nDIR=\"$(cd \"$(dirname \"$0\")/../Resources/web\" && pwd)\"\nopen \"$DIR/index.html\"\n";
+    let exec_path = macos_dir.join(&app_stem);
+    atomic_write(&exec_path, launcher.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&exec_path, fs::Permissions::from_mode(0o755));
+    }
+    let win_bat = format!(
+        "@echo off\r\nstart \"\" \"%~dp0{app_stem}.app\\Contents\\Resources\\web\\index.html\"\r\n"
+    );
+    atomic_write(
+        &output_dir.join(format!("Launch {app_stem}.bat")),
+        win_bat.as_bytes(),
+    )?;
+    Ok(app_dir)
+}
+
 /// Measure every size level for the publish dialog by assembling each package in memory.
 /// `runtime_url` is where the Shared level would load the runtime from.
 pub fn estimate_publish_sizes(
@@ -1106,6 +1234,56 @@ pub fn estimate_publish_options(
     )?
     .expect("uncancelled estimate")
     .remove(0))
+}
+
+/// Measure the exact [`PublishOptions`] and [`HtmlPublishConfig`] used by a publication,
+/// with cooperative cancellation.
+pub fn estimate_publish_options_cancellable_with_config(
+    project: &Project,
+    runtime_dir: &Path,
+    options: &PublishOptions,
+    config: &HtmlPublishConfig,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<Option<SizeEstimate>, ExportError> {
+    if cancelled() {
+        return Ok(None);
+    }
+    let options = options.validated().map_err(ExportError::Options)?;
+    let prepared = prepare_with_config(
+        project,
+        runtime_dir,
+        options.fonts,
+        options.audio,
+        Some(config),
+    )?;
+    if cancelled() {
+        return Ok(None);
+    }
+    let shared = if matches!(options.size, SizeLevel::Shared(_)) {
+        let files =
+            shared_runtime_package_files(&prepared.bindings, &prepared.wasm, &prepared.runtime_id);
+        let marker = package_marker(&files, "shared runtime", "runtime")?;
+        let mut bytes = marker.len();
+        let mut gzip = gzip_len(&marker);
+        for (_, file) in &files {
+            if cancelled() {
+                return Ok(None);
+            }
+            bytes += file.len();
+            gzip += gzip_len(file);
+        }
+        Some((bytes, gzip))
+    } else {
+        None
+    };
+    let package = assemble_with_config(project, &prepared, &options.size, Some(config))?;
+    measure(
+        options.size,
+        &package,
+        &project.name,
+        shared,
+        &mut cancelled,
+    )
 }
 
 /// Measure requested levels in order, sharing preparation, without writing output files.
@@ -1270,6 +1448,16 @@ pub(crate) fn prepare(
     font_policy: FontExportPolicy,
     audio_policy: AudioExportPolicy,
 ) -> Result<Prepared, ExportError> {
+    prepare_with_config(project, runtime_dir, font_policy, audio_policy, None)
+}
+
+pub(crate) fn prepare_with_config(
+    project: &Project,
+    runtime_dir: &Path,
+    font_policy: FontExportPolicy,
+    audio_policy: AudioExportPolicy,
+    config: Option<&HtmlPublishConfig>,
+) -> Result<Prepared, ExportError> {
     let issues = neoflash_core::validate(project);
     if !issues.is_empty() {
         return Err(ExportError::InvalidProject(format!("{issues:?}")));
@@ -1291,6 +1479,9 @@ pub(crate) fn prepare(
     let mut published = publishable(&published).unwrap_or(published);
     let fonts = apply_font_policy(&mut published, font_policy);
     apply_audio_policy(&mut published, audio_policy)?;
+    if let Some(cfg) = config {
+        apply_bitmap_jpeg_quality(&mut published, cfg.jpeg_quality);
+    }
     let runtime_id = shared_runtime_id(&bindings, &wasm);
     Ok(Prepared {
         program,
@@ -1305,10 +1496,63 @@ pub(crate) fn prepare(
     })
 }
 
+fn apply_bitmap_jpeg_quality(project: &mut Project, default_quality: u8) {
+    let quality = default_quality.clamp(1, 100);
+    for resource in &mut project.resources {
+        if !resource.media_type.starts_with("image/") {
+            continue;
+        }
+        let should_reencode = match resource.bitmap_export {
+            Some(settings) => {
+                settings.compression == neoflash_core::BitmapCompression::PhotoJpeg
+                    && !settings.use_imported_jpeg_data
+            }
+            None => quality != 80 && resource.media_type == "image/jpeg",
+        };
+        if !should_reencode {
+            continue;
+        }
+        let target_q = resource
+            .bitmap_export
+            .map(|s| s.jpeg_quality.clamp(1, 100))
+            .unwrap_or(quality);
+        if let Ok(raw) = STANDARD.decode(resource.data_base64.as_ref())
+            && let Ok(img) = image::load_from_memory(&raw)
+        {
+            let rgb = img.to_rgb8();
+            let mut out = Vec::new();
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, target_q);
+            if encoder
+                .encode(
+                    rgb.as_raw(),
+                    rgb.width(),
+                    rgb.height(),
+                    image::ExtendedColorType::Rgb8,
+                )
+                .is_ok()
+                && out.len() <= neoflash_core::MAX_RESOURCE_BYTES
+            {
+                resource.media_type = "image/jpeg".to_owned();
+                resource.data_base64 = STANDARD.encode(&out).into();
+            }
+        }
+    }
+}
+
 pub(crate) fn assemble(
     project: &Project,
     prepared: &Prepared,
     level: &SizeLevel,
+) -> Result<Package, ExportError> {
+    assemble_with_config(project, prepared, level, None)
+}
+
+pub(crate) fn assemble_with_config(
+    project: &Project,
+    prepared: &Prepared,
+    level: &SizeLevel,
+    config: Option<&HtmlPublishConfig>,
 ) -> Result<Package, ExportError> {
     let shared_url = match level {
         SizeLevel::Shared(url) => {
@@ -1342,10 +1586,20 @@ pub(crate) fn assemble(
     } else {
         &prepared.wasm
     };
+    let bindings_bytes = if shared_url.is_none() && !level.wasm_inline() {
+        format!(
+            "{}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
+            prepared.bindings,
+            STANDARD.encode(wasm)
+        )
+        .into_bytes()
+    } else {
+        prepared.bindings.clone().into_bytes()
+    };
     let runtime_js_bytes = if shared_url.is_some() {
         0
     } else {
-        prepared.bindings.len()
+        bindings_bytes.len()
             + HOST.len()
             + modules
                 .iter()
@@ -1384,6 +1638,7 @@ pub(crate) fn assemble(
             .map(|map| map.runtime_locations())
             .unwrap_or_default(),
     });
+    let non_default_config = config.filter(|c| **c != HtmlPublishConfig::default());
     let bundle = Bundle {
         project: &prepared.published,
         scenes: prepared.scenes.clone(),
@@ -1396,6 +1651,7 @@ pub(crate) fn assemble(
             _ => Some(WASM_FILE.to_owned()),
         },
         runtime_id: shared_url.as_ref().map(|_| prepared.runtime_id.clone()),
+        player_config: non_default_config,
         publish: PublishInfo {
             level: level.name(),
             omitted_modules: omitted_titles.clone(),
@@ -1405,9 +1661,19 @@ pub(crate) fn assemble(
         size_report,
         fonts: &prepared.fonts,
     };
-    let bundle_js = format!(
-        "globalThis.NeoFlashBundle = {};\n",
+    let serialized_bundle = if config.is_some_and(|c| !c.minify) {
+        serde_json::to_string_pretty(&bundle)?
+    } else {
         serde_json::to_string(&bundle)?
+    };
+    let source_map_suffix = if config.is_some_and(|c| c.source_maps) {
+        "//# sourceMappingURL=bundle.js.map\n"
+    } else {
+        ""
+    };
+    let bundle_js = format!(
+        "globalThis.NeoFlashBundle = {};\n{}",
+        serialized_bundle, source_map_suffix
     );
     let title = html_escape(&project.name);
     let runtime_src = |file: &str| match &shared_url {
@@ -1422,7 +1688,14 @@ pub(crate) fn assemble(
     scripts.push("bundle.js".to_owned());
     scripts.extend(modules.iter().map(|(file, _)| runtime_src(file)));
     scripts.push(runtime_src("runtime.js"));
-    let html = html_document(&title, &prepared.fonts.css_rules, &scripts);
+    let html = html_document_with_config(
+        &title,
+        project.width,
+        project.height,
+        &prepared.fonts.css_rules,
+        &scripts,
+        non_default_config,
+    );
     let readme = format!(
         "{} — NeoFlash HTML5 export\n\n{}\nThe player and embedded project data need no plugins, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
         project.name,
@@ -1436,7 +1709,7 @@ pub(crate) fn assemble(
 
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     if shared_url.is_none() {
-        files.push((BINDINGS_FILE.into(), prepared.bindings.clone().into_bytes()));
+        files.push((BINDINGS_FILE.into(), bindings_bytes));
         files.push(("runtime.js".into(), HOST.as_bytes().to_vec()));
         for (file, source) in &modules {
             files.push(((*file).into(), source.as_bytes().to_vec()));
@@ -1446,9 +1719,43 @@ pub(crate) fn assemble(
             files.push((WASM_FILE.into(), wasm.to_vec()));
         }
     }
-    files.push(("bundle.js".into(), bundle_js.into_bytes()));
-    files.push(("README.txt".into(), readme.into_bytes()));
-    files.push(("index.html".into(), html.into_bytes()));
+    if config.is_some_and(|c| c.source_maps) {
+        let map_json = serde_json::to_string_pretty(&serde_json::json!({
+            "version": 3,
+            "file": "bundle.js",
+            "sources": prepared.program.bundle_source_map.as_ref().map(|m| &m.sources),
+            "scripts": prepared.scripts.iter().map(|s| &s.location).collect::<Vec<_>>(),
+        }))?;
+        files.push(("bundle.js.map".into(), map_json.into_bytes()));
+    }
+    if config.is_some_and(|c| c.sprite_sheets)
+        && prepared
+            .published
+            .resources
+            .iter()
+            .any(|r| r.media_type.starts_with("image/"))
+    {
+        let sheet_manifest = serde_json::to_string_pretty(&serde_json::json!({
+            "generator": "NeoFlash",
+            "bitmaps": prepared
+                .published
+                .resources
+                .iter()
+                .filter(|r| r.media_type.starts_with("image/"))
+                .map(|r| serde_json::json!({ "id": r.id, "path": r.path, "media_type": r.media_type }))
+                .collect::<Vec<_>>(),
+        }))?;
+        files.push(("sprite_sheet.json".into(), sheet_manifest.into_bytes()));
+    }
+    let include_html = config.map(|c| c.include_html).unwrap_or(true);
+    if include_html {
+        files.push(("bundle.js".into(), bundle_js.into_bytes()));
+        files.push(("README.txt".into(), readme.into_bytes()));
+        files.push(("index.html".into(), html.into_bytes()));
+    } else {
+        files.push(("README.txt".into(), readme.into_bytes()));
+        files.push(("bundle.js".into(), bundle_js.into_bytes()));
+    }
 
     let resources: String = prepared
         .published
@@ -1540,12 +1847,16 @@ fn shared_runtime_package_files(bindings: &str, wasm: &[u8], id: &str) -> Vec<(S
 }
 
 fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(String, Vec<u8>)> {
+    let bindings_with_fallback = format!(
+        "{bindings}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
+        STANDARD.encode(wasm)
+    );
     let mut files = vec![
         (
             RUNTIME_ID_FILE.to_owned(),
             format!("globalThis.NeoFlashRuntimeId = \"{id}\";\n").into_bytes(),
         ),
-        (BINDINGS_FILE.into(), bindings.as_bytes().to_vec()),
+        (BINDINGS_FILE.into(), bindings_with_fallback.into_bytes()),
         ("runtime.js".into(), HOST.as_bytes().to_vec()),
         (WASM_FILE.into(), wasm.to_vec()),
         (NOTICES_FILE.into(), ALGORITHM_NOTICES.as_bytes().to_vec()),
@@ -1755,7 +2066,19 @@ pub(crate) fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+#[allow(dead_code)]
 fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
+    html_document_with_config(title, 800, 600, font_css, scripts, None)
+}
+
+fn html_document_with_config(
+    title: &str,
+    width: u32,
+    height: u32,
+    font_css: &str,
+    scripts: &[String],
+    config: Option<&HtmlPublishConfig>,
+) -> String {
     let script_tags: String = scripts
         .iter()
         .map(|src| format!("  <script defer src=\"{src}\"></script>\n"))
@@ -1764,6 +2087,57 @@ fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
         String::new()
     } else {
         format!("\n    {font_css}")
+    };
+    let clean = config.is_some_and(|c| c.chrome.effective_clean());
+    let body_attr = if clean { " data-clean=\"true\"" } else { "" };
+    let footer_attr = if clean { " hidden" } else { "" };
+    let transport_attr = if config.is_some_and(|c| !c.chrome.show_controls) {
+        " hidden"
+    } else {
+        ""
+    };
+    let status_attr = if config.is_some_and(|c| !c.chrome.show_fps) {
+        " hidden"
+    } else {
+        ""
+    };
+    let load_attr = if config.is_some_and(|c| !c.chrome.show_load_summary) {
+        " hidden"
+    } else {
+        ""
+    };
+    let trace_attr = if config.is_some_and(|c| !c.chrome.show_trace) {
+        " hidden"
+    } else {
+        ""
+    };
+    let loading_attr = if config.is_some_and(|c| !c.preloader) {
+        " hidden style=\"display:none\""
+    } else {
+        ""
+    };
+    let display_name = if let Some(cfg) = config {
+        if cfg.chrome.show_dimensions && !clean {
+            format!("{title} · {width}×{height}")
+        } else {
+            title.to_owned()
+        }
+    } else {
+        title.to_owned()
+    };
+    let template_css = match config
+        .map(|c| c.template)
+        .unwrap_or(HtmlTemplate::Responsive)
+    {
+        HtmlTemplate::Responsive => "",
+        HtmlTemplate::FixedStage => "\n    #stage-surface { border: 1px solid #ffffff1a; }",
+        HtmlTemplate::Centered => "\n    #stage-surface { border-radius: 6px; overflow: hidden; }",
+        HtmlTemplate::Fullscreen => "\n    #stage-surface { box-shadow: none; }",
+    };
+    let clean_css = if config.is_some() {
+        "\n    body[data-clean=\"true\"] { grid-template-rows: minmax(0,1fr); }\n    body[data-clean=\"true\"] > footer { display: none !important; }"
+    } else {
+        ""
     };
     format!(
         r##"<!doctype html>
@@ -1775,7 +2149,7 @@ fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
   <style>
     :root {{ color-scheme: dark; font: 13px system-ui, sans-serif; }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}
+    body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}{clean_css}{template_css}
     #viewport {{ position: relative; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }}
     #stage-space {{ position: relative; }}
     #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}
@@ -1805,10 +2179,10 @@ fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
     @media (max-width: 600px) {{ footer {{ padding: 8px; }} .transport {{ gap: 6px; }} .preview-info {{ flex-basis: 100%; }} #name {{ display: none; }} }}{font_rules}
   </style>
 {script_tags}</head>
-<body>
+<body{body_attr}>
   <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
-  <footer><div class="transport" aria-label="Preview controls"><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{title}</span><span id="status"></span><span id="load-info"></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"></span></div></footer>
-  <div id="loading" role="status">Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
+  <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
+  <div id="loading" role="status"{loading_attr}>Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>
 </html>
 "##
@@ -2692,6 +3066,315 @@ mod tests {
                 && warning.contains("Bold Italic")
                 && warning.contains("Properties ▸ Embed font ▸ Embedding…")
         }));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn html_publish_config_drives_clean_publish_preview_chrome_templates_scale_jpeg_maps_sprites_and_minify()
+     {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+
+        let mut project = Project::demo();
+        project.format_version = 3;
+        let mut rgb = image::RgbImage::new(8, 8);
+        for (x, y, px) in rgb.enumerate_pixels_mut() {
+            *px = image::Rgb([(x * 28) as u8, (y * 28) as u8, ((x + y) * 16) as u8]);
+        }
+        let mut jpeg_high = Vec::new();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_high, 98);
+        enc.encode_image(&image::DynamicImage::ImageRgb8(rgb))
+            .unwrap();
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "photo-jpg",
+                "images/photo.jpg",
+                "image/jpeg",
+                &jpeg_high,
+            )
+            .unwrap(),
+        );
+
+        let options = PublishOptions {
+            fonts: FontExportPolicy::Embed,
+            size: SizeLevel::Full,
+            audio: AudioExportPolicy::Original,
+        };
+
+        // 1. Clean publish vs Preview chrome + individual HUD toggles
+        let out_clean = dir.join("out-clean");
+        let clean_cfg = HtmlPublishConfig::clean_publish_default();
+        export_project_with_config(&project, &out_clean, &rt, &options, &clean_cfg).unwrap();
+        let html_clean = fs::read_to_string(out_clean.join("index.html")).unwrap();
+        assert!(html_clean.contains("<body data-clean=\"true\">"));
+        assert!(html_clean.contains("<footer hidden>"));
+
+        let out_hud = dir.join("out-hud");
+        let hud_cfg = HtmlPublishConfig {
+            chrome: PlayerChromeConfig {
+                clean: false,
+                show_fps: false,
+                show_dimensions: true,
+                show_controls: false,
+                show_load_summary: false,
+                show_trace: true,
+            },
+            template: HtmlTemplate::Centered,
+            scale_mode: HtmlScaleMode::NoScale,
+            acceleration: HtmlAcceleration::GpuWebGl,
+            loop_timeline: false,
+            autoplay: false,
+            preloader: false,
+            source_maps: true,
+            sprite_sheets: true,
+            include_trace: false,
+            minify: false,
+            jpeg_quality: 30,
+            strict_mode: true,
+            assets_folder: false,
+            include_html: true,
+        };
+        export_project_with_config(&project, &out_hud, &rt, &options, &hud_cfg).unwrap();
+        let html_hud = fs::read_to_string(out_hud.join("index.html")).unwrap();
+        assert!(!html_hud.contains("<body data-clean=\"true\">"));
+        assert!(html_hud.contains("border-radius: 6px; overflow: hidden;"));
+        assert!(html_hud.contains("Ideas in motion · 960×600"));
+        assert!(html_hud.contains("<span id=\"status\" hidden></span>"));
+        assert!(
+            html_hud.contains("<div class=\"transport\" aria-label=\"Preview controls\" hidden>")
+        );
+        assert!(html_hud.contains("<span id=\"load-info\" hidden></span>"));
+        assert!(!html_hud.contains(
+            "id=\"trace\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\" hidden"
+        ));
+        assert!(html_hud.contains("id=\"loading\" role=\"status\" hidden style=\"display:none\""));
+
+        let bundle_hud_raw = fs::read_to_string(out_hud.join("bundle.js")).unwrap();
+        assert!(
+            bundle_hud_raw.ends_with("//# sourceMappingURL=bundle.js.map\n"),
+            "source_maps appends sourceMappingURL comment"
+        );
+        assert!(
+            bundle_hud_raw.lines().count() > 20,
+            "minify: false pretty-prints bundle.js"
+        );
+        assert!(out_hud.join("bundle.js.map").is_file());
+        assert!(out_hud.join("sprite_sheet.json").is_file());
+
+        let bundle_json = bundle_hud_raw
+            .strip_prefix("globalThis.NeoFlashBundle = ")
+            .unwrap()
+            .strip_suffix(";\n//# sourceMappingURL=bundle.js.map\n")
+            .unwrap();
+        let bundle_val: serde_json::Value = serde_json::from_str(bundle_json).unwrap();
+        assert_eq!(bundle_val["player_config"]["template"], "centered");
+        assert_eq!(bundle_val["player_config"]["scale_mode"], "no_scale");
+        assert_eq!(bundle_val["player_config"]["acceleration"], "gpu_web_gl");
+        assert_eq!(bundle_val["player_config"]["loop_timeline"], false);
+        assert_eq!(bundle_val["player_config"]["autoplay"], false);
+        assert_eq!(bundle_val["player_config"]["preloader"], false);
+        assert_eq!(bundle_val["player_config"]["include_trace"], false);
+        assert_eq!(bundle_val["player_config"]["strict_mode"], true);
+        assert_eq!(bundle_val["player_config"]["chrome"]["show_fps"], false);
+        assert_eq!(
+            bundle_val["player_config"]["chrome"]["show_dimensions"],
+            true
+        );
+
+        let reencoded_b64 = bundle_val["project"]["resources"][0]["data_base64"]
+            .as_str()
+            .unwrap();
+        let reencoded_bytes = STANDARD.decode(reencoded_b64).unwrap();
+        assert!(
+            reencoded_bytes.len() < jpeg_high.len(),
+            "jpeg_quality=30 re-encodes JPEG to fewer bytes than quality=98 ({} < {})",
+            reencoded_bytes.len(),
+            jpeg_high.len()
+        );
+
+        // Verify background size estimate matches exact on-disk bytes for custom HtmlPublishConfig
+        let est_hud = estimate_publish_options_cancellable_with_config(
+            &project,
+            &rt,
+            &options,
+            &hud_cfg,
+            || false,
+        )
+        .unwrap()
+        .unwrap();
+        let totals = |folder: &Path| {
+            fs::read_dir(folder)
+                .unwrap()
+                .map(|entry| {
+                    let data = fs::read(entry.unwrap().path()).unwrap();
+                    (1usize, data.len(), gzip_len(&data))
+                })
+                .fold((0, 0, 0), |sum, item| {
+                    (sum.0 + item.0, sum.1 + item.1, sum.2 + item.2)
+                })
+        };
+        assert_eq!(
+            totals(&out_hud),
+            (est_hud.files, est_hud.bytes, est_hud.gzip_bytes)
+        );
+
+        // 2. include_html: false omits index.html and matches size estimate
+        let mut no_html_cfg = clean_cfg.clone();
+        no_html_cfg.include_html = false;
+        let out_no_html = dir.join("out-no-html");
+        export_project_with_config(&project, &out_no_html, &rt, &options, &no_html_cfg).unwrap();
+        assert!(!out_no_html.join("index.html").exists());
+        assert!(out_no_html.join("bundle.js").is_file());
+        let est_no_html = estimate_publish_options_cancellable_with_config(
+            &project,
+            &rt,
+            &options,
+            &no_html_cfg,
+            || false,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            totals(&out_no_html),
+            (est_no_html.files, est_no_html.bytes, est_no_html.gzip_bytes)
+        );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn compact_and_balanced_packages_embed_file_protocol_wasm_fallback_for_authored_and_classic_fla_scenes()
+     {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.join("../..");
+        let mut scenes: Vec<(String, Project)> = vec![("demo".into(), Project::demo())];
+        for rel in [
+            "examples/fla-corpus/authored/nested-playback-as2/nested-playback-as2.fla",
+            "examples/fla-corpus/authored/frame-scripts-as3/frame-scripts-as3.fla",
+            "examples/Macromedia Flash MX ActionScript_program files/Superclass.fla",
+        ] {
+            let path = workspace_root.join(rel);
+            if path.is_file()
+                && let Ok(proj) = neoflash_import::import_project(&path)
+            {
+                scenes.push((rel.to_owned(), proj));
+            }
+        }
+        assert!(
+            scenes.len() >= 3,
+            "expected demo plus at least two imported FLA scenes"
+        );
+
+        let totals = |folder: &Path| {
+            fs::read_dir(folder)
+                .unwrap()
+                .map(|entry| {
+                    let data = fs::read(entry.unwrap().path()).unwrap();
+                    (1usize, data.len(), gzip_len(&data))
+                })
+                .fold((0, 0, 0), |sum, item| {
+                    (sum.0 + item.0, sum.1 + item.1, sum.2 + item.2)
+                })
+        };
+
+        for (idx, (label, scene)) in scenes.iter().enumerate() {
+            for level in [SizeLevel::Full, SizeLevel::Balanced, SizeLevel::Compact] {
+                let out = dir.join(format!("scene-{idx}-{}", level.name()));
+                let options = PublishOptions {
+                    fonts: FontExportPolicy::Embed,
+                    size: level.clone(),
+                    audio: AudioExportPolicy::Original,
+                };
+                let cfg = HtmlPublishConfig::clean_publish_default();
+                export_project_with_config(scene, &out, &rt, &options, &cfg).unwrap_or_else(|e| {
+                    panic!("failed exporting {label} at {}: {e}", level.name())
+                });
+                let bindings = fs::read_to_string(out.join(BINDINGS_FILE)).unwrap();
+                if level.wasm_inline() {
+                    assert!(
+                        !bindings.contains("NeoFlashWasmBase64"),
+                        "Full level inlines wasm in bundle.js, not neoflash_web.js ({label})"
+                    );
+                } else {
+                    let expected_b64 =
+                        STANDARD.encode(fs::read(out.join(WASM_FILE)).expect("wasm file"));
+                    assert!(
+                        bindings.contains(&format!(
+                            "globalThis.NeoFlashWasmBase64 = \"{expected_b64}\";"
+                        )),
+                        "{} level must embed NeoFlashWasmBase64 fallback in neoflash_web.js for direct file:// opening ({label})",
+                        level.name()
+                    );
+                }
+                let est = estimate_publish_options_cancellable_with_config(
+                    scene,
+                    &rt,
+                    &options,
+                    &cfg,
+                    || false,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    totals(&out),
+                    (est.files, est.bytes, est.gzip_bytes),
+                    "size estimate matches published disk bytes for {label} ({})",
+                    level.name()
+                );
+            }
+        }
+
+        let shared_dir = dir.join("shared-runtime");
+        export_shared_runtime(&shared_dir, &rt).unwrap();
+        let shared_bindings = fs::read_to_string(shared_dir.join(BINDINGS_FILE)).unwrap();
+        assert!(
+            shared_bindings.contains("globalThis.NeoFlashWasmBase64 = \"AGFzbQEAAAA=\";"),
+            "shared runtime also embeds NeoFlashWasmBase64 for local relative-path file:// setups"
+        );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn export_desktop_app_creates_macos_app_bundle_and_windows_launcher() {
+        let dir = temp();
+        let rt = dir.join("runtime");
+        runtime(&rt);
+
+        let project = Project::demo();
+        let out_desktop = dir.join("desktop-out");
+        let options = PublishOptions {
+            fonts: FontExportPolicy::Embed,
+            size: SizeLevel::Full,
+            audio: AudioExportPolicy::Original,
+        };
+        let app_bundle = export_desktop_app(
+            &project,
+            &out_desktop,
+            &rt,
+            &options,
+            &HtmlPublishConfig::clean_publish_default(),
+        )
+        .unwrap();
+        assert!(app_bundle.ends_with("Ideas in motion.app"));
+        assert!(app_bundle.join("Contents/Info.plist").is_file());
+        assert!(app_bundle.join("Contents/MacOS/Ideas in motion").is_file());
+        assert!(
+            app_bundle
+                .join("Contents/Resources/web/index.html")
+                .is_file()
+        );
+        assert!(out_desktop.join("Launch Ideas in motion.bat").is_file());
+
+        let html =
+            fs::read_to_string(app_bundle.join("Contents/Resources/web/index.html")).unwrap();
+        assert!(html.contains("<body data-clean=\"true\">"));
 
         fs::remove_dir_all(dir).unwrap();
     }

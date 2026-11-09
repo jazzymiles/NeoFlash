@@ -42,3 +42,29 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --deep --sign - "$app_dir"
 printf '%s\n' "$app_dir"
+
+studio_app_dir="$project_root/dist/NeoFlash UI Studio.app"
+rm -rf "$studio_app_dir"
+mkdir -p "$studio_app_dir/Contents/MacOS" "$studio_app_dir/Contents/Resources"
+cp "target/$profile/neoflash-editor" "$studio_app_dir/Contents/MacOS/neoflash-ui-studio"
+cp THIRD_PARTY_NOTICES.txt "$studio_app_dir/Contents/Resources/THIRD_PARTY_NOTICES.txt"
+cat > "$studio_app_dir/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>NeoFlash UI Studio</string>
+<key>CFBundleDisplayName</key><string>NeoFlash UI Studio</string>
+<key>CFBundleIdentifier</key><string>org.neoflash.ui-studio</string>
+<key>CFBundleExecutable</key><string>neoflash-ui-studio</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>$build_number</string>
+<key>NeoFlashGitCommit</key><string>$commit</string>
+<key>NeoFlashBuildProfile</key><string>$profile</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>
+PLIST
+codesign --force --deep --sign - "$studio_app_dir"
+printf '%s\n' "$studio_app_dir"

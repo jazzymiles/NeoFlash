@@ -34,11 +34,49 @@ use std::path::PathBuf;
 
 const DIALOG_WIDTH: f32 = 920.0;
 const DIALOG_HEIGHT: f32 = 760.0;
-const SIDEBAR_WIDTH: f32 = 212.0;
+const SIDEBAR_WIDTH: f32 = 224.0;
+
+/// Number of general authoring chapters (`1..=10`). Chapters `11..=19` (indices `10..19`)
+/// form the dedicated Scripting Reference (`Help ▸ Scripting Reference…`).
+pub(crate) const AUTHORING_CHAPTER_COUNT: usize = 10;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum HelpManualMode {
+    #[default]
+    AuthoringHelp,
+    ScriptingReference,
+}
+
+impl HelpManualMode {
+    pub(crate) const fn chapter_range(self) -> std::ops::Range<usize> {
+        match self {
+            Self::AuthoringHelp => 0..AUTHORING_CHAPTER_COUNT,
+            Self::ScriptingReference => AUTHORING_CHAPTER_COUNT..HELP_CHAPTERS.len(),
+        }
+    }
+
+    pub(crate) const fn for_page(page: usize) -> Self {
+        if page < AUTHORING_CHAPTER_COUNT {
+            Self::AuthoringHelp
+        } else {
+            Self::ScriptingReference
+        }
+    }
+
+    pub(crate) const fn dialog_title(self) -> &'static str {
+        match self {
+            Self::AuthoringHelp => "NeoFlash Help — Tools, Modes & Authoring Capabilities",
+            Self::ScriptingReference => {
+                "NeoFlash Scripting Reference — AS1/AS2, AS3, JavaScript, TypeScript & Web APIs"
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 struct HelpManualState {
     open: bool,
+    mode: HelpManualMode,
     page: usize,
     query: String,
     diagram_tab: usize,
@@ -54,6 +92,57 @@ pub(crate) fn open_help_manual(ctx: &egui::Context) {
     ctx.data_mut(|d| {
         let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
         s.open = true;
+        s.mode = HelpManualMode::AuthoringHelp;
+        if s.page >= AUTHORING_CHAPTER_COUNT {
+            s.page = 0;
+            s.diagram_tab = 0;
+        }
+    });
+}
+
+pub(crate) fn open_scripting_reference(ctx: &egui::Context) {
+    ctx.data_mut(|d| {
+        let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+        s.open = true;
+        s.mode = HelpManualMode::ScriptingReference;
+        if s.page < AUTHORING_CHAPTER_COUNT || s.page >= HELP_CHAPTERS.len() {
+            s.page = AUTHORING_CHAPTER_COUNT;
+            s.diagram_tab = 0;
+        }
+    });
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn open_scripting_reference_page(ctx: &egui::Context, page: usize) {
+    ctx.data_mut(|d| {
+        let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+        s.open = true;
+        let clamped = page.clamp(AUTHORING_CHAPTER_COUNT, HELP_CHAPTERS.len() - 1);
+        s.mode = HelpManualMode::ScriptingReference;
+        s.page = clamped;
+        s.diagram_tab = 0;
+    });
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn help_manual_mode(ctx: &egui::Context) -> HelpManualMode {
+    ctx.data(|d| {
+        d.get_temp::<HelpManualState>(state_id())
+            .map(|s| s.mode)
+            .unwrap_or_default()
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn set_help_manual_mode(ctx: &egui::Context, mode: HelpManualMode) {
+    ctx.data_mut(|d| {
+        let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
+        s.mode = mode;
+        let range = mode.chapter_range();
+        if !range.contains(&s.page) {
+            s.page = range.start;
+            s.diagram_tab = 0;
+        }
     });
 }
 
@@ -77,12 +166,15 @@ pub(crate) fn is_help_manual_open(ctx: &egui::Context) -> bool {
 pub(crate) fn set_help_manual_page(ctx: &egui::Context, page: usize) {
     ctx.data_mut(|d| {
         let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
-        s.page = page.min(HELP_CHAPTERS.len() - 1);
+        let clamped = page.min(HELP_CHAPTERS.len() - 1);
+        s.page = clamped;
+        s.mode = HelpManualMode::for_page(clamped);
         s.diagram_tab = 0;
     });
 }
 
 pub(crate) struct HelpChapterMeta {
+    pub sidebar_label: &'static str,
     pub title: &'static str,
     pub subtitle: &'static str,
     pub icon: Icon,
@@ -91,8 +183,9 @@ pub(crate) struct HelpChapterMeta {
     pub related: &'static [usize],
 }
 
-pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
+pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
     HelpChapterMeta {
+        sidebar_label: "1. Workspace & Stage",
         title: "1. Workspace & Stage",
         subtitle: "Stage, Pasteboard, Rulers, Guides, Grid & Snapping priority",
         icon: i16::DESKTOP,
@@ -101,6 +194,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[1, 2, 6],
     },
     HelpChapterMeta {
+        sidebar_label: "2. Drawing & Objects",
         title: "2. Drawing Modes & Objects",
         subtitle: "Merge Drawing vs Object Drawing (J), Primitives, Groups & Combine",
         icon: i16::LAYERS,
@@ -109,6 +203,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[0, 2, 3, 4],
     },
     HelpChapterMeta {
+        sidebar_label: "3. Select & Transform",
         title: "3. Selection & Transform",
         subtitle: "Selection (V), Subselection (A), Free Transform (Q) & Lasso (L) modes",
         icon: i16::SELECT,
@@ -117,6 +212,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[1, 3, 5],
     },
     HelpChapterMeta {
+        sidebar_label: "4. Vector & Pen States",
         title: "4. Vector & Pen States",
         subtitle: "Pen (P) 9 pointer states, Line (N), Shapes (R/O) & Pencil (Y) modes",
         icon: i16::PEN,
@@ -125,6 +221,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[1, 2, 4, 14],
     },
     HelpChapterMeta {
+        sidebar_label: "5. Brush, Eraser & Deco",
         title: "5. Brush, Eraser & Deco",
         subtitle: "Brush (B) 5 paint modes, Paint Bucket (K), Gradient (F), Eraser (E) & Deco",
         icon: i16::BRUSH,
@@ -133,6 +230,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[1, 3, 8, 11],
     },
     HelpChapterMeta {
+        sidebar_label: "6. Symbols & Library",
         title: "6. Symbols, 9-Slice & Library",
         subtitle: "MovieClip, Button (4 states), Graphic syncing, 9-Slice & Colour Effects",
         icon: i16::SYMBOL,
@@ -141,6 +239,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[6, 7, 10, 12],
     },
     HelpChapterMeta {
+        sidebar_label: "7. Timeline & Masks",
         title: "7. Timeline, Layers & Masks",
         subtitle: "Keyframes, Span selection, Layer roles, Masking, Onion Skin & Scenes",
         icon: i16::FILM,
@@ -149,6 +248,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[5, 7, 10, 13],
     },
     HelpChapterMeta {
+        sidebar_label: "8. Tweens, Motion & IK",
         title: "8. Tweens, Motion & IK",
         subtitle: "Motion Tween ◆ keys, Motion Editor, Classic Tween, Shape Hints & IK Bones",
         icon: i16::TWEEN_MOTION,
@@ -157,6 +257,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[5, 6, 8],
     },
     HelpChapterMeta {
+        sidebar_label: "9. Filters, Text & Audio",
         title: "9. Filters, Text & Audio",
         subtitle: "7 Live Filters, 14 Blend Modes, Classic/TLF Text, Font Embedding & Sound",
         icon: i16::FILTER,
@@ -165,22 +266,35 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[5, 6, 11, 14],
     },
     HelpChapterMeta {
+        sidebar_label: "10. Scripting & Publish",
         title: "10. Scripting, Import & Publish",
         subtitle: "AS2/AS3/JS/TS, Code Snippets, Debugger, FLA/SWF/PSD Import & HTML5/Atlas",
         icon: i16::CODE,
         keywords: "actionscript as2 as3 javascript typescript actions code snippets debugger profiler import fla xfl swf psd ai svg trace bitmap publish html5 wasm sprite sheet lottie shortcuts",
-        tags: &["Export", "AS1", "AS2", "AS3", "JS/TS"],
-        related: &[10, 11, 12, 15],
+        tags: &[
+            "Authoring",
+            "Export",
+            "AS1",
+            "AS2",
+            "AS3",
+            "JavaScript",
+            "TypeScript",
+            "WebAPI",
+            "JS/TS",
+        ],
+        related: &[10, 12, 15, 16, 17, 18],
     },
     HelpChapterMeta {
+        sidebar_label: "1. AS1 & AS2 Timeline",
         title: "11. AS1 & AS2 Fundamentals & Timeline",
         subtitle: "AVM1 Target Paths (_root/_parent/this), on/onClipEvent, Depths & Prototypes",
         icon: i16::CODE,
         keywords: "actionscript 1.0 2.0 as1 as2 avm1 _root _parent _level0 this telltarget on onclipevent gotoandplay gotoandstop stop play attachmovie duplicatemovieclip createmovieclip swapdepths getnexthighestdepth prototype registerclass initclip",
         tags: &["AS1", "AS2", "Timeline", "Symbols", "Events"],
-        related: &[6, 11, 15],
+        related: &[6, 11, 15, 16],
     },
     HelpChapterMeta {
+        sidebar_label: "2. AS2 Core Classes",
         title: "12. AS2 Core Classes & Built-Ins",
         subtitle: "MovieClip Drawing API, TextField/TextFormat, Sound, Key/Mouse, BitmapData & LoadVars",
         icon: i16::BOOKMARK,
@@ -189,6 +303,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[8, 10, 14, 15],
     },
     HelpChapterMeta {
+        sidebar_label: "3. AS3 Display List",
         title: "13. AS3 Architecture & Display List",
         subtitle: "AVM2 Packages, Strong Types, Vector.<T>, DisplayObjectContainer & Coordinate Spaces",
         icon: i16::CLASS,
@@ -197,6 +312,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[5, 13, 14, 15],
     },
     HelpChapterMeta {
+        sidebar_label: "4. AS3 Events & Flow",
         title: "14. AS3 Events, Input & Lifecycle",
         subtitle: "EventDispatcher, 3-Phase Capture/Target/Bubble Flow, Frame Order, Mouse/Keyboard & Timer",
         icon: i16::PLAY,
@@ -205,6 +321,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[6, 12, 14, 15],
     },
     HelpChapterMeta {
+        sidebar_label: "5. AS3 Graphics & Audio",
         title: "15. AS3 Graphics, Filters, Sound & Data",
         subtitle: "flash.display.Graphics, Matrix/Filters, SoundChannel/SoundMixer, ByteArray & E4X XML",
         icon: i16::FILTER,
@@ -213,6 +330,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
         related: &[7, 8, 12, 13],
     },
     HelpChapterMeta {
+        sidebar_label: "6. Language Migration",
         title: "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide",
         subtitle: "Side-by-Side Equivalence Rosetta Stone, Scale/Alpha Rules & Porting Checklist",
         icon: i16::LINK,
@@ -221,18 +339,71 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 16] = [
             "AS1",
             "AS2",
             "AS3",
+            "JavaScript",
+            "TypeScript",
+            "WebAPI",
             "JS/TS",
             "DisplayList",
             "Events",
             "Export",
         ],
-        related: &[9, 10, 11, 12, 13],
+        related: &[9, 10, 12, 16, 17, 18],
+    },
+    HelpChapterMeta {
+        sidebar_label: "7. JavaScript Runtime",
+        title: "17. JavaScript (ES2023+ & NeoFlash Runtime)",
+        subtitle: "Frame/Object/Module Contexts (this, event, trace), ES2023+, Promises, Imports & JSX",
+        icon: i16::CODE,
+        keywords: "javascript es2023 es2022 runtime frame object script this event trace gotoandplay gotoandstop play stop promise async await import export module jsx __nfjsx try catch map set",
+        tags: &[
+            "JavaScript",
+            "JS/TS",
+            "Timeline",
+            "DisplayList",
+            "Events",
+            "Export",
+        ],
+        related: &[9, 15, 17, 18],
+    },
+    HelpChapterMeta {
+        sidebar_label: "8. TypeScript & Checker",
+        title: "18. TypeScript & Built-In Type Checker",
+        subtitle: "Interfaces, Union/Generic Types, Bounded Static Checker, Quick Fixes & Source Maps",
+        icon: i16::FILE_CODE,
+        keywords: "typescript tsx type checker ts_check interface type alias union intersection generic record partial pick omit readonly enum sourcemap vlq debugger quick fix",
+        tags: &[
+            "TypeScript",
+            "JavaScript",
+            "JS/TS",
+            "Timeline",
+            "Events",
+            "Export",
+        ],
+        related: &[9, 15, 16, 18],
+    },
+    HelpChapterMeta {
+        sidebar_label: "9. Browser & Web APIs",
+        title: "19. Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage)",
+        subtitle: "CanvasRenderingContext2D, DOM, Fetch, Storage, Timers, Web Audio & CORS/CSP Limits",
+        icon: i16::DESKTOP,
+        keywords: "webapi browser dom window document canvas htmlcanvaselement canvasrenderingcontext2d fetch response localstorage sessionstorage settimeout requestanimationframe audiocontext pointerevent keyboardevent cors csp user gesture",
+        tags: &[
+            "WebAPI",
+            "JavaScript",
+            "TypeScript",
+            "JS/TS",
+            "Graphics",
+            "Audio",
+            "Events",
+            "Export",
+        ],
+        related: &[8, 9, 15, 16, 17],
     },
 ];
 
 /// Portable text edition used by the browser handoff. The in-app manual and browser edition
-/// share this 16-chapter inventory plus full NF2 styling, SVG diagrams, tags, and cross-links.
-pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 16] = [
+/// share this 19-chapter inventory plus full NF2 styling, SVG diagrams, tags, and cross-links.
+pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
     &[
         "Use the Stage for authored content and the Pasteboard for temporary off-stage artwork; rulers, guides and the document grid share one snapping priority.",
         "The Hand and Zoom tools, Focus Mode, Fit Stage and percentage controls change only the view and never mutate authored geometry.",
@@ -329,6 +500,24 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 16] = [
         "AS2 callback properties (mc.onRelease, mc.onEnterFrame) become mc.addEventListener(MouseEvent.CLICK, fn) and mc.addEventListener(Event.ENTER_FRAME, fn) in AS3.",
         "All four NeoFlash languages (AS1, AS2, AS3, JS/TS) compile to the same deterministic Rust + WebAssembly runtime, timeline evaluator, and Web Audio scheduler.",
     ],
+    &[
+        "Frame scripts run with this bound to the owning MovieClip; object scripts and event callbacks receive the target instance and structured event payload.",
+        "Project modules resolve relative ESM imports (./, ../) across .js, .jsx, .ts, and .tsx sources inside the deterministic NeoFlash bundle without Node.js or npm.",
+        "Modern ES2023+ syntax including classes, private fields, destructuring, optional chaining (?.), nullish coalescing (??), Map/Set, and Promise/async/await are supported.",
+        "JSX and TSX expressions compile to deterministic __nfJsx(tag, props, ...children) calls for declarative display-list or DOM overlay construction.",
+    ],
+    &[
+        "TypeScript type annotations, interfaces, type aliases, enums, generics, and union/intersection types are stripped cleanly during compilation after running the built-in checker.",
+        "The bounded built-in TypeScript checker (ts_check) validates primitive/union assignability, interface/class member access, function arity, and utility types (Array<T>, Promise<T>, Record<K,V>, Partial<T>, Pick<T,K>, Omit<T,K>).",
+        "Compiler diagnostics report exact file, 1-based line/column spans, and source-map mappings back to the authored .ts/.tsx script in the Compiler Errors panel.",
+        "No external tsc or Node toolchain is required; unsupported dynamic metaprogramming or unmodeled third-party .d.ts ambient libraries are explicitly outside the bounded checker.",
+    ],
+    &[
+        "Published HTML5 bundles run inside a standard browser host where window, document, performance, requestAnimationFrame, and CanvasRenderingContext2D are available.",
+        "Network requests via fetch(url, init) and JSON parsing obey browser CORS, Content-Security-Policy (CSP), and HTTPS mixed-content rules.",
+        "Web Audio (AudioContext) and HTMLMediaElement playback require a user gesture (pointer click or key press) before audio unmutes in modern browsers.",
+        "Persistent client state uses window.localStorage and sessionStorage scoped to the page origin; filesystem (fs) and raw TCP/UDP sockets do not exist in the browser sandbox.",
+    ],
 ];
 
 pub(crate) fn escape_html(value: &str, output: &mut String) {
@@ -342,6 +531,103 @@ pub(crate) fn escape_html(value: &str, output: &mut String) {
             _ => output.push(ch),
         }
     }
+}
+
+/// Truncates `text` with `'…'` only when its measured galley width exceeds `max_width`.
+pub(crate) fn fit_text_to_width(ui: &Ui, text: &str, style: TextStyle, max_width: f32) -> String {
+    if max_width <= 8.0 {
+        return String::new();
+    }
+    let font_id = font(style);
+    let full_w = ui.fonts_mut(|f| {
+        f.layout_no_wrap(text.to_owned(), font_id.clone(), egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    if full_w <= max_width {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut lo = 0usize;
+    let mut hi = chars.len();
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        let candidate: String = chars[..mid].iter().collect::<String>() + "…";
+        let w = ui.fonts_mut(|f| {
+            f.layout_no_wrap(candidate, font_id.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+        });
+        if w <= max_width {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if lo == 0 {
+        "…".to_owned()
+    } else {
+        chars[..lo].iter().collect::<String>() + "…"
+    }
+}
+
+/// Draws single-line text inside `clip_rect`, automatically fitting with `'…'` if it would
+/// overflow `clip_rect` horizontally. This guarantees diagram node titles and monospace
+/// annotations never cross card borders or collide with adjacent boxes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_clipped_text(
+    painter: &egui::Painter,
+    ctx: &egui::Context,
+    clip_rect: Rect,
+    pos: Pos2,
+    align: egui::Align2,
+    text: &str,
+    style: TextStyle,
+    color: egui::Color32,
+) {
+    let avail_w = match align.x() {
+        egui::Align::Min => (clip_rect.right() - pos.x).max(0.0),
+        egui::Align::Center => {
+            2.0 * (pos.x - clip_rect.left())
+                .min(clip_rect.right() - pos.x)
+                .max(0.0)
+        }
+        egui::Align::Max => (pos.x - clip_rect.left()).max(0.0),
+    };
+    if avail_w <= 4.0 {
+        return;
+    }
+    let font_id = font(style);
+    let fitted = ctx.fonts_mut(|f| {
+        let full_w = f
+            .layout_no_wrap(text.to_owned(), font_id.clone(), color)
+            .size()
+            .x;
+        if full_w <= avail_w {
+            return text.to_owned();
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let mut lo = 0usize;
+        let mut hi = chars.len();
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            let candidate: String = chars[..mid].iter().collect::<String>() + "…";
+            let w = f.layout_no_wrap(candidate, font_id.clone(), color).size().x;
+            if w <= avail_w {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        if lo == 0 {
+            "…".to_owned()
+        } else {
+            chars[..lo].iter().collect::<String>() + "…"
+        }
+    });
+    painter
+        .with_clip_rect(clip_rect.intersect(painter.clip_rect()))
+        .text(pos, align, fitted, font_id, color);
 }
 
 fn help_browser_html() -> String {
@@ -361,6 +647,14 @@ fn write_help_browser_document() -> Result<PathBuf, String> {
 }
 
 impl crate::app::Editor {
+    pub(crate) fn open_help_manual(&mut self, ctx: &egui::Context) {
+        open_help_manual(ctx);
+    }
+
+    pub(crate) fn open_scripting_reference(&mut self, ctx: &egui::Context) {
+        open_scripting_reference(ctx);
+    }
+
     pub(crate) fn help_manual_dialog(&mut self, ctx: &egui::Context) {
         let mut state = ctx.data(|d| {
             d.get_temp::<HelpManualState>(state_id())
@@ -370,6 +664,7 @@ impl crate::app::Editor {
             return;
         }
         state.page = state.page.min(HELP_CHAPTERS.len() - 1);
+        let mode_range = state.mode.chapter_range();
         let p = neoflash_ui::palette(ctx);
         let mut should_close = false;
         let mut open_cmd_search = false;
@@ -379,6 +674,7 @@ impl crate::app::Editor {
         // 1.25×/1.5× UI scales where a 1024×720 native window exposes fewer logical points.
         let dialog_width = DIALOG_WIDTH.min(available.x.max(1.0));
         let dialog_height = DIALOG_HEIGHT.min(available.y.max(1.0));
+        let sidebar_width = SIDEBAR_WIDTH.min((dialog_width * 0.30).max(176.0));
         let modal_id = egui::Id::new("neoflash-help-manual-modal");
         let modal = egui::Modal::new(modal_id)
             .area(
@@ -397,7 +693,7 @@ impl crate::app::Editor {
                 ui.set_max_height(dialog_height);
                 let top = ui.cursor().min;
                 should_close |= DialogHeader {
-                    title: "NeoFlash Help & Reference — Tools, Modes & Capabilities",
+                    title: state.mode.dialog_title(),
                 }
                 .show(ui);
                 ui.painter().hline(
@@ -405,8 +701,19 @@ impl crate::app::Editor {
                     top.y + neoflash_ui::metrics::dialog_header() - 0.5,
                     Stroke::new(1.0_f32, p.border_subtle),
                 );
-                let chapter_badge =
-                    format!("Chapter {} of {}", state.page + 1, HELP_CHAPTERS.len());
+                let chapter_badge = if mode_range.contains(&state.page) {
+                    format!(
+                        "{} {} of {}",
+                        match state.mode {
+                            HelpManualMode::AuthoringHelp => "Help Ch.",
+                            HelpManualMode::ScriptingReference => "Ref Ch.",
+                        },
+                        state.page - mode_range.start + 1,
+                        mode_range.len()
+                    )
+                } else {
+                    format!("Chapter {} of {}", state.page + 1, HELP_CHAPTERS.len())
+                };
                 egui::Frame::new()
                     .inner_margin(egui::Margin::same(space::S5 as i8))
                     .show(ui, |ui| {
@@ -431,21 +738,23 @@ impl crate::app::Editor {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
+                                    let max_page = mode_range.end.saturating_sub(1);
+                                    let min_page = mode_range.start;
                                     if ui
                                         .add_enabled(
-                                            state.page + 1 < HELP_CHAPTERS.len(),
+                                            state.page < max_page,
                                             Button::new("Next topic"),
                                         )
                                         .clicked()
                                     {
-                                        state.page = (state.page + 1).min(HELP_CHAPTERS.len() - 1);
+                                        state.page = (state.page + 1).min(max_page);
                                         state.diagram_tab = 0;
                                     }
                                     if ui
-                                        .add_enabled(state.page > 0, Button::new("Previous"))
+                                        .add_enabled(state.page > min_page, Button::new("Previous"))
                                         .clicked()
                                     {
-                                        state.page = state.page.saturating_sub(1);
+                                        state.page = state.page.saturating_sub(1).max(min_page);
                                         state.diagram_tab = 0;
                                     }
                                 },
@@ -467,7 +776,7 @@ impl crate::app::Editor {
                             // Left Chapter Sidebar
                             let sidebar_rect = Rect::from_min_size(
                                 ui.next_widget_position(),
-                                vec2(SIDEBAR_WIDTH, body_height),
+                                vec2(sidebar_width, body_height),
                             );
                             let mut sidebar = ui.new_child(
                                 egui::UiBuilder::new()
@@ -483,12 +792,69 @@ impl crate::app::Editor {
                                 .auto_shrink([false, false])
                                 .themed()
                                 .show(&mut sidebar, |ui| {
-                                    ui.set_min_width(SIDEBAR_WIDTH);
+                                    ui.set_min_width(sidebar_width);
+                                    ui.set_max_width(sidebar_width);
+
+                                    // Mode switcher at top of sidebar: Authoring Help vs Scripting Reference
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = space::S1;
+                                        let help_btn = if state.mode == HelpManualMode::AuthoringHelp
+                                        {
+                                            Button::primary("Help (1–10)")
+                                        } else {
+                                            Button::ghost("Help (1–10)")
+                                        };
+                                        if ui
+                                            .add(help_btn)
+                                            .on_hover_text(
+                                                "General NeoFlash Authoring Help (Chapters 1–10)",
+                                            )
+                                            .clicked()
+                                            && state.mode != HelpManualMode::AuthoringHelp
+                                        {
+                                            state.mode = HelpManualMode::AuthoringHelp;
+                                            if state.page >= AUTHORING_CHAPTER_COUNT {
+                                                state.page = 0;
+                                                state.diagram_tab = 0;
+                                            }
+                                        }
+                                        let ref_btn =
+                                            if state.mode == HelpManualMode::ScriptingReference {
+                                                Button::primary("Scripting Ref")
+                                            } else {
+                                                Button::ghost("Scripting Ref")
+                                            };
+                                        if ui
+                                            .add(ref_btn)
+                                            .on_hover_text(
+                                                "Scripting Reference: ActionScript 1/2/3, JavaScript, TypeScript & Web APIs (Chapters 11–19)",
+                                            )
+                                            .clicked()
+                                            && state.mode != HelpManualMode::ScriptingReference
+                                        {
+                                            state.mode = HelpManualMode::ScriptingReference;
+                                            if state.page < AUTHORING_CHAPTER_COUNT {
+                                                state.page = AUTHORING_CHAPTER_COUNT;
+                                                state.diagram_tab = 0;
+                                            }
+                                        }
+                                    });
+                                    divider(ui, false);
+
+                                    // TreeItem reserves 52pt on left (chevron + icon + padding) and 8pt on right.
+                                    let label_max_w = (sidebar_width - 66.0).max(64.0);
+                                    let searching_all =
+                                        !q.is_empty() || state.active_tag.is_some();
+
                                     for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
+                                        if !searching_all && !mode_range.contains(&idx) {
+                                            continue;
+                                        }
                                         let matches_tag =
                                             state.active_tag.is_none_or(|t| ch.tags.contains(&t));
                                         let matches_q = q.is_empty()
                                             || ch.title.to_ascii_lowercase().contains(&q)
+                                            || ch.sidebar_label.to_ascii_lowercase().contains(&q)
                                             || ch.subtitle.to_ascii_lowercase().contains(&q)
                                             || ch.keywords.contains(&q)
                                             || ch
@@ -498,20 +864,47 @@ impl crate::app::Editor {
                                         if !matches_tag || !matches_q {
                                             continue;
                                         }
-                                        if idx == 10 && q.is_empty() && state.active_tag.is_none() {
-                                            ui.add_space(space::S1);
-                                            divider(ui, false);
-                                            ui.label(
-                                                rich("ACTIONSCRIPT 1 / 2 / 3", TextStyle::Overline)
+                                        if !searching_all {
+                                            if idx == 0 {
+                                                ui.label(
+                                                    rich("AUTHORING MANUAL", TextStyle::Overline)
+                                                        .color(p.text_tertiary),
+                                                );
+                                            } else if idx == 10 {
+                                                ui.label(
+                                                    rich(
+                                                        "ACTIONSCRIPT 1 / 2 / 3",
+                                                        TextStyle::Overline,
+                                                    )
                                                     .color(p.text_tertiary),
-                                            );
+                                                );
+                                            } else if idx == 16 {
+                                                ui.add_space(space::S1);
+                                                divider(ui, false);
+                                                ui.label(
+                                                    rich(
+                                                        "JAVASCRIPT / TYPESCRIPT / WEB",
+                                                        TextStyle::Overline,
+                                                    )
+                                                    .color(p.text_tertiary),
+                                                );
+                                            }
                                         }
-                                        if TreeItem::new(ch.title, TreeItemType::Symbol(ch.icon))
-                                            .selected(state.page == idx)
-                                            .show(ui)
-                                            .row
-                                            .clicked()
-                                        {
+                                        let fitted_label = fit_text_to_width(
+                                            ui,
+                                            ch.sidebar_label,
+                                            TextStyle::Body,
+                                            label_max_w,
+                                        );
+                                        let item_resp = TreeItem::new(
+                                            &fitted_label,
+                                            TreeItemType::Symbol(ch.icon),
+                                        )
+                                        .selected(state.page == idx)
+                                        .show(ui)
+                                        .row
+                                        .on_hover_text(format!("{}\n{}", ch.title, ch.subtitle));
+                                        if item_resp.clicked() {
                                             if state.page != idx {
                                                 state.history.push(state.page);
                                                 if state.history.len() > 24 {
@@ -519,6 +912,7 @@ impl crate::app::Editor {
                                                 }
                                             }
                                             state.page = idx;
+                                            state.mode = HelpManualMode::for_page(idx);
                                             state.diagram_tab = 0;
                                         }
                                     }
@@ -530,7 +924,7 @@ impl crate::app::Editor {
                             // Right Scrollable Illustrated Article Area. A fixed child prevents
                             // long chapter rows from changing the modal width.
                             let content_w =
-                                (dialog_width - 2.0 * space::S5 - SIDEBAR_WIDTH - space::S4)
+                                (dialog_width - 2.0 * space::S5 - sidebar_width - space::S4)
                                     .max(1.0);
                             let content_rect = Rect::from_min_size(
                                 ui.next_widget_position(),
@@ -549,8 +943,9 @@ impl crate::app::Editor {
                                 .auto_shrink([false, false])
                                 .themed()
                                 .show(&mut content, |ui| {
-                                    ui.set_min_width(content_w - space::S3);
-                                    ui.set_max_width(content_w - space::S3);
+                                    let inner_w = (content_w - space::S4).max(1.0);
+                                    ui.set_min_width(inner_w);
+                                    ui.set_max_width(inner_w);
                                     render_chapter(ui, &mut state);
                                 });
                             ui.advance_cursor_after_rect(content_rect);
@@ -616,19 +1011,30 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
     let meta = &HELP_CHAPTERS[page_idx];
 
     // Chapter Header Banner + Back history button
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         icons::show(ui, meta.icon, p.accent_default);
+        let back_reserve = if state.history.is_empty() { 0.0 } else { 116.0 };
+        let title_w = (ui.available_width() - back_reserve).max(120.0);
         ui.vertical(|ui| {
-            ui.label(rich(meta.title, TextStyle::DialogTitle).color(p.text_primary));
-            ui.label(rich(meta.subtitle, TextStyle::Small).color(p.text_secondary));
+            ui.set_max_width(title_w);
+            ui.add(
+                egui::Label::new(rich(meta.title, TextStyle::DialogTitle).color(p.text_primary))
+                    .wrap(),
+            );
+            ui.add(
+                egui::Label::new(rich(meta.subtitle, TextStyle::Small).color(p.text_secondary))
+                    .wrap(),
+            );
         });
         if let Some(&prev_page) = state.history.last() {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 let back_label = format!("← Back to Ch.{}", prev_page + 1);
                 if ui.add(Button::ghost(&back_label)).clicked()
                     && let Some(prev) = state.history.pop()
                 {
-                    state.page = prev.min(HELP_CHAPTERS.len() - 1);
+                    let clamped = prev.min(HELP_CHAPTERS.len() - 1);
+                    state.page = clamped;
+                    state.mode = HelpManualMode::for_page(clamped);
                     state.diagram_tab = 0;
                 }
             });
@@ -657,7 +1063,9 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
             "AS1",
             "AS2",
             "AS3",
-            "JS/TS",
+            "JavaScript",
+            "TypeScript",
+            "WebAPI",
             "DisplayList",
             "Events",
             "Graphics",
@@ -702,11 +1110,11 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
                     for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
                         if ch.tags.contains(&active_tag) {
                             let btn = if idx == page_idx {
-                                Button::primary(ch.title)
+                                Button::primary(ch.sidebar_label)
                             } else {
-                                Button::ghost(ch.title)
+                                Button::ghost(ch.sidebar_label)
                             };
-                            if ui.add(btn).clicked() && idx != page_idx {
+                            if ui.add(btn).on_hover_text(ch.title).clicked() && idx != page_idx {
                                 nav_target = Some(idx);
                             }
                         }
@@ -729,7 +1137,7 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
         6 => chapter_timeline_layers_and_masks(ui, state),
         7 => chapter_tweens_motion_and_ik(ui, state),
         8 => chapter_filters_text_and_audio(ui, state),
-        9 => chapter_scripting_import_and_publish(ui, state),
+        9 => chapter_scripting_import_and_publish(ui, state, &mut nav_target),
         10 => super::help_as_reference::chapter_as1_as2_fundamentals(
             ui,
             &mut state.diagram_tab,
@@ -755,7 +1163,22 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
             &mut state.diagram_tab,
             &mut nav_target,
         ),
-        _ => super::help_as_reference::chapter_as_migration_guide(
+        15 => super::help_as_reference::chapter_as_migration_guide(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        16 => super::help_as_reference::chapter_javascript_runtime(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        17 => super::help_as_reference::chapter_typescript_checker(
+            ui,
+            &mut state.diagram_tab,
+            &mut nav_target,
+        ),
+        _ => super::help_as_reference::chapter_browser_web_apis(
             ui,
             &mut state.diagram_tab,
             &mut nav_target,
@@ -780,6 +1203,7 @@ fn render_chapter(ui: &mut Ui, state: &mut HelpManualState) {
             state.history.remove(0);
         }
         state.page = target_idx;
+        state.mode = HelpManualMode::for_page(target_idx);
         state.diagram_tab = 0;
     }
 }
@@ -817,7 +1241,7 @@ pub(crate) fn inline_cross_links(
 pub(crate) fn section_overline(ui: &mut Ui, title: &str) {
     let p = neoflash_ui::palette(ui.ctx());
     ui.add_space(space::S2);
-    ui.label(rich(title, TextStyle::Overline).color(p.text_tertiary));
+    ui.add(egui::Label::new(rich(title, TextStyle::Overline).color(p.text_tertiary)).wrap());
     ui.add_space(space::S1);
 }
 
@@ -857,25 +1281,35 @@ pub(crate) fn mode_card(
         .corner_radius(r)
         .inner_margin(egui::Margin::same(space::S3 as i8))
         .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
+            let card_w = ui.available_width();
+            ui.set_width(card_w);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S2;
                 if let Some(ic) = icon {
                     icons::show(ui, ic, p.accent_default);
                 }
-                ui.label(rich(mode_name, TextStyle::BodyStrong).color(p.text_primary));
+                ui.add(
+                    egui::Label::new(rich(mode_name, TextStyle::BodyStrong).color(p.text_primary))
+                        .wrap(),
+                );
                 ui.add(Badge::new(badge_text, badge_kind));
                 if !pointer_or_hotkey.is_empty() {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        kbd(ui, pointer_or_hotkey, false);
-                    });
+                    kbd(ui, pointer_or_hotkey, false);
                 }
             });
             ui.add_space(space::S1);
             for b in behaviors {
-                ui.horizontal_wrapped(|ui| {
+                ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = space::S1;
                     ui.label(rich("▸", TextStyle::Small).color(p.accent_default));
-                    ui.label(rich(*b, TextStyle::Small).color(p.text_secondary));
+                    let bullet_w = (ui.available_width() - space::S1).max(80.0);
+                    ui.vertical(|ui| {
+                        ui.set_max_width(bullet_w);
+                        ui.add(
+                            egui::Label::new(rich(*b, TextStyle::Small).color(p.text_secondary))
+                                .wrap(),
+                        );
+                    });
                 });
             }
         });
@@ -902,9 +1336,16 @@ pub(crate) fn illustration_canvas(
         Stroke::new(1.0_f32, p.border_subtle),
         StrokeKind::Inside,
     );
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         icons::show(ui, i16::INFO, p.text_tertiary);
-        ui.label(rich(caption_text, TextStyle::Small).color(p.text_secondary));
+        let cap_w = (ui.available_width() - space::S1).max(80.0);
+        ui.vertical(|ui| {
+            ui.set_max_width(cap_w);
+            ui.add(
+                egui::Label::new(rich(caption_text, TextStyle::Small).color(p.text_secondary))
+                    .wrap(),
+            );
+        });
     });
     ui.add_space(space::S2);
 }
@@ -998,11 +1439,14 @@ fn chapter_workspace_and_stage(ui: &mut Ui, _state: &mut HelpManualState) {
             paint_selection_box(painter, ctx, obj, SelectionKind::Symbol);
             paint_snap_ring(painter, ctx, egui::pos2(gx, gy), true);
 
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                page.shrink(4.0),
                 egui::pos2(gx + 46.0, gy - 18.0),
                 egui::Align2::LEFT_CENTER,
                 "Snapped to Guide + Grid (Snap Ring enlarged)",
-                font(TextStyle::MonoSmall),
+                TextStyle::MonoSmall,
                 p.text_primary,
             );
         },
@@ -1106,18 +1550,28 @@ fn chapter_drawing_modes_and_objects(ui: &mut Ui, _state: &mut HelpManualState) 
                     }
                 }
 
-                painter.text(
+                let label_clip = Rect::from_min_max(
+                    egui::pos2(cell.left() - 2.0, cell.bottom() + 2.0),
+                    egui::pos2(cell.right() + 2.0, rect.bottom() - 2.0),
+                );
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    label_clip,
                     egui::pos2(cell.center().x, cell.bottom() + 14.0),
                     egui::Align2::CENTER_CENTER,
-                    *title,
-                    font(TextStyle::BodyStrong),
+                    title,
+                    TextStyle::BodyStrong,
                     p.text_primary,
                 );
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    label_clip,
                     egui::pos2(cell.center().x, cell.bottom() + 28.0),
                     egui::Align2::CENTER_CENTER,
-                    *sub,
-                    font(TextStyle::Small),
+                    sub,
+                    TextStyle::Small,
                     p.text_secondary,
                 );
             }
@@ -1223,11 +1677,18 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                         Stroke::new(2.0_f32, p.accent_default),
                     ));
                     painter.circle_filled(l_center + vec2(0.0, -8.0), 4.0, p.warning_default);
-                    painter.text(
+                    let left_col =
+                        Rect::from_min_max(rect.min, egui::pos2(mid_x - 4.0, rect.bottom()));
+                    let right_col =
+                        Rect::from_min_max(egui::pos2(mid_x + 4.0, rect.top()), rect.max);
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        left_col,
                         egui::pos2(l_center.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
                         "Selection (V): Drag edge = Smooth Curve | ⌥+Drag = New Corner",
-                        font(TextStyle::Small),
+                        TextStyle::Small,
                         p.text_primary,
                     );
 
@@ -1243,11 +1704,14 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                     paint_anchor(painter, ctx, p0, AnchorState::Unselected);
                     paint_anchor(painter, ctx, p1, AnchorState::Selected);
                     paint_anchor(painter, ctx, p2, AnchorState::Hover);
-                    painter.text(
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        right_col,
                         egui::pos2(r_center.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
                         "Subselection (A): □ Unselected · ■ Selected · ⌥+Drag Handle = Corner",
-                        font(TextStyle::Small),
+                        TextStyle::Small,
                         p.text_primary,
                     );
                 },
@@ -1312,11 +1776,18 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                                 "4. Envelope (8 pts / 16 tangents)"
                             }
                         };
-                        painter.text(
+                        let col_clip = Rect::from_min_max(
+                            egui::pos2(cell.left() - 2.0, rect.top()),
+                            egui::pos2(cell.right() + 2.0, rect.bottom()),
+                        );
+                        paint_clipped_text(
+                            painter,
+                            ctx,
+                            col_clip,
                             egui::pos2(cell.center().x, rect.top() + 14.0),
                             egui::Align2::CENTER_CENTER,
                             label,
-                            font(TextStyle::Small),
+                            TextStyle::Small,
                             p.text_primary,
                         );
                     }
@@ -1330,6 +1801,11 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                 "Illustration 3.3: Lasso Tool (L) modes: Freehand loop, Polygon straight-edge clicks, Hybrid (hold ⌥ during Freehand drag), and Magic Wand contiguous colour threshold.",
                 |painter, ctx, rect| {
                     let p = neoflash_ui::palette(ctx);
+                    let mid_x = rect.center().x;
+                    let left_col =
+                        Rect::from_min_max(rect.min, egui::pos2(mid_x - 4.0, rect.bottom()));
+                    let right_col =
+                        Rect::from_min_max(egui::pos2(mid_x + 4.0, rect.top()), rect.max);
                     let c1 = egui::pos2(rect.left() + rect.width() * 0.28, rect.center().y + 6.0);
                     let c2 = egui::pos2(rect.left() + rect.width() * 0.72, rect.center().y + 6.0);
                     let poly = vec![
@@ -1348,22 +1824,28 @@ fn chapter_selection_and_transform(ui: &mut Ui, state: &mut HelpManualState) {
                     for pt in &poly[..4] {
                         paint_anchor(painter, ctx, *pt, AnchorState::Unselected);
                     }
-                    painter.text(
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        left_col,
                         egui::pos2(c1.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
                         "Lasso Freehand + Hold ⌥ for Straight Polygon Edges",
-                        font(TextStyle::Small),
+                        TextStyle::Small,
                         p.text_primary,
                     );
 
                     let wand_rect = Rect::from_center_size(c2, vec2(130.0, 68.0));
                     painter.rect_filled(wand_rect, 4.0, p.accent_subtle);
                     paint_shape_selection(painter, ctx, wand_rect.shrink(14.0));
-                    painter.text(
+                    paint_clipped_text(
+                        painter,
+                        ctx,
+                        right_col,
                         egui::pos2(c2.x, rect.top() + 16.0),
                         egui::Align2::CENTER_CENTER,
                         "Magic Wand: Selects Bitmap Pixels Within Threshold (0–200)",
-                        font(TextStyle::Small),
+                        TextStyle::Small,
                         p.text_primary,
                     );
                 },
@@ -1467,18 +1949,25 @@ fn chapter_vector_and_pen_states(ui: &mut Ui, _state: &mut HelpManualState) {
                     i16::PEN,
                     p.accent_default,
                 );
-                painter.text(
+                let text_clip = cell.shrink(4.0);
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    text_clip,
                     egui::pos2(cell.left() + 30.0, cell.center().y - 6.0),
                     egui::Align2::LEFT_CENTER,
-                    *code,
-                    font(TextStyle::BodyStrong),
+                    code,
+                    TextStyle::BodyStrong,
                     p.text_primary,
                 );
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    text_clip,
                     egui::pos2(cell.left() + 30.0, cell.center().y + 7.0),
                     egui::Align2::LEFT_CENTER,
-                    *desc,
-                    font(TextStyle::Small),
+                    desc,
+                    TextStyle::Small,
                     p.text_secondary,
                 );
             }
@@ -1565,18 +2054,24 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
             // Left: Brush stroke sample
             let stroke_box = r1.shrink2(vec2(18.0, 32.0));
             brush_stroke_sample(painter, stroke_box, BrushStroke::Chisel, 14.0);
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                r1.shrink(4.0),
                 egui::pos2(r1.center().x, r1.top() + 16.0),
                 egui::Align2::CENTER_CENTER,
                 "Brush (B): Closed Vector Fill",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_primary,
             );
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                r1.shrink(4.0),
                 egui::pos2(r1.center().x, r1.bottom() - 16.0),
                 egui::Align2::CENTER_CENTER,
                 "[ / ] or ⌥⌘+Drag = Resize",
-                font(TextStyle::MonoSmall),
+                TextStyle::MonoSmall,
                 p.text_secondary,
             );
 
@@ -1584,11 +2079,14 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
             let g_center = r2.center() + vec2(0.0, 6.0);
             painter.circle_filled(g_center, 42.0, p.accent_subtle);
             paint_gradient_transform(painter, ctx, g_center, 42.0, -0.35);
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                r2.shrink(4.0),
                 egui::pos2(r2.center().x, r2.top() + 16.0),
                 egui::Align2::CENTER_CENTER,
                 "Gradient Transform (F): 5 Handles",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_primary,
             );
 
@@ -1601,11 +2099,14 @@ fn chapter_brush_eraser_and_deco(ui: &mut Ui, _state: &mut HelpManualState) {
                 "5. Paint Inside (Start fill only)",
             ];
             for (i, m) in modes.iter().enumerate() {
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    r3.shrink(4.0),
                     egui::pos2(r3.left() + 14.0, r3.top() + 22.0 + i as f32 * 24.0),
                     egui::Align2::LEFT_CENTER,
-                    *m,
-                    font(TextStyle::Small),
+                    m,
+                    TextStyle::Small,
                     p.text_primary,
                 );
             }
@@ -1691,6 +2192,8 @@ fn chapter_symbols_9slice_and_library(ui: &mut Ui, _state: &mut HelpManualState)
             painter.vline(mid, rect.y_range(), Stroke::new(1.0_f32, p.border_subtle));
 
             // Left: Button 4 states (Up, Over, Down, Hit)
+            let left_col = Rect::from_min_max(rect.min, egui::pos2(mid - 4.0, rect.bottom()));
+            let right_col = Rect::from_min_max(egui::pos2(mid + 4.0, rect.top()), rect.max);
             let states = ["Up", "Over", "Down", "Hit"];
             let cell_w = 56.0;
             let start_x = (rect.left() + mid - cell_w * 4.0) * 0.5;
@@ -1716,19 +2219,25 @@ fn chapter_symbols_9slice_and_library(ui: &mut Ui, _state: &mut HelpManualState)
                     StrokeKind::Inside,
                 );
                 paint_marker(painter, ctx, c, MarkerKind::Keyframe, false);
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    left_col,
                     egui::pos2(c.center().x, c.top() - 12.0),
                     egui::Align2::CENTER_CENTER,
-                    *name,
-                    font(TextStyle::BodyStrong),
+                    name,
+                    TextStyle::BodyStrong,
                     p.text_primary,
                 );
             }
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                left_col,
                 egui::pos2((rect.left() + mid) * 0.5, rect.bottom() - 18.0),
                 egui::Align2::CENTER_CENTER,
                 "Button Symbol: 'Hit' frame defines invisible click polygon",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_secondary,
             );
 
@@ -1771,18 +2280,24 @@ fn chapter_symbols_9slice_and_library(ui: &mut Ui, _state: &mut HelpManualState)
                     3.0,
                 ));
             }
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                box_r.shrink(4.0),
                 box_r.center(),
                 egui::Align2::CENTER_CENTER,
                 "Scale X + Y",
-                font(TextStyle::MonoSmall),
+                TextStyle::MonoSmall,
                 p.text_primary,
             );
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                right_col,
                 egui::pos2(box_r.center().x, rect.bottom() - 18.0),
                 egui::Align2::CENTER_CENTER,
                 "9-Slice Guides: 4 Corners Fixed · Edges 1-Axis · Centre 2-Axis",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_secondary,
             );
         },
@@ -1862,11 +2377,14 @@ fn chapter_timeline_layers_and_masks(ui: &mut Ui, _state: &mut HelpManualState) 
                     *icon,
                     p.text_secondary,
                 );
-                painter.text(
+                paint_clipped_text(
+                    painter,
+                    ctx,
+                    l_rect.shrink(2.0),
                     egui::pos2(l_rect.left() + 24.0, l_rect.center().y),
                     egui::Align2::LEFT_CENTER,
-                    *name,
-                    font(TextStyle::Small),
+                    name,
+                    TextStyle::Small,
                     p.text_primary,
                 );
 
@@ -2058,11 +2576,14 @@ fn chapter_tweens_motion_and_ik(ui: &mut Ui, _state: &mut HelpManualState) {
             paint_motion_key(painter, ctx, k0, MotionKeyState::Default);
             paint_motion_key(painter, ctx, mid_pt, MotionKeyState::Selected);
             paint_motion_key(painter, ctx, k2, MotionKeyState::Hover);
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                r1.shrink(4.0),
                 egui::pos2(r1.center().x, r1.top() + 16.0),
                 egui::Align2::CENTER_CENTER,
                 "Motion Path: ◆ Keys & Bézier Handles",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_primary,
             );
 
@@ -2097,11 +2618,14 @@ fn chapter_tweens_motion_and_ik(ui: &mut Ui, _state: &mut HelpManualState) {
                 'c',
                 ShapeHintState::Unplaced,
             );
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                r2.shrink(4.0),
                 egui::pos2(r2.center().x, r2.top() + 16.0),
                 egui::Align2::CENTER_CENTER,
                 "Shape Hints (⇧⌘H): Start · End · Unplaced",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_primary,
             );
 
@@ -2128,11 +2652,14 @@ fn chapter_tweens_motion_and_ik(ui: &mut Ui, _state: &mut HelpManualState) {
                 curve,
                 Stroke::new(2.0_f32, p.accent_default),
             ));
-            painter.text(
+            paint_clipped_text(
+                painter,
+                ctx,
+                r3.shrink(4.0),
                 egui::pos2(r3.center().x, r3.top() + 14.0),
                 egui::Align2::CENTER_CENTER,
                 "Ease & Motion Editor Curves",
-                font(TextStyle::Small),
+                TextStyle::Small,
                 p.text_primary,
             );
         },
@@ -2266,7 +2793,11 @@ fn chapter_filters_text_and_audio(ui: &mut Ui, _state: &mut HelpManualState) {
 
 // ── Chapter 10: Scripting, Import & Publish ──
 
-fn chapter_scripting_import_and_publish(ui: &mut Ui, _state: &mut HelpManualState) {
+fn chapter_scripting_import_and_publish(
+    ui: &mut Ui,
+    _state: &mut HelpManualState,
+    nav_target: &mut Option<usize>,
+) {
     paragraph(
         ui,
         "NeoFlash supports four scripting languages in the same authoring environment—ActionScript 2.0, ActionScript 3.0, JavaScript, and TypeScript—and publishes self-contained HTML5 + WebAssembly bundles, texture atlases, SVG, Lottie, and video.",
@@ -2286,6 +2817,29 @@ fn chapter_scripting_import_and_publish(ui: &mut Ui, _state: &mut HelpManualStat
             "Interactive Debugger & Bandwidth Profiler: Set line breakpoints, inspect the Call Stack, Locals, and Watch expressions, step Into/Over/Out, and inspect per-frame byte budgets in Test Movie (⌘Return).",
         ],
     );
+
+    section_overline(
+        ui,
+        "Open Dedicated Scripting Reference Chapters (Help ▸ Scripting Reference…)",
+    );
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(space::S2, space::S1);
+        for &(target_idx, label) in &[
+            (10usize, "Ch.11 AS1 & AS2 Fundamentals"),
+            (11, "Ch.12 AS2 Core Classes"),
+            (12, "Ch.13 AS3 Display List"),
+            (13, "Ch.14 AS3 Events & Lifecycle"),
+            (14, "Ch.15 AS3 Graphics, Filters & Sound"),
+            (15, "Ch.16 AS1/AS2 ↔ AS3 ↔ JS/TS Migration"),
+            (16, "Ch.17 JavaScript (ES2023+ & Runtime)"),
+            (17, "Ch.18 TypeScript & Type Checker"),
+            (18, "Ch.19 Browser & Web APIs"),
+        ] {
+            if ui.add(Button::new(label)).clicked() {
+                *nav_target = Some(target_idx);
+            }
+        }
+    });
 
     section_overline(
         ui,
@@ -2371,6 +2925,7 @@ mod tests {
         assert!(!is_help_manual_open(&ctx));
         open_help_manual(&ctx);
         assert!(is_help_manual_open(&ctx));
+        assert_eq!(help_manual_mode(&ctx), HelpManualMode::AuthoringHelp);
 
         for page in 0..HELP_CHAPTERS.len() {
             set_help_manual_page(&ctx, page);
@@ -2390,6 +2945,7 @@ mod tests {
         ctx.data_mut(|d| {
             let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
             s.page = 0;
+            s.mode = HelpManualMode::AuthoringHelp;
             s.query = "armature".to_string();
         });
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
@@ -2408,6 +2964,42 @@ mod tests {
     }
 
     #[test]
+    fn separate_help_and_scripting_reference_entry_points_open_distinct_chapter_scopes() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+
+        editor.open_help_manual(&ctx);
+        assert!(is_help_manual_open(&ctx));
+        assert_eq!(help_manual_mode(&ctx), HelpManualMode::AuthoringHelp);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            0
+        );
+
+        editor.open_scripting_reference(&ctx);
+        assert!(is_help_manual_open(&ctx));
+        assert_eq!(help_manual_mode(&ctx), HelpManualMode::ScriptingReference);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            AUTHORING_CHAPTER_COUNT
+        );
+
+        open_scripting_reference_page(&ctx, 16);
+        assert_eq!(help_manual_mode(&ctx), HelpManualMode::ScriptingReference);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            16
+        );
+
+        set_help_manual_mode(&ctx, HelpManualMode::AuthoringHelp);
+        assert_eq!(help_manual_mode(&ctx), HelpManualMode::AuthoringHelp);
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<HelpManualState>(state_id()).unwrap().page),
+            0
+        );
+    }
+
+    #[test]
     fn browser_help_is_a_complete_escaped_text_edition() {
         let html = help_browser_html();
         assert!(html.starts_with("<!doctype html>"));
@@ -2415,11 +3007,18 @@ mod tests {
         for (chapter, topics) in HELP_CHAPTERS.iter().zip(HELP_BROWSER_TOPICS) {
             let mut escaped_title = String::new();
             escape_html(chapter.title, &mut escaped_title);
-            assert!(html.contains(&escaped_title));
+            assert!(
+                html.contains(&escaped_title),
+                "missing chapter title in HTML: {}",
+                chapter.title
+            );
             for topic in topics {
                 let mut escaped_topic = String::new();
                 escape_html(topic, &mut escaped_topic);
-                assert!(html.contains(&escaped_topic));
+                assert!(
+                    html.contains(&escaped_topic),
+                    "missing topic in HTML: {topic}"
+                );
             }
         }
         assert!(html.contains("HTML5 plus WebAssembly"));
@@ -2569,8 +3168,8 @@ mod tests {
     }
 
     #[test]
-    fn actionscript_help_chapters_tags_cross_links_and_styled_svg_browser_html_work() {
-        assert_eq!(HELP_CHAPTERS.len(), 16);
+    fn actionscript_and_js_ts_help_chapters_tags_cross_links_and_styled_svg_browser_html_work() {
+        assert_eq!(HELP_CHAPTERS.len(), 19);
         assert_eq!(
             HELP_CHAPTERS[10].title,
             "11. AS1 & AS2 Fundamentals & Timeline"
@@ -2589,8 +3188,25 @@ mod tests {
             HELP_CHAPTERS[15].title,
             "16. AS1/AS2 ↔ AS3 ↔ JS/TS Migration Guide"
         );
+        assert_eq!(
+            HELP_CHAPTERS[16].title,
+            "17. JavaScript (ES2023+ & NeoFlash Runtime)"
+        );
+        assert_eq!(
+            HELP_CHAPTERS[17].title,
+            "18. TypeScript & Built-In Type Checker"
+        );
+        assert_eq!(
+            HELP_CHAPTERS[18].title,
+            "19. Browser & Web APIs (Canvas / DOM / Fetch / Audio / Storage)"
+        );
 
         for (idx, ch) in HELP_CHAPTERS.iter().enumerate() {
+            assert!(
+                !ch.sidebar_label.is_empty(),
+                "chapter {idx} ({}) must have a concise sidebar label",
+                ch.title
+            );
             assert!(
                 !ch.tags.is_empty(),
                 "chapter {idx} ({}) must have tags",
@@ -2608,12 +3224,21 @@ mod tests {
 
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, Project::demo());
-        open_help_manual(&ctx);
-        for tag in ["AS1", "AS2", "AS3", "Migration", "DisplayList"] {
+        open_scripting_reference(&ctx);
+        for tag in [
+            "AS1",
+            "AS2",
+            "AS3",
+            "JavaScript",
+            "TypeScript",
+            "WebAPI",
+            "Migration",
+            "DisplayList",
+        ] {
             ctx.data_mut(|d| {
                 let s = d.get_temp_mut_or_default::<HelpManualState>(state_id());
                 s.active_tag = Some(tag);
-                s.page = 10;
+                s.page = 16;
                 s.history = vec![9];
             });
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
@@ -2627,12 +3252,20 @@ mod tests {
         assert!(html.contains("id=\"nf2-tag-AS1\""));
         assert!(html.contains("id=\"nf2-tag-AS2\""));
         assert!(html.contains("id=\"nf2-tag-AS3\""));
+        assert!(html.contains("id=\"nf2-tag-JavaScript\""));
+        assert!(html.contains("id=\"nf2-tag-TypeScript\""));
+        assert!(html.contains("id=\"nf2-tag-WebAPI\""));
         assert!(html.contains("class=\"cross-link\""));
         assert!(html.contains("class=\"ref-table\""));
         assert!(html.contains("<pre class=\"code-block\"><code>"));
         assert!(
-            html.matches("<svg ").count() >= 16,
-            "browser HTML must include inline SVG illustrations for all 16 chapters"
+            html.matches("<svg ").count() >= 19,
+            "browser HTML must include inline SVG illustrations for all 19 chapters"
         );
+    }
+
+    #[test]
+    fn all_scripting_reference_code_samples_compile_cleanly_in_neoflash_script() {
+        super::super::help_as_reference::verify_all_reference_code_samples_compile();
     }
 }

@@ -683,10 +683,15 @@ impl FloatingNode {
     }
     pub fn minimum_size(&self) -> [f32; 2] {
         match self {
-            Self::Group(group) => group.tabs.iter().fold([80_f32, 80_f32], |size, p| {
-                let minimum = minimum_window_size(*p);
-                [size[0].max(minimum[0]), size[1].max(minimum[1])]
-            }),
+            Self::Group(group) => {
+                if group.tabs.is_empty() {
+                    return [80., 80.];
+                }
+                group.tabs.iter().fold([0.0_f32, 0.0_f32], |size, p| {
+                    let minimum = minimum_window_size(*p);
+                    [size[0].max(minimum[0]), size[1].max(minimum[1])]
+                })
+            }
             Self::Split {
                 axis,
                 first,
@@ -1293,6 +1298,10 @@ pub struct WindowGeometry {
 }
 impl WindowGeometry {
     fn sanitized(self, panel: PanelId) -> Option<Self> {
+        let max = maximum_window_size(panel);
+        self.sanitized_with_bounds(minimum_window_size(panel), [max[0] * 2.0, max[1] * 2.0])
+    }
+    pub(crate) fn sanitized_with_bounds(self, min: [f32; 2], max: [f32; 2]) -> Option<Self> {
         if !self
             .outer_position
             .into_iter()
@@ -1301,13 +1310,13 @@ impl WindowGeometry {
         {
             return None;
         }
-        let min = minimum_window_size(panel);
-        let max = maximum_window_size(panel);
+        let max_w = max[0].max(min[0]);
+        let max_h = max[1].max(min[1]);
         Some(Self {
             outer_position: self.outer_position,
             inner_size: [
-                self.inner_size[0].clamp(min[0], max[0]),
-                self.inner_size[1].clamp(min[1], max[1]),
+                self.inner_size[0].clamp(min[0], max_w),
+                self.inner_size[1].clamp(min[1], max_h),
             ],
         })
     }
@@ -1446,9 +1455,16 @@ impl ScreenRect {
     }
 }
 
+/// Minimum logical width of a standalone `Tools` panel window: one tool button
+/// plus existing NF2 padding and border (~40–42 pt across density profiles) so
+/// the 1-column `tool_rail` layout is genuinely reachable when resizing narrow.
+pub fn minimum_tools_window_width() -> f32 {
+    (neoflash_ui::metrics::tool_button() + neoflash_ui::tokens::space::S2 + 2.0).max(40.0)
+}
+
 pub fn minimum_window_size(panel: PanelId) -> [f32; 2] {
     match panel {
-        PanelId::Tools => [88., 160.],
+        PanelId::Tools => [minimum_tools_window_width(), 160.],
         PanelId::Timeline => [320., 180.],
         PanelId::Library => [248., 300.],
         PanelId::Properties => [320., 220.],
@@ -1504,9 +1520,28 @@ pub fn default_window_size(panel: PanelId) -> [f32; 2] {
 /// titlebar still has an 80x22-point draggable area on ANY connected monitor.
 /// Pure bounded calculation; the caller applies the result once on creation or
 /// topology changes, not every paint. Retain live user movement after that.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn recover_geometry(
     panel: PanelId,
     saved: Option<WindowGeometry>,
+    monitors: &[ScreenRect],
+    fallback: ScreenRect,
+) -> WindowGeometry {
+    recover_geometry_with_bounds(
+        panel,
+        saved,
+        minimum_window_size(panel),
+        maximum_window_size(panel),
+        monitors,
+        fallback,
+    )
+}
+
+pub(crate) fn recover_geometry_with_bounds(
+    panel: PanelId,
+    saved: Option<WindowGeometry>,
+    min_size: [f32; 2],
+    max_size: [f32; 2],
     monitors: &[ScreenRect],
     fallback: ScreenRect,
 ) -> WindowGeometry {
@@ -1530,17 +1565,26 @@ pub fn recover_geometry(
     } else {
         valid.as_slice()
     };
-    let saved = saved.and_then(|geometry| geometry.sanitized(panel));
-    let mut geometry = saved.unwrap_or(WindowGeometry {
-        outer_position: [fallback.origin[0] + 40., fallback.origin[1] + 40.],
-        inner_size: default_window_size(panel),
+    let saved = saved.and_then(|geometry| geometry.sanitized_with_bounds(min_size, max_size));
+    let mut geometry = saved.unwrap_or_else(|| {
+        let def = default_window_size(panel);
+        let max_w = max_size[0].max(min_size[0]);
+        let max_h = max_size[1].max(min_size[1]);
+        WindowGeometry {
+            outer_position: [fallback.origin[0] + 40., fallback.origin[1] + 40.],
+            inner_size: [
+                def[0].clamp(min_size[0], max_w),
+                def[1].clamp(min_size[1], max_h),
+            ],
+        }
     });
     let reachable = screens.iter().copied().find(|screen| {
         let overlap = |axis: usize, length: f32| {
             (geometry.outer_position[axis] + length).min(screen.origin[axis] + screen.size[axis])
                 - geometry.outer_position[axis].max(screen.origin[axis])
         };
-        overlap(0, geometry.inner_size[0] + CHROME[0]) >= 80. && overlap(1, 28.) >= 22.
+        let min_x_overlap = 80.0_f32.min(geometry.inner_size[0] + CHROME[0]);
+        overlap(0, geometry.inner_size[0] + CHROME[0]) >= min_x_overlap && overlap(1, 28.) >= 22.
     });
     let reference = saved.map_or(fallback.center(), |g| g.outer_position);
     let screen = reachable.unwrap_or_else(|| {
@@ -2186,14 +2230,63 @@ impl Default for ClipboardPrefs {
 pub enum PublishTarget {
     #[default]
     Html5,
+    DesktopApp,
     VideoMp4,
+    ImageSequence,
+    SvgAnimation,
 }
 
 impl PublishTarget {
-    pub const OPTIONS: [(Self, &'static str); 2] = [
+    pub const OPTIONS: [(Self, &'static str); 5] = [
         (Self::Html5, "HTML5 · Rust / WebAssembly"),
+        (Self::DesktopApp, "Desktop app (macOS / Windows)"),
         (Self::VideoMp4, "Video (MP4)"),
+        (Self::ImageSequence, "Image sequence / sprite sheet"),
+        (Self::SvgAnimation, "SVG animation"),
     ];
+}
+
+/// Built-in publish profile presets in `Publish settings` (`DL-03`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublishProfilePreset {
+    #[default]
+    Default,
+    WebCompact,
+    WebBalanced,
+    HighQuality,
+    DebugPreview,
+}
+
+impl PublishProfilePreset {
+    pub const ALL: [Self; 5] = [
+        Self::Default,
+        Self::WebCompact,
+        Self::WebBalanced,
+        Self::HighQuality,
+        Self::DebugPreview,
+    ];
+
+    #[allow(dead_code)]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::WebCompact => "Web Compact",
+            Self::WebBalanced => "Web Balanced",
+            Self::HighQuality => "High Quality",
+            Self::DebugPreview => "Preview / Debug",
+        }
+    }
+
+    pub const fn select_label(self) -> &'static str {
+        match self {
+            Self::Default => "Profile: Default",
+            Self::WebCompact => "Profile: Web Compact",
+            Self::WebBalanced => "Profile: Web Balanced",
+            Self::HighQuality => "Profile: High Quality",
+            Self::DebugPreview => "Profile: Preview / Debug",
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -2204,6 +2297,9 @@ fn default_true() -> bool {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PublishPrefs {
+    /// Active profile preset in `Publish settings`.
+    #[serde(default)]
+    pub profile: PublishProfilePreset,
     /// Persisted HTML5 delivery and font policy; Full/Embed preserves older preferences.
     pub options: neoflash_export::PublishOptions,
     /// Publish into this folder instead of asking each time.
@@ -2221,6 +2317,12 @@ pub struct PublishPrefs {
     /// Whether `HTML5 · Rust / WebAssembly` is enabled in `Publish settings ▸ Targets` (`DL-03`).
     #[serde(default = "default_true")]
     pub html5_enabled: bool,
+    /// Whether `Desktop app (macOS / Windows)` is enabled in `Publish settings ▸ Targets` (`DL-03`).
+    #[serde(default)]
+    pub desktop_app_enabled: bool,
+    /// Optional explicit output folder for `Desktop app (macOS / Windows)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_app_folder: Option<String>,
     /// Whether `Video (MP4)` is enabled in `Publish settings ▸ Targets` (`DL-03`).
     #[serde(default)]
     pub video_enabled: bool,
@@ -2230,10 +2332,59 @@ pub struct PublishPrefs {
     /// Optional explicit output file for the `Video (MP4)` publish target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video_file: Option<String>,
+    /// Whether `Image sequence / sprite sheet` is enabled in `Publish settings ▸ Targets` (`DL-03`).
+    #[serde(default)]
+    pub image_sequence_enabled: bool,
+    /// Optional explicit output folder for `Image sequence / sprite sheet`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_sequence_folder: Option<String>,
+    /// When `true`, `Image sequence / sprite sheet` exports a packed PNG + JSON sprite sheet instead of a frame sequence.
+    #[serde(default)]
+    pub image_sequence_sprite_sheet: bool,
+    /// Whether `SVG animation` is enabled in `Publish settings ▸ Targets` (`DL-03`).
+    #[serde(default)]
+    pub svg_enabled: bool,
+    /// Optional explicit output file for `SVG animation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub svg_file: Option<String>,
+    /// HTML wrapper layout template (`Responsive`, `FixedStage`, `Centered`, `Fullscreen`).
+    #[serde(default)]
+    pub template: neoflash_export::HtmlTemplate,
+    /// Stage scaling mode in HTML5 output (`FitKeepRatio`, `NoScale`, `ExactFit`, `FillCrop`).
+    #[serde(default)]
+    pub scale_mode: neoflash_export::HtmlScaleMode,
+    /// Hardware acceleration hint in `Preferences ▸ Publish`.
+    #[serde(default)]
+    pub acceleration: neoflash_export::HtmlAcceleration,
+    /// Loop main timeline playback in HTML5 output.
+    #[serde(default = "default_true")]
+    pub loop_timeline: bool,
+    /// Start timeline playback automatically in HTML5 output.
+    #[serde(default = "default_true")]
+    pub autoplay: bool,
+    /// Show loading indicator while the HTML5 runtime initializes.
+    #[serde(default = "default_true")]
+    pub preloader: bool,
+    /// Generate a bitmap sprite sheet manifest during HTML5 publish.
+    #[serde(default)]
+    pub sprite_sheets: bool,
+    /// Include `trace()` output in published HTML5 packages.
+    #[serde(default)]
+    pub include_trace: bool,
+    /// Minify serialized bundle data in published HTML5 packages.
+    #[serde(default = "default_true")]
+    pub minify: bool,
+    /// Publish clean stage output without the technical preview footer (`true` by default).
+    #[serde(default = "default_true")]
+    pub publish_clean: bool,
+    /// Technical HUD configuration for `Test Movie` / `Preview` (`Preferences ▸ Publish`).
+    #[serde(default)]
+    pub preview_chrome: neoflash_export::PlayerChromeConfig,
 }
 impl Default for PublishPrefs {
     fn default() -> Self {
         Self {
+            profile: PublishProfilePreset::Default,
             options: neoflash_export::PublishOptions::default(),
             output_folder: None,
             html_wrapper: true,
@@ -2245,9 +2396,160 @@ impl Default for PublishPrefs {
             publish_on_save: false,
             default_target: PublishTarget::Html5,
             html5_enabled: true,
+            desktop_app_enabled: false,
+            desktop_app_folder: None,
             video_enabled: false,
             video_options: neoflash_export::VideoOptions::default(),
             video_file: None,
+            image_sequence_enabled: false,
+            image_sequence_folder: None,
+            image_sequence_sprite_sheet: false,
+            svg_enabled: false,
+            svg_file: None,
+            template: neoflash_export::HtmlTemplate::Responsive,
+            scale_mode: neoflash_export::HtmlScaleMode::FitKeepRatio,
+            acceleration: neoflash_export::HtmlAcceleration::GpuWebGl,
+            loop_timeline: true,
+            autoplay: true,
+            preloader: true,
+            sprite_sheets: false,
+            include_trace: false,
+            minify: true,
+            publish_clean: true,
+            preview_chrome: neoflash_export::PlayerChromeConfig::preview_default(),
+        }
+    }
+}
+
+impl PublishPrefs {
+    /// Returns `true` when at least one publish target checkbox is enabled.
+    pub fn has_any_enabled_target(&self) -> bool {
+        self.html5_enabled
+            || self.desktop_app_enabled
+            || self.video_enabled
+            || self.image_sequence_enabled
+            || self.svg_enabled
+    }
+
+    /// Enables the checkbox corresponding to `target`.
+    pub fn enable_target(&mut self, target: PublishTarget) {
+        match target {
+            PublishTarget::Html5 => self.html5_enabled = true,
+            PublishTarget::DesktopApp => self.desktop_app_enabled = true,
+            PublishTarget::VideoMp4 => self.video_enabled = true,
+            PublishTarget::ImageSequence => self.image_sequence_enabled = true,
+            PublishTarget::SvgAnimation => self.svg_enabled = true,
+        }
+    }
+
+    /// Apply a built-in [`PublishProfilePreset`] to these preferences.
+    pub fn apply_profile(&mut self, preset: PublishProfilePreset) {
+        self.profile = preset;
+        match preset {
+            PublishProfilePreset::Default => {
+                self.options.size = neoflash_export::SizeLevel::Full;
+                self.options.fonts = neoflash_export::FontExportPolicy::Embed;
+                self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.html_wrapper = true;
+                self.source_maps = false;
+                self.jpeg_quality = 80;
+                self.include_trace = false;
+                self.minify = true;
+                self.publish_clean = true;
+            }
+            PublishProfilePreset::WebCompact => {
+                self.options.size = neoflash_export::SizeLevel::Compact;
+                self.options.fonts = neoflash_export::FontExportPolicy::Subset;
+                self.options.audio = neoflash_export::AudioExportPolicy::Mp3_128;
+                self.html_wrapper = true;
+                self.source_maps = false;
+                self.jpeg_quality = 75;
+                self.include_trace = false;
+                self.minify = true;
+                self.publish_clean = true;
+            }
+            PublishProfilePreset::WebBalanced => {
+                self.options.size = neoflash_export::SizeLevel::Balanced;
+                self.options.fonts = neoflash_export::FontExportPolicy::Embed;
+                self.options.audio = neoflash_export::AudioExportPolicy::Mp3_160;
+                self.html_wrapper = true;
+                self.source_maps = false;
+                self.jpeg_quality = 85;
+                self.include_trace = false;
+                self.minify = true;
+                self.publish_clean = true;
+            }
+            PublishProfilePreset::HighQuality => {
+                self.options.size = neoflash_export::SizeLevel::Full;
+                self.options.fonts = neoflash_export::FontExportPolicy::Embed;
+                self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.html_wrapper = true;
+                self.source_maps = false;
+                self.jpeg_quality = 95;
+                self.include_trace = false;
+                self.minify = true;
+                self.publish_clean = true;
+            }
+            PublishProfilePreset::DebugPreview => {
+                self.options.size = neoflash_export::SizeLevel::Full;
+                self.options.fonts = neoflash_export::FontExportPolicy::Embed;
+                self.options.audio = neoflash_export::AudioExportPolicy::Original;
+                self.html_wrapper = true;
+                self.source_maps = true;
+                self.jpeg_quality = 85;
+                self.include_trace = true;
+                self.minify = false;
+                self.publish_clean = false;
+            }
+        }
+    }
+
+    /// HTML5 configuration used for `Publish` (`File ▸ Publish` and `Publish settings ▸ Publish`).
+    /// Produces a clean stage without the technical preview bar unless `publish_clean` is false.
+    pub fn publish_html_config(&self) -> neoflash_export::HtmlPublishConfig {
+        let chrome = if self.publish_clean {
+            neoflash_export::PlayerChromeConfig::clean_publish()
+        } else {
+            self.preview_chrome
+        };
+        neoflash_export::HtmlPublishConfig {
+            include_html: self.html_wrapper,
+            assets_folder: self.assets_folder,
+            template: self.template,
+            scale_mode: self.scale_mode,
+            loop_timeline: self.loop_timeline,
+            autoplay: self.autoplay,
+            preloader: self.preloader,
+            source_maps: self.source_maps,
+            jpeg_quality: self.jpeg_quality.clamp(1, 100),
+            sprite_sheets: self.sprite_sheets,
+            strict_mode: self.strict,
+            include_trace: self.include_trace,
+            minify: self.minify,
+            acceleration: self.acceleration,
+            chrome,
+        }
+    }
+
+    /// HTML5 configuration used for `Test Movie` and `Test Scene` (`Preview`).
+    /// Uses `preview_chrome` configured in `Preferences ▸ Publish`.
+    pub fn preview_html_config(&self) -> neoflash_export::HtmlPublishConfig {
+        neoflash_export::HtmlPublishConfig {
+            include_html: true,
+            assets_folder: false,
+            template: neoflash_export::HtmlTemplate::Responsive,
+            scale_mode: self.scale_mode,
+            loop_timeline: self.loop_timeline,
+            autoplay: true,
+            preloader: true,
+            source_maps: true,
+            jpeg_quality: self.jpeg_quality.clamp(1, 100),
+            sprite_sheets: false,
+            strict_mode: self.strict,
+            include_trace: true,
+            minify: true,
+            acceleration: self.acceleration,
+            chrome: self.preview_chrome,
         }
     }
 }
@@ -2417,7 +2719,7 @@ impl ShortcutPrefs {
 
 impl WorkspacePrefs {
     /// Clamp every Preferences group to the ranges its controls offer.
-    fn sanitize_preference_groups(&mut self) {
+    pub(crate) fn sanitize_preference_groups(&mut self) {
         let g = &mut self.general;
         g.language = "English".into();
         g.recent_files.retain(|p| !p.is_empty() && p.len() <= 4096);
@@ -2435,9 +2737,27 @@ impl WorkspacePrefs {
         d.snap_tolerance = finite_or(d.snap_tolerance, 8.0).clamp(1.0, 32.0);
         self.clipboard_prefs.bitmap_ppi = self.clipboard_prefs.bitmap_ppi.clamp(72, 600);
         let p = &mut self.publish;
+        if !p.has_any_enabled_target() {
+            p.enable_target(p.default_target);
+        }
         p.jpeg_quality = p.jpeg_quality.clamp(1, 100);
         p.output_folder = p
             .output_folder
+            .take()
+            .map(|f| f.trim().to_owned())
+            .filter(|f| !f.is_empty() && f.len() <= 4096);
+        p.desktop_app_folder = p
+            .desktop_app_folder
+            .take()
+            .map(|f| f.trim().to_owned())
+            .filter(|f| !f.is_empty() && f.len() <= 4096);
+        p.image_sequence_folder = p
+            .image_sequence_folder
+            .take()
+            .map(|f| f.trim().to_owned())
+            .filter(|f| !f.is_empty() && f.len() <= 4096);
+        p.svg_file = p
+            .svg_file
             .take()
             .map(|f| f.trim().to_owned())
             .filter(|f| !f.is_empty() && f.len() <= 4096);

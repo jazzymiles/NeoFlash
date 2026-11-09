@@ -318,3 +318,150 @@ test('WASM format 10 keeps same-layer object motion paths, easing and orientatio
   const wrongVersion=structuredClone(doc);wrongVersion.format_version=9;
   assert.throws(()=>new wasm.WebPlayer(JSON.stringify(wrongVersion)),/version 10/);
 });
+
+test('WASM and web/video.js drive Embedded, External and Progressive video deployment modes with diagnostics',async()=>{
+  await ready;
+  const videoEl=id=>({id,name:id,transform:transform(0),kind:{type:'video',width:320,height:180},scripts:[]});
+  const mp4Base64=Buffer.from('\0\0\0\x18ftypisom\0\0\x02\0isomiso2avc1mp41','binary').toString('base64');
+  const doc={
+    format_version:7,
+    name:'Three video deployment modes',
+    width:320,
+    height:180,
+    fps:10,
+    background:[0,0,0,255],
+    root:'root',
+    resources:[
+      {id:'emb_vid',path:'media/embedded.mp4',media_type:'video/mp4',data_base64:mp4Base64},
+      {id:'ext_vid',path:'assets/video/cutscene.mp4',media_type:'video/mp4',data_base64:''},
+      {id:'prog_vid',path:'https://cdn.example.com/streams/live.webm',media_type:'video/webm',data_base64:''},
+    ],
+    symbols:[{
+      id:'root',
+      name:'Scene',
+      kind:'movie_clip',
+      timeline:{
+        frame_count:4,
+        scripts:[],
+        layers:[
+          {id:'l-emb',name:'Embedded',visible:true,locked:false,keyframes:[
+            {...key(0,[videoEl('v_emb')]),video:{resource:'emb_vid',sync:'stream',deployment:'embedded'}},
+          ]},
+          {id:'l-ext',name:'External',visible:true,locked:false,keyframes:[
+            {...key(0,[videoEl('v_ext')]),video:{resource:'ext_vid',sync:'stream',deployment:'external',external_path:'assets/video/cutscene.mp4'}},
+          ]},
+          {id:'l-prog',name:'Progressive',visible:true,locked:false,keyframes:[
+            {...key(0,[videoEl('v_prog')]),video:{resource:'prog_vid',sync:'event',deployment:'progressive',stream_url:'https://cdn.example.com/streams/live.webm'}},
+          ]},
+        ],
+      },
+    }],
+  };
+
+  const player=new wasm.WebPlayer(JSON.stringify(doc));
+  const manifest=JSON.parse(player.video_manifest_json());
+  assert.equal(manifest.length,3);
+  const byId=Object.fromEntries(manifest.map(m=>[m.resource_id,m]));
+  assert.equal(byId.emb_vid.source.mode,'embedded');
+  assert.equal(byId.emb_vid.embedded_in_bundle,true);
+  assert.equal(byId.ext_vid.source.mode,'external');
+  assert.equal(byId.ext_vid.requires_external_file,true);
+  assert.equal(byId.ext_vid.source.url_or_path,'assets/video/cutscene.mp4');
+  assert.equal(byId.prog_vid.source.mode,'progressive');
+  assert.equal(byId.prog_vid.requires_network_cors,true);
+  assert.equal(byId.prog_vid.source.url_or_path,'https://cdn.example.com/streams/live.webm');
+
+  const commands=JSON.parse(player.video_commands_json());
+  assert.equal(commands.length,3);
+
+  const createdMedia=[];
+  function mockVideoElement(){
+    const listeners=new Map();
+    const el={
+      src:'',
+      muted:false,
+      volume:1,
+      crossOrigin:null,
+      preload:'none',
+      playsInline:false,
+      loop:false,
+      currentTime:0,
+      duration:5,
+      videoWidth:320,
+      videoHeight:180,
+      readyState:4,
+      paused:true,
+      error:null,
+      addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(fn);},
+      removeEventListener(type,fn){const arr=listeners.get(type)||[];const idx=arr.indexOf(fn);if(idx>=0)arr.splice(idx,1);},
+      removeAttribute(attr){if(attr==='src')this.src='';},
+      load(){
+        for(const fn of (listeners.get('loadedmetadata')||[]))fn();
+        for(const fn of (listeners.get('loadeddata')||[]))fn();
+      },
+      play(){this.paused=false;for(const fn of (listeners.get('playing')||[]))fn();return Promise.resolve();},
+      pause(){this.paused=true;for(const fn of (listeners.get('pause')||[]))fn();},
+      emitError(code){this.error={code};for(const fn of (listeners.get('error')||[]))fn();},
+    };
+    createdMedia.push(el);
+    return el;
+  }
+
+  const refObjects=new Map();
+  const proxyForRef=ref=>{
+    const keyStr=JSON.stringify(ref);
+    if(!refObjects.has(keyStr))refObjects.set(keyStr,{key:keyStr,objectRef:ref});
+    return refObjects.get(keyStr);
+  };
+  const referenceOf=target=>target&&target.key?target:null;
+  const diags=[];
+  const videoHost=require('../video.js').create({
+    player,
+    events:require('../events.js'),
+    net:{
+      mediaSource:url=>({
+        kind:'resource',
+        mediaType:'video/mp4',
+        bytes:Buffer.from(mp4Base64,'base64'),
+        length:32,
+      }),
+    },
+    referenceOf,
+    proxyForRef,
+    baseUrl:'https://publish.example.com/bundle/index.html',
+    createVideo:mockVideoElement,
+    createObjectURL:()=>'blob:neoflash-embedded-video',
+    revokeObjectURL:()=>{},
+    isUserGesture:()=>true,
+    onDiagnostic:d=>diags.push(d),
+  });
+
+  videoHost.timeline(commands);
+  const activeSources=videoHost.timelineSources();
+  assert.equal(activeSources.length,3);
+  const srcByRes=Object.fromEntries(activeSources.map(s=>[s.resource,s]));
+  assert.equal(srcByRes.emb_vid.mode,'embedded');
+  assert.equal(srcByRes.emb_vid.url,'media/embedded.mp4');
+  assert.equal(srcByRes.emb_vid.mediaSrc,'blob:neoflash-embedded-video');
+  assert.equal(srcByRes.ext_vid.mode,'external');
+  assert.equal(srcByRes.ext_vid.url,'https://publish.example.com/bundle/assets/video/cutscene.mp4');
+  assert.equal(srcByRes.ext_vid.mediaSrc,'https://publish.example.com/bundle/assets/video/cutscene.mp4');
+  assert.equal(srcByRes.prog_vid.mode,'progressive');
+  assert.equal(srcByRes.prog_vid.url,'https://cdn.example.com/streams/live.webm');
+  assert.equal(srcByRes.prog_vid.mediaSrc,'https://cdn.example.com/streams/live.webm');
+  assert.equal(srcByRes.prog_vid.crossOrigin,'anonymous');
+  assert.equal(srcByRes.prog_vid.preload,'auto');
+
+  // Simulate missing external file and CORS/HTTP failure on progressive stream without crashing playback.
+  const extMedia=createdMedia.find(m=>m.src.includes('cutscene.mp4'));
+  const progMedia=createdMedia.find(m=>m.src.includes('live.webm'));
+  extMedia.emitError(2);
+  progMedia.emitError(4);
+  assert.equal(diags.length,2);
+  assert.equal(diags[0].code,'video-external-missing-or-http-error');
+  assert.equal(diags[1].code,'video-progressive-codec-error');
+  assert.equal(videoHost.diagnostics().length,2);
+
+  videoHost.dispose();
+  player.free();
+});

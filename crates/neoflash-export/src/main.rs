@@ -1,8 +1,8 @@
 use neoflash_core::Project;
 use neoflash_export::{
     AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
-    FontExportPolicy, LottieOptions, PublishOptions, SizeLevel, SvgOptions, VideoFormat,
-    VideoOptions,
+    FontExportPolicy, HtmlPublishConfig, LottieOptions, PublishOptions, SizeLevel, SvgOptions,
+    VideoFormat, VideoOptions,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -10,12 +10,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     let mut source = None;
     let mut demo = false;
+    let mut clean = false;
     let mut size_report = false;
     let mut size_estimate = false;
     let mut has_output = false;
     let mut level = "full".to_owned();
     let mut runtime_url = None;
     let mut shared_runtime = None;
+    let mut desktop_output = None;
     let mut lottie_output = None;
     let mut video_output = None;
     let mut audio_output = None;
@@ -29,9 +31,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--demo" => demo = true,
+            "--clean" => clean = true,
             "--size-report" => size_report = true,
             "--size-estimate" => size_estimate = true,
             "--pretty" => lottie_pretty = true,
+            "--desktop" => {
+                desktop_output = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--desktop requires an output directory")?,
+                ))
+            }
             "--lottie" => {
                 lottie_output = Some(PathBuf::from(
                     args.next()
@@ -110,10 +119,33 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let project = if demo {
         Project::demo()
     } else {
-        serde_json::from_str(&fs::read_to_string(
-            source.ok_or("Supply a project or --demo")?,
-        )?)?
+        let path = source.ok_or("Supply a project or --demo")?;
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"))
+        {
+            neoflash_import::import_project(&path)?
+        } else {
+            serde_json::from_str(&fs::read_to_string(&path)?)?
+        }
     };
+    if let Some(desktop_dir) = desktop_output {
+        let options = PublishOptions {
+            fonts: FontExportPolicy::Embed,
+            size: SizeLevel::Full,
+            audio: AudioExportPolicy::Original,
+        };
+        let app_dir = neoflash_export::export_desktop_app(
+            &project,
+            &desktop_dir,
+            &runtime,
+            &options,
+            &HtmlPublishConfig::clean_publish_default(),
+        )?;
+        println!("Desktop app export: {}", app_dir.display());
+        return Ok(());
+    }
     if let Some(svg_path) = svg_output {
         let report = neoflash_export::export_project_svg(
             &project,
@@ -260,8 +292,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         size: SizeLevel::parse(&level, runtime_url.as_deref())?,
         audio: AudioExportPolicy::Original,
     };
-    let index =
-        neoflash_export::export_project_with_options(&project, &output, &runtime, &options)?;
+    let index = if clean {
+        neoflash_export::export_project_with_config(
+            &project,
+            &output,
+            &runtime,
+            &options,
+            &HtmlPublishConfig::clean_publish_default(),
+        )?
+    } else {
+        neoflash_export::export_project_with_options(&project, &output, &runtime, &options)?
+    };
     println!("HTML5 export: {}", index.display());
     if size_report {
         let report = neoflash_export::format_size_report(&project)?;

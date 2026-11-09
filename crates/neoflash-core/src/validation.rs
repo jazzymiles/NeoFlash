@@ -210,6 +210,33 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             "encoded resources exceed the 64 MiB decoded total budget".into(),
         );
     }
+    let mut external_video_resources = HashSet::new();
+    let mut progressive_video_resources = HashSet::new();
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                if let Some(video) = &key.video
+                    && !video.resource.is_empty()
+                {
+                    match video.deployment {
+                        VideoDeploymentMode::Embedded => {
+                            if video.stream_url.is_some() {
+                                progressive_video_resources.insert(video.resource.as_str());
+                            } else if video.external_path.is_some() {
+                                external_video_resources.insert(video.resource.as_str());
+                            }
+                        }
+                        VideoDeploymentMode::External => {
+                            external_video_resources.insert(video.resource.as_str());
+                        }
+                        VideoDeploymentMode::Progressive => {
+                            progressive_video_resources.insert(video.resource.as_str());
+                        }
+                    }
+                }
+            }
+        }
+    }
     for (index, resource) in project.resources.iter().take(MAX_RESOURCES).enumerate() {
         let path = format!("resources[{index}]");
         register(
@@ -219,20 +246,67 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             &format!("{path}.id"),
             &mut add,
         );
-        if let Err(error) = resource.validate_metadata() {
-            add(path.clone(), error.to_string());
+        let is_prog_video = resource.is_video()
+            && (progressive_video_resources.contains(resource.id.as_str())
+                || (resource.data_base64.is_empty()
+                    && (resource.path.contains("://")
+                        || resource
+                            .path
+                            .to_ascii_lowercase()
+                            .starts_with("javascript:")
+                        || resource.path.to_ascii_lowercase().starts_with("data:"))));
+        let is_ext_video = resource.is_video()
+            && !is_prog_video
+            && (external_video_resources.contains(resource.id.as_str())
+                || resource.data_base64.is_empty());
+        if is_prog_video {
+            let path_is_url = resource.path.contains("://")
+                || resource.path.to_ascii_lowercase().starts_with("file:")
+                || resource
+                    .path
+                    .to_ascii_lowercase()
+                    .starts_with("javascript:")
+                || resource.path.to_ascii_lowercase().starts_with("data:");
+            if path_is_url {
+                if let Err(err) = crate::validate_progressive_video_url(&resource.path) {
+                    add(format!("{path}.path"), err);
+                }
+            } else if let Err(err) = crate::validate_external_video_path(&resource.path) {
+                add(format!("{path}.path"), err);
+            }
+            if !resource.data_base64.is_empty() {
+                add(
+                    format!("{path}.data_base64"),
+                    "progressive video resource must have empty data_base64 (no duplicate embedded bytes)"
+                        .into(),
+                );
+            }
+        } else if is_ext_video {
+            if let Err(err) = crate::validate_external_video_path(&resource.path) {
+                add(format!("{path}.path"), err);
+            }
+            if !resource.data_base64.is_empty() && encoded_size_ok {
+                match resource.decoded_bytes() {
+                    Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                    Err(error) => add(format!("{path}.data_base64"), error.to_string()),
+                }
+            }
+        } else {
+            if let Err(error) = resource.validate_metadata() {
+                add(path.clone(), error.to_string());
+            }
+            if encoded_size_ok {
+                match resource.decoded_bytes() {
+                    Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                    Err(error) => add(format!("{path}.data_base64"), error.to_string()),
+                }
+            }
         }
         if !resource_paths.insert(resource.path.to_lowercase()) {
             add(
                 format!("{path}.path"),
                 "resource paths must be unique, including case-insensitive matches".into(),
             );
-        }
-        if encoded_size_ok {
-            match resource.decoded_bytes() {
-                Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
-                Err(error) => add(format!("{path}.data_base64"), error.to_string()),
-            }
         }
         if let Some(export) = &resource.audio_export {
             if !resource.is_audio() {
@@ -507,9 +581,15 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     "layer z_depth must be finite and within -10000..=10000".into(),
                 );
             }
+            if let Err(err) = crate::validate_filters(&layer.properties.filters) {
+                add(format!("{lp}.properties.filters"), err.to_string());
+            }
             let mut keys = HashSet::new();
             for (ki, key) in layer.keyframes.iter().enumerate() {
                 let kp = format!("{lp}.keyframes[{ki}]");
+                if let Err(err) = crate::validate_filters(&key.filters) {
+                    add(format!("{kp}.filters"), err.to_string());
+                }
                 if key.classic_rotate_turns > Keyframe::MAX_ROTATE_TURNS {
                     add(
                         format!("{kp}.classic_rotate_turns"),
@@ -1182,16 +1262,136 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                     }
                 }
                 if let Some(video) = &key.video {
-                    match project.resources.iter().find(|r| r.id == video.resource) {
-                        Some(resource) if resource.is_video() => {}
-                        Some(_) => add(
-                            format!("{kp}.video.resource"),
-                            format!("resource '{}' is not video (video/*)", video.resource),
-                        ),
-                        None => add(
-                            format!("{kp}.video.resource"),
-                            format!("video resource '{}' does not exist", video.resource),
-                        ),
+                    match video.deployment {
+                        VideoDeploymentMode::Embedded => {
+                            if video.external_path.is_some() || video.stream_url.is_some() {
+                                add(
+                                    format!("{kp}.video.deployment"),
+                                    "embedded video span cannot specify external_path or stream_url"
+                                        .into(),
+                                );
+                            }
+                            match project.resources.iter().find(|r| r.id == video.resource) {
+                                Some(resource) if resource.is_video() => {
+                                    if resource.data_base64.is_empty() {
+                                        add(
+                                            format!("{kp}.video.resource"),
+                                            format!(
+                                                "embedded video resource '{}' must contain media bytes in data_base64",
+                                                video.resource
+                                            ),
+                                        );
+                                    }
+                                }
+                                Some(_) => add(
+                                    format!("{kp}.video.resource"),
+                                    format!("resource '{}' is not video (video/*)", video.resource),
+                                ),
+                                None => add(
+                                    format!("{kp}.video.resource"),
+                                    format!("video resource '{}' does not exist", video.resource),
+                                ),
+                            }
+                        }
+                        VideoDeploymentMode::External => {
+                            if video.external_path.is_some() && video.stream_url.is_some() {
+                                add(
+                                    format!("{kp}.video.stream_url"),
+                                    "external video span cannot set stream_url".into(),
+                                );
+                            }
+                            let res = if video.resource.is_empty() {
+                                None
+                            } else {
+                                match project.resources.iter().find(|r| r.id == video.resource) {
+                                    Some(resource) if resource.is_video() => Some(resource),
+                                    Some(_) => {
+                                        add(
+                                            format!("{kp}.video.resource"),
+                                            format!(
+                                                "resource '{}' is not video (video/*)",
+                                                video.resource
+                                            ),
+                                        );
+                                        None
+                                    }
+                                    None => {
+                                        add(
+                                            format!("{kp}.video.resource"),
+                                            format!(
+                                                "video resource '{}' does not exist",
+                                                video.resource
+                                            ),
+                                        );
+                                        None
+                                    }
+                                }
+                            };
+                            let ext_path = video
+                                .external_path
+                                .as_deref()
+                                .or(video.stream_url.as_deref())
+                                .or_else(|| res.map(|r| r.path.as_str()))
+                                .unwrap_or("");
+                            if let Err(err) = crate::validate_external_video_path(ext_path) {
+                                add(format!("{kp}.video.external_path"), err);
+                            }
+                        }
+                        VideoDeploymentMode::Progressive => {
+                            if video.external_path.is_some() && video.stream_url.is_some() {
+                                add(
+                                    format!("{kp}.video.external_path"),
+                                    "progressive video span cannot set external_path".into(),
+                                );
+                            }
+                            let res = if video.resource.is_empty() {
+                                None
+                            } else {
+                                match project.resources.iter().find(|r| r.id == video.resource) {
+                                    Some(resource) if resource.is_video() => {
+                                        if !resource.data_base64.is_empty() {
+                                            add(
+                                                format!("{kp}.video.resource"),
+                                                format!(
+                                                    "progressive video resource '{}' must have empty data_base64 (no duplicate embedded bytes)",
+                                                    video.resource
+                                                ),
+                                            );
+                                        }
+                                        Some(resource)
+                                    }
+                                    Some(_) => {
+                                        add(
+                                            format!("{kp}.video.resource"),
+                                            format!(
+                                                "resource '{}' is not video (video/*)",
+                                                video.resource
+                                            ),
+                                        );
+                                        None
+                                    }
+                                    None => {
+                                        add(
+                                            format!("{kp}.video.resource"),
+                                            format!(
+                                                "video resource '{}' does not exist",
+                                                video.resource
+                                            ),
+                                        );
+                                        None
+                                    }
+                                }
+                            };
+                            let stream_url = video
+                                .stream_url
+                                .as_deref()
+                                .or(video.external_path.as_deref())
+                                .or_else(|| res.map(|r| r.path.as_str()))
+                                .unwrap_or("");
+                            if let Err(err) = crate::validate_progressive_video_url(stream_url) {
+                                add(format!("{kp}.video.stream_url"), err);
+                            }
+                        }
                     }
                     for (ci, cue) in video.cue_points.iter().enumerate() {
                         if cue.name.trim().is_empty() {

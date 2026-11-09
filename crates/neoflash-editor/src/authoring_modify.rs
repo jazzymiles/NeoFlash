@@ -2541,7 +2541,7 @@ impl Editor {
             menu_popup(
                 ui,
                 "Timeline",
-                "Convert to blank keyframes",
+                "Convert to keyframes (Stepped 2s)",
                 "⇧⌘D",
                 |ui| {
                     if menu_item_enabled(
@@ -2553,6 +2553,17 @@ impl Editor {
                     .clicked()
                     {
                         self.distribute_to_layers();
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        self.can_distribute_to_keyframes(),
+                        "Distribute to keyframes",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.distribute_selection_to_keyframes();
                         ui.close();
                     }
                     if crate::ui_icons::menu_item(
@@ -2602,6 +2613,39 @@ impl Editor {
                     }
                     if menu_item_enabled(
                         ui,
+                        self.can_convert_to_keyframes_stepped(),
+                        "Tween2Keys (On 2s)",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.tween_to_keys_on_twos();
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        self.can_convert_to_keyframes_stepped(),
+                        "Tween2Keys (On 3s)",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.tween_to_keys_on_threes();
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        self.can_convert_to_keyframes_stepped(),
+                        "Convert to keyframes (Stepped 2s)",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.convert_to_keyframes_stepped(2, false);
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
                         editable,
                         "Clear keyframe",
                         &self.sc(C::ModifyTimelineClearKeyframe),
@@ -2620,6 +2664,96 @@ impl Editor {
                     .clicked()
                     {
                         self.convert_to_keyframes(true);
+                        ui.close();
+                    }
+                    neoflash_ui::components::menu_separator(ui);
+                    if menu_item_enabled(ui, self.can_copy_active_keyframe_ease(), "Copy ease", "")
+                        .clicked()
+                    {
+                        self.copy_active_keyframe_ease();
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        self.has_copied_keyframe_ease(),
+                        "Apply copied ease",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.apply_copied_ease_to_selection();
+                        ui.close();
+                    }
+                    neoflash_ui::components::menu_separator(ui);
+                    if crate::ui_icons::menu_item(ui, "Delete empty layers", "").clicked() {
+                        self.delete_empty_layers();
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(ui, "Rename layers from content", "").clicked() {
+                        self.rename_layers_from_content();
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(ui, "Add actions & stop() layer", "").clicked() {
+                        self.add_actions_and_stop_layer();
+                        ui.close();
+                    }
+                },
+            );
+            menu_popup(
+                ui,
+                "Commands & JSFL",
+                "Batch bitmap compression & smoothing…",
+                "",
+                |ui| {
+                    let ctx = ui.ctx().clone();
+                    if crate::ui_icons::menu_item(ui, "Run JSFL script (.jsfl)…", "").clicked() {
+                        self.run_jsfl_script_dialog(None);
+                        ui.close();
+                    }
+                    neoflash_ui::components::menu_separator(ui);
+                    if crate::ui_icons::menu_item(ui, "Batch rename library items…", "").clicked()
+                    {
+                        self.open_batch_rename_library_modal(&ctx);
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(
+                        ui,
+                        "Batch linkage (Export for ActionScript)…",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.open_batch_linkage_modal(&ctx);
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(ui, "Batch bitmap compression & smoothing…", "")
+                        .clicked()
+                    {
+                        self.open_batch_bitmap_compression_modal(&ctx);
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(ui, "Delete unused library items", "").clicked() {
+                        self.find_and_delete_unused_library_items();
+                        ui.close();
+                    }
+                    neoflash_ui::components::menu_separator(ui);
+                    if crate::ui_icons::menu_item(ui, "Auto Instance Namer…", "").clicked() {
+                        self.open_auto_instance_namer_modal(&ctx);
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(ui, "Randomize Selection…", "").clicked() {
+                        self.open_randomize_selection_modal(&ctx);
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        !self.editable_targets().is_empty(),
+                        "Pixel snap (round to whole pixels)",
+                        "",
+                    )
+                    .clicked()
+                    {
+                        self.pixel_snap_selection();
                         ui.close();
                     }
                 },

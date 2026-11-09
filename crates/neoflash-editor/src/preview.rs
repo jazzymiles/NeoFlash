@@ -57,6 +57,7 @@ impl TimelineVideoPreview {
                     playing,
                     muted,
                     loop_video,
+                    source: _,
                 } => {
                     let prev_cue = self
                         .channels
@@ -86,6 +87,7 @@ impl TimelineVideoPreview {
                     start_offset_ms,
                     loop_video,
                     muted,
+                    source: _,
                 } => {
                     self.channels.insert(
                         channel.clone(),
