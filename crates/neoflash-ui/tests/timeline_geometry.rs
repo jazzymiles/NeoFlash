@@ -6,7 +6,7 @@ use eframe::egui::{self, Pos2, Rect, Shape};
 use neoflash_ui::components::timeline::{
     self as tl, FrameLabelKind, Geometry, MarkerKind, SpanType,
 };
-use neoflash_ui::{theme, typography, Theme};
+use neoflash_ui::{Theme, theme, typography};
 
 /// Row heights: Compact, Short, Normal, Preview, Layer height 200 % / 300 %.
 const ROWS: [f32; 6] = [14.0, 18.0, 28.0, 44.0, 56.0, 84.0];

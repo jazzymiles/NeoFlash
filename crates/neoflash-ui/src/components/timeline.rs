@@ -4,11 +4,11 @@
 //!
 //! The frame area is virtualised: callers paint only the visible frame range with these painters.
 //! Frame `n` (1-based) starts at `origin + (n − 1) × frame_width` ([`Geometry::frame_x`]).
-use super::{a11y, galley, text_at, State};
-use crate::icons::{self, i16, Icon};
+use super::{State, a11y, galley, text_at};
+use crate::icons::{self, Icon, i16};
 use crate::metrics::{FrameView, LAYER_INDENT, LAYER_MODE, LAYER_ROW, LAYER_TOGGLE};
 use crate::theme::{cr, palette};
-use crate::tokens::{radius, space, Palette, TextStyle};
+use crate::tokens::{Palette, TextStyle, radius, space};
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui};
 
 /// Horizontal mapping between frames and pixels.

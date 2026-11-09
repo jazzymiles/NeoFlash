@@ -4,7 +4,7 @@
 //! fill edges on whole pixels. 20 px: 1.5 pt strokes on .25 / .75, fill edges on half points.
 //! A fill edge may sit on a stroke axis of the same icon (the stroke covers it). Icons asked for at
 //! another grid size come from that grid's master instead of being scaled.
-use neoflash_ui::icons::{i12, i16, i20, Icon};
+use neoflash_ui::icons::{Icon, i12, i16, i20};
 
 /// (stroked, stroke width, axis-aligned straight segments as (axis, coordinate)).
 type PathFacts = (bool, Option<f32>, Vec<(usize, f32)>);
