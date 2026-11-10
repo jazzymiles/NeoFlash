@@ -212,7 +212,8 @@ impl UnusedLibraryReport {
     }
 }
 
-/// Optional per-resource ActionScript linkage record stored portably when audio resources are batch-linked.
+/// Reserved result shape for a future portable per-resource linkage model. The current document
+/// model does not persist these records, so batch linkage must never report one as applied.
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceLinkageEntry {
@@ -260,6 +261,10 @@ pub struct BatchLinkageItem {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatchLinkageReport {
     pub items: Vec<BatchLinkageItem>,
+    /// Requested options that the portable project model cannot represent and therefore left
+    /// every affected item unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_options: Vec<String>,
 }
 
 impl BatchLinkageReport {
@@ -861,6 +866,18 @@ impl Editor {
         }
 
         let mut report = BatchLinkageReport::default();
+        if config.export_for_actionscript && config.export_in_first_frame {
+            report.unsupported_options.push(
+                "Export in frame 1 is not stored by the NeoFlash document model; symbol linkage was saved without that flag."
+                    .to_owned(),
+            );
+        }
+        if config.include_sounds {
+            report.unsupported_options.push(
+                "Audio ActionScript linkage is not stored by the NeoFlash document model; audio resources were left unchanged."
+                    .to_owned(),
+            );
+        }
         let mut promoted_to_movieclip: HashSet<Id> = HashSet::new();
 
         for sym in &mut candidate.symbols {
@@ -919,7 +936,7 @@ impl Editor {
             report.items.push(BatchLinkageItem {
                 item_id: sym.id.clone(),
                 export_for_actionscript: true,
-                export_in_first_frame: config.export_in_first_frame,
+                export_in_first_frame: false,
                 identifier,
                 class_name,
             });
@@ -941,44 +958,6 @@ impl Editor {
                         }
                     }
                 }
-            }
-        }
-
-        if config.include_sounds {
-            for res in &candidate.resources {
-                if !res.is_audio() {
-                    continue;
-                }
-                if let Some(set) = &target_filter
-                    && !set.contains(&res.id)
-                {
-                    continue;
-                }
-                let stem = Path::new(&res.path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(&res.path);
-                let pascal = sanitize_pascal_case(stem);
-                let full_class = if clean_prefix.is_empty() {
-                    pascal.clone()
-                } else {
-                    format!("{clean_prefix}.{pascal}")
-                };
-                report.items.push(BatchLinkageItem {
-                    item_id: res.id.clone(),
-                    export_for_actionscript: config.export_for_actionscript,
-                    export_in_first_frame: config.export_in_first_frame,
-                    identifier: if config.export_for_actionscript {
-                        full_class.clone()
-                    } else {
-                        String::new()
-                    },
-                    class_name: if config.export_for_actionscript {
-                        full_class
-                    } else {
-                        String::new()
-                    },
-                });
             }
         }
 
@@ -1084,15 +1063,35 @@ impl Editor {
         let active_sym_id = self.symbol_id().to_owned();
         let frame = self.frame;
 
+        let selection_requested = !self.selection.targets.is_empty();
         let selected_set: HashSet<(Id, Id)> = if self.selection.symbol == active_sym_id {
             self.selection
                 .targets
                 .iter()
+                .filter(|target| self.target_editable(target))
                 .map(|t| (t.layer.clone(), t.element.clone()))
                 .collect()
         } else {
             HashSet::new()
         };
+        if selection_requested && selected_set.is_empty() {
+            return Ok(Vec::new());
+        }
+        let active_layer_id = if selection_requested {
+            None
+        } else if self.layer_editable() {
+            self.symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .filter(|layer| self.is_layer_id_effectively_soloed(&layer.id))
+                .map(|layer| layer.id.clone())
+        } else {
+            None
+        };
+        if !selection_requested && active_layer_id.is_none() {
+            return Ok(Vec::new());
+        }
 
         let symbol_names: HashMap<Id, String> = self
             .project
@@ -1106,22 +1105,15 @@ impl Editor {
             return Err("Active symbol not found.".to_owned());
         };
 
-        let has_selected_instances = !selected_set.is_empty()
-            && sym.timeline.layers.iter().any(|l| {
-                l.key_at(frame).is_some_and(|k| {
-                    k.elements.iter().any(|e| {
-                        matches!(e.kind, ElementKind::Instance { .. })
-                            && selected_set.contains(&(l.id.clone(), e.id.clone()))
-                    })
-                })
-            });
-
         let mut assigned: Vec<(Id, String)> = Vec::new();
         let mut seq_offset = 0u32;
         let step = config.step.max(1);
 
         for layer in &mut sym.timeline.layers {
             let layer_id = layer.id.clone();
+            if !selection_requested && active_layer_id.as_ref() != Some(&layer_id) {
+                continue;
+            }
             let Some(key) = layer.key_at_mut(frame) else {
                 continue;
             };
@@ -1130,7 +1122,7 @@ impl Editor {
                 let ElementKind::Instance { symbol_id, .. } = &el.kind else {
                     continue;
                 };
-                if has_selected_instances {
+                if selection_requested {
                     if !selected_set.contains(&(layer_id.clone(), el.id.clone())) {
                         continue;
                     }
@@ -1204,15 +1196,35 @@ impl Editor {
         let active_sym_id = self.symbol_id().to_owned();
         let frame = self.frame;
 
+        let selection_requested = !self.selection.targets.is_empty();
         let selected_set: HashSet<(Id, Id)> = if self.selection.symbol == active_sym_id {
             self.selection
                 .targets
                 .iter()
+                .filter(|target| self.target_editable(target))
                 .map(|t| (t.layer.clone(), t.element.clone()))
                 .collect()
         } else {
             HashSet::new()
         };
+        if selection_requested && selected_set.is_empty() {
+            return Ok(0);
+        }
+        let active_layer_id = if selection_requested {
+            None
+        } else if self.layer_editable() {
+            self.symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .filter(|layer| self.is_layer_id_effectively_soloed(&layer.id))
+                .map(|layer| layer.id.clone())
+        } else {
+            None
+        };
+        if !selection_requested && active_layer_id.is_none() {
+            return Ok(0);
+        }
 
         let mut candidate = self.project.clone();
         let Some(sym) = candidate.symbol_mut(&active_sym_id) else {
@@ -1224,12 +1236,14 @@ impl Editor {
 
         for layer in &mut sym.timeline.layers {
             let layer_id = layer.id.clone();
+            if !selection_requested && active_layer_id.as_ref() != Some(&layer_id) {
+                continue;
+            }
             let Some(key) = layer.key_at_mut(frame) else {
                 continue;
             };
             for el in &mut key.elements {
-                if !selected_set.is_empty()
-                    && !selected_set.contains(&(layer_id.clone(), el.id.clone()))
+                if selection_requested && !selected_set.contains(&(layer_id.clone(), el.id.clone()))
                 {
                     continue;
                 }
@@ -1837,9 +1851,19 @@ pub fn show_productivity_modals(editor: &mut Editor, ctx: &egui::Context) {
                     )
                 })
             }
-            ProductivityModalDraft::BatchLinkage(cfg) => editor
-                .batch_set_library_linkage(cfg)
-                .map(|r| format!("Updated ActionScript linkage on {} item(s).", r.len())),
+            ProductivityModalDraft::BatchLinkage(cfg) => {
+                editor.batch_set_library_linkage(cfg).map(|r| {
+                    let mut message = format!(
+                        "Updated portable ActionScript linkage on {} symbol(s).",
+                        r.len()
+                    );
+                    if !r.unsupported_options.is_empty() {
+                        message.push_str(" Not applied: ");
+                        message.push_str(&r.unsupported_options.join(" "));
+                    }
+                    message
+                })
+            }
             ProductivityModalDraft::BatchBitmap(cfg) => editor
                 .batch_set_bitmap_compression_and_smoothing(cfg)
                 .map(|n| format!("Updated bitmap compression & smoothing on {n} image(s).")),
@@ -1869,7 +1893,8 @@ pub fn show_productivity_modals(editor: &mut Editor, ctx: &egui::Context) {
 mod tests {
     use super::*;
     use neoflash_core::{
-        Element, Keyframe, Layer, LayerProperties, ResourceUnit, Symbol, Timeline, Transform,
+        Element, Keyframe, Layer, LayerProperties, LayerRole, ResourceUnit, Symbol, Timeline,
+        Transform,
     };
 
     fn tiny_png_bytes() -> Vec<u8> {
@@ -2067,6 +2092,16 @@ mod tests {
             "enemy-ship",
             SymbolKind::Graphic,
         ));
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "sound-1",
+                "audio/click.wav",
+                "audio/wav",
+                b"RIFF\x04\x00\x00\x00WAVE",
+            )
+            .unwrap(),
+        );
+        project.format_version = project.format_version.max(3);
 
         let ctx = egui::Context::default();
         let mut editor = Editor::from_project(&ctx, project);
@@ -2081,6 +2116,9 @@ mod tests {
         };
         let report = editor.batch_set_library_linkage(&cfg).unwrap();
         assert_eq!(report.len(), 2);
+        assert_eq!(report.unsupported_options.len(), 2);
+        assert!(report.items.iter().all(|item| !item.export_in_first_frame));
+        assert!(report.items.iter().all(|item| item.item_id != "sound-1"));
 
         let sym1 = editor.project.symbol("sym-1").unwrap();
         assert_eq!(sym1.class_name.as_deref(), Some("app.assets.HeroButton01"));
@@ -2093,6 +2131,18 @@ mod tests {
         assert!(editor.project.validate().is_ok());
 
         editor.undo();
+        assert_eq!(editor.project, before);
+
+        let audio_only = LibraryBatchLinkageConfig {
+            target_ids: Some(vec!["sound-1".into()]),
+            class_prefix: "audio".into(),
+            export_for_actionscript: true,
+            export_in_first_frame: true,
+            include_sounds: true,
+        };
+        let no_op = editor.batch_set_library_linkage(&audio_only).unwrap();
+        assert!(no_op.items.is_empty());
+        assert_eq!(no_op.unsupported_options.len(), 2);
         assert_eq!(editor.project, before);
     }
 
@@ -2234,5 +2284,165 @@ mod tests {
             show_productivity_modals(&mut editor, ctx);
         });
         close_productivity_modal(&ctx);
+    }
+
+    #[test]
+    fn productivity_stage_tools_only_touch_selected_or_active_editable_layer_content() {
+        fn instance(id: &str) -> Element {
+            Element {
+                id: id.into(),
+                name: String::new(),
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-star".into(),
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            }
+        }
+
+        let mut project = Project::blank();
+        project
+            .symbols
+            .push(make_empty_symbol("sym-star", "Star", SymbolKind::MovieClip));
+        let root = &mut project.symbols[0];
+        root.timeline.layers = vec![
+            Layer {
+                id: "editable".into(),
+                name: "Editable".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    elements: vec![instance("editable-instance")],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            },
+            Layer {
+                id: "locked".into(),
+                name: "Locked".into(),
+                visible: true,
+                locked: true,
+                keyframes: vec![Keyframe {
+                    elements: vec![instance("locked-instance")],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            },
+            Layer {
+                id: "hidden-folder".into(),
+                name: "Hidden folder".into(),
+                visible: false,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties {
+                    role: LayerRole::Folder,
+                    ..LayerProperties::default()
+                },
+            },
+            Layer {
+                id: "hidden-child".into(),
+                name: "Hidden child".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    elements: vec![instance("hidden-instance")],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties {
+                    parent: Some("hidden-folder".into()),
+                    ..LayerProperties::default()
+                },
+            },
+        ];
+        project.format_version = project.format_version.max(4);
+        project.validate().unwrap();
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, project);
+        let before = editor.project.clone();
+
+        // Empty selection is deliberately scoped to the active editable layer only.
+        let named = editor
+            .auto_name_stage_instances(&AutoInstanceNamerConfig::default())
+            .unwrap();
+        assert_eq!(named.len(), 1);
+        assert_eq!(
+            editor.symbol().timeline.layers[0].keyframes[0].elements[0].name,
+            "item_0"
+        );
+        assert!(
+            editor.symbol().timeline.layers[1].keyframes[0].elements[0]
+                .name
+                .is_empty()
+        );
+        assert!(
+            editor.symbol().timeline.layers[3].keyframes[0].elements[0]
+                .name
+                .is_empty()
+        );
+        editor.undo();
+        assert_eq!(editor.project, before);
+
+        let randomized = editor
+            .randomize_selected_elements(&RandomizeSelectionConfig::default())
+            .unwrap();
+        assert_eq!(randomized, 1);
+        assert_ne!(
+            editor.symbol().timeline.layers[0].keyframes[0].elements[0].transform,
+            before.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform
+        );
+        assert_eq!(
+            editor.symbol().timeline.layers[1].keyframes[0].elements[0].transform,
+            before.symbols[0].timeline.layers[1].keyframes[0].elements[0].transform
+        );
+        editor.undo();
+
+        // A locked layer or a child of a hidden folder is never an implicit fallback target.
+        editor.layer = 1;
+        assert!(
+            editor
+                .auto_name_stage_instances(&AutoInstanceNamerConfig::default())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            editor
+                .randomize_selected_elements(&RandomizeSelectionConfig::default())
+                .unwrap(),
+            0
+        );
+        editor.layer = 3;
+        assert_eq!(
+            editor
+                .randomize_selected_elements(&RandomizeSelectionConfig::default())
+                .unwrap(),
+            0
+        );
+        assert_eq!(editor.project, before);
+
+        // A stale mixed selection filters out non-editable targets instead of widening scope.
+        editor.layer = 0;
+        editor.set_selection(vec![crate::selection::SelectionTarget {
+            layer: "editable".into(),
+            element: "editable-instance".into(),
+        }]);
+        editor
+            .selection
+            .targets
+            .push(crate::selection::SelectionTarget {
+                layer: "locked".into(),
+                element: "locked-instance".into(),
+            });
+        assert_eq!(
+            editor
+                .randomize_selected_elements(&RandomizeSelectionConfig::default())
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            editor.symbol().timeline.layers[1].keyframes[0].elements[0].transform,
+            before.symbols[0].timeline.layers[1].keyframes[0].elements[0].transform
+        );
+        editor.undo();
+        assert_eq!(editor.project, before);
     }
 }

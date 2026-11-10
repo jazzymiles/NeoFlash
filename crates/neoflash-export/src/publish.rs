@@ -1,6 +1,7 @@
 //! Publish size levels: which runtime files an HTML5 package carries and how the WebAssembly
-//! runtime is delivered. Every level plays the same project; smaller levels trade offline use,
-//! unused ActionScript families or self-containment for weight.
+//! runtime is delivered. Every level plays the same project. Balanced keeps both a streamable
+//! WASM file and a direct-file fallback; Compact may reduce code by omitting unused families;
+//! Shared trades project self-containment for a separately published runtime.
 
 use neoflash_core::Project;
 use serde::{Deserialize, Serialize};
@@ -15,8 +16,8 @@ pub enum SizeLevel {
     /// works when opened straight from disk.
     #[default]
     Full,
-    /// WebAssembly ships as its own binary file: a third smaller and streamed by the browser,
-    /// but the folder must be served over HTTP(S).
+    /// WebAssembly ships as its own binary file for HTTP(S) streaming and the bindings carry a
+    /// fallback so the folder can also be opened directly from disk.
     Balanced,
     /// Balanced, without the ActionScript families the project's scripts never name and without
     /// the WebAssembly code that only those families reach.

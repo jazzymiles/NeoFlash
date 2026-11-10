@@ -1420,6 +1420,61 @@ pub(crate) struct Package {
     pub(crate) embedded: Vec<SizePart>,
 }
 
+fn reserved_publish_path(path: &str) -> bool {
+    const GENERATED: &[&str] = &[
+        MARKER,
+        BINDINGS_FILE,
+        WASM_FILE,
+        RUNTIME_ID_FILE,
+        NOTICES_FILE,
+        "runtime.js",
+        "bundle.js",
+        "bundle.js.map",
+        "sprite_sheet.json",
+        "README.txt",
+        "index.html",
+    ];
+    GENERATED
+        .iter()
+        .any(|name| package_paths_collide(path, name))
+        || HOST_MODULES
+            .iter()
+            .any(|(name, _)| package_paths_collide(path, name))
+}
+
+fn package_paths_collide(left: &str, right: &str) -> bool {
+    fn component_descendant(path: &str, ancestor: &str) -> bool {
+        path.len() > ancestor.len()
+            && path.starts_with(ancestor)
+            && path.as_bytes().get(ancestor.len()) == Some(&b'/')
+    }
+
+    let left = left.to_lowercase();
+    let right = right.to_lowercase();
+    left == right || component_descendant(&left, &right) || component_descendant(&right, &left)
+}
+
+fn validate_package_file_names(files: &[(String, Vec<u8>)]) -> Result<(), ExportError> {
+    let mut names: Vec<&str> = Vec::with_capacity(files.len());
+    for (name, _) in files {
+        if name.eq_ignore_ascii_case(MARKER) {
+            return Err(ExportError::Options(format!(
+                "package file '{name}' collides with the NeoFlash ownership marker"
+            )));
+        }
+        if let Some(previous) = names
+            .iter()
+            .find(|previous| package_paths_collide(name, previous))
+        {
+            return Err(ExportError::Options(format!(
+                "package paths '{previous}' and '{name}' collide by name or file/directory prefix"
+            )));
+        }
+        names.push(name);
+    }
+    Ok(())
+}
+
 fn read_runtime(runtime_dir: &Path) -> Result<(String, Vec<u8>), ExportError> {
     let bindings_path = runtime_dir.join(BINDINGS_FILE);
     let wasm_path = runtime_dir.join(WASM_FILE);
@@ -1489,6 +1544,15 @@ pub(crate) fn prepare_with_config(
         apply_bitmap_jpeg_quality(&mut published, cfg.jpeg_quality);
     }
     let runtime_id = shared_runtime_id(&bindings, &wasm);
+    let mut warnings = export_warnings(project);
+    if font_policy == FontExportPolicy::Subset
+        && fonts.subset_stats.iter().any(|stats| !stats.subset_applied)
+    {
+        warnings.push(
+            "Font subset requested: NeoFlash preserved the complete browser-loadable font because true SFNT/WOFF subsetting is not implemented yet."
+                .to_owned(),
+        );
+    }
     Ok(Prepared {
         program,
         scripts,
@@ -1497,7 +1561,7 @@ pub(crate) fn prepare_with_config(
         fonts,
         external_videos,
         video_manifest,
-        warnings: export_warnings(project),
+        warnings,
         bindings,
         wasm,
         runtime_id,
@@ -1638,8 +1702,17 @@ pub(crate) fn assemble_with_config(
     let scriptless = publish::script_corpus(project).trim().is_empty()
         && prepared.program.class_names.is_empty();
     let ships_program = !(scriptless && level.trims_content());
+    let mapped_program_code = (ships_program && config.is_some_and(|config| config.source_maps))
+        .then(|| {
+            format!(
+                "{}\n//# sourceMappingURL=bundle.js.map",
+                prepared.program.code
+            )
+        });
     let program = ships_program.then(|| ProgramBundle {
-        code: &prepared.program.code,
+        code: mapped_program_code
+            .as_deref()
+            .unwrap_or(&prepared.program.code),
         class_names: &prepared.program.class_names,
         source_url: "neoflash-project.js",
         source_map: prepared.program.bundle_source_map.as_ref(),
@@ -1679,15 +1752,7 @@ pub(crate) fn assemble_with_config(
     } else {
         serde_json::to_string(&bundle)?
     };
-    let source_map_suffix = if config.is_some_and(|c| c.source_maps) {
-        "//# sourceMappingURL=bundle.js.map\n"
-    } else {
-        ""
-    };
-    let bundle_js = format!(
-        "globalThis.NeoFlashBundle = {};\n{}",
-        serialized_bundle, source_map_suffix
-    );
+    let bundle_js = format!("globalThis.NeoFlashBundle = {};\n", serialized_bundle);
     let title = html_escape(&project.name);
     let runtime_src = |file: &str| match &shared_url {
         Some(url) => html_escape(&format!("{}/{file}", url.trim_end_matches('/'))),
@@ -1714,7 +1779,7 @@ pub(crate) fn assemble_with_config(
         project.name,
         match level {
             SizeLevel::Full => "Open index.html in a modern browser, or upload this entire folder to static hosting.\nThe shared Rust evaluator and project resources are embedded in bundle.js.".to_owned(),
-            SizeLevel::Balanced | SizeLevel::Compact => format!("Upload this entire folder to static hosting and open index.html over HTTP(S).\nThe shared Rust evaluator is {WASM_FILE}; project resources are embedded in bundle.js."),
+            SizeLevel::Balanced | SizeLevel::Compact => format!("Open index.html directly from this folder, or upload the entire folder to static hosting.\nOver HTTP(S) the shared Rust evaluator streams from {WASM_FILE}; direct file opening uses the packaged fallback. Project resources are embedded in bundle.js."),
             SizeLevel::Shared(_) => format!("Upload this folder to static hosting. The runtime loads from {}.\nProject resources are embedded in bundle.js.", shared_url.as_deref().unwrap_or_default()),
         },
         warnings.join("\n")
@@ -1733,12 +1798,39 @@ pub(crate) fn assemble_with_config(
         }
     }
     if config.is_some_and(|c| c.source_maps) {
-        let map_json = serde_json::to_string_pretty(&serde_json::json!({
-            "version": 3,
-            "file": "bundle.js",
-            "sources": prepared.program.bundle_source_map.as_ref().map(|m| &m.sources),
-            "scripts": prepared.scripts.iter().map(|s| &s.location).collect::<Vec<_>>(),
-        }))?;
+        let mut map_value = prepared
+            .program
+            .bundle_source_map
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?
+            .unwrap_or_else(|| {
+                serde_json::json!({
+                    "version": 3,
+                    "file": "bundle.js",
+                    "sourceRoot": "",
+                    "sources": [],
+                    "sourcesContent": [],
+                    "names": [],
+                    "mappings": "",
+                })
+            });
+        if let Some(map) = map_value.as_object_mut() {
+            // The authored program is evaluated with `sourceURL=neoflash-project.js`; it is not
+            // executable lines in bundle.js, where it is only an escaped JSON string.
+            map.insert("file".to_owned(), serde_json::json!("neoflash-project.js"));
+            map.insert(
+                "x_neoflash_scripts".to_owned(),
+                serde_json::json!(
+                    prepared
+                        .scripts
+                        .iter()
+                        .map(|script| &script.location)
+                        .collect::<Vec<_>>()
+                ),
+            );
+        }
+        let map_json = serde_json::to_string_pretty(&map_value)?;
         files.push(("bundle.js.map".into(), map_json.into_bytes()));
     }
     if config.is_some_and(|c| c.sprite_sheets)
@@ -1760,10 +1852,27 @@ pub(crate) fn assemble_with_config(
         }))?;
         files.push(("sprite_sheet.json".into(), sheet_manifest.into_bytes()));
     }
+    let mut external_paths = Vec::<String>::new();
     for ext_vid in &prepared.external_videos {
-        if !ext_vid.bytes.is_empty()
-            && neoflash_core::validate_external_video_path(&ext_vid.relative_path).is_ok()
+        neoflash_core::validate_external_video_path(&ext_vid.relative_path)
+            .map_err(ExportError::Options)?;
+        if reserved_publish_path(&ext_vid.relative_path) {
+            return Err(ExportError::Options(format!(
+                "external video path '{}' collides with a generated package file",
+                ext_vid.relative_path
+            )));
+        }
+        if let Some(previous) = external_paths
+            .iter()
+            .find(|previous| package_paths_collide(previous, &ext_vid.relative_path))
         {
+            return Err(ExportError::Options(format!(
+                "external video paths '{}' and '{}' collide by name or file/directory prefix",
+                previous, ext_vid.relative_path
+            )));
+        }
+        external_paths.push(ext_vid.relative_path.clone());
+        if !ext_vid.bytes.is_empty() {
             files.push((ext_vid.relative_path.clone(), ext_vid.bytes.clone()));
         }
     }
@@ -1776,6 +1885,7 @@ pub(crate) fn assemble_with_config(
         files.push(("README.txt".into(), readme.into_bytes()));
         files.push(("bundle.js".into(), bundle_js.into_bytes()));
     }
+    validate_package_file_names(&files)?;
 
     let resources: String = prepared
         .published
@@ -1833,20 +1943,25 @@ pub(crate) fn assemble_with_config(
 
 /// What a size level gives up, in words for the publish dialog and the package README.
 fn level_tradeoffs(level: &SizeLevel, omitted: &[&str]) -> Vec<String> {
-    let serve = "Serve the folder over HTTP(S): browsers do not load a separate WebAssembly file from a page opened from disk.";
     match level {
         SizeLevel::Full => Vec::new(),
-        SizeLevel::Balanced => vec![serve.into()],
-        SizeLevel::Compact if omitted.is_empty() => vec![serve.into()],
+        SizeLevel::Balanced => vec![
+            "WebAssembly ships as a separate streaming file for HTTP(S), with a packaged fallback for direct file opening."
+                .into(),
+        ],
+        SizeLevel::Compact if omitted.is_empty() => vec![
+            "WebAssembly ships as a separate trimmed file for HTTP(S), with a packaged fallback for direct file opening."
+                .into(),
+        ],
         SizeLevel::Compact => vec![
-            serve.into(),
+            "WebAssembly ships as a separate trimmed file for HTTP(S), with a packaged fallback for direct file opening."
+                .into(),
             format!(
                 "Left out because the project's scripts never name them: {}. A script that builds such a class name at run time cannot reach it; publish at the Balanced level if one does.",
                 omitted.join("; ")
             ),
         ],
         SizeLevel::Shared(url) => vec![
-            serve.into(),
             format!(
                 "The runtime loads from {url}: publish it there with the same NeoFlash build, and visitors need network access to it. Cross-origin runtime hosts must allow CORS for WebAssembly."
             ),
@@ -2004,6 +2119,7 @@ pub(crate) fn write_package(
     name: &str,
     kind: &str,
 ) -> Result<PathBuf, ExportError> {
+    validate_package_file_names(files)?;
     let mut previous_files = Vec::new();
     if output_dir.exists() && fs::read_dir(output_dir)?.next().is_some() {
         let marker = fs::read_to_string(output_dir.join(MARKER))
@@ -2022,7 +2138,8 @@ pub(crate) fn write_package(
             .unwrap_or_default();
     }
     fs::create_dir_all(output_dir)?;
-    let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    let current_names: BTreeSet<String> =
+        files.iter().map(|(name, _)| name.to_lowercase()).collect();
     let marker = package_marker(files, name, kind)?;
     // Prepare all data before writing. Replace only generated files, with index written last.
     let (last, rest) = files
@@ -2036,7 +2153,9 @@ pub(crate) fn write_package(
     for stale in previous_files {
         let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
         let valid_rel = neoflash_core::validate_external_video_path(&stale).is_ok();
-        if (plain || valid_rel) && !names.contains(&stale.as_str()) {
+        // A case-only rename addresses the same file on the default macOS filesystem. Never
+        // delete the freshly written spelling while cleaning the marker's previous spelling.
+        if (plain || valid_rel) && !current_names.contains(&stale.to_lowercase()) {
             let _ = fs::remove_file(output_dir.join(stale));
         }
     }
@@ -2264,6 +2383,94 @@ mod tests {
             leftovers.is_empty(),
             "temporary files leaked: {leftovers:?}"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn package_paths_reject_generated_name_collisions_before_writing() {
+        assert!(reserved_publish_path("index.html"));
+        assert!(reserved_publish_path("RUNTIME.JS"));
+        assert!(reserved_publish_path("neoflash-export.json"));
+        assert!(reserved_publish_path("runtime.js/clip.mp4"));
+        assert!(!reserved_publish_path("media/clip.mp4"));
+
+        let duplicate = vec![
+            ("media/Clip.mp4".to_owned(), vec![1]),
+            ("media/clip.mp4".to_owned(), vec![2]),
+        ];
+        assert!(validate_package_file_names(&duplicate).is_err());
+        let marker = vec![(MARKER.to_owned(), vec![1])];
+        assert!(validate_package_file_names(&marker).is_err());
+        let file_directory_collision = vec![
+            ("runtime.js".to_owned(), vec![1]),
+            ("RUNTIME.JS/clip.mp4".to_owned(), vec![2]),
+        ];
+        assert!(validate_package_file_names(&file_directory_collision).is_err());
+        assert!(package_paths_collide("media", "Media/clip.mp4"));
+
+        let dir = temp();
+        let sentinel = dir.join("keep.txt");
+        fs::write(&sentinel, b"keep").unwrap();
+        assert!(write_package(&dir, &file_directory_collision, "collision", "project").is_err());
+        assert_eq!(fs::read(&sentinel).unwrap(), b"keep");
+        assert!(!dir.join("media").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn empty_external_video_still_rejects_generated_package_path_collision() {
+        let dir = temp();
+        let runtime_dir = dir.join("runtime");
+        runtime(&runtime_dir);
+        let output_dir = dir.join("output");
+
+        let mut project = Project::blank();
+        project.format_version = 11;
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes("video", "index.html", "video/mp4", &[])
+                .unwrap(),
+        );
+        project.symbols[0].timeline.layers[0].keyframes[0].video = Some(
+            neoflash_core::TimelineVideoSpan::external("video", "index.html"),
+        );
+        project.validate().unwrap();
+
+        let error = export_project_with_config(
+            &project,
+            &output_dir,
+            &runtime_dir,
+            &PublishOptions::default(),
+            &HtmlPublishConfig::clean_publish_default(),
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("collides with a generated package file"),
+            "got: {error}"
+        );
+        assert!(
+            !output_dir.exists(),
+            "failed preflight must not write output"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn package_case_only_asset_rename_never_deletes_the_new_file() {
+        let dir = temp();
+        let first = vec![
+            ("Media/clip.mp4".to_owned(), b"old".to_vec()),
+            ("index.html".to_owned(), b"first".to_vec()),
+        ];
+        write_package(&dir, &first, "case rename", "project").unwrap();
+
+        let second = vec![
+            ("media/clip.mp4".to_owned(), b"new".to_vec()),
+            ("index.html".to_owned(), b"second".to_vec()),
+        ];
+        write_package(&dir, &second, "case rename", "project").unwrap();
+        assert_eq!(fs::read(dir.join("media/clip.mp4")).unwrap(), b"new");
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
@@ -2847,19 +3054,13 @@ mod tests {
 
         let mut project = Project::demo();
         project.format_version = 7;
-        let codepoints: std::collections::BTreeSet<u32> =
-            "NeoFlash HTML5!".chars().map(|c| c as u32).collect();
-        let ttf_bytes = neoflash_core::TextFormat::subset_font_bytes(
-            b"not-an-sfnt-use-portable-metrics",
-            &codepoints,
-        )
-        .unwrap();
+        let ttf_bytes = include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
         project.resources.push(
             neoflash_core::ResourceUnit::from_bytes(
                 "font-neo",
                 "fonts/NeoFont.ttf",
                 "font/ttf",
-                &ttf_bytes,
+                ttf_bytes,
             )
             .unwrap(),
         );
@@ -2917,6 +3118,23 @@ mod tests {
                 .unwrap()
                 > 0
         );
+        assert_eq!(
+            bundle_subset["fonts"]["subset_stats"][0]["subset_applied"], false,
+            "subset policy must report its full-font fallback honestly"
+        );
+        assert_eq!(
+            bundle_subset["fonts"]["subset_stats"][0]["original_bytes"],
+            bundle_subset["fonts"]["subset_stats"][0]["subset_bytes"]
+        );
+        assert!(
+            bundle_subset["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|warning| warning
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("complete browser-loadable font")))
+        );
 
         // 3. Outlines policy converts static text placements into vector Path elements
         let out_outlines = dir.join("out-outlines");
@@ -2959,18 +3177,13 @@ mod tests {
         let mut project = Project::blank();
         project.format_version = 7;
         let font_id = "font-book-bold";
-        let all_fixture_codepoints: std::collections::BTreeSet<u32> = (32u32..=0x04ff).collect();
-        let font_bytes = neoflash_core::TextFormat::subset_font_bytes(
-            b"portable-font-fixture",
-            &all_fixture_codepoints,
-        )
-        .unwrap();
+        let font_bytes = include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
         project.resources.push(
             neoflash_core::ResourceUnit::from_bytes(
                 font_id,
                 "fonts/Book Antiqua Bold.ttf",
                 "font/ttf",
-                &font_bytes,
+                font_bytes,
             )
             .unwrap(),
         );
@@ -3034,6 +3247,11 @@ mod tests {
         let mut subset_project = project.clone();
         let subset = apply_font_policy(&mut subset_project, FontExportPolicy::Subset);
         assert_eq!(subset.subset_stats.len(), 1);
+        assert!(!subset.subset_stats[0].subset_applied);
+        assert_eq!(
+            subset.subset_stats[0].original_bytes,
+            subset.subset_stats[0].subset_bytes
+        );
         assert_eq!(
             subset.subset_stats[0].codepoint_count, 28,
             "space + A-Z + the explicit custom Omega"
@@ -3174,10 +3392,7 @@ mod tests {
         assert!(html_hud.contains("id=\"loading\" role=\"status\" hidden style=\"display:none\""));
 
         let bundle_hud_raw = fs::read_to_string(out_hud.join("bundle.js")).unwrap();
-        assert!(
-            bundle_hud_raw.ends_with("//# sourceMappingURL=bundle.js.map\n"),
-            "source_maps appends sourceMappingURL comment"
-        );
+        assert!(bundle_hud_raw.ends_with(";\n"));
         assert!(
             bundle_hud_raw.lines().count() > 20,
             "minify: false pretty-prints bundle.js"
@@ -3188,9 +3403,19 @@ mod tests {
         let bundle_json = bundle_hud_raw
             .strip_prefix("globalThis.NeoFlashBundle = ")
             .unwrap()
-            .strip_suffix(";\n//# sourceMappingURL=bundle.js.map\n")
+            .strip_suffix(";\n")
             .unwrap();
         let bundle_val: serde_json::Value = serde_json::from_str(bundle_json).unwrap();
+        assert!(
+            bundle_val["program"]["code"]
+                .as_str()
+                .unwrap()
+                .ends_with("//# sourceMappingURL=bundle.js.map"),
+            "the map belongs to the dynamically evaluated neoflash-project.js program"
+        );
+        let map: serde_json::Value =
+            serde_json::from_slice(&fs::read(out_hud.join("bundle.js.map")).unwrap()).unwrap();
+        assert_eq!(map["file"], "neoflash-project.js");
         assert_eq!(bundle_val["player_config"]["template"], "centered");
         assert_eq!(bundle_val["player_config"]["scale_mode"], "no_scale");
         assert_eq!(bundle_val["player_config"]["acceleration"], "gpu_web_gl");

@@ -300,7 +300,8 @@ pub struct LayerProperties {
     /// zoom and rotation do not displace it (format 9).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub attach_to_camera: bool,
-    /// Layer-level display filters applied to all content on this layer (Flash CS5.5+ / Animate, format 7).
+    /// Layer-level display filters applied to all content on this layer (Flash CS5.5+ / Animate,
+    /// format 11). Element-level filters remain a format-7 feature.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<crate::FilterSpec>,
 }
@@ -412,6 +413,30 @@ impl Project {
         if self.uses_format_10() {
             self.format_version = self.format_version.max(10);
         }
+        if self.uses_format_11() {
+            self.format_version = self.format_version.max(11);
+        }
+    }
+
+    /// Layer/keyframe display-filter stacks and non-embedded timeline-video deployment (format 11).
+    pub fn uses_format_11(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .any(|layer| {
+                !layer.properties.filters.is_empty()
+                    || layer.keyframes.iter().any(|key| {
+                        !key.filters.is_empty()
+                            || key
+                                .video
+                                .as_ref()
+                                .is_some_and(|video| video.uses_non_embedded_deployment())
+                    })
+            })
+            || self
+                .resources
+                .iter()
+                .any(|resource| resource.is_video() && resource.data_base64.is_empty())
     }
 
     /// Object-scoped Motion Tween settings and property keys (format 10).
@@ -450,6 +475,7 @@ impl Project {
                             || !k.controller_elements.is_empty()
                             || !k.ik_armatures.is_empty()
                             || !k.appearances.is_empty()
+                            || k.video.is_some()
                             || !k.extended_accessibility.is_empty()
                             || !k.vector_effects.is_empty()
                             || !k.property_expressions.is_empty()
@@ -491,45 +517,36 @@ impl Project {
 
     /// Document features introduced with format 7 (parametric Rectangle/Oval options, custom
     /// authoring transformation points, Bounce/Elastic and per-property eases, motion sync/snap
-    /// options, custom stereo sound envelopes or trim points, non-Embedded video deployment modes,
-    /// and authored display filters/blending/visibility).
+    /// options, custom stereo sound envelopes or trim points, and authored element display
+    /// filters/blending/visibility).
     pub fn uses_format_7(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|s| &s.timeline.layers)
             .any(|l| {
-                !l.properties.filters.is_empty()
-                    || l.keyframes.iter().any(|k| {
-                        matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
-                            || !k.property_eases.is_empty()
-                            || !k.shape_hints.is_empty()
-                            || !k.filters.is_empty()
-                            || k.sync_symbols
-                            || k.snap_to_guide
-                            || k.video
-                                .as_ref()
-                                .is_some_and(|v| v.uses_non_embedded_deployment())
-                            || k.sound.as_ref().is_some_and(|s| {
-                                s.effect == SoundEffect::Custom
-                                    || s.envelope.is_some()
-                                    || s.in_point.is_some()
-                                    || s.out_point.is_some()
-                            })
-                            || k.elements.iter().any(|e| {
-                                e.transform.pivot.is_some()
-                                    || e.transform.primitive.is_some()
-                                    || !e.visible
-                                    || e.cache_as_bitmap
-                                    || !e.blend_mode.is_normal()
-                                    || !e.filters.is_empty()
-                                    || e.merge
-                            })
-                    })
+                l.keyframes.iter().any(|k| {
+                    matches!(k.tween, Some(Easing::Bounce | Easing::Elastic))
+                        || !k.property_eases.is_empty()
+                        || !k.shape_hints.is_empty()
+                        || k.sync_symbols
+                        || k.snap_to_guide
+                        || k.sound.as_ref().is_some_and(|s| {
+                            s.effect == SoundEffect::Custom
+                                || s.envelope.is_some()
+                                || s.in_point.is_some()
+                                || s.out_point.is_some()
+                        })
+                        || k.elements.iter().any(|e| {
+                            e.transform.pivot.is_some()
+                                || e.transform.primitive.is_some()
+                                || !e.visible
+                                || e.cache_as_bitmap
+                                || !e.blend_mode.is_normal()
+                                || !e.filters.is_empty()
+                                || e.merge
+                        })
+                })
             })
-            || self
-                .resources
-                .iter()
-                .any(|r| r.is_video() && r.data_base64.is_empty())
     }
 
     /// Scene timelines in play order; a document without scenes has one, `root`.
@@ -1057,7 +1074,8 @@ pub struct Keyframe {
     /// Rich timeline span markers stored on the timeline's primary keyframe (T-121, format 9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<crate::TimelineMarker>,
-    /// Keyframe-level display filters applied to content on this keyframe span and interpolated across tweens (Flash CS5.5+ / Animate, format 7).
+    /// Keyframe-level display filters applied to content on this keyframe span and interpolated
+    /// across tweens (Flash CS5.5+ / Animate, format 11).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<crate::FilterSpec>,
 }

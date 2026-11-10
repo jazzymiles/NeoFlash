@@ -1289,13 +1289,8 @@ impl Editor {
         mapping: StageMapping,
         origin: Pos2,
     ) {
-        if (response.secondary_clicked()
-            || response
-                .ctx
-                .input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)))
-            && let Some(pos) = response
-                .interact_pointer_pos()
-                .or_else(|| response.ctx.input(|i| i.pointer.interact_pos()))
+        if response.secondary_clicked()
+            && let Some(pos) = response.interact_pointer_pos()
         {
             self.select_stage_context_target(
                 scene,
@@ -2551,6 +2546,32 @@ mod stage_tools_and_context_menu_tests {
         editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
             .elements
             .clear();
+        editor
+            .project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .frame_count = 3;
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0]
+            .keyframes
+            .push(Keyframe {
+                frame: 2,
+                elements: vec![make_test_element(
+                    "existing-frame-two",
+                    "Existing",
+                    200.0,
+                    80.0,
+                    ElementKind::Rectangle {
+                        width: 24.0,
+                        height: 24.0,
+                        fill: [180, 80, 40, 255],
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    },
+                )],
+                label: "preserve destination".into(),
+                ..Keyframe::default()
+            });
 
         // Configure animated Deco Vine Fill with step frames and custom branch angle.
         editor.set_stage_deco_options(StageDecoOptions {
@@ -2564,6 +2585,7 @@ mod stage_tools_and_context_menu_tests {
             secondary_color: [220, 190, 60, 255],
         });
 
+        let before_deco = editor.project.clone();
         let undo_before = editor.history.undo_len();
         let created_deco = editor.apply_stage_deco_local_gesture(&[[40.0, 40.0], [120.0, 80.0]]);
         assert!(!created_deco.is_empty());
@@ -2585,13 +2607,18 @@ mod stage_tools_and_context_menu_tests {
             editor.symbol().timeline.layers[0].keyframes.len() > 1,
             "animated Deco gesture must step keyframes across the timeline"
         );
+        let occupied = editor.symbol().timeline.layers[0].key_at(2).unwrap();
+        assert_eq!(occupied.label, "preserve destination");
+        assert!(
+            occupied
+                .elements
+                .iter()
+                .any(|element| element.id == "existing-frame-two"),
+            "animated Deco must preserve unrelated artwork on an occupied destination key"
+        );
 
         editor.undo();
-        assert!(
-            editor.symbol().timeline.layers[0].keyframes[0]
-                .elements
-                .is_empty()
-        );
+        assert_eq!(editor.project, before_deco);
 
         // Spray Brush gesture with Library symbol instances and deterministic seed.
         editor.set_stage_spray_options(StageSprayOptions {
@@ -2647,6 +2674,22 @@ mod stage_tools_and_context_menu_tests {
                 .elements
                 .is_empty()
         );
+
+        // Auto-key creation belongs to the gesture's Undo record, not to an earlier edit.
+        editor.frame = 1;
+        editor.workspace.timeline_prefs.auto_keyframe = true;
+        let before_auto_key = editor.project.clone();
+        let sprayed = editor.apply_stage_spray_local_gesture(&[[20.0, 20.0], [60.0, 30.0]]);
+        assert!(!sprayed.is_empty());
+        assert!(
+            editor.symbol().timeline.layers[0]
+                .keyframes
+                .iter()
+                .any(|key| key.frame == 1)
+        );
+        editor.undo();
+        assert_eq!(editor.project, before_auto_key);
+        assert!(editor.project.validate().is_ok());
     }
 
     #[test]
@@ -2697,6 +2740,20 @@ mod stage_tools_and_context_menu_tests {
         let leaf_bone = editor
             .stage_connect_ik_bone("upper-arm", "forearm")
             .expect("connect IK bone between upper-arm and forearm");
+        editor.symbol_mut().timeline.frame_count = 2;
+        editor.frame = 1;
+        editor.workspace.timeline_prefs.auto_keyframe = true;
+        let before_auto_key_pose = editor.project.clone();
+        assert!(editor.stage_drag_ik_effector([105.0, 90.0], None));
+        assert!(
+            editor.symbol().timeline.layers[0]
+                .keyframes
+                .iter()
+                .any(|key| key.frame == 1)
+        );
+        editor.undo();
+        assert_eq!(editor.project, before_auto_key_pose);
+        editor.frame = 0;
         assert!(editor.stage_drag_ik_effector([120.0, 100.0], None));
 
         assert!(editor.stage_bind_select_vertices("cape-path", vec![0, 1]));
@@ -2749,5 +2806,58 @@ mod stage_tools_and_context_menu_tests {
             .expect("3D gizmo screen geometry");
         assert!(geom.center.distance(geom.x_tip) > 10.0);
         assert!(editor.project.validate().is_ok());
+    }
+
+    #[test]
+    fn t199_global_secondary_press_outside_stage_response_does_not_retarget_selection() {
+        let mut editor = make_test_editor();
+        let root_id = editor.project.root.clone();
+        editor.project.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0]
+            .elements
+            .push(make_test_element(
+                "outside-stage-response",
+                "",
+                140.0,
+                140.0,
+                ElementKind::Rectangle {
+                    width: 30.0,
+                    height: 30.0,
+                    fill: [80, 120, 200, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+            ));
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(300.0))),
+            events: vec![
+                egui::Event::PointerMoved(Pos2::new(150.0, 150.0)),
+                egui::Event::PointerButton {
+                    pos: Pos2::new(150.0, 150.0),
+                    button: egui::PointerButton::Secondary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..egui::RawInput::default()
+        };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let response = ui.interact(
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 100.0)),
+                    ui.id().with("bounded-stage-response"),
+                    egui::Sense::click(),
+                );
+                let scene = evaluate(&editor.project, &root_id, 0);
+                editor.stage_context_menu(
+                    &response,
+                    &scene,
+                    ui.painter(),
+                    StageMapping::identity(),
+                    Pos2::ZERO,
+                );
+            });
+        });
+        assert!(editor.selection.is_empty());
     }
 }

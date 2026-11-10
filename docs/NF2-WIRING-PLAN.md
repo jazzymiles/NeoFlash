@@ -478,7 +478,7 @@ Controls kept disabled with explicit design requests (`R-013`–`R-020`) or sepa
 | Text ▸ Anti-alias, Embed used glyphs (W3.8 / E-26), Spell check, Vertical text, Input method | L subsystems | Require authored text anti-alias/vertical model, font subsetter (E-26), and spell-check engine |
 | Clipboard ▸ Copy as SVG, Keep layer names, Bitmaps ppi, Gradient quality, Large bitmap prompt | L subsystem | Requires native OS SVG/bitmap pasteboard writer (`arboard` is text-only today) |
 | Shortcuts ▸ Rename set | design (`R-020`) | No inline field or modal prompt in `panels-dialog-preferences-shortcuts.txt` |
-| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Acceleration / Strict | W1.10 (DL-03) | Awaits `PublishSettings` export pipeline options and image re-encoders; JS is always strict |
+| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Acceleration / Strict | W1.10 (DL-03) | Wrapper, compiled-code Source Map v3 and JPEG re-encoding are wired. Assets-folder relocation, acceleration selection and strict compiler enforcement remain pending; JS runtime modules keep their existing strict behavior. |
 | Updates page | — | Stays disabled (no update service, no telemetry) |
 
 Preferences ▸ Updates must stay disabled (no update service, no telemetry) until `platform-release` /
@@ -531,13 +531,14 @@ Read this before touching the timeline. AGENTS.md › "Timeline engine" is the s
 | `Project.scenes: Vec<Id>` | Scene timelines in play order (MovieClip symbol IDs). Empty = one scene, `root`; otherwise `scenes[0] == root`. Scene symbols are not library items and are never instantiated. |
 | `Timeline.guides: Vec<Guide>` | Ruler guides (authoring only, stripped from HTML5). See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). |
 
-`Project::uses_format_6()` through `uses_format_10()` detect these features; `upgrade_format_for_features()` raises
-`format_version` only as far as the document requires. Validation (`validation.rs`) accepts versions 1–10, rejects
+`Project::uses_format_6()` through `uses_format_11()` detect these features; `upgrade_format_for_features()` raises
+`format_version` only as far as the document requires. Validation (`validation.rs`) accepts versions 1–11, rejects
 newer-version fields in older documents, ◆ keys outside a motion span, shared or object-specific easing/path data on
 the wrong key, duplicate/missing object IDs, invalid spatial paths, malformed per-object property keys, custom sound
 envelopes outside `1..=8` sorted finite `[0..=1]` stereo points, invalid motion guides/scenes and frame sounds without
-an audio resource. Every new field is `#[serde(default, skip_serializing_if = …)]`, so documents without format-10
-object data retain their earlier serialized meaning and evaluation.
+an audio resource. Format 11 gates layer/keyframe display-filter stacks and External/Progressive timeline-video
+deployment. Every new field is `#[serde(default, skip_serializing_if = …)]`, so documents without format-10 object
+data or format-11 deployment data retain their earlier serialized meaning and evaluation.
 
 ### 7.2 Where each behaviour lives
 
@@ -590,8 +591,9 @@ sound collision or shortened Stream span is rejected before editing (`layer_cont
 ### 7.4 Remaining timeline work (task cards)
 
 Each row is one delivery unless grouped. Do not change visuals (§1); file a request when the design is missing. Every
-model change follows §1.7: serde default, one format bump per batch (current format is **10**: `uses_format_9` and
-`uses_format_10` sit beside `uses_format_6` through `uses_format_8`), validation, an old-document load test.
+model change follows §1.7: serde default, one format bump per batch (current format is **11**:
+`uses_format_9`, `uses_format_10` and `uses_format_11` sit beside `uses_format_6` through `uses_format_8`),
+validation, an old-document load test.
 
 | # | Work (spec) | Files to touch | Model change | Tests to add | Acceptance |
 | --- | --- | --- | --- | --- | --- |

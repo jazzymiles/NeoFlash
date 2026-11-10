@@ -51,7 +51,23 @@ impl Project {
                 "document exceeds the 128 MiB encoded JSON limit".into(),
             ));
         }
-        let project: Self = serde_json::from_str(json)?;
+        let mut project: Self = serde_json::from_str(json)?;
+        // Timeline video originally shipped without the format gate being raised, and the first
+        // layer/keyframe-filter writer likewise emitted those fields under an older version.
+        // Upgrade only these historically under-versioned fields while loading so existing files
+        // remain readable; freshly constructed invalid projects are still rejected by validate().
+        let has_timeline_video = project
+            .symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| key.video.is_some());
+        if has_timeline_video && project.format_version < 9 {
+            project.format_version = 9;
+        }
+        if project.uses_format_11() && project.format_version < 11 {
+            project.format_version = 11;
+        }
         project.validate()?;
         Ok(project)
     }
@@ -60,11 +76,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=10) {
+    if !matches!(project.format_version, 1..=11) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 10",
+                "unsupported version {}; supported versions are 1 through 11",
                 project.format_version
             ),
         );
@@ -93,13 +109,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     if project.uses_format_9() && project.format_version < 9 {
         add(
             "format_version".into(),
-            "painted-alpha/luminance or inverted timeline masks and per-resource audio export settings require document version 9".into(),
+            "painted-alpha/luminance or inverted timeline masks, per-resource export settings, and timeline video require document version 9".into(),
         );
     }
     if project.uses_format_10() && project.format_version < 10 {
         add(
             "format_version".into(),
             "object-scoped Motion Tween tracks and property keys require document version 10"
+                .into(),
+        );
+    }
+    if project.uses_format_11() && project.format_version < 11 {
+        add(
+            "format_version".into(),
+            "layer/keyframe display-filter stacks and External/Progressive timeline-video deployment require document version 11"
                 .into(),
         );
     }
@@ -210,6 +233,7 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             "encoded resources exceed the 64 MiB decoded total budget".into(),
         );
     }
+    let mut embedded_video_resources = HashSet::new();
     let mut external_video_resources = HashSet::new();
     let mut progressive_video_resources = HashSet::new();
     for symbol in &project.symbols {
@@ -218,20 +242,17 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 if let Some(video) = &key.video
                     && !video.resource.is_empty()
                 {
-                    match video.deployment {
-                        VideoDeploymentMode::Embedded => {
-                            if video.stream_url.is_some() {
-                                progressive_video_resources.insert(video.resource.as_str());
-                            } else if video.external_path.is_some() {
-                                external_video_resources.insert(video.resource.as_str());
-                            }
+                    match crate::resolve_video_source(project, video).map(|source| source.mode) {
+                        Some(VideoDeploymentMode::Embedded) => {
+                            embedded_video_resources.insert(video.resource.as_str());
                         }
-                        VideoDeploymentMode::External => {
+                        Some(VideoDeploymentMode::External) => {
                             external_video_resources.insert(video.resource.as_str());
                         }
-                        VideoDeploymentMode::Progressive => {
+                        Some(VideoDeploymentMode::Progressive) => {
                             progressive_video_resources.insert(video.resource.as_str());
                         }
+                        None => {}
                     }
                 }
             }
@@ -275,11 +296,20 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                 add(format!("{path}.path"), err);
             }
             if !resource.data_base64.is_empty() {
-                add(
-                    format!("{path}.data_base64"),
-                    "progressive video resource must have empty data_base64 (no duplicate embedded bytes)"
-                        .into(),
-                );
+                if !embedded_video_resources.contains(resource.id.as_str())
+                    && !external_video_resources.contains(resource.id.as_str())
+                {
+                    add(
+                        format!("{path}.data_base64"),
+                        "progressive-only video resource must have empty data_base64 (no duplicate local bytes)"
+                            .into(),
+                    );
+                } else if encoded_size_ok {
+                    match resource.decoded_bytes() {
+                        Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                        Err(error) => add(format!("{path}.data_base64"), error.to_string()),
+                    }
+                }
             }
         } else if is_ext_video {
             if let Err(err) = crate::validate_external_video_path(&resource.path) {
@@ -1349,11 +1379,16 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             } else {
                                 match project.resources.iter().find(|r| r.id == video.resource) {
                                     Some(resource) if resource.is_video() => {
-                                        if !resource.data_base64.is_empty() {
+                                        if !resource.data_base64.is_empty()
+                                            && !embedded_video_resources
+                                                .contains(video.resource.as_str())
+                                            && !external_video_resources
+                                                .contains(video.resource.as_str())
+                                        {
                                             add(
                                                 format!("{kp}.video.resource"),
                                                 format!(
-                                                    "progressive video resource '{}' must have empty data_base64 (no duplicate embedded bytes)",
+                                                    "progressive-only video resource '{}' must have empty data_base64 (no duplicate local bytes)",
                                                     video.resource
                                                 ),
                                             );

@@ -53,12 +53,12 @@ Outside the target and never in a percentage: AS2 UI components 1,044 · Other l
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 146 of 159 | 12 | 1 | 7 / 5 / 0 |
+| Editor and graphics | 148 of 162 | 13 | 1 | 7 / 5 / 0 |
 | Timelines and animation | 77 of 80 | 3 | 0 | 7 / 3 / 0 |
-| HTML5 and interactivity | 84 of 94 | 9 | 1 | 8 / 4 / 0 |
+| HTML5 and interactivity | 83 of 94 | 10 | 1 | 8 / 4 / 0 |
 | Import and file compatibility | 56 of 68 | 12 | 0 | 3 / 7 / 0 |
-| Platform and quality | 39 of 55 | 4 | 12 | 3 / 6 / 1 |
-| **All areas** | 402 of 456 | 40 | 14 | 28 / 25 / 1 |
+| Platform and quality | 39 of 57 | 6 | 12 | 2 / 7 / 1 |
+| **All areas** | 403 of 461 | 44 | 14 | 27 / 26 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -102,7 +102,7 @@ New and Open add document tabs; reopening the same file or imported source activ
 
 **Actions → Project files** stores reusable AS1/AS2/AS3, JavaScript and TypeScript source, linked classes and imported SWC libraries. **Library → Resource files** embeds data, images, fonts and media for portable HTML5 projects. Runtime support covers display hierarchies, events, rich and editable text, Stage3D and Pixel Bender shaders, filters, bitmap processing, local/remote SharedObject and SQLite storage, Web Audio/video and responsive DOM layout; environment boundaries are listed in the [compatibility matrix](docs/COMPATIBILITY.md).
 
-HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. `neoflash-export --size-level` trades portability for weight: Full opens from disk, Balanced and Compact need HTTP(S) hosting (Compact leaves out ActionScript families the project never names), and Shared loads a runtime folder published once; `--size-estimate` compares them ([decision](docs/decisions/0038-publish-size-levels.md)). Full remains the default for older editor preferences and Test Movie. Publish settings (⇧F12) selects Full, Balanced, Compact or Shared runtime with a live on-disk weight bar, exact gzip total and hosting trade-offs. Publish uses the draft, OK saves workspace defaults, and Cancel discards changes. Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
+HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. `neoflash-export --size-level` trades portability for weight: Full embeds WebAssembly in the project bundle, Balanced and Compact keep a streaming WebAssembly file plus a direct-file fallback (Compact leaves out ActionScript families the project never names), and Shared loads a runtime folder published once; `--size-estimate` compares them ([decision](docs/decisions/0038-publish-size-levels.md)). Full remains the default for older editor preferences and Test Movie. Publish settings (⇧F12) selects Full, Balanced, Compact or Shared runtime with a live on-disk weight bar, exact gzip total and hosting trade-offs. Publish uses the draft, OK saves workspace defaults, and Cancel discards changes. Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
 
 Timeline masks retain classic geometric silhouettes by default. Saved format9 projects can use explicit soft alpha with gradients, PNG transparency and nested/moving sources in the native stage and HTML5; the editor mode selector is still pending. AS2/AS3 use source-and-target `cacheAsBitmap` for the same soft coverage ([mask behavior and limits](docs/decisions/0023-runtime-masks-and-scroll-rectangles.md)).
 
@@ -122,7 +122,7 @@ System fonts are discovered through CoreText and author-selected standalone font
 | Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
 | Browser integration and dragging | [Web integration](examples/web-integration.nflash), [Drag and drop](examples/drag-drop.nflash) |
 
-**File → Open…** opens binary FLA files saved by Flash 3 through CS4, XFL and ZIP-based FLA documents (CS5+/Animate), published SWF movies (with source reconstruction and a bounded AVM1/AVM2 interpreter) and SWC libraries, and **File → Save as…** exports `.fla` (XFL 2.2) archives. Supported scenes, nested symbols, layers, masks, motion guides, tweens, filters, blend modes, bitmap fills, text, sounds and scripts are preserved; unrepresented legacy records are approximated or kept as visible placeholders with a located diagnostic. The SWF interpreter can drive timeline state and trace output but does not render its dynamic display list onto Stage, so it is not a full visual legacy player. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md).
+**File → Open…** opens binary FLA files saved by Flash 3 through CS4, XFL and ZIP-based FLA documents (CS5+/Animate), published SWF movies (with source reconstruction and a bounded AVM1/AVM2 interpreter) and SWC libraries. **File → Save as…** can create a preflighted modern Animate `.fla` as a derived copy without retargeting the open native document or clearing its unsaved state; the other versioned FLA/XFL profiles live under **File → Export**. **File → Export Flash Movie…** writes a bounded standalone `.swf` after script/depth checks and structural re-import verification. Supported scenes, nested symbols, layers, masks, motion guides, tweens, filters, blend modes, bitmap fills, text, sounds and scripts are preserved where the selected profile supports them; unsupported content is blocked or kept as an explicit approximation instead of being silently discarded. The SWF interpreter can drive timeline state and trace output but does not render its dynamic display list onto Stage, so it is not a full visual legacy player. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md) and [current export boundaries](docs/COMPATIBILITY.md).
 
 The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) and seven external XFL/FLA sources import through the native converter with 21 imports and 0 refusals, and an Adobe CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; see [legacy import support and limits](docs/IMPORTS.md).
 

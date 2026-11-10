@@ -856,7 +856,7 @@ fn converts_legacy_filters_and_blend_modes_with_approximations_reported() {
         },
     ];
     let converted = convert_filters(&filters, "inst-filters", &mut rep);
-    assert_eq!(converted.len(), 2);
+    assert_eq!(converted.len(), 3);
     validate_filters(&converted).unwrap();
     assert!(matches!(
         &converted[0],
@@ -875,10 +875,21 @@ fn converts_legacy_filters_and_blend_modes_with_approximations_reported() {
             && (*strength - 1.5).abs() < 1e-5
     ));
     assert!(matches!(&converted[1], FilterSpec::ColorMatrix { .. }));
+    assert!(matches!(
+        &converted[2],
+        FilterSpec::Blur {
+            blur_x,
+            blur_y,
+            quality: 0x81,
+        } if (*blur_x - 12.0).abs() < 1e-5 && (*blur_y - 12.0).abs() < 1e-5
+    ));
+    assert!(!converted[2].is_enabled());
+    assert_eq!(converted[2].quality_level(), 1);
     assert!(
-        rep.diagnostics
+        !rep.diagnostics
             .iter()
-            .any(|d| d.code == "fla_filter_approximated" && d.location == "inst-filters")
+            .any(|d| d.code == "fla_filter_approximated" && d.location == "inst-filters"),
+        "disabled filters are retained exactly and must not be reported as omitted"
     );
 }
 
@@ -1269,6 +1280,10 @@ fn flash_mx_dynamic_input_and_mixed_utf16_runs_survive_conversion_save_reopen_an
         assert_eq!(els[2].name, "status_txt");
         assert_eq!(status_state.field_type, TextFieldType::Dynamic);
         assert!(!status_state.selectable);
+        assert!(
+            status_state.html,
+            "historical 0x0080 flag retains HTML mode"
+        );
     };
 
     check_elements(elements);
@@ -1300,4 +1315,140 @@ fn flash_mx_dynamic_input_and_mixed_utf16_runs_survive_conversion_save_reopen_an
         "Score: 🎯 100 pts"
     );
     let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn flash8_single_run_fields_and_multibyte_metadata_keep_authored_semantics() {
+    let mut original_bytes = Vec::new();
+    let mut append_utf16 = |text: &str| {
+        let start = original_bytes.len();
+        original_bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let span = TimelineByteSpan {
+            start,
+            end: original_bytes.len(),
+        };
+        TimelineString {
+            encoded: span,
+            data: span,
+            utf16: true,
+        }
+    };
+
+    let font = append_utf16("Arial");
+    let dynamic_chars = append_utf16("Dynamic");
+    let input_chars = append_utf16("secret");
+    let static_chars = append_utf16("Static");
+    let dynamic_variable = append_utf16("_root.dynamicText");
+    let input_variable = append_utf16("_root.inputText");
+    let dynamic_name = append_utf16("dynamic_txt");
+    let input_name = append_utf16("input_txt");
+    let long_url = append_utf16(&"é".repeat(3_000));
+    let long_target = append_utf16(&"界".repeat(100));
+
+    let style = TimelineTextStyle {
+        revision: 10,
+        font_size_twips: Some(240),
+        font_family: Some(font),
+        color_rgba: Some(0xff00_0000),
+        alignment: Some(0),
+        url: Some(long_url),
+        target: Some(long_target),
+        ..TimelineTextStyle::default()
+    };
+    let text = |characters: TimelineString,
+                instance_name: Option<TimelineString>,
+                variable_name: Option<TimelineString>,
+                flags: u32,
+                max_characters: u16| TimelineText {
+        revision: Some(9),
+        matrix_words: Some([65_536, 0, 0, 65_536, 0, 0]),
+        bounds_words: Some([0, 2_000, 0, 400]),
+        flags: Some(flags),
+        max_characters: Some(max_characters),
+        variable_name,
+        instance_name,
+        runs: vec![TimelineTextRun {
+            characters,
+            style: style.clone(),
+        }],
+        ..TimelineText::default()
+    };
+    let dynamic = text(
+        dynamic_chars,
+        Some(dynamic_name),
+        Some(dynamic_variable),
+        0x0001 | 0x0002 | 0x0080,
+        0,
+    );
+    let input = text(
+        input_chars,
+        Some(input_name),
+        Some(input_variable),
+        0x0001 | 0x0004,
+        12,
+    );
+    let static_text = text(static_chars, None, None, 0, 0);
+    let stream = BinaryTimelineStream {
+        index: 1,
+        stream_kind: Some(1),
+        root: None,
+        references: vec![],
+        pointers: vec![],
+        objects: vec![],
+        shapes: vec![],
+        original_bytes,
+    };
+    let mut import_report = report();
+
+    let dynamic_element = convert_timeline_text(
+        &stream,
+        &dynamic,
+        "dynamic",
+        "",
+        Some(0x3f),
+        &mut import_report,
+    )
+    .expect("Flash 8 dynamic text");
+    let dynamic_state =
+        TextFieldState::from_kind(&dynamic_element.kind).expect("dynamic field state");
+    assert_eq!(dynamic_element.name, "dynamic_txt");
+    assert_eq!(dynamic_state.field_type, TextFieldType::Dynamic);
+    assert!(!dynamic_state.selectable);
+    assert!(dynamic_state.html);
+    assert_eq!(dynamic_state.variable.as_deref(), Some("_root.dynamicText"));
+    assert_eq!(dynamic_state.format.url.len(), 4_096);
+    assert_eq!(dynamic_state.format.target_str().len(), 255);
+    dynamic_state
+        .format
+        .validate()
+        .expect("UTF-8 metadata is truncated to byte limits");
+
+    let input_element =
+        convert_timeline_text(&stream, &input, "input", "", Some(0x3f), &mut import_report)
+            .expect("Flash 8 input text");
+    let input_state = TextFieldState::from_kind(&input_element.kind).expect("input field state");
+    assert_eq!(input_element.name, "input_txt");
+    assert_eq!(input_state.field_type, TextFieldType::Input);
+    assert!(input_state.display_as_password);
+    assert_eq!(input_state.max_chars, 12);
+    assert_eq!(input_state.variable.as_deref(), Some("_root.inputText"));
+
+    let static_element = convert_timeline_text(
+        &stream,
+        &static_text,
+        "static",
+        "",
+        Some(0x3f),
+        &mut import_report,
+    )
+    .expect("Flash 8 static text keeps the established converter path");
+    let ElementKind::TextBox { format, .. } = &static_element.kind else {
+        panic!("static text must remain a text box");
+    };
+    assert!(format.field_options().is_none());
+    assert_eq!(format.url.len(), 4_096);
+    assert_eq!(format.target_str().len(), 255);
+    format
+        .validate()
+        .expect("static text metadata is also byte-bounded");
 }

@@ -158,17 +158,24 @@ pub(crate) fn collect_compiler_diagnostics(project: &Project) -> Vec<CompilerDia
     let active_program = program.as_ref().ok().or(fallback_program.as_ref());
 
     for symbol in &project.symbols {
-        let actions_layer = symbol
-            .timeline
-            .layers
-            .iter()
-            .rev()
-            .find(|l| l.name.eq_ignore_ascii_case("actions"))
-            .map(|l| l.name.as_str());
         for fs in &symbol.timeline.scripts {
             if fs.script.source.trim().is_empty() {
                 continue;
             }
+            let actions_layer = symbol
+                .timeline
+                .action_layer_for_frame(fs.frame)
+                .and_then(|index| symbol.timeline.layers.get(index))
+                .or_else(|| {
+                    symbol
+                        .timeline
+                        .layers
+                        .iter()
+                        .rev()
+                        .find(|layer| layer.name.eq_ignore_ascii_case("actions"))
+                })
+                .or_else(|| symbol.timeline.layers.last())
+                .map(|layer| layer.name.as_str());
             let result = match active_program {
                 Some(prog) => neoflash_script::compile_with_program(&fs.script, prog),
                 None => neoflash_script::compile(&fs.script),

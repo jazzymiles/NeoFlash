@@ -328,26 +328,34 @@ fn push_symbol_rows(
     let filtering = !query.is_empty();
 
     if state.show_frames_and_layers {
-        // Choose which layer hosts frame scripts when structured view is enabled:
-        // prefer an "actions" layer, otherwise the topmost layer.
+        // Match the Timeline's actual per-frame action-bearing row. Keep the historical
+        // named/top-layer fallback for scripts whose frame has no ordinary visible keyframe.
         let top_layer_idx = sym.timeline.layers.len().checked_sub(1);
-        let script_layer_idx = sym
+        let named_actions_idx = sym
             .timeline
             .layers
             .iter()
             .enumerate()
             .rev()
             .find(|(_, l)| l.name.eq_ignore_ascii_case("actions"))
-            .map(|(i, _)| i)
-            .or(top_layer_idx);
+            .map(|(i, _)| i);
+        let script_layer_idx = |frame| {
+            sym.timeline
+                .action_layer_for_frame(frame)
+                .or(named_actions_idx)
+                .or(top_layer_idx)
+        };
 
         for (layer_idx, layer) in sym.timeline.layers.iter().enumerate().rev() {
             let layer_key = format!("layer:{}:{}", sym.id, layer.id);
             let layer_bc = format!("{bc_prefix} › {}", layer.name);
             let mut frame_numbers: Vec<u32> = layer.keyframes.iter().map(|k| k.frame).collect();
-            if script_layer_idx == Some(layer_idx) && cats[CAT_SCRIPTS] {
+            if cats[CAT_SCRIPTS] {
                 for fs in &sym.timeline.scripts {
-                    if !fs.script.source.trim().is_empty() && !frame_numbers.contains(&fs.frame) {
+                    if !fs.script.source.trim().is_empty()
+                        && script_layer_idx(fs.frame) == Some(layer_idx)
+                        && !frame_numbers.contains(&fs.frame)
+                    {
                         frame_numbers.push(fs.frame);
                     }
                 }
@@ -404,7 +412,7 @@ fn push_symbol_rows(
                         }
                     }
                 }
-                if script_layer_idx == Some(layer_idx)
+                if script_layer_idx(frame_num) == Some(layer_idx)
                     && cats[CAT_SCRIPTS]
                     && let Some(fs) = sym
                         .timeline

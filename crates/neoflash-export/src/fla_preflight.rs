@@ -124,6 +124,97 @@ impl FlaTargetProfile {
     }
 }
 
+fn filter_is_serialized_by_profile(profile: FlaTargetProfile, filter: &FilterSpec) -> bool {
+    match filter {
+        FilterSpec::DropShadow { .. }
+        | FilterSpec::Blur { .. }
+        | FilterSpec::Glow { .. }
+        | FilterSpec::Bevel { .. } => true,
+        FilterSpec::GradientGlow { .. } | FilterSpec::GradientBevel { .. } => {
+            profile.is_legacy_binary()
+        }
+        FilterSpec::ColorMatrix { .. } | FilterSpec::Convolution { .. } => false,
+    }
+}
+
+fn filter_kind_name(filter: &FilterSpec) -> &'static str {
+    match filter {
+        FilterSpec::DropShadow { .. } => "DropShadow",
+        FilterSpec::Blur { .. } => "Blur",
+        FilterSpec::Glow { .. } => "Glow",
+        FilterSpec::Bevel { .. } => "Bevel",
+        FilterSpec::GradientGlow { .. } => "GradientGlow",
+        FilterSpec::GradientBevel { .. } => "GradientBevel",
+        FilterSpec::ColorMatrix { .. } => "ColorMatrix",
+        FilterSpec::Convolution { .. } => "Convolution",
+    }
+}
+
+fn preflight_filter_stack(
+    filters: &[FilterSpec],
+    location: &str,
+    profile: FlaTargetProfile,
+    report: &mut FlaCompatibilityReport,
+) {
+    for (index, filter) in filters.iter().enumerate() {
+        let supported = filter_is_serialized_by_profile(profile, filter);
+        report.push(
+            if supported {
+                "filter_serialized"
+            } else {
+                "filter_not_serialized"
+            },
+            FlaFeatureCategory::FiltersAndBlends,
+            if supported {
+                FlaFeatureDisposition::Exact
+            } else {
+                FlaFeatureDisposition::Blocking
+            },
+            format!("{location}:filter[{index}]"),
+            if supported {
+                format!(
+                    "{} filter has a native representation in {}.",
+                    filter_kind_name(filter),
+                    profile.label()
+                )
+            } else {
+                format!(
+                    "{} filter has no lossless representation in the current {} writer; export is blocked instead of silently dropping or replacing it.",
+                    filter_kind_name(filter),
+                    profile.label()
+                )
+            },
+        );
+        let gradient_stop_count = match filter {
+            FilterSpec::GradientGlow {
+                colors,
+                alphas,
+                ratios,
+                ..
+            }
+            | FilterSpec::GradientBevel {
+                colors,
+                alphas,
+                ratios,
+                ..
+            } => colors.len().min(alphas.len()).min(ratios.len()),
+            _ => 0,
+        };
+        if profile.is_legacy_binary() && gradient_stop_count > 15 {
+            report.push(
+                "legacy_filter_gradient_stop_limit",
+                FlaFeatureCategory::FiltersAndBlends,
+                FlaFeatureDisposition::Blocking,
+                format!("{location}:filter[{index}]"),
+                format!(
+                    "{} has {gradient_stop_count} gradient stops, but the legacy binary FLA structure stores at most 15; export is blocked instead of truncating the last stop.",
+                    filter_kind_name(filter)
+                ),
+            );
+        }
+    }
+}
+
 /// How an authored feature is handled for a target FLA/XFL or SWF profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -329,9 +420,34 @@ pub fn preflight_fla_export_with_options(
             FlaFeatureDisposition::Exact,
             "Project",
             format!(
-                "Stage {}x{} @ {} fps and background RGBA {:?} are supported.",
-                project.width, project.height, project.fps, project.background
+                "Stage {}x{} and background RGBA {:?} are supported.",
+                project.width, project.height, project.background
             ),
+        );
+    }
+
+    if project.fps > 120 {
+        report.push(
+            "frame_rate_clamped",
+            FlaFeatureCategory::DocumentSettings,
+            if options.allow_approximations {
+                FlaFeatureDisposition::Approximated
+            } else {
+                FlaFeatureDisposition::Blocking
+            },
+            "Project.fps",
+            format!(
+                "Frame rate {} fps exceeds the FLA/XFL export maximum of 120 fps; export uses 120 fps.",
+                project.fps
+            ),
+        );
+    } else {
+        report.push(
+            "document_frame_rate_exact",
+            FlaFeatureCategory::DocumentSettings,
+            FlaFeatureDisposition::Exact,
+            "Project.fps",
+            format!("Frame rate {} fps is supported.", project.fps),
         );
     }
 
@@ -636,6 +752,7 @@ fn preflight_layer(
     }
 
     // Layer-level filters & blend mode
+    preflight_filter_stack(&props.filters, layer_loc, profile, report);
     if !props.filters.is_empty() || !props.blend_mode.is_normal() {
         let disp = if options.bake_unsupported_tweens || options.allow_approximations {
             FlaFeatureDisposition::Converted
@@ -687,6 +804,22 @@ fn preflight_layer(
 
     for kf in &layer.keyframes {
         let kf_loc = format!("{}:frame[{}]", layer_loc, kf.frame);
+        preflight_filter_stack(&kf.filters, &kf_loc, profile, report);
+        for el in &kf.elements {
+            let effective_filter_count = props.filters.len() + kf.filters.len() + el.filters.len();
+            if effective_filter_count > neoflash_core::MAX_OBJECT_FILTERS {
+                report.push(
+                    "effective_filter_stack_too_large",
+                    FlaFeatureCategory::FiltersAndBlends,
+                    FlaFeatureDisposition::Blocking,
+                    format!("{kf_loc}:element:{}", el.id),
+                    format!(
+                        "Element, keyframe and layer filters combine to {effective_filter_count}; the portable display stack supports at most {}. Export is blocked instead of truncating the stack.",
+                        neoflash_core::MAX_OBJECT_FILTERS
+                    ),
+                );
+            }
+        }
         preflight_keyframe(
             kf,
             &kf_loc,
@@ -869,6 +1002,21 @@ fn preflight_keyframe(
         );
     }
 
+    if kf.video.is_some() {
+        report.push(
+            "timeline_video_not_serialized",
+            FlaFeatureCategory::MediaAndSound,
+            if options.allow_approximations {
+                FlaFeatureDisposition::Approximated
+            } else {
+                FlaFeatureDisposition::Blocking
+            },
+            kf_loc,
+            "Timeline video playback, deployment mode and cue points are not serialized by the current FLA/XFL writer; approximation keeps only authored viewport artwork."
+                .to_owned(),
+        );
+    }
+
     // Elements
     for el in &kf.elements {
         let el_loc = format!("{}/Element({})", kf_loc, el.id);
@@ -912,6 +1060,7 @@ fn preflight_element(
     }
 
     // Filters & Blend modes
+    preflight_filter_stack(&el.filters, el_loc, profile, report);
     if !el.filters.is_empty() || !el.blend_mode.is_normal() {
         let is_instance_or_text = matches!(
             el.kind,
@@ -1016,13 +1165,14 @@ fn preflight_element(
             report.push(
                 "video_instance",
                 FlaFeatureCategory::MediaAndSound,
-                if profile.is_legacy_binary() {
+                if options.allow_approximations {
                     FlaFeatureDisposition::Approximated
                 } else {
-                    FlaFeatureDisposition::Exact
+                    FlaFeatureDisposition::Blocking
                 },
                 el_loc,
-                "Video viewport instance inspected.".to_owned(),
+                "Video media is not serialized by the current FLA/XFL writer; approximation keeps only a viewport placeholder."
+                    .to_owned(),
             );
         }
         ElementKind::Instance { .. } => {
@@ -1273,17 +1423,13 @@ fn normalize_derived_elements(project: &mut Project, profile: FlaTargetProfile) 
                 layer.properties.mask_invert = false;
             }
             for kf in &mut layer.keyframes {
+                let keyframe_filters = std::mem::take(&mut kf.filters);
                 for el in &mut kf.elements {
                     if el.blend_mode.is_normal() && !layer_blend.is_normal() {
                         el.blend_mode = layer_blend;
                     }
-                    if !layer_filters.is_empty() {
-                        for f in &layer_filters {
-                            if el.filters.len() < 8 {
-                                el.filters.push(f.clone());
-                            }
-                        }
-                    }
+                    el.filters.extend(keyframe_filters.iter().cloned());
+                    el.filters.extend(layer_filters.iter().cloned());
                     // Expand variable-width stroke profiles or legacy parametric primitives
                     if (!el.stroke_width_profile().is_default()
                         || (profile.is_legacy_binary() && el.has_parametric_options()))
@@ -2725,6 +2871,8 @@ fn write_color_transform_xml(t: &Transform, indent: &str) -> String {
 fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
     let mut inner = String::new();
     for f in filters {
+        let enabled = f.is_enabled();
+        let quality_level = f.quality_level().clamp(1, 15);
         match f {
             FilterSpec::DropShadow {
                 distance,
@@ -2734,13 +2882,13 @@ fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 inner: is_inner,
                 knockout,
                 hide_object,
             } => {
                 inner.push_str(&format!(
-                    "{indent}  <DropShadowFilter distance=\"{}\" angle=\"{}\" color=\"#{:06X}\" alpha=\"{}\" blurX=\"{}\" blurY=\"{}\" strength=\"{}\" quality=\"{}\" inner=\"{}\" knockout=\"{}\" hideObject=\"{}\"/>\n",
+                    "{indent}  <DropShadowFilter distance=\"{}\" angle=\"{}\" color=\"#{:06X}\" alpha=\"{}\" blurX=\"{}\" blurY=\"{}\" strength=\"{}\" quality=\"{}\" inner=\"{}\" knockout=\"{}\" hideObject=\"{}\" isEnabled=\"{}\"/>\n",
                     fmt_num(*distance),
                     fmt_num(*angle),
                     color & 0xFFFFFF,
@@ -2748,22 +2896,24 @@ fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
                     fmt_num(*blur_x),
                     fmt_num(*blur_y),
                     fmt_num(*strength),
-                    quality,
+                    quality_level,
                     is_inner,
                     knockout,
-                    hide_object
+                    hide_object,
+                    enabled
                 ));
             }
             FilterSpec::Blur {
                 blur_x,
                 blur_y,
-                quality,
+                quality: _,
             } => {
                 inner.push_str(&format!(
-                    "{indent}  <BlurFilter blurX=\"{}\" blurY=\"{}\" quality=\"{}\"/>\n",
+                    "{indent}  <BlurFilter blurX=\"{}\" blurY=\"{}\" quality=\"{}\" isEnabled=\"{}\"/>\n",
                     fmt_num(*blur_x),
                     fmt_num(*blur_y),
-                    quality
+                    quality_level,
+                    enabled
                 ));
             }
             FilterSpec::Glow {
@@ -2772,20 +2922,21 @@ fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 inner: is_inner,
                 knockout,
             } => {
                 inner.push_str(&format!(
-                    "{indent}  <GlowFilter color=\"#{:06X}\" alpha=\"{}\" blurX=\"{}\" blurY=\"{}\" strength=\"{}\" quality=\"{}\" inner=\"{}\" knockout=\"{}\"/>\n",
+                    "{indent}  <GlowFilter color=\"#{:06X}\" alpha=\"{}\" blurX=\"{}\" blurY=\"{}\" strength=\"{}\" quality=\"{}\" inner=\"{}\" knockout=\"{}\" isEnabled=\"{}\"/>\n",
                     color & 0xFFFFFF,
                     fmt_num(*alpha),
                     fmt_num(*blur_x),
                     fmt_num(*blur_y),
                     fmt_num(*strength),
-                    quality,
+                    quality_level,
                     is_inner,
-                    knockout
+                    knockout,
+                    enabled
                 ));
             }
             FilterSpec::Bevel {
@@ -2798,12 +2949,12 @@ fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             } => {
                 inner.push_str(&format!(
-                    "{indent}  <BevelFilter distance=\"{}\" angle=\"{}\" highlightColor=\"#{:06X}\" highlightAlpha=\"{}\" shadowColor=\"#{:06X}\" shadowAlpha=\"{}\" blurX=\"{}\" blurY=\"{}\" strength=\"{}\" quality=\"{}\" type=\"{}\" knockout=\"{}\"/>\n",
+                    "{indent}  <BevelFilter distance=\"{}\" angle=\"{}\" highlightColor=\"#{:06X}\" highlightAlpha=\"{}\" shadowColor=\"#{:06X}\" shadowAlpha=\"{}\" blurX=\"{}\" blurY=\"{}\" strength=\"{}\" quality=\"{}\" type=\"{}\" knockout=\"{}\" isEnabled=\"{}\"/>\n",
                     fmt_num(*distance),
                     fmt_num(*angle),
                     highlight_color & 0xFFFFFF,
@@ -2813,12 +2964,16 @@ fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
                     fmt_num(*blur_x),
                     fmt_num(*blur_y),
                     fmt_num(*strength),
-                    quality,
+                    quality_level,
                     xml_escape(placement),
-                    knockout
+                    knockout,
+                    enabled
                 ));
             }
-            _ => {}
+            unsupported => unreachable!(
+                "{} is blocked by FLA/XFL preflight before XML serialization",
+                filter_kind_name(unsupported)
+            ),
         }
     }
     if inner.is_empty() {

@@ -909,7 +909,7 @@ Enter applies and persists; Reset to defaults resets the active page's group. Wi
   tooltips; shortcut set selector (`NeoFlash default` + user sets with `Duplicate` / `Delete`), live Search and
   category filter, click-to-record `"Press keys…"` (`Esc` cancels, `Backspace`/`Delete` clears), `Conflicts with …`
   warning badge, `Reset command`, and `Export as HTML…`.
-- **Publish:** Default target (`HTML5 · Rust / WebAssembly`, `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet`, or `SVG animation`), Output folder + `Browse…`, `HTML wrapper`, `Assets folder`, `Source maps`, `Preview & publish` (`Preview mode`: `Technical bar` vs `Clean stage`, `Clean publish output` checkbox, and individual `FPS & frames`, `Stage size (W×H)`, `Playback controls`, `Weight & size report` and `Trace & diagnostics` checkboxes), `Compression` (`Images` JPEG quality slider `1..=100`, `Audio` policy, `Acceleration`: `GPU (WebGL)`, `Canvas 2D`, `Software`), `Strict mode`, `Treat warnings as errors`, and `Publish on save` (`T-198`).
+- **Publish:** Default target (`HTML5 · Rust / WebAssembly`, `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet`, or `SVG animation`), Output folder + `Browse…`, `HTML wrapper`, `Assets folder`, `Source maps`, `Preview & publish` (`Preview mode`: `Technical bar` vs `Clean stage`, `Clean publish output` checkbox, and individual `FPS & frames`, `Stage size (W×H)`, `Playback controls`, `Weight & size report` and `Trace & diagnostics` checkboxes), `Compression` (`Images` JPEG quality slider `1..=100`, `Audio` policy, `Acceleration`: `GPU (WebGL)`, `Canvas 2D`, `Software`), `Strict mode`, `Treat warnings as errors`, and `Publish on save` (`T-198`). Five target routes, wrapper/template/scale/playback, JPEG, trace, preview chrome and compiled-code Source Map v3 are functional; Assets folder, Strict mode and Acceleration are stored future options, while bitmap-atlas generation and runtime-module minification remain incomplete.
 - **Updates** and controls waiting on NF2 design tokens (`R-013`–`R-020`) or standalone subsystems (merge drawing, font
   embedding `E-26`, spell check, vertical text, native OS bitmap/SVG clipboard, asset re-encoding, WebGL) stay disabled.
 Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
@@ -928,6 +928,13 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
 
 ### Other planned dialogs
 
+**DEV-01 · UI Layout Studio** — partial (`panels/ui_studio.rs`, standalone launcher, `T-194`)
+- Working: developer-only multi-artboard canvas, editable layout tree and SVG import/export using existing shared
+  component primitives; the macOS package exposes a second launcher for the same editor binary.
+- Pending: approved NF2 composition/state contract (`NF2-REQUESTS` R-069), complete artboard Undo/Redo, durable
+  artboard/session persistence and drag-origin handling across successive frames. It is not yet a production editor
+  for the locked design system and must not write design tokens or locked sources.
+
 **DL-02 · Document settings (⌘J)** — done (`panels/document_settings.rs`, `Document ▸ Document settings…` `⌘J`)
 - Done: modal dialog editing a draft of stage `W × H` (with optional aspect lock), `Match contents` (translates root
   scene content so union bounds start at `(0, 0)`), `Scale content with stage` + 9-point registration anchor, `Units`
@@ -939,12 +946,12 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   picker); Units; Background; Frame rate (→ "N frames · s"); Script version; Make default · Cancel · OK.
 - Acceptance: OK applies everything as one Undo; Cancel changes nothing.
 
-**DL-03 · Publish settings (⇧F12)** — done (`panels/publish_settings.rs`, `T-198`)
-- Controls: `Profile` preset (`Default`, `Web Compact`, `Web Balanced`, `High Quality`, `Preview / Debug`); targets `HTML5 · Rust / WebAssembly` (enabled by default), `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet` (PNG frame sequence or Sprite sheet JSON + PNG), and `SVG animation`; output folder/file + `Browse…`; `Include HTML wrapper` + `Template` (`Responsive`, `Fixed stage`, `Centered card`, `Fullscreen`); Full/Balanced/Compact/Shared runtime size selector; `Scale` mode (`Fit, keep ratio`, `100% (No scale)`, `Exact fit (stretch)`, `Fill, crop`); `Loop`, `Autoplay`, `Preloader`, `Source maps` (`bundle.js.map`); `JPEG quality` (`1..=100`), `Audio` (`AudioExportPolicy`), `Sprite sheets for bitmaps` (`sprite_sheet.json`), `Embed fonts (subset)` (`FontExportPolicy::Subset`); `Strict mode`, `Include trace()`, `Minify`; estimated size; `Cancel` · `OK` · `Publish`.
+**DL-03 · Publish settings (⇧F12)** — partial (`panels/publish_settings.rs`, `T-198`)
+- Controls: `Profile` preset (`Default`, `Web Compact`, `Web Balanced`, `High Quality`, `Preview / Debug`); targets `HTML5 · Rust / WebAssembly` (enabled by default), `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet`, and `SVG animation`; output folder/file + `Browse…`; `Include HTML wrapper` + `Template` (`Responsive`, `Fixed stage`, `Centered card`, `Fullscreen`); Full/Balanced/Compact/Shared runtime size selector; `Scale` mode (`Fit, keep ratio`, `100% (No scale)`, `Exact fit (stretch)`, `Fill, crop`); `Loop`, `Autoplay`, `Preloader`, Source Map v3 for compiled project code; `JPEG quality` (`1..=100`), `Audio` (`AudioExportPolicy`), bitmap inventory (`sprite_sheet.json`; atlas packing pending), `Embed fonts (subset)` (currently a reported full-font fallback); `Strict mode` (stored, compiler enforcement pending), `Include trace()`, `Minify` (bundle JSON only); estimated size; `Cancel` · `OK` · `Publish`.
 - Data: `neoflash_export::export_project_with_config(project, output_dir, runtime_dir, &PublishOptions { fonts, size, audio }, &HtmlPublishConfig)`
   publishes at a `SizeLevel` (Full · Balanced · Compact · Shared runtime URL) with `HtmlPublishConfig::clean_publish_default()` (clean stage output without technical HUD by default), while `Test Movie` and `Test Scene` use `PublishPrefs::preview_html_config()` (`PlayerChromeConfig` from `Preferences ▸ Publish`). `Balanced`, `Compact`, and local `Shared` packages embed `globalThis.NeoFlashWasmBase64` in `neoflash_web.js` so they open directly from `file://` without browser `fetch` CORS failure while preserving HTTP(S) streaming. `estimate_publish_options_cancellable_with_config` returns exact on-disk files, bytes and gzip bytes across all `HtmlPublishConfig` options.
   Both `OK` and `Publish` persist `self.workspace.publish = draft.settings.clone()` so settings never reset after publishing; if all target checkboxes are unchecked when `Publish` is invoked from the toolbar/menu, the editor opens `Publish settings` instead of a no-op folder picker.
-- Acceptance: draft/default persistence across both `OK` and `Publish`, clean publish vs configurable preview HUD, direct `file://` execution for `Compact`/`Balanced`/`Full`, exact background size estimates, all 5 targets and 5 profiles verified in `publish_settings_tests.rs`, `neoflash-export`, and `web/tests/runtime.test.cjs`.
+- Acceptance: draft/default persistence across both `OK` and `Publish`, clean publish vs configurable preview HUD, direct `file://` execution for `Compact`/`Balanced`/`Full`, exact background size estimates, and all five target routes are verified. Completion still requires real Assets-folder packaging, bitmap atlas binding, true font subsetting, strict compilation, acceleration selection and runtime-module minification.
 
 **DL-04 · Export image (`⌥⇧⌘S`)** — partial (`panels/export_image.rs`, `neoflash_export::image_export`, `File ▸ Export ▸ Export image…`):
 - Working: 760 pt modal dialog and live floating panel with format tabs `PNG · SVG · PSD · AI · PDF`; preview `"Frame n of N · W × H"`; `Range` (`Current frame`, `Whole movie`, `Current scene`, `Frames A..=B`); linked `W × H` + `1x` / `2x` / `0.5x` scale presets; and `Background` (`Stage colour`, `Transparent`). PNG and SVG are direct exports. PSD writes a layered v1 document when supported. AI is an EPS-compatible PostScript subset and uses a raster fallback for unsupported scene features; PDF is currently raster-backed. Every destination file is written atomically.
@@ -961,8 +968,10 @@ Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
   container/codec diagnostics, set the timeline video span, optionally place a video element, extend the timeline and
   match the document FPS in one `"Import video"` Undo step. Identical media is reused and colliding resource paths are
   made unique. Read, format or project-validation failures leave both the draft and document unchanged. Embedded
-  authored spans publish and play automatically in HTML5. Native editor decoding, the Properties/cue-point surface
-  in PR-09 and true URL-backed external/progressive deployment remain incomplete.
+  authored spans publish and play automatically in HTML5. External spans stage a package-relative asset and
+  Progressive spans retain a validated HTTP(S) URL; mixed deployment of one resource is deterministic. Native
+  editor decoding and the Properties/cue-point surface in PR-09 remain incomplete. Local External authoring keeps
+  source bytes in the portable document so a later offline publish can stage them.
 
 **DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
 source path and decoded format/duration/size stats, configures per-resource `Export` compression (`Compression: MP3 | Default | WAV (PCM) | Original`, `Bit rate: 64`–`320 kbps`, `Quality: Fast | Medium | Best`, `Convert stereo to mono`, and live `"Result: … — N % of original"` caption in `ResourceUnit.audio_export`, format 9), auditions the transcoded preview with `Test`/`Stop`, reloads from the recorded import path
@@ -1003,7 +1012,7 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 
 | Menu | Working behavior | Unavailable or partial |
 | --- | --- | --- |
-| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, validated Import video with automatic embedded HTML5 playback, HTML5/Video Publish, Export image…, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; PSD import lacks editor wiring; native video decoding and external/progressive deployment remain partial; documented image-format fidelity limits remain; Publish settings has live HTML5 size and Video (MP4) controls |
+| File | New/Open tabs, Close/Close all, Save/Save as, existing recent files, Revert from a saved/imported source, supported imports, validated Import video with Embedded/External/Progressive HTML5 deployment, HTML5/Video Publish, Export image…, Export video…, Export audio… (⌥⇧⌘A) and Export Lottie… (⌥⇧⌘L) | Print disabled; PSD import lacks editor wiring; native video decoding remains partial; documented image-format fidelity limits remain; Publish settings has live HTML5 size and Video (MP4) controls |
 | Edit | Undo/Redo, clipboard, Clear/Duplicate, Select all/Deselect, Find and Replace, timeline commands, symbol editing, Preferences, Keyboard shortcuts and Customize tools | Editing commands require the appropriate active document, selection and history |
 | View | Zoom/magnification, Rulers, Show/Snap grid, Dynamic/Static grid, grid over objects, Show/Lock/Snap guides, settings popover, shape-hint visibility | Preview mode and Snapping submenus disabled; Pasteboard always shown |
 | Insert | New symbol, Layer/Folder, Motion guide, frame/keyframe/blank keyframe, Classic/Shape/Motion tween, Scene | Frame/tween/guide commands depend on the current layer and selection |

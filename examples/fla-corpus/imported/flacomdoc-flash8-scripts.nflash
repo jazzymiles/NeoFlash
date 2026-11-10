@@ -88,7 +88,12 @@
                         "bullet": false,
                         "tabStops": [],
                         "url": "",
-                        "target": ""
+                        "target": "",
+                        "fieldOptions": {
+                          "field_type": "dynamic",
+                          "variable": "myTextVar",
+                          "embed_fonts": true
+                        }
                       },
                       "word_wrap": false,
                       "multiline": false

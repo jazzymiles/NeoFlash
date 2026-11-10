@@ -1800,19 +1800,22 @@ impl Parser<'_> {
                     let inner = self.boolean(f, "inner", false, file);
                     let knockout = self.boolean(f, "knockout", false, file);
                     let hide_object = self.boolean(f, "hideObject", false, file);
-                    enabled.then_some(FilterSpec::DropShadow {
-                        distance,
-                        angle,
-                        color,
-                        alpha,
-                        blur_x,
-                        blur_y,
-                        strength,
-                        quality,
-                        inner,
-                        knockout,
-                        hide_object,
-                    })
+                    Some(
+                        FilterSpec::DropShadow {
+                            distance,
+                            angle,
+                            color,
+                            alpha,
+                            blur_x,
+                            blur_y,
+                            strength,
+                            quality,
+                            inner,
+                            knockout,
+                            hide_object,
+                        }
+                        .with_enabled(enabled),
+                    )
                 }
                 "GlowFilter" => {
                     self.audit(
@@ -1842,16 +1845,19 @@ impl Parser<'_> {
                     let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
                     let inner = self.boolean(f, "inner", false, file);
                     let knockout = self.boolean(f, "knockout", false, file);
-                    enabled.then_some(FilterSpec::Glow {
-                        color,
-                        alpha,
-                        blur_x,
-                        blur_y,
-                        strength,
-                        quality,
-                        inner,
-                        knockout,
-                    })
+                    Some(
+                        FilterSpec::Glow {
+                            color,
+                            alpha,
+                            blur_x,
+                            blur_y,
+                            strength,
+                            quality,
+                            inner,
+                            knockout,
+                        }
+                        .with_enabled(enabled),
+                    )
                 }
                 "BevelFilter" => {
                     self.audit(
@@ -1906,20 +1912,23 @@ impl Parser<'_> {
                         _ => "inner".to_owned(),
                     };
                     let knockout = self.boolean(f, "knockout", false, file);
-                    enabled.then_some(FilterSpec::Bevel {
-                        distance,
-                        angle,
-                        highlight_color,
-                        highlight_alpha,
-                        shadow_color,
-                        shadow_alpha,
-                        blur_x,
-                        blur_y,
-                        strength,
-                        quality,
-                        placement,
-                        knockout,
-                    })
+                    Some(
+                        FilterSpec::Bevel {
+                            distance,
+                            angle,
+                            highlight_color,
+                            highlight_alpha,
+                            shadow_color,
+                            shadow_alpha,
+                            blur_x,
+                            blur_y,
+                            strength,
+                            quality,
+                            placement,
+                            knockout,
+                        }
+                        .with_enabled(enabled),
+                    )
                 }
                 "BlurFilter" => {
                     self.audit(f, file, &["blurX", "blurY", "quality", "isEnabled"], &[]);
@@ -1927,11 +1936,14 @@ impl Parser<'_> {
                     let blur_x = self.number(f, "blurX", 4.0, file).clamp(0.0, 255.0);
                     let blur_y = self.number(f, "blurY", 4.0, file).clamp(0.0, 255.0);
                     let quality = self.integer(f, "quality", 1, file).clamp(1, 15) as u8;
-                    enabled.then_some(FilterSpec::Blur {
-                        blur_x,
-                        blur_y,
-                        quality,
-                    })
+                    Some(
+                        FilterSpec::Blur {
+                            blur_x,
+                            blur_y,
+                            quality,
+                        }
+                        .with_enabled(enabled),
+                    )
                 }
                 "GradientGlowFilter" | "GradientBevelFilter" => {
                     self.audit(
@@ -1993,7 +2005,7 @@ impl Parser<'_> {
                     let colors: Vec<u32> = stops.iter().map(|s| s.0).collect();
                     let alphas: Vec<f64> = stops.iter().map(|s| s.1).collect();
                     let ratios: Vec<u8> = stops.iter().map(|s| s.2).collect();
-                    enabled.then(|| {
+                    Some(
                         if f.tag_name().name() == "GradientGlowFilter" {
                             FilterSpec::GradientGlow {
                                 distance,
@@ -2023,7 +2035,8 @@ impl Parser<'_> {
                                 knockout,
                             }
                         }
-                    })
+                        .with_enabled(enabled),
+                    )
                 }
                 "AdjustColorFilter" => {
                     self.audit(
@@ -2037,9 +2050,12 @@ impl Parser<'_> {
                     let contrast = self.number(f, "contrast", 0.0, file).clamp(-100.0, 100.0);
                     let saturation = self.number(f, "saturation", 0.0, file).clamp(-100.0, 100.0);
                     let hue = self.number(f, "hue", 0.0, file).clamp(-180.0, 180.0);
-                    enabled.then(|| FilterSpec::ColorMatrix {
-                        matrix: adjust_color_matrix(brightness, contrast, saturation, hue),
-                    })
+                    Some(
+                        FilterSpec::ColorMatrix {
+                            matrix: adjust_color_matrix(brightness, contrast, saturation, hue),
+                        }
+                        .with_enabled(enabled),
+                    )
                 }
                 _ => None,
             };
@@ -2057,7 +2073,7 @@ impl Parser<'_> {
             self.report.warning(
                 "xfl_filters_approximated",
                 location,
-                "Disabled or excess (>8) XFL display filters were omitted.",
+                "Unsupported or excess (>8) XFL display filters were omitted.",
             );
         }
         parsed
@@ -6153,6 +6169,65 @@ mod tests {
         assert_eq!(normalize_filter_strength(150.0, false), 1.5);
         assert_eq!(normalize_filter_strength(1.2, true), 1.2);
         assert_eq!(normalize_filter_strength(30_000.0, false), 255.0);
+    }
+
+    #[test]
+    fn xfl_disabled_instance_filters_remain_in_the_authored_stack() {
+        let mut files = BTreeMap::new();
+        files.insert(
+            "LIBRARY/Child.xml".into(),
+            r#"<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" name="Child">
+  <timeline><DOMTimeline name="Child"><layers><DOMLayer name="Layer 1"><frames>
+    <DOMFrame index="0"><elements><DOMRectangleObject objectWidth="10" objectHeight="10"/></elements></DOMFrame>
+  </frames></DOMLayer></layers></DOMTimeline></timeline>
+</DOMSymbolItem>"#
+                .into(),
+        );
+        files.insert(
+            "DOMDocument.xml".into(),
+            r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" xflVersion="2.97" creatorInfo="NeoFlash">
+  <symbols><Include href="Child.xml"/></symbols>
+  <timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="Artwork"><frames>
+    <DOMFrame index="0"><elements>
+      <DOMSymbolInstance libraryItemName="Child" name="filtered">
+        <filters>
+          <BlurFilter blurX="12" blurY="8" quality="3" isEnabled="false"/>
+          <AdjustColorFilter brightness="10" contrast="-20" saturation="30" hue="40" isEnabled="false"/>
+        </filters>
+      </DOMSymbolInstance>
+    </elements></DOMFrame>
+  </frames></DOMLayer></layers></DOMTimeline></timelines>
+</DOMDocument>"#
+                .into(),
+        );
+        let mut report = ImportReport {
+            source: "xfl-disabled-filters".into(),
+            format: crate::ImportFormat::XflDirectory,
+            version: None,
+            can_import: false,
+            statistics: crate::Statistics::default(),
+            diagnostics: vec![],
+            binary_fla: None,
+            swf: None,
+            swc: None,
+        };
+
+        let project = convert(&files, &BTreeMap::new(), &mut report).expect("XFL converts");
+        project.validate().expect("disabled filters validate");
+        let root = project.symbol(&project.root).expect("root symbol");
+        let element = &root.timeline.layers[0].keyframes[0].elements[0];
+        assert_eq!(element.filters.len(), 2);
+        assert!(element.filters.iter().all(|filter| !filter.is_enabled()));
+        assert_eq!(element.filters[0].quality_level(), 3);
+        assert!(matches!(element.filters[1], FilterSpec::ColorMatrix { .. }));
+        assert!(
+            !report.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == "xfl_filters_approximated"
+                    && diagnostic.message.contains("omitted")
+            }),
+            "disabled filters are authored state, not omitted content: {:?}",
+            report.diagnostics
+        );
     }
 
     #[test]

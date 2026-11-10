@@ -153,7 +153,10 @@
       if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);seek(r,at);}after(generation);changed();
     }
     function load(r,url,sourceSpec=null){
-      const mode=sourceSpec?.mode||r.deploymentMode||'embedded';
+      // Timeline-owned records carry an explicit deployment source. Script-created
+      // NetStreams instead choose bundled-vs-HTTP for every play() call, so a prior
+      // URL must not force the next bundled path through the progressive validator.
+      const mode=sourceSpec?.mode||'embedded';
       if(typeof url!=='string'||!url)throw new TypeError('NetStream.play requires a media URL string.');
       if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
       if(/\.(?:flv|f4v|swf|gif)(?:[?#]|$)/i.test(url))throw new TypeError('This browser profile supports native MP4/WebM media, not FLV/F4V/SWF/GIF decoding.');
@@ -172,6 +175,7 @@
       }else{
         source=net.mediaSource(url);
         if(source.kind==='resource'&&!['video/mp4','video/webm','video/ogg'].includes(source.mediaType))throw new TypeError(`Bundled video MIME type ${source.mediaType} is unsupported; use a native browser video format.`);
+        if(source.kind!=='resource')resolvedUrl=source.url;
         r.deploymentMode=source.kind==='resource'?'embedded':'progressive';
         r.sourceSpec={mode:r.deploymentMode,url_or_path:url,resolvedUrl:source.kind==='resource'?url:source.url,mime_type:source.mediaType||mediaType};
       }

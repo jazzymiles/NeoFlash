@@ -516,8 +516,8 @@
       "path": "imported/ruffle-avm1-nested-button-text.nflash",
       "derived_from": "upstream/ruffle/avm1-nested-button-text/test.fla",
       "license": "MIT OR Apache-2.0",
-      "sha256": "95970636e2056f3fe79762f916361bf472c2a4365ce4f4249a9029156e9080b8",
-      "bytes": 79580
+      "sha256": "bee0e4c6b3939ec2c325d5274c13e4f24a583f2f2ee4f2ed52bd646a42579db6",
+      "bytes": 79767
     },
     {
       "path": "imported/flacomdoc-flash5-shapes.nflash",
@@ -537,8 +537,8 @@
       "path": "imported/flacomdoc-flash8-scripts.nflash",
       "derived_from": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
       "license": "LGPL-2.1",
-      "sha256": "c4ba085e36caaf93c415a83f1b1dd4bd8cc788179d5c2d31ab8c65ac5e1e756c",
-      "bytes": 54380
+      "sha256": "a6969b08794ceff14488a48e13e238658df39cf42397a22f62312db268bd0054",
+      "bytes": 54597
     },
     {
       "path": "imported/flacomdoc-cs4-motion-tween.nflash",
@@ -742,7 +742,6 @@
         "format": "legacy_binary_fla",
         "can_import": true,
         "required_diagnostics": [
-          "fla_text_approximated",
           "fla_text_metrics"
         ],
         "statistics": {
@@ -988,7 +987,6 @@
         "required_diagnostics": [
           "fla_contents_partial",
           "fla_contents_record_unsupported",
-          "fla_text_approximated",
           "fla_text_metrics"
         ],
         "statistics": {

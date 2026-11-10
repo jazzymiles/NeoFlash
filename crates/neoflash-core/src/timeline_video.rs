@@ -10,7 +10,8 @@ use crate::{ElementKind, Id, Keyframe, Layer, LayerRole, Project};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 
-/// How an authored video resource or span is deployed at publish/runtime (`T-178`, format 7).
+/// How an authored video resource or span is deployed at publish/runtime (`T-178`). Embedded
+/// timeline video is format 9; External and Progressive deployment are format 11.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoDeploymentMode {
@@ -138,7 +139,7 @@ pub struct TimelineVideoSpan {
     pub muted: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cue_points: Vec<VideoCuePoint>,
-    /// Deployment mode (`Embedded` default; `External` or `Progressive` in format 7, `T-178`).
+    /// Deployment mode (`Embedded` default; `External` or `Progressive` in format 11, `T-178`).
     #[serde(default, skip_serializing_if = "VideoDeploymentMode::is_embedded")]
     pub deployment: VideoDeploymentMode,
     /// Validated relative publish asset path when `deployment == External` (e.g. `assets/video/intro.mp4`).
@@ -911,13 +912,19 @@ pub fn timeline_video_sources(project: &Project) -> Vec<(Id, VideoSourceSpec)> {
                 if let Some(span) = &key.video
                     && let Some(spec) = resolve_video_source(project, span)
                 {
-                    let key_id = if span.resource.is_empty() {
+                    let resource_id = if span.resource.is_empty() {
                         spec.url_or_path.clone()
                     } else {
                         span.resource.clone()
                     };
-                    if seen.insert(key_id.clone()) {
-                        out.push((key_id, spec));
+                    let source_key = (
+                        resource_id.clone(),
+                        spec.mode,
+                        spec.url_or_path.clone(),
+                        spec.mime_type.clone(),
+                    );
+                    if seen.insert(source_key) {
+                        out.push((resource_id, spec));
                     }
                 }
             }
@@ -925,10 +932,17 @@ pub fn timeline_video_sources(project: &Project) -> Vec<(Id, VideoSourceSpec)> {
     }
     for res in &project.resources {
         if res.is_video()
-            && seen.insert(res.id.clone())
             && let Some(spec) = resolve_video_resource_source(project, &res.id)
         {
-            out.push((res.id.clone(), spec));
+            let source_key = (
+                res.id.clone(),
+                spec.mode,
+                spec.url_or_path.clone(),
+                spec.mime_type.clone(),
+            );
+            if seen.insert(source_key) {
+                out.push((res.id.clone(), spec));
+            }
         }
     }
     out
@@ -996,13 +1010,22 @@ pub fn video_manifest_entries(project: &Project) -> Vec<VideoManifestEntry> {
 /// video resources so the published project JSON does not duplicate raw video bytes (`T-178`).
 pub fn strip_non_embedded_video_bytes(project: &mut Project) -> Vec<ExternalVideoAsset> {
     let external_assets = collect_external_video_assets(project);
-    let non_embedded_ids: HashSet<Id> = timeline_video_sources(project)
-        .into_iter()
+    let sources = timeline_video_sources(project);
+    let embedded_ids: HashSet<&str> = sources
+        .iter()
+        .filter(|(_, spec)| spec.mode.is_embedded())
+        .map(|(id, _)| id.as_str())
+        .collect();
+    let non_embedded_ids: HashSet<&str> = sources
+        .iter()
         .filter(|(_, spec)| !spec.mode.is_embedded())
-        .map(|(id, _)| id)
+        .map(|(id, _)| id.as_str())
         .collect();
     for res in &mut project.resources {
-        if res.is_video() && non_embedded_ids.contains(&res.id) {
+        if res.is_video()
+            && non_embedded_ids.contains(res.id.as_str())
+            && !embedded_ids.contains(res.id.as_str())
+        {
             res.data_base64 = "".into();
         }
     }
@@ -1525,15 +1548,26 @@ mod tests {
     }
 
     #[test]
-    fn old_document_with_embedded_video_loads_cleanly_while_non_embedded_bumps_format_7() {
-        // Format-6 document with default Embedded video loads cleanly and stays format 6.
+    fn embedded_video_requires_format_9_while_non_embedded_deployment_requires_format_11() {
+        // Timeline video was introduced in format 9, and the omitted deployment field defaults to
+        // Embedded so existing format-9 documents remain loadable.
         let mut embedded = runtime_video_project(VideoSyncMode::Stream);
-        embedded.format_version = 6;
+        embedded.format_version = 8;
         assert!(!embedded.uses_format_7());
-        assert!(!embedded.uses_format_9());
-        embedded
-            .validate()
-            .expect("format 6 embedded video should validate");
+        assert!(embedded.uses_format_9());
+        assert!(!embedded.uses_format_11());
+        let err = embedded.validate().unwrap_err().to_string();
+        assert!(err.contains("require document version 9"), "got: {err}");
+        embedded.upgrade_format_for_features();
+        assert_eq!(embedded.format_version, 9);
+        embedded.validate().unwrap();
+
+        let mut historically_under_versioned = embedded.clone();
+        historically_under_versioned.format_version = 7;
+        let raw = serde_json::to_string(&historically_under_versioned).unwrap();
+        let migrated = Project::from_json(&raw).expect("under-versioned video document migrates");
+        assert_eq!(migrated.format_version, 9);
+        migrated.validate().unwrap();
 
         // Omitted `deployment` in JSON defaults to `Embedded`.
         let json = embedded.to_json().unwrap();
@@ -1548,37 +1582,44 @@ mod tests {
             VideoDeploymentMode::Embedded
         );
 
-        // External deployment mode requires format >= 7 and upgrades via upgrade_format_for_features.
+        // External deployment mode requires format >= 11 and upgrades via feature detection.
         let mut external = runtime_video_project(VideoSyncMode::Stream);
-        external.format_version = 6;
+        external.format_version = 9;
         external.resources[0].path = "assets/video/intro.mp4".into();
         external.resources[0].data_base64 = "".into();
         external.symbols[0].timeline.layers[0].keyframes[0].video = Some(
             TimelineVideoSpan::external("movie", "assets/video/intro.mp4"),
         );
-        assert!(external.uses_format_7());
+        assert!(external.uses_format_9());
+        assert!(external.uses_format_11());
         let err = external.validate().unwrap_err().to_string();
-        assert!(err.contains("require document version 7"), "got: {err}");
+        assert!(err.contains("require document version 11"), "got: {err}");
         external.upgrade_format_for_features();
-        assert_eq!(external.format_version, 7);
+        assert_eq!(external.format_version, 11);
         external
             .validate()
-            .expect("upgraded format-7 external video should validate");
+            .expect("upgraded format-11 external video should validate");
+        let mut historically_under_versioned = external.clone();
+        historically_under_versioned.format_version = 7;
+        let raw = serde_json::to_string(&historically_under_versioned).unwrap();
+        let migrated = Project::from_json(&raw).expect("under-versioned external video migrates");
+        assert_eq!(migrated.format_version, 11);
+        migrated.validate().unwrap();
 
-        // Progressive deployment mode requires format >= 7 and empty data_base64.
+        // Progressive deployment mode requires format >= 11 and empty data_base64.
         let mut progressive = runtime_video_project(VideoSyncMode::Event);
-        progressive.format_version = 6;
+        progressive.format_version = 9;
         progressive.resources[0].path = "https://cdn.example.com/media/intro.mp4".into();
         progressive.resources[0].data_base64 = "".into();
         progressive.symbols[0].timeline.layers[0].keyframes[0].video = Some(
             TimelineVideoSpan::progressive("movie", "https://cdn.example.com/media/intro.mp4"),
         );
-        assert!(progressive.uses_format_7());
+        assert!(progressive.uses_format_11());
         progressive.upgrade_format_for_features();
-        assert_eq!(progressive.format_version, 7);
+        assert_eq!(progressive.format_version, 11);
         progressive
             .validate()
-            .expect("upgraded format-7 progressive video should validate");
+            .expect("upgraded format-11 progressive video should validate");
     }
 
     #[test]
@@ -1609,7 +1650,7 @@ mod tests {
         }
 
         let mut project = runtime_video_project(VideoSyncMode::Stream);
-        project.format_version = 7;
+        project.format_version = 11;
         project.resources[0].data_base64 = "".into();
         project.symbols[0].timeline.layers[0].keyframes[0].video = Some(
             TimelineVideoSpan::external("movie", "/Users/miles/Desktop/clip.mp4"),
@@ -1647,7 +1688,7 @@ mod tests {
 
         // Progressive mode must reject duplicate embedded bytes in data_base64.
         let mut project = runtime_video_project(VideoSyncMode::Event);
-        project.format_version = 7;
+        project.format_version = 11;
         project.resources[0].path = "https://cdn.example.com/video/intro.mp4".into();
         // Leave non-empty data_base64 from runtime_video_project -> should fail validation!
         project.symbols[0].timeline.layers[0].keyframes[0].video = Some(
@@ -1663,7 +1704,7 @@ mod tests {
     #[test]
     fn video_manifest_and_external_asset_helpers_distinguish_all_three_modes() {
         let mut project = runtime_video_project(VideoSyncMode::Stream);
-        project.format_version = 7;
+        project.format_version = 11;
         project.resources.push(
             ResourceUnit::from_bytes(
                 "ext_vid",
@@ -1773,5 +1814,111 @@ mod tests {
             s.mode == VideoDeploymentMode::Progressive
                 && s.url_or_path == "https://cdn.example.com/live/stream.webm"
         }));
+    }
+
+    #[test]
+    fn mixed_deployment_of_one_resource_is_lossless_in_either_layer_order() {
+        let make_project = |reverse_layers: bool| {
+            let mut project = runtime_video_project(VideoSyncMode::Stream);
+            project.format_version = 11;
+            project.symbols[0].timeline.layers.push(Layer {
+                id: "external-layer".into(),
+                name: "External".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![video_element("external-video")],
+                    video: Some(TimelineVideoSpan::external(
+                        "movie",
+                        "assets/video/movie.mp4",
+                    )),
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            });
+            project.symbols[0].timeline.layers.push(Layer {
+                id: "progressive-layer".into(),
+                name: "Progressive".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![video_element("progressive-video")],
+                    video: Some(TimelineVideoSpan::progressive(
+                        "movie",
+                        "https://cdn.example.com/video/movie.mp4",
+                    )),
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            });
+            if reverse_layers {
+                project.symbols[0].timeline.layers.reverse();
+            }
+            project.validate().unwrap();
+            project
+        };
+
+        let canonical_sources = |project: &Project| {
+            let mut sources = timeline_video_sources(project)
+                .into_iter()
+                .map(|(id, source)| {
+                    (
+                        id,
+                        source.mode.as_str().to_owned(),
+                        source.url_or_path,
+                        source.mime_type,
+                    )
+                })
+                .collect::<Vec<_>>();
+            sources.sort();
+            sources
+        };
+
+        let forward = make_project(false);
+        let reverse = make_project(true);
+        let expected = canonical_sources(&forward);
+        assert_eq!(expected, canonical_sources(&reverse));
+        assert_eq!(expected.len(), 3);
+
+        for mut project in [forward, reverse] {
+            let manifest = video_manifest_entries(&project);
+            assert_eq!(manifest.len(), 3);
+            assert!(manifest.iter().any(|entry| entry.embedded_in_bundle));
+            assert!(manifest.iter().any(|entry| entry.requires_external_file));
+            assert!(manifest.iter().any(|entry| entry.requires_network_cors));
+
+            let external_assets = strip_non_embedded_video_bytes(&mut project);
+            assert_eq!(external_assets.len(), 1);
+            assert_eq!(external_assets[0].relative_path, "assets/video/movie.mp4");
+            assert!(!external_assets[0].bytes.is_empty());
+            assert!(
+                !project.resource("movie").unwrap().data_base64.is_empty(),
+                "Embedded use must retain the shared resource bytes"
+            );
+            project.validate().unwrap();
+        }
+
+        let mut external_and_progressive_only = make_project(false);
+        external_and_progressive_only.symbols[0]
+            .timeline
+            .layers
+            .retain(|layer| layer.id != "video-layer");
+        external_and_progressive_only.validate().expect(
+            "External use requires the shared bytes even when Progressive also uses the resource",
+        );
+        let external_assets = strip_non_embedded_video_bytes(&mut external_and_progressive_only);
+        assert_eq!(external_assets.len(), 1);
+        assert!(!external_assets[0].bytes.is_empty());
+        assert!(
+            external_and_progressive_only
+                .resource("movie")
+                .unwrap()
+                .data_base64
+                .is_empty(),
+            "published project JSON must strip bytes after capturing the External asset"
+        );
+        external_and_progressive_only.validate().unwrap();
     }
 }

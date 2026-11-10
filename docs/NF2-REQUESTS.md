@@ -1125,3 +1125,39 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
   `Dialog / Auto Instance Namer`, and `Dialog / Randomize Selection` to the `Dialogs` page in Figma (`420 pt` modal width,
   `NF2/Section Header` + `PropertyRow` + `NF2/Field` / `NF2/Select` / `NF2/Checkbox` rows + right-aligned Cancel/Primary footer).
 - **Answer:**
+
+### R-069 · UI Layout Studio composition, artboard states and history contract
+- **Status:** open
+- **Requested by / for:** implementation audit · T-194 / T-199
+- **Where:** `crates/neoflash-editor/src/panels/ui_studio.rs`, the standalone `NeoFlash UI Studio.app` launcher,
+  and Figma `BUz3pseopiuOg2Uiy3Fog7` v2.25.
+- **Need:** an approved developer-tool composition and interaction contract for the multi-artboard canvas: artboard
+  header, selection, move/resize handles, pan/zoom, add/duplicate/delete/reorder states, import/export feedback, token
+  editing boundaries, Undo/Redo coverage and empty/error states.
+- **Why:** T-194 added a large developer surface without a matching locked NF2 outline. The implementation currently
+  keeps some artboard operations outside its history and session persistence, and cumulative drag behavior needs a
+  defined origin/state model. The implementation track may repair behavior but cannot independently redesign this
+  surface or edit the locked design system.
+- **Checked:** `docs/DESIGN-SYSTEM.md`, v2.25 System & Components / Panels / Interface pages, current exported panel
+  outlines, `docs/NF2-FUNCTIONAL-SPEC.md`, and the current `UiStudioState`/`StudioArtboard` implementation.
+- **Proposal (optional):** approve the Studio as a developer-only workspace using existing Panel Header, Field,
+  Button, Tabs and canvas-selection roles; specify one history snapshot that includes document, systems and artboards,
+  and require drag values to derive from a captured start state plus total delta.
+- **Answer:**
+
+### R-070 · Production activation for Deco, Spray, Bone, Bind, Puppet and 3D Stage workflows
+- **Status:** open
+- **Requested by / for:** implementation audit · T-180 / T-186 / T-199
+- **Where:** `crates/neoflash-editor/src/panels/properties_tool.rs`, `crates/neoflash-editor/src/stage.rs`, Tools and
+  approved tool-group/menu/shortcut definitions in Figma v2.25.
+- **Need:** identify the approved existing control, tool-group row and shortcut routing that activates each new Stage
+  workflow (`Deco`, `Spray`, `Bone`, `Bind`, `Puppet`, `3D Translate`, `3D Rotate`) in production, including active,
+  unavailable and incompatible-selection states.
+- **Why:** the gesture engines and tests exist, but current production command routing never calls the private sticky
+  mode setter; tests activate it directly. Adding new visible controls or changing Tools composition is forbidden
+  without this design-track answer.
+- **Checked:** v2.25 Tools references, `docs/NF2-FUNCTIONAL-SPEC.md`, `commands.rs`, `panels/tools.rs`,
+  `properties_tool.rs::set_stage_sticky_tool_mode` and the Stage workflow tests.
+- **Proposal (optional):** map the workflows to the already approved Tools group/icon masters and existing Properties
+  sections, with command IDs for keyboard/menu dispatch; no new visual role is required.
+- **Answer:**

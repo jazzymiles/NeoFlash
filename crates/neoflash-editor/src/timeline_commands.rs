@@ -15,6 +15,16 @@ pub(crate) fn is_shape(element: &Element) -> bool {
     )
 }
 
+/// A frame number alone is structural; every other non-default keyframe field is authored
+/// content and must keep its layer alive during cleanup.
+fn keyframe_has_authored_content(key: &Keyframe) -> bool {
+    let empty = Keyframe {
+        frame: key.frame,
+        ..Keyframe::default()
+    };
+    key != &empty
+}
+
 fn copy_property(to: &mut Transform, from: &Transform, property: TweenProperty) {
     match property {
         TweenProperty::X => to.x = from.x,
@@ -2523,11 +2533,15 @@ impl Editor {
         if self.selection.symbol != self.symbol_id() {
             return false;
         }
-        self.sampled_targets()
+        let editable: Vec<_> = self
+            .sampled_targets()
             .into_iter()
             .filter(|(target, _)| self.target_editable(target))
-            .count()
-            >= 2
+            .collect();
+        editable.len() >= 2
+            && editable
+                .iter()
+                .all(|(target, _)| target.layer == editable[0].0.layer)
     }
 
     /// `Modify ▸ Timeline ▸ Distribute to keyframes`: takes the 2+ selected Stage elements in their
@@ -2558,6 +2572,12 @@ impl Editor {
             return false;
         }
         let target_layer_id = ordered[0].0.layer.clone();
+        if ordered
+            .iter()
+            .any(|(target, _)| target.layer != target_layer_id)
+        {
+            return false;
+        }
         let start_frame = self.frame;
         self.playing = false;
         self.transact_named("Distribute to keyframes", move |editor| {
@@ -2645,9 +2665,15 @@ impl Editor {
                         .iter_mut()
                         .find(|k| k.frame == dest_frame)
                     {
-                        existing.elements = vec![el];
-                        existing.keyed_properties = None;
-                        existing.motion_keys = None;
+                        if let Some(slot) = existing
+                            .elements
+                            .iter_mut()
+                            .find(|existing| existing.id == el.id)
+                        {
+                            *slot = el;
+                        } else {
+                            existing.elements.push(el);
+                        }
                     } else {
                         target_layer.keyframes.push(Keyframe {
                             frame: dest_frame,
@@ -2739,6 +2765,24 @@ impl Editor {
         strip_tween: bool,
         fps: f64,
     ) -> usize {
+        fn clear_tween_metadata(key: &mut Keyframe) {
+            key.tween = None;
+            key.tween_kind = TweenKind::Classic;
+            key.keyed_properties = None;
+            key.orient_to_path = false;
+            key.property_eases.clear();
+            key.motion_path = None;
+            key.motion_tracks.clear();
+            key.motion_keys = None;
+            key.sync_symbols = false;
+            key.snap_to_guide = false;
+            key.shape_hints.clear();
+            key.classic_rotate_turns = 0;
+            key.classic_rotate_dir = ClassicRotateDirection::Auto;
+            key.tween_scale = true;
+            key.roving = false;
+        }
+
         let step = step.max(1);
         if start > end {
             return 0;
@@ -2801,25 +2845,19 @@ impl Editor {
 
         let mut replacement = Vec::with_capacity(stepped_frames.len());
         for (idx, &frame) in stepped_frames.iter().enumerate() {
-            let mut key = Keyframe {
-                frame,
-                elements: sample_layer_in_at_fps(timeline, &original, frame, fps),
-                ..Default::default()
-            };
-            if let Some(old) = original.keyframes.iter().find(|k| k.frame == frame) {
-                key.label = old.label.clone();
-                key.sound = old.sound.clone();
-            }
-            if strip_tween {
-                key.tween = None;
-                key.tween_kind = TweenKind::Classic;
-                key.keyed_properties = None;
-                key.motion_keys = None;
-                key.motion_tracks.clear();
-                key.motion_path = None;
-                key.property_eases.clear();
-                key.shape_hints.clear();
-            } else {
+            // Exact source frames keep every non-tween authored field. Generated frames start
+            // clean so labels, sounds, video, filters, rigs, markers, etc. are never cloned from
+            // a neighbouring template keyframe.
+            let mut key = original
+                .keyframes
+                .iter()
+                .find(|old| old.frame == frame)
+                .cloned()
+                .unwrap_or_default();
+            key.frame = frame;
+            key.elements = sample_layer_in_at_fps(timeline, &original, frame, fps);
+            clear_tween_metadata(&mut key);
+            if !strip_tween {
                 let is_last_in_range = idx + 1 == stepped_frames.len() && frame == end;
                 if is_last_in_range {
                     if let Some(old_end) = original
@@ -2842,11 +2880,6 @@ impl Editor {
                     key.tween = Some(ease);
                     key.tween_kind = kind;
                 }
-                key.keyed_properties = None;
-                key.motion_keys = None;
-                key.motion_tracks.clear();
-                key.motion_path = None;
-                key.property_eases.clear();
             }
             replacement.push(key);
         }
@@ -3611,13 +3644,9 @@ impl Editor {
                     && !referenced_ids.contains(&l.id)
                     && !script_bearing_layers.contains(idx)
                     && !(l.name.eq_ignore_ascii_case("actions") && !timeline.scripts.is_empty())
-                    && l.keyframes.iter().all(|k| {
-                        k.elements.is_empty()
-                            && k.label.trim().is_empty()
-                            && k.sound.is_none()
-                            && k.camera.is_none()
-                            && k.ik_armatures.is_empty()
-                    })
+                    && l.keyframes
+                        .iter()
+                        .all(|key| !keyframe_has_authored_content(key))
             })
             .map(|(idx, _)| idx)
             .collect();
@@ -3720,18 +3749,37 @@ impl Editor {
         if self.symbol().kind == SymbolKind::Button {
             return false;
         }
-        self.transact_named("Add actions & stop() layer", |editor| {
+        let script_language = self
+            .symbol()
+            .timeline
+            .scripts
+            .first()
+            .map(|script| script.script.language)
+            .or_else(|| self.project.sources.first().map(|source| source.language))
+            .or_else(|| {
+                self.project
+                    .symbols
+                    .iter()
+                    .flat_map(|symbol| &symbol.timeline.scripts)
+                    .next()
+                    .map(|script| script.script.language)
+            })
+            .unwrap_or(ScriptLanguage::ActionScript3);
+        self.transact_named("Add actions & stop() layer", move |editor| {
             let timeline = &mut editor.symbol_mut().timeline;
             let last_frame = timeline.frame_count.max(1) - 1;
-            let existing_idx = timeline
-                .layers
-                .iter()
-                .position(|l| l.name.eq_ignore_ascii_case("actions"));
+            let existing_idx = timeline.layers.iter().position(|layer| {
+                layer.name.eq_ignore_ascii_case("actions")
+                    && layer.properties == LayerProperties::default()
+                    && layer
+                        .keyframes
+                        .iter()
+                        .all(|key| !keyframe_has_authored_content(key))
+            });
             let actions_idx = if let Some(idx) = existing_idx {
                 let mut layer = timeline.layers.remove(idx);
                 layer.locked = true;
                 layer.visible = true;
-                layer.properties.role = LayerRole::Normal;
                 if layer.keyframes.is_empty() {
                     layer.keyframes.push(Keyframe {
                         frame: 0,
@@ -3748,6 +3796,16 @@ impl Editor {
                 timeline.layers.push(layer);
                 timeline.layers.len() - 1
             } else {
+                let mut layer_name = "actions".to_owned();
+                let mut suffix = 2u32;
+                while timeline
+                    .layers
+                    .iter()
+                    .any(|layer| layer.name.eq_ignore_ascii_case(&layer_name))
+                {
+                    layer_name = format!("actions {suffix}");
+                    suffix += 1;
+                }
                 let mut keyframes = vec![Keyframe {
                     frame: 0,
                     ..Default::default()
@@ -3760,7 +3818,7 @@ impl Editor {
                 }
                 timeline.layers.push(Layer {
                     id: new_id("layer"),
-                    name: "actions".to_owned(),
+                    name: layer_name,
                     visible: true,
                     locked: true,
                     keyframes,
@@ -3784,7 +3842,7 @@ impl Editor {
                 timeline.scripts.push(FrameScript {
                     frame: last_frame,
                     script: Script {
-                        language: ScriptLanguage::ActionScript3,
+                        language: script_language,
                         source: "stop();".to_owned(),
                     },
                 });

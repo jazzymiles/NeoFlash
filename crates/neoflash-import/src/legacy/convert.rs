@@ -181,15 +181,10 @@ pub(super) fn convert_filters(
     };
 
     let mut out = Vec::new();
-    let mut disabled_count = 0usize;
     let mut empty_revision_count = 0usize;
     let mut truncated_count = 0usize;
 
     for f in filters {
-        if f.enabled == Some(false) {
-            disabled_count += 1;
-            continue;
-        }
         if f.revision == 0
             || (matches!(
                 f.kind,
@@ -305,17 +300,15 @@ pub(super) fn convert_filters(
                     finite_clamp(p.hue, 0.0, -180.0, 180.0),
                 ),
             },
-        };
+        }
+        .with_enabled(f.enabled != Some(false));
         if spec.validate().is_ok() {
             out.push(spec);
         }
     }
 
-    if disabled_count > 0 || empty_revision_count > 0 || truncated_count > 0 {
+    if empty_revision_count > 0 || truncated_count > 0 {
         let mut notes = Vec::new();
-        if disabled_count > 0 {
-            notes.push(format!("{disabled_count} disabled filter(s) omitted"));
-        }
         if empty_revision_count > 0 {
             notes.push(format!(
                 "{empty_revision_count} empty revision-0 filter(s) skipped"
@@ -2645,20 +2638,10 @@ fn decode_cpic_text_style(
             };
         }
         if value.url.len() > 4096 || value.url.chars().any(char::is_control) {
-            value.url = value
-                .url
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(4096)
-                .collect();
+            value.url = clean_bounded_text(&value.url, 4096);
         }
         if value.target_str().len() > 256 || value.target_str().chars().any(char::is_control) {
-            let cleaned_target: String = value
-                .target_str()
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(256)
-                .collect();
+            let cleaned_target = clean_bounded_text(value.target_str(), 256);
             value.set_target_str(cleaned_target);
         }
         value.size = value.size.clamp(1., 9999.);
@@ -2683,6 +2666,17 @@ fn decode_cpic_text_style(
     ))
 }
 
+fn clean_bounded_text(value: &str, max_bytes: usize) -> String {
+    let mut cleaned = String::with_capacity(value.len().min(max_bytes));
+    for character in value.chars().filter(|character| !character.is_control()) {
+        if cleaned.len() + character.len_utf8() > max_bytes {
+            break;
+        }
+        cleaned.push(character);
+    }
+    cleaned
+}
+
 pub(super) fn convert_timeline_text(
     stream: &BinaryTimelineStream,
     text: &TimelineText,
@@ -2691,7 +2685,10 @@ pub(super) fn convert_timeline_text(
     contents_revision: Option<u8>,
     report: &mut ImportReport,
 ) -> Result<Element, String> {
-    if contents_revision == Some(0x3f) && text.runs.len() <= 1 {
+    if contents_revision == Some(0x3f)
+        && text.runs.len() <= 1
+        && text.flags.unwrap_or(0) & 0x0001 == 0
+    {
         return text::convert_text(stream, text, id, name, report);
     }
 
@@ -2846,7 +2843,10 @@ pub(super) fn convert_timeline_text(
     let multiline =
         has_newlines || (is_dynamic_or_input && !display_as_password && (flags & 0x0010) != 0);
     let word_wrap = is_dynamic_or_input && !display_as_password && (flags & 0x0008) != 0;
-    let html = (flags & 0x8000) != 0;
+    // Older Flash authoring records also used bit 0x0080 for HTML rendering.
+    // It remains the historical non-selectable bit as well, matching the
+    // independent binary-FLA reference converter.
+    let html = (flags & (0x8000 | 0x0080)) != 0;
 
     if is_dynamic_or_input || !format_runs.is_empty() || html {
         let mut opts = AuthoredTextFieldOptions {

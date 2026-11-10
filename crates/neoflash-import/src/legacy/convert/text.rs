@@ -69,6 +69,13 @@ fn format(
     };
     let mut value = value;
     if value.validate().is_err() {
+        if value.url.len() > 4096 || value.url.chars().any(char::is_control) {
+            value.url = super::clean_bounded_text(&value.url, 4096);
+        }
+        if value.target_str().len() > 256 || value.target_str().chars().any(char::is_control) {
+            let cleaned_target = super::clean_bounded_text(value.target_str(), 256);
+            value.set_target_str(cleaned_target);
+        }
         value.size = value.size.clamp(1., 9999.);
         value.leading = value.leading.clamp(-9999., 9999.);
         for v in [

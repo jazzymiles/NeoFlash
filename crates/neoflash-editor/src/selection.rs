@@ -374,12 +374,33 @@ impl Editor {
         sampled
     }
     pub(crate) fn ensure_key_for(&mut self, layer_id: &str, blank: bool) {
-        if !blank && !self.workspace.timeline_prefs.auto_keyframe {
-            let frame = self.frame;
-            let count = self.symbol().timeline.frame_count;
-            let keep_span_key = self
-                .symbol()
-                .timeline
+        let symbol_id = self.symbol_id().to_owned();
+        Self::ensure_key_for_project(
+            &mut self.project,
+            &symbol_id,
+            layer_id,
+            self.frame,
+            blank,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
+    }
+
+    /// Apply `ensure_key_for` semantics to a detached project candidate. Stage tools use this to
+    /// keep an automatically inserted keyframe inside the same Undo transaction as the gesture.
+    pub(crate) fn ensure_key_for_project(
+        project: &mut Project,
+        symbol_id: &str,
+        layer_id: &str,
+        frame: u32,
+        blank: bool,
+        auto_keyframe: bool,
+    ) {
+        if !blank && !auto_keyframe {
+            let Some(timeline) = project.symbol(symbol_id).map(|symbol| &symbol.timeline) else {
+                return;
+            };
+            let count = timeline.frame_count;
+            let keep_span_key = timeline
                 .layers
                 .iter()
                 .find(|layer| layer.id == layer_id)
@@ -395,20 +416,42 @@ impl Editor {
                 return;
             }
         }
-        self.ensure_key_at(layer_id, self.frame, blank);
+        Self::ensure_key_at_project(project, symbol_id, layer_id, frame, blank);
     }
+
     /// Make `frame` a keyframe of the layer (a ◆ property key inside a motion tween).
     pub(crate) fn ensure_key_at(&mut self, layer_id: &str, frame: u32, blank: bool) {
+        let symbol_id = self.symbol_id().to_owned();
+        Self::ensure_key_at_project(&mut self.project, &symbol_id, layer_id, frame, blank);
+    }
+
+    fn ensure_key_at_project(
+        project: &mut Project,
+        symbol_id: &str,
+        layer_id: &str,
+        frame: u32,
+        blank: bool,
+    ) {
         if frame >= 1_000_000 {
             return;
         }
-        let fps = f64::from(self.project.fps);
-        let old_count = self.symbol().timeline.frame_count;
+        let fps = f64::from(project.fps);
+        let Some(old_count) = project
+            .symbol(symbol_id)
+            .map(|symbol| symbol.timeline.frame_count)
+        else {
+            return;
+        };
         if frame >= old_count {
             let new_count = frame + 1;
             let mut pinned_other = false;
             {
-                let timeline = &mut self.symbol_mut().timeline;
+                let Some(timeline) = project
+                    .symbol_mut(symbol_id)
+                    .map(|symbol| &mut symbol.timeline)
+                else {
+                    return;
+                };
                 for other in &mut timeline.layers {
                     if other.id == layer_id {
                         continue;
@@ -425,11 +468,13 @@ impl Editor {
                 timeline.frame_count = new_count;
             }
             if pinned_other {
-                self.project.format_version = self.project.format_version.max(5);
+                project.format_version = project.format_version.max(5);
             }
         }
-        let Some(layer) = self
-            .symbol_mut()
+        let Some(symbol) = project.symbol_mut(symbol_id) else {
+            return;
+        };
+        let Some(layer) = symbol
             .timeline
             .layers
             .iter_mut()

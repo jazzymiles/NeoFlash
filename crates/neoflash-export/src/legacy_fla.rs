@@ -1407,10 +1407,11 @@ fn write_shadow_block(
     quality: u8,
     strength: f64,
     hide_object: bool,
+    enabled: bool,
 ) {
     w.u8(4); // shadow settings revision = 4
     w.u8(1); // filter_state revision = 1
-    w.u32(1); // enabled_word = 1
+    w.u32(u32::from(enabled));
     w.u32(color_rgba);
     w.f32(distance as f32);
     w.f32(blur_x as f32);
@@ -1418,7 +1419,7 @@ fn write_shadow_block(
     w.f32((angle_deg as f32).to_radians());
     w.u32(u32::from(inner));
     w.u32(u32::from(knockout));
-    w.u32(u32::from(quality.max(1)));
+    w.u32(u32::from(quality.clamp(1, 15)));
     w.u32((strength.clamp(0.0, 255.0) * 100.0).round() as u32);
     w.u32(u32::from(hide_object));
 }
@@ -1431,6 +1432,8 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
     w.u8(1);
     w.u32(filters.len() as u32);
     for filter in filters {
+        let enabled = filter.is_enabled();
+        let quality_level = filter.quality_level().clamp(1, 15);
         match filter {
             FilterSpec::DropShadow {
                 distance,
@@ -1440,7 +1443,7 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 inner,
                 knockout,
                 hide_object,
@@ -1455,23 +1458,24 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                     *angle,
                     *inner,
                     *knockout,
-                    *quality,
+                    quality_level,
                     *strength,
                     *hide_object,
+                    enabled,
                 );
             }
             FilterSpec::Blur {
                 blur_x,
                 blur_y,
-                quality,
+                quality: _,
             } => {
                 w.u8(1); // Blur
                 w.u8(2); // blur revision = 2
                 w.f32(*blur_x as f32);
                 w.f32(*blur_y as f32);
                 w.u8(1); // filter_state revision = 1
-                w.u32(1); // enabled = 1
-                w.u32(u32::from((*quality).max(1)));
+                w.u32(u32::from(enabled));
+                w.u32(u32::from(quality_level));
             }
             FilterSpec::Glow {
                 color,
@@ -1479,7 +1483,7 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 inner,
                 knockout,
             } => {
@@ -1494,9 +1498,10 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                     45.0,
                     *inner,
                     *knockout,
-                    *quality,
+                    quality_level,
                     *strength,
                     false,
+                    enabled,
                 );
             }
             FilterSpec::Bevel {
@@ -1509,7 +1514,7 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             } => {
@@ -1526,9 +1531,10 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                     *angle,
                     is_inner,
                     *knockout,
-                    *quality,
+                    quality_level,
                     *strength,
                     false,
+                    enabled,
                 );
                 w.u32(pack_filter_rgba(*highlight_color, *highlight_alpha));
                 w.u32(u32::from(is_full));
@@ -1542,7 +1548,7 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             } => {
@@ -1559,9 +1565,10 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                     *angle,
                     is_inner,
                     *knockout,
-                    *quality,
+                    quality_level,
                     *strength,
                     false,
+                    enabled,
                 );
                 let count = colors.len().min(alphas.len()).min(ratios.len()).min(15);
                 w.u32(count as u32);
@@ -1581,7 +1588,7 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             } => {
@@ -1599,9 +1606,10 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                     *angle,
                     is_inner,
                     *knockout,
-                    *quality,
+                    quality_level,
                     *strength,
                     false,
+                    enabled,
                 );
                 let count = colors.len().min(alphas.len()).min(ratios.len()).min(15);
                 w.u32(count as u32);
@@ -1613,14 +1621,9 @@ fn write_filters(w: &mut MfcWriter, filters: &[FilterSpec]) {
                 }
             }
             FilterSpec::ColorMatrix { .. } | FilterSpec::Convolution { .. } => {
-                w.u8(6); // AdjustColor
-                w.u8(1); // revision = 1
-                w.u8(1); // filter_state revision = 1
-                w.u32(1); // enabled = 1
-                w.f32(0.0); // brightness
-                w.f32(0.0); // contrast
-                w.f32(0.0); // saturation
-                w.f32(0.0); // hue
+                unreachable!(
+                    "ColorMatrix and Convolution are blocked by legacy FLA preflight instead of being replaced with an identity AdjustColor filter"
+                )
             }
         }
     }

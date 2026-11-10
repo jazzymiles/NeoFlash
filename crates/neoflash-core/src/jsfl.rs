@@ -6603,6 +6603,43 @@ impl<'a> JsflVm<'a> {
 }
 
 impl<'a> JsflVm<'a> {
+    /// JSFL timeline methods are allowed to operate on hidden or locked rows. Reuse the shared
+    /// atomic frame editor while temporarily bypassing its interactive-UI row guards, then restore
+    /// every authored visibility/lock bit on both success and failure.
+    fn apply_jsfl_timeline_edit(
+        &mut self,
+        symbol_id: &str,
+        edit: crate::TimelineEdit,
+        span: Span,
+    ) -> Result<(), JsflDiagnostic> {
+        let authored_flags = self
+            .symbol_ref(symbol_id, span)?
+            .timeline
+            .layers
+            .iter()
+            .map(|layer| (layer.id.clone(), layer.visible, layer.locked))
+            .collect::<Vec<_>>();
+        if let Some(symbol) = self.project.symbol_mut(symbol_id) {
+            for layer in &mut symbol.timeline.layers {
+                layer.visible = true;
+                layer.locked = false;
+            }
+        }
+
+        let result = crate::edit_frames(&mut self.project, symbol_id, edit);
+        if let Some(symbol) = self.project.symbol_mut(symbol_id) {
+            for layer in &mut symbol.timeline.layers {
+                if let Some((_, visible, locked)) =
+                    authored_flags.iter().find(|(id, _, _)| id == &layer.id)
+                {
+                    layer.visible = *visible;
+                    layer.locked = *locked;
+                }
+            }
+        }
+        result.map_err(|error| self.err(span, error))
+    }
+
     fn call_timeline_method(
         &mut self,
         tl: TimelineHandle,
@@ -6797,17 +6834,32 @@ impl<'a> JsflVm<'a> {
                     .map(|n| n.max(0.0) as u32)
                     .unwrap_or(self.state.current_frame);
                 let cur_layer = self.state.current_layer;
-                let sym = self.symbol_mut(&tl.symbol_id, span)?;
-                sym.timeline.frame_count = sym.timeline.frame_count.saturating_add(num);
-                for (idx, layer) in sym.timeline.layers.iter_mut().enumerate() {
-                    if !all_layers && idx != cur_layer {
-                        continue;
-                    }
-                    for kf in &mut layer.keyframes {
-                        if kf.frame > at_frame {
-                            kf.frame = kf.frame.saturating_add(num);
-                        }
-                    }
+                let layer_ids = self
+                    .symbol_ref(&tl.symbol_id, span)?
+                    .timeline
+                    .layers
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, layer)| {
+                        (all_layers || *index == cur_layer)
+                            && layer.properties.role != LayerRole::Folder
+                    })
+                    .map(|(_, layer)| layer.id.clone())
+                    .collect::<Vec<_>>();
+                if layer_ids.is_empty() {
+                    let sym = self.symbol_mut(&tl.symbol_id, span)?;
+                    sym.timeline.frame_count = sym.timeline.frame_count.saturating_add(num);
+                } else {
+                    self.apply_jsfl_timeline_edit(
+                        &tl.symbol_id,
+                        crate::TimelineEdit::Insert {
+                            layers: layer_ids,
+                            at: at_frame,
+                            count: num,
+                            include_scripts: true,
+                        },
+                        span,
+                    )?;
                 }
                 Ok(JsflValue::Undefined)
             }
@@ -6823,41 +6875,34 @@ impl<'a> JsflVm<'a> {
                     .and_then(JsflValue::as_number)
                     .map(|n| n.max((start_f + 1) as f64) as u32)
                     .unwrap_or(start_f + 1);
-                let count = end_f.saturating_sub(start_f).max(1);
                 let cur_layer = self.state.current_layer;
-                let sym = self.symbol_mut(&tl.symbol_id, span)?;
-                if let Some(layer) = sym.timeline.layers.get_mut(cur_layer) {
-                    layer
-                        .keyframes
-                        .retain(|k| k.frame == 0 || k.frame < start_f || k.frame >= end_f);
-                    for kf in &mut layer.keyframes {
-                        if kf.frame >= end_f {
-                            kf.frame = kf.frame.saturating_sub(count);
-                        }
-                    }
-                    if layer.keyframes.is_empty() && layer.properties.role != LayerRole::Folder {
-                        layer.keyframes.push(Keyframe {
-                            frame: 0,
-                            ..Default::default()
-                        });
-                    }
-                    layer.normalize_motion_keys();
+                let (frame_count, layer_id) = {
+                    let sym = self.symbol_ref(&tl.symbol_id, span)?;
+                    (
+                        sym.timeline.frame_count,
+                        sym.timeline.layers.get(cur_layer).and_then(|layer| {
+                            (layer.properties.role != LayerRole::Folder).then(|| layer.id.clone())
+                        }),
+                    )
+                };
+                if start_f < frame_count
+                    && let Some(layer_id) = layer_id
+                {
+                    let bounded_end = end_f.min(frame_count);
+                    self.apply_jsfl_timeline_edit(
+                        &tl.symbol_id,
+                        crate::TimelineEdit::Delete {
+                            range: crate::FrameRange {
+                                layers: vec![layer_id],
+                                start: start_f,
+                                end: bounded_end - 1,
+                            },
+                            include_scripts: true,
+                        },
+                        span,
+                    )?;
                 }
-                let max_kf = sym
-                    .timeline
-                    .layers
-                    .iter()
-                    .flat_map(|l| &l.keyframes)
-                    .map(|k| k.frame + 1)
-                    .max()
-                    .unwrap_or(1);
-                sym.timeline.frame_count = sym
-                    .timeline
-                    .frame_count
-                    .saturating_sub(count)
-                    .max(max_kf)
-                    .max(1);
-                let new_fc = sym.timeline.frame_count;
+                let new_fc = self.symbol_ref(&tl.symbol_id, span)?.timeline.frame_count;
                 self.state.current_frame = self.state.current_frame.min(new_fc - 1);
                 Ok(JsflValue::Undefined)
             }
@@ -7919,6 +7964,93 @@ mod tests {
         assert_eq!(badge.linkage_id.as_deref(), Some("hero_badge_id"));
         assert!(project.symbols.iter().any(|s| s.name == "HeroBadge copy"));
         assert!(validate(&project).is_empty());
+    }
+
+    #[test]
+    fn jsfl_insert_and_remove_frames_transform_keys_and_scripts_atomically() {
+        let mut project = test_project();
+        let timeline = &mut project.symbols[0].timeline;
+        timeline.frame_count = 6;
+        timeline.layers[0].visible = false;
+        timeline.layers[0].locked = true;
+        timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                label: "old-start".into(),
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 3,
+                label: "boundary".into(),
+                ..Keyframe::default()
+            },
+        ];
+        timeline.scripts = [(1, "removed();"), (3, "atBoundary();"), (5, "after();")]
+            .into_iter()
+            .map(|(frame, source)| FrameScript {
+                frame,
+                script: Script {
+                    language: ScriptLanguage::JavaScript,
+                    source: source.into(),
+                },
+            })
+            .collect();
+        project.validate().unwrap();
+
+        let sandbox = JsflSandbox::new();
+        let state = JsflAuthoringState::for_project(&project);
+        let removed = sandbox
+            .execute(
+                &project,
+                &state,
+                "remove_frames.jsfl",
+                "fl.getDocumentDOM().getTimeline().removeFrames(0, 3);",
+            )
+            .unwrap();
+        let timeline = &removed.project.symbols[0].timeline;
+        assert_eq!(timeline.frame_count, 3);
+        assert_eq!(
+            timeline.layers[0]
+                .keyframes
+                .iter()
+                .map(|key| (key.frame, key.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(0, "boundary")]
+        );
+        assert_eq!(
+            timeline
+                .scripts
+                .iter()
+                .map(|script| (script.frame, script.script.source.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(0, "atBoundary();"), (2, "after();")]
+        );
+        assert!(!timeline.layers[0].visible);
+        assert!(timeline.layers[0].locked);
+        removed.project.validate().unwrap();
+
+        let inserted = sandbox
+            .execute(
+                &removed.project,
+                &removed.state,
+                "insert_frames.jsfl",
+                "fl.getDocumentDOM().getTimeline().insertFrames(2, true, 0);",
+            )
+            .unwrap();
+        let timeline = &inserted.project.symbols[0].timeline;
+        assert_eq!(timeline.frame_count, 5);
+        assert_eq!(timeline.layers[0].keyframes[0].frame, 0);
+        assert_eq!(
+            timeline
+                .scripts
+                .iter()
+                .map(|script| (script.frame, script.script.source.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(0, "atBoundary();"), (4, "after();")]
+        );
+        assert!(!timeline.layers[0].visible);
+        assert!(timeline.layers[0].locked);
+        inserted.project.validate().unwrap();
     }
 
     #[test]

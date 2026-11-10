@@ -411,13 +411,19 @@ fn pass3_jpeg_quality_spritesheets_sourcemaps_minify_and_video_deployment_modes(
         assert!(out.join("bundle.js.map").is_file());
 
         let bundle_raw = fs::read_to_string(out.join("bundle.js")).expect("bundle.js");
-        assert!(bundle_raw.ends_with("//# sourceMappingURL=bundle.js.map\n"));
+        assert!(bundle_raw.ends_with(";\n"));
         let json_str = bundle_raw
             .strip_prefix("globalThis.NeoFlashBundle = ")
             .unwrap()
-            .strip_suffix(";\n//# sourceMappingURL=bundle.js.map\n")
+            .strip_suffix(";\n")
             .unwrap();
         let val: serde_json::Value = serde_json::from_str(json_str).expect("parse bundle json");
+        assert!(
+            val["program"]["code"]
+                .as_str()
+                .unwrap()
+                .ends_with("//# sourceMappingURL=bundle.js.map")
+        );
         let b64 = val["project"]["resources"]
             .as_array()
             .unwrap()
@@ -459,6 +465,7 @@ fn pass3_jpeg_quality_spritesheets_sourcemaps_minify_and_video_deployment_modes(
                 TimelineVideoSpan::progressive("vid-1", "https://cdn.example.com/video/intro.mp4")
             }
         });
+        proj.upgrade_format_for_features();
         assert!(
             neoflash_core::validate(&proj).is_empty(),
             "video project ({mode:?}) must validate cleanly"
@@ -744,6 +751,7 @@ fn pass5_sequential_overwrite_and_stale_file_cleanup_stress() {
     let root = proj.root.clone();
     proj.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0].video =
         Some(TimelineVideoSpan::external("vid-1", "media/clip.mp4"));
+    proj.upgrade_format_for_features();
 
     let opts_balanced = PublishOptions {
         fonts: FontExportPolicy::Embed,

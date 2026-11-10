@@ -279,7 +279,26 @@ fn is_true(v: &bool) -> bool {
 
 const RUNTIME_FILTER_BIAS_MAGIC: f64 = -999_999_123.5;
 const FILTER_DISABLED_QUALITY_BIT: u8 = 0x80;
-const COLOR_MATRIX_DISABLED_TAG: f64 = -32_768.25;
+const LEGACY_COLOR_MATRIX_DISABLED_TAG: f64 = -32_768.25;
+// Authored coefficients are validated in -65536..=65536. Adding this offset stores every
+// possible coefficient in a disjoint finite range while the filter is disabled, so toggling it
+// never destroys matrix[15]. The legacy singleton tag remains readable as a disabled identity
+// coefficient for documents written before the reversible encoding.
+const COLOR_MATRIX_DISABLED_OFFSET: f64 = 131_073.0;
+
+fn color_matrix_value_is_disabled(value: f64) -> bool {
+    value > 65_536.0 || (value - LEGACY_COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9
+}
+
+fn decoded_color_matrix_value(value: f64) -> f64 {
+    if value > 65_536.0 {
+        value - COLOR_MATRIX_DISABLED_OFFSET
+    } else if (value - LEGACY_COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
+        0.0
+    } else {
+        value
+    }
+}
 
 impl FilterSpec {
     /// Whether this filter is active in the stack. Disabled filters remain in the
@@ -292,7 +311,7 @@ impl FilterSpec {
             | Self::Bevel { quality, .. }
             | Self::GradientGlow { quality, .. }
             | Self::GradientBevel { quality, .. } => (*quality & FILTER_DISABLED_QUALITY_BIT) == 0,
-            Self::ColorMatrix { matrix } => (matrix[15] - COLOR_MATRIX_DISABLED_TAG).abs() > 1e-9,
+            Self::ColorMatrix { matrix } => !color_matrix_value_is_disabled(matrix[15]),
             Self::Convolution { matrix_x, .. } => (*matrix_x & FILTER_DISABLED_QUALITY_BIT) == 0,
         }
     }
@@ -314,11 +333,9 @@ impl FilterSpec {
             }
             Self::ColorMatrix { matrix } => {
                 if enabled {
-                    if (matrix[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
-                        matrix[15] = 0.0;
-                    }
-                } else {
-                    matrix[15] = COLOR_MATRIX_DISABLED_TAG;
+                    matrix[15] = decoded_color_matrix_value(matrix[15]);
+                } else if !color_matrix_value_is_disabled(matrix[15]) {
+                    matrix[15] += COLOR_MATRIX_DISABLED_OFFSET;
                 }
             }
             Self::Convolution { matrix_x, .. } => {
@@ -823,9 +840,7 @@ impl From<FilterSpec> for FilterSpecWire {
                 enabled,
             },
             FilterSpec::ColorMatrix { mut matrix } => {
-                if (matrix[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
-                    matrix[15] = 0.0;
-                }
+                matrix[15] = decoded_color_matrix_value(matrix[15]);
                 Self::ColorMatrix { matrix, enabled }
             }
             FilterSpec::Convolution {
@@ -951,7 +966,9 @@ impl FilterSpec {
         let finite =
             |value: f64, low: f64, high: f64| value.is_finite() && (low..=high).contains(&value);
         if let Self::ColorMatrix { matrix } = self {
-            if matrix.iter().all(|v| finite(*v, -65536., 65536.)) {
+            let mut decoded = *matrix;
+            decoded[15] = decoded_color_matrix_value(decoded[15]);
+            if decoded.iter().all(|v| finite(*v, -65536., 65536.)) {
                 return Ok(());
             }
             return Err(error(
@@ -2163,9 +2180,8 @@ pub fn recover_adjust_color_sliders(matrix: &[f64; 20]) -> Option<(f64, f64, f64
         return None;
     }
     let mut clean = *matrix;
-    if (clean[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
-        clean[15] = 0.0;
-    } else if clean[15].abs() > 1e-4 {
+    clean[15] = decoded_color_matrix_value(clean[15]);
+    if clean[15].abs() > 1e-4 {
         return None;
     }
     if clean == IDENTITY_COLOR_MATRIX {
@@ -2336,9 +2352,7 @@ impl FilterSpec {
             } => format!("{} px · {} px", fmt(*blur_x), fmt(*distance)),
             Self::ColorMatrix { matrix } => {
                 let mut clean = *matrix;
-                if (clean[15] - COLOR_MATRIX_DISABLED_TAG).abs() <= 1e-9 {
-                    clean[15] = 0.0;
-                }
+                clean[15] = decoded_color_matrix_value(clean[15]);
                 if clean == IDENTITY_COLOR_MATRIX {
                     "Identity".into()
                 } else {
@@ -2611,6 +2625,27 @@ mod tests {
         assert_eq!(
             filter_rgba(1, 1, &src, std::slice::from_ref(&roundtrip)).unwrap(),
             src
+        );
+
+        let mut authored_matrix = IDENTITY_COLOR_MATRIX;
+        authored_matrix[15] = 37.25;
+        let mut color_matrix = FilterSpec::ColorMatrix {
+            matrix: authored_matrix,
+        };
+        color_matrix.set_enabled(false);
+        assert!(!color_matrix.is_enabled());
+        color_matrix.validate().unwrap();
+        let json = serde_json::to_string(&color_matrix).unwrap();
+        assert!(json.contains("\"enabled\":false"));
+        let mut color_matrix: FilterSpec = serde_json::from_str(&json).unwrap();
+        assert!(!color_matrix.is_enabled());
+        color_matrix.set_enabled(true);
+        assert_eq!(
+            color_matrix,
+            FilterSpec::ColorMatrix {
+                matrix: authored_matrix
+            },
+            "disable/serialize/load/enable must preserve all authored coefficients"
         );
 
         // `apply_filters_rgba` expands the canvas by `filter_padding` when enabled.

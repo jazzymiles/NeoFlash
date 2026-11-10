@@ -1536,8 +1536,15 @@ fn open_path_imports_swf_and_save_to_path_exports_fla_and_nflash() {
 
     let fla_path = temp_dir.join("recovered.fla");
     assert!(editor.save_to_path(fla_path.clone()));
-    assert!(!editor.dirty());
-    assert_eq!(editor.path.as_deref(), Some(fla_path.as_path()));
+    assert!(
+        editor.dirty(),
+        "a derived FLA copy must not clear the imported document's native dirty state"
+    );
+    assert!(
+        editor.path.is_none(),
+        "a derived FLA copy must not become the native save target"
+    );
+    assert_eq!(editor.status, "Exported derived FLA.");
 
     let mut reopened = Editor::from_project(&ctx, Project::blank());
     reopened.open_path(fla_path, &ctx);
@@ -1551,4 +1558,65 @@ fn open_path_imports_swf_and_save_to_path_exports_fla_and_nflash() {
     loaded.validate().unwrap();
 
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn derived_fla_export_does_not_authorize_discarding_unsaved_native_edits() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.transact(|editor| {
+        editor.project.name = "Unsaved native project".into();
+        editor.symbol_mut().timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "if (ready) {\nplay();\n}".into(),
+            },
+        });
+    });
+    editor.workspace.code_editor.format_on_save = true;
+    editor.workspace.code_editor.tab_size = 2;
+    editor.request(crate::app::Pending::CloseDocument, &ctx);
+    assert!(editor.confirm.is_some());
+
+    let project_before = editor.project.clone();
+    let saved_before = editor.saved_project.clone();
+    let path_before = editor.path.clone();
+    let undo_before = editor.history.undo_len();
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "neoflash-derived-confirmation-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let fla_path = temp_dir.join("derived-copy.fla");
+    let exported = editor.save_to_path(fla_path.clone());
+    assert!(exported);
+    assert!(fla_path.is_file());
+    assert!(editor.dirty());
+    assert_eq!(editor.project, project_before);
+    assert_eq!(editor.saved_project, saved_before);
+    assert_eq!(editor.path, path_before);
+    assert_eq!(editor.history.undo_len(), undo_before);
+    let exported_project = neoflash_import::import_project(&fla_path).unwrap();
+    assert!(
+        exported_project.symbols.iter().any(|symbol| symbol
+            .timeline
+            .scripts
+            .iter()
+            .any(|frame| frame.script.source == "if (ready) {\n  play();\n}")),
+        "Format on save must still apply inside the derived copy"
+    );
+
+    editor.resolve_confirmation_save(&ctx, exported);
+    assert!(editor.confirm.is_none());
+    assert_eq!(editor.project.name, "Unsaved native project");
+    assert!(editor.dirty());
+    assert!(editor.has_document());
+
+    let _ = std::fs::remove_dir_all(temp_dir);
 }

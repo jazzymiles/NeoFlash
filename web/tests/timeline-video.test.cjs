@@ -167,3 +167,67 @@ test('authored timeline video binds full placement paths, decodes bundled bytes 
   video.reset();
   video.dispose();
 });
+
+test('script NetStream uses the canonical HTTP URL and can switch back to bundled media', () => {
+  const bytes = Uint8Array.from(Buffer.from('\0\0\0\x18ftypisom', 'binary'));
+  const requested = [];
+  const net = {
+    mediaSource(path) {
+      requested.push(path);
+      if (path === '/video-fixture.mp4') {
+        return { kind: 'http', url: 'https://media.example.test/video-fixture.mp4' };
+      }
+      assert.equal(path, 'media/embedded.mp4');
+      return { kind: 'resource', bytes: bytes.slice(), mediaType: 'video/mp4', length: bytes.length };
+    },
+  };
+  const media = [];
+  function createVideo() {
+    const listeners = new Map();
+    const element = {
+      muted: false,
+      volume: 1,
+      paused: true,
+      readyState: 0,
+      currentTime: 0,
+      src: '',
+      addEventListener(type, fn) {
+        if (!listeners.has(type)) listeners.set(type, []);
+        listeners.get(type).push(fn);
+      },
+      removeEventListener(type, fn) {
+        const list = listeners.get(type) || [];
+        const index = list.indexOf(fn);
+        if (index >= 0) list.splice(index, 1);
+      },
+      setAttribute(name, value) { this[name] = value; },
+      removeAttribute(name) { this[name] = ''; },
+      load() {},
+      play() { this.paused = false; return Promise.resolve(); },
+      pause() { this.paused = true; },
+    };
+    media.push(element);
+    return element;
+  }
+  const video = NeoFlashVideo.create({
+    player: { object_video_info() {} },
+    net,
+    events: NeoFlashEvents,
+    createVideo,
+    createObjectURL: () => 'blob:embedded-video',
+    revokeObjectURL() {},
+    isUserGesture: () => true,
+  });
+  const connection = new video.NetConnection();
+  connection.connect(null);
+  const stream = new video.NetStream(connection);
+
+  stream.play('/video-fixture.mp4');
+  assert.equal(media[0].src, 'https://media.example.test/video-fixture.mp4');
+
+  stream.play('media/embedded.mp4');
+  assert.equal(media[1].src, 'blob:embedded-video');
+  assert.deepEqual(requested, ['/video-fixture.mp4', 'media/embedded.mp4']);
+
+  video.dispose();
+});

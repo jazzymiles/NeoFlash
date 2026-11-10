@@ -86,7 +86,8 @@ fn persisted_options_drive_publish_save_and_exact_background_size() {
             &fixture.runtime(),
             &ctx,
         );
-        assert!(editor.publish_html5_to(&output, &fixture.runtime()));
+        let publish_settings = editor.workspace.publish.clone();
+        assert!(editor.publish_html5_with_settings(&output, &fixture.runtime(), &publish_settings));
         let bytes: Vec<Vec<u8>> = std::fs::read_dir(&output)
             .unwrap()
             .map(|entry| std::fs::read(entry.unwrap().path()).unwrap())
@@ -185,7 +186,8 @@ fn persisted_options_drive_publish_save_and_exact_background_size() {
         matches!(editor.publish_controller.refresh(&editor.project, &editor.workspace.publish, &fixture.runtime(), &ctx),
         EstimateState::Failed(error) if error.contains("warning(s) treated as errors"))
     );
-    assert!(!editor.publish_html5_to(&output, &fixture.runtime()));
+    let publish_settings = editor.workspace.publish.clone();
+    assert!(!editor.publish_html5_with_settings(&output, &fixture.runtime(), &publish_settings));
     assert_eq!(std::fs::read(output.join("bundle.js")).unwrap(), before);
     editor.workspace.publish.warnings_as_errors = false;
     editor.workspace.publish.options.size = SizeLevel::Shared("javascript:alert(1)".into());
@@ -198,11 +200,56 @@ fn persisted_options_drive_publish_save_and_exact_background_size() {
         ),
         EstimateState::Failed(_)
     ));
-    assert!(!editor.publish_html5_to(&output, &fixture.runtime()));
+    let publish_settings = editor.workspace.publish.clone();
+    assert!(!editor.publish_html5_with_settings(&output, &fixture.runtime(), &publish_settings));
     assert_eq!(
         std::fs::read(output.join("bundle.js")).unwrap(),
         before,
         "invalid options preserve an existing package"
+    );
+}
+
+#[test]
+fn publish_on_save_routes_every_enabled_target_and_never_uses_disabled_default_video() {
+    let fixture = Fixture::new();
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let desktop_dir = fixture.0.join("save-desktop");
+    let image_dir = fixture.0.join("save-images");
+    let svg_file = fixture.0.join("save-svg/animation.svg");
+    let disabled_video = fixture.0.join("must-not-exist.mp4");
+
+    let settings = &mut editor.workspace.publish;
+    settings.publish_on_save = true;
+    settings.default_target = crate::workspace::PublishTarget::VideoMp4;
+    settings.html5_enabled = false;
+    settings.desktop_app_enabled = true;
+    settings.desktop_app_folder = Some(desktop_dir.to_string_lossy().into_owned());
+    settings.video_enabled = false;
+    settings.video_file = Some(disabled_video.to_string_lossy().into_owned());
+    settings.image_sequence_enabled = true;
+    settings.image_sequence_folder = Some(image_dir.to_string_lossy().into_owned());
+    settings.svg_enabled = true;
+    settings.svg_file = Some(svg_file.to_string_lossy().into_owned());
+    settings.output_folder = None;
+
+    assert!(editor.save_to_path_with_runtime(
+        fixture.0.join("all-enabled-targets.nflash"),
+        &fixture.runtime(),
+    ));
+    assert!(
+        desktop_dir
+            .join(format!("{}.app/Contents/Info.plist", editor.project.name))
+            .is_file()
+    );
+    assert!(
+        std::fs::read_dir(&image_dir).unwrap().next().is_some(),
+        "enabled image publishing must write at least one frame"
+    );
+    assert!(svg_file.is_file());
+    assert!(
+        !disabled_video.exists(),
+        "default_target must never override a disabled video checkbox"
     );
 }
 

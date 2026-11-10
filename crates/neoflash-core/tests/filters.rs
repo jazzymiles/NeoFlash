@@ -412,3 +412,48 @@ fn authored_filters_blend_modes_visibility_and_format_7_roundtrip() {
             .any(|g| g.owner_ref == hero_ref)
     );
 }
+
+#[test]
+fn layer_and_keyframe_filters_require_format_11_while_old_documents_default_empty() {
+    let mut old = Project::blank();
+    old.format_version = 10;
+    let old_json = old.to_json().unwrap();
+    let loaded_old = Project::from_json(&old_json).unwrap();
+    assert!(
+        loaded_old.symbols[0].timeline.layers[0]
+            .properties
+            .filters
+            .is_empty()
+    );
+    assert!(
+        loaded_old.symbols[0].timeline.layers[0].keyframes[0]
+            .filters
+            .is_empty()
+    );
+    assert!(!loaded_old.uses_format_11());
+
+    let mut project = loaded_old;
+    project.symbols[0].timeline.layers[0].properties.filters = vec![FilterSpec::Blur {
+        blur_x: 2.0,
+        blur_y: 2.0,
+        quality: 1,
+    }];
+    project.symbols[0].timeline.layers[0].keyframes[0].filters = vec![FilterSpec::Glow {
+        color: 0xff8800,
+        alpha: 0.75,
+        blur_x: 4.0,
+        blur_y: 4.0,
+        strength: 1.0,
+        quality: 1,
+        inner: false,
+        knockout: false,
+    }];
+    assert!(project.uses_format_11());
+    let error = project.validate().unwrap_err().to_string();
+    assert!(error.contains("document version 11"), "got: {error}");
+
+    project.upgrade_format_for_features();
+    assert_eq!(project.format_version, 11);
+    let round_trip = Project::from_json(&project.to_json().unwrap()).unwrap();
+    assert_eq!(round_trip, project);
+}

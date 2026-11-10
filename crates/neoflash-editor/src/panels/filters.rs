@@ -504,12 +504,16 @@ impl Editor {
 
     fn timeline_filter_target_editable(&self) -> bool {
         self.selection.is_empty()
+            && self.layer_editable()
             && self
                 .symbol()
                 .timeline
                 .layers
                 .get(self.layer)
-                .is_some_and(|l| !l.locked && l.properties.role != LayerRole::Guide)
+                .is_some_and(|layer| {
+                    layer.properties.role != LayerRole::Guide
+                        && self.is_layer_id_effectively_soloed(&layer.id)
+                })
     }
 
     pub(crate) fn active_keyframe_filters(&self) -> Vec<FilterSpec> {
@@ -2401,5 +2405,59 @@ mod tests {
         assert_eq!(out_w, 1 + pad.left + pad.right);
         assert_eq!(out_h, 1 + pad.top + pad.bottom);
         assert_eq!(out_rgba.len(), (out_w * out_h * 4) as usize);
+    }
+
+    #[test]
+    fn timeline_filters_respect_effective_parent_lock_and_visibility() {
+        let mut project = Project::blank();
+        project.symbols[0].timeline.layers = vec![
+            Layer {
+                id: "folder".into(),
+                name: "Folder".into(),
+                visible: true,
+                locked: true,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties {
+                    role: LayerRole::Folder,
+                    ..LayerProperties::default()
+                },
+            },
+            Layer {
+                id: "child".into(),
+                name: "Child".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe::default()],
+                properties: LayerProperties {
+                    parent: Some("folder".into()),
+                    ..LayerProperties::default()
+                },
+            },
+        ];
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.layer = 1;
+        editor.set_filter_target_scope(FilterTargetScope::Keyframe);
+        let before = editor.project.clone();
+
+        assert!(!editor.timeline_filter_target_editable());
+        assert_eq!(editor.add_selected_filter(AuthoringFilterKind::Blur), None);
+        assert_eq!(editor.project, before);
+
+        editor.symbol_mut().timeline.layers[0].locked = false;
+        editor.symbol_mut().timeline.layers[0].visible = false;
+        let hidden_before = editor.project.clone();
+        assert!(!editor.timeline_filter_target_editable());
+        assert_eq!(editor.add_selected_filter(AuthoringFilterKind::Glow), None);
+        assert_eq!(editor.project, hidden_before);
+
+        editor.symbol_mut().timeline.layers[0].visible = true;
+        assert!(editor.timeline_filter_target_editable());
+        assert_eq!(
+            editor.add_selected_filter(AuthoringFilterKind::Blur),
+            Some(0)
+        );
+        assert_eq!(editor.active_keyframe_filters().len(), 1);
+        editor.project.validate().unwrap();
     }
 }

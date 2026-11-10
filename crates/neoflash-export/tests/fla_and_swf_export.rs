@@ -11,7 +11,7 @@ use neoflash_export::{
     SwfPublishOptions, SwfPublishProfile, SwfVmKind, export_fla_bytes_with_profile,
     export_fla_with_profile, export_legacy_binary_fla_bytes, import_fla_bytes, import_swf_bytes,
     play_swf_bytes, preflight_fla_export, preflight_fla_export_with_options, preflight_swf_publish,
-    publish_swf, publish_swf_bytes,
+    prepare_project_for_fla_profile, publish_swf, publish_swf_bytes,
 };
 
 fn make_tiny_png_bytes() -> Vec<u8> {
@@ -51,6 +51,23 @@ fn make_tiny_wav_bytes() -> Vec<u8> {
         wav.extend_from_slice(&sample.to_le_bytes());
     }
     wav
+}
+
+fn strip_project_scripts(project: &mut Project) {
+    project.sources.clear();
+    project.document_class = None;
+    for symbol in &mut project.symbols {
+        symbol.timeline.scripts.clear();
+        for element in symbol
+            .timeline
+            .layers
+            .iter_mut()
+            .flat_map(|layer| &mut layer.keyframes)
+            .flat_map(|key| &mut key.elements)
+        {
+            element.scripts.clear();
+        }
+    }
 }
 
 fn build_rich_authoring_project(script_lang: ScriptLanguage) -> Project {
@@ -830,6 +847,7 @@ fn t192_publish_swf_profiles_compressions_and_bytecode_execution() {
         let opts = SwfPublishOptions {
             profile: SwfPublishProfile::FlashPlayer8Avm1,
             compression,
+            outline_text: true,
             ..SwfPublishOptions::default()
         };
         let (swf_bytes, report) =
@@ -881,6 +899,7 @@ fn t192_publish_swf_profiles_compressions_and_bytecode_execution() {
         let opts = SwfPublishOptions {
             profile,
             compression: SwfCompression::DeflateCws,
+            outline_text: true,
             ..SwfPublishOptions::default()
         };
         let (swf_bytes, report) =
@@ -911,7 +930,11 @@ fn t192_publish_swf_profiles_compressions_and_bytecode_execution() {
     let pub_report = publish_swf(
         &avm2_project,
         &tmp_swf,
-        &SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2),
+        &SwfPublishOptions {
+            profile: SwfPublishProfile::FlashPlayer10Avm2,
+            outline_text: true,
+            ..SwfPublishOptions::default()
+        },
     )
     .expect("publish_swf to disk");
     assert!(pub_report.can_proceed());
@@ -931,6 +954,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
     // With scriptless_mode = true, publishing visual-only SWF succeeds
     let scriptless_opts = SwfPublishOptions {
         scriptless_mode: true,
+        outline_text: true,
         ..avm1_opts
     };
     let (swf_bytes, ok_report) =
@@ -946,7 +970,346 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
             source: "console.log('hi');".to_owned(),
         },
     });
-    let avm2_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    let avm2_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
     assert!(!preflight_swf_publish(&project, &avm2_opts).can_proceed());
     assert!(publish_swf_bytes(&project, &avm2_opts).is_err());
+
+    let mut unsupported = Project::demo();
+    strip_project_scripts(&mut unsupported);
+    let root_id = unsupported.root.clone();
+    unsupported
+        .symbol_mut(&root_id)
+        .expect("demo root")
+        .timeline
+        .scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "if (ready) { trace(\"lost\"); }".to_owned(),
+        },
+    }];
+    let unsupported_report = preflight_swf_publish(&unsupported, &avm2_opts);
+    assert!(!unsupported_report.can_proceed());
+    assert!(unsupported_report.items.iter().any(|item| {
+        item.code == "swf_avm2_frame_script_unsupported_syntax"
+            && item.location.contains("frame[0]")
+    }));
+
+    unsupported
+        .symbol_mut(&root_id)
+        .expect("demo root")
+        .timeline
+        .scripts[0]
+        .script
+        .source = "var x:Number = 1.5; x = 2; trace(x);".to_owned();
+    let lossy_subset = preflight_swf_publish(&unsupported, &avm2_opts);
+    assert!(lossy_subset.items.iter().any(|item| {
+        item.code == "swf_avm2_frame_script_unsupported_syntax"
+            && item.message.contains("bounded SWF compiler")
+    }));
+    assert!(publish_swf_bytes(&unsupported, &avm2_opts).is_err());
+
+    unsupported
+        .symbol_mut(&root_id)
+        .expect("demo root")
+        .timeline
+        .scripts[0]
+        .script
+        .source = "trace(\"kept\"); stop(); gotoAndStop(1);".to_owned();
+    let supported_report = preflight_swf_publish(&unsupported, &avm2_opts);
+    assert!(
+        supported_report.can_proceed(),
+        "supported bounded statements should pass: {:?}",
+        supported_report.items
+    );
+}
+
+#[test]
+fn t199_swf_preserves_dense_layers_and_changed_artwork_for_stable_ids() {
+    let mut dense = Project::demo();
+    dense.sources.clear();
+    dense.document_class = None;
+    let root_id = dense.root.clone();
+    let dense_root = dense.symbol_mut(&root_id).expect("demo root");
+    dense_root.timeline = Timeline {
+        frame_count: 1,
+        layers: vec![Layer {
+            id: "dense-layer".to_owned(),
+            name: "Dense".to_owned(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: (0..16)
+                    .map(|index| Element {
+                        id: format!("dense-{index}"),
+                        name: format!("dense-{index}"),
+                        transform: Transform {
+                            x: f64::from(index) * 12.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Rectangle {
+                            width: 10.0,
+                            height: 10.0,
+                            fill: [index * 8, 80, 180, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    })
+                    .collect(),
+                ..Keyframe::default()
+            }],
+        }],
+        scripts: Vec::new(),
+        guides: Vec::new(),
+    };
+    let options = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        compression: SwfCompression::UncompressedFws,
+        scriptless_mode: true,
+        ..SwfPublishOptions::default()
+    };
+    let (dense_bytes, _) = publish_swf_bytes(&dense, &options).expect("publish dense SWF");
+    let dense_playback = play_swf_bytes(&dense_bytes, 1).expect("play dense SWF");
+    assert_eq!(dense_playback.frames_executed[0].display_list.len(), 16);
+    let depths: std::collections::BTreeSet<_> = dense_playback.frames_executed[0]
+        .display_list
+        .iter()
+        .map(|entry| entry.depth)
+        .collect();
+    assert_eq!(depths.len(), 16);
+
+    let mut changed = Project::demo();
+    changed.sources.clear();
+    changed.document_class = None;
+    let root_id = changed.root.clone();
+    let changed_root = changed.symbol_mut(&root_id).expect("demo root");
+    let shape = |frame, fill| Keyframe {
+        frame,
+        elements: vec![Element {
+            id: "stable-id".to_owned(),
+            name: "stable-art".to_owned(),
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill,
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }],
+        ..Keyframe::default()
+    };
+    changed_root.timeline = Timeline {
+        frame_count: 2,
+        layers: vec![Layer {
+            id: "changed-layer".to_owned(),
+            name: "Changed".to_owned(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties::default(),
+            keyframes: vec![shape(0, [255, 0, 0, 255]), shape(1, [0, 0, 255, 255])],
+        }],
+        scripts: Vec::new(),
+        guides: Vec::new(),
+    };
+    let (changed_bytes, _) = publish_swf_bytes(&changed, &options).expect("publish changed SWF");
+    let changed_playback = play_swf_bytes(&changed_bytes, 2).expect("play changed SWF");
+    assert_eq!(changed_playback.frames_executed.len(), 2);
+    assert_ne!(
+        changed_playback.frames_executed[0].display_list[0].character_id,
+        changed_playback.frames_executed[1].display_list[0].character_id,
+        "a stable element id must not reuse stale SWF artwork"
+    );
+}
+
+#[test]
+fn t199_fla_preflight_never_claims_unserialized_filters_or_video_are_exact() {
+    let mut project = Project::demo();
+    let root_id = project.root.clone();
+    let root = project.symbol_mut(&root_id).expect("demo root");
+    let keyframe = &mut root.timeline.layers[0].keyframes[0];
+    keyframe.elements[0].filters = vec![FilterSpec::ColorMatrix {
+        matrix: neoflash_core::IDENTITY_COLOR_MATRIX,
+    }];
+
+    for profile in FlaTargetProfile::ALL {
+        let report = preflight_fla_export(&project, profile);
+        assert!(report.items.iter().any(|item| {
+            item.code == "filter_not_serialized"
+                && item.disposition == FlaFeatureDisposition::Blocking
+                && item.message.contains("ColorMatrix")
+        }));
+        assert!(!report.can_export());
+    }
+
+    let root = project.symbol_mut(&root_id).expect("demo root");
+    let keyframe = &mut root.timeline.layers[0].keyframes[0];
+    let blur = FilterSpec::Blur {
+        blur_x: 4.0,
+        blur_y: 4.0,
+        quality: 1,
+    };
+    keyframe.elements[0].filters = vec![blur.clone(); 3];
+    keyframe.filters = vec![blur.clone(); 3];
+    root.timeline.layers[0].properties.filters = vec![blur; 3];
+    let overflow = preflight_fla_export(&project, FlaTargetProfile::AnimateCC);
+    assert!(overflow.items.iter().any(|item| {
+        item.code == "effective_filter_stack_too_large"
+            && item.disposition == FlaFeatureDisposition::Blocking
+    }));
+
+    let root = project.symbol_mut(&root_id).expect("demo root");
+    root.timeline.layers[0].properties.filters.clear();
+    let keyframe = &mut root.timeline.layers[0].keyframes[0];
+    keyframe.filters.clear();
+    keyframe.elements[0].filters.clear();
+    keyframe.elements[0].kind = ElementKind::Video {
+        width: 320.0,
+        height: 180.0,
+    };
+    let report = preflight_fla_export(&project, FlaTargetProfile::AnimateCC);
+    let video = report
+        .items
+        .iter()
+        .find(|item| item.code == "video_instance")
+        .expect("video finding");
+    assert_eq!(video.disposition, FlaFeatureDisposition::Approximated);
+    assert_ne!(video.disposition, FlaFeatureDisposition::Exact);
+
+    let strict = FlaExportOptions {
+        allow_approximations: false,
+        ..FlaExportOptions::default()
+    };
+    let strict_report =
+        preflight_fla_export_with_options(&project, FlaTargetProfile::AnimateCC, &strict);
+    assert!(strict_report.items.iter().any(|item| {
+        item.code == "video_instance" && item.disposition == FlaFeatureDisposition::Blocking
+    }));
+
+    let mut filter_project = Project::demo();
+    strip_project_scripts(&mut filter_project);
+    let filter_root_id = filter_project.root.clone();
+    let mut disabled_blur = FilterSpec::Blur {
+        blur_x: 6.0,
+        blur_y: 4.0,
+        quality: 1,
+    };
+    disabled_blur.set_enabled(false);
+    filter_project
+        .symbol_mut(&filter_root_id)
+        .unwrap()
+        .timeline
+        .layers[0]
+        .keyframes[0]
+        .elements[0]
+        .filters = vec![disabled_blur];
+    filter_project.upgrade_format_for_features();
+    let xfl_dir = std::env::temp_dir().join(format!(
+        "neoflash-t199-disabled-filter-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&xfl_dir);
+    export_fla_with_profile(
+        &filter_project,
+        FlaTargetProfile::UncompressedXfl,
+        &FlaExportOptions::default(),
+        &xfl_dir,
+    )
+    .expect("export disabled filter to XFL");
+    let dom = std::fs::read_to_string(xfl_dir.join("DOMDocument.xml")).unwrap();
+    assert!(dom.contains("<BlurFilter"));
+    assert!(dom.contains("quality=\"1\""));
+    assert!(dom.contains("isEnabled=\"false\""));
+    let _ = std::fs::remove_dir_all(&xfl_dir);
+
+    let stops: Vec<u32> = (0..16).map(|index| index * 0x010101).collect();
+    let mut legacy = Project::demo();
+    strip_project_scripts(&mut legacy);
+    let legacy_filter_target = legacy
+        .symbols
+        .iter_mut()
+        .flat_map(|symbol| &mut symbol.timeline.layers)
+        .flat_map(|layer| &mut layer.keyframes)
+        .flat_map(|key| &mut key.elements)
+        .find(|element| matches!(element.kind, ElementKind::Instance { .. }))
+        .expect("demo has a symbol instance for legacy filter serialization");
+    legacy_filter_target.filters = vec![FilterSpec::GradientGlow {
+        distance: 4.0,
+        angle: 45.0,
+        colors: stops,
+        alphas: vec![1.0; 16],
+        ratios: (0..16).map(|index| index * 17).collect(),
+        blur_x: 4.0,
+        blur_y: 4.0,
+        strength: 1.0,
+        quality: 1,
+        placement: "outer".to_owned(),
+        knockout: false,
+    }];
+    legacy.upgrade_format_for_features();
+    let legacy_report = preflight_fla_export(&legacy, FlaTargetProfile::LegacyFlashCS4);
+    assert!(legacy_report.items.iter().any(|item| {
+        item.code == "legacy_filter_gradient_stop_limit"
+            && item.disposition == FlaFeatureDisposition::Blocking
+    }));
+    assert!(
+        export_legacy_binary_fla_bytes(&legacy, FlaTargetProfile::LegacyFlashCS4).is_err(),
+        "a valid 16-stop NeoFlash filter must not be silently truncated to 15 in legacy FLA"
+    );
+}
+
+#[test]
+fn t199_fla_preflight_reports_frame_rate_clamp_before_export() {
+    let mut project = Project::demo();
+    project.fps = 121;
+
+    let report = preflight_fla_export(&project, FlaTargetProfile::AnimateCC);
+    assert!(report.items.iter().any(|item| {
+        item.code == "frame_rate_clamped"
+            && item.location == "Project.fps"
+            && item.disposition == FlaFeatureDisposition::Approximated
+            && item.message.contains("120 fps")
+    }));
+    assert!(!report.items.iter().any(|item| {
+        item.code == "document_frame_rate_exact" && item.disposition == FlaFeatureDisposition::Exact
+    }));
+
+    let strict = FlaExportOptions {
+        allow_approximations: false,
+        ..FlaExportOptions::default()
+    };
+    let strict_report =
+        preflight_fla_export_with_options(&project, FlaTargetProfile::AnimateCC, &strict);
+    assert!(strict_report.items.iter().any(|item| {
+        item.code == "frame_rate_clamped" && item.disposition == FlaFeatureDisposition::Blocking
+    }));
+
+    let (prepared, prepared_report) = prepare_project_for_fla_profile(
+        &project,
+        FlaTargetProfile::AnimateCC,
+        &FlaExportOptions::default(),
+    );
+    assert_eq!(prepared.fps, 120);
+    assert!(prepared_report.items.iter().any(|item| {
+        item.code == "frame_rate_clamped" && item.disposition == FlaFeatureDisposition::Approximated
+    }));
+
+    project.fps = 120;
+    let exact = preflight_fla_export(&project, FlaTargetProfile::AnimateCC);
+    assert!(exact.items.iter().any(|item| {
+        item.code == "document_frame_rate_exact" && item.disposition == FlaFeatureDisposition::Exact
+    }));
+    assert!(
+        !exact
+            .items
+            .iter()
+            .any(|item| item.code == "frame_rate_clamped")
+    );
 }

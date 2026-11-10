@@ -3029,7 +3029,7 @@ mod filter_evaluation_tests {
         ];
         project.symbols[0].timeline.frame_count = 5;
         project.upgrade_format_for_features();
-        assert_eq!(project.format_version, 7);
+        assert_eq!(project.format_version, 11);
         project.validate().unwrap();
 
         let sampled = sample_layer(&project.symbols[0].timeline.layers[0], 2);

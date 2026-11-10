@@ -196,12 +196,17 @@ impl Editor {
             return Vec::new();
         };
 
-        self.ensure_key_for(&layer_id, false);
         let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            start_frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
+        let fps = f64::from(candidate.fps);
         let Some(sym) = candidate.symbol_mut(&sym_id) else {
-            return Vec::new();
-        };
-        let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
             return Vec::new();
         };
 
@@ -210,15 +215,14 @@ impl Editor {
         if opts.animate_pattern && generated.len() > 1 {
             let max_frame = start_frame + (generated.len() as u32 - 1) * step;
             sym.timeline.frame_count = sym.timeline.frame_count.max(max_frame + 1);
-            let base_elements: Vec<Element> = layer
-                .keyframes
-                .iter()
-                .find(|k| k.frame == start_frame)
-                .map(|k| k.elements.clone())
-                .unwrap_or_default();
+            let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
+                return Vec::new();
+            };
+            let source_layer = layer.clone();
             for (idx, _el) in generated.iter().enumerate() {
                 let target_f = start_frame + (idx as u32) * step;
-                let mut progressive = base_elements.clone();
+                let mut progressive = sample_layer_at_fps(&source_layer, target_f, fps);
+                let preserved_len = progressive.len();
                 for item in generated.iter().take(idx + 1) {
                     let mut c = item.clone();
                     if idx > 0 {
@@ -231,21 +235,27 @@ impl Editor {
                 if idx == 0 {
                     selected_ids = progressive
                         .iter()
-                        .skip(base_elements.len())
+                        .skip(preserved_len)
                         .map(|e| e.id.clone())
                         .collect();
                 }
                 if let Some(existing) = layer.keyframes.iter_mut().find(|k| k.frame == target_f) {
                     existing.elements = progressive;
-                } else if let Some(template_kf) = layer.keyframes.first().cloned() {
-                    let mut kf = template_kf;
-                    kf.frame = target_f;
-                    kf.elements = progressive;
-                    layer.keyframes.push(kf);
+                } else {
+                    layer.keyframes.push(Keyframe {
+                        frame: target_f,
+                        elements: progressive,
+                        ..Keyframe::default()
+                    });
                 }
             }
             layer.keyframes.sort_by_key(|k| k.frame);
-        } else if let Some(kf) = layer.keyframes.iter_mut().find(|k| k.frame == start_frame) {
+        } else if let Some(kf) = sym
+            .timeline
+            .layers
+            .get_mut(layer_idx)
+            .and_then(|layer| layer.keyframes.iter_mut().find(|k| k.frame == start_frame))
+        {
             for el in generated {
                 selected_ids.push(el.id.clone());
                 kf.elements.push(el);
@@ -327,8 +337,15 @@ impl Editor {
         else {
             return Vec::new();
         };
-        self.ensure_key_for(&layer_id, false);
         let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &current_sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
         let Some(sym) = candidate.symbol_mut(&current_sym_id) else {
             return Vec::new();
         };
@@ -385,9 +402,15 @@ impl Editor {
             .layers
             .get(layer_idx)
             .map(|l| l.id.clone())?;
-        self.ensure_key_for(&layer_id, false);
-
         let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
         let sym = candidate.symbol_mut(&sym_id)?;
         let layer = sym.timeline.layers.get_mut(layer_idx)?;
         let kf = layer.keyframes.iter_mut().find(|k| k.frame == frame)?;
@@ -457,8 +480,6 @@ impl Editor {
         else {
             return false;
         };
-        self.ensure_key_for(&layer_id, false);
-
         let (joint_specs, skins) = {
             let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
             sessions
@@ -468,6 +489,14 @@ impl Editor {
         };
 
         let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
         let Some(sym) = candidate.symbol_mut(&sym_id) else {
             return false;
         };
@@ -553,9 +582,15 @@ impl Editor {
             .layers
             .get(layer_idx)
             .map(|l| l.id.clone())?;
-        self.ensure_key_for(&layer_id, false);
-
         let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
         let sym = candidate.symbol_mut(&sym_id)?;
         let layer = sym.timeline.layers.get_mut(layer_idx)?;
         let kf = layer.keyframes.iter_mut().find(|k| k.frame == frame)?;
@@ -649,29 +684,42 @@ impl Editor {
             .layers
             .get(layer_idx)
             .map(|l| l.id.clone())?;
-        self.ensure_key_for(&layer_id, false);
-
-        let mut rig = self
-            .symbol()
+        let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
+        let layer = candidate
+            .symbol_mut(&sym_id)?
             .timeline
             .layers
-            .get(layer_idx)
-            .and_then(|l| l.keyframes.iter().find(|k| k.frame == frame))
-            .and_then(|k| {
-                k.asset_warps
-                    .iter()
-                    .find(|w| w.element_id == element_id)
-                    .cloned()
-            })
+            .get_mut(layer_idx)?;
+        let key_index = layer.keyframes.iter().rposition(|key| key.frame <= frame)?;
+        let kf = &mut layer.keyframes[key_index];
+        if !kf.elements.iter().any(|element| element.id == element_id) {
+            return None;
+        }
+        let mut rig = kf
+            .asset_warps
+            .iter()
+            .find(|warp| warp.element_id == element_id)
+            .cloned()
             .unwrap_or_else(|| AssetWarpRig {
                 element_id: element_id.to_owned(),
                 pins: Vec::new(),
                 envelop_subdivisions: 4,
             });
         let pin_id = upsert_warp_pin(&mut rig, local_pt, 10.0, kind);
-        if !self.set_element_asset_warp(rig) {
-            return None;
-        }
+        kf.set_asset_warp(rig);
+        candidate.upgrade_format_for_features();
+        candidate.validate().ok()?;
+        self.transact_named("Set Asset Warp", |editor| {
+            editor.project = candidate;
+        });
         let mut sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
         let sess = sessions.entry(self.clipboard.session.clone()).or_default();
         sess.puppet_selected_pin_id = Some(pin_id.clone());
@@ -704,10 +752,16 @@ impl Editor {
         else {
             return false;
         };
-        // Ensure a keyframe at `self.frame` so dragging on a later frame records a keyed pose.
-        self.ensure_key_for(&layer_id, false);
-
         let mut candidate = self.project.clone();
+        // Ensure a keyframe in the candidate so the keyed pose and pin drag share one Undo step.
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
         let Some(sym) = candidate.symbol_mut(&sym_id) else {
             return false;
         };

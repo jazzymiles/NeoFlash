@@ -23,6 +23,10 @@ pub struct FontSubsetStats {
     pub original_bytes: usize,
     pub subset_bytes: usize,
     pub codepoint_count: usize,
+    /// False when NeoFlash preserves the original browser-loadable font rather than emitting an
+    /// internal metrics blob under a font MIME type.
+    #[serde(default)]
+    pub subset_applied: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -370,20 +374,18 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
                     .cloned()
                     .unwrap_or_else(|| (32u32..=126).collect())
             });
-            let subset = TextFormat::subset_font_bytes(&raw_bytes, &codepoints)
-                .unwrap_or_else(|_| raw_bytes.clone());
+            // `TextFormat::subset_font_bytes` is NeoFlash's portable metrics encoding (`NFPM`),
+            // not an SFNT/WOFF font that a browser can load through @font-face. Preserve the
+            // original font until a real glyph/table subsetter is available; a larger valid
+            // export is preferable to a smaller package with silently broken typography.
             bundle.subset_stats.push(FontSubsetStats {
                 family: family.clone(),
                 original_bytes,
-                subset_bytes: subset.len(),
+                subset_bytes: raw_bytes.len(),
                 codepoint_count: codepoints.len(),
+                subset_applied: false,
             });
-            if let Ok(updated) =
-                ResourceUnit::from_bytes(&res.id, &res.path, &res.media_type, &subset)
-            {
-                *res = updated;
-            }
-            subset
+            raw_bytes
         } else {
             raw_bytes
         };

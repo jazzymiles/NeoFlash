@@ -734,6 +734,7 @@ impl Editor {
             || crate::panels::font_embedding::has_font_embedding_dialog(ctx)
             || crate::panels::sound_properties::has_sound_properties_dialog(ctx)
             || crate::panels::layer_properties::has_layer_properties_dialog(ctx)
+            || crate::panels::productivity_tools::has_productivity_modal(ctx)
     }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
@@ -1341,16 +1342,26 @@ impl Editor {
         self.save_to_path(path)
     }
 
-    fn format_project_scripts_in_place(&mut self) {
-        let tab_size = self.workspace.code_editor.tab_size;
-        for unit in &mut self.project.sources {
+    pub(crate) fn resolve_confirmation_save(&mut self, ctx: &egui::Context, save_succeeded: bool) {
+        // A derived export (for example Save As .fla) can succeed while the
+        // canonical NeoFlash document remains dirty. Never treat that copy as
+        // permission to close, replace or otherwise discard the native edits.
+        if save_succeeded && !self.dirty() {
+            self.continue_confirmation(ctx);
+        } else {
+            self.cancel_confirmation(ctx);
+        }
+    }
+
+    fn format_project_scripts(project: &mut Project, tab_size: u8) {
+        for unit in &mut project.sources {
             if let Some(formatted) =
                 crate::code_tools::auto_format_with_tab_size(&unit.source, tab_size)
             {
                 unit.source = formatted;
             }
         }
-        for symbol in &mut self.project.symbols {
+        for symbol in &mut project.symbols {
             for frame_script in &mut symbol.timeline.scripts {
                 if let Some(formatted) = crate::code_tools::auto_format_with_tab_size(
                     &frame_script.script.source,
@@ -1393,19 +1404,33 @@ impl Editor {
             return false;
         }
         self.finish_edits();
-        if self.workspace.code_editor.format_on_save {
-            self.history
-                .begin_named(&self.project, "Format scripts on save");
-            self.format_project_scripts_in_place();
-        }
         let is_fla = path
             .extension()
             .and_then(|s| s.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"));
+        let format_on_save = self.workspace.code_editor.format_on_save;
+        let tab_size = self.workspace.code_editor.tab_size;
+        let derived_project = if is_fla && format_on_save {
+            let mut project = self.project.clone();
+            Self::format_project_scripts(&mut project, tab_size);
+            Some(project)
+        } else {
+            None
+        };
+        if format_on_save && !is_fla {
+            self.history
+                .begin_named(&self.project, "Format scripts on save");
+            Self::format_project_scripts(&mut self.project, tab_size);
+        }
         let result = if is_fla {
-            neoflash_import::export_fla_bytes(&self.project)
-                .map_err(|e| e.to_string())
-                .and_then(|bytes| atomic_save_file(&path, &bytes).map_err(|e| e.to_string()))
+            neoflash_export::export_fla_bytes_with_profile(
+                derived_project.as_ref().unwrap_or(&self.project),
+                neoflash_export::FlaTargetProfile::AnimateCC,
+                &neoflash_export::FlaExportOptions::default(),
+            )
+            .map(|(bytes, _report)| bytes)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| atomic_save_file(&path, &bytes).map_err(|e| e.to_string()))
         } else {
             self.project
                 .to_json()
@@ -1416,44 +1441,34 @@ impl Editor {
         };
         match result {
             Ok(()) => {
-                if self.workspace.code_editor.format_on_save {
+                if format_on_save && !is_fla {
                     self.commit_history();
                 }
-                self.workspace.general.push_recent(&path);
-                self.saved_project = Some(self.project.clone());
-                self.path = Some(path);
-                self.clear_and_retarget_recovery();
-                self.message(if is_fla {
-                    "FLA archive saved."
+                if is_fla {
+                    // FLA export can contain compatibility approximations, so it is a
+                    // derived copy rather than the editor's canonical save target.
+                    self.message("Exported derived FLA.");
                 } else {
-                    "Project saved."
-                });
-                if !is_fla && self.workspace.publish.publish_on_save {
-                    let settings = self.workspace.publish.clone();
-                    if let Some(output) = self.configured_publish_folder() {
-                        if settings.html5_enabled {
-                            self.publish_html5_to(&output, runtime_dir);
-                        }
-                        if settings.video_enabled
-                            || settings.default_target == crate::workspace::PublishTarget::VideoMp4
-                        {
-                            self.publish_video_with_settings(Some(&output), &settings);
-                        }
-                    } else if settings.video_file.is_some()
-                        && (settings.video_enabled
-                            || settings.default_target == crate::workspace::PublishTarget::VideoMp4)
-                    {
-                        self.publish_video_with_settings(None, &settings);
-                    } else {
-                        self.message(
-                            "Publish on save skipped: set an Output folder in Preferences ▸ Publish.",
+                    self.workspace.general.push_recent(&path);
+                    self.saved_project = Some(self.project.clone());
+                    self.path = Some(path);
+                    self.clear_and_retarget_recovery();
+                    self.message("Project saved.");
+                    if self.workspace.publish.publish_on_save {
+                        let settings = self.workspace.publish.clone();
+                        let output = self.configured_publish_folder();
+                        self.publish_enabled_targets_with_settings(
+                            output.as_deref(),
+                            runtime_dir,
+                            &settings,
+                            false,
                         );
                     }
                 }
                 true
             }
             Err(e) => {
-                if self.workspace.code_editor.format_on_save {
+                if format_on_save && !is_fla {
                     self.history.cancel(&mut self.project);
                 }
                 self.notify_with_output(
@@ -1505,15 +1520,6 @@ impl Editor {
                 }
             }
         }
-    }
-
-    pub(crate) fn publish_html5_to(
-        &mut self,
-        output: &std::path::Path,
-        runtime_dir: &std::path::Path,
-    ) -> bool {
-        let settings = self.workspace.publish.clone();
-        self.publish_html5_with_settings(output, runtime_dir, &settings)
     }
 
     /// Publish the same draft used by the estimate without committing workspace defaults.
@@ -1740,6 +1746,87 @@ impl Editor {
         }
     }
 
+    /// Route every enabled publish checkbox through the same target implementations. Interactive
+    /// Publish may open a target-specific chooser; publish-on-save never interrupts saving and
+    /// instead reports a missing destination for that target.
+    pub(crate) fn publish_enabled_targets_with_settings(
+        &mut self,
+        shared_output: Option<&std::path::Path>,
+        runtime_dir: &std::path::Path,
+        settings: &crate::workspace::PublishPrefs,
+        allow_target_dialogs: bool,
+    ) -> bool {
+        fn configured(value: &Option<String>) -> bool {
+            value
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        }
+
+        if !settings.has_any_enabled_target() {
+            self.message("Publish skipped: no publish target is enabled.");
+            return false;
+        }
+
+        let mut ok = true;
+        if settings.html5_enabled {
+            if let Some(output) = shared_output {
+                ok &= self.publish_html5_with_settings(output, runtime_dir, settings);
+            } else {
+                self.message(
+                    "HTML5 publish skipped: set an Output folder in Preferences ▸ Publish.",
+                );
+                ok = false;
+            }
+        }
+        if settings.desktop_app_enabled {
+            if allow_target_dialogs
+                || shared_output.is_some()
+                || configured(&settings.desktop_app_folder)
+            {
+                ok &= self.publish_desktop_app_with_settings(shared_output, runtime_dir, settings);
+            } else {
+                self.message(
+                    "Desktop app publish skipped: set its output folder or the shared Output folder.",
+                );
+                ok = false;
+            }
+        }
+        if settings.video_enabled {
+            if allow_target_dialogs || shared_output.is_some() || configured(&settings.video_file) {
+                ok &= self.publish_video_with_settings(shared_output, settings);
+            } else {
+                self.message(
+                    "Video publish skipped: set its output file or the shared Output folder.",
+                );
+                ok = false;
+            }
+        }
+        if settings.image_sequence_enabled {
+            if allow_target_dialogs
+                || shared_output.is_some()
+                || configured(&settings.image_sequence_folder)
+            {
+                ok &= self.publish_image_sequence_with_settings(shared_output, settings);
+            } else {
+                self.message(
+                    "Image sequence publish skipped: set its output folder or the shared Output folder.",
+                );
+                ok = false;
+            }
+        }
+        if settings.svg_enabled {
+            if allow_target_dialogs || shared_output.is_some() || configured(&settings.svg_file) {
+                ok &= self.publish_svg_with_settings(shared_output, settings);
+            } else {
+                self.message(
+                    "SVG publish skipped: set its output file or the shared Output folder.",
+                );
+                ok = false;
+            }
+        }
+        ok
+    }
+
     pub fn export(&mut self, test: bool) {
         if !self.has_document() {
             return;
@@ -1786,22 +1873,12 @@ impl Editor {
             self.open_publish_settings();
             return;
         }
-        let publish_video = settings.video_enabled;
         let needs_shared_output = settings.html5_enabled
             || (settings.desktop_app_enabled && settings.desktop_app_folder.is_none())
             || (settings.image_sequence_enabled && settings.image_sequence_folder.is_none())
             || (settings.svg_enabled && settings.svg_file.is_none());
-        if publish_video && !needs_shared_output {
-            self.publish_video_with_settings(None, &settings);
-            if settings.desktop_app_enabled {
-                self.publish_desktop_app_with_settings(None, &Self::runtime_dir(), &settings);
-            }
-            if settings.image_sequence_enabled {
-                self.publish_image_sequence_with_settings(None, &settings);
-            }
-            if settings.svg_enabled {
-                self.publish_svg_with_settings(None, &settings);
-            }
+        if !needs_shared_output {
+            self.publish_enabled_targets_with_settings(None, &Self::runtime_dir(), &settings, true);
             return;
         }
         let output = if let Some(configured) = self.configured_publish_folder() {
@@ -1824,21 +1901,12 @@ impl Editor {
             ))
         };
         let parent_opt = (!output.as_os_str().is_empty()).then_some(output.as_path());
-        if settings.html5_enabled {
-            self.publish_html5_to(&output, &Self::runtime_dir());
-        }
-        if settings.desktop_app_enabled {
-            self.publish_desktop_app_with_settings(parent_opt, &Self::runtime_dir(), &settings);
-        }
-        if publish_video {
-            self.publish_video_with_settings(parent_opt, &settings);
-        }
-        if settings.image_sequence_enabled {
-            self.publish_image_sequence_with_settings(parent_opt, &settings);
-        }
-        if settings.svg_enabled {
-            self.publish_svg_with_settings(parent_opt, &settings);
-        }
+        self.publish_enabled_targets_with_settings(
+            parent_opt,
+            &Self::runtime_dir(),
+            &settings,
+            true,
+        );
     }
     /// Export the document (or a specific `symbol_id`) to a Bodymovin / Lottie `.json` file.
     #[cfg(test)]
@@ -1880,7 +1948,14 @@ impl Editor {
         } else {
             return false;
         };
-        let opts = neoflash_export::SwfPublishOptions::default();
+        // The current SWF writer cannot emit a proven editable font table. The
+        // editor therefore chooses its supported visual conversion explicitly;
+        // rich/input text that cannot be outlined faithfully still blocks in
+        // compatibility preflight instead of disappearing from the movie.
+        let opts = neoflash_export::SwfPublishOptions {
+            outline_text: true,
+            ..neoflash_export::SwfPublishOptions::default()
+        };
         match neoflash_export::publish_swf_to_path(&self.project, &swf_path, &opts) {
             Ok(report) => {
                 self.message(format!(
@@ -2918,10 +2993,11 @@ impl Editor {
             if let Some(action) = action {
                 if action == 2 {
                     self.cancel_confirmation(ctx);
-                } else if action == 1 || (action == 0 && self.save(false)) {
+                } else if action == 1 {
                     self.continue_confirmation(ctx);
                 } else if action == 0 {
-                    self.cancel_confirmation(ctx);
+                    let saved = self.save(false);
+                    self.resolve_confirmation_save(ctx, saved);
                 }
             }
         }

@@ -44,6 +44,11 @@ enum StrokeJoin {
 }
 
 fn outline_text_element_to_paths(element: &Element) -> Vec<Element> {
+    let mut outlined_element = element.clone();
+    // A named TextBox is runtime-addressable in the authoring model, but outline_text is an
+    // explicit request for static visual conversion. Clear only the temporary authoring name so
+    // the shared outline converter does not intentionally preserve it as an editable field.
+    outlined_element.name.clear();
     let mut temp_proj = Project {
         format_version: 6,
         name: "outline_tmp".to_owned(),
@@ -67,7 +72,7 @@ fn outline_text_element_to_paths(element: &Element) -> Vec<Element> {
                     properties: Default::default(),
                     keyframes: vec![neoflash_core::Keyframe {
                         frame: 0,
-                        elements: vec![element.clone()],
+                        elements: vec![outlined_element],
                         ..Default::default()
                     }],
                 }],
@@ -180,6 +185,397 @@ impl SwfPublishOptions {
     }
 }
 
+fn timeline_depth_bands(timeline: &Timeline) -> Option<Vec<(u16, u16)>> {
+    let mut next_depth = 1usize;
+    let mut bands = Vec::with_capacity(timeline.layers.len());
+    for layer in &timeline.layers {
+        if !layer.visible || matches!(layer.properties.role, LayerRole::Folder | LayerRole::Guide) {
+            bands.push((0, 0));
+            continue;
+        }
+        let mut width = layer
+            .keyframes
+            .iter()
+            .map(|keyframe| keyframe.elements.len())
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        for (keyframe_index, keyframe) in layer.keyframes.iter().enumerate() {
+            if keyframe.tween.is_some()
+                && keyframe.tween_kind == TweenKind::Shape
+                && let Some(next_keyframe) = layer.keyframes.get(keyframe_index + 1)
+                && !can_build_morph_shape(&keyframe.elements, &next_keyframe.elements)
+            {
+                // Baked shape-tween sampling can retain unmatched shapes from both endpoints.
+                // Reserve the conservative union so it cannot overlap the following layer's band.
+                width = width.max(
+                    keyframe
+                        .elements
+                        .len()
+                        .checked_add(next_keyframe.elements.len())?,
+                );
+            }
+        }
+        let end_depth = next_depth.checked_add(width)?.checked_sub(1)?;
+        if end_depth > usize::from(u16::MAX) {
+            return None;
+        }
+        bands.push((next_depth as u16, end_depth as u16));
+        next_depth = end_depth + 1;
+    }
+    Some(bands)
+}
+
+fn used_swf_media_resources(project: &Project) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut bitmaps = BTreeSet::new();
+    let mut sounds = BTreeSet::new();
+    for keyframe in project
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(|layer| &layer.keyframes)
+    {
+        for element in &keyframe.elements {
+            if let ElementKind::Bitmap { resource_id, .. } = &element.kind {
+                bitmaps.insert(resource_id.clone());
+            }
+        }
+        if let Some(sound) = &keyframe.sound {
+            sounds.insert(sound.resource.clone());
+        }
+    }
+    (bitmaps, sounds)
+}
+
+fn swf_text_outline_issue(element: &Element) -> Option<String> {
+    let ElementKind::TextBox { format, .. } = &element.kind else {
+        return None;
+    };
+    if format.underline || format.bullet {
+        return Some(
+            "underline/bullet decoration is not emitted by the current glyph-outline converter"
+                .to_owned(),
+        );
+    }
+    let options = format.field_options()?;
+    if options.html || !options.format_runs.is_empty() {
+        return Some(
+            "HTML or per-run rich text cannot be represented faithfully by the current uniform glyph-outline converter"
+                .to_owned(),
+        );
+    }
+    if options.border
+        || options.background
+        || options.highlight
+        || options.strikethrough
+        || options.superscript
+        || options.subscript
+    {
+        return Some(
+            "TextField decoration/background styling is not emitted by the current glyph-outline converter"
+                .to_owned(),
+        );
+    }
+    None
+}
+
+fn simple_script_identifier(expr: &str) -> bool {
+    let expr = expr.trim();
+    !expr.is_empty()
+        && expr
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.'))
+}
+
+fn simple_avm1_expression(expr: &str) -> bool {
+    let expr = expr.trim();
+    if expr.is_empty()
+        || unquote_literal(expr).is_some()
+        || matches!(expr, "true" | "false" | "null" | "undefined")
+        || expr.parse::<f64>().is_ok()
+    {
+        return !expr.is_empty();
+    }
+    if simple_script_identifier(expr) {
+        return true;
+    }
+    if let Some((left, right, _)) = split_avm1_binary_expression(expr) {
+        return simple_avm1_expression(left) && simple_avm1_expression(right);
+    }
+    false
+}
+
+fn split_avm1_binary_expression(expr: &str) -> Option<(&str, &str, char)> {
+    fn rightmost_operator(expr: &str, operators: &[char]) -> Option<(usize, char)> {
+        let mut quote = None;
+        let mut escaped = false;
+        let mut candidate = None;
+        for (index, character) in expr.char_indices() {
+            if let Some(active_quote) = quote {
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == active_quote {
+                    quote = None;
+                }
+                continue;
+            }
+            if matches!(character, '\'' | '"') {
+                quote = Some(character);
+                continue;
+            }
+            if !operators.contains(&character) {
+                continue;
+            }
+            let left = expr[..index].trim_end();
+            let right = expr[index + character.len_utf8()..].trim_start();
+            if left.is_empty() || right.is_empty() {
+                continue;
+            }
+            let previous = left.chars().next_back();
+            if previous.is_some_and(|value| matches!(value, '+' | '-' | '*' | '/')) {
+                continue;
+            }
+            candidate = Some((index, character));
+        }
+        if quote.is_some() { None } else { candidate }
+    }
+
+    let (index, operator) =
+        rightmost_operator(expr, &['+', '-']).or_else(|| rightmost_operator(expr, &['*', '/']))?;
+    Some((
+        expr[..index].trim(),
+        expr[index + operator.len_utf8()..].trim(),
+        operator,
+    ))
+}
+
+fn supported_avm1_statement(statement: &str) -> bool {
+    let statement = statement.trim().trim_end_matches(';').trim();
+    if statement.is_empty() {
+        return true;
+    }
+    if let Some((function, args)) = parse_call_stmt(statement) {
+        if function.contains('.') {
+            return false;
+        }
+        let arguments: Vec<&str> = if args.is_empty() {
+            Vec::new()
+        } else {
+            args.split(',').map(str::trim).collect()
+        };
+        return match function {
+            "stop" | "play" | "nextFrame" | "prevFrame" | "stopAllSounds" => arguments.is_empty(),
+            "gotoAndStop" | "gotoAndPlay" => {
+                arguments.len() == 1 && simple_avm1_expression(arguments[0])
+            }
+            "trace" => arguments.len() == 1 && simple_avm1_expression(arguments[0]),
+            _ => {
+                function
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
+                    && arguments.iter().all(|arg| simple_avm1_expression(arg))
+            }
+        };
+    }
+    if let Some(rest) = statement.strip_prefix("var ") {
+        return rest.split_once('=').is_some_and(|(left, right)| {
+            let name = left.split(':').next().unwrap_or(left).trim();
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
+                && simple_avm1_expression(right)
+        });
+    }
+    statement.split_once('=').is_some_and(|(left, right)| {
+        let name = left.trim();
+        !name.is_empty()
+            && !left.ends_with(['=', '!', '<', '>'])
+            && !right.starts_with('=')
+            && name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
+            && simple_avm1_expression(right)
+    })
+}
+
+fn supported_avm2_argument(argument: &str) -> bool {
+    let argument = argument.trim();
+    unquote_literal(argument).is_some()
+        || argument.parse::<i32>().is_ok()
+        || simple_avm2_identifier(argument)
+}
+
+fn simple_avm2_identifier(value: &str) -> bool {
+    let mut chars = value.trim().chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || matches!(ch, '_' | '$'))
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
+}
+
+fn simple_avm2_qualified_identifier(value: &str) -> bool {
+    !value.is_empty() && value.split('.').all(simple_avm2_identifier)
+}
+
+fn bounded_as3_package_declaration(line: &str) -> bool {
+    if line == "package {" {
+        return true;
+    }
+    line.strip_prefix("package ")
+        .and_then(|rest| rest.strip_suffix('{'))
+        .is_some_and(|name| simple_avm2_qualified_identifier(name.trim()))
+}
+
+fn bounded_as3_import_declaration(line: &str) -> bool {
+    let Some(path) = line
+        .strip_prefix("import ")
+        .and_then(|rest| rest.strip_suffix(';'))
+        .map(str::trim)
+    else {
+        return false;
+    };
+    path.strip_suffix(".*").map_or_else(
+        || simple_avm2_qualified_identifier(path),
+        simple_avm2_qualified_identifier,
+    )
+}
+
+fn bounded_as3_class_declaration(line: &str) -> bool {
+    let Some(declaration) = line.strip_suffix('{').map(str::trim) else {
+        return false;
+    };
+    let mut tokens = declaration.split_whitespace().peekable();
+    let mut modifiers = Vec::new();
+    while tokens
+        .peek()
+        .is_some_and(|token| matches!(*token, "public" | "internal" | "final" | "dynamic"))
+    {
+        let modifier = tokens.next().expect("peeked modifier");
+        if modifiers.contains(&modifier) {
+            return false;
+        }
+        modifiers.push(modifier);
+    }
+    if modifiers.contains(&"final") && modifiers.contains(&"dynamic") {
+        return false;
+    }
+    if tokens.next() != Some("class") {
+        return false;
+    }
+    if !tokens.next().is_some_and(simple_avm2_identifier) {
+        return false;
+    }
+    match tokens.next() {
+        None => true,
+        Some("extends") => {
+            tokens.next().is_some_and(simple_avm2_qualified_identifier) && tokens.next().is_none()
+        }
+        Some(_) => false,
+    }
+}
+
+fn supported_avm2_statement(statement: &str, external_source: bool) -> bool {
+    let statement = statement.trim().trim_end_matches(';').trim();
+    if statement.is_empty() {
+        return true;
+    }
+    let Some((function, args)) = parse_call_stmt(statement) else {
+        // The bounded AVM2 emitter has no assignment or local-variable bytecode yet.
+        return false;
+    };
+    if function.contains('.') {
+        return false;
+    }
+    let arguments: Vec<&str> = if args.is_empty() {
+        Vec::new()
+    } else {
+        args.split(',').map(str::trim).collect()
+    };
+    match function {
+        "stop" | "play" | "nextFrame" | "prevFrame" => arguments.is_empty(),
+        // The external class parser does not currently retain stopAllSounds calls.
+        "stopAllSounds" => !external_source && arguments.is_empty(),
+        "gotoAndStop" | "gotoAndPlay" => {
+            arguments.len() == 1
+                && (unquote_literal(arguments[0]).is_some() || arguments[0].parse::<i32>().is_ok())
+        }
+        "trace" => {
+            arguments.len() == 1
+                && (unquote_literal(arguments[0]).is_some() || arguments[0].parse::<i32>().is_ok())
+        }
+        _ => {
+            !external_source
+                && simple_avm2_identifier(function)
+                && arguments.iter().all(|arg| supported_avm2_argument(arg))
+        }
+    }
+}
+
+fn swf_script_compilation_issue(
+    language: ScriptLanguage,
+    source: &str,
+    external_source: bool,
+) -> Option<String> {
+    if matches!(
+        language,
+        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
+    ) {
+        return Some(format!("{language:?} is not supported by the SWF compiler"));
+    }
+
+    if language == ScriptLanguage::ActionScript3 && external_source {
+        for (line_index, line) in source.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty()
+                || line.starts_with("//")
+                || line == "{"
+                || line == "}"
+                || line == "};"
+                || bounded_as3_package_declaration(line)
+                || bounded_as3_import_declaration(line)
+                || bounded_as3_class_declaration(line)
+                || supported_avm2_statement(line, true)
+            {
+                continue;
+            }
+            return Some(format!(
+                "line {} uses syntax outside the bounded AVM2 compiler: {}",
+                line_index + 1,
+                line.chars().take(80).collect::<String>()
+            ));
+        }
+        return None;
+    }
+
+    for (index, statement) in split_script_statements(source).iter().enumerate() {
+        let supported = match language {
+            ScriptLanguage::ActionScript3 => supported_avm2_statement(statement, external_source),
+            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+                supported_avm1_statement(statement)
+            }
+            ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => false,
+        };
+        if !supported {
+            return Some(format!(
+                "statement {} uses syntax outside the bounded SWF compiler: {}",
+                index + 1,
+                statement.chars().take(80).collect::<String>()
+            ));
+        }
+    }
+    if matches!(
+        language,
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+    ) {
+        compile_avm1_actions(source).err()
+    } else {
+        None
+    }
+}
+
 /// Run a comprehensive compatibility preflight for publishing `project` as a `.swf` movie.
 #[must_use]
 pub fn preflight_swf_publish(
@@ -200,16 +596,35 @@ pub fn preflight_swf_publish(
         FlaCompatibilityStatus::Exact,
         format!("project:{}", project.name),
         format!(
-            "SWF header {}x{} px ({}x{} twips) @ {} fps, profile {:?} ({:?}).",
+            "SWF header {}x{} px ({}x{} twips), profile {:?} ({:?}).",
             project.width,
             project.height,
             project.width.saturating_mul(20),
             project.height.saturating_mul(20),
-            project.fps,
             options.profile,
             options.compression
         ),
     );
+    if !(1..=255).contains(&project.fps) {
+        report.push(
+            "swf_frame_rate_limit",
+            FlaCompatibilityCategory::DocumentSettings,
+            FlaCompatibilityStatus::Blocking,
+            format!("project:{}", project.name),
+            format!(
+                "Project frame rate is {} fps; this SWF writer can represent integer frame rates from 1 through 255 without changing playback speed.",
+                project.fps
+            ),
+        );
+    } else {
+        report.push(
+            "swf_frame_rate_exact",
+            FlaCompatibilityCategory::DocumentSettings,
+            FlaCompatibilityStatus::Exact,
+            "Project.fps",
+            format!("Frame rate {} fps is represented exactly.", project.fps),
+        );
+    }
 
     if project.scenes.len() > 1 {
         report.push(
@@ -222,6 +637,162 @@ pub fn preflight_swf_publish(
                 project.scenes.len()
             ),
         );
+    }
+
+    let (flattened_project, _) = flatten_scenes_with_ranges(project);
+    if let Some(root) = flattened_project.symbol(&flattened_project.root) {
+        if root.timeline.frame_count > u32::from(u16::MAX) {
+            report.push(
+                "swf_flattened_scene_frame_limit",
+                FlaCompatibilityCategory::Scenes,
+                FlaCompatibilityStatus::Blocking,
+                "project.scenes",
+                format!(
+                    "Flattened scenes need {} frames; SWF declares at most {} frames.",
+                    root.timeline.frame_count,
+                    u16::MAX
+                ),
+            );
+        }
+        if timeline_depth_bands(&root.timeline).is_none() {
+            report.push(
+                "swf_flattened_scene_depth_limit",
+                FlaCompatibilityCategory::Scenes,
+                FlaCompatibilityStatus::Blocking,
+                "project.scenes",
+                format!(
+                    "Flattened scenes need more than {} simultaneous SWF display depths.",
+                    u16::MAX
+                ),
+            );
+        }
+    }
+
+    let (used_bitmaps, used_sounds) = used_swf_media_resources(project);
+    for resource_id in used_bitmaps {
+        let location = format!("resource:{resource_id}");
+        let Some(resource) = project.resource(&resource_id) else {
+            report.push(
+                "swf_bitmap_resource_missing",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!("Placed bitmap references missing resource '{resource_id}'."),
+            );
+            continue;
+        };
+        if !resource.media_type.eq_ignore_ascii_case("image/png") {
+            report.push(
+                "swf_bitmap_codec_unsupported",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!(
+                    "Placed bitmap '{}' uses {}; this SWF writer currently embeds only PNG resources. Convert it to PNG before publishing.",
+                    resource.path, resource.media_type
+                ),
+            );
+            continue;
+        }
+        let Ok(raw) = resource.decoded_bytes() else {
+            report.push(
+                "swf_bitmap_data_invalid",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!("Placed PNG '{}' has invalid resource data.", resource.path),
+            );
+            continue;
+        };
+        if build_define_bits_lossless2_payload(1, &raw).is_none() {
+            report.push(
+                "swf_bitmap_data_unsupported",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!(
+                    "Placed PNG '{}' could not be decoded as a non-empty bitmap of at most 8192x8192 pixels.",
+                    resource.path
+                ),
+            );
+        } else {
+            report.push(
+                "swf_bitmap_png",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Exact,
+                location,
+                format!(
+                    "Placed PNG '{}' is embedded as DefineBitsLossless2.",
+                    resource.path
+                ),
+            );
+        }
+    }
+    for resource_id in used_sounds {
+        let location = format!("resource:{resource_id}");
+        let Some(resource) = project.resource(&resource_id) else {
+            report.push(
+                "swf_sound_resource_missing",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!("Frame sound references missing resource '{resource_id}'."),
+            );
+            continue;
+        };
+        let is_supported_codec = resource.media_type.eq_ignore_ascii_case("audio/wav")
+            || resource.media_type.eq_ignore_ascii_case("audio/x-wav")
+            || resource.media_type.eq_ignore_ascii_case("audio/wave")
+            || resource.media_type.eq_ignore_ascii_case("audio/mpeg")
+            || resource.media_type.eq_ignore_ascii_case("audio/mp3");
+        if !is_supported_codec {
+            report.push(
+                "swf_sound_codec_unsupported",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!(
+                    "Frame sound '{}' uses {}; this SWF writer currently embeds only proven PCM WAV and MP3 layouts. Convert it to a supported WAV or MP3 first.",
+                    resource.path, resource.media_type
+                ),
+            );
+            continue;
+        }
+        let Ok(raw) = resource.decoded_bytes() else {
+            report.push(
+                "swf_sound_data_invalid",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!("Frame sound '{}' has invalid resource data.", resource.path),
+            );
+            continue;
+        };
+        match analyze_swf_sound_resource(&resource.media_type, &raw) {
+            Ok(info) => report.push(
+                "swf_sound_embedded",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Exact,
+                location,
+                format!(
+                    "Frame sound '{}' is embedded with {} samples at {} Hz ({}).",
+                    resource.path,
+                    info.sample_count,
+                    info.sample_rate,
+                    if info.stereo { "stereo" } else { "mono" }
+                ),
+            ),
+            Err(issue) => report.push(
+                "swf_sound_layout_unsupported",
+                FlaCompatibilityCategory::MediaAndSound,
+                FlaCompatibilityStatus::Blocking,
+                location,
+                format!(
+                    "Frame sound '{}' cannot be embedded without changing or corrupting it: {issue}",
+                    resource.path
+                ),
+            ),
+        }
     }
 
     // Track script languages for mixed-VM detection
@@ -279,23 +850,31 @@ pub fn preflight_swf_publish(
             }
             ScriptLanguage::ActionScript3 => {
                 has_avm2_scripts = true;
+                let compile_issue = swf_script_compilation_issue(src.language, &src.source, true);
                 report.push(
-                    if options.profile.is_avm2() {
+                    if options.profile.is_avm2() && compile_issue.is_none() {
                         "swf_as3_source_doabc"
+                    } else if options.profile.is_avm2() {
+                        "swf_as3_source_unsupported_syntax"
                     } else {
                         "swf_as3_source_in_avm1"
                     },
                     FlaCompatibilityCategory::Scripts,
-                    if options.profile.is_avm2() {
-                        FlaCompatibilityStatus::Exact
-                    } else if options.scriptless_mode {
+                    if options.scriptless_mode {
                         FlaCompatibilityStatus::Omitted
+                    } else if options.profile.is_avm2() && compile_issue.is_none() {
+                        FlaCompatibilityStatus::Exact
                     } else {
                         FlaCompatibilityStatus::Blocking
                     },
                     loc,
-                    if options.profile.is_avm2() {
+                    if options.profile.is_avm2() && compile_issue.is_none() {
                         format!("AS3 source '{}' compiled into DoABC2 tag.", src.path)
+                    } else if let Some(issue) = compile_issue {
+                        format!(
+                            "AS3 source '{}' cannot be compiled losslessly: {issue}.",
+                            src.path
+                        )
                     } else {
                         format!(
                             "AS3 source '{}' requires FlashPlayer9Avm2 or FlashPlayer10Avm2.",
@@ -306,23 +885,31 @@ pub fn preflight_swf_publish(
             }
             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
                 has_avm1_scripts = true;
+                let compile_issue = swf_script_compilation_issue(src.language, &src.source, true);
                 report.push(
-                    if !options.profile.is_avm2() {
+                    if !options.profile.is_avm2() && compile_issue.is_none() {
                         "swf_avm1_source"
+                    } else if !options.profile.is_avm2() {
+                        "swf_avm1_source_unsupported_syntax"
                     } else {
                         "swf_avm1_source_in_avm2"
                     },
                     FlaCompatibilityCategory::Scripts,
-                    if !options.profile.is_avm2() {
-                        FlaCompatibilityStatus::Exact
-                    } else if options.scriptless_mode {
+                    if options.scriptless_mode {
                         FlaCompatibilityStatus::Omitted
+                    } else if !options.profile.is_avm2() && compile_issue.is_none() {
+                        FlaCompatibilityStatus::Exact
                     } else {
                         FlaCompatibilityStatus::Blocking
                     },
                     loc,
-                    if !options.profile.is_avm2() {
+                    if !options.profile.is_avm2() && compile_issue.is_none() {
                         format!("AVM1 source '{}' compiled into DoInitAction.", src.path)
+                    } else if let Some(issue) = compile_issue {
+                        format!(
+                            "AS1/AS2 source '{}' cannot be compiled losslessly: {issue}.",
+                            src.path
+                        )
                     } else {
                         format!(
                             "AS1/AS2 source '{}' cannot run in an AVM2 SWF movie.",
@@ -337,6 +924,31 @@ pub fn preflight_swf_publish(
     // 3. Inspect symbols, timelines, elements, tweens, and scripts
     for sym in &project.symbols {
         let sym_loc = format!("symbol:{}", sym.name);
+        if sym.timeline.frame_count > u32::from(u16::MAX) {
+            report.push(
+                "swf_timeline_frame_limit",
+                FlaCompatibilityCategory::AnimationAndRigging,
+                FlaCompatibilityStatus::Blocking,
+                sym_loc.clone(),
+                format!(
+                    "Timeline has {} frames; SWF declares at most {} frames without truncation.",
+                    sym.timeline.frame_count,
+                    u16::MAX
+                ),
+            );
+        }
+        if timeline_depth_bands(&sym.timeline).is_none() {
+            report.push(
+                "swf_display_depth_limit",
+                FlaCompatibilityCategory::LayersAndMasks,
+                FlaCompatibilityStatus::Blocking,
+                sym_loc.clone(),
+                format!(
+                    "Timeline needs more than {} simultaneous SWF display depths.",
+                    u16::MAX
+                ),
+            );
+        }
         if let Some(cls) = &sym.class_name
             && !cls.is_empty()
         {
@@ -377,42 +989,65 @@ pub fn preflight_swf_publish(
                 }
                 ScriptLanguage::ActionScript3 => {
                     has_avm2_scripts = true;
+                    let compile_issue =
+                        swf_script_compilation_issue(fs.script.language, &fs.script.source, false);
                     report.push(
-                        if options.profile.is_avm2() {
+                        if options.profile.is_avm2() && compile_issue.is_none() {
                             "swf_avm2_frame_script"
+                        } else if options.profile.is_avm2() {
+                            "swf_avm2_frame_script_unsupported_syntax"
                         } else {
                             "swf_avm2_frame_script_in_avm1"
                         },
                         FlaCompatibilityCategory::Scripts,
-                        if options.profile.is_avm2() {
-                            FlaCompatibilityStatus::Exact
-                        } else if options.scriptless_mode {
+                        if options.scriptless_mode {
                             FlaCompatibilityStatus::Omitted
+                        } else if options.profile.is_avm2() && compile_issue.is_none() {
+                            FlaCompatibilityStatus::Exact
                         } else {
                             FlaCompatibilityStatus::Blocking
                         },
                         fs_loc,
-                        "AS3 frame script compiled into AVM2 addFrameScript method.".to_owned(),
+                        compile_issue.map_or_else(
+                            || {
+                                "AS3 frame script compiled into AVM2 addFrameScript method."
+                                    .to_owned()
+                            },
+                            |issue| {
+                                format!("AS3 frame script cannot be compiled losslessly: {issue}.")
+                            },
+                        ),
                     );
                 }
                 ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
                     has_avm1_scripts = true;
+                    let compile_issue =
+                        swf_script_compilation_issue(fs.script.language, &fs.script.source, false);
                     report.push(
-                        if !options.profile.is_avm2() {
+                        if !options.profile.is_avm2() && compile_issue.is_none() {
                             "swf_avm1_frame_script"
+                        } else if !options.profile.is_avm2() {
+                            "swf_avm1_frame_script_unsupported_syntax"
                         } else {
                             "swf_avm1_frame_script_in_avm2"
                         },
                         FlaCompatibilityCategory::Scripts,
-                        if !options.profile.is_avm2() {
-                            FlaCompatibilityStatus::Exact
-                        } else if options.scriptless_mode {
+                        if options.scriptless_mode {
                             FlaCompatibilityStatus::Omitted
+                        } else if !options.profile.is_avm2() && compile_issue.is_none() {
+                            FlaCompatibilityStatus::Exact
                         } else {
                             FlaCompatibilityStatus::Blocking
                         },
                         fs_loc,
-                        "AS1/AS2 frame script compiled into AVM1 DoAction tag.".to_owned(),
+                        compile_issue.map_or_else(
+                            || "AS1/AS2 frame script compiled into AVM1 DoAction tag.".to_owned(),
+                            |issue| {
+                                format!(
+                                    "AS1/AS2 frame script cannot be compiled losslessly: {issue}."
+                                )
+                            },
+                        ),
                     );
                 }
             }
@@ -520,26 +1155,63 @@ pub fn preflight_swf_publish(
                             }
                             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
                                 has_avm1_scripts = true;
+                                let compile_issue = swf_script_compilation_issue(
+                                    os.script.language,
+                                    &os.script.source,
+                                    false,
+                                );
                                 report.push(
-                                    if !options.profile.is_avm2() {
+                                    if !options.profile.is_avm2() && compile_issue.is_none() {
                                         "swf_avm1_object_script"
+                                    } else if !options.profile.is_avm2() {
+                                        "swf_avm1_object_script_unsupported_syntax"
                                     } else {
                                         "swf_avm1_object_script_in_avm2"
                                     },
                                     FlaCompatibilityCategory::Scripts,
-                                    if !options.profile.is_avm2() {
-                                        FlaCompatibilityStatus::Exact
-                                    } else if options.scriptless_mode {
+                                    if options.scriptless_mode {
                                         FlaCompatibilityStatus::Omitted
+                                    } else if !options.profile.is_avm2()
+                                        && compile_issue.is_none()
+                                    {
+                                        FlaCompatibilityStatus::Exact
                                     } else {
                                         FlaCompatibilityStatus::Blocking
                                     },
                                     format!("{el_loc}:script"),
-                                    "Object script compiled into AVM1 CLIPACTIONS / BUTTONCONDACTION."
-                                        .to_owned(),
+                                    compile_issue.map_or_else(
+                                        || {
+                                            "Object script compiled into AVM1 CLIPACTIONS / BUTTONCONDACTION."
+                                                .to_owned()
+                                        },
+                                        |issue| {
+                                            format!(
+                                                "AS1/AS2 object script cannot be compiled losslessly: {issue}."
+                                            )
+                                        },
+                                    ),
                                 );
                             }
                         }
+                    }
+                    if !options.profile.is_avm2()
+                        && !options.scriptless_mode
+                        && project.symbols.iter().any(|symbol| {
+                            matches!(
+                                &el.kind,
+                                ElementKind::Instance { symbol_id, .. }
+                                    if symbol.id == *symbol_id && symbol.kind == SymbolKind::Button
+                            )
+                        })
+                        && let Err(issue) = encode_button2_cond_actions(&el.scripts)
+                    {
+                        report.push(
+                            "swf_avm1_button_action_capacity",
+                            FlaCompatibilityCategory::Scripts,
+                            FlaCompatibilityStatus::Blocking,
+                            format!("{el_loc}:script"),
+                            format!("Button actions exceed an SWF record limit: {issue}."),
+                        );
                     }
 
                     match &el.kind {
@@ -560,25 +1232,35 @@ pub fn preflight_swf_publish(
                             }
                         }
                         ElementKind::TextBox { .. } | ElementKind::Text { .. } => {
-                            report.push(
-                                if options.outline_text {
-                                    "swf_text_outlined"
-                                } else {
-                                    "swf_define_edit_text"
-                                },
-                                FlaCompatibilityCategory::TextAndFonts,
-                                if options.outline_text {
-                                    FlaCompatibilityStatus::Outlined
-                                } else {
-                                    FlaCompatibilityStatus::Exact
-                                },
-                                el_loc,
-                                if options.outline_text {
-                                    "Text converted to vector glyph contours.".to_owned()
-                                } else {
-                                    "Text emitted via DefineFont3 + DefineEditText.".to_owned()
-                                },
-                            );
+                            if !options.outline_text {
+                                report.push(
+                                    "swf_text_requires_outlines",
+                                    FlaCompatibilityCategory::TextAndFonts,
+                                    FlaCompatibilityStatus::Blocking,
+                                    el_loc,
+                                    "The current DefineFont3 writer contains no glyph table and cannot prove that DefineEditText will render or preserve editable/rich TextField semantics. Enable outline_text for supported visual text, or embed text with a future full SWF font/TextField writer."
+                                        .to_owned(),
+                                );
+                            } else if let Some(issue) = swf_text_outline_issue(el) {
+                                report.push(
+                                    "swf_text_outline_unsupported",
+                                    FlaCompatibilityCategory::TextAndFonts,
+                                    FlaCompatibilityStatus::Blocking,
+                                    el_loc,
+                                    format!(
+                                        "Text cannot be converted faithfully to static glyph outlines: {issue}. Simplify the field or keep it out of this SWF publish."
+                                    ),
+                                );
+                            } else {
+                                report.push(
+                                    "swf_text_outlined",
+                                    FlaCompatibilityCategory::TextAndFonts,
+                                    FlaCompatibilityStatus::Outlined,
+                                    el_loc,
+                                    "Text is intentionally converted to static vector glyph contours; editing, selection, binding and input behavior are not retained."
+                                        .to_owned(),
+                                );
+                            }
                         }
                         _ => {}
                     }
@@ -1036,7 +1718,17 @@ fn wrap_swf_container(
     profile: SwfPublishProfile,
     compression: SwfCompression,
 ) -> Result<Vec<u8>, ExportError> {
-    let declared_len = (8usize.saturating_add(body.len())) as u32;
+    let declared_len = body
+        .len()
+        .checked_add(8)
+        .and_then(|length| u32::try_from(length).ok())
+        .ok_or_else(|| {
+            ExportError::Options(format!(
+                "SWF output is {} bytes before compression; the SWF FileLength field supports at most {} bytes",
+                body.len().saturating_add(8),
+                u32::MAX
+            ))
+        })?;
     match compression {
         SwfCompression::UncompressedFws => {
             let mut out = Vec::with_capacity(8 + body.len());
@@ -1059,12 +1751,19 @@ fn wrap_swf_container(
         }
         SwfCompression::LzmaZws => {
             let (props, compressed) = compress_zws_lzma(body);
+            let compressed_len = u32::try_from(compressed.len()).map_err(|_| {
+                ExportError::Options(format!(
+                    "Compressed ZWS payload is {} bytes; its SWF length field supports at most {} bytes",
+                    compressed.len(),
+                    u32::MAX
+                ))
+            })?;
             let mut out = Vec::with_capacity(17 + compressed.len());
             out.extend_from_slice(b"ZWS");
             // SWF spec requires SWF version >= 13 for ZWS container.
             out.push(profile.swf_version().max(13));
             out.extend_from_slice(&declared_len.to_le_bytes());
-            out.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+            out.extend_from_slice(&compressed_len.to_le_bytes());
             out.extend_from_slice(&props);
             out.extend_from_slice(&compressed);
             Ok(out)
@@ -1111,70 +1810,304 @@ fn build_define_bits_lossless2_payload(
     Some((w.buf, width, height))
 }
 
-/// Build a `DefineSound` (tag 14) payload for an `audio/wav` or `audio/mpeg` resource.
-fn build_define_sound_payload(sound_id: u16, media_type: &str, raw: &[u8]) -> Option<Vec<u8>> {
-    if media_type == "audio/wav"
-        && raw.len() > 44
-        && &raw[0..4] == b"RIFF"
-        && &raw[8..12] == b"WAVE"
-    {
-        let mut pos = 12usize;
-        let mut channels = 1u16;
-        let mut sample_rate = 44100u32;
-        let mut bits_per_sample = 16u16;
-        let mut pcm_data: &[u8] = &[];
-        while pos + 8 <= raw.len() {
-            let chunk_id = &raw[pos..pos + 4];
-            let chunk_len = u32::from_le_bytes(raw[pos + 4..pos + 8].try_into().unwrap()) as usize;
-            pos += 8;
-            let end = pos.saturating_add(chunk_len).min(raw.len());
-            if chunk_id == b"fmt " && chunk_len >= 16 {
-                channels = u16::from_le_bytes([raw[pos + 2], raw[pos + 3]]).clamp(1, 2);
-                sample_rate = u32::from_le_bytes(raw[pos + 4..pos + 8].try_into().unwrap());
-                bits_per_sample = u16::from_le_bytes([raw[pos + 14], raw[pos + 15]]);
-            } else if chunk_id == b"data" {
-                pcm_data = &raw[pos..end];
-            }
-            pos = end + (chunk_len & 1);
-        }
-        if pcm_data.is_empty() {
-            return None;
-        }
-        let rate_code: u8 = if sample_rate >= 33075 {
-            3
-        } else if sample_rate >= 16537 {
-            2
-        } else if sample_rate >= 8268 {
-            1
-        } else {
-            0
-        };
-        let is_16bit = u8::from(bits_per_sample > 8);
-        let is_stereo = u8::from(channels >= 2);
-        // Codec 3 = uncompressed little-endian PCM
-        let flags: u8 = (3 << 4) | (rate_code << 2) | (is_16bit << 1) | is_stereo;
-        let bytes_per_frame = usize::from(channels) * if is_16bit != 0 { 2usize } else { 1usize };
-        let sample_count = (pcm_data.len() / bytes_per_frame.max(1)).max(1) as u32;
-        let mut w = SwfBitWriter::new();
-        w.u16(sound_id);
-        w.u8(flags);
-        w.u32(sample_count);
-        w.bytes(pcm_data);
-        Some(w.buf)
-    } else if media_type == "audio/mpeg" && !raw.is_empty() {
-        // Codec 2 = MP3, 44.1 kHz, 16-bit stereo
-        let flags: u8 = (2 << 4) | (3 << 2) | (1 << 1) | 1;
-        let sample_count = ((raw.len() as u32) * 8).max(576);
-        let mut w = SwfBitWriter::new();
-        w.u16(sound_id);
-        w.u8(flags);
-        w.u32(sample_count);
-        w.i16(0); // seek_samples = 0
-        w.bytes(raw);
-        Some(w.buf)
-    } else {
-        None
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SwfSoundInfo {
+    sound_format: u8,
+    sample_rate: u32,
+    rate_code: u8,
+    is_16_bit: bool,
+    stereo: bool,
+    sample_count: u32,
+    data_start: usize,
+    data_end: usize,
+    mp3: bool,
+}
+
+fn swf_sound_rate_code(sample_rate: u32) -> Option<u8> {
+    match sample_rate {
+        5_512 => Some(0),
+        11_025 => Some(1),
+        22_050 => Some(2),
+        44_100 => Some(3),
+        _ => None,
     }
+}
+
+fn analyze_swf_wav(raw: &[u8]) -> Result<SwfSoundInfo, String> {
+    if raw.len() < 12 || &raw[0..4] != b"RIFF" || &raw[8..12] != b"WAVE" {
+        return Err("the resource is not a complete RIFF/WAVE file".to_owned());
+    }
+    let riff_size = u32::from_le_bytes(raw[4..8].try_into().expect("four-byte RIFF size"));
+    let riff_end = usize::try_from(riff_size)
+        .ok()
+        .and_then(|size| size.checked_add(8))
+        .filter(|end| *end >= 12 && *end <= raw.len())
+        .ok_or_else(|| "the RIFF size exceeds the available resource bytes".to_owned())?;
+
+    let mut position = 12usize;
+    let mut format = None;
+    let mut data_range = None;
+    while position + 8 <= riff_end {
+        let chunk_id = &raw[position..position + 4];
+        let chunk_len = u32::from_le_bytes(
+            raw[position + 4..position + 8]
+                .try_into()
+                .expect("four-byte WAV chunk size"),
+        ) as usize;
+        let start = position + 8;
+        let end = start
+            .checked_add(chunk_len)
+            .filter(|end| *end <= riff_end)
+            .ok_or_else(|| "a WAV chunk is truncated".to_owned())?;
+        if chunk_id == b"fmt " {
+            if chunk_len < 16 {
+                return Err("the WAV fmt chunk is shorter than 16 bytes".to_owned());
+            }
+            if format.is_some() {
+                return Err("the WAV contains more than one fmt chunk".to_owned());
+            }
+            format = Some((
+                u16::from_le_bytes(raw[start..start + 2].try_into().unwrap()),
+                u16::from_le_bytes(raw[start + 2..start + 4].try_into().unwrap()),
+                u32::from_le_bytes(raw[start + 4..start + 8].try_into().unwrap()),
+                u32::from_le_bytes(raw[start + 8..start + 12].try_into().unwrap()),
+                u16::from_le_bytes(raw[start + 12..start + 14].try_into().unwrap()),
+                u16::from_le_bytes(raw[start + 14..start + 16].try_into().unwrap()),
+            ));
+        } else if chunk_id == b"data" {
+            if data_range.is_some() {
+                return Err("the WAV contains more than one data chunk".to_owned());
+            }
+            data_range = Some((start, end));
+        }
+        position = end
+            .checked_add(chunk_len & 1)
+            .filter(|next| *next <= riff_end)
+            .ok_or_else(|| "the WAV chunk padding is truncated".to_owned())?;
+    }
+
+    let (encoding, channels, sample_rate, byte_rate, block_align, bits_per_sample) =
+        format.ok_or_else(|| "the WAV has no fmt chunk".to_owned())?;
+    let (data_start, data_end) =
+        data_range.ok_or_else(|| "the WAV has no data chunk".to_owned())?;
+    if encoding != 1 {
+        return Err(format!(
+            "WAV format code {encoding} is not integer PCM; no WAV transcoder runs in SWF publish"
+        ));
+    }
+    if !matches!(channels, 1 | 2) {
+        return Err(format!(
+            "WAV has {channels} channels; SWF DefineSound supports only mono or stereo"
+        ));
+    }
+    let rate_code = swf_sound_rate_code(sample_rate).ok_or_else(|| {
+        format!(
+            "WAV sample rate {sample_rate} Hz is not one of 5512, 11025, 22050 or 44100 Hz and is not resampled by SWF publish"
+        )
+    })?;
+    if !matches!(bits_per_sample, 8 | 16) {
+        return Err(format!(
+            "WAV uses {bits_per_sample}-bit samples; SWF publish supports only 8-bit or 16-bit PCM without transcoding"
+        ));
+    }
+    let expected_align = channels
+        .checked_mul(bits_per_sample / 8)
+        .ok_or_else(|| "WAV block alignment overflows".to_owned())?;
+    if block_align != expected_align {
+        return Err(format!(
+            "WAV blockAlign is {block_align}, expected {expected_align} for its channel/sample layout"
+        ));
+    }
+    let expected_byte_rate = sample_rate
+        .checked_mul(u32::from(block_align))
+        .ok_or_else(|| "WAV byte rate overflows".to_owned())?;
+    if byte_rate != expected_byte_rate {
+        return Err(format!(
+            "WAV byteRate is {byte_rate}, expected {expected_byte_rate}"
+        ));
+    }
+    let data_len = data_end - data_start;
+    if data_len == 0 || data_len % usize::from(block_align) != 0 {
+        return Err("WAV PCM data is empty or ends inside a sample frame".to_owned());
+    }
+    let sample_count = u32::try_from(data_len / usize::from(block_align))
+        .map_err(|_| "WAV sample count exceeds the SWF UI32 field".to_owned())?;
+    Ok(SwfSoundInfo {
+        sound_format: 3,
+        sample_rate,
+        rate_code,
+        is_16_bit: bits_per_sample == 16,
+        stereo: channels == 2,
+        sample_count,
+        data_start,
+        data_end,
+        mp3: false,
+    })
+}
+
+fn analyze_swf_mp3(raw: &[u8]) -> Result<SwfSoundInfo, String> {
+    const BITRATES_V1_L3: [u32; 16] = [
+        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
+    ];
+    const BITRATES_V2_L3: [u32; 16] = [
+        0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0,
+    ];
+
+    let mut start = 0usize;
+    if raw.starts_with(b"ID3") {
+        if raw.len() < 10 || raw[6..10].iter().any(|byte| byte & 0x80 != 0) {
+            return Err("the MP3 has an invalid ID3v2 header".to_owned());
+        }
+        let tag_size = raw[6..10]
+            .iter()
+            .fold(0usize, |size, byte| (size << 7) | usize::from(*byte));
+        let footer_len = if raw[5] & 0x10 != 0 { 10 } else { 0 };
+        start = 10usize
+            .checked_add(tag_size)
+            .and_then(|size| size.checked_add(footer_len))
+            .filter(|size| *size <= raw.len())
+            .ok_or_else(|| "the MP3 ID3v2 tag is truncated".to_owned())?;
+    }
+    let end = if raw.len() >= start + 128 && &raw[raw.len() - 128..raw.len() - 125] == b"TAG" {
+        raw.len() - 128
+    } else {
+        raw.len()
+    };
+    if start >= end {
+        return Err("the MP3 contains no MPEG audio frames".to_owned());
+    }
+
+    let mut position = start;
+    let mut sample_rate = None;
+    let mut stereo = None;
+    let mut sample_count = 0u32;
+    let mut frame_count = 0u32;
+    while position < end {
+        if end - position < 4 || raw[position] != 0xff || raw[position + 1] & 0xe0 != 0xe0 {
+            return Err(format!(
+                "MP3 data at byte {position} is not a contiguous MPEG Layer III frame"
+            ));
+        }
+        let b1 = raw[position + 1];
+        let b2 = raw[position + 2];
+        let b3 = raw[position + 3];
+        let version_bits = (b1 >> 3) & 0x03;
+        let layer_bits = (b1 >> 1) & 0x03;
+        let bitrate_index = usize::from((b2 >> 4) & 0x0f);
+        let sample_rate_index = usize::from((b2 >> 2) & 0x03);
+        let padding = usize::from((b2 >> 1) & 0x01);
+        if version_bits == 1 || layer_bits != 1 || bitrate_index == 0 || bitrate_index == 15 {
+            return Err(format!(
+                "MP3 frame {frame_count} is not a supported fixed-header MPEG Layer III frame"
+            ));
+        }
+        let rate = match (version_bits, sample_rate_index) {
+            (3, 0) => 44_100,
+            (3, 1) => 48_000,
+            (3, 2) => 32_000,
+            (2, 0) => 22_050,
+            (2, 1) => 24_000,
+            (2, 2) => 16_000,
+            (0, 0) => 11_025,
+            (0, 1) => 12_000,
+            (0, 2) => 8_000,
+            _ => {
+                return Err(format!(
+                    "MP3 frame {frame_count} has a reserved sample-rate field"
+                ));
+            }
+        };
+        let rate_code = swf_sound_rate_code(rate).ok_or_else(|| {
+            format!(
+                "MP3 sample rate {rate} Hz is not one of the rates representable by SWF DefineSound and is not resampled"
+            )
+        })?;
+        let bitrate_kbps = if version_bits == 3 {
+            BITRATES_V1_L3[bitrate_index]
+        } else {
+            BITRATES_V2_L3[bitrate_index]
+        };
+        let samples_in_frame = if version_bits == 3 { 1152u32 } else { 576u32 };
+        let coefficient = if version_bits == 3 { 144usize } else { 72usize };
+        let frame_len = coefficient
+            .checked_mul(usize::try_from(bitrate_kbps).unwrap())
+            .and_then(|value| value.checked_mul(1000))
+            .map(|value| value / usize::try_from(rate).unwrap() + padding)
+            .filter(|length| *length >= 4)
+            .ok_or_else(|| "MP3 frame length overflows".to_owned())?;
+        if position
+            .checked_add(frame_len)
+            .is_none_or(|next| next > end)
+        {
+            return Err(format!("MP3 frame {frame_count} is truncated"));
+        }
+        let frame_stereo = b3 >> 6 != 3;
+        if sample_rate.is_some_and(|previous| previous != rate)
+            || stereo.is_some_and(|previous| previous != frame_stereo)
+        {
+            return Err(
+                "MP3 changes sample rate or channel layout between frames; DefineSound has one global layout"
+                    .to_owned(),
+            );
+        }
+        sample_rate = Some(rate);
+        stereo = Some(frame_stereo);
+        sample_count = sample_count
+            .checked_add(samples_in_frame)
+            .ok_or_else(|| "MP3 sample count exceeds the SWF UI32 field".to_owned())?;
+        frame_count += 1;
+        position += frame_len;
+        let _ = rate_code;
+    }
+    let sample_rate = sample_rate.ok_or_else(|| "the MP3 has no audio frames".to_owned())?;
+    Ok(SwfSoundInfo {
+        sound_format: 2,
+        sample_rate,
+        rate_code: swf_sound_rate_code(sample_rate).expect("validated MP3 rate"),
+        is_16_bit: true,
+        stereo: stereo.unwrap_or(false),
+        sample_count,
+        data_start: start,
+        data_end: end,
+        mp3: true,
+    })
+}
+
+fn analyze_swf_sound_resource(media_type: &str, raw: &[u8]) -> Result<SwfSoundInfo, String> {
+    if media_type.eq_ignore_ascii_case("audio/wav")
+        || media_type.eq_ignore_ascii_case("audio/x-wav")
+        || media_type.eq_ignore_ascii_case("audio/wave")
+    {
+        analyze_swf_wav(raw)
+    } else if media_type.eq_ignore_ascii_case("audio/mpeg")
+        || media_type.eq_ignore_ascii_case("audio/mp3")
+    {
+        analyze_swf_mp3(raw)
+    } else {
+        Err(format!("audio codec '{media_type}' is not supported"))
+    }
+}
+
+/// Build a `DefineSound` (tag 14) payload after proving the source layout is representable.
+fn build_define_sound_payload(
+    sound_id: u16,
+    media_type: &str,
+    raw: &[u8],
+) -> Result<Vec<u8>, String> {
+    let info = analyze_swf_sound_resource(media_type, raw)?;
+    let flags = (info.sound_format << 4)
+        | (info.rate_code << 2)
+        | (u8::from(info.is_16_bit) << 1)
+        | u8::from(info.stereo);
+    let mut writer = SwfBitWriter::new();
+    writer.u16(sound_id);
+    writer.u8(flags);
+    writer.u32(info.sample_count);
+    if info.mp3 {
+        writer.i16(0); // seek_samples = 0; no encoder delay is introduced by this passthrough.
+    }
+    writer.bytes(&raw[info.data_start..info.data_end]);
+    Ok(writer.buf)
 }
 
 /// Build a `StartSound` (tag 15) payload for a `FrameSound`.
@@ -1970,7 +2903,7 @@ fn split_script_statements(source: &str) -> Vec<String> {
 fn parse_call_stmt(stmt: &str) -> Option<(&str, &str)> {
     let open = stmt.find('(')?;
     let close = stmt.rfind(')')?;
-    if close < open {
+    if close < open || !stmt[close + 1..].trim().is_empty() {
         return None;
     }
     let name = stmt[..open].trim();
@@ -1990,6 +2923,7 @@ fn unquote_literal(arg: &str) -> Option<String> {
     if s.len() >= 2
         && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
     {
+        let delimiter = s.chars().next()?;
         let inner = &s[1..s.len() - 1];
         let mut out = String::with_capacity(inner.len());
         let mut chars = inner.chars();
@@ -2003,6 +2937,8 @@ fn unquote_literal(arg: &str) -> Option<String> {
                         other => out.push(other),
                     }
                 }
+            } else if c == delimiter {
+                return None;
             } else {
                 out.push(c);
             }
@@ -2013,14 +2949,25 @@ fn unquote_literal(arg: &str) -> Option<String> {
     }
 }
 
-fn avm1_push_string(out: &mut Vec<u8>, s: &str) {
+fn avm1_push_string(out: &mut Vec<u8>, s: &str) -> Result<(), String> {
     let bytes: Vec<u8> = s.bytes().filter(|&b| b != 0).collect();
-    let payload_len = (1 + bytes.len() + 1) as u16;
+    let payload_len = bytes
+        .len()
+        .checked_add(2)
+        .and_then(|len| u16::try_from(len).ok())
+        .ok_or_else(|| {
+            format!(
+                "AVM1 string value encodes {} bytes; ActionPush supports at most {} bytes",
+                bytes.len(),
+                usize::from(u16::MAX) - 2
+            )
+        })?;
     out.push(0x96); // ActionPush
     out.extend_from_slice(&payload_len.to_le_bytes());
     out.push(0x00); // type 0 = String
     out.extend_from_slice(&bytes);
     out.push(0);
+    Ok(())
 }
 
 fn avm1_push_int(out: &mut Vec<u8>, v: i32) {
@@ -2048,10 +2995,10 @@ fn avm1_push_bool(out: &mut Vec<u8>, v: bool) {
     out.push(u8::from(v));
 }
 
-fn avm1_compile_expr(out: &mut Vec<u8>, expr: &str) {
+fn avm1_compile_expr(out: &mut Vec<u8>, expr: &str) -> Result<(), String> {
     let e = expr.trim();
     if let Some(s) = unquote_literal(e) {
-        avm1_push_string(out, &s);
+        avm1_push_string(out, &s)?;
     } else if e == "true" {
         avm1_push_bool(out, true);
     } else if e == "false" {
@@ -2060,33 +3007,26 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &str) {
         avm1_push_int(out, iv);
     } else if let Ok(fv) = e.parse::<f64>() {
         avm1_push_double(out, fv);
-    } else if let Some((lhs, rhs)) = e.split_once('+') {
-        avm1_compile_expr(out, lhs);
-        avm1_compile_expr(out, rhs);
-        out.push(0x47); // ActionAdd2
-    } else if let Some((lhs, rhs)) = e.split_once('-')
-        && !lhs.trim().is_empty()
-    {
-        avm1_compile_expr(out, lhs);
-        avm1_compile_expr(out, rhs);
-        out.push(0x0b); // ActionSubtract
-    } else if let Some((lhs, rhs)) = e.split_once('*') {
-        avm1_compile_expr(out, lhs);
-        avm1_compile_expr(out, rhs);
-        out.push(0x0c); // ActionMultiply
-    } else if let Some((lhs, rhs)) = e.split_once('/') {
-        avm1_compile_expr(out, lhs);
-        avm1_compile_expr(out, rhs);
-        out.push(0x0d); // ActionDivide
+    } else if let Some((lhs, rhs, operator)) = split_avm1_binary_expression(e) {
+        avm1_compile_expr(out, lhs)?;
+        avm1_compile_expr(out, rhs)?;
+        out.push(match operator {
+            '+' => 0x47, // ActionAdd2
+            '-' => 0x0b, // ActionSubtract
+            '*' => 0x0c, // ActionMultiply
+            '/' => 0x0d, // ActionDivide
+            _ => unreachable!("bounded AVM1 binary operator"),
+        });
     } else {
         // Variable lookup
-        avm1_push_string(out, e);
+        avm1_push_string(out, e)?;
         out.push(0x1c); // ActionGetVariable
     }
+    Ok(())
 }
 
 /// Compile an AS1/AS2 script source into AVM1 action bytecode (terminated by `0x00`).
-pub(crate) fn compile_avm1_actions(source: &str) -> Vec<u8> {
+pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     for stmt in split_script_statements(source) {
         if let Some((func, args)) = parse_call_stmt(&stmt) {
@@ -2111,7 +3051,11 @@ pub(crate) fn compile_avm1_actions(source: &str) -> Vec<u8> {
                     let is_play = short_fn == "gotoAndPlay";
                     let first_arg = args.rsplit(',').next().unwrap_or(args).trim();
                     if let Ok(frame_1based) = first_arg.parse::<u32>() {
-                        let frame_0 = frame_1based.saturating_sub(1).min(65535) as u16;
+                        let frame_0 = u16::try_from(frame_1based.saturating_sub(1)).map_err(|_| {
+                            format!(
+                                "AVM1 numeric {short_fn} target {frame_1based} exceeds the ActionGotoFrame limit of 65536 one-based frames"
+                            )
+                        })?;
                         out.push(0x81); // ActionGotoFrame
                         out.extend_from_slice(&2u16.to_le_bytes());
                         out.extend_from_slice(&frame_0.to_le_bytes());
@@ -2121,26 +3065,36 @@ pub(crate) fn compile_avm1_actions(source: &str) -> Vec<u8> {
                     } else if let Some(lbl) = unquote_literal(first_arg) {
                         if !is_play {
                             let lbl_bytes: Vec<u8> = lbl.bytes().filter(|&b| b != 0).collect();
-                            let len = (lbl_bytes.len() + 1) as u16;
+                            let len = lbl_bytes
+                                .len()
+                                .checked_add(1)
+                                .and_then(|len| u16::try_from(len).ok())
+                                .ok_or_else(|| {
+                                    format!(
+                                        "AVM1 frame label encodes {} bytes; ActionGotoLabel supports at most {} bytes",
+                                        lbl_bytes.len(),
+                                        usize::from(u16::MAX) - 1
+                                    )
+                                })?;
                             out.push(0x8c); // ActionGotoLabel
                             out.extend_from_slice(&len.to_le_bytes());
                             out.extend_from_slice(&lbl_bytes);
                             out.push(0);
                         } else {
-                            avm1_push_string(&mut out, &lbl);
+                            avm1_push_string(&mut out, &lbl)?;
                             out.push(0x9f); // ActionGotoFrame2
                             out.extend_from_slice(&1u16.to_le_bytes());
                             out.push(0x01); // play = true
                         }
                     } else {
-                        avm1_compile_expr(&mut out, first_arg);
+                        avm1_compile_expr(&mut out, first_arg)?;
                         out.push(0x9f); // ActionGotoFrame2
                         out.extend_from_slice(&1u16.to_le_bytes());
                         out.push(u8::from(is_play));
                     }
                 }
                 "trace" => {
-                    avm1_compile_expr(&mut out, args);
+                    avm1_compile_expr(&mut out, args)?;
                     out.push(0x26); // ActionTrace
                 }
                 _ => {
@@ -2150,10 +3104,10 @@ pub(crate) fn compile_avm1_actions(source: &str) -> Vec<u8> {
                         args.split(',').map(str::trim).collect()
                     };
                     for a in call_args.iter().rev() {
-                        avm1_compile_expr(&mut out, a);
+                        avm1_compile_expr(&mut out, a)?;
                     }
                     avm1_push_int(&mut out, call_args.len() as i32);
-                    avm1_push_string(&mut out, short_fn);
+                    avm1_push_string(&mut out, short_fn)?;
                     out.push(0x3d); // ActionCallFunction
                     out.push(0x17); // ActionPop
                 }
@@ -2161,8 +3115,8 @@ pub(crate) fn compile_avm1_actions(source: &str) -> Vec<u8> {
         } else if let Some(rest) = stmt.strip_prefix("var ") {
             if let Some((lhs, rhs)) = rest.split_once('=') {
                 let var_name = lhs.split(':').next().unwrap_or(lhs).trim();
-                avm1_push_string(&mut out, var_name);
-                avm1_compile_expr(&mut out, rhs);
+                avm1_push_string(&mut out, var_name)?;
+                avm1_compile_expr(&mut out, rhs)?;
                 out.push(0x3c); // ActionDefineLocal
             }
         } else if let Some((lhs, rhs)) = stmt.split_once('=')
@@ -2170,17 +3124,17 @@ pub(crate) fn compile_avm1_actions(source: &str) -> Vec<u8> {
             && !rhs.starts_with('=')
         {
             let var_name = lhs.trim();
-            avm1_push_string(&mut out, var_name);
-            avm1_compile_expr(&mut out, rhs);
+            avm1_push_string(&mut out, var_name)?;
+            avm1_compile_expr(&mut out, rhs)?;
             out.push(0x1d); // ActionSetVariable
         }
     }
     out.push(0x00); // ActionEndFlag
-    out
+    Ok(out)
 }
 
 /// Encode `BUTTONCONDACTION` records for a `DefineButton2` (tag 34).
-fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Vec<u8> {
+fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Result<Vec<u8>, String> {
     let mut valid: Vec<(u8, u8, Vec<u8>)> = Vec::new();
     for os in scripts {
         if !matches!(
@@ -2189,7 +3143,7 @@ fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Vec<u8> {
         ) {
             continue;
         }
-        let actions = compile_avm1_actions(&os.script.source);
+        let actions = compile_avm1_actions(&os.script.source)?;
         if actions.len() <= 1 {
             continue;
         }
@@ -2206,14 +3160,24 @@ fn encode_button2_cond_actions(scripts: &[ObjectScript]) -> Vec<u8> {
         let cond_size: u16 = if idx + 1 == count {
             0
         } else {
-            (4 + actions.len()) as u16
+            actions
+                .len()
+                .checked_add(4)
+                .and_then(|len| u16::try_from(len).ok())
+                .ok_or_else(|| {
+                    format!(
+                        "AVM1 button conditional action encodes {} bytes; non-final BUTTONCONDACTION records support at most {} action bytes",
+                        actions.len(),
+                        usize::from(u16::MAX) - 4
+                    )
+                })?
         };
         out.extend_from_slice(&cond_size.to_le_bytes());
         out.push(b0);
         out.push(b1);
         out.extend_from_slice(&actions);
     }
-    out
+    Ok(out)
 }
 
 /// Encode `CLIPACTIONS` for a `PlaceObject2` (tag 26) or `PlaceObject3` (tag 70) in SWF 6+.
@@ -2227,7 +3191,8 @@ fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
         ) {
             continue;
         }
-        let actions = compile_avm1_actions(&os.script.source);
+        let actions = compile_avm1_actions(&os.script.source)
+            .expect("AVM1 action record sizes are checked by SWF preflight");
         if actions.len() <= 1 {
             continue;
         }
@@ -2261,6 +3226,7 @@ fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
 #[derive(Default)]
 struct AbcPoolBuilder {
     ints: Vec<i32>,
+    int_map: HashMap<i32, u32>,
     uints: Vec<u32>,
     doubles: Vec<f64>,
     strings: Vec<String>,
@@ -2272,6 +3238,16 @@ struct AbcPoolBuilder {
 }
 
 impl AbcPoolBuilder {
+    fn add_int(&mut self, value: i32) -> u32 {
+        if let Some(&index) = self.int_map.get(&value) {
+            return index;
+        }
+        let index = (self.ints.len() + 1) as u32;
+        self.ints.push(value);
+        self.int_map.insert(value, index);
+        index
+    }
+
     fn add_string(&mut self, s: &str) -> u32 {
         if let Some(&idx) = self.string_map.get(s) {
             return idx;
@@ -2304,6 +3280,16 @@ impl AbcPoolBuilder {
         self.multinames.push(key);
         self.mn_map.insert(key, idx);
         idx
+    }
+}
+
+fn emit_avm2_int(pool: &mut AbcPoolBuilder, code: &mut SwfBitWriter, value: i32) {
+    if let Ok(short) = i16::try_from(value) {
+        code.u8(0x25); // pushshort; the operand is interpreted through its low signed 16 bits
+        code.u32_v(u32::from(short as u16));
+    } else {
+        code.u8(0x2D); // pushint
+        code.u32_v(pool.add_int(value));
     }
 }
 
@@ -2416,8 +3402,7 @@ fn compile_avm2_statements(pool: &mut AbcPoolBuilder, stmts: &[String], code: &m
                     code.u32_v(fn_mn);
                     let first_arg = args.split(',').next().unwrap_or(args).trim();
                     if let Ok(frame_num) = first_arg.parse::<i32>() {
-                        code.u8(0x25); // pushshort
-                        code.u32_v(frame_num as u32);
+                        emit_avm2_int(pool, code, frame_num);
                     } else if let Some(lbl) = unquote_literal(first_arg) {
                         let s_idx = pool.add_string(&lbl);
                         code.u8(0x2C); // pushstring
@@ -2440,8 +3425,7 @@ fn compile_avm2_statements(pool: &mut AbcPoolBuilder, stmts: &[String], code: &m
                         code.u8(0x2C); // pushstring
                         code.u32_v(s_idx);
                     } else if let Ok(iv) = args.parse::<i32>() {
-                        code.u8(0x25); // pushshort
-                        code.u32_v(iv as u32);
+                        emit_avm2_int(pool, code, iv);
                     } else {
                         let s_idx = pool.add_string(args);
                         code.u8(0x2C); // pushstring
@@ -2466,8 +3450,7 @@ fn compile_avm2_statements(pool: &mut AbcPoolBuilder, stmts: &[String], code: &m
                             code.u8(0x2C);
                             code.u32_v(s_idx);
                         } else if let Ok(iv) = a.parse::<i32>() {
-                            code.u8(0x25);
-                            code.u32_v(iv as u32);
+                            emit_avm2_int(pool, code, iv);
                         } else {
                             let prop_mn = pool.add_qname("", a);
                             code.u8(0x60); // getlex
@@ -2490,8 +3473,7 @@ fn compile_avm2_statements(pool: &mut AbcPoolBuilder, stmts: &[String], code: &m
                 code.u8(0x2C);
                 code.u32_v(s_idx);
             } else if let Ok(iv) = rhs.trim().parse::<i32>() {
-                code.u8(0x25);
-                code.u32_v(iv as u32);
+                emit_avm2_int(pool, code, iv);
             } else {
                 let s_idx = pool.add_string(rhs.trim());
                 code.u8(0x2C);
@@ -2582,8 +3564,11 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             iinit_code.u8(0x5D); // findpropstrict
             iinit_code.u32_v(add_frame_script_mn);
             for (frame_idx, fn_mn) in &frame_bindings {
-                iinit_code.u8(0x25); // pushshort
-                iinit_code.u32_v(*frame_idx);
+                emit_avm2_int(
+                    &mut pool,
+                    &mut iinit_code,
+                    i32::try_from(*frame_idx).expect("SWF preflight bounds AVM2 frame indexes"),
+                );
                 iinit_code.u8(0x60); // getlex
                 iinit_code.u32_v(*fn_mn);
             }
@@ -2791,12 +3776,18 @@ fn rgb_alpha_to_rgba(rgb: u32, alpha: f64) -> Color {
 }
 
 fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
-    let count = filters.len().min(16);
+    let active_filters: Vec<&FilterSpec> = filters
+        .iter()
+        .filter(|filter| filter.is_enabled())
+        .take(16)
+        .collect();
+    let count = active_filters.len();
     w.u8(count as u8);
     let to_fixed16 = |v: f64| -> i32 { (v * 65536.0).round() as i32 };
     let to_fixed8 = |v: f64| -> i16 { (v.clamp(0.0, 127.0) * 256.0).round() as i16 };
 
-    for filter in filters.iter().take(count) {
+    for filter in active_filters {
+        let quality_level = filter.quality_level().clamp(1, 15);
         match filter {
             FilterSpec::DropShadow {
                 distance,
@@ -2806,7 +3797,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 inner,
                 knockout,
                 hide_object,
@@ -2822,18 +3813,18 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 let flags: u8 = (if *inner { 0x80 } else { 0 })
                     | (if *knockout { 0x40 } else { 0 })
                     | (if composite_source { 0x20 } else { 0 })
-                    | ((*quality).clamp(1, 15) & 0x1F);
+                    | (quality_level & 0x1F);
                 w.u8(flags);
             }
             FilterSpec::Blur {
                 blur_x,
                 blur_y,
-                quality,
+                quality: _,
             } => {
                 w.u8(1); // BlurFilter
                 w.u32(to_fixed16(*blur_x) as u32);
                 w.u32(to_fixed16(*blur_y) as u32);
-                let flags: u8 = ((*quality).clamp(1, 15) & 0x1F) << 3;
+                let flags: u8 = (quality_level & 0x1F) << 3;
                 w.u8(flags);
             }
             FilterSpec::Glow {
@@ -2842,7 +3833,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 inner,
                 knockout,
             } => {
@@ -2854,7 +3845,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 let flags: u8 = (if *inner { 0x80 } else { 0 })
                     | (if *knockout { 0x40 } else { 0 })
                     | 0x20
-                    | ((*quality).clamp(1, 15) & 0x1F);
+                    | (quality_level & 0x1F);
                 w.u8(flags);
             }
             FilterSpec::Bevel {
@@ -2867,7 +3858,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             } => {
@@ -2885,7 +3876,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                     | (if *knockout { 0x40 } else { 0 })
                     | 0x20
                     | (if on_top { 0x10 } else { 0 })
-                    | ((*quality).clamp(1, 15) & 0x0F);
+                    | (quality_level & 0x0F);
                 w.u8(flags);
             }
             FilterSpec::GradientGlow {
@@ -2897,7 +3888,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             }
@@ -2910,7 +3901,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                 blur_x,
                 blur_y,
                 strength,
-                quality,
+                quality: _,
                 placement,
                 knockout,
             } => {
@@ -2939,7 +3930,7 @@ fn write_swf_filter_list(w: &mut SwfBitWriter, filters: &[FilterSpec]) {
                     | (if *knockout { 0x40 } else { 0 })
                     | 0x20
                     | (if on_top { 0x10 } else { 0 })
-                    | ((*quality).clamp(1, 15) & 0x0F);
+                    | (quality_level & 0x0F);
                 w.u8(flags);
             }
             FilterSpec::Convolution {
@@ -3042,7 +4033,7 @@ fn write_place_object_tag(
     let has_name = !slot.name.is_empty() && !is_move;
     let has_clip_depth = slot.clip_depth.is_some() && !is_move;
     let has_clip_actions = slot.clip_actions.is_some() && !is_move;
-    let has_filters = !slot.filters.is_empty();
+    let has_filters = slot.filters.iter().any(FilterSpec::is_enabled);
     let has_blend = slot.blend_mode != BlendMode::Normal;
     let has_cache = slot.cache_as_bitmap;
     let has_vis = !slot.visible;
@@ -3113,7 +4104,8 @@ fn write_place_object_tag(
 struct SwfDictionaryCompiler<'a> {
     project: &'a Project,
     options: &'a SwfPublishOptions,
-    next_char_id: u16,
+    next_char_id: u32,
+    dictionary_overflow: bool,
     root_tags: SwfBitWriter,
     bitmap_ids: BTreeMap<String, u16>,
     sound_ids: BTreeMap<String, u16>,
@@ -3125,12 +4117,18 @@ struct SwfDictionaryCompiler<'a> {
     avm2_classes: Vec<AbcClassSpec>,
 }
 
+fn element_character_key(element: &Element) -> String {
+    serde_json::to_string(&(&element.kind, &element.transform.primitive))
+        .unwrap_or_else(|_| format!("{:?}", element.kind))
+}
+
 impl<'a> SwfDictionaryCompiler<'a> {
     fn new(project: &'a Project, options: &'a SwfPublishOptions) -> Self {
         Self {
             project,
             options,
             next_char_id: 1,
+            dictionary_overflow: false,
             root_tags: SwfBitWriter::new(),
             bitmap_ids: BTreeMap::new(),
             sound_ids: BTreeMap::new(),
@@ -3144,30 +4142,50 @@ impl<'a> SwfDictionaryCompiler<'a> {
     }
 
     fn alloc_char_id(&mut self) -> u16 {
-        let id = self.next_char_id;
-        self.next_char_id = self.next_char_id.saturating_add(1);
+        if self.next_char_id > u32::from(u16::MAX) {
+            self.dictionary_overflow = true;
+            return 0;
+        }
+        let id = self.next_char_id as u16;
+        self.next_char_id += 1;
         id
     }
 
-    fn ensure_media_resources(&mut self) {
+    fn ensure_media_resources(&mut self) -> Result<(), ExportError> {
+        let (used_bitmaps, used_sounds) = used_swf_media_resources(self.project);
         for res in &self.project.resources {
+            if !used_bitmaps.contains(&res.id) && !used_sounds.contains(&res.id) {
+                continue;
+            }
             let Ok(raw) = res.decoded_bytes() else {
                 continue;
             };
-            if res.media_type == "image/png" {
+            if used_bitmaps.contains(&res.id) && res.media_type.eq_ignore_ascii_case("image/png") {
                 let bid = self.alloc_char_id();
                 if let Some((payload, _, _)) = build_define_bits_lossless2_payload(bid, &raw) {
                     self.root_tags.write_tag(36, &payload);
                     self.bitmap_ids.insert(res.id.clone(), bid);
-                }
-            } else if res.media_type.starts_with("audio/") {
-                let sid = self.alloc_char_id();
-                if let Some(payload) = build_define_sound_payload(sid, &res.media_type, &raw) {
-                    self.root_tags.write_tag(14, &payload);
-                    self.sound_ids.insert(res.id.clone(), sid);
+                } else {
+                    return Err(ExportError::Options(format!(
+                        "Placed PNG '{}' could not be encoded as DefineBitsLossless2",
+                        res.path
+                    )));
                 }
             }
+            if used_sounds.contains(&res.id) {
+                let sid = self.alloc_char_id();
+                let payload =
+                    build_define_sound_payload(sid, &res.media_type, &raw).map_err(|issue| {
+                        ExportError::Options(format!(
+                            "Frame sound '{}' cannot be encoded as DefineSound: {issue}",
+                            res.path
+                        ))
+                    })?;
+                self.root_tags.write_tag(14, &payload);
+                self.sound_ids.insert(res.id.clone(), sid);
+            }
         }
+        Ok(())
     }
 
     fn ensure_font(&mut self, name: &str, bold: bool, italic: bool) -> u16 {
@@ -3197,15 +4215,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 let fid = self.ensure_font(&format.font, format.bold, format.italic);
                 let tid = self.alloc_char_id();
                 let payload = build_define_edit_text_payload(
-                    tid,
-                    fid,
-                    text,
-                    *width,
-                    *height,
-                    format,
-                    *word_wrap,
-                    *multiline,
-                    element.transform.alpha,
+                    tid, fid, text, *width, *height, format, *word_wrap, *multiline, 1.0,
                 );
                 self.root_tags.write_tag(37, &payload);
                 Some(tid)
@@ -3237,7 +4247,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     &fmt,
                     false,
                     text.contains('\n'),
-                    element.transform.alpha * (f64::from(color[3]) / 255.0),
+                    f64::from(color[3]) / 255.0,
                 );
                 self.root_tags.write_tag(37, &payload);
                 Some(tid)
@@ -3271,7 +4281,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
         }
     }
 
-    fn compile_button_symbol(&mut self, sym: &Symbol) -> u16 {
+    fn compile_button_symbol(&mut self, sym: &Symbol) -> Result<u16, ExportError> {
         type ButtonStateRecord = (
             u8,
             u16,
@@ -3283,7 +4293,9 @@ impl<'a> SwfDictionaryCompiler<'a> {
             Vec<FilterSpec>,
         );
         let mut state_records: Vec<ButtonStateRecord> = Vec::new();
-        let mut depth_counter = 1u16;
+        let depth_bands = timeline_depth_bands(&sym.timeline)
+            .expect("SWF button depth capacity is checked by preflight before compilation");
+        let mut element_char_cache = BTreeMap::<String, u16>::new();
 
         for (l_idx, layer) in sym.timeline.layers.iter().enumerate() {
             if !layer.visible
@@ -3296,12 +4308,27 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 let Some(kf) = layer.keyframes.iter().rfind(|k| k.frame <= state_frame) else {
                     continue;
                 };
-                for el in &kf.elements {
-                    let Some(cid) = self.ensure_element_character(el) else {
+                for (element_offset, el) in kf.elements.iter().enumerate() {
+                    let character_key = element_character_key(el);
+                    let cid = if let Some(&cached) = element_char_cache.get(&character_key) {
+                        cached
+                    } else if let Some(cid) = self.ensure_element_character(el) {
+                        element_char_cache.insert(character_key, cid);
+                        cid
+                    } else {
                         continue;
                     };
-                    let depth = depth_counter.saturating_add((l_idx as u16) * 16);
-                    depth_counter = depth_counter.saturating_add(1);
+                    // Button states may use different characters at the same depth as long as
+                    // their state masks are disjoint. Reuse the timeline's checked layer bands
+                    // instead of the former `layer * 16` arithmetic, which collided for wide
+                    // layers and overflowed for large but valid button timelines.
+                    let depth = depth_bands[l_idx]
+                        .0
+                        .checked_add(
+                            u16::try_from(element_offset)
+                                .expect("button element offset is checked by depth preflight"),
+                        )
+                        .expect("button depth is checked by preflight");
                     state_records.push((
                         state_bit,
                         cid,
@@ -3342,6 +4369,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 ));
             }
         }
+        state_records.sort_by_key(|(state_mask, _, depth, ..)| (*depth, *state_mask));
 
         let button_id = self.alloc_char_id();
         let mut rec_writer = SwfBitWriter::new();
@@ -3366,10 +4394,15 @@ impl<'a> SwfDictionaryCompiler<'a> {
         rec_writer.u8(0); // End of button records
 
         let cond_bytes = if !self.options.profile.is_avm2() && !self.options.scriptless_mode {
-            self.button_scripts_by_sym
-                .get(&sym.id)
-                .map(|s| encode_button2_cond_actions(s))
-                .unwrap_or_default()
+            match self.button_scripts_by_sym.get(&sym.id) {
+                Some(scripts) => encode_button2_cond_actions(scripts).map_err(|error| {
+                    ExportError::Options(format!(
+                        "Button '{}' cannot encode its AVM1 actions: {error}",
+                        sym.name
+                    ))
+                })?,
+                None => Vec::new(),
+            }
         } else {
             Vec::new()
         };
@@ -3381,18 +4414,31 @@ impl<'a> SwfDictionaryCompiler<'a> {
             w.u16(0); // action_offset = 0
             w.bytes(&rec_writer.buf);
         } else {
-            let action_offset = (2 + rec_writer.buf.len()) as u16;
+            let action_offset = rec_writer
+                .buf
+                .len()
+                .checked_add(2)
+                .and_then(|len| u16::try_from(len).ok())
+                .ok_or_else(|| {
+                    ExportError::Options(format!(
+                        "Button '{}' state records occupy {} bytes; DefineButton2 with AVM1 actions supports at most {} bytes before its action block",
+                        sym.name,
+                        rec_writer.buf.len(),
+                        usize::from(u16::MAX) - 2
+                    ))
+                })?;
             w.u16(action_offset);
             w.bytes(&rec_writer.buf);
             w.bytes(&cond_bytes);
         }
         self.root_tags.write_tag(34, &w.buf);
-        button_id
+        Ok(button_id)
     }
 
     fn build_timeline_tags(&mut self, timeline: &Timeline, is_root: bool) -> (Vec<u8>, u16) {
         let total_frames = timeline.frame_count.max(1);
-        let layer_count = timeline.layers.len().max(1);
+        let depth_bands = timeline_depth_bands(timeline)
+            .expect("SWF depth capacity is checked by preflight before compilation");
 
         // Pre-allocate morph shapes for compatible shape tween spans
         let mut morph_spans: BTreeMap<(usize, usize), (u16, u32, u32, Easing)> = BTreeMap::new();
@@ -3423,29 +4469,15 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     }
                 }
                 for el in &kf.elements {
-                    if !element_char_cache.contains_key(&el.id)
+                    let character_key = element_character_key(el);
+                    if !element_char_cache.contains_key(&character_key)
                         && let Some(cid) = self.ensure_element_character(el)
                     {
-                        element_char_cache.insert(el.id.clone(), cid);
+                        element_char_cache.insert(character_key, cid);
                     }
                 }
             }
         }
-
-        // Map layer IDs for mask `clip_depth` calculation
-        let layer_id_to_idx: BTreeMap<String, usize> = timeline
-            .layers
-            .iter()
-            .enumerate()
-            .map(|(i, l)| (l.id.clone(), i))
-            .collect();
-
-        // Depth formula: layer `l_idx` gets base depth `((layer_count - l_idx) * 16) as u16`
-        // except when a Mask layer `m_idx` masks layers `[m_idx + 1 ..= last_masked]`:
-        // in SWF, a mask at `mask_depth` clips depths in `(mask_depth, clip_depth]`, so we assign
-        // depths in `1 + l_idx * 16` order when masks are present, or standard ascending layer depths.
-        let base_depth_for_layer =
-            |l_idx: usize| -> u16 { ((l_idx as u16) + 1).saturating_mul(16) };
 
         let mut mask_clip_depths: BTreeMap<usize, u16> = BTreeMap::new();
         for (l_idx, layer) in timeline.layers.iter().enumerate() {
@@ -3455,11 +4487,11 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     if other.properties.mask.as_deref() == Some(layer.id.as_str())
                         && other_idx > l_idx
                     {
-                        let d = base_depth_for_layer(other_idx) + 15;
+                        let d = depth_bands[other_idx].1;
                         max_masked_depth = max_masked_depth.max(d);
                     }
                 }
-                if max_masked_depth > base_depth_for_layer(l_idx) {
+                if max_masked_depth > depth_bands[l_idx].0 {
                     mask_clip_depths.insert(l_idx, max_masked_depth);
                 }
             }
@@ -3491,7 +4523,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     continue;
                 }
 
-                let base_depth = base_depth_for_layer(l_idx);
+                let base_depth = depth_bands[l_idx].0;
                 let clip_depth = mask_clip_depths.get(&l_idx).copied();
 
                 // Check if frame falls inside a DefineMorphShape span
@@ -3529,16 +4561,25 @@ impl<'a> SwfDictionaryCompiler<'a> {
 
                 // Evaluate layer at `frame`
                 let sampled_elements = neoflash_core::sample_layer_in(timeline, layer, frame);
-                for (e_offset, el) in sampled_elements.iter().take(15).enumerate() {
-                    let cid_opt = if let Some(&cached) = element_char_cache.get(&el.id) {
+                for (e_offset, el) in sampled_elements.iter().enumerate() {
+                    let character_key = element_character_key(el);
+                    let cid_opt = if let Some(&cached) = element_char_cache.get(&character_key) {
                         Some(cached)
+                    } else if let Some(cid) = self.ensure_element_character(el) {
+                        element_char_cache.insert(character_key, cid);
+                        Some(cid)
                     } else {
-                        self.ensure_element_character(el)
+                        None
                     };
                     let Some(cid) = cid_opt else {
                         continue;
                     };
-                    let depth = base_depth + (e_offset as u16);
+                    let depth = base_depth
+                        .checked_add(
+                            u16::try_from(e_offset)
+                                .expect("element offset is checked by SWF depth preflight"),
+                        )
+                        .expect("display depth is checked by SWF preflight");
                     let is_button_inst = match &el.kind {
                         ElementKind::Instance { symbol_id, .. } => self
                             .project
@@ -3573,9 +4614,6 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     );
                 }
             }
-
-            let _ = &layer_id_to_idx;
-            let _ = layer_count;
 
             // Emit RemoveObject2 for depths no longer present
             let removed_depths: Vec<u16> = active_slots
@@ -3643,7 +4681,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
                         )
                     {
-                        let actions = compile_avm1_actions(&fs.script.source);
+                        let actions = compile_avm1_actions(&fs.script.source)
+                            .expect("AVM1 action record sizes are checked by SWF preflight");
                         if actions.len() > 1 {
                             if is_root {
                                 self.root_tags.write_tag(12, &actions);
@@ -3666,20 +4705,32 @@ impl<'a> SwfDictionaryCompiler<'a> {
         }
 
         if is_root {
-            (Vec::new(), total_frames.min(65535) as u16)
+            (
+                Vec::new(),
+                u16::try_from(total_frames)
+                    .expect("SWF frame capacity is checked by preflight before compilation"),
+            )
         } else {
             stream_tags.write_tag(0, &[]); // End tag inside DefineSprite
-            (stream_tags.buf, total_frames.min(65535) as u16)
+            (
+                stream_tags.buf,
+                u16::try_from(total_frames)
+                    .expect("SWF frame capacity is checked by preflight before compilation"),
+            )
         }
     }
 
-    fn compile_symbol_in_order(&mut self, sym_id: &str, visited: &mut BTreeSet<String>) {
+    fn compile_symbol_in_order(
+        &mut self,
+        sym_id: &str,
+        visited: &mut BTreeSet<String>,
+    ) -> Result<(), ExportError> {
         if visited.contains(sym_id) {
-            return;
+            return Ok(());
         }
         visited.insert(sym_id.to_owned());
         let Some(sym) = self.project.symbol(sym_id).cloned() else {
-            return;
+            return Ok(());
         };
 
         // Compile child symbol dependencies first so every DefineSprite / DefineButton2 is at root level before use!
@@ -3687,14 +4738,14 @@ impl<'a> SwfDictionaryCompiler<'a> {
             for kf in &layer.keyframes {
                 for el in &kf.elements {
                     if let ElementKind::Instance { symbol_id, .. } = &el.kind {
-                        self.compile_symbol_in_order(symbol_id, visited);
+                        self.compile_symbol_in_order(symbol_id, visited)?;
                     }
                 }
             }
         }
 
         let char_id = if sym.kind == SymbolKind::Button {
-            self.compile_button_symbol(&sym)
+            self.compile_button_symbol(&sym)?
         } else {
             let (sprite_tags, frame_count) = self.build_timeline_tags(&sym.timeline, false);
             let sid = self.alloc_char_id();
@@ -3741,6 +4792,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 self.avm2_symbol_classes.push((char_id, cls_name.clone()));
             }
         }
+        Ok(())
     }
 }
 
@@ -3783,7 +4835,7 @@ pub fn publish_swf_bytes(
 
     let mut compiler = SwfDictionaryCompiler::new(project, options);
     compiler.collect_button_scripts();
-    compiler.ensure_media_resources();
+    compiler.ensure_media_resources()?;
 
     // Compile all non-scene library symbols in bottom-up topological order
     let mut visited = BTreeSet::new();
@@ -3792,7 +4844,7 @@ pub fn publish_swf_bytes(
     }
     for sym in &project.symbols {
         if !scene_ids.contains(&sym.id.as_str()) {
-            compiler.compile_symbol_in_order(&sym.id, &mut visited);
+            compiler.compile_symbol_in_order(&sym.id, &mut visited)?;
         }
     }
 
@@ -3808,7 +4860,8 @@ pub fn publish_swf_bytes(
                     src.language,
                     ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
                 ) {
-                    let actions = compile_avm1_actions(&src.source);
+                    let actions = compile_avm1_actions(&src.source)
+                        .expect("AVM1 action record sizes are checked by SWF preflight");
                     if actions.len() > 1 {
                         let init_sprite_id = compiler
                             .symbol_char_ids
@@ -3938,6 +4991,12 @@ pub fn publish_swf_bytes(
 
     // Build root timeline display list + ShowFrame tags
     let (_, root_frame_count) = compiler.build_timeline_tags(&root_timeline, true);
+    if compiler.dictionary_overflow {
+        return Err(ExportError::Options(format!(
+            "SWF dictionary exceeds the {} available character IDs; simplify or split the movie",
+            u16::MAX
+        )));
+    }
     compiler.root_tags.write_tag(0, &[]); // End tag (0)
 
     // Assemble uncompressed SWF body (RECT stage bounds + frame_rate + frame_count + FileAttributes + SetBackgroundColor + root_tags)
@@ -4034,4 +5093,593 @@ pub fn import_swf_bytes(bytes: &[u8]) -> Result<Project, ExportError> {
     let res = neoflash_import::import_project(&tmp_file);
     let _ = std::fs::remove_dir_all(&tmp_dir);
     res.map_err(|e| ExportError::RoundTripVerification(e.to_string()))
+}
+
+#[cfg(test)]
+mod dictionary_capacity_tests {
+    use super::*;
+
+    fn root_keyframe_mut(project: &mut Project) -> &mut neoflash_core::Keyframe {
+        let root = project.root.clone();
+        &mut project
+            .symbol_mut(&root)
+            .expect("blank project root")
+            .timeline
+            .layers[0]
+            .keyframes[0]
+    }
+
+    fn tiny_png() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]));
+        let mut bytes = Vec::new();
+        image
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    }
+
+    fn wav_bytes(encoding: u16, channels: u16, sample_rate: u32, bits: u16) -> Vec<u8> {
+        let bytes_per_sample = usize::from(bits.div_ceil(8));
+        let block_align = channels.saturating_mul(bits.div_ceil(8));
+        let byte_rate = sample_rate.saturating_mul(u32::from(block_align));
+        let data_len = usize::from(channels)
+            .saturating_mul(bytes_per_sample)
+            .max(1)
+            * 4;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + u32::try_from(data_len).unwrap()).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&encoding.to_le_bytes());
+        wav.extend_from_slice(&channels.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&byte_rate.to_le_bytes());
+        wav.extend_from_slice(&block_align.to_le_bytes());
+        wav.extend_from_slice(&bits.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&u32::try_from(data_len).unwrap().to_le_bytes());
+        wav.resize(wav.len() + data_len, 0);
+        wav
+    }
+
+    fn one_frame_mp3() -> Vec<u8> {
+        // MPEG-1 Layer III, 128 kbps, 44.1 kHz, stereo: floor(144*128000/44100)=417 bytes.
+        let mut frame = vec![0u8; 417];
+        frame[0..4].copy_from_slice(&[0xff, 0xfb, 0x90, 0x00]);
+        frame
+    }
+
+    fn project_with_sound(media_type: &str, extension: &str, bytes: &[u8]) -> Project {
+        let mut project = Project::blank();
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "sound",
+                format!("sound.{extension}"),
+                media_type,
+                bytes,
+            )
+            .unwrap(),
+        );
+        root_keyframe_mut(&mut project).sound = Some(FrameSound::new("sound"));
+        project
+    }
+
+    #[test]
+    fn character_allocator_never_reuses_the_last_swf_dictionary_id() {
+        let project = Project::blank();
+        let options = SwfPublishOptions::default();
+        let mut compiler = SwfDictionaryCompiler::new(&project, &options);
+        compiler.next_char_id = u32::from(u16::MAX);
+
+        assert_eq!(compiler.alloc_char_id(), u16::MAX);
+        assert!(!compiler.dictionary_overflow);
+        assert_eq!(compiler.alloc_char_id(), 0);
+        assert!(compiler.dictionary_overflow);
+        assert_eq!(compiler.alloc_char_id(), 0);
+    }
+
+    #[test]
+    fn preflight_refuses_frame_rates_that_the_swf_header_would_clamp() {
+        let mut project = Project::blank();
+        project.fps = 256;
+        let options = SwfPublishOptions::default();
+        let report = preflight_swf_publish(&project, &options);
+        assert!(report.items.iter().any(|item| {
+            item.code == "swf_frame_rate_limit"
+                && item.disposition == FlaCompatibilityStatus::Blocking
+        }));
+        assert!(
+            !report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_frame_rate_exact")
+        );
+        assert!(matches!(
+            publish_swf_bytes(&project, &options),
+            Err(ExportError::CompatibilityBlocked { .. })
+        ));
+
+        project.fps = 255;
+        let exact = preflight_swf_publish(&project, &options);
+        assert!(exact.items.iter().any(|item| {
+            item.code == "swf_frame_rate_exact" && item.disposition == FlaCompatibilityStatus::Exact
+        }));
+    }
+
+    #[test]
+    fn preflight_checks_only_used_media_and_refuses_unsupported_codecs() {
+        let jpeg = neoflash_core::ResourceUnit::from_bytes(
+            "photo",
+            "photo.jpg",
+            "image/jpeg",
+            &[0xff, 0xd8, 0xff, 0xd9],
+        )
+        .unwrap();
+        let ogg = neoflash_core::ResourceUnit::from_bytes(
+            "music",
+            "music.ogg",
+            "audio/ogg",
+            b"OggS\0unsupported",
+        )
+        .unwrap();
+
+        let mut unused = Project::blank();
+        unused.resources.extend([jpeg.clone(), ogg.clone()]);
+        let unused_report = preflight_swf_publish(&unused, &SwfPublishOptions::default());
+        assert!(unused_report.can_proceed(), "{:#?}", unused_report.items);
+
+        let mut placed_jpeg = Project::blank();
+        placed_jpeg.resources.push(jpeg);
+        root_keyframe_mut(&mut placed_jpeg).elements.push(Element {
+            id: "photo-placement".to_owned(),
+            kind: ElementKind::Bitmap {
+                resource_id: "photo".to_owned(),
+                width: 1,
+                height: 1,
+                smoothing: true,
+            },
+            ..Element::default()
+        });
+        let jpeg_report = preflight_swf_publish(&placed_jpeg, &SwfPublishOptions::default());
+        assert!(
+            jpeg_report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_bitmap_codec_unsupported")
+        );
+        assert!(!jpeg_report.can_proceed());
+
+        let mut used_ogg = Project::blank();
+        used_ogg.resources.push(ogg);
+        root_keyframe_mut(&mut used_ogg).sound = Some(FrameSound::new("music"));
+        let ogg_report = preflight_swf_publish(&used_ogg, &SwfPublishOptions::default());
+        assert!(
+            ogg_report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_sound_codec_unsupported")
+        );
+        assert!(!ogg_report.can_proceed());
+    }
+
+    #[test]
+    fn swf_sound_layouts_are_proven_instead_of_clamped_or_guessed() {
+        let wav = wav_bytes(1, 1, 44_100, 16);
+        let wav_info = analyze_swf_sound_resource("audio/wav", &wav).unwrap();
+        assert_eq!(wav_info.sample_count, 4);
+        assert_eq!(wav_info.sample_rate, 44_100);
+        assert!(!wav_info.stereo);
+        assert!(
+            preflight_swf_publish(
+                &project_with_sound("audio/wav", "wav", &wav),
+                &SwfPublishOptions::default()
+            )
+            .can_proceed()
+        );
+
+        let mp3 = one_frame_mp3();
+        let mp3_info = analyze_swf_sound_resource("audio/mpeg", &mp3).unwrap();
+        assert_eq!(mp3_info.sample_count, 1152);
+        assert_eq!(mp3_info.sample_rate, 44_100);
+        assert!(mp3_info.stereo);
+        let mp3_payload = build_define_sound_payload(7, "audio/mpeg", &mp3).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(mp3_payload[3..7].try_into().unwrap()),
+            1152
+        );
+        assert!(
+            preflight_swf_publish(
+                &project_with_sound("audio/mpeg", "mp3", &mp3),
+                &SwfPublishOptions::default()
+            )
+            .can_proceed()
+        );
+
+        for (label, invalid) in [
+            ("IEEE-float", wav_bytes(3, 1, 44_100, 32)),
+            ("three-channel", wav_bytes(1, 3, 44_100, 16)),
+            ("48-kHz", wav_bytes(1, 2, 48_000, 16)),
+            ("24-bit", wav_bytes(1, 2, 44_100, 24)),
+        ] {
+            let report = preflight_swf_publish(
+                &project_with_sound("audio/wav", "wav", &invalid),
+                &SwfPublishOptions::default(),
+            );
+            assert!(
+                report
+                    .items
+                    .iter()
+                    .any(|item| item.code == "swf_sound_layout_unsupported"),
+                "{label}: {:#?}",
+                report.items
+            );
+            assert!(!report.can_proceed(), "{label}");
+        }
+    }
+
+    #[test]
+    fn valid_png_and_intentional_basic_text_outlines_remain_publishable() {
+        let mut project = Project::blank();
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes("image", "image.png", "image/png", &tiny_png())
+                .unwrap(),
+        );
+        root_keyframe_mut(&mut project).elements.extend([
+            Element {
+                id: "image-placement".to_owned(),
+                kind: ElementKind::Bitmap {
+                    resource_id: "image".to_owned(),
+                    width: 2,
+                    height: 2,
+                    smoothing: false,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "static-text".to_owned(),
+                kind: ElementKind::Text {
+                    text: "SWF".to_owned(),
+                    font_family: "Arial".to_owned(),
+                    font_size: 20.0,
+                    color: [10, 20, 30, 255],
+                },
+                ..Element::default()
+            },
+        ]);
+
+        let default_report = preflight_swf_publish(&project, &SwfPublishOptions::default());
+        assert!(
+            default_report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_text_requires_outlines")
+        );
+        assert!(!default_report.can_proceed());
+
+        let options = SwfPublishOptions {
+            outline_text: true,
+            compression: SwfCompression::UncompressedFws,
+            ..SwfPublishOptions::default()
+        };
+        let report = preflight_swf_publish(&project, &options);
+        assert!(report.can_proceed(), "{:#?}", report.items);
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_text_outlined")
+        );
+        let (bytes, _) = publish_swf_bytes(&project, &options).unwrap();
+        assert!(bytes.starts_with(b"FWS"));
+    }
+
+    #[test]
+    fn text_outline_preflight_converts_named_fields_but_blocks_unpreserved_rich_visuals() {
+        let mut project = Project::blank();
+        root_keyframe_mut(&mut project).elements.push(Element {
+            id: "editable-text".to_owned(),
+            name: "scoreField".to_owned(),
+            kind: ElementKind::TextBox {
+                text: "42".to_owned(),
+                width: 100.0,
+                height: 30.0,
+                format: neoflash_core::TextFormat::default(),
+                word_wrap: false,
+                multiline: false,
+            },
+            ..Element::default()
+        });
+        let outlined = SwfPublishOptions {
+            outline_text: true,
+            ..SwfPublishOptions::default()
+        };
+        let report = preflight_swf_publish(&project, &outlined);
+        assert!(report.can_proceed(), "{:#?}", report.items);
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_text_outlined")
+        );
+
+        let element = &mut root_keyframe_mut(&mut project).elements[0];
+        let ElementKind::TextBox { format, .. } = &mut element.kind else {
+            unreachable!()
+        };
+        let field_options = neoflash_core::AuthoredTextFieldOptions {
+            html: true,
+            ..neoflash_core::AuthoredTextFieldOptions::default()
+        };
+        format.set_field_options(Some(field_options));
+        let rich_report = preflight_swf_publish(&project, &outlined);
+        assert!(rich_report.items.iter().any(|item| {
+            item.code == "swf_text_outline_unsupported" && item.message.contains("HTML")
+        }));
+    }
+
+    #[test]
+    fn baked_shape_tween_depth_band_reserves_both_endpoint_sets() {
+        let element = Element::default();
+        let timeline = Timeline {
+            frame_count: 3,
+            layers: vec![
+                neoflash_core::Layer {
+                    id: "shape".to_owned(),
+                    name: "Shape".to_owned(),
+                    visible: true,
+                    locked: false,
+                    properties: Default::default(),
+                    keyframes: vec![
+                        neoflash_core::Keyframe {
+                            frame: 0,
+                            elements: vec![element.clone(), element.clone()],
+                            tween: Some(Easing::Linear),
+                            tween_kind: TweenKind::Shape,
+                            ..Default::default()
+                        },
+                        neoflash_core::Keyframe {
+                            frame: 2,
+                            elements: vec![element.clone(), element.clone(), element.clone()],
+                            ..Default::default()
+                        },
+                    ],
+                },
+                neoflash_core::Layer {
+                    id: "following".to_owned(),
+                    name: "Following".to_owned(),
+                    visible: true,
+                    locked: false,
+                    properties: Default::default(),
+                    keyframes: vec![neoflash_core::Keyframe {
+                        frame: 0,
+                        elements: vec![element],
+                        ..Default::default()
+                    }],
+                },
+            ],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        };
+
+        assert_eq!(timeline_depth_bands(&timeline), Some(vec![(1, 5), (6, 6)]));
+    }
+
+    #[test]
+    fn button_depths_support_more_than_4096_single_element_layers_without_overflow() {
+        let mut project = Project::blank();
+        let element = Element {
+            id: "button-art".to_owned(),
+            kind: ElementKind::Rectangle {
+                width: 8.0,
+                height: 8.0,
+                fill: [20, 90, 180, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        };
+        let layers = (0..4097)
+            .map(|index| {
+                let mut layer_element = element.clone();
+                layer_element.id = format!("button-art-{index}");
+                neoflash_core::Layer {
+                    id: format!("button-layer-{index}"),
+                    name: format!("Button layer {index}"),
+                    visible: true,
+                    locked: false,
+                    properties: Default::default(),
+                    keyframes: vec![neoflash_core::Keyframe {
+                        frame: 0,
+                        elements: vec![layer_element],
+                        ..Default::default()
+                    }],
+                }
+            })
+            .collect();
+        project.symbols.push(Symbol {
+            id: "large-button".to_owned(),
+            name: "Large button".to_owned(),
+            folder: String::new(),
+            kind: SymbolKind::Button,
+            timeline: Timeline {
+                frame_count: 4,
+                layers,
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+            class_name: None,
+            linkage_id: None,
+        });
+        project.validate().unwrap();
+
+        let options = SwfPublishOptions {
+            compression: SwfCompression::UncompressedFws,
+            ..SwfPublishOptions::default()
+        };
+        let (bytes, report) = publish_swf_bytes(&project, &options).unwrap();
+        assert!(report.can_proceed());
+        assert!(bytes.starts_with(b"FWS"));
+
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "large-button-instance".to_owned(),
+                kind: ElementKind::Instance {
+                    symbol_id: "large-button".to_owned(),
+                    playback: neoflash_core::InstancePlayback::Independent,
+                },
+                scripts: vec![ObjectScript {
+                    event: ObjectEvent::Click,
+                    script: neoflash_core::Script {
+                        language: ScriptLanguage::ActionScript2,
+                        source: "stop();".to_owned(),
+                    },
+                }],
+                ..Element::default()
+            });
+        project.validate().unwrap();
+        let avm1_options = SwfPublishOptions {
+            profile: SwfPublishProfile::FlashPlayer8Avm1,
+            compression: SwfCompression::UncompressedFws,
+            ..SwfPublishOptions::default()
+        };
+        let error = publish_swf_bytes(&project, &avm1_options).unwrap_err();
+        assert!(
+            error.to_string().contains("state records occupy"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn avm1_record_lengths_refuse_oversized_strings_labels_and_conditional_blocks() {
+        let oversized_string = "x".repeat(usize::from(u16::MAX) - 1);
+        let trace_source = format!("trace(\"{oversized_string}\");");
+        let issue =
+            swf_script_compilation_issue(ScriptLanguage::ActionScript2, &trace_source, false)
+                .expect("oversized ActionPush must fail preflight");
+        assert!(issue.contains("ActionPush"), "got: {issue}");
+        assert!(compile_avm1_actions(&trace_source).is_err());
+
+        let oversized_label = "l".repeat(usize::from(u16::MAX));
+        let goto_source = format!("gotoAndStop(\"{oversized_label}\");");
+        let issue =
+            swf_script_compilation_issue(ScriptLanguage::ActionScript1, &goto_source, false)
+                .expect("oversized ActionGotoLabel must fail preflight");
+        assert!(issue.contains("ActionGotoLabel"), "got: {issue}");
+
+        let many_actions = "stop();".repeat(usize::from(u16::MAX));
+        let scripts = vec![
+            ObjectScript {
+                event: ObjectEvent::Click,
+                script: neoflash_core::Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: many_actions,
+                },
+            },
+            ObjectScript {
+                event: ObjectEvent::Load,
+                script: neoflash_core::Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "play();".to_owned(),
+                },
+            },
+        ];
+        let error = encode_button2_cond_actions(&scripts).unwrap_err();
+        assert!(error.contains("BUTTONCONDACTION"), "got: {error}");
+
+        let mut project = Project::blank();
+        let mut button = project.symbols[0].clone();
+        button.id = "button".to_owned();
+        button.name = "Button".to_owned();
+        button.kind = SymbolKind::Button;
+        project.symbols.push(button);
+        root_keyframe_mut(&mut project).elements.push(Element {
+            id: "button-instance".to_owned(),
+            kind: ElementKind::Instance {
+                symbol_id: "button".to_owned(),
+                playback: neoflash_core::InstancePlayback::Independent,
+            },
+            scripts,
+            ..Element::default()
+        });
+        let report = preflight_swf_publish(
+            &project,
+            &SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1),
+        );
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.code == "swf_avm1_button_action_capacity")
+        );
+    }
+
+    #[test]
+    fn bounded_script_preflight_rejects_trailing_as3_and_keeps_avm1_associativity() {
+        let valid_external = "package app {\nimport flash.display.MovieClip;\npublic class Main extends MovieClip {\ntrace(-1);\n}\n}";
+        assert_eq!(
+            swf_script_compilation_issue(ScriptLanguage::ActionScript3, valid_external, true),
+            None
+        );
+        assert!(
+            swf_script_compilation_issue(
+                ScriptLanguage::ActionScript3,
+                "package app { public class Main { trace(1.5); } }",
+                true,
+            )
+            .is_some()
+        );
+        assert!(
+            swf_script_compilation_issue(
+                ScriptLanguage::ActionScript3,
+                "import flash.display.MovieClip; trace(1);",
+                true,
+            )
+            .is_some()
+        );
+        assert!(
+            swf_script_compilation_issue(
+                ScriptLanguage::ActionScript3,
+                "evil public class Main extends MovieClip {",
+                true,
+            )
+            .is_some()
+        );
+
+        let (left, right, operator) = split_avm1_binary_expression("8 - 4 - 2").unwrap();
+        assert_eq!((left, right, operator), ("8 - 4", "2", '-'));
+        let (left, right, operator) = split_avm1_binary_expression("8 / 4 / 2").unwrap();
+        assert_eq!((left, right, operator), ("8 / 4", "2", '/'));
+        assert!(simple_avm1_expression("8 - 4 - 2"));
+        assert_eq!(unquote_literal("\"a\" + \"b\""), None);
+
+        assert!(compile_avm1_actions("gotoAndStop(65536);").is_ok());
+        let issue = swf_script_compilation_issue(
+            ScriptLanguage::ActionScript2,
+            "gotoAndStop(65537);",
+            false,
+        )
+        .expect("out-of-range numeric AVM1 frame must fail preflight");
+        assert!(issue.contains("65536 one-based frames"), "got: {issue}");
+    }
+
+    #[test]
+    fn avm2_integer_emission_preserves_negative_and_large_i32_values() {
+        let mut pool = AbcPoolBuilder::default();
+        let mut code = SwfBitWriter::new();
+        emit_avm2_int(&mut pool, &mut code, -1);
+        assert_eq!(code.buf.first(), Some(&0x25));
+        assert!(pool.ints.is_empty());
+
+        let mut large_code = SwfBitWriter::new();
+        emit_avm2_int(&mut pool, &mut large_code, i32::MAX);
+        assert_eq!(large_code.buf, vec![0x2D, 0x01]);
+        assert_eq!(pool.ints, vec![i32::MAX]);
+        assert_eq!(pool.add_int(i32::MAX), 1);
+        assert!(supported_avm2_statement("trace(2147483647)", false));
+    }
 }

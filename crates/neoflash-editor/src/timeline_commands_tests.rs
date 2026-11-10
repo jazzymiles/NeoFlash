@@ -4295,7 +4295,7 @@ fn donor_library_metadata_collisions_follow_case_sensitive_runtime_identity() {
 #[test]
 fn modern_fla_save_reopen_and_direct_swf_playback_work() {
     let ctx = egui::Context::default();
-    let mut editor = Editor::from_project(&ctx, Project::demo());
+    let mut editor = Editor::from_project(&ctx, Project::blank());
 
     // Save a command so internal JSON resources are present in `project.resources`
     let _ = editor.register_saved_command(SavedCommand {
@@ -4306,8 +4306,50 @@ fn modern_fla_save_reopen_and_direct_swf_playback_work() {
     let dir = std::env::temp_dir().join(format!("neoflash_t168_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let fla_path = dir.join("modern_roundtrip.fla");
+    let (expected_fla, expected_report) = neoflash_export::export_fla_bytes_with_profile(
+        &editor.project,
+        neoflash_export::FlaTargetProfile::AnimateCC,
+        &neoflash_export::FlaExportOptions::default(),
+    )
+    .expect("modern Animate CC exporter accepts the project");
+    assert!(!expected_report.has_blocking());
+    let canonical_path = editor.path.clone();
+    let canonical_snapshot = editor.saved_project.clone();
+    let dirty_before_export = editor.dirty();
+    assert!(
+        dirty_before_export,
+        "the saved command is an unsaved native edit"
+    );
     assert!(editor.save_to_path(fla_path.clone()));
     assert!(fla_path.exists());
+    assert_eq!(
+        std::fs::read(&fla_path).unwrap(),
+        expected_fla,
+        "Save As .fla must use the modern Animate CC exporter path"
+    );
+    assert_eq!(
+        editor.path, canonical_path,
+        "derived FLA export must not become the canonical document path"
+    );
+    assert_eq!(
+        editor.saved_project, canonical_snapshot,
+        "derived FLA export must not replace the native saved snapshot"
+    );
+    assert_eq!(
+        editor.dirty(),
+        dirty_before_export,
+        "derived FLA export must not clear native unsaved state"
+    );
+    assert_eq!(editor.status, "Exported derived FLA.");
+    assert!(
+        !editor
+            .workspace
+            .general
+            .recent_files
+            .iter()
+            .any(|recent| recent == &fla_path),
+        "derived exports must not be advertised as canonical recent projects"
+    );
 
     // Inspect and reopen the saved `.fla` via `File ▸ Open…` (`try_open_path`)
     let report = neoflash_import::inspect(&fla_path).expect("inspect exported .fla");
@@ -5022,6 +5064,311 @@ fn t196_distribute_to_keyframes_and_toonmonkey_tween2keys_and_graphic_utilities(
     assert_eq!(kept_ease_kfs[5].tween, None);
     tween_editor.project.validate().unwrap();
     undo_restores(&mut tween_editor, &before_tween2keys);
+}
+
+#[test]
+fn t199_distribute_is_single_layer_and_preserves_occupied_destination() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 3;
+    project.symbols[0].timeline.layers = vec![
+        Layer {
+            id: "source-layer".into(),
+            name: "Source".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![
+                Keyframe {
+                    frame: 0,
+                    elements: vec![
+                        element("first", rectangle(), 0.0),
+                        element("second", rectangle(), 20.0),
+                    ],
+                    ..Keyframe::default()
+                },
+                Keyframe {
+                    frame: 1,
+                    elements: vec![element("destination-art", rectangle(), 40.0)],
+                    label: "occupied".into(),
+                    ..Keyframe::default()
+                },
+            ],
+            properties: LayerProperties::default(),
+        },
+        Layer {
+            id: "other-layer".into(),
+            name: "Other".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![element("other", rectangle(), 80.0)],
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        },
+    ];
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+
+    editor.set_selection(vec![
+        crate::selection::SelectionTarget {
+            layer: "source-layer".into(),
+            element: "first".into(),
+        },
+        crate::selection::SelectionTarget {
+            layer: "other-layer".into(),
+            element: "other".into(),
+        },
+    ]);
+    let before_cross_layer = editor.project.clone();
+    assert!(!editor.can_distribute_to_keyframes());
+    assert!(!editor.distribute_selection_to_keyframes());
+    assert_eq!(editor.project, before_cross_layer);
+
+    editor.set_selection(vec![
+        crate::selection::SelectionTarget {
+            layer: "source-layer".into(),
+            element: "first".into(),
+        },
+        crate::selection::SelectionTarget {
+            layer: "source-layer".into(),
+            element: "second".into(),
+        },
+    ]);
+    let before_distribute = editor.project.clone();
+    assert!(editor.distribute_selection_to_keyframes());
+    let destination = editor.symbol().timeline.layers[0].key_at(1).unwrap();
+    assert_eq!(destination.label, "occupied");
+    assert_eq!(
+        destination
+            .elements
+            .iter()
+            .map(|element| element.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["destination-art", "second"]
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_distribute);
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn t199_stepped_keys_preserve_exact_metadata_without_cloning_it_to_generated_frames() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 5;
+    project.symbols[0].timeline.layers[0].keyframes = vec![
+        Keyframe {
+            frame: 0,
+            elements: vec![element("animated", rectangle(), 0.0)],
+            tween: Some(Easing::EaseInOut),
+            label: "authored start".into(),
+            camera: Some(CameraPose {
+                x: 12.0,
+                ..CameraPose::default()
+            }),
+            perspective_grid: Some(PerspectiveGridSpec {
+                enabled: true,
+                ..PerspectiveGridSpec::default()
+            }),
+            work_area: Some(PreviewWorkArea {
+                enabled: true,
+                in_frame: 0,
+                out_frame: 4,
+                skip_nth_frame: 1,
+            }),
+            markers: vec![TimelineMarker {
+                id: "marker-start".into(),
+                frame: 0,
+                duration_frames: 2,
+                name: "Beat".into(),
+                comment: "Keep me".into(),
+                color_tag: Some("blue".into()),
+                cue_point_parameters: Default::default(),
+            }],
+            filters: vec![FilterSpec::Blur {
+                blur_x: 4.0,
+                blur_y: 2.0,
+                quality: 1,
+            }],
+            ..Keyframe::default()
+        },
+        Keyframe {
+            frame: 4,
+            elements: vec![element("animated", rectangle(), 100.0)],
+            label: "authored end".into(),
+            camera: Some(CameraPose {
+                y: 8.0,
+                ..CameraPose::default()
+            }),
+            ..Keyframe::default()
+        },
+    ];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    assert!(editor.tween_to_keys_on_twos());
+    let layer = &editor.symbol().timeline.layers[0];
+    let start = layer.keyframes.iter().find(|key| key.frame == 0).unwrap();
+    assert_eq!(start.label, "authored start");
+    assert_eq!(
+        start.camera,
+        before.symbols[0].timeline.layers[0].keyframes[0].camera
+    );
+    assert_eq!(
+        start.perspective_grid,
+        before.symbols[0].timeline.layers[0].keyframes[0].perspective_grid
+    );
+    assert_eq!(
+        start.work_area,
+        before.symbols[0].timeline.layers[0].keyframes[0].work_area
+    );
+    assert_eq!(
+        start.markers,
+        before.symbols[0].timeline.layers[0].keyframes[0].markers
+    );
+    assert_eq!(
+        start.filters,
+        before.symbols[0].timeline.layers[0].keyframes[0].filters
+    );
+    assert!(start.tween.is_none());
+
+    let generated = layer.keyframes.iter().find(|key| key.frame == 2).unwrap();
+    assert!(generated.label.is_empty());
+    assert!(generated.camera.is_none());
+    assert!(generated.perspective_grid.is_none());
+    assert!(generated.work_area.is_none());
+    assert!(generated.markers.is_empty());
+    assert!(generated.filters.is_empty());
+
+    let end = layer.keyframes.iter().find(|key| key.frame == 4).unwrap();
+    assert_eq!(end.label, "authored end");
+    assert_eq!(
+        end.camera,
+        before.symbols[0].timeline.layers[0].keyframes[1].camera
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn t199_empty_layer_cleanup_preserves_all_semantic_keyframe_content() {
+    let mut project = Project::blank();
+    project.resources.push(
+        ResourceUnit::from_bytes(
+            "video-resource",
+            "video/clip.mp4",
+            "video/mp4",
+            b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41",
+        )
+        .unwrap(),
+    );
+    project.symbols[0].timeline.layers = vec![
+        Layer {
+            id: "video-layer".into(),
+            name: "Video".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                video: Some(TimelineVideoSpan {
+                    resource: "video-resource".into(),
+                    sync: VideoSyncMode::Stream,
+                    deployment: VideoDeploymentMode::Embedded,
+                    external_path: None,
+                    stream_url: None,
+                    start_offset_ms: 0,
+                    loop_video: false,
+                    muted: false,
+                    cue_points: Vec::new(),
+                }),
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        },
+        Layer {
+            id: "metadata-layer".into(),
+            name: "Metadata".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                camera: Some(CameraPose::default()),
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties::default(),
+        },
+        Layer {
+            id: "empty-layer".into(),
+            name: "Empty".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe::default()],
+            properties: LayerProperties::default(),
+        },
+    ];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    assert_eq!(editor.delete_empty_layers(), 1);
+    let ids = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .map(|layer| layer.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["video-layer", "metadata-layer"]);
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+}
+
+#[test]
+fn t199_actions_helper_does_not_repurpose_content_and_uses_document_language() {
+    let mut project = Project::blank();
+    project.sources.push(SourceUnit {
+        id: "as2-main".into(),
+        path: "Main.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: String::new(),
+    });
+    project.symbols[0].timeline.frame_count = 2;
+    project.symbols[0].timeline.layers[0].name = "actions".into();
+    project.symbols[0].timeline.layers[0].visible = false;
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(element("real-art", rectangle(), 0.0));
+    project.upgrade_format_for_features();
+    project.format_version = project.format_version.max(2);
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+    let before = editor.project.clone();
+
+    assert!(editor.add_actions_and_stop_layer());
+    let original = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .find(|layer| layer.id == before.symbols[0].timeline.layers[0].id)
+        .unwrap();
+    assert_eq!(original, &before.symbols[0].timeline.layers[0]);
+    let action_layer = editor.symbol().timeline.layers.last().unwrap();
+    assert_eq!(action_layer.name, "actions 2");
+    assert!(action_layer.locked && action_layer.visible);
+    assert_eq!(
+        editor.symbol().timeline.scripts[0].script.language,
+        ScriptLanguage::ActionScript2
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
 }
 
 #[test]

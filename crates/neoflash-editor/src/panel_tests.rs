@@ -35,6 +35,22 @@ fn frame(
         },
     )
 }
+
+#[test]
+fn t199_productivity_dialog_participates_in_global_modal_guard() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    assert!(!editor.has_modal_dialog_in(&ctx));
+
+    editor.open_randomize_selection_modal(&ctx);
+    assert!(crate::panels::productivity_tools::has_productivity_modal(
+        &ctx
+    ));
+    assert!(editor.has_modal_dialog_in(&ctx));
+
+    crate::panels::productivity_tools::close_productivity_modal(&ctx);
+    assert!(!editor.has_modal_dialog_in(&ctx));
+}
 fn named_bounds(output: &egui::FullOutput, label: &str) -> Option<Rect> {
     output
         .platform_output
@@ -4141,7 +4157,11 @@ fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
 
     // 3. `warnings_as_errors` blocks HTML5 publish before writing any files when warnings exist.
     assert!(!neoflash_export::export_warnings(&d.editor.project).is_empty());
-    assert!(!d.editor.publish_html5_to(&publish_dir, &runtime_dir));
+    let publish_settings = d.editor.workspace.publish.clone();
+    assert!(
+        !d.editor
+            .publish_html5_with_settings(&publish_dir, &runtime_dir, &publish_settings)
+    );
     assert!(!publish_dir.exists(), "blocked publish writes no files");
     assert!(d.editor.status.starts_with("Publish failed:"));
     assert!(d.editor.status.contains("NeoFlashMissingFontXYZ_999"));
@@ -4151,7 +4171,11 @@ fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
     d.editor.workspace.publish.warnings_as_errors = false;
     d.editor.perform(crate::app::Pending::New, &d.ctx);
     d.editor.project.name = "First Publish".into();
-    assert!(d.editor.publish_html5_to(&publish_dir, &runtime_dir));
+    let publish_settings = d.editor.workspace.publish.clone();
+    assert!(
+        d.editor
+            .publish_html5_with_settings(&publish_dir, &runtime_dir, &publish_settings)
+    );
     assert!(publish_dir.join("neoflash-export.json").is_file());
     assert!(
         std::fs::read_to_string(publish_dir.join("index.html"))
@@ -4159,8 +4183,10 @@ fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
             .contains("First Publish")
     );
     d.editor.project.name = "Second Publish".into();
+    let publish_settings = d.editor.workspace.publish.clone();
     assert!(
-        d.editor.publish_html5_to(&publish_dir, &runtime_dir),
+        d.editor
+            .publish_html5_with_settings(&publish_dir, &runtime_dir, &publish_settings,),
         "second publish reuses marker-owned output_folder"
     );
     assert!(
@@ -4172,7 +4198,11 @@ fn preferences_text_clipboard_and_publish_ui_and_behaviour() {
     let unrelated_dir = temp_root.join("unrelated-non-empty");
     std::fs::create_dir_all(&unrelated_dir).unwrap();
     std::fs::write(unrelated_dir.join("keep.txt"), "do not clobber").unwrap();
-    assert!(!d.editor.publish_html5_to(&unrelated_dir, &runtime_dir));
+    let publish_settings = d.editor.workspace.publish.clone();
+    assert!(
+        !d.editor
+            .publish_html5_with_settings(&unrelated_dir, &runtime_dir, &publish_settings)
+    );
     assert!(d.editor.status.starts_with("Export failed:"));
     assert_eq!(
         std::fs::read_to_string(unrelated_dir.join("keep.txt")).unwrap(),
@@ -4728,19 +4758,21 @@ fn file_close_revert_recent_files_and_window_hide_panels() {
     assert!(!editor.dirty());
     assert_eq!(editor.project.name, "SavedOriginal");
 
-    // Revert uses the saved format, including FLA archives, and failed reads keep the edit.
+    // FLA is a derived export and does not retarget Revert; failed native reads keep the edit.
     let fla_path = dir.join("saved-test.fla");
     assert!(editor.save_to_path(fla_path.clone()));
+    assert_eq!(editor.path.as_ref(), Some(&file_path));
+    assert_eq!(editor.status, "Exported derived FLA.");
     let saved_width = editor.project.width;
     editor.transact(|e| e.project.width += 17);
     assert!(editor.revert_to_saved(&ctx));
     assert_eq!(editor.project.width, saved_width);
-    assert_eq!(editor.path.as_ref(), Some(&fla_path));
+    assert_eq!(editor.path.as_ref(), Some(&file_path));
     assert!(!editor.dirty());
     editor.project.validate().unwrap();
     editor.transact(|e| e.project.width += 23);
     let unsaved = editor.project.clone();
-    std::fs::write(&fla_path, b"broken archive").unwrap();
+    std::fs::write(&file_path, b"broken native project").unwrap();
     assert!(!editor.revert_to_saved(&ctx));
     assert_eq!(editor.project, unsaved);
     assert!(editor.dirty());
@@ -5208,6 +5240,73 @@ fn movie_explorer_builds_tree_filters_searches_and_navigates() {
     let out = frame(&mut editor, &ctx, size, 0.8, vec![]);
     assert!(!egui::Popup::is_any_open(&ctx));
     assert!(named_bounds(&out, "Show symbol definitions").is_none());
+}
+
+#[test]
+fn generated_actions_2_layer_owns_explorer_and_compiler_script_locations() {
+    use crate::panels::actions_sidebar::ScriptLocation;
+    use crate::panels::compiler_errors::collect_compiler_diagnostics;
+    use crate::panels::movie_explorer::{MovieTarget, build_movie_explorer_rows};
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.symbols[0].timeline.frame_count = 2;
+    project.symbols[0].timeline.layers[0].name = "actions".into();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "authored-actions-art".into(),
+            kind: ElementKind::Rectangle {
+                width: 10.0,
+                height: 10.0,
+                fill: [20, 90, 180, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    let root = project.root.clone();
+    let mut editor = Editor::from_project(&ctx, project);
+    assert!(editor.add_actions_and_stop_layer());
+    assert_eq!(
+        editor.symbol().timeline.layers.last().unwrap().name,
+        "actions 2"
+    );
+    editor.symbol_mut().timeline.scripts[0].script.source = "if (".into();
+
+    let rows = build_movie_explorer_rows(&editor);
+    let script_row = rows
+        .iter()
+        .find(|row| {
+            row.target
+                == MovieTarget::Script(ScriptLocation::Frame {
+                    symbol: root.clone(),
+                    frame: 1,
+                })
+        })
+        .expect("generated frame script row");
+    assert!(
+        script_row.breadcrumb.contains("actions 2"),
+        "got: {}",
+        script_row.breadcrumb
+    );
+
+    let diagnostics = collect_compiler_diagnostics(&editor.project);
+    let frame_diagnostic = diagnostics
+        .iter()
+        .find(|item| {
+            item.script
+                == Some(ScriptLocation::Frame {
+                    symbol: root.clone(),
+                    frame: 1,
+                })
+        })
+        .expect("invalid generated frame script diagnostic");
+    assert!(
+        frame_diagnostic.location_label.contains("actions 2"),
+        "got: {}",
+        frame_diagnostic.location_label
+    );
 }
 
 #[test]
