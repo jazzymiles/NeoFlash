@@ -347,6 +347,8 @@ struct Bundle<'a> {
     runtime_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     player_config: Option<&'a HtmlPublishConfig>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    video_manifest: &'a Vec<neoflash_core::VideoManifestEntry>,
     publish: PublishInfo,
     warnings: Vec<String>,
     load_summary: LoadSummary,
@@ -1398,6 +1400,8 @@ pub(crate) struct Prepared {
     pub(crate) published: Project,
     pub(crate) scenes: Vec<SceneRange>,
     pub(crate) fonts: FontBundle,
+    pub(crate) external_videos: Vec<neoflash_core::ExternalVideoAsset>,
+    pub(crate) video_manifest: Vec<neoflash_core::VideoManifestEntry>,
     pub(crate) warnings: Vec<String>,
     pub(crate) bindings: String,
     pub(crate) wasm: Vec<u8>,
@@ -1477,6 +1481,8 @@ pub(crate) fn prepare_with_config(
     let (published, scenes) = neoflash_core::flatten_scenes_with_ranges(project);
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
+    let video_manifest = neoflash_core::video_manifest_entries(&published);
+    let external_videos = neoflash_core::strip_non_embedded_video_bytes(&mut published);
     let fonts = apply_font_policy(&mut published, font_policy);
     apply_audio_policy(&mut published, audio_policy)?;
     if let Some(cfg) = config {
@@ -1489,6 +1495,8 @@ pub(crate) fn prepare_with_config(
         published,
         scenes,
         fonts,
+        external_videos,
+        video_manifest,
         warnings: export_warnings(project),
         bindings,
         wasm,
@@ -1502,20 +1510,24 @@ fn apply_bitmap_jpeg_quality(project: &mut Project, default_quality: u8) {
         if !resource.media_type.starts_with("image/") {
             continue;
         }
-        let should_reencode = match resource.bitmap_export {
+        let target_q = match resource.bitmap_export {
             Some(settings) => {
-                settings.compression == neoflash_core::BitmapCompression::PhotoJpeg
-                    && !settings.use_imported_jpeg_data
+                if settings.compression != neoflash_core::BitmapCompression::PhotoJpeg {
+                    continue;
+                }
+                if !settings.use_imported_jpeg_data {
+                    Some(settings.jpeg_quality.clamp(1, 100))
+                } else if quality != 80 {
+                    Some(quality)
+                } else {
+                    None
+                }
             }
-            None => quality != 80 && resource.media_type == "image/jpeg",
+            None => (quality != 80 && resource.media_type == "image/jpeg").then_some(quality),
         };
-        if !should_reencode {
+        let Some(target_q) = target_q else {
             continue;
-        }
-        let target_q = resource
-            .bitmap_export
-            .map(|s| s.jpeg_quality.clamp(1, 100))
-            .unwrap_or(quality);
+        };
         if let Ok(raw) = STANDARD.decode(resource.data_base64.as_ref())
             && let Ok(img) = image::load_from_memory(&raw)
         {
@@ -1652,6 +1664,7 @@ pub(crate) fn assemble_with_config(
         },
         runtime_id: shared_url.as_ref().map(|_| prepared.runtime_id.clone()),
         player_config: non_default_config,
+        video_manifest: &prepared.video_manifest,
         publish: PublishInfo {
             level: level.name(),
             omitted_modules: omitted_titles.clone(),
@@ -1694,7 +1707,7 @@ pub(crate) fn assemble_with_config(
         project.height,
         &prepared.fonts.css_rules,
         &scripts,
-        non_default_config,
+        config,
     );
     let readme = format!(
         "{} — NeoFlash HTML5 export\n\n{}\nThe player and embedded project data need no plugins, SWF or build tools.\nExternal HTTP(S) requests, if used by your scripts, need reachable servers and browser CORS permission. Embedded resources work offline; local filesystem URLs are not a network fallback.\n\nPublishing notes:\n{}\n\nUse scripts in Actions only from authors you trust: JavaScript executes in the browser.\n",
@@ -1746,6 +1759,13 @@ pub(crate) fn assemble_with_config(
                 .collect::<Vec<_>>(),
         }))?;
         files.push(("sprite_sheet.json".into(), sheet_manifest.into_bytes()));
+    }
+    for ext_vid in &prepared.external_videos {
+        if !ext_vid.bytes.is_empty()
+            && neoflash_core::validate_external_video_path(&ext_vid.relative_path).is_ok()
+        {
+            files.push((ext_vid.relative_path.clone(), ext_vid.bytes.clone()));
+        }
     }
     let include_html = config.map(|c| c.include_html).unwrap_or(true);
     if include_html {
@@ -2015,7 +2035,8 @@ pub(crate) fn write_package(
     atomic_write(&output_dir.join(&last.0), &last.1)?;
     for stale in previous_files {
         let plain = !stale.contains(['/', '\\']) && stale != MARKER && !stale.starts_with('.');
-        if plain && !names.contains(&stale.as_str()) {
+        let valid_rel = neoflash_core::validate_external_video_path(&stale).is_ok();
+        if (plain || valid_rel) && !names.contains(&stale.as_str()) {
             let _ = fs::remove_file(output_dir.join(stale));
         }
     }
@@ -2025,6 +2046,7 @@ pub(crate) fn write_package(
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static TEMP_ID: AtomicU64 = AtomicU64::new(1);
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
