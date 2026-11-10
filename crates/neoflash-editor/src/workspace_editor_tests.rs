@@ -1,7 +1,7 @@
 use crate::{
     app::{BottomTab, Editor, Pending, ScriptTarget, Tool},
     theme::ThemeMode,
-    workspace::{PREFS_KEY, PanelId},
+    workspace::{PREFS_KEY, PanelId, WorkspacePrefs},
 };
 use eframe::{App, egui};
 use neoflash_core::{ObjectEvent, Project};
@@ -959,7 +959,25 @@ fn new_and_open_keep_workspace_preferences_and_save_only_preferences() {
     App::save(&mut editor, &mut storage);
     assert_eq!(storage.0.len(), 1);
     assert!(storage.0.contains_key(PREFS_KEY));
-    assert!(!storage.0[PREFS_KEY].contains("scripts"));
+    let encoded = &storage.0[PREFS_KEY];
+    let saved: serde_json::Value = serde_json::from_str(encoded).unwrap();
+    let mut expected = editor.workspace.clone();
+    expected.sanitize();
+    assert_eq!(WorkspacePrefs::from_json(encoded), expected);
+    let saved_object = saved.as_object().unwrap();
+    for document_field in [
+        "root",
+        "symbols",
+        "resources",
+        "sources",
+        "scenes",
+        "program",
+    ] {
+        assert!(
+            !saved_object.contains_key(document_field),
+            "workspace storage must not persist project field {document_field}"
+        );
+    }
     assert!(!editor.persist_egui_memory());
 }
 

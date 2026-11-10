@@ -130,7 +130,7 @@ pub enum ExportError {
     Options(String),
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub(crate) struct CompiledScript {
     language: ScriptLanguage,
     source: String,
@@ -1430,6 +1430,7 @@ fn reserved_publish_path(path: &str) -> bool {
         "runtime.js",
         "bundle.js",
         "bundle.js.map",
+        "sprite_sheet.png",
         "sprite_sheet.json",
         "README.txt",
         "index.html",
@@ -1687,8 +1688,31 @@ pub(crate) fn assemble_with_config(
         wasm_inline: level.wasm_inline(),
         runtime_js_bytes,
     };
-    let (size_report, load_summary) =
-        size_report_from(project, &prepared.program, &prepared.scripts, Some(figures))?;
+    let (effective_program_code, program_map_shift) =
+        apply_js_publish_transforms(&prepared.program.code, config);
+    let effective_program_map = prepared
+        .program
+        .bundle_source_map
+        .as_ref()
+        .map(|map| apply_publish_source_map_shift(map, program_map_shift));
+    let effective_scripts: Vec<CompiledScript> = prepared
+        .scripts
+        .iter()
+        .cloned()
+        .map(|mut script| {
+            let (code, map_shift) = apply_js_publish_transforms(&script.code, config);
+            script.code = code;
+            script.source_map = apply_publish_source_map_shift(&script.source_map, map_shift);
+            script.source_locations = script.source_map.runtime_locations();
+            script
+        })
+        .collect();
+    let (size_report, load_summary) = size_report_from(
+        project,
+        &prepared.program,
+        &effective_scripts,
+        Some(figures),
+    )?;
     let omitted_titles: Vec<&'static str> = omitted
         .values()
         .copied()
@@ -1706,19 +1730,17 @@ pub(crate) fn assemble_with_config(
         .then(|| {
             format!(
                 "{}\n//# sourceMappingURL=bundle.js.map",
-                prepared.program.code
+                effective_program_code
             )
         });
     let program = ships_program.then(|| ProgramBundle {
         code: mapped_program_code
             .as_deref()
-            .unwrap_or(&prepared.program.code),
+            .unwrap_or(&effective_program_code),
         class_names: &prepared.program.class_names,
         source_url: "neoflash-project.js",
-        source_map: prepared.program.bundle_source_map.as_ref(),
-        source_locations: prepared
-            .program
-            .bundle_source_map
+        source_map: effective_program_map.as_ref(),
+        source_locations: effective_program_map
             .as_ref()
             .map(|map| map.runtime_locations())
             .unwrap_or_default(),
@@ -1727,7 +1749,7 @@ pub(crate) fn assemble_with_config(
     let bundle = Bundle {
         project: &prepared.published,
         scenes: prepared.scenes.clone(),
-        scripts: prepared.scripts.iter().collect(),
+        scripts: effective_scripts.iter().collect(),
         program,
         wasm: level.wasm_inline().then(|| STANDARD.encode(wasm)),
         wasm_url: match (level, &shared_url) {
@@ -1798,23 +1820,14 @@ pub(crate) fn assemble_with_config(
         }
     }
     if config.is_some_and(|c| c.source_maps) {
-        let mut map_value = prepared
-            .program
-            .bundle_source_map
+        let resolved_map = effective_program_map
             .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?
+            .filter(|m| !m.mappings.is_empty())
+            .cloned()
             .unwrap_or_else(|| {
-                serde_json::json!({
-                    "version": 3,
-                    "file": "bundle.js",
-                    "sourceRoot": "",
-                    "sources": [],
-                    "sourcesContent": [],
-                    "names": [],
-                    "mappings": "",
-                })
+                build_fallback_bundle_source_map(&effective_scripts, &effective_program_code)
             });
+        let mut map_value = serde_json::to_value(&resolved_map)?;
         if let Some(map) = map_value.as_object_mut() {
             // The authored program is evaluated with `sourceURL=neoflash-project.js`; it is not
             // executable lines in bundle.js, where it is only an escaped JSON string.
@@ -1822,34 +1835,28 @@ pub(crate) fn assemble_with_config(
             map.insert(
                 "x_neoflash_scripts".to_owned(),
                 serde_json::json!(
-                    prepared
-                        .scripts
+                    effective_scripts
                         .iter()
                         .map(|script| &script.location)
                         .collect::<Vec<_>>()
                 ),
             );
         }
-        let map_json = serde_json::to_string_pretty(&map_value)?;
+        let map_json = if config.is_some_and(|c| !c.minify) {
+            serde_json::to_string_pretty(&map_value)?
+        } else {
+            serde_json::to_string(&map_value)?
+        };
         files.push(("bundle.js.map".into(), map_json.into_bytes()));
     }
     if config.is_some_and(|c| c.sprite_sheets)
-        && prepared
-            .published
-            .resources
-            .iter()
-            .any(|r| r.media_type.starts_with("image/"))
+        && let Some((png_bytes, sheet_manifest)) =
+            atlas::pack_project_bitmap_resources_sprite_sheet(
+                &prepared.published,
+                config.is_some_and(|c| !c.minify),
+            )?
     {
-        let sheet_manifest = serde_json::to_string_pretty(&serde_json::json!({
-            "generator": "NeoFlash",
-            "bitmaps": prepared
-                .published
-                .resources
-                .iter()
-                .filter(|r| r.media_type.starts_with("image/"))
-                .map(|r| serde_json::json!({ "id": r.id, "path": r.path, "media_type": r.media_type }))
-                .collect::<Vec<_>>(),
-        }))?;
+        files.push(("sprite_sheet.png".into(), png_bytes));
         files.push(("sprite_sheet.json".into(), sheet_manifest.into_bytes()));
     }
     let mut external_paths = Vec::<String>::new();
@@ -1896,9 +1903,9 @@ pub(crate) fn assemble_with_config(
     let project_json = serde_json::to_string(&prepared.published)?;
     let content_bytes = project_json.len().saturating_sub(resources.len());
     let script_text: String = ships_program
-        .then_some(prepared.program.code.as_str())
+        .then_some(effective_program_code.as_str())
         .into_iter()
-        .chain(prepared.scripts.iter().map(|script| script.code.as_str()))
+        .chain(effective_scripts.iter().map(|script| script.code.as_str()))
         .collect();
     let fonts_json = serde_json::to_string(&prepared.fonts)?;
     let embedded = vec![
@@ -1939,6 +1946,158 @@ pub(crate) fn assemble_with_config(
         runtime_js_bytes,
         embedded,
     })
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PublishSourceMapShift {
+    generated_lines: isize,
+    first_line_columns: isize,
+}
+
+fn begins_with_use_strict_directive(code: &str) -> bool {
+    let trimmed = code.trim_start();
+    ["\"use strict\"", "'use strict'"]
+        .into_iter()
+        .any(|directive| {
+            trimmed.strip_prefix(directive).is_some_and(|tail| {
+                tail.is_empty()
+                    || tail.starts_with(';')
+                    || tail.starts_with('\n')
+                    || tail.starts_with('\r')
+            })
+        })
+}
+
+fn strip_generated_use_strict(code: &str) -> Option<(String, PublishSourceMapShift)> {
+    for directive in ["\"use strict\";", "'use strict';"] {
+        if let Some(rest) = code.strip_prefix(&format!("{directive}\r\n")) {
+            // Preserve the line break so existing generated line positions remain exact.
+            return Some((format!("\r\n{rest}"), PublishSourceMapShift::default()));
+        }
+        if let Some(rest) = code.strip_prefix(&format!("{directive}\n")) {
+            // Preserve the line break so existing generated line positions remain exact.
+            return Some((format!("\n{rest}"), PublishSourceMapShift::default()));
+        }
+        if let Some(rest) = code.strip_prefix(&format!("{directive} ")) {
+            return Some((
+                rest.to_owned(),
+                PublishSourceMapShift {
+                    generated_lines: 0,
+                    first_line_columns: -(directive.encode_utf16().count() as isize + 1),
+                },
+            ));
+        }
+        if let Some(rest) = code.strip_prefix(directive) {
+            return Some((
+                rest.to_owned(),
+                PublishSourceMapShift {
+                    generated_lines: 0,
+                    first_line_columns: -(directive.encode_utf16().count() as isize),
+                },
+            ));
+        }
+    }
+    None
+}
+
+/// Apply only transformations that are safe without reparsing executable JavaScript.
+///
+/// `minify` still compacts the surrounding JSON bundle, but executable program and handler code
+/// is preserved byte-for-byte. The previous line-oriented whitespace/comment remover could change
+/// token boundaries (`x + +y` -> `x++y`) and interpreted `//` inside multiline templates as a
+/// comment. Strict mode is inserted on its own generated line so Source Map v3 positions can be
+/// rebased exactly.
+fn apply_js_publish_transforms(
+    code: &str,
+    config: Option<&HtmlPublishConfig>,
+) -> (String, PublishSourceMapShift) {
+    let Some(cfg) = config else {
+        return (code.to_owned(), PublishSourceMapShift::default());
+    };
+
+    if cfg.strict_mode {
+        if begins_with_use_strict_directive(code) {
+            (code.to_owned(), PublishSourceMapShift::default())
+        } else {
+            (
+                format!("\"use strict\";\n{code}"),
+                PublishSourceMapShift {
+                    generated_lines: 1,
+                    first_line_columns: 0,
+                },
+            )
+        }
+    } else {
+        strip_generated_use_strict(code)
+            .unwrap_or_else(|| (code.to_owned(), PublishSourceMapShift::default()))
+    }
+}
+
+fn apply_publish_source_map_shift(
+    map: &neoflash_script::SourceMap,
+    shift: PublishSourceMapShift,
+) -> neoflash_script::SourceMap {
+    if shift == PublishSourceMapShift::default() {
+        return map.clone();
+    }
+
+    let removed_lines = shift.generated_lines.unsigned_abs();
+    let segments = map
+        .decode_segments()
+        .into_iter()
+        .filter_map(|mut segment| {
+            let original_generated_line = segment.generated_line;
+            if shift.generated_lines >= 0 {
+                segment.generated_line = segment
+                    .generated_line
+                    .saturating_add(shift.generated_lines as usize);
+            } else if segment.generated_line < removed_lines {
+                return None;
+            } else {
+                segment.generated_line -= removed_lines;
+            }
+
+            if original_generated_line == 0 && shift.first_line_columns != 0 {
+                if shift.first_line_columns >= 0 {
+                    segment.generated_column = segment
+                        .generated_column
+                        .saturating_add(shift.first_line_columns as usize);
+                } else {
+                    segment.generated_column = segment
+                        .generated_column
+                        .saturating_sub(shift.first_line_columns.unsigned_abs());
+                }
+            }
+            Some(segment)
+        })
+        .collect();
+    neoflash_script::SourceMap::from_segments(
+        map.file.clone(),
+        map.sources.clone(),
+        map.sources_content.clone(),
+        map.names.clone(),
+        segments,
+    )
+}
+
+fn build_fallback_bundle_source_map(
+    scripts: &[CompiledScript],
+    program_code: &str,
+) -> neoflash_script::SourceMap {
+    if !scripts.is_empty() {
+        let modules: Vec<(String, String, String)> = scripts
+            .iter()
+            .map(|s| (s.location.clone(), s.source.clone(), s.code.clone()))
+            .collect();
+        let combined_code = scripts
+            .iter()
+            .map(|s| s.code.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        neoflash_script::build_bundle_source_map("neoflash-project.js", &modules, &combined_code)
+    } else {
+        neoflash_script::build_source_map("neoflash-project.js", program_code, program_code)
+    }
 }
 
 /// What a size level gives up, in words for the publish dialog and the package README.
@@ -3119,15 +3278,19 @@ mod tests {
                 > 0
         );
         assert_eq!(
-            bundle_subset["fonts"]["subset_stats"][0]["subset_applied"], false,
-            "subset policy must report its full-font fallback honestly"
-        );
-        assert_eq!(
-            bundle_subset["fonts"]["subset_stats"][0]["original_bytes"],
-            bundle_subset["fonts"]["subset_stats"][0]["subset_bytes"]
+            bundle_subset["fonts"]["subset_stats"][0]["subset_applied"], true,
+            "subset policy must emit a real SFNT/TTF subset for TrueType fonts"
         );
         assert!(
-            bundle_subset["warnings"]
+            bundle_subset["fonts"]["subset_stats"][0]["subset_bytes"]
+                .as_u64()
+                .unwrap()
+                < bundle_subset["fonts"]["subset_stats"][0]["original_bytes"]
+                    .as_u64()
+                    .unwrap()
+        );
+        assert!(
+            !bundle_subset["warnings"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -3247,14 +3410,33 @@ mod tests {
         let mut subset_project = project.clone();
         let subset = apply_font_policy(&mut subset_project, FontExportPolicy::Subset);
         assert_eq!(subset.subset_stats.len(), 1);
-        assert!(!subset.subset_stats[0].subset_applied);
-        assert_eq!(
-            subset.subset_stats[0].original_bytes,
-            subset.subset_stats[0].subset_bytes
-        );
+        assert!(subset.subset_stats[0].subset_applied);
+        assert!(subset.subset_stats[0].subset_bytes < subset.subset_stats[0].original_bytes);
+        let subset_decoded = subset_project.resources[0].decoded_bytes().unwrap();
+        assert_eq!(subset_decoded.len(), subset.subset_stats[0].subset_bytes);
+        let parsed_subset = ab_glyph::FontRef::try_from_slice(&subset_decoded).unwrap();
+        let parsed_orig = ab_glyph::FontRef::try_from_slice(font_bytes).unwrap();
+        use ab_glyph::Font as _;
+        assert_eq!(parsed_subset.glyph_id('A'), parsed_orig.glyph_id('A'));
+        assert_eq!(parsed_subset.glyph_id('Ω'), parsed_orig.glyph_id('Ω'));
         assert_eq!(
             subset.subset_stats[0].codepoint_count, 28,
             "space + A-Z + the explicit custom Omega"
+        );
+
+        let mut non_sfnt_project = project.clone();
+        non_sfnt_project.resources[0] = neoflash_core::ResourceUnit::from_bytes(
+            font_id,
+            "fonts/Book Antiqua Bold.woff2",
+            "font/woff2",
+            b"wOF2-mock-font-payload-that-is-not-sfnt-ttf",
+        )
+        .unwrap();
+        let non_sfnt_subset = apply_font_policy(&mut non_sfnt_project, FontExportPolicy::Subset);
+        assert!(!non_sfnt_subset.subset_stats[0].subset_applied);
+        assert_eq!(
+            non_sfnt_subset.subset_stats[0].original_bytes,
+            non_sfnt_subset.subset_stats[0].subset_bytes
         );
 
         let out = dir.join("out-selected-font");
@@ -3308,6 +3490,77 @@ mod tests {
         }));
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn executable_publish_code_preserves_token_boundaries_templates_and_comments_when_minified() {
+        let source = "const plus = x + +y;\nconst minus = x - -y;\nconst template = `first\n// this line is template data\n${value /* expression comment */}\nlast`;\nconst matcher = /\\/\\//;";
+        let config = HtmlPublishConfig {
+            minify: true,
+            strict_mode: true,
+            ..HtmlPublishConfig::clean_publish_default()
+        };
+
+        let (published, shift) = apply_js_publish_transforms(source, Some(&config));
+
+        assert_eq!(shift.generated_lines, 1);
+        assert_eq!(shift.first_line_columns, 0);
+        assert_eq!(published, format!("\"use strict\";\n{source}"));
+        assert!(published.contains("x + +y"));
+        assert!(published.contains("x - -y"));
+        assert!(published.contains("// this line is template data"));
+        assert!(published.contains("/* expression comment */"));
+    }
+
+    #[test]
+    fn executable_publish_source_maps_follow_strict_prefix_and_same_line_removal() {
+        let source = "const answer = value + 1;";
+        let base_map = neoflash_script::build_source_map("author.js", source, source);
+        let strict_config = HtmlPublishConfig {
+            minify: true,
+            strict_mode: true,
+            ..HtmlPublishConfig::clean_publish_default()
+        };
+        let (strict_code, strict_shift) = apply_js_publish_transforms(source, Some(&strict_config));
+        let strict_map = apply_publish_source_map_shift(&base_map, strict_shift);
+
+        assert_eq!(strict_code, format!("\"use strict\";\n{source}"));
+        assert!(
+            strict_map
+                .decode_segments()
+                .iter()
+                .all(|segment| segment.generated_line >= 1)
+        );
+        let mapped = strict_map
+            .lookup_original_position(2, 1)
+            .expect("first authored token remains mapped after strict prefix");
+        assert_eq!(mapped.source, "author.js");
+        assert_eq!((mapped.line, mapped.column), (1, 1));
+
+        let same_line = "\"use strict\"; const answer = value + 1;";
+        let same_line_map = neoflash_script::SourceMap::from_segments(
+            None,
+            vec!["author.js".into()],
+            vec![source.into()],
+            Vec::new(),
+            vec![neoflash_script::SourceMappingSegment {
+                generated_line: 0,
+                generated_column: "\"use strict\"; ".encode_utf16().count(),
+                source_index: 0,
+                original_line: 0,
+                original_column: 0,
+                name_index: None,
+            }],
+        );
+        let non_strict_config = HtmlPublishConfig {
+            strict_mode: false,
+            ..strict_config
+        };
+        let (non_strict_code, non_strict_shift) =
+            apply_js_publish_transforms(same_line, Some(&non_strict_config));
+        let non_strict_map = apply_publish_source_map_shift(&same_line_map, non_strict_shift);
+        assert_eq!(non_strict_code, source);
+        assert_eq!(non_strict_map.decode_segments()[0].generated_column, 0);
     }
 
     #[test]

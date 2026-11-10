@@ -485,18 +485,49 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
             let background = color(palette.window_fill.to_array(), alpha, tint);
             let w = *width as f32;
             let h = *height as f32;
-            let points = [
+            let mut points = [
                 Pos2::ZERO,
                 Pos2::new(w, 0.),
                 Pos2::new(w, h),
                 Pos2::new(0., h),
             ]
             .map(screen);
+            let ppp = p.ctx().pixels_per_point();
+            let matrix = item.transform;
+            let scale = zoom as f64 * ppp as f64;
+            if (matrix[0] * scale - 1.).abs() <= 0.001
+                && (matrix[3] * scale - 1.).abs() <= 0.001
+                && (matrix[1] * scale).abs() <= 0.001
+                && (matrix[2] * scale).abs() <= 0.001
+            {
+                let top_left = (points[0].to_vec2() * ppp).round() / ppp;
+                points = [
+                    top_left.to_pos2(),
+                    (top_left + Vec2::new(w / ppp, 0.)).to_pos2(),
+                    (top_left + Vec2::new(w / ppp, h / ppp)).to_pos2(),
+                    (top_left + Vec2::new(0., h / ppp)).to_pos2(),
+                ];
+            }
             if outlines {
                 p.add(Shape::closed_line(
                     points.to_vec(),
                     Stroke::new(1.0_f32, foreground),
                 ));
+            } else if let Some(texture) = bitmap_texture {
+                let mut mesh = egui::Mesh::with_texture(texture);
+                let uvs = [
+                    Pos2::new(0., 0.),
+                    Pos2::new(1., 0.),
+                    Pos2::new(1., 1.),
+                    Pos2::new(0., 1.),
+                ];
+                let c = self::color([255, 255, 255, 255], alpha, tint);
+                for (pos, uv) in points.into_iter().zip(uvs) {
+                    mesh.vertices
+                        .push(egui::epaint::Vertex { pos, uv, color: c });
+                }
+                mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                p.add(Shape::mesh(mesh));
             } else {
                 p.add(Shape::convex_polygon(
                     points.to_vec(),
@@ -1009,6 +1040,9 @@ impl Editor {
                 if let Some(warning) = self.bitmap_textures.take_warning() {
                     self.message(warning);
                 }
+                if let Some(warning) = self.video_textures.take_warning() {
+                    self.message(warning);
+                }
                 if self.stage_view.prefs.grid_over_objects {
                     self.paint_stage_grid(&p, page, mapping, origin);
                 }
@@ -1090,8 +1124,11 @@ impl Editor {
                             }
                         }
                         self.selection_stage(ui, &p, mapping, origin, &scene, &response);
+                        let text_edit_consumed =
+                            self.stage_text_edit_stage(ui, &p, mapping, origin, rect, &scene);
                         self.shape_stage(ui, &p, mapping, origin, page, rect);
-                        if clicked
+                        if !text_edit_consumed
+                            && clicked
                             && self.tool == Tool::Text
                             && let Some(pos) = response.interact_pointer_pos()
                             && rect.contains(pos)
@@ -1099,6 +1136,7 @@ impl Editor {
                             let local = to_local(pos);
                             self.create_stage_text(ctx, local, None);
                         }
+                        self.paint_stage_text_edit_overlay(&p, mapping, origin);
                         self.vector_stage(ui, &content, origin, mapping, page, &response);
                     }
                 }
@@ -1887,26 +1925,56 @@ impl Editor {
                     }
                 }
             }
-            let bitmap_texture = self.bitmap_textures.texture_transformed(
-                painter.ctx(),
-                &self.project,
-                &draw.item.kind,
-                draw.item.color_transform,
-            );
-            let video_status_badge = if matches!(draw.item.kind, ElementKind::Video { .. }) {
-                self.timeline_video
-                    .status_for_path(&draw.item.instance_path)
-                    .map(|status| {
-                        format!(
-                            "{:?} · {:.2}s{}",
-                            status.sync,
-                            f64::from(status.time_ms) / 1000.0,
-                            if status.playing {
-                                " · LIVE"
-                            } else {
-                                " · PAUSED"
-                            }
-                        )
+            let video_placement = if matches!(draw.item.kind, ElementKind::Video { .. }) {
+                self.resolve_stage_video_placement(&draw.item)
+            } else {
+                None
+            };
+            let bitmap_texture = if let Some(placement) = &video_placement {
+                let base_dir = self
+                    .tracked_disk_path()
+                    .and_then(std::path::Path::parent)
+                    .map(std::path::Path::to_path_buf);
+                self.video_textures.texture_for_placement(
+                    painter.ctx(),
+                    &self.project,
+                    base_dir.as_deref(),
+                    placement,
+                    draw.item.color_transform,
+                )
+            } else {
+                self.bitmap_textures.texture_transformed(
+                    painter.ctx(),
+                    &self.project,
+                    &draw.item.kind,
+                    draw.item.color_transform,
+                )
+            };
+            let video_status_badge = if matches!(draw.item.kind, ElementKind::Video { .. })
+                && bitmap_texture.is_none()
+            {
+                video_placement
+                    .as_ref()
+                    .and_then(|p| {
+                        self.video_textures
+                            .last_error(&p.resource)
+                            .map(str::to_owned)
+                    })
+                    .or_else(|| {
+                        self.timeline_video
+                            .status_for_path(&draw.item.instance_path)
+                            .map(|status| {
+                                format!(
+                                    "{:?} · {:.2}s{}",
+                                    status.sync,
+                                    f64::from(status.time_ms) / 1000.0,
+                                    if status.playing {
+                                        " · LIVE"
+                                    } else {
+                                        " · PAUSED"
+                                    }
+                                )
+                            })
                     })
             } else {
                 None

@@ -165,6 +165,7 @@ pub struct Editor {
     pub(crate) simple_button_capturing: bool,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
+    pub video_textures: crate::video_cache::VideoTextures,
     pub vector: crate::vector::VectorState,
     pub clipboard: crate::clipboard::ClipboardState,
     pub workspace: WorkspacePrefs,
@@ -193,6 +194,7 @@ pub struct Editor {
     pub(crate) workspace_dialog: Option<crate::workspace_dialogs::WorkspaceDialog>,
     pub(crate) notifications: crate::notifications::NotificationCenter,
     pub(crate) bitmap_trace: crate::bitmap_trace::BitmapTraceController,
+    pub(crate) stage_text_edit: crate::stage_text_edit::StageTextEditState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -510,6 +512,7 @@ impl Editor {
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
             bitmap_textures: crate::bitmaps::BitmapTextures::default(),
+            video_textures: crate::video_cache::VideoTextures::default(),
             vector: crate::vector::VectorState::default(),
             clipboard: crate::clipboard::ClipboardState::default(),
             workspace: WorkspacePrefs::default(),
@@ -533,6 +536,7 @@ impl Editor {
             workspace_dialog: None,
             notifications: Default::default(),
             bitmap_trace: Default::default(),
+            stage_text_edit: Default::default(),
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
@@ -722,6 +726,7 @@ impl Editor {
             || self.authoring_modify.scale_and_rotate_dialog.is_some()
             || self.find_replace.is_some()
             || self.confirm_revert
+            || self.has_external_change_prompt()
             || (self.recovery.has_prompt() && (!self.dirty() || !self.sessions.is_empty()))
     }
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
@@ -746,6 +751,7 @@ impl Editor {
     pub fn transact_named(&mut self, label: impl Into<String>, f: impl FnOnce(&mut Self)) {
         self.finish_property_edit();
         self.finish_selection_gesture();
+        self.finish_stage_text_typing();
         self.shape_draft = None;
         self.timeline_key_drag = None;
         self.finish_point_drag();
@@ -783,6 +789,7 @@ impl Editor {
         };
         self.frame = self.frame.min(max_frame);
         self.normalize_targets();
+        self.sync_stage_text_edit();
     }
     fn clamp_playhead_to_timeline(&mut self) {
         let last = self.symbol().timeline.frame_count.saturating_sub(1);
@@ -1122,7 +1129,7 @@ impl Editor {
     }
 
     pub fn can_revert(&self) -> bool {
-        self.path.is_some() && self.dirty()
+        self.tracked_disk_path().is_some() && self.dirty()
     }
 
     pub fn request_revert(&mut self) {
@@ -1134,29 +1141,17 @@ impl Editor {
 
     pub fn revert_to_saved(&mut self, ctx: &egui::Context) -> bool {
         self.confirm_revert = false;
-        let Some(path) = self.path.clone() else {
+        let Some(disk_path) = self.tracked_disk_path().map(PathBuf::from) else {
             return false;
         };
+        let canonical_path = self.path.clone();
+        let preserved_import_source = self.import_source.clone();
         self.cancel_edits();
-        let loaded = if Self::is_legacy_flash_path(&path) {
-            neoflash_import::inspect(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|report| {
-                    for diagnostic in &report.diagnostics {
-                        self.message(format!(
-                            "{} [{}]: {}",
-                            diagnostic.location, diagnostic.code, diagnostic.message
-                        ));
-                    }
-                    neoflash_import::import_project(&path).map_err(|e| e.to_string())
-                })
-        } else {
-            std::fs::read_to_string(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|s| Project::from_json(&s).map_err(|e| e.to_string()))
-        };
-        match loaded {
-            Ok(project) => {
+        match Self::load_project_from_disk_path(&disk_path) {
+            Ok((project, diagnostics)) => {
+                for diagnostic in diagnostics {
+                    self.message(diagnostic);
+                }
                 self.project = project;
                 self.clipboard = Default::default();
                 self.resource_panel = Default::default();
@@ -1177,6 +1172,7 @@ impl Editor {
                 self.timeline_edit = Default::default();
                 self.graphic_drop_position = None;
                 self.bitmap_textures = Default::default();
+                self.video_textures = Default::default();
                 let root = self.project.root.clone();
                 self.edit_session = crate::symbol_edit::SymbolEditSession::for_scene(
                     root.clone(),
@@ -1188,9 +1184,11 @@ impl Editor {
                 self.frame = 0;
                 self.layer = 0;
                 self.clear_selection();
-                self.workspace.general.push_recent(&path);
-                self.path = Some(path);
+                self.workspace.general.push_recent(&disk_path);
+                self.path = canonical_path;
+                self.import_source = preserved_import_source;
                 self.clear_and_retarget_recovery();
+                self.sync_disk_mtime();
                 self.history = History::new(self.workspace.undo_levels as usize);
                 self.saved_project = Some(self.project.clone());
                 self.playing = false;
@@ -1238,6 +1236,7 @@ impl Editor {
                             self.import_source =
                                 Some(std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone()));
                             self.saved_project = None;
+                            self.sync_disk_mtime();
                             let label = match report.format {
                                 neoflash_import::ImportFormat::Swf => "SWF movie",
                                 neoflash_import::ImportFormat::Swc => "SWC library",
@@ -1308,6 +1307,10 @@ impl Editor {
         if !self.has_document() {
             return false;
         }
+        let current_path = self.path.clone();
+        if !save_as && !self.guard_save_on_external_conflict(current_path.as_deref()) {
+            return false;
+        }
         let default_name = self
             .path
             .as_ref()
@@ -1330,7 +1333,8 @@ impl Editor {
         let path = if save_as || self.path.is_none() {
             rfd::FileDialog::new()
                 .add_filter("NeoFlash project", &["nflash"])
-                .add_filter("Flash FLA (XFL archive)", &["fla"])
+                .add_filter("Flash FLA (Animate CC / CS6–CS4 / Flash 8)", &["fla"])
+                .add_filter("Uncompressed XFL directory", &["xfl"])
                 .set_file_name(&default_name)
                 .save_file()
         } else {
@@ -1340,6 +1344,58 @@ impl Editor {
             return false;
         };
         self.save_to_path(path)
+    }
+
+    pub fn resolve_fla_target_profile_for_path(
+        &self,
+        path: &std::path::Path,
+    ) -> Option<neoflash_export::FlaTargetProfile> {
+        use neoflash_export::FlaTargetProfile;
+        let ext = path.extension().and_then(|s| s.to_str())?;
+        if ext.eq_ignore_ascii_case("xfl") {
+            return Some(FlaTargetProfile::UncompressedXfl);
+        }
+        if !ext.eq_ignore_ascii_case("fla") {
+            return None;
+        }
+        if let Some(stem) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+        {
+            for (suffixes, profile) in [
+                (
+                    &[".cs5_5", "-cs5_5", "_cs5_5", ".cs55", "-cs55", "_cs55"][..],
+                    FlaTargetProfile::FlashCS5_5,
+                ),
+                (&[".cs6", "-cs6", "_cs6"][..], FlaTargetProfile::FlashCS6),
+                (&[".cs5", "-cs5", "_cs5"][..], FlaTargetProfile::FlashCS5),
+                (
+                    &[".cs4", "-cs4", "_cs4"][..],
+                    FlaTargetProfile::LegacyFlashCS4,
+                ),
+                (
+                    &[".flash8", "-flash8", "_flash8", ".f8", "-f8", "_f8"][..],
+                    FlaTargetProfile::LegacyFlash8,
+                ),
+                (
+                    &[".animate", "-animate", "_animate"][..],
+                    FlaTargetProfile::AnimateCC,
+                ),
+            ] {
+                if suffixes.iter().any(|suf| stem.ends_with(suf)) {
+                    return Some(profile);
+                }
+            }
+        }
+        Some(match self.workspace.publish.fla_target_profile {
+            // A `.fla` target is a ZIP archive. Never reinterpret it as an
+            // uncompressed XFL directory just because an older workspace
+            // persisted that profile; `.xfl` above is the explicit directory
+            // form and filename suffixes still select legacy archive profiles.
+            FlaTargetProfile::UncompressedXfl => FlaTargetProfile::AnimateCC,
+            profile => profile,
+        })
     }
 
     pub(crate) fn resolve_confirmation_save(&mut self, ctx: &egui::Context, save_succeeded: bool) {
@@ -1403,11 +1459,12 @@ impl Editor {
             self.notify_with_output(neoflash_ui::components::ToastType::Error, "Save failed: this file is already open in another document. Choose a different path.");
             return false;
         }
+        if !self.guard_save_on_external_conflict(Some(&path)) {
+            return false;
+        }
         self.finish_edits();
-        let is_fla = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"));
+        let fla_profile = self.resolve_fla_target_profile_for_path(&path);
+        let is_fla = fla_profile.is_some();
         let format_on_save = self.workspace.code_editor.format_on_save;
         let tab_size = self.workspace.code_editor.tab_size;
         let derived_project = if is_fla && format_on_save {
@@ -1422,32 +1479,56 @@ impl Editor {
                 .begin_named(&self.project, "Format scripts on save");
             Self::format_project_scripts(&mut self.project, tab_size);
         }
-        let result = if is_fla {
-            neoflash_export::export_fla_bytes_with_profile(
-                derived_project.as_ref().unwrap_or(&self.project),
-                neoflash_export::FlaTargetProfile::AnimateCC,
-                &neoflash_export::FlaExportOptions::default(),
-            )
-            .map(|(bytes, _report)| bytes)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| atomic_save_file(&path, &bytes).map_err(|e| e.to_string()))
-        } else {
-            self.project
-                .to_json()
+        let result: Result<Option<neoflash_export::FlaCompatibilityReport>, String> =
+            if let Some(profile) = fla_profile {
+                neoflash_export::export_fla_with_profile(
+                    derived_project.as_ref().unwrap_or(&self.project),
+                    profile,
+                    &self.workspace.publish.fla_export_options,
+                    &path,
+                )
+                .map(Some)
                 .map_err(|e| e.to_string())
-                .and_then(|json| {
-                    atomic_save_file(&path, json.as_bytes()).map_err(|e| e.to_string())
-                })
-        };
+            } else {
+                self.project
+                    .to_json()
+                    .map_err(|e| e.to_string())
+                    .and_then(|json| {
+                        atomic_save_file(&path, json.as_bytes()).map_err(|e| e.to_string())
+                    })
+                    .map(|()| None)
+            };
         match result {
-            Ok(()) => {
+            Ok(fla_report) => {
                 if format_on_save && !is_fla {
                     self.commit_history();
                 }
-                if is_fla {
+                if let Some(report) = fla_report {
                     // FLA export can contain compatibility approximations, so it is a
                     // derived copy rather than the editor's canonical save target.
-                    self.message("Exported derived FLA.");
+                    for item in &report.items {
+                        if item.disposition != neoflash_export::FlaFeatureDisposition::Exact {
+                            self.output.push(format!(
+                                "[FLA {:?}] {} ({}): {}",
+                                item.disposition, item.code, item.location, item.message
+                            ));
+                        }
+                    }
+                    if self
+                        .tracked_disk_path()
+                        .is_some_and(|tracked| crate::document_sessions::same_path(tracked, &path))
+                    {
+                        self.sync_disk_mtime();
+                    }
+                    self.output.push(format!(
+                        "Exported derived FLA ({}): {}",
+                        report.profile.label(),
+                        path.display()
+                    ));
+                    self.message(format!(
+                        "Exported derived FLA ({}).",
+                        report.profile.label()
+                    ));
                 } else {
                     self.workspace.general.push_recent(&path);
                     self.saved_project = Some(self.project.clone());
@@ -2202,6 +2283,7 @@ impl Editor {
             crate::commands::clear_queued_commands(ctx);
             return;
         }
+        self.handle_stage_text_edit_keys(ctx);
         self.menu_shortcuts(ctx);
         self.timeline_shortcuts(ctx);
         self.view_shortcuts(ctx);
@@ -2783,6 +2865,36 @@ impl Editor {
             typography::rich,
         };
         let p = neoflash_ui::palette(ctx);
+        let warning_body = |ui: &mut egui::Ui, title: &str, summary: &str| {
+            egui::Frame::new()
+                .inner_margin(egui::Margin::same(space::S5 as i8))
+                .show(ui, |ui| {
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S4;
+                        let (badge, _) =
+                            ui.allocate_exact_size(egui::vec2(40., 40.), egui::Sense::hover());
+                        ui.painter()
+                            .circle_filled(badge.center(), 20., p.warning_subtle);
+                        neoflash_ui::icons::paint(
+                            ui.painter(),
+                            ctx,
+                            badge,
+                            neoflash_ui::icons::i16::WARNING,
+                            p.warning_default,
+                        );
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = space::S1;
+                            ui.label(rich(title, TextStyle::DialogTitle).color(p.text_primary));
+                            ui.add(
+                                egui::Label::new(
+                                    rich(summary, TextStyle::DialogBody).color(p.text_secondary),
+                                )
+                                .wrap(),
+                            );
+                        });
+                    });
+                });
+        };
         let body = egui::Margin {
             left: space::S5 as i8,
             right: space::S5 as i8,
@@ -2852,44 +2964,13 @@ impl Editor {
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
                     ui.set_width(480.);
-                    egui::Frame::new()
-                        .inner_margin(egui::Margin::same(space::S5 as i8))
-                        .show(ui, |ui| {
-                            ui.horizontal_top(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S4;
-                                let (badge, _) = ui.allocate_exact_size(
-                                    egui::vec2(40., 40.),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().circle_filled(badge.center(), 20., p.warning_subtle);
-                                neoflash_ui::icons::paint(
-                                    ui.painter(),
-                                    ctx,
-                                    badge,
-                                    neoflash_ui::icons::i16::WARNING,
-                                    p.warning_default,
-                                );
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = space::S1;
-                                    ui.label(
-                                        rich("Revert to saved version?", TextStyle::DialogTitle)
-                                            .color(p.text_primary),
-                                    );
-                                    ui.add(
-                                        egui::Label::new(
-                                            rich(
-                                                format!(
-                                                    "Your unsaved changes to “{name}” will be lost and the last saved version on disk will be reloaded."
-                                                ),
-                                                TextStyle::DialogBody,
-                                            )
-                                            .color(p.text_secondary),
-                                        )
-                                        .wrap(),
-                                    );
-                                });
-                            });
-                        });
+                    warning_body(
+                        ui,
+                        "Revert to saved version?",
+                        &format!(
+                            "Your unsaved changes to “{name}” will be lost and the last saved version on disk will be reloaded."
+                        ),
+                    );
                     let (mut revert, mut cancel) = (false, false);
                     dialog_footer(
                         ui,
@@ -2928,44 +3009,11 @@ impl Editor {
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
                     ui.set_width(480.);
-                    egui::Frame::new()
-                        .inner_margin(egui::Margin::same(space::S5 as i8))
-                        .show(ui, |ui| {
-                            ui.horizontal_top(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S4;
-                                let (badge, _) = ui.allocate_exact_size(
-                                    egui::vec2(40., 40.),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().circle_filled(badge.center(), 20., p.warning_subtle);
-                                neoflash_ui::icons::paint(
-                                    ui.painter(),
-                                    ctx,
-                                    badge,
-                                    neoflash_ui::icons::i16::WARNING,
-                                    p.warning_default,
-                                );
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = space::S1;
-                                    ui.label(
-                                        rich("Save changes before continuing?", TextStyle::DialogTitle)
-                                            .color(p.text_primary),
-                                    );
-                                    ui.add(
-                                        egui::Label::new(
-                                            rich(
-                                                format!(
-                                                    "Your changes to “{name}” will be lost if you discard them."
-                                                ),
-                                                TextStyle::DialogBody,
-                                            )
-                                            .color(p.text_secondary),
-                                        )
-                                        .wrap(),
-                                    );
-                                });
-                            });
-                        });
+                    warning_body(
+                        ui,
+                        "Save changes before continuing?",
+                        &format!("Your changes to “{name}” will be lost if you discard them."),
+                    );
                     let (mut discard, mut save, mut cancel) = (false, false, false);
                     dialog_footer(
                         ui,
@@ -3002,6 +3050,72 @@ impl Editor {
             }
         }
         if self.confirm.is_none()
+            && let Some((title, summary, can_reload)) = self.external_change_prompt_summary()
+        {
+            // 0 = Reload, 1 = Keep editing, 2 = Save As.
+            let mut action = None;
+            let dirty = self.dirty();
+            let modal = egui::Modal::new(egui::Id::new("external-file-change"))
+                .frame(Surface::Dialog.frame(ctx))
+                .backdrop_color(p.overlay)
+                .show(ctx, |ui| {
+                    ui.set_width(480.);
+                    warning_body(ui, title, &summary);
+                    let (mut reload, mut keep, mut save_as) = (false, false, false);
+                    dialog_footer(
+                        ui,
+                        |ui| {
+                            if can_reload {
+                                reload = ui
+                                    .add(if dirty {
+                                        Button::danger("Reload")
+                                    } else {
+                                        Button::primary("Reload").shortcut("↵")
+                                    })
+                                    .clicked();
+                            }
+                        },
+                        |ui| {
+                            save_as = ui.add(Button::new("Save As…")).clicked();
+                            keep = ui
+                                .add(if dirty || !can_reload {
+                                    Button::primary("Keep editing").shortcut("↵")
+                                } else {
+                                    Button::new("Keep editing").shortcut("Esc")
+                                })
+                                .clicked();
+                        },
+                    );
+                    if reload {
+                        action = Some(0);
+                    } else if keep {
+                        action = Some(1);
+                    } else if save_as {
+                        action = Some(2);
+                    }
+                });
+            if action.is_none() {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                    action = Some(if !dirty && can_reload { 0 } else { 1 });
+                } else if modal.should_close() {
+                    self.dismiss_external_change_prompt();
+                }
+            }
+            match action {
+                Some(0) => {
+                    let _ = self.reload_external_modification(ctx);
+                }
+                Some(1) => {
+                    let _ = self.keep_editing_external_change();
+                }
+                Some(2) => {
+                    let _ = self.save(true);
+                }
+                _ => {}
+            }
+        }
+        if self.confirm.is_none()
+            && !self.has_external_change_prompt()
             && (!self.dirty() || !self.sessions.is_empty())
             && let Some(summary) = self
                 .recovery
@@ -3014,40 +3128,7 @@ impl Editor {
                 .backdrop_color(p.overlay)
                 .show(ctx, |ui| {
                     ui.set_width(480.);
-                    egui::Frame::new()
-                        .inner_margin(egui::Margin::same(space::S5 as i8))
-                        .show(ui, |ui| {
-                            ui.horizontal_top(|ui| {
-                                ui.spacing_mut().item_spacing.x = space::S4;
-                                let (badge, _) = ui.allocate_exact_size(
-                                    egui::vec2(40., 40.),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter()
-                                    .circle_filled(badge.center(), 20., p.warning_subtle);
-                                neoflash_ui::icons::paint(
-                                    ui.painter(),
-                                    ctx,
-                                    badge,
-                                    neoflash_ui::icons::i16::WARNING,
-                                    p.warning_default,
-                                );
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = space::S1;
-                                    ui.label(
-                                        rich("Recover unsaved work?", TextStyle::DialogTitle)
-                                            .color(p.text_primary),
-                                    );
-                                    ui.add(
-                                        egui::Label::new(
-                                            rich(summary, TextStyle::DialogBody)
-                                                .color(p.text_secondary),
-                                        )
-                                        .wrap(),
-                                    );
-                                });
-                            });
-                        });
+                    warning_body(ui, "Recover unsaved work?", &summary);
                     let (mut discard, mut restore) = (false, false);
                     dialog_footer(
                         ui,
@@ -3136,11 +3217,23 @@ impl eframe::App for Editor {
         }
         self.pump_timeline_audio();
         self.pump_timeline_video();
+        if !self.playing && self.timeline_video.has_playing_events() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(8));
+        }
         self.normalize_selection();
         self.sync_closed_detached_panels(ctx);
         self.menu(ctx);
         self.status_bar(ctx);
         self.bitmap_textures.begin_frame(&self.project);
+        let project_base_dir = self
+            .tracked_disk_path()
+            .and_then(std::path::Path::parent)
+            .map(std::path::Path::to_path_buf);
+        self.video_textures.begin_frame(
+            &self.project,
+            project_base_dir.as_deref(),
+            self.history.revision(),
+        );
         self.prepare_docked_panel_focus(ctx);
         if self.has_document() {
             if !self.panels_hidden {

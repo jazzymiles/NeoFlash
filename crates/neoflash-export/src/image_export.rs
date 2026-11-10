@@ -14,10 +14,16 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write as _,
-    fs,
-    io::Cursor,
+    fs::{self, OpenOptions},
+    io::{Cursor, Write as IoWrite},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
+
+const MAX_AI_RANGE_STAGING_BYTES: usize = 1024 * 1024 * 1024;
+const MAX_AI_RANGE_STAGING_FILES: usize = 10_000;
+static AI_RANGE_TRANSACTION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Output format selected in `Dialog / Export image` (`DL-04`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,6 +346,258 @@ fn numbered_output_path(base: &Path, frame_offset: u32, total_frames: u32, ext: 
     parent.join(format!("{stem}_{:04}.{ext}", frame_offset + 1))
 }
 
+struct StagedAiRangeFile {
+    final_path: PathBuf,
+    staged_path: PathBuf,
+    backup_path: PathBuf,
+}
+
+struct AiRangeTransaction {
+    directory: PathBuf,
+    files: Vec<StagedAiRangeFile>,
+    staged_bytes: usize,
+    max_bytes: usize,
+    max_files: usize,
+    cleanup_on_drop: bool,
+}
+
+enum AiDestinationState {
+    ExistingBackup(PathBuf),
+    NewPlaceholder,
+}
+
+impl AiRangeTransaction {
+    fn new(parent: &Path) -> std::io::Result<Self> {
+        Self::with_limits(
+            parent,
+            MAX_AI_RANGE_STAGING_BYTES,
+            MAX_AI_RANGE_STAGING_FILES,
+        )
+    }
+
+    fn with_limits(parent: &Path, max_bytes: usize, max_files: usize) -> std::io::Result<Self> {
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        let epoch_nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        for _ in 0..64 {
+            let sequence = AI_RANGE_TRANSACTION_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let directory = parent.join(format!(
+                ".neoflash-ai-range-{}-{epoch_nanos}-{sequence}",
+                std::process::id()
+            ));
+            match fs::create_dir(&directory) {
+                Ok(()) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt as _;
+                        if let Err(error) =
+                            fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
+                        {
+                            let _ = fs::remove_dir(&directory);
+                            return Err(error);
+                        }
+                    }
+                    return Ok(Self {
+                        directory,
+                        files: Vec::new(),
+                        staged_bytes: 0,
+                        max_bytes,
+                        max_files,
+                        cleanup_on_drop: true,
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "could not allocate a unique AI range staging directory",
+        ))
+    }
+
+    fn stage(&mut self, final_path: PathBuf, bytes: &[u8]) -> Result<(), ExportError> {
+        if self.files.len() >= self.max_files {
+            return Err(ExportError::Options(format!(
+                "AI frame range exceeds the {}-file transactional staging limit.",
+                self.max_files
+            )));
+        }
+        let next_total = self.staged_bytes.checked_add(bytes.len()).ok_or_else(|| {
+            ExportError::Options("AI frame-range staging byte size overflow.".into())
+        })?;
+        if next_total > self.max_bytes {
+            return Err(ExportError::Options(format!(
+                "AI frame range requires {next_total} staged bytes, exceeding the {} MiB transactional staging limit.",
+                self.max_bytes / (1024 * 1024)
+            )));
+        }
+
+        let index = self.files.len();
+        let staged_path = self.directory.join(format!("stage-{index:08}.ai"));
+        let backup_path = self.directory.join(format!("backup-{index:08}.ai"));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staged_path)?;
+        file.write_all(bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        self.staged_bytes = next_total;
+        self.files.push(StagedAiRangeFile {
+            final_path,
+            staged_path,
+            backup_path,
+        });
+        Ok(())
+    }
+
+    fn reserve_destination(
+        &mut self,
+        final_path: &Path,
+        backup_path: &Path,
+    ) -> std::io::Result<AiDestinationState> {
+        loop {
+            match fs::rename(final_path, backup_path) {
+                Ok(()) => {
+                    let metadata = match fs::symlink_metadata(backup_path) {
+                        Ok(metadata) => metadata,
+                        Err(error) => {
+                            if fs::rename(backup_path, final_path).is_err() {
+                                self.cleanup_on_drop = false;
+                            }
+                            return Err(error);
+                        }
+                    };
+                    if metadata.file_type().is_dir() {
+                        if let Err(error) = fs::rename(backup_path, final_path) {
+                            self.cleanup_on_drop = false;
+                            return Err(error);
+                        }
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::IsADirectory,
+                            format!("AI output '{}' is a directory", final_path.display()),
+                        ));
+                    }
+                    return Ok(AiDestinationState::ExistingBackup(
+                        backup_path.to_path_buf(),
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    match OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(final_path)
+                    {
+                        Ok(file) => {
+                            file.sync_all()?;
+                            return Ok(AiDestinationState::NewPlaceholder);
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn rollback(published: &[(PathBuf, Option<PathBuf>)]) -> std::io::Result<()> {
+        let mut first_error = None;
+        for (final_path, backup_path) in published.iter().rev() {
+            if let Err(error) = fs::remove_file(final_path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                first_error.get_or_insert(error);
+                continue;
+            }
+            if let Some(backup_path) = backup_path
+                && let Err(error) = fs::rename(backup_path, final_path)
+            {
+                first_error.get_or_insert(error);
+            }
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    fn rollback_error(
+        &mut self,
+        published: &[(PathBuf, Option<PathBuf>)],
+        operation_error: std::io::Error,
+    ) -> ExportError {
+        match Self::rollback(published) {
+            Ok(()) if self.cleanup_on_drop => ExportError::Io(operation_error),
+            Ok(()) => ExportError::Options(format!(
+                "AI range publish failed ({operation_error}); a destination backup could not be restored and was preserved at '{}'.",
+                self.directory.display()
+            )),
+            Err(rollback_error) => {
+                self.cleanup_on_drop = false;
+                ExportError::Options(format!(
+                    "AI range publish failed ({operation_error}) and rollback also failed ({rollback_error}); recoverable backups were preserved at '{}'.",
+                    self.directory.display()
+                ))
+            }
+        }
+    }
+
+    fn commit(mut self) -> Result<Vec<PathBuf>, ExportError> {
+        let mut published = Vec::<(PathBuf, Option<PathBuf>)>::new();
+        for index in 0..self.files.len() {
+            let final_path = self.files[index].final_path.clone();
+            let staged_path = self.files[index].staged_path.clone();
+            let backup_path = self.files[index].backup_path.clone();
+            let destination = match self.reserve_destination(&final_path, &backup_path) {
+                Ok(destination) => destination,
+                Err(error) => {
+                    return Err(self.rollback_error(&published, error));
+                }
+            };
+            let backup = match &destination {
+                AiDestinationState::ExistingBackup(path) => Some(path.clone()),
+                AiDestinationState::NewPlaceholder => None,
+            };
+            if let Err(error) = fs::rename(&staged_path, &final_path) {
+                published.push((final_path, backup));
+                return Err(self.rollback_error(&published, error));
+            }
+            published.push((final_path, backup));
+        }
+
+        for (_, backup_path) in &published {
+            if let Some(backup_path) = backup_path {
+                // The replacement is already complete. Cleanup failure must not turn a committed
+                // range into a reported failure with valid outputs; `Drop` retries the private
+                // staging-directory cleanup.
+                let _ = fs::remove_file(backup_path);
+            }
+        }
+        Ok(published
+            .into_iter()
+            .map(|(final_path, _)| final_path)
+            .collect())
+    }
+}
+
+impl Drop for AiRangeTransaction {
+    fn drop(&mut self) {
+        if self.cleanup_on_drop {
+            let _ = fs::remove_dir_all(&self.directory);
+        }
+    }
+}
+
 fn safe_svg_id_prefix(value: &str) -> String {
     let mut prefix = String::with_capacity(value.len().max(3));
     for ch in value.trim().chars() {
@@ -560,12 +818,14 @@ fn build_psd_bytes(
             let scene = evaluate_scene(&single_proj, &sym_id, frame, false, true);
             let rgba = crate::render_authored_scene_rgba(
                 &single_proj,
+                &sym_id,
+                frame,
                 &scene,
                 width,
                 height,
                 true,
                 &mut bitmap_cache,
-            );
+            )?;
             if rgba.len() != frame_bytes {
                 return Err(ExportError::InvalidProject(format!(
                     "PSD layer renderer returned {} bytes for a {width}x{height} RGBA frame",
@@ -1099,17 +1359,28 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
     out.push_str("grestore\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ps_raster_fallback(
     project: &Project,
+    symbol_id: &str,
+    frame: u32,
     scene: &AuthoredScene,
     width: u32,
     height: u32,
     transparent: bool,
     mut out: String,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ExportError> {
     let mut cache = HashMap::new();
-    let rgba =
-        crate::render_authored_scene_rgba(project, scene, width, height, transparent, &mut cache);
+    let rgba = crate::render_authored_scene_rgba(
+        project,
+        symbol_id,
+        frame,
+        scene,
+        width,
+        height,
+        transparent,
+        &mut cache,
+    )?;
     out.push_str("%%NeoFlashRasterFallback: unsupported vector feature\n");
     let _ = writeln!(out, "gsave\n{width} {height} scale");
     let _ = writeln!(out, "/picstr {} string def", width.saturating_mul(3));
@@ -1137,7 +1408,7 @@ fn ps_raster_fallback(
         out.push('\n');
     }
     out.push_str("grestore\nshowpage\n%%EOF\n");
-    out.into_bytes()
+    Ok(out.into_bytes())
 }
 
 fn build_ai_bytes(
@@ -1197,12 +1468,14 @@ fn build_ai_bytes(
     if !ps_scene_supported(&eval_project, &scene, options) {
         let bytes = ps_raster_fallback(
             &eval_project,
+            target,
+            frame,
             &scene,
             width,
             height,
             options.transparent_background,
             content,
-        );
+        )?;
         return Ok((bytes, layer_count, path_count));
     }
 
@@ -1368,6 +1641,16 @@ pub fn export_project_image(
     let mut total_bytes = 0usize;
     let mut layer_count = 1usize;
     let mut path_count = 0usize;
+    // A range of AI files is one user operation. Render every frame before publishing any path so
+    // a decoder/validation failure on a later frame cannot leave an earlier numbered file behind.
+    let defer_ai_range_publish = options.format == ImageExportFormat::Ai && total_frames > 1;
+    let mut ai_range_transaction = if defer_ai_range_publish {
+        Some(AiRangeTransaction::new(
+            path.parent().unwrap_or_else(|| Path::new(".")),
+        )?)
+    } else {
+        None
+    };
 
     for offset in 0..total_frames {
         let frame = start_frame + offset;
@@ -1452,8 +1735,16 @@ pub fn export_project_image(
             )?,
         };
         total_bytes += bytes.len();
-        atomic_write(&out_path, &bytes)?;
-        files.push(out_path);
+        if let Some(transaction) = &mut ai_range_transaction {
+            transaction.stage(out_path, &bytes)?;
+        } else {
+            atomic_write(&out_path, &bytes)?;
+            files.push(out_path);
+        }
+    }
+
+    if let Some(transaction) = ai_range_transaction {
+        files = transaction.commit()?;
     }
 
     Ok(ImageExportReport {
@@ -1472,7 +1763,8 @@ pub fn export_project_image(
 mod tests {
     use super::*;
     use neoflash_core::{
-        Element, ElementKind, Keyframe, Layer, LayerProperties, Symbol, Transform, new_id,
+        Element, ElementKind, Keyframe, Layer, LayerProperties, ResourceUnit, Symbol,
+        TimelineVideoSpan, Transform, new_id,
     };
 
     #[test]
@@ -1767,5 +2059,168 @@ mod tests {
         assert!(!svg.contains("onload=\"alert"));
         assert_eq!(safe_svg_id_prefix("9 unsafe\"id"), "nf-9_unsafe_id");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ai_frame_range_is_transactional_when_later_video_decode_fails() {
+        let mut project = Project::blank();
+        project.width = 32;
+        project.height = 32;
+        project.resources.push(
+            ResourceUnit::from_bytes("bad", "bad.mp4", "video/mp4", b"not-a-valid-mp4").unwrap(),
+        );
+        let root_id = project.root.clone();
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 2;
+        root.timeline.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "safe".into(),
+                    kind: ElementKind::Rectangle {
+                        width: 16.0,
+                        height: 16.0,
+                        fill: [0, 120, 255, 255],
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 1,
+                elements: vec![Element {
+                    id: "video".into(),
+                    kind: ElementKind::Video {
+                        width: 32.0,
+                        height: 32.0,
+                    },
+                    ..Element::default()
+                }],
+                video: Some(TimelineVideoSpan::embedded("bad")),
+                ..Keyframe::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-ai-range-transaction-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let base = dir.join("range.ai");
+        let mut options = ImageExportOptions::for_project(&project, 0);
+        options.format = ImageExportFormat::Ai;
+        options.range = ImageExportRange::Frames { start: 0, end: 1 };
+        let error = export_project_image(&project, &base, &options)
+            .expect_err("later corrupt video must fail the complete AI range");
+        assert!(error.to_string().contains("bad.mp4"), "got: {error}");
+        assert!(!dir.join("range_0001.ai").exists());
+        assert!(!dir.join("range_0002.ai").exists());
+        assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
+            entry
+                .ok()
+                .and_then(|entry| entry.file_name().into_string().ok())
+                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+        }));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn ai_range_publish_restores_existing_file_when_later_target_fails() {
+        let mut project = Project::blank();
+        project.width = 16;
+        project.height = 16;
+        let root_id = project.root.clone();
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 2;
+        root.timeline.layers[0].keyframes[0].elements = vec![Element {
+            id: "shape".into(),
+            kind: ElementKind::Rectangle {
+                width: 8.0,
+                height: 8.0,
+                fill: [10, 20, 30, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }];
+
+        let dir =
+            std::env::temp_dir().join(format!("neoflash-ai-range-rollback-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("range_0001.ai");
+        let second = dir.join("range_0002.ai");
+        let original = b"pre-existing first AI file";
+        fs::write(&first, original).unwrap();
+        fs::create_dir(&second).unwrap();
+
+        let mut options = ImageExportOptions::for_project(&project, 0);
+        options.format = ImageExportFormat::Ai;
+        options.range = ImageExportRange::Frames { start: 0, end: 1 };
+        let error = export_project_image(&project, &dir.join("range.ai"), &options)
+            .expect_err("directory at the second target must fail the range transaction");
+        assert!(
+            error.to_string().contains("directory") || error.to_string().contains("Directory"),
+            "got: {error}"
+        );
+        assert_eq!(fs::read(&first).unwrap(), original);
+        assert!(second.is_dir());
+        assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
+            entry
+                .ok()
+                .and_then(|entry| entry.file_name().into_string().ok())
+                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+        }));
+        fs::remove_dir(&second).unwrap();
+        let report = export_project_image(&project, &dir.join("range.ai"), &options)
+            .expect("the same two-frame range publishes after the target is repaired");
+        assert_eq!(report.files, vec![first.clone(), second.clone()]);
+        assert!(first.is_file());
+        assert!(second.is_file());
+        assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
+            entry
+                .ok()
+                .and_then(|entry| entry.file_name().into_string().ok())
+                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+        }));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn ai_range_staging_enforces_checked_byte_and_file_budgets() {
+        let dir =
+            std::env::temp_dir().join(format!("neoflash-ai-range-budget-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        {
+            let mut transaction = AiRangeTransaction::with_limits(&dir, 4, 2).unwrap();
+            transaction.stage(dir.join("a.ai"), b"1234").unwrap();
+            let error = transaction
+                .stage(dir.join("b.ai"), b"5")
+                .expect_err("aggregate staging bytes must be bounded");
+            assert!(error.to_string().contains("staging limit"));
+        }
+        {
+            let mut transaction = AiRangeTransaction::with_limits(&dir, 100, 1).unwrap();
+            transaction.stage(dir.join("a.ai"), b"1").unwrap();
+            let error = transaction
+                .stage(dir.join("b.ai"), b"2")
+                .expect_err("staged file count must be bounded");
+            assert!(error.to_string().contains("1-file"));
+        }
+        assert!(!dir.join("a.ai").exists());
+        assert!(!dir.join("b.ai").exists());
+        assert!(!fs::read_dir(&dir).unwrap().any(|entry| {
+            entry
+                .ok()
+                .and_then(|entry| entry.file_name().into_string().ok())
+                .is_some_and(|name| name.starts_with(".neoflash-ai-range-"))
+        }));
+        let _ = fs::remove_dir_all(dir);
     }
 }

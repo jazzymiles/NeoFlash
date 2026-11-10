@@ -3080,6 +3080,7 @@ fn t118_timeline_video_sync_cue_points_and_codec_diagnostics() {
         external_path: None,
         stream_url: None,
         start_offset_ms: 100,
+        end_offset_ms: None,
         loop_video: true,
         muted: false,
         cue_points: vec![VideoCuePoint {
@@ -4306,10 +4307,18 @@ fn modern_fla_save_reopen_and_direct_swf_playback_work() {
     let dir = std::env::temp_dir().join(format!("neoflash_t168_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let fla_path = dir.join("modern_roundtrip.fla");
-    let (expected_fla, expected_report) = neoflash_export::export_fla_bytes_with_profile(
+    // The path exporter deliberately uses the output stem as the XFL marker filename.
+    // Build the reference archive under a separate directory with the same basename so
+    // this remains an exact comparison without assuming the in-memory API's project-name
+    // marker (for this blank project, `Untitled.xfl`).
+    let expected_dir = dir.join("expected");
+    std::fs::create_dir_all(&expected_dir).expect("create expected export directory");
+    let expected_path = expected_dir.join("modern_roundtrip.fla");
+    let expected_report = neoflash_export::export_fla_with_profile(
         &editor.project,
         neoflash_export::FlaTargetProfile::AnimateCC,
         &neoflash_export::FlaExportOptions::default(),
+        &expected_path,
     )
     .expect("modern Animate CC exporter accepts the project");
     assert!(!expected_report.has_blocking());
@@ -4324,7 +4333,7 @@ fn modern_fla_save_reopen_and_direct_swf_playback_work() {
     assert!(fla_path.exists());
     assert_eq!(
         std::fs::read(&fla_path).unwrap(),
-        expected_fla,
+        std::fs::read(&expected_path).unwrap(),
         "Save As .fla must use the modern Animate CC exporter path"
     );
     assert_eq!(
@@ -4340,7 +4349,10 @@ fn modern_fla_save_reopen_and_direct_swf_playback_work() {
         dirty_before_export,
         "derived FLA export must not clear native unsaved state"
     );
-    assert_eq!(editor.status, "Exported derived FLA.");
+    assert_eq!(
+        editor.status,
+        "Exported derived FLA (Adobe Animate CC (XFL 2.97))."
+    );
     assert!(
         !editor
             .workspace
@@ -5281,6 +5293,7 @@ fn t199_empty_layer_cleanup_preserves_all_semantic_keyframe_content() {
                     external_path: None,
                     stream_url: None,
                     start_offset_ms: 0,
+                    end_offset_ms: None,
                     loop_video: false,
                     muted: false,
                     cue_points: Vec::new(),
@@ -5604,4 +5617,519 @@ fn t196_putney_copy_apply_ease_pixel_snap_reverse_order_and_layer_cleanup() {
     assert_eq!(stop_script.script.source, "stop();");
     editor.project.validate().unwrap();
     undo_restores(&mut editor, &before);
+}
+
+#[test]
+fn t201_native_stage_video_decoding_play_pause_scrub_trims_and_portable_external_save_reopen() {
+    use neoflash_core::timeline_video::{TimelineVideoSpan, VideoSyncMode};
+    use neoflash_export::encode_deterministic_mp4_rgba_frames;
+
+    let w = 8u32;
+    let h = 8u32;
+    let colors: [[u8; 4]; 4] = [
+        [255, 0, 0, 255],
+        [0, 255, 0, 255],
+        [0, 0, 255, 255],
+        [255, 255, 0, 255],
+    ];
+    let raw_frames: Vec<Vec<u8>> = colors
+        .into_iter()
+        .map(|c| {
+            let mut buf = Vec::with_capacity((w * h * 4) as usize);
+            for _ in 0..(w * h) {
+                buf.extend_from_slice(&c);
+            }
+            buf
+        })
+        .collect();
+    let frame_refs: Vec<&[u8]> = raw_frames.iter().map(Vec::as_slice).collect();
+    let mp4_bytes = encode_deterministic_mp4_rgba_frames(w, h, 10, &frame_refs);
+
+    let mut project = Project::blank();
+    project.fps = 10;
+    project.resources.push(
+        ResourceUnit::from_bytes("vid_1", "clips/four.mp4", "video/mp4", &mp4_bytes)
+            .expect("video resource"),
+    );
+    let root_id = project.root.clone();
+    {
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 4;
+        let kf = &mut root.timeline.layers[0].keyframes[0];
+        kf.frame = 0;
+        kf.video = Some(TimelineVideoSpan::embedded("vid_1"));
+        kf.elements = vec![Element {
+            id: "stage_video".into(),
+            name: "video_mc".into(),
+            transform: Transform {
+                x: 12.0,
+                y: 16.0,
+                scale_x: 2.0,
+                scale_y: 2.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Video {
+                width: 8.0,
+                height: 8.0,
+            },
+            ..Element::default()
+        }];
+    }
+    project.upgrade_format_for_features();
+    project.validate().expect("valid project");
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, project);
+
+    // 1. Scrubbing frames 0..4 resolves distinct decoded RGBA frames on the native Stage.
+    for (frame_idx, expected_color) in colors.into_iter().enumerate() {
+        editor.frame = frame_idx as u32;
+        editor
+            .video_textures
+            .begin_frame(&editor.project, None, editor.history.revision());
+        let scene = editor.current_authored_scene(true);
+        let draw = &scene.draws[0];
+        let placement = editor
+            .resolve_stage_video_placement(&draw.item)
+            .expect("resolved video placement");
+        let (decoded_idx, decoded_frame) = editor
+            .video_textures
+            .frame_for_placement(&editor.project, None, &placement)
+            .expect("decoded frame");
+        assert_eq!(decoded_idx, frame_idx);
+        assert_eq!(&decoded_frame.image.rgba[0..4], &expected_color);
+        let tex_id = editor
+            .video_textures
+            .texture_for_placement(
+                &ctx,
+                &editor.project,
+                None,
+                &placement,
+                draw.item.color_transform,
+            )
+            .expect("uploaded stage texture");
+        let (color_img, _) = editor
+            .video_textures
+            .image(tex_id)
+            .expect("cached ColorImage");
+        assert_eq!(color_img.pixels[0].to_array(), expected_color);
+    }
+
+    // 2. Play -> tick -> Pause with Event sync. Event video keeps running independently;
+    // the later Stop keyframe still stops and retains its last presented frame.
+    {
+        let root = editor.project.symbol_mut(&root_id).unwrap();
+        let el = root.timeline.layers[0].keyframes[0].elements[0].clone();
+        let mut ev_span = TimelineVideoSpan::embedded("vid_1");
+        ev_span.sync = VideoSyncMode::Event;
+        ev_span.start_offset_ms = 100;
+        ev_span.end_offset_ms = Some(300);
+        ev_span.loop_video = false;
+        root.timeline.layers[0].keyframes[0].video = Some(ev_span);
+        let mut stop_span = TimelineVideoSpan::embedded("vid_1");
+        stop_span.sync = VideoSyncMode::Stop;
+        root.timeline.layers[0].keyframes.push(Keyframe {
+            frame: 2,
+            elements: vec![el],
+            video: Some(stop_span),
+            ..Keyframe::default()
+        });
+    }
+    editor.frame = 0;
+    editor.playing = true;
+    editor.pump_timeline_video();
+    let scene_f0 = editor.current_authored_scene(true);
+    let p0 = editor
+        .resolve_stage_video_placement(&scene_f0.draws[0].item)
+        .expect("placement at f0");
+    assert_eq!(p0.time_ms, 100);
+    assert!(p0.playing);
+
+    // Tick once to frame 1 (Event stream advances by 100ms -> 200ms = Blue):
+    editor.tick_authored_preview();
+    assert_eq!(editor.frame, 1);
+    // Pause transport and verify the independent Event stream remains active on Stage:
+    editor.playing = false;
+    editor.pump_timeline_video();
+    let scene_paused = editor.current_authored_scene(true);
+    let p_paused = editor
+        .resolve_stage_video_placement(&scene_paused.draws[0].item)
+        .expect("retained paused placement");
+    assert!(p_paused.playing);
+    assert!(p_paused.time_ms >= 200);
+    let paused_time_ms = p_paused.time_ms;
+    let (_, paused_frame) = editor
+        .video_textures
+        .frame_for_placement(&editor.project, None, &p_paused)
+        .expect("decoded paused frame");
+    assert_eq!(&paused_frame.image.rgba[0..4], &[0, 0, 255, 255]);
+
+    // Resume and tick onto frame 2 (Stop keyframe retains Blue at 200ms and marks stopped):
+    editor.playing = true;
+    editor.tick_authored_preview();
+    assert_eq!(editor.frame, 2);
+    let scene_stop = editor.current_authored_scene(true);
+    let p_stop = editor
+        .resolve_stage_video_placement(&scene_stop.draws[0].item)
+        .expect("retained stopped placement");
+    assert!(p_stop.stopped);
+    assert!(!p_stop.playing);
+    assert_eq!(p_stop.time_ms, paused_time_ms);
+
+    // 3. External video deployment preserves path portability across save/reopen:
+    let dir = std::env::temp_dir().join(format!("neoflash-t201-editor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("media")).unwrap();
+    let rel_path = "media/portable.mp4";
+    std::fs::write(dir.join(rel_path), &mp4_bytes).unwrap();
+
+    editor.playing = false;
+    editor.reset_authored_preview();
+    editor.project.resources[0] =
+        ResourceUnit::from_bytes("vid_1", rel_path, "video/mp4", &[]).unwrap();
+    {
+        let root = editor.project.symbol_mut(&root_id).unwrap();
+        root.timeline.layers[0].keyframes.truncate(1);
+        let ext_span = TimelineVideoSpan::external("vid_1", rel_path);
+        root.timeline.layers[0].keyframes[0].video = Some(ext_span);
+    }
+    editor.project.upgrade_format_for_features();
+    let project_file = dir.join("portable_video.nflash");
+    let json_text = editor.project.to_json().expect("serialize project");
+    assert!(
+        !json_text.contains(&dir.to_string_lossy().to_string()),
+        "serialized .nflash must remain 100% path-portable"
+    );
+    std::fs::write(&project_file, &json_text).unwrap();
+
+    let reopened_project = Project::from_json(&std::fs::read_to_string(&project_file).unwrap())
+        .expect("reopen project");
+    let mut reopened = Editor::from_project(&ctx, reopened_project);
+    // Imported FLA/XFL/SWF documents keep their source in `import_source` until the first native
+    // Save As. External media must still resolve beside that tracked source.
+    reopened.path = None;
+    reopened.import_source = Some(project_file);
+    reopened.frame = 2;
+    let base_dir = reopened
+        .tracked_disk_path()
+        .and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf);
+    reopened.video_textures.begin_frame(
+        &reopened.project,
+        base_dir.as_deref(),
+        reopened.history.revision(),
+    );
+    let reopened_scene = reopened.current_authored_scene(true);
+    let reopened_placement = reopened
+        .resolve_stage_video_placement(&reopened_scene.draws[0].item)
+        .expect("reopened placement");
+    let (reopened_idx, reopened_frame) = reopened
+        .video_textures
+        .frame_for_placement(&reopened.project, base_dir.as_deref(), &reopened_placement)
+        .expect("decode external video relative to reopened project dir");
+    assert_eq!(reopened_idx, 2);
+    assert_eq!(&reopened_frame.image.rgba[0..4], &[0, 0, 255, 255]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn t204_swf_runtime_display_list_projects_onto_stage_across_seek_step_restart_and_save_reopen() {
+    let swf_tag = |out: &mut Vec<u8>, code: u16, payload: &[u8]| {
+        if payload.len() < 0x3f {
+            let hdr = (code << 6) | (payload.len() as u16);
+            out.extend_from_slice(&hdr.to_le_bytes());
+        } else {
+            let hdr = (code << 6) | 0x3f;
+            out.extend_from_slice(&hdr.to_le_bytes());
+            out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        }
+        out.extend_from_slice(payload);
+    };
+    let build_swf = |version: u8, frame_count: u16, tags: &[u8]| -> Vec<u8> {
+        // RECT (0..8000, 0..6000 twips = 400x300 px), nbits = 15 -> 9 bytes:
+        // 01111_000 (0x78), 0x00, 0x03, 0xE8, 0x00, 0x00, 0x0B, 0xB8, 0x00
+        let rect = [0x78, 0x00, 0x03, 0xE8, 0x00, 0x00, 0x0B, 0xB8, 0x00];
+        let mut body = Vec::new();
+        body.extend_from_slice(&rect);
+        body.extend_from_slice(&[0x00, 24]); // 24 fps
+        body.extend_from_slice(&frame_count.to_le_bytes());
+        body.extend_from_slice(tags);
+        body.extend_from_slice(&0_u16.to_le_bytes()); // End tag
+        let file_len = (8 + body.len()) as u32;
+        let mut out = vec![b'F', b'W', b'S', version];
+        out.extend_from_slice(&file_len.to_le_bytes());
+        out.extend_from_slice(&body);
+        out
+    };
+    // Minimal DefineShape (id = 1): 20x20px (400x400 twips) red square
+    let shape1_payload: Vec<u8> = vec![
+        0x01, 0x00, // shape_id = 1
+        0x70, 0x00, 0x0C, 0x80, 0x00, 0x01, 0x90,
+        0x00, // bounds 0..400, 0..400 twips (nbits=14)
+        0x01, // 1 fill style
+        0x00, 0xFF, 0x20, 0x20, // solid RGB red
+        0x00, // 0 line styles
+        0x10, // num_fill_bits=1, num_line_bits=0
+        0x14, 0x25, 0x9F, 0x20, 0x32, 0x02, 0x58, 0xCF, 0xFF, 0x9C, 0xE6, 0x7F, 0x00,
+    ];
+    let translate_zero_matrix = [0x00_u8]; // has_scale=0, has_rotate=0, n_translate_bits=0
+
+    let push_set_prop = |buf: &mut Vec<u8>, target: &str, prop_idx: i32, val: i32| {
+        buf.push(0x96); // ActionPush
+        let mut p = Vec::new();
+        p.push(0x00);
+        p.extend_from_slice(target.as_bytes());
+        p.push(0);
+        p.push(0x07);
+        p.extend_from_slice(&prop_idx.to_le_bytes());
+        p.push(0x07);
+        p.extend_from_slice(&val.to_le_bytes());
+        buf.extend_from_slice(&(p.len() as u16).to_le_bytes());
+        buf.extend_from_slice(&p);
+        buf.push(0x23); // ActionSetProperty
+    };
+    let push_trace = |buf: &mut Vec<u8>, msg: &str| {
+        buf.push(0x96);
+        let mut p = Vec::new();
+        p.push(0x00);
+        p.extend_from_slice(msg.as_bytes());
+        p.push(0);
+        buf.extend_from_slice(&(p.len() as u16).to_le_bytes());
+        buf.extend_from_slice(&p);
+        buf.push(0x26); // ActionTrace
+    };
+
+    // --- Fixture 1: Bounded AVM1 SWF (3 frames, mask clip_depth, PlaceObject3 filter+blend, nested sprite, SetProperty) ---
+    let mut avm1_tags = Vec::new();
+    swf_tag(&mut avm1_tags, 2, &shape1_payload);
+
+    // DefineSprite 2 (1 frame placing shape 1 at (0,0)):
+    let mut sprite2 = Vec::new();
+    sprite2.extend_from_slice(&2_u16.to_le_bytes());
+    sprite2.extend_from_slice(&1_u16.to_le_bytes());
+    let mut po2_inner = vec![0x06]; // HasMatrix | HasCharacter
+    po2_inner.extend_from_slice(&1_u16.to_le_bytes());
+    po2_inner.extend_from_slice(&1_u16.to_le_bytes());
+    po2_inner.extend_from_slice(&translate_zero_matrix);
+    swf_tag(&mut sprite2, 26, &po2_inner);
+    swf_tag(&mut sprite2, 1, &[]);
+    swf_tag(&mut sprite2, 0, &[]);
+    swf_tag(&mut avm1_tags, 39, &sprite2);
+
+    // Frame 0: PlaceObject2 mask shape 1 at depth 1 with clip_depth = 2
+    let mut po2_mask = vec![0x46]; // HasClipDepth | HasMatrix | HasCharacter
+    po2_mask.extend_from_slice(&1_u16.to_le_bytes());
+    po2_mask.extend_from_slice(&1_u16.to_le_bytes());
+    po2_mask.extend_from_slice(&translate_zero_matrix);
+    po2_mask.extend_from_slice(&2_u16.to_le_bytes());
+    swf_tag(&mut avm1_tags, 26, &po2_mask);
+
+    // Frame 0: PlaceObject3 sprite 2 ("actor") at depth 2 with BlurFilter + BlendMode::Multiply
+    let mut po3_actor = vec![0x26, 0x03]; // HasName|HasMatrix|HasCharacter, HasBlendMode|HasFilterList
+    po3_actor.extend_from_slice(&2_u16.to_le_bytes());
+    po3_actor.extend_from_slice(&2_u16.to_le_bytes());
+    po3_actor.extend_from_slice(&translate_zero_matrix);
+    po3_actor.extend_from_slice(b"actor\0");
+    po3_actor.push(1); // 1 filter
+    po3_actor.push(1); // BlurFilter
+    po3_actor.extend_from_slice(&((4i32 << 16).to_le_bytes()));
+    po3_actor.extend_from_slice(&((6i32 << 16).to_le_bytes()));
+    po3_actor.push(1 << 3);
+    po3_actor.push(3); // BlendMode::Multiply
+    swf_tag(&mut avm1_tags, 70, &po3_actor);
+
+    // Frame 0 DoAction: actor._x = 75, actor._y = 95, actor._xscale = 200, actor._alpha = 40, trace("avm1_stage_f0")
+    let mut act0 = Vec::new();
+    push_set_prop(&mut act0, "actor", 0, 75);
+    push_set_prop(&mut act0, "actor", 1, 95);
+    push_set_prop(&mut act0, "actor", 2, 200);
+    push_set_prop(&mut act0, "actor", 6, 40);
+    push_trace(&mut act0, "avm1_stage_f0");
+    act0.push(0x00);
+    swf_tag(&mut avm1_tags, 12, &act0);
+    swf_tag(&mut avm1_tags, 1, &[]); // ShowFrame 0
+
+    // Frame 1 DoAction: actor._visible = 0, trace("avm1_stage_f1")
+    let mut act1 = Vec::new();
+    push_set_prop(&mut act1, "actor", 7, 0);
+    push_trace(&mut act1, "avm1_stage_f1");
+    act1.push(0x00);
+    swf_tag(&mut avm1_tags, 12, &act1);
+    swf_tag(&mut avm1_tags, 1, &[]); // ShowFrame 1
+
+    // Frame 2 DoAction: actor._visible = 1, actor._x = 180, actor._alpha = 100, unsupported opcode 0xFE, trace("avm1_stage_f2")
+    let mut act2 = Vec::new();
+    push_set_prop(&mut act2, "actor", 7, 1);
+    push_set_prop(&mut act2, "actor", 0, 180);
+    push_set_prop(&mut act2, "actor", 6, 100);
+    act2.push(0xFE);
+    push_trace(&mut act2, "avm1_stage_f2");
+    act2.push(0x00);
+    swf_tag(&mut avm1_tags, 12, &act2);
+    swf_tag(&mut avm1_tags, 1, &[]); // ShowFrame 2
+
+    let avm1_swf = build_swf(8, 3, &avm1_tags);
+    let dir = std::env::temp_dir().join(format!("neoflash-t204-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let avm1_path = dir.join("avm1_fixture.swf");
+    std::fs::write(&avm1_path, &avm1_swf).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.open_path(avm1_path.clone(), &ctx);
+    editor.project.validate().unwrap();
+    assert!(editor.has_swf_bytecode_source());
+
+    let authored_before = editor.project.clone();
+    let saved_before = editor.saved_project.clone();
+    let dirty_before = editor.dirty();
+    assert!(!editor.history.can_undo());
+
+    // Frame 0 on Stage reflects runtime DoAction mutations (_x=75, _y=95, _xscale=200, _alpha=40), mask clip, and Multiply blend:
+    let scene0 = editor.current_authored_scene(true);
+    assert_eq!(scene0.draws.len(), 1);
+    assert!(!scene0.clips.is_empty());
+    assert!(scene0.has_blend_modes());
+    assert!((scene0.draws[0].item.transform[4] - 75.0).abs() < 1e-3);
+    assert!((scene0.draws[0].item.transform[5] - 95.0).abs() < 1e-3);
+    assert!((scene0.draws[0].item.transform[0] - 2.0).abs() < 1e-3);
+    assert!((scene0.draws[0].item.alpha - 0.4).abs() < 1e-3);
+
+    // Step forward to frame 1 (`step_swf_preview(1)`): actor._visible = false -> 0 draws on Stage
+    let state1 = editor.step_swf_preview(1).expect("step to frame 1");
+    assert_eq!(state1.frame, 1);
+    assert_eq!(editor.frame, 1);
+    let scene1 = editor.current_authored_scene(true);
+    assert!(scene1.draws.is_empty());
+
+    // Step forward to frame 2 (`seek_frame(2)`): actor._visible = true, _x = 180, _alpha = 100, unsupported diagnostic logged
+    editor.seek_frame(2);
+    assert_eq!(editor.frame, 2);
+    let scene2 = editor.current_authored_scene(true);
+    assert_eq!(scene2.draws.len(), 1);
+    assert!((scene2.draws[0].item.transform[4] - 180.0).abs() < 1e-3);
+    assert!((scene2.draws[0].item.alpha - 1.0).abs() < 1e-3);
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|l| l.contains("[swf]") && l.contains("0xFE")),
+        "expected explicit unsupported SWF opcode diagnostic in editor.output, got: {:?}",
+        editor.output
+    );
+
+    // Restart to frame 0 (`restart_swf_preview()`): deterministically matches initial frame 0 scene
+    editor.restart_swf_preview().expect("restart SWF preview");
+    assert_eq!(editor.frame, 0);
+    let scene0_restarted = editor.presented_authored_scene(true);
+    assert_eq!(scene0_restarted.draws.len(), 1);
+    assert_eq!(
+        scene0_restarted.draws[0].item.transform,
+        scene0.draws[0].item.transform
+    );
+    assert_eq!(
+        scene0_restarted.draws[0].item.alpha,
+        scene0.draws[0].item.alpha
+    );
+
+    // Authored project, saved_project, dirty(), and Undo history remain 100% untouched:
+    assert_eq!(editor.project, authored_before);
+    assert_eq!(editor.saved_project, saved_before);
+    assert_eq!(editor.dirty(), dirty_before);
+    assert!(!editor.history.can_undo());
+
+    // Save to `.nflash` and reopen: SWF runtime projection remains available and deterministic while clean!
+    let nflash_path = dir.join("avm1_saved.nflash");
+    assert!(editor.save_to_path(nflash_path.clone()));
+    assert!(!editor.dirty());
+
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    reopened.open_path(nflash_path, &ctx);
+    reopened.project.validate().unwrap();
+    assert!(!reopened.dirty());
+    assert!(reopened.has_swf_bytecode_source());
+    reopened
+        .seek_swf_preview(2)
+        .expect("seek reopened SWF project to frame 2");
+    let reopened_scene2 = reopened.current_authored_scene(true);
+    assert_eq!(reopened_scene2.draws.len(), 1);
+    assert!((reopened_scene2.draws[0].item.transform[4] - 180.0).abs() < 1e-3);
+    assert!(
+        !reopened.dirty(),
+        "SWF preview seek on reopened .nflash must never dirty the project"
+    );
+    assert!(!reopened.history.can_undo());
+
+    // --- Fixture 2: Bounded AVM2 SWF (2 frames, DoABC2 mutating child x/alpha + trace) ---
+    let mut avm2_tags = Vec::new();
+    swf_tag(&mut avm2_tags, 69, &[0x08, 0x00, 0x00, 0x00]); // FileAttributes AS3
+    swf_tag(&mut avm2_tags, 2, &shape1_payload);
+    let mut po2_card = vec![0x26]; // HasName | HasMatrix | HasCharacter
+    po2_card.extend_from_slice(&1_u16.to_le_bytes());
+    po2_card.extend_from_slice(&1_u16.to_le_bytes());
+    po2_card.extend_from_slice(&translate_zero_matrix);
+    po2_card.extend_from_slice(b"card\0");
+    swf_tag(&mut avm2_tags, 26, &po2_card);
+
+    let mut abc = Vec::new();
+    abc.extend_from_slice(&0_u32.to_le_bytes());
+    abc.push(0);
+    abc.extend_from_slice(&16_u16.to_le_bytes());
+    abc.extend_from_slice(&46_u16.to_le_bytes());
+    abc.extend_from_slice(&[1, 1, 1, 6]); // ints, uints, doubles, 6 strings
+    abc.push(0);
+    abc.extend_from_slice(b"\x05trace\x0d_avm2_stage_0\x04card\x01x");
+    abc.extend_from_slice(&[2, 0x16, 1, 1]); // namespaces + ns_set
+    abc.push(4); // multinames: 1="trace", 2="card", 3="x"
+    abc.extend_from_slice(&[0x07, 1, 2, 0x07, 1, 4, 0x07, 1, 5]);
+    abc.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 4, 1, 0, 1]);
+    let avm2_code = [
+        0x5D, 0x02, 0x66, 0x02, 0x24, 110, 0x61, 0x03, // card.x = 110
+        0x5D, 0x01, 0x2C, 0x03, 0x4F, 0x01, 0x01, // trace("_avm2_stage_0")
+        0x47,
+    ];
+    abc.push(avm2_code.len() as u8);
+    abc.extend_from_slice(&avm2_code);
+    abc.extend_from_slice(&[0, 0]);
+    swf_tag(&mut avm2_tags, 82, &abc);
+    swf_tag(&mut avm2_tags, 1, &[]); // ShowFrame 0
+
+    // Frame 1: RemoveObject2 (tag 28) at depth 1
+    swf_tag(&mut avm2_tags, 28, &1_u16.to_le_bytes());
+    swf_tag(&mut avm2_tags, 1, &[]); // ShowFrame 1
+
+    let avm2_swf = build_swf(10, 2, &avm2_tags);
+    let avm2_path = dir.join("avm2_fixture.swf");
+    std::fs::write(&avm2_path, &avm2_swf).unwrap();
+
+    let mut avm2_editor = Editor::from_project(&ctx, Project::blank());
+    avm2_editor.open_path(avm2_path, &ctx);
+    let avm2_scene0 = avm2_editor.current_authored_scene(true);
+    assert_eq!(avm2_scene0.draws.len(), 1);
+    assert!((avm2_scene0.draws[0].item.transform[4] - 110.0).abs() < 1e-3);
+    assert!(
+        avm2_editor
+            .output
+            .iter()
+            .any(|l| l.contains("[trace] _avm2_stage_0"))
+    );
+
+    // Step to frame 1 where RemoveObject2 removes depth 1 -> 0 draws on Stage:
+    avm2_editor
+        .step_swf_preview(1)
+        .expect("step AVM2 SWF to frame 1");
+    let avm2_scene1 = avm2_editor.current_authored_scene(true);
+    assert!(avm2_scene1.draws.is_empty());
+
+    // Step back to frame 0 -> card is back at x = 110:
+    avm2_editor
+        .step_swf_preview(-1)
+        .expect("step AVM2 SWF back to frame 0");
+    let avm2_scene0_back = avm2_editor.current_authored_scene(true);
+    assert_eq!(avm2_scene0_back.draws.len(), 1);
+    assert!((avm2_scene0_back.draws[0].item.transform[4] - 110.0).abs() < 1e-3);
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

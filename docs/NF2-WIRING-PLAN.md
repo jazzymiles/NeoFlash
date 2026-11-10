@@ -446,10 +446,10 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.2 Export image PSD / AI / PDF — partial (documented fidelity and option fallbacks) | DL-04 | `panels/export_image.rs`, `neoflash_export::image_export` (layered PSD; EPS-compatible AI and raster-backed PDF; PSD groups/smart objects/editable text/colour conversion pending) | E-22 | `web-html5-export` |
 | W3.3 Export video — done | DL-05 | `panels/export_video.rs` (DL-05 done) | E-23 | `web-html5-export`, `web-media-assets` |
 | W3.4 Export audio, Sound properties, Edit envelope — done | DL-06, DL-08, DL-09 | `panels/export_audio.rs` (DL-06 done), `panels/sound_properties.rs` (DL-08 done), `panels/edit_envelope.rs` (DL-09 done) | E-18, E-23 | `web-media-assets`, `animation-media-sync` |
-| W3.5 Import video, Import PSD — partial | DL-07, DL-10 | `panels/import_video.rs` imports validated media into the document; embedded timeline spans publish and play automatically in HTML5, while native decoding and external/progressive deployment remain open. `neoflash_import::psd` is a tested importer library; editor/CLI wiring remains. | E-19, E-24 | `web-media-assets`, `imports-*` |
+| W3.5 Import video, Import PSD — partial | DL-07, DL-10 | `panels/import_video.rs` imports validated media into the document; HTML5 playback and native Embedded/local External Stage playback and offline export work through the shared streaming pipe. Native Progressive, cue editing and bounded on-demand long-video decode remain open. PSD/PSB, numbered sequences, PDF/AI, FXG and ACT/CLR/ASE palette imports are wired through bounded editor/CLI routes with explicit diagnostics. | E-19, E-24 | `web-media-assets`, `imports-*` |
 | W3.6 Preferences persistence (all pages) — done (see card below) | DL-01 | `panels/preferences.rs`, `recovery.rs` | E-25 | `editor-workspace`, `platform-recovery` (autosave) |
 | W3.7 Shortcut editor — done (`commands.rs`) | DL-01 Shortcuts | `prefs_shortcuts`, `commands.rs` | E-25 (command registry) | `editor-workspace` |
-| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | TextBox Properties exposes `Embed font` / `Embedding…`; `panels/font_embedding.rs` opens on the exact selected Family/Style, stores ranges/custom characters, and commits the field flag plus technically validated standalone font in one Undo. NeoFlash does not infer the author's licence rights, so compliance remains the author's responsibility. Browser-loadable subset generation remains in E-26 | E-26 | `web-font-portability` |
+| W3.8 Font embedding + text embed rows — done for full font resources; subsetting remains partial | DL-11, PR-01 | TextBox Properties exposes `Embed font` / `Embedding…`; `panels/font_embedding.rs` opens on the exact selected Family/Style, stores ranges/custom characters, and commits the field flag plus technically validated standalone font in one Undo. NeoFlash does not infer the author's licence rights, so compliance remains the author's responsibility. HTML5 performs real TrueType glyph/table subsetting; preservation-sensitive or unsupported layouts conservatively retain the complete face, so E-26 remains partial. | E-26 | `web-font-portability` |
 | W3.9 Deco, Spray, Bone/IK — partial | TO-03…05 | Bone target/length/degree-limit/stiffness fields and bounded solving are connected; its other fields remain drafts. Deco/Spray settings drafts and the binding/warp/generator paths have tested internal commands, but no user Apply gesture. Sticky pointer-driven Stage tools, editable live weights and persisted skin/spring state remain open. | E-27, E-28 | `editor-advanced-drawing` |
 | W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. Library Properties edits 9-slice/shared linkage, Stage paints 9-slice guides, and open documents can supply donor symbols; direct guide drag, separate external-file mounting and accessibility extras remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
@@ -477,10 +477,10 @@ Controls kept disabled with explicit design requests (`R-013`–`R-020`) or sepa
 | Code editor ▸ Colour scheme (`NF2 Night`, `Duplicate`, `Import…`, syntax swatch table) | design (`R-017`) | Syntax tokens are fixed in locked `neoflash-ui::components::code` |
 | Timeline ▸ Onion tints (`Before` / `After`), Named anchor on each scene | design (`R-018`) / model + web | Swatches have no picker state; scene anchors need label-kind format + browser hash history |
 | Drawing ▸ Merge drawing, Show solid points, Snap align | L subsystem / design (`R-019`) | Planar merge model not implemented; solid unselected anchor & align guide painter need NF2 components |
-| Text ▸ Anti-alias, Embed used glyphs (W3.8 / E-26), Spell check, Vertical text, Input method | L subsystems | Require authored text anti-alias/vertical model, font subsetter (E-26), and spell-check engine |
+| Text ▸ Anti-alias, Embed used glyphs (W3.8 / E-26), Spell check, Vertical text, Input method | L subsystems | Require author-facing binding for the existing bounded TrueType subset policy, authored text anti-alias/vertical behavior, complete IME handling and a spell-check engine |
 | Clipboard ▸ Copy as SVG, Keep layer names, Bitmaps ppi, Gradient quality, Large bitmap prompt | L subsystem | Requires native OS SVG/bitmap pasteboard writer (`arboard` is text-only today) |
 | Shortcuts ▸ Rename set | design (`R-020`) | No inline field or modal prompt in `panels-dialog-preferences-shortcuts.txt` |
-| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Acceleration / Strict | W1.10 (DL-03) | Wrapper, compiled-code Source Map v3 and JPEG re-encoding are wired. Assets-folder relocation, acceleration selection and strict compiler enforcement remain pending; JS runtime modules keep their existing strict behavior. |
+| Publish ▸ HTML wrapper / Assets folder / Source maps / JPEG / Acceleration / Strict | W1.10 (DL-03) | Wrapper, strict executable project code, rebased compiled-code Source Map v3 and JPEG re-encoding are wired. Assets-folder relocation and acceleration selection remain pending. Minify compacts bundle data and deliberately preserves executable JavaScript; runtime-module minification remains separate. |
 | Updates page | — | Stays disabled (no update service, no telemetry) |
 
 Preferences ▸ Updates must stay disabled (no update service, no telemetry) until `platform-release` /
@@ -533,14 +533,15 @@ Read this before touching the timeline. AGENTS.md › "Timeline engine" is the s
 | `Project.scenes: Vec<Id>` | Scene timelines in play order (MovieClip symbol IDs). Empty = one scene, `root`; otherwise `scenes[0] == root`. Scene symbols are not library items and are never instantiated. |
 | `Timeline.guides: Vec<Guide>` | Ruler guides (authoring only, stripped from HTML5). See [NF2-RULERS-GUIDES-GRID.md](NF2-RULERS-GUIDES-GRID.md). |
 
-`Project::uses_format_6()` through `uses_format_11()` detect these features; `upgrade_format_for_features()` raises
-`format_version` only as far as the document requires. Validation (`validation.rs`) accepts versions 1–11, rejects
+`Project::uses_format_6()` through `uses_format_12()` detect these features; `upgrade_format_for_features()` raises
+`format_version` only as far as the document requires. Validation (`validation.rs`) accepts versions 1–12, rejects
 newer-version fields in older documents, ◆ keys outside a motion span, shared or object-specific easing/path data on
 the wrong key, duplicate/missing object IDs, invalid spatial paths, malformed per-object property keys, custom sound
 envelopes outside `1..=8` sorted finite `[0..=1]` stereo points, invalid motion guides/scenes and frame sounds without
 an audio resource. Format 11 gates layer/keyframe display-filter stacks and External/Progressive timeline-video
-deployment. Every new field is `#[serde(default, skip_serializing_if = …)]`, so documents without format-10 object
-data or format-11 deployment data retain their earlier serialized meaning and evaluation.
+deployment; format 12 gates authored video out-points. Every new field is `#[serde(default, skip_serializing_if = …)]`,
+so documents without format-10 object data, format-11 deployment data or format-12 video trimming retain their earlier
+serialized meaning and evaluation.
 
 ### 7.2 Where each behaviour lives
 
@@ -603,8 +604,8 @@ sound collision or shortened Stream span is rejected before editing (`layer_cont
 ### 7.4 Remaining timeline work (task cards)
 
 Each row is one delivery unless grouped. Do not change visuals (§1); file a request when the design is missing. Every
-model change follows §1.7: serde default, one format bump per batch (current format is **11**:
-`uses_format_9`, `uses_format_10` and `uses_format_11` sit beside `uses_format_6` through `uses_format_8`),
+model change follows §1.7: serde default, one format bump per batch (current format is **12**:
+`uses_format_9`, `uses_format_10`, `uses_format_11` and `uses_format_12` sit beside `uses_format_6` through `uses_format_8`),
 validation, an old-document load test.
 
 | # | Work (spec) | Files to touch | Model change | Tests to add | Acceptance |

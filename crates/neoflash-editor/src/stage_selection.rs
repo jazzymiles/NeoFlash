@@ -2630,6 +2630,26 @@ impl Editor {
             }) {
                 self.show_panel(crate::workspace::PanelId::Properties);
                 self.focus_selected_text_editor(ui.ctx());
+                if let Some(target) = self.selection.single().cloned() {
+                    let caret = response
+                        .interact_pointer_pos()
+                        .and_then(|pos| {
+                            let stage_pt = mapping.screen_to_edit(origin, self.zoom, pos);
+                            let sampled = self.selected_sampled()?;
+                            let local_pt = crate::stage::inverse(
+                                transform_matrix(sampled.transform),
+                                stage_pt,
+                            )?;
+                            let geom = self.stage_text_geometry(Some(p), &sampled.kind)?;
+                            Some(geom.hit_test_utf16(local_pt))
+                        })
+                        .unwrap_or_else(|| {
+                            self.selected_sampled()
+                                .and_then(|e| e.kind.text_utf16_len())
+                                .unwrap_or(0)
+                        });
+                    self.enter_stage_text_edit(target, caret, None);
+                }
             } else if let Some(target) = self.selection.single().cloned() {
                 self.expand_merge_double_click_selection(&target);
             }
@@ -2747,6 +2767,7 @@ impl Editor {
                     pressed: true,
                     ..
                 } if matches!(self.tool, Tool::Rectangle | Tool::Ellipse | Tool::Text)
+                    && !(self.tool == Tool::Text && self.stage_text_edit.pointer_dragging)
                     && rect.contains(pos)
                     && self.layer_editable()
                     && ui

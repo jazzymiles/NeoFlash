@@ -124,7 +124,7 @@ pub struct VideoCuePoint {
     pub parameters: Vec<(String, String)>,
 }
 
-/// Authored timeline video settings attached to a keyframe or video layer span (`T-118`, `T-178`).
+/// Authored timeline video settings attached to a keyframe or video layer span (`T-118`, `T-178`, `T-201`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineVideoSpan {
     #[serde(default)]
@@ -133,6 +133,13 @@ pub struct TimelineVideoSpan {
     pub sync: VideoSyncMode,
     #[serde(default)]
     pub start_offset_ms: u32,
+    /// Optional out-point trim timestamp in milliseconds (`end_offset_ms > start_offset_ms`, `T-201`).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "out_point_ms"
+    )]
+    pub end_offset_ms: Option<u32>,
     #[serde(default)]
     pub loop_video: bool,
     #[serde(default)]
@@ -160,6 +167,7 @@ impl Default for TimelineVideoSpan {
             resource: String::new(),
             sync: VideoSyncMode::Stream,
             start_offset_ms: 0,
+            end_offset_ms: None,
             loop_video: false,
             muted: false,
             cue_points: Vec::new(),
@@ -195,6 +203,20 @@ impl TimelineVideoSpan {
             stream_url: Some(stream_url.into()),
             ..Self::default()
         }
+    }
+
+    pub fn with_trim_ms(mut self, in_point_ms: u32, out_point_ms: Option<u32>) -> Self {
+        self.start_offset_ms = in_point_ms;
+        self.end_offset_ms = out_point_ms;
+        self
+    }
+
+    pub fn in_point_ms(&self) -> u32 {
+        self.start_offset_ms
+    }
+
+    pub fn out_point_ms(&self) -> Option<u32> {
+        self.end_offset_ms
     }
 
     pub fn uses_non_embedded_deployment(&self) -> bool {
@@ -242,7 +264,11 @@ pub struct VideoCodecDiagnostic {
     pub is_error: bool,
 }
 
-/// Host instruction emitted by Rust's timeline video scheduler (`T-118`, `T-178`).
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+/// Host instruction emitted by Rust's timeline video scheduler (`T-118`, `T-178`, `T-201`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum VideoCommand {
@@ -255,6 +281,10 @@ pub enum VideoCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<VideoSourceSpec>,
         target_time_ms: u32,
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        in_point_ms: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        out_point_ms: Option<u32>,
         playing: bool,
         muted: bool,
         loop_video: bool,
@@ -268,6 +298,8 @@ pub enum VideoCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<VideoSourceSpec>,
         start_offset_ms: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        out_point_ms: Option<u32>,
         loop_video: bool,
         muted: bool,
     },
@@ -310,6 +342,83 @@ struct ActiveSpan<'a> {
     span: &'a TimelineVideoSpan,
 }
 
+/// Resolve the active `(Keyframe, TimelineVideoSpan)` at `frame` on `layer` (`T-201`).
+///
+/// If the keyframe at `frame` defines `key.video`, returns `(key, span)` directly.
+/// If `key.video` is `None` on a later Classic Tween or Motion `◆` keyframe on the same video
+/// layer while an `ElementKind::Video` placement remains continuously present, walks backwards
+/// to the starting keyframe that owns `TimelineVideoSpan`.
+pub fn effective_video_span_at_frame(
+    layer: &Layer,
+    frame: u32,
+) -> Option<(&Keyframe, &TimelineVideoSpan)> {
+    let idx = layer.keyframes.partition_point(|k| k.frame <= frame);
+    if idx == 0 {
+        return None;
+    }
+    let current_idx = idx - 1;
+    let current_key = &layer.keyframes[current_idx];
+    if let Some(span) = current_key.video.as_ref() {
+        return Some((current_key, span));
+    }
+    let mut video_ids = current_key.elements.iter().filter_map(|element| {
+        matches!(element.kind, ElementKind::Video { .. }).then_some(element.id.as_str())
+    });
+    let element_id = video_ids.next()?;
+    if video_ids.next().is_some() {
+        // An inherited layer-wide span is ambiguous when the current key has more than one video
+        // placement. Call the element-scoped resolver instead.
+        return None;
+    }
+    effective_video_span_for_element_at_frame(layer, frame, element_id)
+}
+
+/// Resolve a timeline-video span for one stable video placement identity.
+pub fn effective_video_span_for_element_at_frame<'a>(
+    layer: &'a Layer,
+    frame: u32,
+    element_id: &str,
+) -> Option<(&'a Keyframe, &'a TimelineVideoSpan)> {
+    let idx = layer.keyframes.partition_point(|key| key.frame <= frame);
+    if idx == 0 {
+        return None;
+    }
+    let current_idx = idx - 1;
+    let current_key = &layer.keyframes[current_idx];
+    let contains_video = |key: &Keyframe| {
+        key.elements.iter().any(|element| {
+            element.id == element_id && matches!(element.kind, ElementKind::Video { .. })
+        })
+    };
+    if !contains_video(current_key) {
+        return None;
+    }
+    if let Some(span) = current_key.video.as_ref() {
+        return Some((current_key, span));
+    }
+    let is_continuation_key =
+        |key: &Keyframe| key.keyed_properties.is_some() || key.tween.is_some();
+    if !is_continuation_key(current_key) {
+        return None;
+    }
+    for prev_idx in (0..current_idx).rev() {
+        let prev_key = &layer.keyframes[prev_idx];
+        if !contains_video(prev_key) {
+            break;
+        }
+        if let Some(span) = prev_key.video.as_ref() {
+            if span.sync == VideoSyncMode::Stop {
+                return None;
+            }
+            return Some((prev_key, span));
+        }
+        if !is_continuation_key(prev_key) {
+            break;
+        }
+    }
+    None
+}
+
 fn active_span_for_item<'a>(
     project: &'a Project,
     nodes: &'a [Node],
@@ -328,8 +437,8 @@ fn active_span_for_item<'a>(
             Some((node, layer))
         })
         .max_by_key(|(node, _)| node.path.len())?;
-    let key = layer.key_at(owner.frame)?;
-    let span = key.video.as_ref()?;
+    let (key, span) =
+        effective_video_span_for_element_at_frame(layer, owner.frame, &item.element_id)?;
     Some(ActiveSpan {
         owner,
         layer,
@@ -386,11 +495,12 @@ impl TimelineVideoState {
             };
             match active.span.sync {
                 VideoSyncMode::Stream => {
-                    let target_time_ms = compute_frame_video_time_ms(
+                    let target_time_ms = compute_trimmed_video_time_ms(
                         active.key.frame,
                         active.owner.frame,
                         project.fps as f32,
                         active.span.start_offset_ms,
+                        active.span.end_offset_ms,
                         None,
                         active.span.loop_video,
                     );
@@ -415,6 +525,8 @@ impl TimelineVideoState {
                         resource: effective_resource,
                         source,
                         target_time_ms,
+                        in_point_ms: active.span.start_offset_ms,
+                        out_point_ms: active.span.end_offset_ms,
                         playing: running(&active.owner.path),
                         muted: active.span.muted,
                         loop_video: active.span.loop_video,
@@ -435,6 +547,7 @@ impl TimelineVideoState {
                             resource: effective_resource,
                             source,
                             start_offset_ms: active.span.start_offset_ms,
+                            out_point_ms: active.span.end_offset_ms,
                             loop_video: active.span.loop_video,
                             muted: active.span.muted,
                         });
@@ -564,6 +677,530 @@ pub fn compute_frame_video_time_ms(
     } else {
         total_ms.min(u64::from(u32::MAX)) as u32
     }
+}
+
+/// Apply `[in_point_ms, out_point_ms]` trim and optional `media_duration_ms` clamping/looping to `elapsed_ms` (`T-201`).
+pub fn clamp_or_loop_video_time_ms(
+    in_point_ms: u32,
+    elapsed_ms: u64,
+    out_point_ms: Option<u32>,
+    media_duration_ms: Option<u32>,
+    loop_video: bool,
+) -> u32 {
+    let in_u64 = u64::from(in_point_ms);
+    let effective_end = match (out_point_ms, media_duration_ms.filter(|&d| d > 0)) {
+        (Some(out), Some(dur)) => Some(out.min(dur)),
+        (Some(out), None) => Some(out),
+        (None, Some(dur)) => Some(dur),
+        (None, None) => None,
+    };
+    if let Some(end_ms) = effective_end {
+        let end_u64 = u64::from(end_ms);
+        if end_u64 <= in_u64 {
+            return in_point_ms.min(end_ms);
+        }
+        let window_u64 = end_u64 - in_u64;
+        if loop_video {
+            if out_point_ms.is_some() || in_point_ms > 0 {
+                (in_u64 + (elapsed_ms % window_u64)) as u32
+            } else {
+                ((in_u64 + elapsed_ms) % end_u64) as u32
+            }
+        } else {
+            in_u64.saturating_add(elapsed_ms).min(end_u64) as u32
+        }
+    } else {
+        in_u64.saturating_add(elapsed_ms).min(u64::from(u32::MAX)) as u32
+    }
+}
+
+/// Pure deterministic frame-to-media-time mapping in milliseconds with optional `[in_point_ms, out_point_ms]` trim (`T-201`).
+pub fn compute_trimmed_video_time_ms(
+    keyframe_start_frame: u32,
+    current_frame: u32,
+    fps: f32,
+    in_point_ms: u32,
+    out_point_ms: Option<u32>,
+    media_duration_ms: Option<u32>,
+    loop_video: bool,
+) -> u32 {
+    let safe_fps = if fps.is_finite() && fps > 0.0 {
+        f64::from(fps)
+    } else {
+        24.0
+    };
+    let elapsed_frames = current_frame.saturating_sub(keyframe_start_frame);
+    let elapsed_ms = ((f64::from(elapsed_frames) * 1000.0) / safe_fps).round() as u64;
+    clamp_or_loop_video_time_ms(
+        in_point_ms,
+        elapsed_ms,
+        out_point_ms,
+        media_duration_ms,
+        loop_video,
+    )
+}
+
+/// Resolved playback/scrub state for an authored `ElementKind::Video` placement (`T-201`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedVideoPlacement {
+    pub channel: String,
+    pub target_path: Vec<Id>,
+    pub layer_id: Id,
+    pub resource: Id,
+    pub source: Option<VideoSourceSpec>,
+    pub sync: VideoSyncMode,
+    pub time_ms: u32,
+    pub in_point_ms: u32,
+    pub out_point_ms: Option<u32>,
+    pub playing: bool,
+    pub loop_video: bool,
+    pub muted: bool,
+    pub stopped: bool,
+}
+
+impl ResolvedVideoPlacement {
+    /// Compute the effective media timestamp clamped/looped against `media_duration_ms` and `[in_point_ms, out_point_ms]` (`T-201`).
+    pub fn effective_time_ms(&self, media_duration_ms: Option<u32>) -> u32 {
+        let elapsed_ms = u64::from(self.time_ms.saturating_sub(self.in_point_ms));
+        clamp_or_loop_video_time_ms(
+            self.in_point_ms,
+            elapsed_ms,
+            self.out_point_ms,
+            media_duration_ms,
+            self.loop_video,
+        )
+    }
+}
+
+/// Deterministic host-side tracker that consumes `VideoCommand`s emitted by `Player` / `AuthoredPlayback`
+/// and resolves the active or retained `ResolvedVideoPlacement` for each `DrawItem` (`T-201`).
+#[derive(Clone, Debug, Default)]
+pub struct TimelineVideoTracker {
+    pub channels: HashMap<String, ResolvedVideoPlacement>,
+    pub retained_by_target: HashMap<Vec<Id>, ResolvedVideoPlacement>,
+    pub stopped_resources: HashSet<Id>,
+    pub cue_events: Vec<VideoCommand>,
+}
+
+impl TimelineVideoTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn clear(&mut self) {
+        self.channels.clear();
+        self.retained_by_target.clear();
+        self.stopped_resources.clear();
+        self.cue_events.clear();
+    }
+
+    /// Advance active `Event` video streams by `dt_ms` and apply `commands` emitted by `Player` / `AuthoredPlayback`.
+    pub fn step_with_commands(
+        &mut self,
+        commands: impl IntoIterator<Item = VideoCommand>,
+        dt_ms: u32,
+    ) {
+        let commands: Vec<VideoCommand> = commands.into_iter().collect();
+        let has_stop_all = commands
+            .iter()
+            .any(|cmd| matches!(cmd, VideoCommand::StopAll));
+        let stopped_in_batch: HashSet<Id> = commands
+            .iter()
+            .filter_map(|cmd| match cmd {
+                VideoCommand::Stop { resource } => Some(resource.clone()),
+                _ => None,
+            })
+            .collect();
+
+        if dt_ms > 0 && !has_stop_all {
+            for placement in self.channels.values_mut() {
+                if placement.sync == VideoSyncMode::Event
+                    && placement.playing
+                    && !placement.stopped
+                    && !stopped_in_batch.contains(&placement.resource)
+                {
+                    let elapsed = u64::from(
+                        placement
+                            .time_ms
+                            .saturating_sub(placement.in_point_ms)
+                            .saturating_add(dt_ms),
+                    );
+                    placement.time_ms = clamp_or_loop_video_time_ms(
+                        placement.in_point_ms,
+                        elapsed,
+                        placement.out_point_ms,
+                        None,
+                        placement.loop_video,
+                    );
+                    self.retained_by_target
+                        .insert(placement.target_path.clone(), placement.clone());
+                }
+            }
+        }
+
+        for command in commands {
+            match command {
+                VideoCommand::StopAll => {
+                    self.channels.clear();
+                    self.retained_by_target.clear();
+                    self.stopped_resources.clear();
+                }
+                VideoCommand::PauseStreams => {
+                    for placement in self.channels.values_mut() {
+                        if placement.sync == VideoSyncMode::Stream {
+                            placement.playing = false;
+                            self.retained_by_target
+                                .insert(placement.target_path.clone(), placement.clone());
+                        }
+                    }
+                    for retained in self.retained_by_target.values_mut() {
+                        if retained.sync == VideoSyncMode::Stream {
+                            retained.playing = false;
+                        }
+                    }
+                }
+                VideoCommand::StopChannel { channel } => {
+                    if let Some(mut removed) = self.channels.remove(&channel) {
+                        removed.playing = false;
+                        self.retained_by_target
+                            .insert(removed.target_path.clone(), removed);
+                    }
+                }
+                VideoCommand::Stop { resource } => {
+                    self.stopped_resources.insert(resource.clone());
+                    for placement in self.channels.values_mut() {
+                        if placement.resource == resource {
+                            placement.playing = false;
+                            placement.stopped = true;
+                            self.retained_by_target
+                                .insert(placement.target_path.clone(), placement.clone());
+                        }
+                    }
+                    for retained in self.retained_by_target.values_mut() {
+                        if retained.resource == resource {
+                            retained.playing = false;
+                            retained.stopped = true;
+                        }
+                    }
+                }
+                VideoCommand::SeekAndPresent {
+                    channel,
+                    target_path,
+                    layer_id,
+                    resource,
+                    source,
+                    target_time_ms,
+                    in_point_ms,
+                    out_point_ms,
+                    playing,
+                    muted,
+                    loop_video,
+                } => {
+                    let existing_stopped = self
+                        .channels
+                        .get(&channel)
+                        .is_some_and(|c| c.stopped && c.resource == resource);
+                    if stopped_in_batch.contains(&resource) || existing_stopped {
+                        self.stopped_resources.insert(resource.clone());
+                        if let Some(existing) = self.channels.get_mut(&channel) {
+                            existing.playing = false;
+                            existing.stopped = true;
+                            self.retained_by_target
+                                .insert(existing.target_path.clone(), existing.clone());
+                        }
+                        continue;
+                    }
+                    self.stopped_resources.remove(&resource);
+                    let placement = ResolvedVideoPlacement {
+                        channel: channel.clone(),
+                        target_path: target_path.clone(),
+                        layer_id,
+                        resource,
+                        source,
+                        sync: VideoSyncMode::Stream,
+                        time_ms: target_time_ms,
+                        in_point_ms,
+                        out_point_ms,
+                        playing,
+                        loop_video,
+                        muted,
+                        stopped: false,
+                    };
+                    self.channels.insert(channel, placement.clone());
+                    self.retained_by_target.insert(target_path, placement);
+                }
+                VideoCommand::StartEvent {
+                    channel,
+                    target_path,
+                    layer_id,
+                    resource,
+                    source,
+                    start_offset_ms,
+                    out_point_ms,
+                    loop_video,
+                    muted,
+                } => {
+                    if stopped_in_batch.contains(&resource) {
+                        self.stopped_resources.insert(resource);
+                        continue;
+                    }
+                    self.stopped_resources.remove(&resource);
+                    let placement = ResolvedVideoPlacement {
+                        channel: channel.clone(),
+                        target_path: target_path.clone(),
+                        layer_id,
+                        resource,
+                        source,
+                        sync: VideoSyncMode::Event,
+                        time_ms: start_offset_ms,
+                        in_point_ms: start_offset_ms,
+                        out_point_ms,
+                        playing: true,
+                        loop_video,
+                        muted,
+                        stopped: false,
+                    };
+                    self.channels.insert(channel, placement.clone());
+                    self.retained_by_target.insert(target_path, placement);
+                }
+                VideoCommand::CuePointTriggered { .. } => {
+                    self.cue_events.push(command);
+                }
+            }
+        }
+    }
+
+    /// Look up the active or retained `ResolvedVideoPlacement` for `target_path`.
+    pub fn placement_for_target(&self, target_path: &[Id]) -> Option<&ResolvedVideoPlacement> {
+        self.channels
+            .values()
+            .find(|c| c.target_path.as_slice() == target_path)
+            .or_else(|| self.retained_by_target.get(target_path))
+    }
+}
+
+fn resolve_video_placement_from_nodes(
+    project: &Project,
+    nodes: &[Node],
+    item: &DrawItem,
+    playing: bool,
+) -> Option<ResolvedVideoPlacement> {
+    let active = active_span_for_item(project, nodes, item)?;
+    let source = resolve_video_source(project, active.span);
+    let effective_resource = if active.span.resource.is_empty() {
+        source
+            .as_ref()
+            .map(|s| s.url_or_path.clone())
+            .unwrap_or_default()
+    } else {
+        active.span.resource.clone()
+    };
+
+    if active.span.sync == VideoSyncMode::Stop {
+        let current_idx = active
+            .layer
+            .keyframes
+            .iter()
+            .position(|k| k.frame == active.key.frame)
+            .unwrap_or(0);
+        for prev_idx in (0..current_idx).rev() {
+            let prev_key = &active.layer.keyframes[prev_idx];
+            if let Some(prev_span) = prev_key.video.as_ref() {
+                if prev_span.sync == VideoSyncMode::Stop {
+                    break;
+                }
+                let prev_source = resolve_video_source(project, prev_span);
+                let prev_res = if prev_span.resource.is_empty() {
+                    prev_source
+                        .as_ref()
+                        .map(|s| s.url_or_path.clone())
+                        .unwrap_or_default()
+                } else {
+                    prev_span.resource.clone()
+                };
+                if prev_res == effective_resource && active.key.frame > prev_key.frame {
+                    let frozen_frame = active.key.frame - 1;
+                    let time_ms = compute_trimmed_video_time_ms(
+                        prev_key.frame,
+                        frozen_frame,
+                        project.fps as f32,
+                        prev_span.start_offset_ms,
+                        prev_span.end_offset_ms,
+                        None,
+                        prev_span.loop_video,
+                    );
+                    let channel =
+                        video_channel(&item.instance_path, &active.layer.id, prev_key.frame);
+                    return Some(ResolvedVideoPlacement {
+                        channel,
+                        target_path: item.instance_path.clone(),
+                        layer_id: active.layer.id.clone(),
+                        resource: effective_resource,
+                        source: prev_source,
+                        sync: prev_span.sync,
+                        time_ms,
+                        in_point_ms: prev_span.start_offset_ms,
+                        out_point_ms: prev_span.end_offset_ms,
+                        playing: false,
+                        loop_video: prev_span.loop_video,
+                        muted: prev_span.muted,
+                        stopped: true,
+                    });
+                }
+            }
+        }
+        return None;
+    }
+
+    // Check if another layer on the owning timeline (or any active timeline node) issued a Stop
+    // for `effective_resource` at `stop_frame` between `active.key.frame` and `active.owner.frame`.
+    let mut stop_frame_found: Option<u32> = None;
+    if let Some(symbol) = active
+        .owner
+        .symbol_id
+        .as_ref()
+        .and_then(|id| project.symbol(id))
+    {
+        for layer in &symbol.timeline.layers {
+            if matches!(layer.properties.role, LayerRole::Guide | LayerRole::Folder) {
+                continue;
+            }
+            for key in &layer.keyframes {
+                if key.frame < active.key.frame || key.frame > active.owner.frame {
+                    continue;
+                }
+                let Some(span) = key.video.as_ref().filter(|s| s.sync == VideoSyncMode::Stop)
+                else {
+                    continue;
+                };
+                let stop_res = if span.resource.is_empty() {
+                    resolve_video_source(project, span)
+                        .map(|s| s.url_or_path)
+                        .unwrap_or_default()
+                } else {
+                    span.resource.clone()
+                };
+                if stop_res == effective_resource {
+                    stop_frame_found =
+                        Some(stop_frame_found.map_or(key.frame, |prev: u32| prev.min(key.frame)));
+                }
+            }
+        }
+    }
+
+    if let Some(stop_frame) = stop_frame_found {
+        if stop_frame <= active.key.frame {
+            return None;
+        }
+        let frozen_frame = stop_frame - 1;
+        let time_ms = compute_trimmed_video_time_ms(
+            active.key.frame,
+            frozen_frame,
+            project.fps as f32,
+            active.span.start_offset_ms,
+            active.span.end_offset_ms,
+            None,
+            active.span.loop_video,
+        );
+        let channel = video_channel(&item.instance_path, &active.layer.id, active.key.frame);
+        return Some(ResolvedVideoPlacement {
+            channel,
+            target_path: item.instance_path.clone(),
+            layer_id: active.layer.id.clone(),
+            resource: effective_resource,
+            source,
+            sync: active.span.sync,
+            time_ms,
+            in_point_ms: active.span.start_offset_ms,
+            out_point_ms: active.span.end_offset_ms,
+            playing: false,
+            loop_video: active.span.loop_video,
+            muted: active.span.muted,
+            stopped: true,
+        });
+    }
+
+    let time_ms = compute_trimmed_video_time_ms(
+        active.key.frame,
+        active.owner.frame,
+        project.fps as f32,
+        active.span.start_offset_ms,
+        active.span.end_offset_ms,
+        None,
+        active.span.loop_video,
+    );
+    let channel = video_channel(&item.instance_path, &active.layer.id, active.key.frame);
+    Some(ResolvedVideoPlacement {
+        channel,
+        target_path: item.instance_path.clone(),
+        layer_id: active.layer.id.clone(),
+        resource: effective_resource,
+        source,
+        sync: active.span.sync,
+        time_ms,
+        in_point_ms: active.span.start_offset_ms,
+        out_point_ms: active.span.end_offset_ms,
+        playing,
+        loop_video: active.span.loop_video,
+        muted: active.span.muted,
+        stopped: false,
+    })
+}
+
+/// Resolve the static/scrubbed `ResolvedVideoPlacement` for a `DrawItem` at `(root_symbol_id, root_frame)` (`T-201`).
+pub fn resolve_draw_item_video_placement(
+    project: &Project,
+    root_symbol_id: &str,
+    root_frame: u32,
+    clip_frames: &HashMap<Vec<Id>, u32>,
+    item: &DrawItem,
+) -> Option<ResolvedVideoPlacement> {
+    if !matches!(item.kind, ElementKind::Video { .. }) {
+        return None;
+    }
+    let evaluation = crate::evaluate::snapshot_mode(
+        project,
+        root_symbol_id,
+        root_frame,
+        &|path| clip_frames.get(path).copied(),
+        &|_| None,
+        false,
+    );
+    resolve_video_placement_from_nodes(project, &evaluation.nodes, item, false)
+}
+
+/// Batch-resolve all `ElementKind::Video` placements in `items` at `(root_symbol_id, root_frame)` (`T-201`).
+pub fn resolve_scene_video_placements(
+    project: &Project,
+    root_symbol_id: &str,
+    root_frame: u32,
+    clip_frames: &HashMap<Vec<Id>, u32>,
+    items: &[DrawItem],
+) -> HashMap<Vec<Id>, ResolvedVideoPlacement> {
+    let mut out = HashMap::new();
+    if !items
+        .iter()
+        .any(|item| matches!(item.kind, ElementKind::Video { .. }))
+    {
+        return out;
+    }
+    let evaluation = crate::evaluate::snapshot_mode(
+        project,
+        root_symbol_id,
+        root_frame,
+        &|path| clip_frames.get(path).copied(),
+        &|_| None,
+        false,
+    );
+    for item in items {
+        if matches!(item.kind, ElementKind::Video { .. })
+            && let Some(resolved) =
+                resolve_video_placement_from_nodes(project, &evaluation.nodes, item, false)
+        {
+            out.insert(item.instance_path.clone(), resolved);
+        }
+    }
+    out
 }
 
 /// Collect cue points crossed between `prev_time_ms` and `curr_time_ms` in deterministic chronological order.
@@ -1183,7 +1820,7 @@ mod tests {
     use super::*;
     use crate::{
         Element, InstancePlayback, LayerProperties, Player, ResourceUnit, Symbol, SymbolKind,
-        Timeline, Transform,
+        Timeline, Transform, TweenProperty,
     };
 
     fn video_element(id: &str) -> Element {
@@ -1548,6 +2185,34 @@ mod tests {
     }
 
     #[test]
+    fn inherited_video_span_requires_the_same_stable_video_and_a_continuation_key() {
+        let mut layer = video_layer("video-layer", VideoSyncMode::Stream);
+        let mut continuation = layer.keyframes[0].clone();
+        continuation.frame = 1;
+        continuation.video = None;
+        continuation.keyed_properties = Some(vec![TweenProperty::X]);
+        layer.keyframes.push(continuation.clone());
+
+        let inherited = effective_video_span_for_element_at_frame(&layer, 1, "video")
+            .expect("a Motion property key for the same placement inherits the active span");
+        assert_eq!(inherited.0.frame, 0);
+
+        layer.keyframes[1].elements[0].id = "replacement-video".into();
+        assert!(
+            effective_video_span_for_element_at_frame(&layer, 1, "replacement-video").is_none(),
+            "a different stable placement must not inherit another video's resource"
+        );
+
+        layer.keyframes[1] = continuation;
+        layer.keyframes[1].keyed_properties = None;
+        layer.keyframes[1].tween = None;
+        assert!(
+            effective_video_span_for_element_at_frame(&layer, 1, "video").is_none(),
+            "an ordinary key ends the previous authored video span"
+        );
+    }
+
+    #[test]
     fn embedded_video_requires_format_9_while_non_embedded_deployment_requires_format_11() {
         // Timeline video was introduced in format 9, and the omitted deployment field defaults to
         // Embedded so existing format-9 documents remain loadable.
@@ -1620,6 +2285,49 @@ mod tests {
         progressive
             .validate()
             .expect("upgraded format-11 progressive video should validate");
+    }
+
+    #[test]
+    fn video_out_point_requires_format_12_and_round_trips_without_legacy_auto_upgrade() {
+        let mut project = runtime_video_project(VideoSyncMode::Stream);
+        project.format_version = 11;
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .video
+            .as_mut()
+            .unwrap()
+            .end_offset_ms = Some(750);
+
+        assert!(project.uses_format_12());
+        let err = project.validate().unwrap_err().to_string();
+        assert!(err.contains("require document version 12"), "got: {err}");
+
+        let under_versioned_json = serde_json::to_string(&project).unwrap();
+        let load_err = Project::from_json(&under_versioned_json)
+            .expect_err("new format-12 data must not be silently upgraded from a v11 writer")
+            .to_string();
+        assert!(
+            load_err.contains("require document version 12"),
+            "got: {load_err}"
+        );
+
+        project.upgrade_format_for_features();
+        assert_eq!(project.format_version, 12);
+        project.validate().unwrap();
+        let json = project.to_json().unwrap();
+        let reopened = Project::from_json(&json).unwrap();
+        assert_eq!(reopened.format_version, 12);
+        assert_eq!(
+            reopened.symbols[0].timeline.layers[0].keyframes[0]
+                .video
+                .as_ref()
+                .and_then(|video| video.end_offset_ms),
+            Some(750)
+        );
+
+        let mut without_trim = runtime_video_project(VideoSyncMode::Stream);
+        without_trim.format_version = 11;
+        assert!(!without_trim.uses_format_12());
+        without_trim.validate().unwrap();
     }
 
     #[test]
@@ -1920,5 +2628,48 @@ mod tests {
             "published project JSON must strip bytes after capturing the External asset"
         );
         external_and_progressive_only.validate().unwrap();
+    }
+
+    #[test]
+    fn pause_streams_leaves_independent_event_video_running() {
+        let mut tracker = TimelineVideoTracker::new();
+        tracker.step_with_commands(
+            [
+                VideoCommand::SeekAndPresent {
+                    channel: "stream".into(),
+                    target_path: vec!["stream-video".into()],
+                    layer_id: "stream-layer".into(),
+                    resource: "stream-resource".into(),
+                    source: None,
+                    target_time_ms: 40,
+                    in_point_ms: 0,
+                    out_point_ms: None,
+                    playing: true,
+                    muted: false,
+                    loop_video: false,
+                },
+                VideoCommand::StartEvent {
+                    channel: "event".into(),
+                    target_path: vec!["event-video".into()],
+                    layer_id: "event-layer".into(),
+                    resource: "event-resource".into(),
+                    source: None,
+                    start_offset_ms: 25,
+                    out_point_ms: None,
+                    loop_video: false,
+                    muted: false,
+                },
+            ],
+            0,
+        );
+
+        tracker.step_with_commands([VideoCommand::PauseStreams], 100);
+
+        let stream = tracker.channels.get("stream").unwrap();
+        assert!(!stream.playing);
+        assert_eq!(stream.time_ms, 40);
+        let event = tracker.channels.get("event").unwrap();
+        assert!(event.playing);
+        assert_eq!(event.time_ms, 125);
     }
 }

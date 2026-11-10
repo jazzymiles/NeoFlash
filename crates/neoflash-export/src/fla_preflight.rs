@@ -16,10 +16,11 @@ use std::io::Write;
 use std::path::Path;
 
 /// Target authoring format and version profile for FLA / XFL Save As (`T-188`, `T-189`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FlaTargetProfile {
     /// Adobe Animate CC (`.fla` ZIP archive, XFL `2.97`, `creatorInfo="Adobe Animate"`).
+    #[default]
     AnimateCC,
     /// Adobe Flash Professional CS6 (`.fla` ZIP archive, XFL `2.2`, `creatorInfo="Adobe Flash Professional CS6"`).
     FlashCS6,
@@ -1444,6 +1445,110 @@ fn normalize_derived_elements(project: &mut Project, profile: FlaTargetProfile) 
     }
 }
 
+fn remove_path_if_exists(path: &Path) -> std::io::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+}
+
+fn replace_staged_path_recoverably_with(
+    staged_path: &Path,
+    target_path: &Path,
+    backup_path: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    if fs::symlink_metadata(backup_path).is_ok() {
+        let _ = remove_path_if_exists(staged_path);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!(
+                "refusing to replace '{}' because backup path '{}' already exists",
+                target_path.display(),
+                backup_path.display()
+            ),
+        ));
+    }
+
+    let target_exists = match fs::symlink_metadata(target_path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            let _ = remove_path_if_exists(staged_path);
+            return Err(error);
+        }
+    };
+    if !target_exists {
+        let result = rename(staged_path, target_path);
+        if result.is_err() {
+            let _ = remove_path_if_exists(staged_path);
+        }
+        return result;
+    }
+
+    if let Err(error) = rename(target_path, backup_path) {
+        let _ = remove_path_if_exists(staged_path);
+        return Err(error);
+    }
+
+    match rename(staged_path, target_path) {
+        Ok(()) => {
+            if let Err(error) = remove_path_if_exists(backup_path) {
+                return Err(std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "replaced '{}', but could not remove recoverable backup '{}': {error}",
+                        target_path.display(),
+                        backup_path.display()
+                    ),
+                ));
+            }
+            Ok(())
+        }
+        Err(install_error) => {
+            let rollback_result = rename(backup_path, target_path);
+            let cleanup_result = remove_path_if_exists(staged_path);
+            if let Err(rollback_error) = rollback_result {
+                return Err(std::io::Error::new(
+                    rollback_error.kind(),
+                    format!(
+                        "could not install staged XFL at '{}': {install_error}; rollback also failed, but the previous document remains at '{}': {rollback_error}",
+                        target_path.display(),
+                        backup_path.display()
+                    ),
+                ));
+            }
+            if let Err(cleanup_error) = cleanup_result {
+                return Err(std::io::Error::new(
+                    cleanup_error.kind(),
+                    format!(
+                        "could not install staged XFL at '{}': {install_error}; the previous document was restored, but temporary '{}' could not be removed: {cleanup_error}",
+                        target_path.display(),
+                        staged_path.display()
+                    ),
+                ));
+            }
+            Err(install_error)
+        }
+    }
+}
+
+fn replace_staged_path_recoverably(
+    staged_path: &Path,
+    target_path: &Path,
+    backup_path: &Path,
+) -> std::io::Result<()> {
+    replace_staged_path_recoverably_with(staged_path, target_path, backup_path, |from, to| {
+        fs::rename(from, to)
+    })
+}
+
 /// Export `project` to `path` using `profile` and `options`, verifying the written artifact
 /// via `neoflash_import::import_project` before atomically replacing `path` (`T-188`).
 pub fn export_fla_with_profile(
@@ -1483,19 +1588,18 @@ pub fn export_fla_with_profile(
 
     if profile.is_directory() {
         let temp_dir = parent_dir.join(format!(".{stem}.xfl-tmp-{pid}-{nanos}"));
-        if temp_dir.exists() {
-            let _ = fs::remove_dir_all(&temp_dir);
+        let backup_path = parent_dir.join(format!(".{stem}.xfl-backup-{pid}-{nanos}"));
+        remove_path_if_exists(&temp_dir)?;
+        remove_path_if_exists(&backup_path)?;
+        if let Err(error) = write_uncompressed_xfl_dir(&derived, profile, stem, &temp_dir) {
+            let _ = remove_path_if_exists(&temp_dir);
+            return Err(error);
         }
-        write_uncompressed_xfl_dir(&derived, profile, stem, &temp_dir)?;
-        verify_reimported_fla(&temp_dir, profile)?;
-        if target_path.exists() {
-            if target_path.is_dir() {
-                fs::remove_dir_all(target_path)?;
-            } else {
-                fs::remove_file(target_path)?;
-            }
+        if let Err(error) = verify_reimported_fla(&temp_dir, profile) {
+            let _ = remove_path_if_exists(&temp_dir);
+            return Err(error);
         }
-        fs::rename(&temp_dir, target_path)?;
+        replace_staged_path_recoverably(&temp_dir, target_path, &backup_path)?;
         return Ok(report);
     }
 
@@ -3080,4 +3184,59 @@ fn xml_escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn temp_dir() -> std::path::PathBuf {
+        static ID: AtomicU64 = AtomicU64::new(1);
+        let path = std::env::temp_dir().join(format!(
+            "neoflash-xfl-replace-{}-{}",
+            std::process::id(),
+            ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).expect("create XFL replacement test directory");
+        path
+    }
+
+    #[test]
+    fn staged_xfl_install_failure_restores_previous_target_and_cleans_swap_paths() {
+        let root = temp_dir();
+        let target = root.join("movie.xfl");
+        let staged = root.join(".movie.xfl-tmp");
+        let backup = root.join(".movie.xfl-backup");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("marker.txt"), b"previous document").unwrap();
+        fs::create_dir_all(&staged).unwrap();
+        fs::write(staged.join("marker.txt"), b"new document").unwrap();
+
+        let mut rename_count = 0usize;
+        let error = replace_staged_path_recoverably_with(&staged, &target, &backup, |from, to| {
+            rename_count += 1;
+            if rename_count == 2 {
+                Err(std::io::Error::other("injected staged install failure"))
+            } else {
+                fs::rename(from, to)
+            }
+        })
+        .expect_err("second rename is injected to fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("injected staged install failure")
+        );
+        assert_eq!(rename_count, 3, "target move, failed install, rollback");
+        assert_eq!(
+            fs::read(target.join("marker.txt")).unwrap(),
+            b"previous document"
+        );
+        assert!(!staged.exists(), "staged directory must be cleaned");
+        assert!(!backup.exists(), "rollback must consume backup directory");
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

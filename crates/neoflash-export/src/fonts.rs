@@ -1,6 +1,11 @@
 //! Portable font policies, @font-face embedding, deterministic subsetting, and glyph outline conversion.
 
-use neoflash_core::{ElementKind, FillRule, Project, ResourceUnit, TextFieldState, TextFormat};
+use ab_glyph::{Font, FontRef};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use neoflash_core::{
+    ElementKind, FillRule, Project, ResourceUnit, TextFieldState, TextFieldType, TextFormat,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -27,6 +32,10 @@ pub struct FontSubsetStats {
     /// internal metrics blob under a font MIME type.
     #[serde(default)]
     pub subset_applied: bool,
+    /// Why a complete font was preserved, or which conservative boundary was used. This is an
+    /// export diagnostic, not a claim that NeoFlash implements every OpenType shaping behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -121,6 +130,10 @@ fn metadata_codepoints(entry: &EmbeddedFontMetadata) -> BTreeSet<u32> {
     codepoints
 }
 
+fn metadata_has_explicit_character_set(entry: &EmbeddedFontMetadata) -> bool {
+    entry.ranges.iter().any(|enabled| *enabled) || !entry.extra_chars.is_empty()
+}
+
 pub fn is_font_resource(resource: &ResourceUnit) -> bool {
     let mime = resource.media_type.trim().to_ascii_lowercase();
     if matches!(
@@ -157,8 +170,93 @@ pub fn font_family_for_resource(resource: &ResourceUnit) -> String {
     }
 }
 
-pub fn collect_used_codepoints(project: &Project) -> BTreeMap<String, BTreeSet<u32>> {
-    let mut used: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
+#[derive(Default)]
+struct FontUsage {
+    by_family: BTreeMap<String, BTreeSet<u32>>,
+    by_face: BTreeMap<String, BTreeSet<u32>>,
+    runtime_mutable_families: BTreeSet<String>,
+    runtime_mutable_faces: BTreeSet<String>,
+}
+
+fn add_character_usage(usage: &mut FontUsage, format: &TextFormat, character: char) {
+    usage
+        .by_family
+        .entry(format.font.clone())
+        .or_default()
+        .extend([32, character as u32]);
+    usage
+        .by_face
+        .entry(face_key(
+            &format.font,
+            requested_style(format.bold, format.italic),
+        ))
+        .or_default()
+        .extend([32, character as u32]);
+}
+
+fn mark_runtime_mutable_face(usage: &mut FontUsage, format: &TextFormat) {
+    usage
+        .runtime_mutable_families
+        .insert(format.font.trim().to_ascii_lowercase());
+    usage.runtime_mutable_faces.insert(face_key(
+        &format.font,
+        requested_style(format.bold, format.italic),
+    ));
+}
+
+fn collect_text_box_usage(usage: &mut FontUsage, field: &TextFieldState) {
+    let total_units = field.text.encode_utf16().count() as u32;
+    let runs = field.materialized_runs(total_units);
+    let runtime_mutable = field.field_type == TextFieldType::Input
+        || field.selectable
+        || field.variable.as_ref().is_some_and(|name| !name.is_empty());
+
+    if runs.is_empty() {
+        usage
+            .by_family
+            .entry(field.format.font.clone())
+            .or_default()
+            .insert(32);
+        usage
+            .by_face
+            .entry(face_key(
+                &field.format.font,
+                requested_style(field.format.bold, field.format.italic),
+            ))
+            .or_default()
+            .insert(32);
+        if runtime_mutable {
+            mark_runtime_mutable_face(usage, &field.format);
+        }
+        return;
+    }
+
+    if runtime_mutable {
+        // A later script/user edit may use the field's default face even when every current
+        // character is covered by an authored rich-text run.
+        mark_runtime_mutable_face(usage, &field.format);
+        for run in &runs {
+            mark_runtime_mutable_face(usage, &run.format);
+        }
+    }
+
+    let mut cursor_utf16 = 0u32;
+    let mut run_index = 0usize;
+    for character in field.text.chars() {
+        while run_index + 1 < runs.len() && cursor_utf16 >= runs[run_index].end {
+            run_index += 1;
+        }
+        let format = runs
+            .get(run_index)
+            .filter(|run| run.start <= cursor_utf16 && cursor_utf16 < run.end)
+            .map_or(&field.format, |run| &run.format);
+        add_character_usage(usage, format, character);
+        cursor_utf16 = cursor_utf16.saturating_add(character.len_utf16() as u32);
+    }
+}
+
+fn collect_font_usage(project: &Project) -> FontUsage {
+    let mut usage = FontUsage::default();
     for symbol in &project.symbols {
         for layer in &symbol.timeline.layers {
             for keyframe in &layer.keyframes {
@@ -167,17 +265,27 @@ pub fn collect_used_codepoints(project: &Project) -> BTreeMap<String, BTreeSet<u
                         ElementKind::Text {
                             text, font_family, ..
                         } => {
-                            let entry = used.entry(font_family.clone()).or_default();
-                            entry.insert(32);
+                            let format = TextFormat {
+                                font: font_family.clone(),
+                                ..TextFormat::default()
+                            };
+                            usage
+                                .by_family
+                                .entry(format.font.clone())
+                                .or_default()
+                                .insert(32);
+                            usage
+                                .by_face
+                                .entry(face_key(&format.font, "Regular"))
+                                .or_default()
+                                .insert(32);
                             for ch in text.chars() {
-                                entry.insert(ch as u32);
+                                add_character_usage(&mut usage, &format, ch);
                             }
                         }
-                        ElementKind::TextBox { text, format, .. } => {
-                            let entry = used.entry(format.font.clone()).or_default();
-                            entry.insert(32);
-                            for ch in text.chars() {
-                                entry.insert(ch as u32);
+                        ElementKind::TextBox { .. } => {
+                            if let Some(field) = TextFieldState::from_kind(&element.kind) {
+                                collect_text_box_usage(&mut usage, &field);
                             }
                         }
                         _ => {}
@@ -186,7 +294,11 @@ pub fn collect_used_codepoints(project: &Project) -> BTreeMap<String, BTreeSet<u
             }
         }
     }
-    used
+    usage
+}
+
+pub fn collect_used_codepoints(project: &Project) -> BTreeMap<String, BTreeSet<u32>> {
+    collect_font_usage(project).by_family
 }
 
 pub fn embedded_font_families(project: &Project) -> BTreeSet<String> {
@@ -324,8 +436,297 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
     converted
 }
 
+fn sfnt_checksum(bytes: &[u8]) -> u32 {
+    let mut sum = 0u32;
+    let (chunks, rem) = bytes.as_chunks::<4>();
+    for chunk in chunks {
+        sum = sum.wrapping_add(u32::from_be_bytes(*chunk));
+    }
+    if !rem.is_empty() {
+        let mut tail = [0u8; 4];
+        tail[..rem.len()].copy_from_slice(rem);
+        sum = sum.wrapping_add(u32::from_be_bytes(tail));
+    }
+    sum
+}
+
+/// Deterministically subsets a TrueType SFNT font (`0x00010000` or `true`), retaining `.notdef`,
+/// whitespace, all requested `codepoints`, and any transitive composite glyph components while
+/// pruning unused glyph outlines from `glyf`/`loca`. Original OpenType tables are preserved except
+/// for `DSIG` (invalidated by any rewrite) and a compact glyph-name-free `post` table. If a table
+/// can introduce glyphs that are not directly reachable from Unicode (for example `GSUB`, color
+/// layers, SVG glyphs, or mathematical variants), all glyph outlines are conservatively retained;
+/// this keeps layout behavior valid without claiming that this routine performs full shaping-aware
+/// subsetting.
+/// Returns `None` if `raw_bytes` is not a TrueType-outline SFNT or if subsetting does not shrink
+/// the binary.
+pub fn subset_ttf_font_bytes(raw_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Option<Vec<u8>> {
+    if raw_bytes.len() < 12 {
+        return None;
+    }
+    let sfnt_version = u32::from_be_bytes([raw_bytes[0], raw_bytes[1], raw_bytes[2], raw_bytes[3]]);
+    if sfnt_version != 0x0001_0000 && sfnt_version != 0x7472_7565 {
+        return None;
+    }
+    let num_tables = u16::from_be_bytes([raw_bytes[4], raw_bytes[5]]) as usize;
+    let dir_end = 12usize.checked_add(num_tables.checked_mul(16)?)?;
+    if raw_bytes.len() < dir_end {
+        return None;
+    }
+
+    let mut tables = BTreeMap::<[u8; 4], &[u8]>::new();
+    for i in 0..num_tables {
+        let rec = &raw_bytes[12 + i * 16..12 + (i + 1) * 16];
+        let tag = [rec[0], rec[1], rec[2], rec[3]];
+        let offset = u32::from_be_bytes([rec[8], rec[9], rec[10], rec[11]]) as usize;
+        let length = u32::from_be_bytes([rec[12], rec[13], rec[14], rec[15]]) as usize;
+        let end = offset.checked_add(length)?;
+        if end > raw_bytes.len() {
+            return None;
+        }
+        tables.insert(tag, &raw_bytes[offset..end]);
+    }
+
+    let head = *tables.get(b"head")?;
+    let maxp = *tables.get(b"maxp")?;
+    let loca = *tables.get(b"loca")?;
+    let glyf = *tables.get(b"glyf")?;
+    if head.len() < 54
+        || maxp.len() < 6
+        || !tables.contains_key(b"cmap")
+        || !tables.contains_key(b"hhea")
+        || !tables.contains_key(b"hmtx")
+    {
+        return None;
+    }
+
+    let num_glyphs = u16::from_be_bytes([maxp[4], maxp[5]]) as usize;
+    if num_glyphs == 0 {
+        return None;
+    }
+
+    let font = FontRef::try_from_slice(raw_bytes).ok()?;
+    let mut retained = BTreeSet::<u16>::new();
+    retained.insert(0);
+    if num_glyphs > 1 {
+        retained.insert(1);
+    }
+    for cp in codepoints.iter().copied().chain([9u32, 10, 13, 32]) {
+        if let Some(ch) = char::from_u32(cp) {
+            let gid = font.glyph_id(ch).0;
+            if (gid as usize) < num_glyphs {
+                retained.insert(gid);
+            }
+        }
+    }
+
+    // These tables can select or compose glyphs that are not directly named by cmap. Parsing every
+    // OpenType/AAT lookup format here would be a separate shaping engine, so keep every outline when
+    // one is present. We still rewrite a valid deterministic SFNT and compact the `post` table.
+    const INDIRECT_GLYPH_TABLES: [&[u8; 4]; 10] = [
+        b"GSUB", b"morx", b"mort", b"COLR", b"SVG ", b"sbix", b"CBDT", b"EBDT", b"bdat", b"MATH",
+    ];
+    if INDIRECT_GLYPH_TABLES
+        .iter()
+        .any(|tag| tables.contains_key(*tag))
+    {
+        retained.extend((0..num_glyphs).map(|glyph| glyph as u16));
+    }
+
+    let index_to_loc_format = i16::from_be_bytes([head[50], head[51]]);
+    let mut orig_offsets = Vec::with_capacity(num_glyphs + 1);
+    match index_to_loc_format {
+        0 => {
+            if loca.len() < (num_glyphs + 1) * 2 {
+                return None;
+            }
+            for i in 0..=num_glyphs {
+                let off = (u16::from_be_bytes([loca[i * 2], loca[i * 2 + 1]]) as usize) * 2;
+                orig_offsets.push(off);
+            }
+        }
+        1 => {
+            if loca.len() < (num_glyphs + 1) * 4 {
+                return None;
+            }
+            for i in 0..=num_glyphs {
+                let off = u32::from_be_bytes([
+                    loca[i * 4],
+                    loca[i * 4 + 1],
+                    loca[i * 4 + 2],
+                    loca[i * 4 + 3],
+                ]) as usize;
+                orig_offsets.push(off);
+            }
+        }
+        _ => return None,
+    }
+    if !orig_offsets.windows(2).all(|w| w[0] <= w[1]) || *orig_offsets.last()? > glyf.len() {
+        return None;
+    }
+
+    // Transitively retain component glyphs referenced by composite glyphs.
+    let mut queue: Vec<u16> = retained.iter().copied().collect();
+    while let Some(gid) = queue.pop() {
+        let start = orig_offsets[gid as usize];
+        let end = orig_offsets[gid as usize + 1];
+        if end <= start || end - start < 10 {
+            continue;
+        }
+        let glyph_data = &glyf[start..end];
+        let num_contours = i16::from_be_bytes([glyph_data[0], glyph_data[1]]);
+        if num_contours < 0 {
+            let mut pos = 10usize;
+            loop {
+                if pos + 4 > glyph_data.len() {
+                    return None;
+                }
+                let flags = u16::from_be_bytes([glyph_data[pos], glyph_data[pos + 1]]);
+                let comp_gid = u16::from_be_bytes([glyph_data[pos + 2], glyph_data[pos + 3]]);
+                if (comp_gid as usize) < num_glyphs && retained.insert(comp_gid) {
+                    queue.push(comp_gid);
+                }
+                pos += 4;
+                pos += if (flags & 0x0001) != 0 { 4 } else { 2 };
+                if (flags & 0x0008) != 0 {
+                    pos += 2;
+                } else if (flags & 0x0040) != 0 {
+                    pos += 4;
+                } else if (flags & 0x0080) != 0 {
+                    pos += 8;
+                }
+                if pos > glyph_data.len() {
+                    return None;
+                }
+                if (flags & 0x0020) == 0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut new_glyf = Vec::<u8>::new();
+    let mut new_offsets = Vec::<u32>::with_capacity(num_glyphs + 1);
+    for gid in 0..num_glyphs {
+        new_offsets.push(new_glyf.len() as u32);
+        if retained.contains(&(gid as u16)) {
+            let start = orig_offsets[gid];
+            let end = orig_offsets[gid + 1];
+            if end > start {
+                new_glyf.extend_from_slice(&glyf[start..end]);
+                while !new_glyf.len().is_multiple_of(4) {
+                    new_glyf.push(0);
+                }
+            }
+        }
+    }
+    new_offsets.push(new_glyf.len() as u32);
+    if new_glyf.is_empty() {
+        new_glyf.extend_from_slice(&[0u8; 4]);
+    }
+
+    let use_short_loca = *new_offsets.last()? <= (u16::MAX as u32) * 2;
+    let new_loca_format: i16 = if use_short_loca { 0 } else { 1 };
+    let mut new_loca =
+        Vec::<u8>::with_capacity((num_glyphs + 1) * if use_short_loca { 2 } else { 4 });
+    for &off in &new_offsets {
+        if use_short_loca {
+            new_loca.extend_from_slice(&((off / 2) as u16).to_be_bytes());
+        } else {
+            new_loca.extend_from_slice(&off.to_be_bytes());
+        }
+    }
+
+    let mut new_head = head.to_vec();
+    new_head[8..12].copy_from_slice(&[0, 0, 0, 0]);
+    new_head[50..52].copy_from_slice(&new_loca_format.to_be_bytes());
+
+    let new_post = tables.get(b"post").map(|post| {
+        if post.len() >= 32 {
+            let mut compact = post[..32].to_vec();
+            compact[0..4].copy_from_slice(&0x0003_0000u32.to_be_bytes());
+            compact
+        } else {
+            post.to_vec()
+        }
+    });
+
+    let mut out_tables = Vec::<([u8; 4], Vec<u8>)>::new();
+    for (tag, original) in &tables {
+        if tag == b"DSIG" {
+            continue;
+        }
+        let data = match tag {
+            b"glyf" => new_glyf.clone(),
+            b"loca" => new_loca.clone(),
+            b"head" => new_head.clone(),
+            b"post" => new_post.clone().unwrap_or_else(|| original.to_vec()),
+            _ => original.to_vec(),
+        };
+        out_tables.push((*tag, data));
+    }
+    out_tables.sort_by_key(|(tag, _)| *tag);
+
+    let table_count = out_tables.len() as u16;
+    if table_count == 0 {
+        return None;
+    }
+    let entry_selector = 15u16.saturating_sub(table_count.leading_zeros() as u16);
+    let search_range = (1u16 << entry_selector) * 16;
+    let range_shift = table_count * 16 - search_range;
+
+    let mut out = Vec::<u8>::new();
+    out.extend_from_slice(&sfnt_version.to_be_bytes());
+    out.extend_from_slice(&table_count.to_be_bytes());
+    out.extend_from_slice(&search_range.to_be_bytes());
+    out.extend_from_slice(&entry_selector.to_be_bytes());
+    out.extend_from_slice(&range_shift.to_be_bytes());
+
+    let dir_pos = out.len();
+    out.resize(dir_pos + (table_count as usize) * 16, 0);
+
+    let mut head_table_offset = None;
+    for (idx, (tag, data)) in out_tables.iter().enumerate() {
+        let offset = out.len() as u32;
+        let length = data.len() as u32;
+        let checksum = sfnt_checksum(data);
+        if tag == b"head" {
+            head_table_offset = Some(offset as usize);
+        }
+        let rec_pos = dir_pos + idx * 16;
+        out[rec_pos..rec_pos + 4].copy_from_slice(tag);
+        out[rec_pos + 4..rec_pos + 8].copy_from_slice(&checksum.to_be_bytes());
+        out[rec_pos + 8..rec_pos + 12].copy_from_slice(&offset.to_be_bytes());
+        out[rec_pos + 12..rec_pos + 16].copy_from_slice(&length.to_be_bytes());
+
+        out.extend_from_slice(data);
+        while !out.len().is_multiple_of(4) {
+            out.push(0);
+        }
+    }
+
+    let head_off = head_table_offset?;
+    let total_sum = sfnt_checksum(&out);
+    let adjustment = 0xB1B0_AFBAu32.wrapping_sub(total_sum);
+    out[head_off + 8..head_off + 12].copy_from_slice(&adjustment.to_be_bytes());
+
+    if out.len() >= raw_bytes.len() {
+        return None;
+    }
+    let subset_font = FontRef::try_from_slice(&out).ok()?;
+    for cp in codepoints.iter().copied() {
+        if let Some(ch) = char::from_u32(cp)
+            && subset_font.glyph_id(ch) != font.glyph_id(ch)
+        {
+            return None;
+        }
+    }
+    Some(out)
+}
+
 pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> FontBundle {
-    let used_by_family = collect_used_codepoints(project);
+    let usage = collect_font_usage(project);
+    let used_by_family = &usage.by_family;
     let metadata = embedding_metadata(project);
     let mut bundle = FontBundle {
         policy,
@@ -366,26 +767,90 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
             continue;
         };
         let original_bytes = raw_bytes.len();
+        let style = face
+            .map(|entry| entry.style.trim())
+            .filter(|style| !style.is_empty())
+            .unwrap_or("Regular");
         let active_bytes = if policy == FontExportPolicy::Subset {
-            let codepoints = face.map(metadata_codepoints).unwrap_or_else(|| {
+            let key = face_key(&family, style);
+            let explicit_character_set = face.is_some_and(metadata_has_explicit_character_set);
+            let runtime_mutable = usage.runtime_mutable_faces.contains(&key)
+                || (face.is_none()
+                    && (usage
+                        .runtime_mutable_families
+                        .contains(&family.trim().to_ascii_lowercase())
+                        || usage
+                            .runtime_mutable_families
+                            .contains(&res.id.trim().to_ascii_lowercase())));
+
+            // Metadata declares the allowed future repertoire, while current authored text must
+            // always remain renderable even if it falls outside the selected range checkboxes.
+            let mut codepoints = face.map(metadata_codepoints).unwrap_or_default();
+            let authored_usage = if face.is_some() {
+                usage.by_face.get(&key)
+            } else {
                 used_by_family
                     .get(&family)
                     .or_else(|| used_by_family.get(&res.id))
-                    .cloned()
-                    .unwrap_or_else(|| (32u32..=126).collect())
-            });
-            // `TextFormat::subset_font_bytes` is NeoFlash's portable metrics encoding (`NFPM`),
-            // not an SFNT/WOFF font that a browser can load through @font-face. Preserve the
-            // original font until a real glyph/table subsetter is available; a larger valid
-            // export is preferable to a smaller package with silently broken typography.
-            bundle.subset_stats.push(FontSubsetStats {
-                family: family.clone(),
-                original_bytes,
-                subset_bytes: raw_bytes.len(),
-                codepoint_count: codepoints.len(),
-                subset_applied: false,
-            });
-            raw_bytes
+                    .or_else(|| {
+                        used_by_family.iter().find_map(|(candidate, codepoints)| {
+                            (candidate.eq_ignore_ascii_case(&family)
+                                || candidate.eq_ignore_ascii_case(&res.id))
+                            .then_some(codepoints)
+                        })
+                    })
+            };
+            if let Some(authored_usage) = authored_usage {
+                codepoints.extend(authored_usage);
+            }
+            if codepoints.is_empty() {
+                codepoints.extend(32u32..=126);
+            }
+
+            if runtime_mutable && !explicit_character_set {
+                bundle.subset_stats.push(FontSubsetStats {
+                    family: family.clone(),
+                    original_bytes,
+                    subset_bytes: raw_bytes.len(),
+                    codepoint_count: codepoints.len(),
+                    subset_applied: false,
+                    diagnostic: Some(
+                        "Complete font preserved: runtime-editable Dynamic/Input text has no explicit embedded-character ranges, so future script or user text cannot be safely predicted."
+                            .to_owned(),
+                    ),
+                });
+                raw_bytes
+            } else if let Some(subset_bytes) = subset_ttf_font_bytes(&raw_bytes, &codepoints) {
+                res.data_base64 = STANDARD.encode(&subset_bytes).into();
+                bundle.subset_stats.push(FontSubsetStats {
+                    family: family.clone(),
+                    original_bytes,
+                    subset_bytes: subset_bytes.len(),
+                    codepoint_count: codepoints.len(),
+                    subset_applied: true,
+                    diagnostic: Some(if runtime_mutable {
+                        "Runtime-editable Dynamic/Input text is limited to the explicitly authored embedded-character ranges plus current text. OpenType layout tables are preserved; this does not claim complete shaping-aware subsetting."
+                            .to_owned()
+                    } else {
+                        "OpenType layout tables and composite dependencies are preserved; fonts with indirect glyph-selection tables conservatively retain every outline. This does not claim complete shaping-aware subsetting."
+                            .to_owned()
+                    }),
+                });
+                subset_bytes
+            } else {
+                bundle.subset_stats.push(FontSubsetStats {
+                    family: family.clone(),
+                    original_bytes,
+                    subset_bytes: raw_bytes.len(),
+                    codepoint_count: codepoints.len(),
+                    subset_applied: false,
+                    diagnostic: Some(
+                        "Complete font preserved because it could not be rewritten as a smaller validated TrueType SFNT without risking glyph or layout loss."
+                            .to_owned(),
+                    ),
+                });
+                raw_bytes
+            }
         } else {
             raw_bytes
         };
@@ -397,7 +862,6 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
         }
 
         let css_family = family.replace('\\', "\\\\").replace('"', "\\\"");
-        let style = face.map_or("Regular", |entry| entry.style.as_str());
         let style_lower = style.to_ascii_lowercase();
         let css_weight = if style_lower.contains("semi bold") || style_lower.contains("semibold") {
             600
@@ -423,4 +887,196 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
     }
 
     bundle
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::{AuthoredTextFieldOptions, Element, TextFormatRun};
+
+    const TEST_FONT: &[u8] = include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
+
+    fn add_font(project: &mut Project, id: &str, file_name: &str) {
+        project.resources.push(
+            ResourceUnit::from_bytes(id, format!("fonts/{file_name}"), "font/ttf", TEST_FONT)
+                .expect("test font resource"),
+        );
+    }
+
+    fn add_text_box(project: &mut Project, id: &str, name: &str, text: &str, format: TextFormat) {
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: id.to_owned(),
+                name: name.to_owned(),
+                kind: ElementKind::TextBox {
+                    text: text.to_owned(),
+                    width: 240.0,
+                    height: 40.0,
+                    format,
+                    word_wrap: false,
+                    multiline: false,
+                },
+                ..Element::default()
+            });
+    }
+
+    fn sfnt_table_tags(bytes: &[u8]) -> BTreeSet<[u8; 4]> {
+        let count = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+        (0..count)
+            .map(|index| {
+                let start = 12 + index * 16;
+                bytes[start..start + 4]
+                    .try_into()
+                    .expect("complete SFNT table tag")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn subset_collects_every_rich_text_face_and_preserves_layout_tables() {
+        let mut project = Project::blank();
+        add_font(&mut project, "font-alpha", "Alpha.ttf");
+        add_font(&mut project, "font-beta", "Beta-Bold.ttf");
+        let metadata = serde_json::json!([
+            {
+                "id": "font-alpha",
+                "family": "Alpha",
+                "style": "Regular",
+                "ranges": [],
+                "extra_chars": ""
+            },
+            {
+                "id": "font-beta",
+                "family": "Beta",
+                "style": "Bold",
+                "ranges": [],
+                "extra_chars": ""
+            }
+        ]);
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                "font-embedding-metadata",
+                FONT_EMBEDDING_METADATA_PATH,
+                "application/json",
+                &serde_json::to_vec(&metadata).expect("embedding metadata"),
+            )
+            .expect("metadata resource"),
+        );
+
+        let alpha = TextFormat {
+            font: "Alpha".to_owned(),
+            ..TextFormat::default()
+        };
+        let beta_bold = TextFormat {
+            font: "Beta".to_owned(),
+            bold: true,
+            ..TextFormat::default()
+        };
+        let mut field_format = alpha.clone();
+        field_format.set_field_options(Some(AuthoredTextFieldOptions {
+            selectable: false,
+            format_runs: vec![
+                TextFormatRun {
+                    start: 0,
+                    end: 1,
+                    format: alpha,
+                },
+                TextFormatRun {
+                    start: 1,
+                    end: 2,
+                    format: beta_bold,
+                },
+            ],
+            ..AuthoredTextFieldOptions::default()
+        }));
+        add_text_box(&mut project, "mixed", "", "AΩ", field_format);
+
+        let usage = collect_font_usage(&project);
+        assert_eq!(
+            usage.by_face.get(&face_key("Alpha", "Regular")),
+            Some(&BTreeSet::from([32, 'A' as u32]))
+        );
+        assert_eq!(
+            usage.by_face.get(&face_key("Beta", "Bold")),
+            Some(&BTreeSet::from([32, 'Ω' as u32]))
+        );
+
+        let mut published = project.clone();
+        let bundle = apply_font_policy(&mut published, FontExportPolicy::Subset);
+        assert_eq!(bundle.subset_stats.len(), 2);
+        for stats in &bundle.subset_stats {
+            assert!(stats.subset_applied, "{stats:?}");
+            assert_eq!(stats.codepoint_count, 2, "{stats:?}");
+            assert!(
+                stats
+                    .diagnostic
+                    .as_deref()
+                    .is_some_and(|message| message.contains("does not claim complete shaping")),
+                "{stats:?}"
+            );
+        }
+
+        let original_tags = sfnt_table_tags(TEST_FONT);
+        for resource in published
+            .resources
+            .iter()
+            .filter(|resource| is_font_resource(resource))
+        {
+            let subset = resource.decoded_bytes().expect("subset font bytes");
+            FontRef::try_from_slice(&subset).expect("valid rewritten font");
+            let subset_tags = sfnt_table_tags(&subset);
+            for tag in [*b"GDEF", *b"GPOS", *b"GSUB", *b"kern"] {
+                if original_tags.contains(&tag) {
+                    assert!(subset_tags.contains(&tag), "lost table {tag:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn subset_preserves_complete_font_for_dynamic_and_input_without_declared_ranges() {
+        for (label, options) in [
+            ("dynamic", None),
+            (
+                "input",
+                Some(AuthoredTextFieldOptions {
+                    field_type: TextFieldType::Input,
+                    ..AuthoredTextFieldOptions::default()
+                }),
+            ),
+        ] {
+            let mut project = Project::blank();
+            add_font(&mut project, "runtime-font", "Runtime.ttf");
+            let mut format = TextFormat {
+                font: "Runtime".to_owned(),
+                ..TextFormat::default()
+            };
+            if let Some(options) = options {
+                format.set_field_options(Some(options));
+            }
+            add_text_box(&mut project, label, label, "A", format);
+
+            let before = project.resources[0]
+                .decoded_bytes()
+                .expect("complete font bytes");
+            let bundle = apply_font_policy(&mut project, FontExportPolicy::Subset);
+            let stats = bundle.subset_stats.first().expect("font subset stats");
+            assert!(!stats.subset_applied, "{label}: {stats:?}");
+            assert_eq!(stats.original_bytes, stats.subset_bytes, "{label}");
+            assert_eq!(
+                project.resources[0]
+                    .decoded_bytes()
+                    .expect("preserved font bytes"),
+                before,
+                "{label} field must retain future glyphs"
+            );
+            assert!(
+                stats.diagnostic.as_deref().is_some_and(|message| {
+                    message.contains("Dynamic/Input") && message.contains("future")
+                }),
+                "{label}: {stats:?}"
+            );
+        }
+    }
 }

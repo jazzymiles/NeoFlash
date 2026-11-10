@@ -4773,7 +4773,10 @@ fn file_close_revert_recent_files_and_window_hide_panels() {
     let fla_path = dir.join("saved-test.fla");
     assert!(editor.save_to_path(fla_path.clone()));
     assert_eq!(editor.path.as_ref(), Some(&file_path));
-    assert_eq!(editor.status, "Exported derived FLA.");
+    assert_eq!(
+        editor.status,
+        "Exported derived FLA (Adobe Animate CC (XFL 2.97))."
+    );
     let saved_width = editor.project.width;
     editor.transact(|e| e.project.width += 17);
     assert!(editor.revert_to_saved(&ctx));

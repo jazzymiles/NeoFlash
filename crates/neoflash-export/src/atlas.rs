@@ -6,7 +6,7 @@
 //! TexturePacker-compatible JSON Array, JSON Hash (PixiJS / Phaser), or Starling XML metadata.
 
 use crate::{ExportError, atomic_write, video::render_authored_scene_rgba};
-use image::{ImageFormat, RgbaImage};
+use image::{ImageFormat, ImageReader, Limits, RgbaImage};
 use neoflash_core::{Project, evaluate_scene, flatten_scenes_with_ranges};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,6 +16,45 @@ use std::{
     io::Cursor,
     path::{Path, PathBuf},
 };
+
+const MAX_BITMAP_SHEET_DECODED_BYTES: usize = 128 * 1024 * 1024;
+const MAX_BITMAP_SHEET_OUTPUT_BYTES: usize = 128 * 1024 * 1024;
+const MAX_BITMAP_SHEET_DIMENSION: u32 = 8192;
+
+fn checked_rgba_bytes(width: u32, height: u32, context: &str) -> Result<usize, ExportError> {
+    let bytes = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| ExportError::Options(format!("{context} RGBA dimensions overflow.")))?;
+    Ok(bytes)
+}
+
+fn reserve_bitmap_decode_bytes(total: &mut usize, bytes: usize) -> Result<(), ExportError> {
+    *total = total.checked_add(bytes).ok_or_else(|| {
+        ExportError::Options("Bitmap sprite-sheet decode budget overflow.".into())
+    })?;
+    if *total > MAX_BITMAP_SHEET_DECODED_BYTES {
+        return Err(ExportError::Options(format!(
+            "Bitmap resources require {} decoded RGBA bytes, exceeding the {} MiB sprite-sheet input budget.",
+            *total,
+            MAX_BITMAP_SHEET_DECODED_BYTES / (1024 * 1024)
+        )));
+    }
+    Ok(())
+}
+
+fn grow_bitmap_sheet_dimension(value: u32) -> Option<u32> {
+    if value >= MAX_BITMAP_SHEET_DIMENSION {
+        return None;
+    }
+    Some(
+        value
+            .checked_mul(2)
+            .unwrap_or(MAX_BITMAP_SHEET_DIMENSION)
+            .max(value.saturating_add(16))
+            .min(MAX_BITMAP_SHEET_DIMENSION),
+    )
+}
 
 /// Metadata schema emitted alongside the packed PNG sprite sheet.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -487,12 +526,14 @@ pub fn render_project_atlas(
         let scene = evaluate_scene(&eval_project, target_symbol_id, f, false, true);
         let rgba = render_authored_scene_rgba(
             &eval_project,
+            target_symbol_id,
+            f,
             &scene,
             fw,
             fh,
             options.transparent_background,
             &mut bitmap_cache,
-        );
+        )?;
         let (tx, ty, tw, th, trimmed, pixels) = trim_rgba(&rgba, fw, fh, options.trim);
         trimmed_frames.push(TrimmedFrame {
             name: format!("{prefix}_{:04}", f + 1),
@@ -657,10 +698,319 @@ pub fn export_project_atlas(
     })
 }
 
+/// Packs all `image/*` bitmap resources in `project` into a combined `sprite_sheet.png` and
+/// `sprite_sheet.json` manifest (with per-bitmap `{ id, path, media_type, frame, sourceSize }`
+/// and TexturePacker-compatible `frames`). Returns `Ok(None)` when the project has no bitmap
+/// resources.
+pub fn pack_project_bitmap_resources_sprite_sheet(
+    project: &Project,
+    pretty: bool,
+) -> Result<Option<(Vec<u8>, String)>, ExportError> {
+    struct DecodedBitmap {
+        id: String,
+        path: String,
+        media_type: String,
+        rgba: RgbaImage,
+    }
+
+    let mut bitmaps = Vec::<DecodedBitmap>::new();
+    let mut decoded_rgba_bytes = 0usize;
+    for res in &project.resources {
+        if !res.is_image() {
+            continue;
+        }
+        let bytes = res.decoded_bytes().map_err(|e| {
+            ExportError::Options(format!(
+                "Bitmap resource '{}' ({}) could not be decoded for the sprite sheet: {e}",
+                res.id, res.path
+            ))
+        })?;
+        let format = image::guess_format(&bytes).map_err(|e| {
+            ExportError::Options(format!(
+                "Bitmap resource '{}' ({}) is corrupt or unsupported for the sprite sheet: {e}",
+                res.id, res.path
+            ))
+        })?;
+        let (width, height) = ImageReader::with_format(Cursor::new(&bytes), format)
+            .into_dimensions()
+            .map_err(|e| {
+                ExportError::Options(format!(
+                    "Bitmap resource '{}' ({}) has an unreadable image header: {e}",
+                    res.id, res.path
+                ))
+            })?;
+        if width == 0 || height == 0 {
+            return Err(ExportError::Options(format!(
+                "Bitmap resource '{}' ({}) has zero dimensions and cannot be packed.",
+                res.id, res.path
+            )));
+        }
+        if width > neoflash_core::MAX_BITMAP_DIMENSION
+            || height > neoflash_core::MAX_BITMAP_DIMENSION
+        {
+            return Err(ExportError::Options(format!(
+                "Bitmap resource '{}' ({}) is {width}x{height}, exceeding the {}x{} image limit.",
+                res.id,
+                res.path,
+                neoflash_core::MAX_BITMAP_DIMENSION,
+                neoflash_core::MAX_BITMAP_DIMENSION
+            )));
+        }
+        let rgba_bytes = checked_rgba_bytes(width, height, "Bitmap resource")?;
+        reserve_bitmap_decode_bytes(&mut decoded_rgba_bytes, rgba_bytes)?;
+
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(neoflash_core::MAX_BITMAP_DIMENSION);
+        limits.max_image_height = Some(neoflash_core::MAX_BITMAP_DIMENSION);
+        limits.max_alloc = Some(MAX_BITMAP_SHEET_DECODED_BYTES as u64);
+        let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
+        reader.limits(limits);
+        let rgba = reader
+            .decode()
+            .map_err(|e| {
+                ExportError::Options(format!(
+                    "Bitmap resource '{}' ({}) could not be decoded within sprite-sheet limits: {e}",
+                    res.id, res.path
+                ))
+            })?
+            .into_rgba8();
+        bitmaps.push(DecodedBitmap {
+            id: res.id.clone(),
+            path: res.path.clone(),
+            media_type: res.media_type.clone(),
+            rgba,
+        });
+    }
+
+    if bitmaps.is_empty() {
+        return Ok(None);
+    }
+
+    let border = 1u32;
+    let pad = 1u32;
+    let max_w = bitmaps.iter().map(|b| b.rgba.width()).max().unwrap_or(1);
+    let max_h = bitmaps.iter().map(|b| b.rgba.height()).max().unwrap_or(1);
+    let total_area = bitmaps.iter().try_fold(0u64, |total, bitmap| {
+        let padded_width = bitmap.rgba.width().checked_add(pad).ok_or_else(|| {
+            ExportError::Options("Bitmap sprite-sheet padded width overflow.".into())
+        })?;
+        let padded_height = bitmap.rgba.height().checked_add(pad).ok_or_else(|| {
+            ExportError::Options("Bitmap sprite-sheet padded height overflow.".into())
+        })?;
+        let area = u64::from(padded_width)
+            .checked_mul(u64::from(padded_height))
+            .ok_or_else(|| ExportError::Options("Bitmap sprite-sheet area overflow.".into()))?;
+        total
+            .checked_add(area)
+            .ok_or_else(|| ExportError::Options("Bitmap sprite-sheet total area overflow.".into()))
+    })?;
+    let sqrt_side = (total_area as f64).sqrt().ceil() as u32;
+    let minimum_width = max_w
+        .checked_add(border * 2)
+        .ok_or_else(|| ExportError::Options("Bitmap sprite-sheet width overflow.".into()))?;
+    let minimum_height = max_h
+        .checked_add(border * 2)
+        .ok_or_else(|| ExportError::Options("Bitmap sprite-sheet height overflow.".into()))?;
+    let mut sheet_w = minimum_width.max(sqrt_side).max(4);
+    let mut sheet_h = minimum_height.max(sqrt_side).max(4);
+    if sheet_w > MAX_BITMAP_SHEET_DIMENSION || sheet_h > MAX_BITMAP_SHEET_DIMENSION {
+        return Err(ExportError::Options(format!(
+            "Bitmap resources need an initial {sheet_w}x{sheet_h} sheet, exceeding the {MAX_BITMAP_SHEET_DIMENSION}x{MAX_BITMAP_SHEET_DIMENSION} limit."
+        )));
+    }
+
+    let mut order: Vec<usize> = (0..bitmaps.len()).collect();
+    order.sort_by_key(|&i| {
+        let w = bitmaps[i].rgba.width();
+        let h = bitmaps[i].rgba.height();
+        (std::cmp::Reverse(w.max(h)), std::cmp::Reverse(w * h), i)
+    });
+
+    let placed_rects = loop {
+        let mut bin = MaxRectsBin::new(sheet_w, sheet_h, border);
+        let mut rects = vec![
+            AtlasRect {
+                x: 0,
+                y: 0,
+                w: 1,
+                h: 1,
+            };
+            bitmaps.len()
+        ];
+        let mut all_fit = true;
+        for &idx in &order {
+            let w = bitmaps[idx].rgba.width();
+            let h = bitmaps[idx].rgba.height();
+            if let Some(rect) = bin.insert(w, h, pad) {
+                rects[idx] = rect;
+            } else {
+                all_fit = false;
+                break;
+            }
+        }
+        if all_fit {
+            break rects;
+        }
+        if sheet_w <= sheet_h
+            && let Some(next) = grow_bitmap_sheet_dimension(sheet_w)
+        {
+            sheet_w = next;
+        } else if let Some(next) = grow_bitmap_sheet_dimension(sheet_h) {
+            sheet_h = next;
+        } else if let Some(next) = grow_bitmap_sheet_dimension(sheet_w) {
+            sheet_w = next;
+        } else {
+            return Err(ExportError::Options(format!(
+                "Bitmap resources do not fit within the {MAX_BITMAP_SHEET_DIMENSION}x{MAX_BITMAP_SHEET_DIMENSION} sprite-sheet limit."
+            )));
+        }
+    };
+
+    let used_w = placed_rects.iter().try_fold(1u32, |used, rect| {
+        rect.x
+            .checked_add(rect.w)
+            .and_then(|value| value.checked_add(border))
+            .map(|value| used.max(value))
+            .ok_or_else(|| ExportError::Options("Bitmap sprite-sheet width overflow.".into()))
+    })?;
+    let used_h = placed_rects.iter().try_fold(1u32, |used, rect| {
+        rect.y
+            .checked_add(rect.h)
+            .and_then(|value| value.checked_add(border))
+            .map(|value| used.max(value))
+            .ok_or_else(|| ExportError::Options("Bitmap sprite-sheet height overflow.".into()))
+    })?;
+    let output_bytes = checked_rgba_bytes(used_w, used_h, "Bitmap sprite sheet")?;
+    if output_bytes > MAX_BITMAP_SHEET_OUTPUT_BYTES {
+        return Err(ExportError::Options(format!(
+            "Packed bitmap sprite sheet would require {output_bytes} RGBA bytes, exceeding the {} MiB output budget.",
+            MAX_BITMAP_SHEET_OUTPUT_BYTES / (1024 * 1024)
+        )));
+    }
+    let mut sheet = RgbaImage::new(used_w, used_h);
+    for (idx, bmp) in bitmaps.iter().enumerate() {
+        let rect = placed_rects[idx];
+        for y in 0..bmp.rgba.height() {
+            for x in 0..bmp.rgba.width() {
+                sheet.put_pixel(rect.x + x, rect.y + y, *bmp.rgba.get_pixel(x, y));
+            }
+        }
+    }
+
+    let mut png_bytes = Vec::new();
+    sheet
+        .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
+        .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+
+    let mut frames_map = serde_json::Map::new();
+    let mut bitmaps_list = Vec::with_capacity(bitmaps.len());
+    for (idx, bmp) in bitmaps.iter().enumerate() {
+        let rect = placed_rects[idx];
+        let key = if bmp.path.trim().is_empty() {
+            bmp.id.clone()
+        } else {
+            bmp.path.clone()
+        };
+        frames_map.insert(
+            key,
+            serde_json::json!({
+                "frame": rect,
+                "rotated": false,
+                "trimmed": false,
+                "spriteSourceSize": { "x": 0, "y": 0, "w": rect.w, "h": rect.h },
+                "sourceSize": { "w": rect.w, "h": rect.h },
+            }),
+        );
+        bitmaps_list.push(serde_json::json!({
+            "id": bmp.id,
+            "path": bmp.path,
+            "media_type": bmp.media_type,
+            "frame": rect,
+            "sourceSize": { "w": rect.w, "h": rect.h },
+        }));
+    }
+
+    let manifest_val = serde_json::json!({
+        "generator": "NeoFlash",
+        "image": "sprite_sheet.png",
+        "format": "RGBA8888",
+        "size": { "w": used_w, "h": used_h },
+        "bitmaps": bitmaps_list,
+        "frames": frames_map,
+    });
+    let manifest_json = if pretty {
+        serde_json::to_string_pretty(&manifest_val)?
+    } else {
+        serde_json::to_string(&manifest_val)?
+    };
+
+    Ok(Some((png_bytes, manifest_json)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neoflash_core::{Easing, Element, ElementKind, Keyframe, Transform, new_id};
+    use neoflash_core::{Easing, Element, ElementKind, Keyframe, ResourceUnit, Transform, new_id};
+
+    #[test]
+    fn bitmap_sprite_sheet_rejects_corrupt_resources_instead_of_hiding_them() {
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes("broken", "images/broken.png", "image/png", b"not-png")
+                .unwrap(),
+        );
+        let error = pack_project_bitmap_resources_sprite_sheet(&project, false).unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("broken"), "got: {message}");
+        assert!(message.contains("corrupt or unsupported"), "got: {message}");
+    }
+
+    #[test]
+    fn bitmap_sprite_sheet_enforces_decode_and_sheet_budgets() {
+        let mut oversized_png = Vec::new();
+        RgbaImage::new(neoflash_core::MAX_BITMAP_DIMENSION + 1, 1)
+            .write_to(&mut Cursor::new(&mut oversized_png), ImageFormat::Png)
+            .unwrap();
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes("wide", "images/wide.png", "image/png", &oversized_png)
+                .unwrap(),
+        );
+        let error = pack_project_bitmap_resources_sprite_sheet(&project, false).unwrap_err();
+        assert!(error.to_string().contains("image limit"), "got: {error}");
+
+        let mut total = MAX_BITMAP_SHEET_DECODED_BYTES - 4;
+        let error = reserve_bitmap_decode_bytes(&mut total, 8).unwrap_err();
+        assert!(error.to_string().contains("input budget"), "got: {error}");
+        assert_eq!(
+            grow_bitmap_sheet_dimension(MAX_BITMAP_SHEET_DIMENSION),
+            None
+        );
+        let output_bytes = checked_rgba_bytes(
+            MAX_BITMAP_SHEET_DIMENSION,
+            MAX_BITMAP_SHEET_DIMENSION,
+            "test sheet",
+        )
+        .unwrap();
+        assert!(output_bytes > MAX_BITMAP_SHEET_OUTPUT_BYTES);
+    }
+
+    #[test]
+    fn bitmap_sprite_sheet_does_not_drop_case_variant_image_media_types() {
+        let mut png = Vec::new();
+        RgbaImage::from_pixel(2, 1, image::Rgba([12, 34, 56, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes("upper", "images/upper.png", "IMAGE/PNG", &png).unwrap(),
+        );
+        let (_, manifest) = pack_project_bitmap_resources_sprite_sheet(&project, false)
+            .unwrap()
+            .expect("uppercase image media type is packed");
+        assert!(manifest.contains("upper"));
+        assert!(manifest.contains("IMAGE/PNG"));
+    }
 
     #[test]
     fn sprite_sheet_atlas_trims_deduplicates_and_packs_deterministically() {

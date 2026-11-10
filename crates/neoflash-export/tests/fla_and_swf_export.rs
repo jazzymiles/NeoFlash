@@ -989,7 +989,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         frame: 0,
         script: Script {
             language: ScriptLanguage::ActionScript3,
-            source: "if (ready) { trace(\"lost\"); }".to_owned(),
+            source: "try { trace(\"lost\"); } catch (e:Error) {}".to_owned(),
         },
     }];
     let unsupported_report = preflight_swf_publish(&unsupported, &avm2_opts);
@@ -1005,7 +1005,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         .timeline
         .scripts[0]
         .script
-        .source = "var x:Number = 1.5; x = 2; trace(x);".to_owned();
+        .source = "switch (mode) { case 1: trace(\"no\"); }".to_owned();
     let lossy_subset = preflight_swf_publish(&unsupported, &avm2_opts);
     assert!(lossy_subset.items.iter().any(|item| {
         item.code == "swf_avm2_frame_script_unsupported_syntax"
@@ -1019,13 +1019,166 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         .timeline
         .scripts[0]
         .script
-        .source = "trace(\"kept\"); stop(); gotoAndStop(1);".to_owned();
+        .source =
+        "var x:Number = 1.5; if (x > 1) { x = 2; trace(x); } stop(); gotoAndStop(1);".to_owned();
     let supported_report = preflight_swf_publish(&unsupported, &avm2_opts);
     assert!(
         supported_report.can_proceed(),
         "supported bounded statements should pass: {:?}",
         supported_report.items
     );
+}
+
+#[test]
+fn t205_expanded_avm1_and_avm2_swf_compiler_executes_control_flow_functions_and_properties() {
+    // 1. AVM1 (AS2) full script compilation & execution:
+    //    variables, compound assignments, ++/--, if/else, while, for, user functions,
+    //    MovieClip properties (_x, _y, this._x, hero._x), Math calls, and on(release)/onClipEvent(enterFrame).
+    let mut avm1_proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    strip_project_scripts(&mut avm1_proj);
+    let root_id = avm1_proj.root.clone();
+    avm1_proj
+        .symbol_mut(&root_id)
+        .expect("root")
+        .timeline
+        .scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: r#"
+                function computeBonus(base, mult) {
+                    var result = base * mult;
+                    if (result > 25) {
+                        result -= 5;
+                    } else {
+                        result += 5;
+                    }
+                    return result;
+                }
+                var total = 0;
+                var i = 1;
+                while (i <= 4) {
+                    total += i;
+                    i++;
+                }
+                for (var j = 0; j < 3; j++) {
+                    total += 2;
+                }
+                var bonus = computeBonus(total, 2);
+                this._x = 140;
+                this._x += 10;
+                heroBadge._x = 220;
+                heroBadge._y = 95;
+                on (release) {
+                    trace("avm1-bonus=" + bonus);
+                }
+                trace("avm1-this-x=" + this._x);
+                trace("avm1-hero=" + heroBadge._x + "," + heroBadge._y);
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+
+    let avm1_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer8Avm1,
+        compression: SwfCompression::UncompressedFws,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
+    let (avm1_bytes, avm1_report) =
+        publish_swf_bytes(&avm1_proj, &avm1_opts).expect("publish expanded AVM1 SWF");
+    assert!(avm1_report.can_proceed());
+    let avm1_play = play_swf_bytes(&avm1_bytes, 2).expect("play expanded AVM1 SWF");
+    assert_eq!(
+        avm1_play.trace_output,
+        vec![
+            "avm1-bonus=27".to_owned(),
+            "avm1-this-x=150".to_owned(),
+            "avm1-hero=220,95".to_owned(),
+        ]
+    );
+    let hero_entry = avm1_play.frames_executed[0]
+        .display_list
+        .iter()
+        .find(|e| e.name == "heroBadge")
+        .expect("heroBadge instance on stage");
+    assert_eq!(hero_entry.x, 220.0);
+    assert_eq!(hero_entry.y, 95.0);
+
+    // 2. AVM2 (AS3) full script compilation & execution:
+    //    typed variables, floats, expressions, if/else, while, for, user functions,
+    //    and MovieClip property access/mutation (this.x, heroBadge.x, heroBadge.y).
+    let mut avm2_proj = build_rich_authoring_project(ScriptLanguage::ActionScript3);
+    strip_project_scripts(&mut avm2_proj);
+    let root_id = avm2_proj.root.clone();
+    avm2_proj
+        .symbol_mut(&root_id)
+        .expect("root")
+        .timeline
+        .scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: r#"
+                function calcScore(a:Number, b:Number):Number {
+                    var s:Number = a * b;
+                    if (s >= 20 && b > 0) {
+                        s = s - 3;
+                    } else {
+                        s = s + 3;
+                    }
+                    return s;
+                }
+                var acc:int = 0;
+                var k:int = 1;
+                while (k <= 3) {
+                    acc += k;
+                    k++;
+                }
+                for (var m:int = 0; m < 4; m++) {
+                    acc += 2;
+                }
+                var finalScore:Number = calcScore(acc, 2);
+                this.x = 80;
+                this.x += 25;
+                heroBadge.x = 310;
+                heroBadge.x += 15;
+                heroBadge.y = 180;
+                trace("avm2-score=" + finalScore);
+                trace("avm2-this-x=" + this.x);
+                trace("avm2-hero=" + heroBadge.x + "," + heroBadge.y);
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+
+    let avm2_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        compression: SwfCompression::DeflateCws,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
+    let (avm2_bytes, avm2_report) =
+        publish_swf_bytes(&avm2_proj, &avm2_opts).expect("publish expanded AVM2 SWF");
+    assert!(avm2_report.can_proceed());
+    let avm2_play = play_swf_bytes(&avm2_bytes, 2).expect("play expanded AVM2 SWF");
+    assert_eq!(
+        avm2_play.trace_output,
+        vec![
+            "avm2-score=25".to_owned(),
+            "avm2-this-x=105".to_owned(),
+            "avm2-hero=325,180".to_owned(),
+        ]
+    );
+    let avm2_hero = avm2_play.frames_executed[0]
+        .display_list
+        .iter()
+        .find(|e| e.name == "heroBadge")
+        .expect("heroBadge instance on stage in AVM2");
+    assert_eq!(avm2_hero.x, 325.0);
+    assert_eq!(avm2_hero.y, 180.0);
 }
 
 #[test]

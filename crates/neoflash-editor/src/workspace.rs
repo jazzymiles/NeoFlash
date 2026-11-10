@@ -2380,6 +2380,12 @@ pub struct PublishPrefs {
     /// Technical HUD configuration for `Test Movie` / `Preview` (`Preferences ▸ Publish`).
     #[serde(default)]
     pub preview_chrome: neoflash_export::PlayerChromeConfig,
+    /// Target FLA/XFL version profile used by `File ▸ Save As` when exporting `.fla` or `.xfl`.
+    #[serde(default)]
+    pub fla_target_profile: neoflash_export::FlaTargetProfile,
+    /// Compatibility options for `File ▸ Save As` FLA/XFL export.
+    #[serde(default)]
+    pub fla_export_options: neoflash_export::FlaExportOptions,
 }
 impl Default for PublishPrefs {
     fn default() -> Self {
@@ -2417,6 +2423,8 @@ impl Default for PublishPrefs {
             minify: true,
             publish_clean: true,
             preview_chrome: neoflash_export::PlayerChromeConfig::preview_default(),
+            fla_target_profile: neoflash_export::FlaTargetProfile::AnimateCC,
+            fla_export_options: neoflash_export::FlaExportOptions::default(),
         }
     }
 }

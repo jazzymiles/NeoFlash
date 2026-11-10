@@ -872,6 +872,16 @@ impl Editor {
     fn timeline_seek(&mut self, frame: u32) {
         self.finish_edits();
         self.timeline_key_drag = None;
+        if self.live_script_preview
+            && self.editing_scene()
+            && self
+                .authored_preview
+                .as_ref()
+                .is_some_and(|p| p.swf_player.is_some())
+            && self.seek_swf_preview(frame).is_some()
+        {
+            return;
+        }
         self.reset_authored_preview();
         self.frame = frame.min(self.symbol().timeline.frame_count.saturating_sub(1));
     }

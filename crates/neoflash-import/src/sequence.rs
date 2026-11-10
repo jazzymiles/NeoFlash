@@ -17,7 +17,7 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::{Cursor, Read},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 /// How imported sequence frames are arranged in the destination [`Project`].
@@ -211,6 +211,243 @@ pub fn detect_numbered_image_paths<P: AsRef<Path>>(
     detect_numbered_image_sequence(&names)
 }
 
+/// One fully bounded numbered-sequence import prepared from filesystem paths.
+///
+/// `paths` is the resolved, stable frame order. A single numbered seed may expand to matching
+/// siblings when `expand_single_seed` is requested; a non-numbered single image is deliberately
+/// left to the ordinary image-import path.
+#[derive(Debug)]
+pub struct ImportedNumberedImageSequence {
+    pub project: Project,
+    pub report: ImportReport,
+    pub detection: NumberedSequenceDetection,
+    pub paths: Vec<PathBuf>,
+}
+
+fn is_sequence_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+            )
+        })
+}
+
+fn push_sequence_candidate(
+    candidates: &mut Vec<(u32, PathBuf)>,
+    number: u32,
+    path: PathBuf,
+) -> Result<(), ImportError> {
+    if candidates.len() >= MAX_RESOURCES {
+        return Err(ImportError::Container(format!(
+            "Image sequence exceeds the {MAX_RESOURCES}-resource limit"
+        )));
+    }
+    candidates.push((number, path));
+    Ok(())
+}
+
+/// Resolve a numbered image sequence without reading or decoding any frame bytes.
+///
+/// Directories and a numbered single seed are explicit sequence requests and therefore return an
+/// actionable error when their candidate set is malformed. Multiple ordinary images return
+/// `Ok(None)` so editor callers can continue importing them as independent graphics.
+pub fn resolve_numbered_image_sequence_paths<P: AsRef<Path>>(
+    inputs: &[P],
+    expand_single_seed: bool,
+) -> Result<Option<(Vec<PathBuf>, NumberedSequenceDetection)>, ImportError> {
+    if inputs.is_empty() {
+        return Ok(None);
+    }
+    if inputs.len() > MAX_RESOURCES {
+        return Err(ImportError::Container(format!(
+            "Image sequence contains {} files, exceeding the {MAX_RESOURCES}-resource limit",
+            inputs.len()
+        )));
+    }
+
+    let first = inputs[0].as_ref();
+    let explicit_directory = inputs.len() == 1 && first.is_dir();
+    let mut explicit_seed = false;
+    let resolved = if explicit_directory {
+        let mut candidates = Vec::new();
+        for entry in std::fs::read_dir(first)? {
+            let path = entry?.path();
+            if !path.is_file() || !is_sequence_image_path(&path) {
+                continue;
+            }
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if let Some(item) = parse_numbered_image_filename(file_name, 0) {
+                push_sequence_candidate(&mut candidates, item.number, path)?;
+            }
+        }
+        candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        if candidates.is_empty() {
+            return Err(ImportError::Container(format!(
+                "{}: directory contains no numbered image sequence frames",
+                first.display()
+            )));
+        }
+        candidates.into_iter().map(|(_, path)| path).collect()
+    } else if inputs.len() == 1 && expand_single_seed && is_sequence_image_path(first) {
+        let Some(file_name) = first.file_name().and_then(|name| name.to_str()) else {
+            return Err(ImportError::Container("Invalid image filename".into()));
+        };
+        let Some(seed) = parse_numbered_image_filename(file_name, 0) else {
+            return Ok(None);
+        };
+        explicit_seed = true;
+        let parent = first
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut candidates = Vec::new();
+        for entry in std::fs::read_dir(parent)? {
+            let path = entry?.path();
+            if !path.is_file() || !is_sequence_image_path(&path) {
+                continue;
+            }
+            let Some(candidate_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if let Some(item) = parse_numbered_image_filename(candidate_name, 0)
+                && item.prefix.eq_ignore_ascii_case(&seed.prefix)
+                && item.extension.eq_ignore_ascii_case(&seed.extension)
+            {
+                push_sequence_candidate(&mut candidates, item.number, path)?;
+            }
+        }
+        candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        if candidates.is_empty() {
+            vec![first.to_path_buf()]
+        } else {
+            candidates.into_iter().map(|(_, path)| path).collect()
+        }
+    } else {
+        if inputs.len() == 1
+            || inputs
+                .iter()
+                .any(|path| !is_sequence_image_path(path.as_ref()))
+        {
+            return Ok(None);
+        }
+        inputs
+            .iter()
+            .map(|path| path.as_ref().to_path_buf())
+            .collect()
+    };
+
+    let Some(detection) = detect_numbered_image_paths(&resolved) else {
+        if explicit_directory || explicit_seed {
+            return Err(ImportError::Container(
+                "No numbered image sequence filenames detected".into(),
+            ));
+        }
+        return Ok(None);
+    };
+    if !detection.unmatched_files.is_empty() {
+        if explicit_directory || explicit_seed {
+            return Err(ImportError::Container(format!(
+                "Unmatched file(s) in image sequence: {}",
+                detection.unmatched_files.join(", ")
+            )));
+        }
+        return Ok(None);
+    }
+    if inputs.len() > 1 && detection.items.len() < 2 {
+        return Ok(None);
+    }
+    Ok(Some((resolved, detection)))
+}
+
+fn imported_sequence_dimensions(project: &Project) -> Option<(u32, u32)> {
+    project
+        .symbol(&project.root)?
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|keyframe| &keyframe.elements)
+        .find_map(|element| match &element.kind {
+            ElementKind::Bitmap { width, height, .. } if *width > 0 && *height > 0 => {
+                Some((*width, *height))
+            }
+            _ => None,
+        })
+}
+
+/// Resolve and import a numbered image sequence using the same bounded reader and decoder as the
+/// core sequence workflow. No caller needs to pre-read or pre-decode frames to obtain dimensions.
+pub fn import_numbered_image_sequence_paths<P: AsRef<Path>>(
+    inputs: &[P],
+    expand_single_seed: bool,
+) -> Result<Option<ImportedNumberedImageSequence>, ImportError> {
+    let Some((paths, detection)) =
+        resolve_numbered_image_sequence_paths(inputs, expand_single_seed)?
+    else {
+        return Ok(None);
+    };
+    let clean_prefix = detection
+        .prefix
+        .trim_end_matches(['_', '-', '.', ' '])
+        .trim();
+    let name = if clean_prefix.is_empty() {
+        paths
+            .first()
+            .and_then(|path| path.file_stem())
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("Sequence")
+            .to_owned()
+    } else {
+        clean_prefix.to_owned()
+    };
+    let mut project = Project::blank();
+    project.name = name.clone();
+    if let Some(root) = project.symbols.first_mut() {
+        root.timeline.frame_count = 1;
+    }
+    let options = ImageSequenceImportOptions {
+        layer_name: Some(name),
+        center_on_stage: false,
+        ..ImageSequenceImportOptions::default()
+    };
+    let mut report = import_image_sequence(&mut project, &paths, &options)?;
+    let unreadable_frames: Vec<String> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == "sequence-unreadable-frame")
+        .map(|diagnostic| {
+            format!(
+                "{} [{}]: {}",
+                diagnostic.location, diagnostic.code, diagnostic.message
+            )
+        })
+        .collect();
+    if !unreadable_frames.is_empty() {
+        return Err(ImportError::Container(unreadable_frames.join("; ")));
+    }
+    if let Some((width, height)) = imported_sequence_dimensions(&project) {
+        project.width = width.max(1);
+        project.height = height.max(1);
+    }
+    project.validate().map_err(|error| {
+        ImportError::Container(format!(
+            "Image sequence import produced an invalid project: {error}"
+        ))
+    })?;
+    report.statistics.symbols = project.symbols.len();
+    Ok(Some(ImportedNumberedImageSequence {
+        project,
+        report,
+        detection,
+        paths,
+    }))
+}
+
 fn decode_or_normalize_image_bytes(bytes: &[u8]) -> Result<(Vec<u8>, String, u32, u32), String> {
     if bytes.is_empty() {
         return Err("image file is empty".into());
@@ -294,6 +531,30 @@ pub fn import_image_sequence_bytes(
     entries: &[(String, Vec<u8>)],
     options: &ImageSequenceImportOptions,
 ) -> Result<ImportReport, ImportError> {
+    if entries.len() > MAX_RESOURCES {
+        return Err(ImportError::Container(format!(
+            "Image sequence contains {} files, exceeding the {MAX_RESOURCES}-resource limit",
+            entries.len()
+        )));
+    }
+    let mut input_bytes = 0usize;
+    for (name, bytes) in entries {
+        if bytes.len() > MAX_RESOURCE_BYTES {
+            return Err(ImportError::Container(format!(
+                "Image sequence entry '{name}' exceeds the {} MiB resource limit",
+                MAX_RESOURCE_BYTES / (1024 * 1024)
+            )));
+        }
+        input_bytes = input_bytes
+            .checked_add(bytes.len())
+            .ok_or_else(|| ImportError::Container("Image sequence byte count overflowed".into()))?;
+        if input_bytes > MAX_RESOURCE_TOTAL_BYTES {
+            return Err(ImportError::Container(format!(
+                "Image sequence input exceeds the {} MiB aggregate resource limit",
+                MAX_RESOURCE_TOTAL_BYTES / (1024 * 1024)
+            )));
+        }
+    }
     let mut candidate = project.clone();
     let report = import_image_sequence_bytes_inner(&mut candidate, entries, options)?;
     candidate.validate().map_err(|error| {
@@ -392,6 +653,28 @@ fn import_image_sequence_bytes_inner(
     let mut keyframes = Vec::with_capacity(detection.items.len());
     let mut separate_layers = Vec::new();
     let mut max_frame_end = 1u32;
+    let required_resources = project
+        .resources
+        .len()
+        .checked_add(detection.items.len())
+        .ok_or_else(|| ImportError::Container("Image sequence resource count overflowed".into()))?;
+    if required_resources > MAX_RESOURCES {
+        return Err(ImportError::Container(format!(
+            "Image sequence would exceed the {MAX_RESOURCES}-resource project limit"
+        )));
+    }
+    let mut retained_resource_bytes = project
+        .resources
+        .iter()
+        .try_fold(0usize, |total, resource| {
+            total.checked_add(resource.byte_len())
+        })
+        .ok_or_else(|| ImportError::Container("Project resource byte count overflowed".into()))?;
+    if retained_resource_bytes > MAX_RESOURCE_TOTAL_BYTES {
+        return Err(ImportError::Container(
+            "Project resources already exceed the 64 MiB aggregate resource limit".into(),
+        ));
+    }
 
     for (seq_idx, item) in detection.items.iter().enumerate() {
         let (_, bytes) = &entries[item.input_index];
@@ -404,6 +687,19 @@ fn import_image_sequence_bytes_inner(
 
         let element = match decode_or_normalize_image_bytes(bytes) {
             Ok((norm_bytes, media_type, width, height)) => {
+                retained_resource_bytes = retained_resource_bytes
+                    .checked_add(norm_bytes.len())
+                    .ok_or_else(|| {
+                        ImportError::Container(
+                            "Image sequence normalized resource byte count overflowed".into(),
+                        )
+                    })?;
+                if retained_resource_bytes > MAX_RESOURCE_TOTAL_BYTES {
+                    return Err(ImportError::Container(format!(
+                        "Image sequence normalized resources exceed the {} MiB aggregate resource limit",
+                        MAX_RESOURCE_TOTAL_BYTES / (1024 * 1024)
+                    )));
+                }
                 let desired_ext = if media_type == "image/jpeg" {
                     "jpg"
                 } else {
@@ -656,35 +952,63 @@ pub fn import_image_sequence<P: AsRef<Path>>(
             paths.len()
         )));
     }
-    let mut entries = Vec::with_capacity(paths.len());
-    let mut total_bytes = 0usize;
+    let mut expected_total_bytes = 0u64;
     for p in paths {
         let path = p.as_ref();
-        if std::fs::metadata(path)?.len() > MAX_RESOURCE_BYTES as u64 {
+        let metadata = std::fs::metadata(path).map_err(|error| {
+            ImportError::Container(format!(
+                "{}: cannot inspect image sequence entry: {error}",
+                path.display()
+            ))
+        })?;
+        if !metadata.is_file() {
+            return Err(ImportError::Container(format!(
+                "{}: image sequence entry is not a regular file",
+                path.display()
+            )));
+        }
+        if metadata.len() > MAX_RESOURCE_BYTES as u64 {
             return Err(ImportError::Container(format!(
                 "Image sequence entry '{}' exceeds the {} MiB resource limit",
                 path.display(),
                 MAX_RESOURCE_BYTES / (1024 * 1024)
             )));
         }
+        expected_total_bytes = expected_total_bytes
+            .checked_add(metadata.len())
+            .ok_or_else(|| ImportError::Container("Image sequence byte count overflowed".into()))?;
+        if expected_total_bytes > MAX_RESOURCE_TOTAL_BYTES as u64 {
+            return Err(ImportError::Container(format!(
+                "Image sequence input exceeds the {} MiB aggregate resource limit",
+                MAX_RESOURCE_TOTAL_BYTES / (1024 * 1024)
+            )));
+        }
+    }
+
+    let mut entries = Vec::with_capacity(paths.len());
+    for p in paths {
+        let path = p.as_ref();
         let mut bytes = Vec::new();
-        File::open(path)?
+        File::open(path)
+            .map_err(|error| {
+                ImportError::Container(format!(
+                    "{}: cannot open image sequence entry: {error}",
+                    path.display()
+                ))
+            })?
             .take(MAX_RESOURCE_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)?;
+            .read_to_end(&mut bytes)
+            .map_err(|error| {
+                ImportError::Container(format!(
+                    "{}: cannot read image sequence entry: {error}",
+                    path.display()
+                ))
+            })?;
         if bytes.len() > MAX_RESOURCE_BYTES {
             return Err(ImportError::Container(format!(
                 "Image sequence entry '{}' exceeds the {} MiB resource limit",
                 path.display(),
                 MAX_RESOURCE_BYTES / (1024 * 1024)
-            )));
-        }
-        total_bytes = total_bytes
-            .checked_add(bytes.len())
-            .ok_or_else(|| ImportError::Container("Image sequence byte count overflowed".into()))?;
-        if total_bytes > MAX_RESOURCE_TOTAL_BYTES {
-            return Err(ImportError::Container(format!(
-                "Image sequence input exceeds the {} MiB aggregate resource limit",
-                MAX_RESOURCE_TOTAL_BYTES / (1024 * 1024)
             )));
         }
         entries.push((path.display().to_string(), bytes));
@@ -704,4 +1028,110 @@ pub fn import_image_sequence_bytes_as_project(
     }
     let report = import_image_sequence_bytes(&mut project, entries, options)?;
     Ok((project, report))
+}
+
+#[cfg(test)]
+mod path_import_tests {
+    use super::*;
+
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &byte in bytes {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    fn png_dimensions_header(width: u32, height: u32) -> Vec<u8> {
+        fn push_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            out.extend_from_slice(kind);
+            out.extend_from_slice(data);
+            let mut crc_input = Vec::with_capacity(kind.len() + data.len());
+            crc_input.extend_from_slice(kind);
+            crc_input.extend_from_slice(data);
+            out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+        }
+
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = Vec::with_capacity(13);
+        ihdr.extend_from_slice(&width.to_be_bytes());
+        ihdr.extend_from_slice(&height.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+        push_chunk(&mut out, b"IHDR", &ihdr);
+        push_chunk(&mut out, b"IEND", &[]);
+        out
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "neoflash-{name}-{}-{}",
+            std::process::id(),
+            new_id("sequence-test")
+        ))
+    }
+
+    #[test]
+    fn numbered_path_import_rejects_files_counts_and_dimensions_before_unbounded_work() {
+        let root = temp_dir("sequence-bounds");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let too_large_dir = root.join("file-size");
+        std::fs::create_dir_all(&too_large_dir).unwrap();
+        let too_large = too_large_dir.join("frame_0001.png");
+        std::fs::File::create(&too_large)
+            .unwrap()
+            .set_len(MAX_RESOURCE_BYTES as u64 + 1)
+            .unwrap();
+        let err = import_numbered_image_sequence_paths(std::slice::from_ref(&too_large), true)
+            .expect_err("oversized sequence file must be rejected");
+        assert!(err.to_string().contains("resource limit"), "{err}");
+
+        let huge_dimensions_dir = root.join("dimensions");
+        std::fs::create_dir_all(&huge_dimensions_dir).unwrap();
+        let huge_dimensions = huge_dimensions_dir.join("frame_0001.png");
+        std::fs::write(
+            &huge_dimensions,
+            png_dimensions_header(neoflash_core::MAX_BITMAP_DIMENSION + 1, 1),
+        )
+        .unwrap();
+        let err =
+            import_numbered_image_sequence_paths(std::slice::from_ref(&huge_dimensions), true)
+                .expect_err("oversized PNG dimensions must be rejected by bounded decode");
+        assert!(
+            err.to_string().contains("cannot decode bounded image"),
+            "{err}"
+        );
+
+        let too_many: Vec<PathBuf> = (0..=MAX_RESOURCES)
+            .map(|index| root.join(format!("frame_{index:04}.png")))
+            .collect();
+        let err = resolve_numbered_image_sequence_paths(&too_many, false)
+            .expect_err("too many sequence inputs must be rejected before file IO");
+        assert!(err.to_string().contains("resource limit"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn non_numbered_single_image_is_not_claimed_as_a_sequence() {
+        let ordinary = PathBuf::from("poster.png");
+        assert!(
+            resolve_numbered_image_sequence_paths(std::slice::from_ref(&ordinary), true)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            import_numbered_image_sequence_paths(std::slice::from_ref(&ordinary), true)
+                .unwrap()
+                .is_none()
+        );
+    }
 }

@@ -24,6 +24,40 @@ macro_rules! document_state {
             pub(crate) fn dirty(&self) -> bool {
                 self.saved_project.as_ref() != Some(&self.project)
             }
+            pub(crate) fn tracked_disk_path(&self) -> Option<&Path> {
+                self.path.as_deref().or(self.import_source.as_deref())
+            }
+            pub(crate) fn document_display_name(&self) -> String {
+                self.tracked_disk_path()
+                    .and_then(|p| p.file_name())
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| self.project.name.clone())
+            }
+            #[cfg_attr(not(test), allow(dead_code))]
+            pub(crate) fn keep_editing_external_change(&mut self) {
+                let path = self.tracked_disk_path().map(Path::to_path_buf);
+                self.recovery.acknowledge_external_change(path.as_deref());
+                self.saved_project = None;
+            }
+            #[cfg_attr(not(test), allow(dead_code))]
+            #[allow(clippy::too_many_arguments)]
+            pub(crate) fn new_for_reload(
+                project: Project,
+                path: Option<PathBuf>,
+                import_source: Option<PathBuf>,
+                undo_levels: usize,
+                recovery: crate::recovery::RecoveryManager,
+                onion_before: u32,
+                onion_after: u32,
+                stage_prefs: crate::stage_view::ViewPrefs,
+            ) -> Self {
+                let mut session = Self::new(project, path, undo_levels, recovery);
+                session.import_source = import_source;
+                session.onion_before = onion_before;
+                session.onion_after = onion_after;
+                session.stage_view.prefs = stage_prefs;
+                session
+            }
         }
     }
 }
@@ -145,6 +179,7 @@ impl Editor {
 
     fn session_installed(&mut self, ctx: &egui::Context) {
         self.bitmap_textures = Default::default();
+        self.video_textures = Default::default();
         self.timeline_thumbnails = Default::default();
         self.authored_preview = None;
         self.load_project_fonts(ctx);
@@ -445,15 +480,7 @@ impl Editor {
     }
 }
 
-fn same_path(a: &Path, b: &Path) -> bool {
-    let absolute = |p: &Path| {
-        std::fs::canonicalize(p).unwrap_or_else(|_| {
-            if p.is_absolute() {
-                p.to_owned()
-            } else {
-                std::env::current_dir().unwrap_or_default().join(p)
-            }
-        })
-    };
-    absolute(a) == absolute(b)
+pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
+    crate::recovery::canonical_or_normalized_path(a)
+        == crate::recovery::canonical_or_normalized_path(b)
 }

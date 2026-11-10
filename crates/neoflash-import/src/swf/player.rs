@@ -7,9 +7,14 @@
 
 use super::avm2::{AbcFile, AbcReader, AbcTraitData, parse_abc_file};
 use super::bits::SwfSlice;
+use super::timeline::parse_swf_filter_list;
 use super::{SwfContainer, read_container, read_container_from_bytes};
 use crate::ImportError;
-use neoflash_core::{BlendMode, ColorTransform, FilterSpec, Transform};
+use neoflash_core::{
+    AuthoredScene, BlendMode, ColorTransform, Element, ElementKind, FilterSpec, InstancePlayback,
+    Keyframe, Layer, LayerProperties, LayerRole, Project, SoundCommand, SoundSync, SymbolKind,
+    Transform, evaluate_scene, transform_matrix,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -20,6 +25,18 @@ use std::{
 
 const MAX_VM_STEPS_PER_FRAME: usize = 50_000;
 const MAX_CALL_DEPTH: usize = 32;
+const MAX_RUNTIME_SPRITE_DEPTH: usize = 64;
+const MAX_FRAME_JUMPS_PER_STEP: usize = 32;
+
+const CLIP_EVENT_MOUSE_UP: u32 = 0x0000_0004;
+const CLIP_EVENT_MOUSE_DOWN: u32 = 0x0000_0008;
+const CLIP_EVENT_UNLOAD: u32 = 0x0000_0020;
+const CLIP_EVENT_ENTER_FRAME: u32 = 0x0000_0040;
+const CLIP_EVENT_LOAD: u32 = 0x0000_0080;
+const CLIP_EVENT_RELEASE: u32 = 0x0000_1000;
+const CLIP_EVENT_PRESS: u32 = 0x0000_2000;
+const CLIP_EVENT_INITIALIZE: u32 = 0x0000_4000;
+const CLIP_EVENT_KEY_PRESS: u32 = 0x0002_0000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,15 +56,25 @@ pub struct SwfDisplayEntry {
     pub scale_x: f64,
     pub scale_y: f64,
     pub rotation: f64,
+    #[serde(default)]
+    pub skew: f64,
     pub alpha: f64,
+    #[serde(default, skip_serializing_if = "ColorTransform::is_identity")]
+    pub color_transform: ColorTransform,
     pub visible: bool,
     pub blend_mode: BlendMode,
     pub filters: Vec<FilterSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clip_depth: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ratio: Option<u16>,
+    #[serde(default)]
+    pub cache_as_bitmap: bool,
     pub current_frame: u32,
     pub total_frames: u32,
     pub playing: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<SwfDisplayEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +94,8 @@ pub struct SwfFrameState {
     pub display_list: Vec<SwfDisplayEntry>,
     pub traces: Vec<String>,
     pub audio_events: Vec<SwfAudioEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_diagnostics: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -78,6 +107,8 @@ pub struct SwfPlaybackResult {
     pub trace_output: Vec<String>,
     pub audio_events: Vec<SwfAudioEvent>,
     pub variables: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_diagnostics: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -111,6 +142,19 @@ struct ClipEventHandler {
 }
 
 #[derive(Clone, Debug)]
+enum PendingAvm1Work {
+    Action {
+        target: String,
+        actions: Vec<u8>,
+    },
+    Detached {
+        root_target: String,
+        root_slot: Box<LiveSlot>,
+        actions: Vec<(String, Vec<u8>)>,
+    },
+}
+
+#[derive(Clone, Debug)]
 struct ButtonCondAction {
     conditions: u16,
     actions: Vec<u8>,
@@ -126,17 +170,256 @@ struct LiveSlot {
     scale_x: f64,
     scale_y: f64,
     rotation: f64,
+    skew: f64,
     alpha: f64,
+    color_transform: ColorTransform,
     visible: bool,
     blend_mode: BlendMode,
     filters: Vec<FilterSpec>,
     clip_depth: Option<u16>,
+    ratio: Option<u16>,
+    cache_as_bitmap: bool,
     current_frame: u32,
     total_frames: u32,
     playing: bool,
     last_applied_frame: Option<u32>,
+    children: BTreeMap<u16, LiveSlot>,
     props: HashMap<String, Avm1Value>,
     clip_handlers: Vec<ClipEventHandler>,
+}
+
+impl LiveSlot {
+    fn sync_matrix_from_props(&mut self) {
+        let tf = Transform {
+            x: self.x,
+            y: self.y,
+            scale_x: self.scale_x / 100.0,
+            scale_y: self.scale_y / 100.0,
+            rotation: self.rotation,
+            alpha: (self.alpha / 100.0).clamp(0.0, 1.0),
+            skew: self.skew,
+            color_transform: self.color_transform,
+            pivot: None,
+            primitive: None,
+        };
+        self.matrix = transform_matrix(tf);
+    }
+
+    fn to_display_entry(&self, depth: u16) -> SwfDisplayEntry {
+        SwfDisplayEntry {
+            depth,
+            character_id: self.character_id,
+            name: self.name.clone(),
+            matrix: self.matrix,
+            x: self.x,
+            y: self.y,
+            scale_x: self.scale_x,
+            scale_y: self.scale_y,
+            rotation: self.rotation,
+            skew: self.skew,
+            alpha: self.alpha,
+            color_transform: self.color_transform,
+            visible: self.visible,
+            blend_mode: self.blend_mode,
+            filters: self.filters.clone(),
+            clip_depth: self.clip_depth,
+            ratio: self.ratio,
+            cache_as_bitmap: self.cache_as_bitmap,
+            current_frame: self.current_frame,
+            total_frames: self.total_frames,
+            playing: self.playing,
+            children: self
+                .children
+                .iter()
+                .map(|(&cd, cs)| cs.to_display_entry(cd))
+                .collect(),
+        }
+    }
+}
+
+fn live_slot_segment(depth: u16, _slot: &LiveSlot) -> String {
+    format!("depth{depth}")
+}
+
+fn join_target_path(parent: &str, segment: &str) -> String {
+    if parent.is_empty() || parent == "_root" || parent == "/" {
+        segment.to_owned()
+    } else {
+        format!("{}/{segment}", parent.trim_end_matches('/'))
+    }
+}
+
+fn target_segments(target: &str) -> Vec<&str> {
+    target
+        .trim()
+        .trim_start_matches('/')
+        .split(['/', '.'])
+        .filter(|segment| !segment.is_empty() && *segment != "_root" && *segment != "_level0")
+        .collect()
+}
+
+fn slot_matches_segment(depth: u16, slot: &LiveSlot, segment: &str) -> bool {
+    slot.name == segment || segment == format!("depth{depth}")
+}
+
+fn resolve_target_identity_by_segments(
+    display_list: &BTreeMap<u16, LiveSlot>,
+    segments: &[&str],
+    parent_identity: &str,
+) -> Option<String> {
+    let (segment, rest) = segments.split_first()?;
+    let (depth, slot) = display_list
+        .iter()
+        .find(|(depth, slot)| slot_matches_segment(**depth, slot, segment))?;
+    let identity = join_target_path(parent_identity, &format!("depth{depth}"));
+    if rest.is_empty() {
+        Some(identity)
+    } else {
+        resolve_target_identity_by_segments(&slot.children, rest, &identity)
+    }
+}
+
+fn resolve_target_identity(display_list: &BTreeMap<u16, LiveSlot>, target: &str) -> Option<String> {
+    let segments = target_segments(target);
+    resolve_target_identity_by_segments(display_list, &segments, "")
+}
+
+fn identity_depth(segment: &str) -> Option<u16> {
+    segment.strip_prefix("depth")?.parse().ok()
+}
+
+fn find_slot_by_identity_segments<'a>(
+    display_list: &'a BTreeMap<u16, LiveSlot>,
+    segments: &[&str],
+) -> Option<&'a LiveSlot> {
+    let (segment, rest) = segments.split_first()?;
+    let slot = display_list.get(&identity_depth(segment)?)?;
+    if rest.is_empty() {
+        Some(slot)
+    } else {
+        find_slot_by_identity_segments(&slot.children, rest)
+    }
+}
+
+fn find_slot_by_identity_segments_mut<'a>(
+    display_list: &'a mut BTreeMap<u16, LiveSlot>,
+    segments: &[&str],
+) -> Option<&'a mut LiveSlot> {
+    let (segment, rest) = segments.split_first()?;
+    let slot = display_list.get_mut(&identity_depth(segment)?)?;
+    if rest.is_empty() {
+        Some(slot)
+    } else {
+        find_slot_by_identity_segments_mut(&mut slot.children, rest)
+    }
+}
+
+fn find_slot_by_identity<'a>(
+    display_list: &'a BTreeMap<u16, LiveSlot>,
+    target: &str,
+) -> Option<&'a LiveSlot> {
+    let segments = target_segments(target);
+    find_slot_by_identity_segments(display_list, &segments)
+}
+
+fn find_slot_by_identity_mut<'a>(
+    display_list: &'a mut BTreeMap<u16, LiveSlot>,
+    target: &str,
+) -> Option<&'a mut LiveSlot> {
+    let segments = target_segments(target);
+    find_slot_by_identity_segments_mut(display_list, &segments)
+}
+
+fn find_slot_in_detached<'a>(
+    root_target: &str,
+    root_slot: &'a LiveSlot,
+    target: &str,
+) -> Option<&'a LiveSlot> {
+    if target == root_target {
+        return Some(root_slot);
+    }
+    let suffix = target.strip_prefix(root_target)?.strip_prefix('/')?;
+    find_slot_by_identity(&root_slot.children, suffix)
+}
+
+fn find_slot_in_detached_mut<'a>(
+    root_target: &str,
+    root_slot: &'a mut LiveSlot,
+    target: &str,
+) -> Option<&'a mut LiveSlot> {
+    if target == root_target {
+        return Some(root_slot);
+    }
+    let suffix = target.strip_prefix(root_target)?.strip_prefix('/')?;
+    find_slot_by_identity_mut(&mut root_slot.children, suffix)
+}
+
+fn collect_pointer_actions(
+    display_list: &BTreeMap<u16, LiveSlot>,
+    parent_target: &str,
+    buttons: &HashMap<u16, Vec<ButtonCondAction>>,
+    actions: &mut Vec<(String, Vec<u8>)>,
+) {
+    for (&depth, slot) in display_list {
+        let target = join_target_path(parent_target, &live_slot_segment(depth, slot));
+        if let Some(conditions) = buttons.get(&slot.character_id) {
+            actions.extend(
+                conditions
+                    .iter()
+                    .filter(|condition| {
+                        condition.conditions == 0 || (condition.conditions & 0x000C) != 0
+                    })
+                    .map(|condition| (target.clone(), condition.actions.clone())),
+            );
+        }
+        actions.extend(
+            slot.clip_handlers
+                .iter()
+                .filter(|handler| {
+                    (handler.event_flags
+                        & (CLIP_EVENT_MOUSE_UP
+                            | CLIP_EVENT_MOUSE_DOWN
+                            | CLIP_EVENT_RELEASE
+                            | CLIP_EVENT_PRESS))
+                        != 0
+                })
+                .map(|handler| (target.clone(), handler.actions.clone())),
+        );
+        collect_pointer_actions(&slot.children, &target, buttons, actions);
+    }
+}
+
+fn collect_unload_actions(slot: &LiveSlot, target: &str, actions: &mut Vec<(String, Vec<u8>)>) {
+    actions.extend(
+        slot.clip_handlers
+            .iter()
+            .filter(|handler| (handler.event_flags & CLIP_EVENT_UNLOAD) != 0)
+            .map(|handler| (target.to_owned(), handler.actions.clone())),
+    );
+    for (&depth, child) in &slot.children {
+        let child_target = join_target_path(target, &live_slot_segment(depth, child));
+        collect_unload_actions(child, &child_target, actions);
+    }
+}
+
+fn detached_unload_work(slot: &LiveSlot, target: &str) -> Option<PendingAvm1Work> {
+    let mut actions = Vec::new();
+    collect_unload_actions(slot, target, &mut actions);
+    (!actions.is_empty()).then(|| PendingAvm1Work::Detached {
+        root_target: target.to_owned(),
+        root_slot: Box::new(slot.clone()),
+        actions,
+    })
+}
+
+fn pending_action(target: String, actions: Vec<u8>) -> PendingAvm1Work {
+    PendingAvm1Work::Action { target, actions }
+}
+
+fn any_playing_descendant(display_list: &BTreeMap<u16, LiveSlot>) -> bool {
+    display_list.values().any(|slot| {
+        (slot.playing && slot.total_frames > 1) || any_playing_descendant(&slot.children)
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -148,6 +431,7 @@ enum Avm1Value {
     String(String),
     Object(usize),
     MovieClip(String),
+    MovieClipIdentity(String),
 }
 
 impl Avm1Value {
@@ -163,7 +447,7 @@ impl Avm1Value {
             }
             Self::Number(n) => *n,
             Self::String(s) => s.trim().parse::<f64>().unwrap_or(f64::NAN),
-            Self::Object(_) | Self::MovieClip(_) => f64::NAN,
+            Self::Object(_) | Self::MovieClip(_) | Self::MovieClipIdentity(_) => f64::NAN,
         }
     }
 
@@ -188,7 +472,7 @@ impl Avm1Value {
                     !s.is_empty()
                 }
             }
-            Self::Object(_) | Self::MovieClip(_) => true,
+            Self::Object(_) | Self::MovieClip(_) | Self::MovieClipIdentity(_) => true,
         }
     }
 
@@ -205,7 +489,7 @@ impl Avm1Value {
             Self::Bool(b) => if *b { "true" } else { "false" }.to_owned(),
             Self::Number(n) => format_avm_number(*n),
             Self::String(s) => s.clone(),
-            Self::MovieClip(path) => path.clone(),
+            Self::MovieClip(path) | Self::MovieClipIdentity(path) => path.clone(),
             Self::Object(id) => {
                 if let Some(obj) = objects.get(*id)
                     && let Some(elements) = &obj.array_elements
@@ -249,6 +533,7 @@ struct LoadedAbc {
 pub struct SwfBytecodePlayer {
     swf_version: u8,
     vm_kind: SwfVmKind,
+    stage_offset: (f64, f64),
     root_timeline: TimelineDef,
     sprites: HashMap<u16, TimelineDef>,
     buttons: HashMap<u16, Vec<ButtonCondAction>>,
@@ -258,15 +543,20 @@ pub struct SwfBytecodePlayer {
 
     // Runtime state
     current_frame: u32,
+    presented_frame: u32,
     playing: bool,
     executed_frames: u32,
     last_applied_frame: Option<u32>,
+    root_loop_rewind_pending: bool,
     display_list: BTreeMap<u16, LiveSlot>,
     trace_output: Vec<String>,
     frame_traces: Vec<String>,
     audio_events: Vec<SwfAudioEvent>,
     frame_audio_events: Vec<SwfAudioEvent>,
+    unsupported_diagnostics: Vec<String>,
+    frame_unsupported_diagnostics: Vec<String>,
     stream_sound_active: bool,
+    stop_all_sounds_pending: bool,
 
     // AVM1 state
     avm1_globals: HashMap<String, Avm1Value>,
@@ -275,6 +565,7 @@ pub struct SwfBytecodePlayer {
     avm1_registers: [Avm1Value; 256],
     avm1_constant_pool: Vec<String>,
     avm1_target: String,
+    avm1_detached_target: Option<(String, LiveSlot)>,
     rng_state: u32,
 
     // AVM2 state
@@ -307,9 +598,19 @@ impl SwfBytecodePlayer {
             ));
         };
         let mut r = SwfSlice::new(body);
-        let _bounds = r
+        let bounds = r
             .rect_twips()
             .ok_or_else(|| ImportError::Container("truncated SWF stage RECT".into()))?;
+        let stage_dx = if bounds[1] < bounds[0] {
+            0.0
+        } else {
+            -(f64::from(bounds[0]) / 20.0)
+        };
+        let stage_dy = if bounds[3] < bounds[2] {
+            0.0
+        } else {
+            -(f64::from(bounds[2]) / 20.0)
+        };
         let _fps = r
             .ufixed8()
             .ok_or_else(|| ImportError::Container("truncated SWF frame rate".into()))?;
@@ -427,6 +728,7 @@ impl SwfBytecodePlayer {
         Ok(Self {
             swf_version: container.swf_version,
             vm_kind,
+            stage_offset: (stage_dx, stage_dy),
             root_timeline: TimelineDef {
                 total_frames,
                 frames: root_frames,
@@ -438,21 +740,27 @@ impl SwfBytecodePlayer {
             abc_tags,
             symbol_classes,
             current_frame: 0,
+            presented_frame: 0,
             playing: true,
             executed_frames: 0,
             last_applied_frame: None,
+            root_loop_rewind_pending: false,
             display_list: BTreeMap::new(),
             trace_output: Vec::new(),
             frame_traces: Vec::new(),
             audio_events: Vec::new(),
             frame_audio_events: Vec::new(),
+            unsupported_diagnostics: Vec::new(),
+            frame_unsupported_diagnostics: Vec::new(),
             stream_sound_active: false,
+            stop_all_sounds_pending: false,
             avm1_globals: HashMap::new(),
             avm1_functions: HashMap::new(),
             avm1_objects: Vec::new(),
             avm1_registers: std::array::from_fn(|_| Avm1Value::Undefined),
             avm1_constant_pool: Vec::new(),
             avm1_target: String::new(),
+            avm1_detached_target: None,
             rng_state: 0x1234_5678,
             avm2_initialized: false,
             avm2_globals: HashMap::new(),
@@ -476,53 +784,404 @@ impl SwfBytecodePlayer {
         self.current_frame
     }
 
+    /// Frame index whose display list and scripts were most recently evaluated.
+    pub fn presented_frame(&self) -> u32 {
+        self.presented_frame
+    }
+
     pub fn is_playing(&self) -> bool {
         self.playing
+    }
+
+    pub fn set_playing(&mut self, playing: bool) {
+        self.playing = playing;
     }
 
     pub fn trace_output(&self) -> &[String] {
         &self.trace_output
     }
 
+    pub fn unsupported_diagnostics(&self) -> &[String] {
+        &self.unsupported_diagnostics
+    }
+
     pub fn display_list(&self) -> Vec<SwfDisplayEntry> {
         self.display_list
             .iter()
-            .map(|(&depth, s)| SwfDisplayEntry {
-                depth,
-                character_id: s.character_id,
-                name: s.name.clone(),
-                matrix: s.matrix,
-                x: s.x,
-                y: s.y,
-                scale_x: s.scale_x,
-                scale_y: s.scale_y,
-                rotation: s.rotation,
-                alpha: s.alpha,
-                visible: s.visible,
-                blend_mode: s.blend_mode,
-                filters: s.filters.clone(),
-                clip_depth: s.clip_depth,
-                current_frame: s.current_frame,
-                total_frames: s.total_frames,
-                playing: s.playing,
-            })
+            .map(|(&depth, s)| s.to_display_entry(depth))
             .collect()
+    }
+
+    /// Reset all runtime display-list and VM state back to the initial unstepped frame 0 state.
+    pub fn reset(&mut self) {
+        self.current_frame = 0;
+        self.presented_frame = 0;
+        self.playing = true;
+        self.executed_frames = 0;
+        self.last_applied_frame = None;
+        self.root_loop_rewind_pending = false;
+        self.display_list.clear();
+        self.trace_output.clear();
+        self.frame_traces.clear();
+        self.audio_events.clear();
+        self.frame_audio_events.clear();
+        self.unsupported_diagnostics.clear();
+        self.frame_unsupported_diagnostics.clear();
+        self.stream_sound_active = false;
+        self.stop_all_sounds_pending = false;
+        self.avm1_globals.clear();
+        self.avm1_functions.clear();
+        self.avm1_objects.clear();
+        self.avm1_registers = std::array::from_fn(|_| Avm1Value::Undefined);
+        self.avm1_constant_pool.clear();
+        self.avm1_target.clear();
+        self.avm1_detached_target = None;
+        self.rng_state = 0x1234_5678;
+        self.avm2_initialized = false;
+        self.avm2_globals.clear();
+        self.avm2_frame_scripts.clear();
+    }
+
+    /// Deterministically replay the SWF timeline from frame 0 through `target_frame` (inclusive),
+    /// returning the `SwfFrameState` at `target_frame`.
+    pub fn seek_to_frame(&mut self, target_frame: u32) -> SwfFrameState {
+        let total = self.root_timeline.frames.len().max(1) as u32;
+        let clamped = target_frame.min(total.saturating_sub(1));
+        self.reset();
+        let mut last_state = None;
+        for f in 0..=clamped {
+            self.current_frame = f;
+            last_state = Some(self.step_frame_inner(0, f == clamped));
+        }
+        let mut state = last_state.unwrap_or_else(|| SwfFrameState {
+            frame: 0,
+            label: None,
+            playing: self.playing,
+            display_list: Vec::new(),
+            traces: Vec::new(),
+            audio_events: Vec::new(),
+            unsupported_diagnostics: Vec::new(),
+        });
+        state.unsupported_diagnostics = self.unsupported_diagnostics.clone();
+        state
+    }
+
+    /// Drain pending audio events from the most recent frame step into host `SoundCommand`s.
+    pub fn drain_sound_commands(&mut self, project: &Project) -> Vec<SoundCommand> {
+        let mut out = Vec::new();
+        if self.stop_all_sounds_pending {
+            self.stop_all_sounds_pending = false;
+            out.push(SoundCommand::StopAll);
+        }
+        let events = std::mem::take(&mut self.frame_audio_events);
+        for ev in events {
+            if ev.sound_id > 0 {
+                let resource = format!("swf-sound-{}", ev.sound_id);
+                if project.resources.iter().any(|r| r.id == resource) {
+                    if ev.sync == "stop" {
+                        out.push(SoundCommand::Stop { resource });
+                    } else {
+                        out.push(SoundCommand::Play {
+                            resource,
+                            sync: if ev.sync == "start" {
+                                SoundSync::Start
+                            } else {
+                                SoundSync::Event
+                            },
+                            loops: u32::from(ev.loops.max(1)),
+                            loop_forever: false,
+                            envelope: Vec::new(),
+                            in_point: None,
+                            out_point: None,
+                        });
+                    }
+                }
+            } else if ev.sync == "stream"
+                && let Some(res) = project
+                    .resources
+                    .iter()
+                    .find(|r| r.id.starts_with("swf-stream-"))
+            {
+                out.push(SoundCommand::StreamStart {
+                    channel: "swf-root-stream".to_owned(),
+                    resource: res.id.clone(),
+                    offset: f64::from(ev.frame) / f64::from(project.fps.max(1)),
+                    loops: 1,
+                    loop_forever: false,
+                    envelope: Vec::new(),
+                    in_point: None,
+                    out_point: None,
+                });
+            }
+        }
+        out
+    }
+
+    /// Project the current runtime display-list state onto an ephemeral clone of `project`
+    /// without mutating the authored `Project`.
+    pub fn project_with_display_list_overlay(
+        &self,
+        project: &Project,
+        symbol_id: &str,
+        frame: u32,
+    ) -> Project {
+        let mut overlay = project.clone();
+        let entries = self.display_list();
+        let mut next_runtime_symbol = 0usize;
+        let instance_symbols =
+            self.materialize_runtime_symbols(&mut overlay, &entries, 0, &mut next_runtime_symbol);
+        let offset = if symbol_id == project.root {
+            self.stage_offset
+        } else {
+            (0.0, 0.0)
+        };
+        Self::apply_entries_to_symbol(
+            &mut overlay,
+            symbol_id,
+            frame,
+            &entries,
+            offset,
+            &instance_symbols,
+        );
+        overlay
+    }
+
+    /// Evaluate the native Stage `AuthoredScene` for the current `SwfBytecodePlayer` display-list
+    /// state without mutating `project`.
+    pub fn evaluate_stage_scene(
+        &self,
+        project: &Project,
+        symbol_id: &str,
+        frame: u32,
+        show_masking: bool,
+    ) -> AuthoredScene {
+        let overlay = self.project_with_display_list_overlay(project, symbol_id, frame);
+        evaluate_scene(&overlay, symbol_id, frame, true, show_masking)
+    }
+
+    /// Clone sprite symbols per runtime instance before applying their display lists. Reusing the
+    /// authored `swf-sym-*` symbol would make two instances of the same character overwrite each
+    /// other's frame and descendants. The clones exist only in the ephemeral overlay.
+    fn materialize_runtime_symbols(
+        &self,
+        overlay: &mut Project,
+        entries: &[SwfDisplayEntry],
+        runtime_depth: usize,
+        next_runtime_symbol: &mut usize,
+    ) -> BTreeMap<u16, String> {
+        let mut symbols = BTreeMap::new();
+        for entry in entries {
+            let base_symbol_id = format!("swf-sym-{}", entry.character_id);
+            if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH
+                || !self.sprites.contains_key(&entry.character_id)
+            {
+                symbols.insert(entry.depth, base_symbol_id);
+                continue;
+            }
+            let Some(mut runtime_symbol) = overlay.symbol(&base_symbol_id).cloned() else {
+                continue;
+            };
+            let runtime_symbol_id = loop {
+                *next_runtime_symbol = next_runtime_symbol.saturating_add(1);
+                let candidate = format!("swf-runtime-overlay-{}", *next_runtime_symbol);
+                if overlay.symbol(&candidate).is_none() {
+                    break candidate;
+                }
+            };
+            runtime_symbol.id = runtime_symbol_id.clone();
+            runtime_symbol.class_name = None;
+            runtime_symbol.linkage_id = None;
+            overlay.symbols.push(runtime_symbol);
+
+            let child_symbols = self.materialize_runtime_symbols(
+                overlay,
+                &entry.children,
+                runtime_depth + 1,
+                next_runtime_symbol,
+            );
+            Self::apply_entries_to_symbol(
+                overlay,
+                &runtime_symbol_id,
+                entry.current_frame,
+                &entry.children,
+                (0.0, 0.0),
+                &child_symbols,
+            );
+            symbols.insert(entry.depth, runtime_symbol_id);
+        }
+        symbols
+    }
+
+    fn apply_entries_to_symbol(
+        overlay: &mut Project,
+        target_symbol_id: &str,
+        frame: u32,
+        entries: &[SwfDisplayEntry],
+        offset: (f64, f64),
+        instance_symbols: &BTreeMap<u16, String>,
+    ) {
+        let mut layers: Vec<Layer> = Vec::with_capacity(entries.len().max(1));
+        let mut depth_to_layer_idx: BTreeMap<u16, usize> = BTreeMap::new();
+        let mut mask_requests: Vec<(u16, u16, usize)> = Vec::new();
+        let existing_sym = overlay.symbol(target_symbol_id).cloned();
+
+        for entry in entries {
+            let char_sym_id = instance_symbols
+                .get(&entry.depth)
+                .cloned()
+                .unwrap_or_else(|| format!("swf-sym-{}", entry.character_id));
+            let Some(child_sym) = overlay.symbol(&char_sym_id) else {
+                continue;
+            };
+            let playback = if let Some(ratio) = entry.ratio
+                && child_sym.kind == SymbolKind::Graphic
+                && child_sym.timeline.frame_count > 1
+            {
+                let max_idx = child_sym.timeline.frame_count.saturating_sub(1);
+                let morph_frame = ((u32::from(ratio) * max_idx + 32767) / 65535).min(max_idx);
+                InstancePlayback::SingleFrame(morph_frame)
+            } else {
+                let max_f = child_sym.timeline.frame_count.max(1);
+                InstancePlayback::SingleFrame(entry.current_frame.min(max_f.saturating_sub(1)))
+            };
+            let depth_layer_id = format!("{target_symbol_id}-d{}", entry.depth);
+            let existing_elem_id = existing_sym
+                .as_ref()
+                .and_then(|sym| sym.timeline.layers.iter().find(|l| l.id == depth_layer_id))
+                .and_then(|layer| {
+                    layer
+                        .key_at(frame)
+                        .and_then(|k| k.elements.first())
+                        .or_else(|| layer.keyframes.iter().flat_map(|k| &k.elements).next())
+                })
+                .map(|e| e.id.clone())
+                .unwrap_or_else(|| format!("swf-el-{target_symbol_id}-d{}-s1", entry.depth));
+            let el = Element {
+                id: existing_elem_id,
+                name: entry.name.clone(),
+                visible: entry.visible,
+                kind: ElementKind::Instance {
+                    symbol_id: char_sym_id,
+                    playback,
+                },
+                transform: Transform {
+                    x: entry.x + offset.0,
+                    y: entry.y + offset.1,
+                    scale_x: entry.scale_x / 100.0,
+                    scale_y: entry.scale_y / 100.0,
+                    rotation: entry.rotation,
+                    alpha: (entry.alpha / 100.0).clamp(0.0, 1.0),
+                    skew: entry.skew,
+                    color_transform: entry.color_transform,
+                    pivot: None,
+                    primitive: None,
+                },
+                filters: entry.filters.clone(),
+                blend_mode: entry.blend_mode,
+                cache_as_bitmap: entry.cache_as_bitmap,
+                scripts: Vec::new(),
+                accessibility: None,
+                ..Element::default()
+            };
+            let mut keyframes = Vec::with_capacity(2);
+            if frame > 0 {
+                keyframes.push(Keyframe {
+                    frame: 0,
+                    ..Default::default()
+                });
+            }
+            keyframes.push(Keyframe {
+                frame,
+                elements: vec![el],
+                ..Default::default()
+            });
+            let layer_idx = layers.len();
+            layers.push(Layer {
+                id: depth_layer_id,
+                name: format!("Layer {}", layer_idx + 1),
+                visible: true,
+                locked: false,
+                keyframes,
+                properties: LayerProperties::default(),
+            });
+            depth_to_layer_idx.insert(entry.depth, layer_idx);
+            if let Some(clip_end) = entry.clip_depth
+                && clip_end > entry.depth
+            {
+                mask_requests.push((entry.depth, clip_end, layer_idx));
+            }
+        }
+
+        for (mask_depth, clip_end, mask_lidx) in mask_requests {
+            if layers[mask_lidx].properties.mask.is_some() {
+                continue;
+            }
+            let masked_indices: Vec<usize> = depth_to_layer_idx
+                .range((
+                    std::ops::Bound::Excluded(mask_depth),
+                    std::ops::Bound::Included(clip_end),
+                ))
+                .map(|(_, &idx)| idx)
+                .filter(|&idx| {
+                    layers[idx].properties.role == LayerRole::Normal
+                        && layers[idx].properties.mask.is_none()
+                })
+                .collect();
+            if masked_indices.is_empty() {
+                continue;
+            }
+            let mask_id = layers[mask_lidx].id.clone();
+            layers[mask_lidx].properties.role = LayerRole::Mask;
+            for idx in masked_indices {
+                layers[idx].properties.mask = Some(mask_id.clone());
+            }
+        }
+
+        if layers.is_empty() {
+            layers.push(Layer {
+                id: format!("{target_symbol_id}-rt-empty"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    ..Default::default()
+                }],
+                properties: LayerProperties::default(),
+            });
+        }
+
+        if let Some(sym) = overlay.symbol_mut(target_symbol_id) {
+            sym.timeline.frame_count = sym.timeline.frame_count.max(frame + 1);
+            sym.timeline.layers = layers;
+        }
     }
 
     /// Execute one frame step on the SWF timeline and return the resulting `SwfFrameState`.
     pub fn step_frame(&mut self) -> SwfFrameState {
+        self.step_frame_inner(0, true)
+    }
+
+    fn step_frame_inner(&mut self, jump_depth: usize, follow_frame_control: bool) -> SwfFrameState {
         self.frame_traces.clear();
         self.frame_audio_events.clear();
+        self.frame_unsupported_diagnostics.clear();
+
+        if self.root_loop_rewind_pending {
+            self.root_loop_rewind_pending = false;
+            let source_frame = self.root_timeline.frames.len().saturating_sub(1) as u32;
+            let destination_frame = self.current_frame;
+            if destination_frame != source_frame {
+                self.prepare_root_display_list_jump(source_frame, destination_frame);
+                self.last_applied_frame = None;
+            }
+        }
 
         if self.executed_frames == 0 {
             // Run DoInitAction blocks on frame 0 before frame tags
             let init_blocks = self.init_actions.clone();
             for (_, code) in init_blocks {
                 self.execute_avm1_slice(&code);
-            }
-            if self.vm_kind == SwfVmKind::Avm2 && !self.avm2_initialized {
-                self.avm2_initialized = true;
-                self.initialize_avm2();
             }
         }
 
@@ -532,7 +1191,7 @@ impl SwfBytecodePlayer {
 
         let mut frame_label = None;
         let mut pending_do_actions: Vec<Vec<u8>> = Vec::new();
-        let mut newly_loaded_handlers: Vec<Vec<u8>> = Vec::new();
+        let mut pending_lifecycle = Vec::new();
 
         if frame_changed
             && let Some(tags) = self
@@ -550,14 +1209,10 @@ impl SwfBytecodePlayer {
                         }
                     }
                     4 | 26 | 70 => {
-                        let loads = self.apply_place_tag(tag.code, &tag.payload);
-                        newly_loaded_handlers.extend(loads);
+                        pending_lifecycle.extend(self.apply_place_tag(tag.code, &tag.payload));
                     }
                     5 | 28 => {
-                        let unloads = self.apply_remove_tag(tag.code, &tag.payload);
-                        for code in unloads {
-                            self.execute_avm1_slice(&code);
-                        }
+                        pending_lifecycle.extend(self.apply_remove_tag(tag.code, &tag.payload));
                     }
                     12 => {
                         pending_do_actions.push(tag.payload);
@@ -584,41 +1239,22 @@ impl SwfBytecodePlayer {
         }
 
         // 1. Fire ClipEventLoad handlers for newly placed instances
-        for code in newly_loaded_handlers {
-            self.execute_avm1_slice(&code);
-        }
+        self.execute_avm1_work_list(pending_lifecycle);
 
         // 2. Fire ClipEventEnterFrame handlers on active instances (and step nested sprites)
         let depths: Vec<u16> = self.display_list.keys().copied().collect();
         for d in depths {
-            let enter_handlers: Vec<Vec<u8>> = self
-                .display_list
-                .get(&d)
-                .map(|slot| {
-                    slot.clip_handlers
-                        .iter()
-                        .filter(|h| (h.event_flags & 0x02) != 0) // ClipEventEnterFrame = 0x02
-                        .map(|h| h.actions.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            for code in enter_handlers {
-                self.execute_avm1_slice(&code);
-            }
-            if let Some(slot) = self.display_list.get_mut(&d)
-                && slot.last_applied_frame.is_some()
-                && slot.playing
-                && slot.total_frames > 1
-            {
-                slot.current_frame = (slot.current_frame + 1) % slot.total_frames;
-            }
-            self.step_sprite_frame_actions(d);
+            self.step_sprite_frame_actions(d, true);
         }
 
         // 3. Execute frame DoAction scripts
         if frame_changed {
             for action_bytes in pending_do_actions {
                 self.execute_avm1_slice(&action_bytes);
+            }
+            if self.vm_kind == SwfVmKind::Avm2 && !self.avm2_initialized {
+                self.avm2_initialized = true;
+                self.initialize_avm2();
             }
             // 4. Execute AVM2 addFrameScript callback if registered for this frame
             if self.vm_kind == SwfVmKind::Avm2
@@ -628,13 +1264,64 @@ impl SwfBytecodePlayer {
             }
         }
 
+        // Sync any nested sprites whose `current_frame` was modified by root frame scripts
+        let post_depths: Vec<u16> = self.display_list.keys().copied().collect();
+        for d in post_depths {
+            self.step_sprite_frame_actions(d, false);
+        }
+
+        // A root goto changes the displayed frame immediately. Apply skipped timeline-display
+        // tags, then enter the destination frame in this same step so the returned frame number,
+        // display list, scripts, sounds, and diagnostics all describe one coherent presentation.
+        if follow_frame_control && self.current_frame != entering_frame {
+            if jump_depth < MAX_FRAME_JUMPS_PER_STEP {
+                let destination = self.current_frame;
+                self.prepare_root_display_list_jump(entering_frame, destination);
+                let source_traces = self.frame_traces.clone();
+                let source_audio = self.frame_audio_events.clone();
+                let source_diagnostics = self.frame_unsupported_diagnostics.clone();
+                self.executed_frames = self.executed_frames.saturating_add(1);
+
+                let mut destination_state = self.step_frame_inner(jump_depth + 1, true);
+                let mut merged_traces = source_traces;
+                merged_traces.append(&mut destination_state.traces);
+                let mut merged_audio = source_audio;
+                merged_audio.append(&mut destination_state.audio_events);
+                let mut merged_diagnostics = source_diagnostics;
+                for diagnostic in destination_state.unsupported_diagnostics.drain(..) {
+                    if !merged_diagnostics.contains(&diagnostic) {
+                        merged_diagnostics.push(diagnostic);
+                    }
+                }
+                destination_state.traces = merged_traces.clone();
+                destination_state.audio_events = merged_audio.clone();
+                destination_state.unsupported_diagnostics = merged_diagnostics.clone();
+                self.frame_traces = merged_traces;
+                self.frame_audio_events = merged_audio;
+                self.frame_unsupported_diagnostics = merged_diagnostics;
+                return destination_state;
+            }
+            self.record_unsupported_diagnostic(format!(
+                "SWF frame-control jump chain exceeded the {MAX_FRAME_JUMPS_PER_STEP}-jump runtime limit"
+            ));
+            self.current_frame = entering_frame;
+            self.playing = false;
+        }
+
+        let displayed_frame = if follow_frame_control {
+            self.current_frame
+        } else {
+            entering_frame
+        };
+        self.presented_frame = displayed_frame;
         let state = SwfFrameState {
-            frame: self.current_frame,
+            frame: displayed_frame,
             label: frame_label,
             playing: self.playing,
             display_list: self.display_list(),
             traces: self.frame_traces.clone(),
             audio_events: self.frame_audio_events.clone(),
+            unsupported_diagnostics: self.frame_unsupported_diagnostics.clone(),
         };
 
         self.executed_frames += 1;
@@ -642,74 +1329,231 @@ impl SwfBytecodePlayer {
         if self.current_frame == entering_frame && self.playing {
             let total = self.root_timeline.frames.len().max(1) as u32;
             if total > 1 {
-                self.current_frame = (self.current_frame + 1) % total;
+                let next_frame = (self.current_frame + 1) % total;
+                self.root_loop_rewind_pending = next_frame == 0;
+                self.current_frame = next_frame;
             }
         }
 
         state
     }
 
-    fn step_sprite_frame_actions(&mut self, depth: u16) {
-        let Some((cid, target_name, frame_idx)) = self.display_list.get_mut(&depth).and_then(|s| {
-            if s.last_applied_frame != Some(s.current_frame) {
-                s.last_applied_frame = Some(s.current_frame);
-                Some((s.character_id, s.name.clone(), s.current_frame))
-            } else {
-                None
+    fn prepare_root_display_list_jump(&mut self, source_frame: u32, destination_frame: u32) {
+        let rewinding = destination_frame < source_frame;
+        let start_frame = if rewinding {
+            let mut work = Vec::new();
+            for (&depth, slot) in &self.display_list {
+                if let Some(unload) = detached_unload_work(slot, &live_slot_segment(depth, slot)) {
+                    work.push(unload);
+                }
             }
-        }) else {
-            return;
+            self.display_list.clear();
+            self.execute_avm1_work_list(work);
+            0
+        } else {
+            source_frame.saturating_add(1)
         };
-        let do_actions: Vec<Vec<u8>> = self
-            .sprites
-            .get(&cid)
-            .and_then(|def| def.frames.get(frame_idx as usize))
-            .map(|tags| {
-                tags.iter()
-                    .filter(|t| t.code == 12)
-                    .map(|t| t.payload.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !do_actions.is_empty() {
-            let saved_target = std::mem::replace(&mut self.avm1_target, target_name);
-            for code in do_actions {
-                self.execute_avm1_slice(&code);
+        // An Unload handler can redirect the root while the old display tree is detached. Honor
+        // that final target and rebuild every intermediate frame exactly once before entering it.
+        let destination_frame = self.current_frame;
+        for frame in start_frame..destination_frame {
+            let Some(tags) = self.root_timeline.frames.get(frame as usize).cloned() else {
+                continue;
+            };
+            for tag in tags {
+                match tag.code {
+                    4 | 26 | 70 => {
+                        let work = self.apply_place_tag(tag.code, &tag.payload);
+                        self.execute_avm1_work_list(work);
+                    }
+                    5 | 28 => {
+                        let work = self.apply_remove_tag(tag.code, &tag.payload);
+                        self.execute_avm1_work_list(work);
+                    }
+                    _ => {}
+                }
             }
-            self.avm1_target = saved_target;
+        }
+    }
+
+    fn step_sprite_frame_actions(&mut self, depth: u16, advance_timeline: bool) {
+        let mut pending_actions = Vec::new();
+        let mut diagnostics = Vec::new();
+        if let Some(slot) = self.display_list.get_mut(&depth) {
+            let target_name = live_slot_segment(depth, slot);
+            Self::sync_sprite_slot_recursive(
+                slot,
+                &self.sprites,
+                self.swf_version,
+                advance_timeline,
+                0,
+                &target_name,
+                &mut pending_actions,
+                &mut diagnostics,
+            );
+        }
+        for diagnostic in diagnostics {
+            self.record_unsupported_diagnostic(diagnostic);
+        }
+        self.execute_avm1_work_list(pending_actions);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sync_sprite_slot_recursive(
+        slot: &mut LiveSlot,
+        sprites: &HashMap<u16, TimelineDef>,
+        swf_version: u8,
+        advance_current: bool,
+        runtime_depth: usize,
+        target_path: &str,
+        pending_actions: &mut Vec<PendingAvm1Work>,
+        diagnostics: &mut Vec<String>,
+    ) {
+        if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH {
+            diagnostics.push(format!(
+                "SWF nested sprite depth exceeded the {MAX_RUNTIME_SPRITE_DEPTH}-level runtime limit"
+            ));
+            return;
+        }
+
+        if advance_current {
+            pending_actions.extend(
+                slot.clip_handlers
+                    .iter()
+                    .filter(|handler| (handler.event_flags & CLIP_EVENT_ENTER_FRAME) != 0)
+                    .map(|handler| pending_action(target_path.to_owned(), handler.actions.clone())),
+            );
+        }
+
+        if advance_current
+            && slot.last_applied_frame.is_some()
+            && slot.playing
+            && slot.total_frames > 1
+        {
+            slot.current_frame = (slot.current_frame + 1) % slot.total_frames;
+        }
+
+        if let Some(def) = sprites.get(&slot.character_id).cloned() {
+            let previous_frame = slot.last_applied_frame;
+            let frame_idx = slot.current_frame;
+            if previous_frame != Some(frame_idx) {
+                slot.last_applied_frame = Some(frame_idx);
+                let start_frame = match previous_frame {
+                    Some(previous) if frame_idx > previous => previous + 1,
+                    _ => {
+                        for (&depth, child) in &slot.children {
+                            let child_target =
+                                join_target_path(target_path, &live_slot_segment(depth, child));
+                            if let Some(work) = detached_unload_work(child, &child_target) {
+                                pending_actions.push(work);
+                            }
+                        }
+                        slot.children.clear();
+                        0
+                    }
+                };
+                let max_frame = frame_idx.min(def.frames.len().saturating_sub(1) as u32);
+                for frame in start_frame..=max_frame {
+                    if let Some(tags) = def.frames.get(frame as usize) {
+                        for tag in tags {
+                            match tag.code {
+                                4 | 26 | 70 => {
+                                    if let Some(depth) = place_tag_depth(tag.code, &tag.payload)
+                                        && let Some(child) = slot.children.get(&depth)
+                                        && place_tag_replaces_slot(tag.code, &tag.payload)
+                                    {
+                                        let replaced_target = join_target_path(
+                                            target_path,
+                                            &live_slot_segment(depth, child),
+                                        );
+                                        if let Some(work) =
+                                            detached_unload_work(child, &replaced_target)
+                                        {
+                                            pending_actions.push(work);
+                                        }
+                                    }
+                                    let (load_actions, unmodeled_filter) = apply_place_tag_to_map(
+                                        &mut slot.children,
+                                        sprites,
+                                        swf_version,
+                                        tag.code,
+                                        &tag.payload,
+                                    );
+                                    if let Some(depth) = place_tag_depth(tag.code, &tag.payload)
+                                        && let Some(child) = slot.children.get(&depth)
+                                    {
+                                        let child_path = join_target_path(
+                                            target_path,
+                                            &live_slot_segment(depth, child),
+                                        );
+                                        pending_actions.extend(load_actions.into_iter().map(
+                                            |actions| pending_action(child_path.clone(), actions),
+                                        ));
+                                    }
+                                    if unmodeled_filter {
+                                        diagnostics.push(
+                                            "SWF PlaceObject3 filter list contained an unmodeled filter"
+                                                .to_owned(),
+                                        );
+                                    }
+                                }
+                                5 | 28 => {
+                                    if let Some(depth) = remove_tag_depth(tag.code, &tag.payload)
+                                        && let Some(child) = slot.children.get(&depth)
+                                    {
+                                        let removed_target = join_target_path(
+                                            target_path,
+                                            &live_slot_segment(depth, child),
+                                        );
+                                        if let Some(work) =
+                                            detached_unload_work(child, &removed_target)
+                                        {
+                                            pending_actions.push(work);
+                                        }
+                                    }
+                                    let _ = apply_remove_tag_to_map(
+                                        &mut slot.children,
+                                        tag.code,
+                                        &tag.payload,
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                if let Some(tags) = def.frames.get(frame_idx as usize) {
+                    pending_actions.extend(
+                        tags.iter()
+                            .filter(|tag| tag.code == 12)
+                            .map(|tag| pending_action(target_path.to_owned(), tag.payload.clone())),
+                    );
+                }
+            }
+        }
+
+        for (&child_depth, child) in &mut slot.children {
+            let child_path = join_target_path(target_path, &live_slot_segment(child_depth, child));
+            Self::sync_sprite_slot_recursive(
+                child,
+                sprites,
+                swf_version,
+                advance_current,
+                runtime_depth + 1,
+                &child_path,
+                pending_actions,
+                diagnostics,
+            );
         }
     }
 
     /// Trigger button condition / clip mouse press events on placed buttons/clips.
     pub fn trigger_pointer_click(&mut self) {
         let buttons = self.buttons.clone();
-        let depths: Vec<u16> = self.display_list.keys().copied().collect();
-        for d in depths {
-            let Some(cid) = self.display_list.get(&d).map(|s| s.character_id) else {
-                continue;
-            };
-            if let Some(conds) = buttons.get(&cid) {
-                for cond in conds {
-                    // OverDownToOverUp (release = 0x0008) or OverUpToOverDown (press = 0x0004) or DefineButton (0)
-                    if cond.conditions == 0 || (cond.conditions & 0x000C) != 0 {
-                        self.execute_avm1_slice(&cond.actions);
-                    }
-                }
-            }
-            let handlers: Vec<Vec<u8>> = self
-                .display_list
-                .get(&d)
-                .map(|slot| {
-                    slot.clip_handlers
-                        .iter()
-                        .filter(|h| (h.event_flags & (0x04 | 0x08 | 0x400 | 0x800)) != 0)
-                        .map(|h| h.actions.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            for code in handlers {
-                self.execute_avm1_slice(&code);
-            }
+        let mut actions = Vec::new();
+        collect_pointer_actions(&self.display_list, "", &buttons, &mut actions);
+        for (target, code) in actions {
+            self.execute_avm1_for_target(&target, &code);
         }
     }
 
@@ -720,10 +1564,7 @@ impl SwfBytecodePlayer {
             let prev_frame = self.current_frame;
             let state = self.step_frame();
             frames_executed.push(state);
-            let any_child_playing = self
-                .display_list
-                .values()
-                .any(|s| s.playing && s.total_frames > 1);
+            let any_child_playing = any_playing_descendant(&self.display_list);
             let root_pending = self.last_applied_frame != Some(self.current_frame);
             if !self.playing
                 && self.current_frame == prev_frame
@@ -754,12 +1595,24 @@ impl SwfBytecodePlayer {
             trace_output: self.trace_output.clone(),
             audio_events: self.audio_events.clone(),
             variables,
+            unsupported_diagnostics: self.unsupported_diagnostics.clone(),
         }
     }
 
     fn record_trace(&mut self, msg: String) {
         self.trace_output.push(msg.clone());
         self.frame_traces.push(msg);
+    }
+
+    fn record_unsupported_diagnostic(&mut self, msg: String) {
+        if !self.unsupported_diagnostics.contains(&msg) && self.unsupported_diagnostics.len() < 64 {
+            self.unsupported_diagnostics.push(msg.clone());
+        }
+        if !self.frame_unsupported_diagnostics.contains(&msg)
+            && self.frame_unsupported_diagnostics.len() < 64
+        {
+            self.frame_unsupported_diagnostics.push(msg);
+        }
     }
 
     fn apply_start_sound(&mut self, payload: &[u8], frame: u32) {
@@ -800,220 +1653,54 @@ impl SwfBytecodePlayer {
         self.frame_audio_events.push(ev);
     }
 
-    fn apply_place_tag(&mut self, tag_code: u16, payload: &[u8]) -> Vec<Vec<u8>> {
-        let mut r = SwfSlice::new(payload);
-        let mut load_scripts = Vec::new();
-
-        if tag_code == 4 {
-            let Some(character_id) = r.u16() else {
-                return load_scripts;
-            };
-            let Some(depth) = r.u16() else {
-                return load_scripts;
-            };
-            let Some(matrix) = r.matrix_px() else {
-                return load_scripts;
-            };
-            let (_, alpha) = if r.remaining() > 0 {
-                r.cxform(false)
-                    .unwrap_or_else(|| (ColorTransform::default(), 1.0))
-            } else {
-                (ColorTransform::default(), 1.0)
-            };
-            let tf = Transform::from_matrix(matrix).unwrap_or_default();
-            let sprite_total = self
-                .sprites
-                .get(&character_id)
-                .map_or(1, |s| s.total_frames.max(1));
-            self.display_list.insert(
-                depth,
-                LiveSlot {
-                    character_id,
-                    name: String::new(),
-                    matrix,
-                    x: tf.x,
-                    y: tf.y,
-                    scale_x: tf.scale_x * 100.0,
-                    scale_y: tf.scale_y * 100.0,
-                    rotation: tf.rotation,
-                    alpha: alpha * 100.0,
-                    visible: true,
-                    blend_mode: BlendMode::Normal,
-                    filters: Vec::new(),
-                    clip_depth: None,
-                    current_frame: 0,
-                    total_frames: sprite_total,
-                    playing: true,
-                    last_applied_frame: None,
-                    props: HashMap::new(),
-                    clip_handlers: Vec::new(),
-                },
-            );
-            return load_scripts;
+    fn apply_place_tag(&mut self, tag_code: u16, payload: &[u8]) -> Vec<PendingAvm1Work> {
+        let mut work = Vec::new();
+        if let Some(depth) = place_tag_depth(tag_code, payload)
+            && let Some(slot) = self.display_list.get(&depth)
+            && place_tag_replaces_slot(tag_code, payload)
+            && let Some(unload) = detached_unload_work(slot, &live_slot_segment(depth, slot))
+        {
+            work.push(unload);
         }
-
-        let Some(flags1) = r.u8() else {
-            return load_scripts;
-        };
-        let flags2 = if tag_code == 70 {
-            r.u8().unwrap_or(0)
-        } else {
-            0
-        };
-        let Some(depth) = r.u16() else {
-            return load_scripts;
-        };
-
-        let has_clip_actions = (flags1 & 0x80) != 0;
-        let has_clip_depth = (flags1 & 0x40) != 0;
-        let has_name = (flags1 & 0x20) != 0;
-        let has_ratio = (flags1 & 0x10) != 0;
-        let has_cxform = (flags1 & 0x08) != 0;
-        let has_matrix = (flags1 & 0x04) != 0;
-        let has_character = (flags1 & 0x02) != 0;
-        let is_move = (flags1 & 0x01) != 0;
-
-        if tag_code == 70 && ((flags2 & 0x08) != 0 || ((flags2 & 0x10) != 0 && has_character)) {
-            let _ = r.c_string(self.swf_version);
-        }
-        let new_char = if has_character { r.u16() } else { None };
-        let new_matrix = if has_matrix { r.matrix_px() } else { None };
-        let new_cxform = if has_cxform { r.cxform(true) } else { None };
-        if has_ratio {
-            let _ = r.u16();
-        }
-        let new_name = if has_name {
-            r.c_string(self.swf_version).map(|(s, _)| s)
-        } else {
-            None
-        };
-        let new_clip_depth = if has_clip_depth { r.u16() } else { None };
-        let mut new_visible = None;
-        let mut new_blend = None;
-        if tag_code == 70 {
-            if (flags2 & 0x01) != 0 {
-                skip_filter_bytes(&mut r);
-            }
-            if (flags2 & 0x02) != 0 {
-                new_blend = r.u8();
-            }
-            if (flags2 & 0x04) != 0 {
-                let _ = r.u8();
-            }
-            if (flags2 & 0x20) != 0 {
-                new_visible = r.u8().map(|v| v != 0);
-            }
-            if (flags2 & 0x40) != 0 {
-                let _ = r.rgba();
-            }
-        }
-        let new_handlers = if has_clip_actions {
-            parse_raw_clip_handlers(&mut r, self.swf_version)
-        } else {
-            Vec::new()
-        };
-
-        if is_move && let Some(slot) = self.display_list.get_mut(&depth) {
-            if let Some(cid) = new_char {
-                slot.character_id = cid;
-            }
-            if let Some(m) = new_matrix {
-                slot.matrix = m;
-                if let Some(tf) = Transform::from_matrix(m) {
-                    slot.x = tf.x;
-                    slot.y = tf.y;
-                    slot.scale_x = tf.scale_x * 100.0;
-                    slot.scale_y = tf.scale_y * 100.0;
-                    slot.rotation = tf.rotation;
-                }
-            }
-            if let Some((_, a)) = new_cxform {
-                slot.alpha = a * 100.0;
-            }
-            if let Some(nm) = new_name {
-                slot.name = nm;
-            }
-            if let Some(cd) = new_clip_depth {
-                slot.clip_depth = (cd > 0).then_some(cd);
-            }
-            if let Some(vis) = new_visible {
-                slot.visible = vis;
-            }
-            if let Some(b) = new_blend
-                && let Some(bm) = map_blend(b)
-            {
-                slot.blend_mode = bm;
-            }
-            if !new_handlers.is_empty() {
-                slot.clip_handlers = new_handlers;
-            }
-            return load_scripts;
-        }
-
-        let Some(character_id) = new_char else {
-            return load_scripts;
-        };
-        let matrix = new_matrix.unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
-        let tf = Transform::from_matrix(matrix).unwrap_or_default();
-        let alpha = new_cxform.map_or(100.0, |(_, a)| a * 100.0);
-        let sprite_total = self
-            .sprites
-            .get(&character_id)
-            .map_or(1, |s| s.total_frames.max(1));
-
-        for h in &new_handlers {
-            // ClipEventLoad (0x01) or ClipEventInitialize (0x020000)
-            if (h.event_flags & (0x01 | 0x0002_0000)) != 0 {
-                load_scripts.push(h.actions.clone());
-            }
-        }
-
-        self.display_list.insert(
-            depth,
-            LiveSlot {
-                character_id,
-                name: new_name.unwrap_or_default(),
-                matrix,
-                x: tf.x,
-                y: tf.y,
-                scale_x: tf.scale_x * 100.0,
-                scale_y: tf.scale_y * 100.0,
-                rotation: tf.rotation,
-                alpha,
-                visible: new_visible.unwrap_or(true),
-                blend_mode: new_blend.and_then(map_blend).unwrap_or(BlendMode::Normal),
-                filters: Vec::new(),
-                clip_depth: new_clip_depth.filter(|&cd| cd > 0),
-                current_frame: 0,
-                total_frames: sprite_total,
-                playing: true,
-                last_applied_frame: None,
-                props: HashMap::new(),
-                clip_handlers: new_handlers,
-            },
+        let (load_scripts, unmodeled_filter) = apply_place_tag_to_map(
+            &mut self.display_list,
+            &self.sprites,
+            self.swf_version,
+            tag_code,
+            payload,
         );
-        load_scripts
+        if unmodeled_filter {
+            self.record_unsupported_diagnostic(
+                "SWF PlaceObject3 filter list contained an unmodeled filter".to_owned(),
+            );
+        }
+        let Some(depth) = place_tag_depth(tag_code, payload) else {
+            return work;
+        };
+        let Some(slot) = self.display_list.get(&depth) else {
+            return work;
+        };
+        let target = live_slot_segment(depth, slot);
+        work.extend(
+            load_scripts
+                .into_iter()
+                .map(|actions| pending_action(target.clone(), actions)),
+        );
+        work
     }
 
-    fn apply_remove_tag(&mut self, tag_code: u16, payload: &[u8]) -> Vec<Vec<u8>> {
-        let mut r = SwfSlice::new(payload);
-        let depth = if tag_code == 5 {
-            let _cid = r.u16();
-            r.u16()
-        } else {
-            r.u16()
-        };
-        let mut unload_scripts = Vec::new();
-        if let Some(d) = depth
-            && let Some(removed) = self.display_list.remove(&d)
+    fn apply_remove_tag(&mut self, tag_code: u16, payload: &[u8]) -> Vec<PendingAvm1Work> {
+        let mut work = Vec::new();
+        if let Some(depth) = remove_tag_depth(tag_code, payload)
+            && let Some(slot) = self.display_list.get(&depth)
         {
-            for h in removed.clip_handlers {
-                if (h.event_flags & 0x04) != 0 {
-                    unload_scripts.push(h.actions);
-                }
+            let target = live_slot_segment(depth, slot);
+            if let Some(unload) = detached_unload_work(slot, &target) {
+                work.push(unload);
             }
         }
-        unload_scripts
+        let _ = apply_remove_tag_to_map(&mut self.display_list, tag_code, payload);
+        work
     }
 
     // =========================================================================
@@ -1027,6 +1714,38 @@ impl SwfBytecodePlayer {
         let _ = self.run_avm1_code(code, &mut stack, &mut locals, &mut steps, 0);
     }
 
+    fn execute_avm1_for_target(&mut self, target: &str, code: &[u8]) {
+        let saved_target = std::mem::replace(&mut self.avm1_target, target.to_owned());
+        self.execute_avm1_slice(code);
+        self.avm1_target = saved_target;
+    }
+
+    fn execute_avm1_work(&mut self, work: PendingAvm1Work) {
+        match work {
+            PendingAvm1Work::Action { target, actions } => {
+                self.execute_avm1_for_target(&target, &actions);
+            }
+            PendingAvm1Work::Detached {
+                root_target,
+                root_slot,
+                actions,
+            } => {
+                debug_assert!(self.avm1_detached_target.is_none());
+                self.avm1_detached_target = Some((root_target, *root_slot));
+                for (target, actions) in actions {
+                    self.execute_avm1_for_target(&target, &actions);
+                }
+                self.avm1_detached_target = None;
+            }
+        }
+    }
+
+    fn execute_avm1_work_list(&mut self, work: Vec<PendingAvm1Work>) {
+        for item in work {
+            self.execute_avm1_work(item);
+        }
+    }
+
     fn run_avm1_code(
         &mut self,
         code: &[u8],
@@ -1036,6 +1755,9 @@ impl SwfBytecodePlayer {
         depth: usize,
     ) -> Option<Avm1Value> {
         if depth > MAX_CALL_DEPTH {
+            self.record_unsupported_diagnostic(format!(
+                "AVM1 call depth exceeded bounded limit ({MAX_CALL_DEPTH})"
+            ));
             return None;
         }
         let mut pc = 0usize;
@@ -1080,6 +1802,7 @@ impl SwfBytecodePlayer {
                 0x09 => {
                     // ActionStopSounds
                     self.stream_sound_active = false;
+                    self.stop_all_sounds_pending = true;
                 }
                 0x0A => {
                     // ActionAdd (numeric)
@@ -1215,11 +1938,17 @@ impl SwfBytecodePlayer {
                 }
                 0x20 => {
                     // ActionSetTarget2
-                    let t = stack
-                        .pop()
-                        .unwrap_or(Avm1Value::Undefined)
-                        .to_trace_string(self.swf_version, &self.avm1_objects);
-                    self.avm1_target = t;
+                    let target = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    self.avm1_target = if let Avm1Value::MovieClipIdentity(identity) = target {
+                        identity
+                    } else {
+                        let authored = target.to_trace_string(self.swf_version, &self.avm1_objects);
+                        if authored.is_empty() {
+                            String::new()
+                        } else {
+                            self.canonical_movie_target(&authored)
+                        }
+                    };
                 }
                 0x21 => {
                     // ActionStringAdd
@@ -1236,22 +1965,26 @@ impl SwfBytecodePlayer {
                 0x22 => {
                     // ActionGetProperty
                     let prop_idx = stack.pop().unwrap_or(Avm1Value::Undefined).to_i32();
-                    let target = stack
-                        .pop()
-                        .unwrap_or(Avm1Value::Undefined)
-                        .to_trace_string(self.swf_version, &self.avm1_objects);
-                    let val = self.get_mc_property(&target, prop_idx);
+                    let target = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let val = if let Avm1Value::MovieClipIdentity(identity) = target {
+                        self.get_mc_property_identity(&identity, prop_idx)
+                    } else {
+                        let target = target.to_trace_string(self.swf_version, &self.avm1_objects);
+                        self.get_mc_property(&target, prop_idx)
+                    };
                     stack.push(val);
                 }
                 0x23 => {
                     // ActionSetProperty
                     let val = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let prop_idx = stack.pop().unwrap_or(Avm1Value::Undefined).to_i32();
-                    let target = stack
-                        .pop()
-                        .unwrap_or(Avm1Value::Undefined)
-                        .to_trace_string(self.swf_version, &self.avm1_objects);
-                    self.set_mc_property(&target, prop_idx, val);
+                    let target = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    if let Avm1Value::MovieClipIdentity(identity) = target {
+                        self.set_mc_property_identity(&identity, prop_idx, val);
+                    } else {
+                        let target = target.to_trace_string(self.swf_version, &self.avm1_objects);
+                        self.set_mc_property(&target, prop_idx, val);
+                    }
                 }
                 0x26 => {
                     // ActionTrace
@@ -1433,7 +2166,7 @@ impl SwfBytecodePlayer {
                         Avm1Value::Bool(_) => "boolean",
                         Avm1Value::Number(_) => "number",
                         Avm1Value::String(_) => "string",
-                        Avm1Value::MovieClip(_) => "movieclip",
+                        Avm1Value::MovieClip(_) | Avm1Value::MovieClipIdentity(_) => "movieclip",
                         Avm1Value::Object(id) => {
                             if self
                                 .avm1_objects
@@ -1617,7 +2350,10 @@ impl SwfBytecodePlayer {
                         (Avm1Value::Number(x), Avm1Value::Number(y)) => x == y,
                         (Avm1Value::String(x), Avm1Value::String(y)) => x == y,
                         (Avm1Value::Object(x), Avm1Value::Object(y)) => x == y,
-                        (Avm1Value::MovieClip(x), Avm1Value::MovieClip(y)) => x == y,
+                        (Avm1Value::MovieClip(x), Avm1Value::MovieClip(y))
+                        | (Avm1Value::MovieClipIdentity(x), Avm1Value::MovieClipIdentity(y))
+                        | (Avm1Value::MovieClip(x), Avm1Value::MovieClipIdentity(y))
+                        | (Avm1Value::MovieClipIdentity(x), Avm1Value::MovieClip(y)) => x == y,
                         _ => false,
                     };
                     stack.push(Avm1Value::Bool(eq));
@@ -1648,9 +2384,12 @@ impl SwfBytecodePlayer {
                     // ActionGotoFrame (u16 zero-based frame index)
                     if payload.len() >= 2 {
                         let f = u32::from(u16::from_le_bytes([payload[0], payload[1]]));
-                        let total = self.root_timeline.frames.len().max(1) as u32;
-                        self.current_frame = f.min(total.saturating_sub(1));
-                        self.playing = false;
+                        let target = self.current_target_path();
+                        self.set_target_goto_value_identity(
+                            &target,
+                            &Avm1Value::Number(f64::from(f + 1)),
+                            false,
+                        );
                     }
                 }
                 0x87 => {
@@ -1680,17 +2419,23 @@ impl SwfBytecodePlayer {
                     // ActionSetTarget
                     let mut pr = SwfSlice::new(payload);
                     if let Some((t, _)) = pr.c_string(self.swf_version) {
-                        self.avm1_target = t;
+                        self.avm1_target = if t.is_empty() {
+                            String::new()
+                        } else {
+                            self.canonical_movie_target(&t)
+                        };
                     }
                 }
                 0x8C => {
                     // ActionGotoLabel
                     let mut pr = SwfSlice::new(payload);
-                    if let Some((lbl, _)) = pr.c_string(self.swf_version)
-                        && let Some(target_f) = self.root_timeline.resolve_label(&lbl)
-                    {
-                        self.current_frame = target_f;
-                        self.playing = false;
+                    if let Some((label, _)) = pr.c_string(self.swf_version) {
+                        let target = self.current_target_path();
+                        self.set_target_goto_value_identity(
+                            &target,
+                            &Avm1Value::String(label),
+                            false,
+                        );
                     }
                 }
                 0x8E => {
@@ -1904,7 +2649,8 @@ impl SwfBytecodePlayer {
                     } else {
                         0
                     };
-                    let total = self.root_timeline.frames.len().max(1) as u32;
+                    let movie_target = self.current_target_path();
+                    let total = self.target_total_frames(&movie_target);
                     let resolved = match target {
                         Avm1Value::Number(n) if n >= 1.0 => {
                             let f = (n as i64).saturating_sub(1).max(0) as u32 + bias;
@@ -1917,22 +2663,141 @@ impl SwfBytecodePlayer {
                                 let f = num.saturating_sub(1) + bias;
                                 Some(f.min(total.saturating_sub(1)))
                             } else {
-                                self.root_timeline
-                                    .resolve_label(&s)
+                                self.target_label_frame(&movie_target, &s)
                                     .map(|f| (f + bias).min(total.saturating_sub(1)))
                             }
                         }
                         _ => None,
                     };
                     if let Some(target_f) = resolved {
-                        self.current_frame = target_f;
-                        self.playing = play_flag;
+                        self.set_target_frame_zero_based(&movie_target, target_f, play_flag);
                     }
                 }
-                _ => {}
+                _ => {
+                    self.record_unsupported_diagnostic(format!(
+                        "Unsupported AVM1 action opcode 0x{op:02X}"
+                    ));
+                }
             }
         }
+        if *steps >= MAX_VM_STEPS_PER_FRAME {
+            self.record_unsupported_diagnostic(format!(
+                "AVM1 execution reached bounded per-frame step limit ({MAX_VM_STEPS_PER_FRAME})"
+            ));
+        }
         None
+    }
+
+    fn target_slot(&self, target: &str) -> Option<&LiveSlot> {
+        if let Some((root_target, root_slot)) = &self.avm1_detached_target
+            && let Some(slot) = find_slot_in_detached(root_target, root_slot, target)
+        {
+            return Some(slot);
+        }
+        find_slot_by_identity(&self.display_list, target)
+    }
+
+    fn target_slot_mut(&mut self, target: &str) -> Option<&mut LiveSlot> {
+        if let Some((root_target, root_slot)) = &mut self.avm1_detached_target
+            && (target == root_target || target.starts_with(&format!("{root_target}/")))
+        {
+            return find_slot_in_detached_mut(root_target, root_slot, target);
+        }
+        find_slot_by_identity_mut(&mut self.display_list, target)
+    }
+
+    fn canonical_movie_target(&self, target: &str) -> String {
+        let target = target.trim();
+        if target.is_empty() || target == "this" {
+            return if self.avm1_target.is_empty() {
+                "_root".to_owned()
+            } else {
+                self.avm1_target.clone()
+            };
+        }
+        if target == "_root" || target == "_level0" || target == "/" {
+            return "_root".to_owned();
+        }
+        let explicitly_rooted = target.starts_with("_root.")
+            || target.starts_with("_level0.")
+            || target.starts_with('/');
+        let normalized = target
+            .trim_start_matches("_root.")
+            .trim_start_matches("_level0.")
+            .trim_start_matches('/');
+        if let Some((root_target, root_slot)) = &self.avm1_detached_target
+            && find_slot_in_detached(root_target, root_slot, normalized).is_some()
+        {
+            return normalized.to_owned();
+        }
+        let segments = target_segments(normalized);
+        if !explicitly_rooted
+            && !self.avm1_target.is_empty()
+            && self.avm1_target != "_root"
+            && let Some(current) = self.target_slot(&self.avm1_target)
+            && let Some(identity) =
+                resolve_target_identity_by_segments(&current.children, &segments, &self.avm1_target)
+        {
+            return identity;
+        }
+        if let Some(identity) = resolve_target_identity(&self.display_list, normalized) {
+            return identity;
+        }
+        normalized.to_owned()
+    }
+
+    fn current_target_path(&self) -> String {
+        self.canonical_movie_target("")
+    }
+
+    fn target_total_frames(&self, target: &str) -> u32 {
+        if target == "_root" || target.is_empty() {
+            self.root_timeline.frames.len().max(1) as u32
+        } else {
+            self.target_slot(target).map_or(1, |slot| slot.total_frames)
+        }
+    }
+
+    fn target_label_frame(&self, target: &str, label: &str) -> Option<u32> {
+        if target == "_root" || target.is_empty() {
+            self.root_timeline.resolve_label(label)
+        } else {
+            let character_id = self.target_slot(target)?.character_id;
+            self.sprites.get(&character_id)?.resolve_label(label)
+        }
+    }
+
+    fn set_target_goto_value_identity(&mut self, target: &str, value: &Avm1Value, playing: bool) {
+        let total = self.target_total_frames(target);
+        let resolved = match value {
+            Avm1Value::Number(number) if *number >= 1.0 => {
+                Some((*number as i64).saturating_sub(1).max(0) as u32)
+            }
+            Avm1Value::String(label) => {
+                if let Ok(number) = label.trim().parse::<u32>()
+                    && number >= 1
+                {
+                    Some(number.saturating_sub(1))
+                } else {
+                    self.target_label_frame(target, label)
+                }
+            }
+            _ => None,
+        };
+        let Some(frame) = resolved.map(|frame| frame.min(total.saturating_sub(1))) else {
+            return;
+        };
+        self.set_target_frame_zero_based(target, frame, playing);
+    }
+
+    fn set_target_frame_zero_based(&mut self, target: &str, frame: u32, playing: bool) {
+        if target == "_root" || target.is_empty() {
+            self.current_frame = frame;
+            self.playing = playing;
+        } else if let Some(slot) = self.target_slot_mut(target) {
+            slot.current_frame = frame;
+            slot.playing = playing;
+        }
     }
 
     fn get_avm1_variable(&self, name: &str, locals: &HashMap<String, Avm1Value>) -> Avm1Value {
@@ -1943,13 +2808,15 @@ impl SwfBytecodePlayer {
             return v.clone();
         }
         match name {
-            "this" | "_root" | "_level0" => Avm1Value::MovieClip("_root".to_owned()),
+            "this" => Avm1Value::MovieClipIdentity(self.current_target_path()),
+            "_root" | "_level0" => Avm1Value::MovieClip("_root".to_owned()),
             "Math" => Avm1Value::MovieClip("Math".to_owned()),
-            "_currentframe" => Avm1Value::Number(f64::from(self.current_frame + 1)),
-            "_totalframes" => Avm1Value::Number(f64::from(self.root_timeline.total_frames)),
+            "_currentframe" => self.get_mc_property("", 4),
+            "_totalframes" => self.get_mc_property("", 5),
             _ => {
-                if self.display_list.values().any(|s| s.name == name) {
-                    Avm1Value::MovieClip(name.to_owned())
+                let target = self.canonical_movie_target(name);
+                if self.target_slot(&target).is_some() {
+                    Avm1Value::MovieClipIdentity(target)
                 } else {
                     Avm1Value::Undefined
                 }
@@ -1971,11 +2838,15 @@ impl SwfBytecodePlayer {
     }
 
     fn get_mc_property(&self, target: &str, prop_idx: i32) -> Avm1Value {
-        let slot = if target.is_empty() || target == "_root" || target == "/" {
+        let target = self.canonical_movie_target(target);
+        self.get_mc_property_identity(&target, prop_idx)
+    }
+
+    fn get_mc_property_identity(&self, target: &str, prop_idx: i32) -> Avm1Value {
+        let slot = if target == "_root" {
             None
         } else {
-            let clean = target.trim_start_matches("_root.").trim_start_matches('/');
-            self.display_list.values().find(|s| s.name == clean)
+            self.target_slot(target)
         };
         match prop_idx {
             0 => Avm1Value::Number(slot.map_or(0.0, |s| s.x)),
@@ -1997,28 +2868,44 @@ impl SwfBytecodePlayer {
     }
 
     fn set_mc_property(&mut self, target: &str, prop_idx: i32, val: Avm1Value) {
-        let clean = target.trim_start_matches("_root.").trim_start_matches('/');
-        let slot_opt = if clean.is_empty() || clean == "_root" {
-            self.display_list.values_mut().next()
+        let target = self.canonical_movie_target(target);
+        self.set_mc_property_identity(&target, prop_idx, val);
+    }
+
+    fn set_mc_property_identity(&mut self, target: &str, prop_idx: i32, val: Avm1Value) {
+        let num = val.to_number();
+        let bval = val.to_bool(self.swf_version);
+        let sval = val.to_trace_string(self.swf_version, &self.avm1_objects);
+        let slot_opt = if target == "_root" {
+            None
         } else {
-            self.display_list.values_mut().find(|s| s.name == clean)
+            self.target_slot_mut(target)
         };
         if let Some(slot) = slot_opt {
             match prop_idx {
                 0 => {
-                    slot.x = val.to_number();
-                    slot.matrix[4] = slot.x;
+                    slot.x = num;
+                    slot.sync_matrix_from_props();
                 }
                 1 => {
-                    slot.y = val.to_number();
-                    slot.matrix[5] = slot.y;
+                    slot.y = num;
+                    slot.sync_matrix_from_props();
                 }
-                2 => slot.scale_x = val.to_number(),
-                3 => slot.scale_y = val.to_number(),
-                6 => slot.alpha = val.to_number(),
-                7 => slot.visible = val.to_bool(self.swf_version),
-                10 => slot.rotation = val.to_number(),
-                13 => slot.name = val.to_trace_string(self.swf_version, &self.avm1_objects),
+                2 => {
+                    slot.scale_x = num;
+                    slot.sync_matrix_from_props();
+                }
+                3 => {
+                    slot.scale_y = num;
+                    slot.sync_matrix_from_props();
+                }
+                6 => slot.alpha = num,
+                7 => slot.visible = bval,
+                10 => {
+                    slot.rotation = num;
+                    slot.sync_matrix_from_props();
+                }
+                13 => slot.name = sval,
                 _ => {}
             }
         }
@@ -2049,6 +2936,37 @@ impl SwfBytecodePlayer {
                     Avm1Value::Undefined
                 }
             }
+            Avm1Value::MovieClipIdentity(target) => match member {
+                "_x" => self.get_mc_property_identity(target, 0),
+                "_y" => self.get_mc_property_identity(target, 1),
+                "_xscale" => self.get_mc_property_identity(target, 2),
+                "_yscale" => self.get_mc_property_identity(target, 3),
+                "_currentframe" => self.get_mc_property_identity(target, 4),
+                "_totalframes" => self.get_mc_property_identity(target, 5),
+                "_alpha" => self.get_mc_property_identity(target, 6),
+                "_visible" => self.get_mc_property_identity(target, 7),
+                "_rotation" => self.get_mc_property_identity(target, 10),
+                "_name" => self.get_mc_property_identity(target, 13),
+                _ => {
+                    if let Some(slot) = self.target_slot(target) {
+                        if let Some(value) = slot.props.get(member) {
+                            return value.clone();
+                        }
+                        if let Some((depth, child)) =
+                            slot.children.iter().find_map(|(depth, child)| {
+                                slot_matches_segment(*depth, child, member)
+                                    .then_some((*depth, child))
+                            })
+                        {
+                            return Avm1Value::MovieClipIdentity(join_target_path(
+                                target,
+                                &live_slot_segment(depth, child),
+                            ));
+                        }
+                    }
+                    Avm1Value::Undefined
+                }
+            },
             Avm1Value::MovieClip(mc) => {
                 if mc == "Math" {
                     return match member {
@@ -2070,18 +2988,35 @@ impl SwfBytecodePlayer {
                     "_rotation" => self.get_mc_property(mc, 10),
                     "_name" => self.get_mc_property(mc, 13),
                     _ => {
-                        if (mc == "_root" || mc.is_empty())
+                        let target = self.canonical_movie_target(mc);
+                        if target == "_root"
                             && let Some(v) = self.avm1_globals.get(member)
                         {
                             return v.clone();
                         }
-                        if let Some(slot) = self.display_list.values().find(|s| s.name == *mc)
-                            && let Some(v) = slot.props.get(member)
+                        if let Some(slot) = self.target_slot(&target) {
+                            if let Some(v) = slot.props.get(member) {
+                                return v.clone();
+                            }
+                            if let Some((depth, child)) =
+                                slot.children.iter().find_map(|(depth, child)| {
+                                    slot_matches_segment(*depth, child, member)
+                                        .then_some((*depth, child))
+                                })
+                            {
+                                return Avm1Value::MovieClipIdentity(join_target_path(
+                                    &target,
+                                    &live_slot_segment(depth, child),
+                                ));
+                            }
+                        } else if target == "_root"
+                            && let Some((depth, slot)) =
+                                self.display_list.iter().find_map(|(depth, slot)| {
+                                    slot_matches_segment(*depth, slot, member)
+                                        .then_some((*depth, slot))
+                                })
                         {
-                            return v.clone();
-                        }
-                        if self.display_list.values().any(|s| s.name == member) {
-                            return Avm1Value::MovieClip(member.to_owned());
+                            return Avm1Value::MovieClipIdentity(live_slot_segment(depth, slot));
                         }
                         Avm1Value::Undefined
                     }
@@ -2108,6 +3043,21 @@ impl SwfBytecodePlayer {
                     obj.props.insert(member.to_owned(), val);
                 }
             }
+            Avm1Value::MovieClipIdentity(target) => match member {
+                "_x" => self.set_mc_property_identity(target, 0, val),
+                "_y" => self.set_mc_property_identity(target, 1, val),
+                "_xscale" => self.set_mc_property_identity(target, 2, val),
+                "_yscale" => self.set_mc_property_identity(target, 3, val),
+                "_alpha" => self.set_mc_property_identity(target, 6, val),
+                "_visible" => self.set_mc_property_identity(target, 7, val),
+                "_rotation" => self.set_mc_property_identity(target, 10, val),
+                "_name" => self.set_mc_property_identity(target, 13, val),
+                _ => {
+                    if let Some(slot) = self.target_slot_mut(target) {
+                        slot.props.insert(member.to_owned(), val);
+                    }
+                }
+            },
             Avm1Value::MovieClip(mc) => match member {
                 "_x" => self.set_mc_property(mc, 0, val),
                 "_y" => self.set_mc_property(mc, 1, val),
@@ -2118,11 +3068,10 @@ impl SwfBytecodePlayer {
                 "_rotation" => self.set_mc_property(mc, 10, val),
                 "_name" => self.set_mc_property(mc, 13, val),
                 _ => {
-                    if mc == "_root" || mc.is_empty() {
+                    let target = self.canonical_movie_target(mc);
+                    if target == "_root" {
                         self.avm1_globals.insert(member.to_owned(), val);
-                    } else if let Some(slot) =
-                        self.display_list.values_mut().find(|s| s.name == *mc)
-                    {
+                    } else if let Some(slot) = self.target_slot_mut(&target) {
                         slot.props.insert(member.to_owned(), val);
                     }
                 }
@@ -2132,33 +3081,26 @@ impl SwfBytecodePlayer {
     }
 
     fn set_target_playing(&mut self, playing: bool) {
-        let t = self
-            .avm1_target
-            .trim_start_matches("_root.")
-            .trim_start_matches('/');
-        if !t.is_empty()
-            && t != "_root"
-            && let Some(slot) = self.display_list.values_mut().find(|s| s.name == t)
-        {
-            slot.playing = playing;
+        let target = self.current_target_path();
+        if target != "_root" {
+            if let Some(slot) = self.target_slot_mut(&target) {
+                slot.playing = playing;
+            }
             return;
         }
         self.playing = playing;
     }
 
     fn set_target_frame_step(&mut self, delta: i32) {
-        let t = self
-            .avm1_target
-            .trim_start_matches("_root.")
-            .trim_start_matches('/');
-        if !t.is_empty()
-            && t != "_root"
-            && let Some(slot) = self.display_list.values_mut().find(|s| s.name == t)
-        {
-            let next = (slot.current_frame as i32 + delta)
-                .clamp(0, slot.total_frames.saturating_sub(1) as i32) as u32;
-            slot.current_frame = next;
-            slot.playing = false;
+        let target = self.current_target_path();
+        if target != "_root" {
+            if let Some(slot) = self.target_slot_mut(&target) {
+                let next = (slot.current_frame as i32 + delta)
+                    .clamp(0, slot.total_frames.saturating_sub(1) as i32)
+                    as u32;
+                slot.current_frame = next;
+                slot.playing = false;
+            }
             return;
         }
         let total = self.root_timeline.frames.len().max(1) as u32;
@@ -2176,16 +3118,10 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
-        let target_clean = self
-            .avm1_target
-            .trim_start_matches("_root.")
-            .trim_start_matches('/');
-        if !target_clean.is_empty()
-            && target_clean != "_root"
+        let target = self.current_target_path();
+        if target != "_root"
             && let Some(Avm1Value::Object(id)) = self
-                .display_list
-                .values()
-                .find(|s| s.name == target_clean)
+                .target_slot(&target)
                 .and_then(|s| s.props.get(fn_name).cloned())
             && let Some(func) = self.avm1_objects.get(id).and_then(|o| o.function.clone())
         {
@@ -2233,27 +3169,8 @@ impl SwfBytecodePlayer {
             }
             "gotoAndStop" | "gotoAndPlay" => {
                 if let Some(first) = args.first() {
-                    let total = self.root_timeline.frames.len().max(1) as u32;
-                    let resolved = match first {
-                        Avm1Value::Number(n) if *n >= 1.0 => {
-                            let f = (*n as i64).saturating_sub(1).max(0) as u32;
-                            Some(f.min(total.saturating_sub(1)))
-                        }
-                        Avm1Value::String(lbl) => {
-                            if let Ok(num) = lbl.trim().parse::<u32>()
-                                && num >= 1
-                            {
-                                Some(num.saturating_sub(1).min(total.saturating_sub(1)))
-                            } else {
-                                self.root_timeline.resolve_label(lbl)
-                            }
-                        }
-                        _ => None,
-                    };
-                    if let Some(f) = resolved {
-                        self.current_frame = f;
-                        self.playing = fn_name == "gotoAndPlay";
-                    }
+                    let target = self.current_target_path();
+                    self.set_target_goto_value_identity(&target, first, fn_name == "gotoAndPlay");
                 }
                 Avm1Value::Undefined
             }
@@ -2317,6 +3234,9 @@ impl SwfBytecodePlayer {
                 }
                 Avm1Value::Undefined
             }
+            Avm1Value::MovieClipIdentity(target) => {
+                self.call_avm1_identity_method(target, method_name, args, steps, depth)
+            }
             Avm1Value::MovieClip(mc) => {
                 if mc == "Math" {
                     let a = args.first().map_or(f64::NAN, Avm1Value::to_number);
@@ -2335,24 +3255,15 @@ impl SwfBytecodePlayer {
                         _ => Avm1Value::Undefined,
                     };
                 }
-                if mc == "_root" || mc.is_empty() {
-                    return self.call_avm1_function(method_name, args, caller_locals, steps, depth);
+                let target = self.canonical_movie_target(mc);
+                if target == "_root" {
+                    let saved_target = std::mem::replace(&mut self.avm1_target, "_root".to_owned());
+                    let result =
+                        self.call_avm1_function(method_name, args, caller_locals, steps, depth);
+                    self.avm1_target = saved_target;
+                    return result;
                 }
-                if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
-                    match method_name {
-                        "stop" => slot.playing = false,
-                        "play" => slot.playing = true,
-                        "gotoAndStop" | "gotoAndPlay" => {
-                            if let Some(first) = args.first() {
-                                let f = (first.to_i32() - 1).max(0) as u32;
-                                slot.current_frame = f.min(slot.total_frames.saturating_sub(1));
-                                slot.playing = method_name == "gotoAndPlay";
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Avm1Value::Undefined
+                self.call_avm1_identity_method(&target, method_name, args, steps, depth)
             }
             Avm1Value::String(s) => match method_name {
                 "toUpperCase" => Avm1Value::String(s.to_uppercase()),
@@ -2369,6 +3280,56 @@ impl SwfBytecodePlayer {
             },
             _ => self.call_avm1_function(method_name, args, caller_locals, steps, depth),
         }
+    }
+
+    fn call_avm1_identity_method(
+        &mut self,
+        target: &str,
+        method_name: &str,
+        args: Vec<Avm1Value>,
+        steps: &mut usize,
+        depth: usize,
+    ) -> Avm1Value {
+        if target == "_root" {
+            let saved_target = std::mem::replace(&mut self.avm1_target, "_root".to_owned());
+            let mut locals = HashMap::new();
+            let result = self.call_avm1_function(method_name, args, &mut locals, steps, depth);
+            self.avm1_target = saved_target;
+            return result;
+        }
+        if let Some(Avm1Value::Object(function_id)) = self
+            .target_slot(target)
+            .and_then(|slot| slot.props.get(method_name).cloned())
+            && let Some(function) = self
+                .avm1_objects
+                .get(function_id)
+                .and_then(|object| object.function.clone())
+        {
+            return self.invoke_avm1_func(&function, args, steps, depth);
+        }
+        match method_name {
+            "stop" => {
+                if let Some(slot) = self.target_slot_mut(target) {
+                    slot.playing = false;
+                }
+            }
+            "play" => {
+                if let Some(slot) = self.target_slot_mut(target) {
+                    slot.playing = true;
+                }
+            }
+            "gotoAndStop" | "gotoAndPlay" => {
+                if let Some(first) = args.first() {
+                    self.set_target_goto_value_identity(
+                        target,
+                        first,
+                        method_name == "gotoAndPlay",
+                    );
+                }
+            }
+            _ => {}
+        }
+        Avm1Value::Undefined
     }
 
     fn invoke_avm1_func(
@@ -2464,6 +3425,9 @@ impl SwfBytecodePlayer {
         depth: usize,
     ) -> Avm1Value {
         if depth > MAX_CALL_DEPTH {
+            self.record_unsupported_diagnostic(format!(
+                "AVM2 call depth exceeded bounded limit ({MAX_CALL_DEPTH})"
+            ));
             return Avm1Value::Undefined;
         }
         let Some(code) = self
@@ -3079,8 +4043,18 @@ impl SwfBytecodePlayer {
                     // debugline / debugfile
                     let _ = r.u30();
                 }
-                _ => break,
+                _ => {
+                    self.record_unsupported_diagnostic(format!(
+                        "Unsupported AVM2 ABC opcode 0x{op:02X}"
+                    ));
+                    break;
+                }
             }
+        }
+        if *steps >= MAX_VM_STEPS_PER_FRAME {
+            self.record_unsupported_diagnostic(format!(
+                "AVM2 execution reached bounded per-frame step limit ({MAX_VM_STEPS_PER_FRAME})"
+            ));
         }
         Avm1Value::Undefined
     }
@@ -3088,6 +4062,40 @@ impl SwfBytecodePlayer {
     fn get_avm2_property(&self, obj: &Avm1Value, prop: &str) -> Avm1Value {
         if let Avm1Value::Object(_id) = obj {
             return self.get_avm1_member(obj, prop);
+        }
+        if let Avm1Value::MovieClip(mc) = obj
+            && mc != "_root"
+            && !mc.is_empty()
+            && mc != "Math"
+        {
+            match prop {
+                "x" => return self.get_mc_property(mc, 0),
+                "y" => return self.get_mc_property(mc, 1),
+                "scaleX" => {
+                    return Avm1Value::Number(self.get_mc_property(mc, 2).to_number() / 100.0);
+                }
+                "scaleY" => {
+                    return Avm1Value::Number(self.get_mc_property(mc, 3).to_number() / 100.0);
+                }
+                "currentFrame" => return self.get_mc_property(mc, 4),
+                "totalFrames" => return self.get_mc_property(mc, 5),
+                "alpha" => {
+                    return Avm1Value::Number(self.get_mc_property(mc, 6).to_number() / 100.0);
+                }
+                "visible" => return self.get_mc_property(mc, 7),
+                "rotation" => return self.get_mc_property(mc, 10),
+                "name" => return self.get_mc_property(mc, 13),
+                _ => {
+                    if let Some(slot) = self.display_list.values().find(|s| s.name == *mc) {
+                        if let Some(v) = slot.props.get(prop) {
+                            return v.clone();
+                        }
+                        if slot.children.values().any(|c| c.name == prop) {
+                            return Avm1Value::MovieClip(format!("{mc}.{prop}"));
+                        }
+                    }
+                }
+            }
         }
         if let Some(v) = self.avm2_globals.get(prop) {
             return v.clone();
@@ -3133,7 +4141,11 @@ impl SwfBytecodePlayer {
                 "visible" => self.set_mc_property(mc, 7, val),
                 "rotation" => self.set_mc_property(mc, 10, val),
                 _ => {
-                    self.avm2_globals.insert(prop.to_owned(), val);
+                    if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
+                        slot.props.insert(prop.to_owned(), val);
+                    } else {
+                        self.avm2_globals.insert(prop.to_owned(), val);
+                    }
                 }
             },
             _ => {
@@ -3151,6 +4163,74 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
+        if let Avm1Value::MovieClip(mc) = receiver
+            && mc != "_root"
+            && !mc.is_empty()
+            && mc != prop
+            && let Some(cid) = self
+                .display_list
+                .values()
+                .find(|s| s.name == *mc)
+                .map(|s| s.character_id)
+        {
+            match prop {
+                "stop" => {
+                    if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
+                        slot.playing = false;
+                    }
+                    return Avm1Value::Undefined;
+                }
+                "play" => {
+                    if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
+                        slot.playing = true;
+                    }
+                    return Avm1Value::Undefined;
+                }
+                "nextFrame" => {
+                    if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
+                        slot.current_frame =
+                            (slot.current_frame + 1).min(slot.total_frames.saturating_sub(1));
+                        slot.playing = false;
+                    }
+                    return Avm1Value::Undefined;
+                }
+                "prevFrame" => {
+                    if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
+                        slot.current_frame = slot.current_frame.saturating_sub(1);
+                        slot.playing = false;
+                    }
+                    return Avm1Value::Undefined;
+                }
+                "gotoAndStop" | "gotoAndPlay" => {
+                    if let Some(first) = args.first() {
+                        let resolved_label = match first {
+                            Avm1Value::String(lbl) => self
+                                .sprites
+                                .get(&cid)
+                                .and_then(|def| def.resolve_label(lbl)),
+                            _ => None,
+                        };
+                        if let Some(slot) = self.display_list.values_mut().find(|s| s.name == *mc) {
+                            let total = slot.total_frames.max(1);
+                            let resolved = match first {
+                                Avm1Value::Number(n) if *n >= 1.0 => {
+                                    let f = (*n as i64).saturating_sub(1).max(0) as u32;
+                                    Some(f.min(total.saturating_sub(1)))
+                                }
+                                _ => resolved_label.map(|f| f.min(total.saturating_sub(1))),
+                            };
+                            if let Some(f) = resolved {
+                                slot.current_frame = f;
+                                slot.playing = prop == "gotoAndPlay";
+                            }
+                        }
+                    }
+                    return Avm1Value::Undefined;
+                }
+                _ => {}
+            }
+        }
+
         match prop {
             "trace" => {
                 let line = args
@@ -3207,6 +4287,11 @@ impl SwfBytecodePlayer {
                         self.playing = prop == "gotoAndPlay";
                     }
                 }
+                return Avm1Value::Undefined;
+            }
+            "stopAll" => {
+                self.stream_sound_active = false;
+                self.stop_all_sounds_pending = true;
                 return Avm1Value::Undefined;
             }
             _ => {}
@@ -3388,7 +4473,7 @@ fn parse_raw_clip_handlers(r: &mut SwfSlice<'_>, swf_version: u8) -> Vec<ClipEve
         let Some(rec_size) = r.u32().map(|n| n as usize) else {
             break;
         };
-        let has_key = (event_flags & 0x0002_0000) != 0; // ClipEventKeyPress
+        let has_key = (event_flags & CLIP_EVENT_KEY_PRESS) != 0;
         let key_code = if has_key && rec_size >= 1 {
             r.u8()
         } else {
@@ -3411,39 +4496,324 @@ fn parse_raw_clip_handlers(r: &mut SwfSlice<'_>, swf_version: u8) -> Vec<ClipEve
     out
 }
 
-fn skip_filter_bytes(r: &mut SwfSlice<'_>) {
-    let Some(count) = r.u8() else { return };
-    for _ in 0..count {
-        let Some(fid) = r.u8() else { return };
-        match fid {
-            0 => {
-                let _ = r.take(23);
-            }
-            1 => {
-                let _ = r.take(9);
-            }
-            2 => {
-                let _ = r.take(15);
-            }
-            3 => {
-                let _ = r.take(27);
-            }
-            4 | 7 => {
-                if let Some(n) = r.u8().map(usize::from) {
-                    let _ = r.take(n * 5 + 19);
-                }
-            }
-            5 => {
-                if let (Some(mx), Some(my)) = (r.u8().map(usize::from), r.u8().map(usize::from)) {
-                    let _ = r.take(13 + 4 * mx * my);
-                }
-            }
-            6 => {
-                let _ = r.take(80);
-            }
-            _ => return,
+fn place_tag_depth(tag_code: u16, payload: &[u8]) -> Option<u16> {
+    let offset = match tag_code {
+        4 => 2,
+        26 => 1,
+        70 => 2,
+        _ => return None,
+    };
+    payload
+        .get(offset..offset + 2)
+        .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn remove_tag_depth(tag_code: u16, payload: &[u8]) -> Option<u16> {
+    let offset = match tag_code {
+        5 => 2,
+        28 => 0,
+        _ => return None,
+    };
+    payload
+        .get(offset..offset + 2)
+        .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn place_tag_replaces_slot(tag_code: u16, payload: &[u8]) -> bool {
+    if tag_code == 4 {
+        return true;
+    }
+    payload.first().is_some_and(|flags| (flags & 0x02) != 0)
+}
+
+fn apply_place_tag_to_map(
+    display_list: &mut BTreeMap<u16, LiveSlot>,
+    sprites: &HashMap<u16, TimelineDef>,
+    swf_version: u8,
+    tag_code: u16,
+    payload: &[u8],
+) -> (Vec<Vec<u8>>, bool) {
+    let mut r = SwfSlice::new(payload);
+    let mut load_scripts = Vec::new();
+    let mut unmodeled_filter = false;
+
+    if tag_code == 4 {
+        let Some(character_id) = r.u16() else {
+            return (load_scripts, false);
+        };
+        let Some(depth) = r.u16() else {
+            return (load_scripts, false);
+        };
+        let Some(matrix) = r.matrix_px() else {
+            return (load_scripts, false);
+        };
+        let (color_transform, alpha) = if r.remaining() > 0 {
+            r.cxform(false)
+                .unwrap_or_else(|| (ColorTransform::default(), 1.0))
+        } else {
+            (ColorTransform::default(), 1.0)
+        };
+        let tf = Transform::from_matrix(matrix).unwrap_or_default();
+        let sprite_total = sprites
+            .get(&character_id)
+            .map_or(1, |s| s.total_frames.max(1));
+        display_list.insert(
+            depth,
+            LiveSlot {
+                character_id,
+                name: String::new(),
+                matrix,
+                x: tf.x,
+                y: tf.y,
+                scale_x: tf.scale_x * 100.0,
+                scale_y: tf.scale_y * 100.0,
+                rotation: tf.rotation,
+                skew: tf.skew,
+                alpha: alpha * 100.0,
+                color_transform,
+                visible: true,
+                blend_mode: BlendMode::Normal,
+                filters: Vec::new(),
+                clip_depth: None,
+                ratio: None,
+                cache_as_bitmap: false,
+                current_frame: 0,
+                total_frames: sprite_total,
+                playing: true,
+                last_applied_frame: None,
+                children: BTreeMap::new(),
+                props: HashMap::new(),
+                clip_handlers: Vec::new(),
+            },
+        );
+        return (load_scripts, false);
+    }
+
+    let Some(flags1) = r.u8() else {
+        return (load_scripts, false);
+    };
+    let flags2 = if tag_code == 70 {
+        r.u8().unwrap_or(0)
+    } else {
+        0
+    };
+    let Some(depth) = r.u16() else {
+        return (load_scripts, false);
+    };
+
+    let has_clip_actions = (flags1 & 0x80) != 0;
+    let has_clip_depth = (flags1 & 0x40) != 0;
+    let has_name = (flags1 & 0x20) != 0;
+    let has_ratio = (flags1 & 0x10) != 0;
+    let has_cxform = (flags1 & 0x08) != 0;
+    let has_matrix = (flags1 & 0x04) != 0;
+    let has_character = (flags1 & 0x02) != 0;
+    let is_move = (flags1 & 0x01) != 0;
+
+    if tag_code == 70 && ((flags2 & 0x08) != 0 || ((flags2 & 0x10) != 0 && has_character)) {
+        let _ = r.c_string(swf_version);
+    }
+    let new_char = if has_character { r.u16() } else { None };
+    let new_matrix = if has_matrix { r.matrix_px() } else { None };
+    let new_cxform = if has_cxform { r.cxform(true) } else { None };
+    let new_ratio = if has_ratio { r.u16() } else { None };
+    let new_name = if has_name {
+        r.c_string(swf_version).map(|(s, _)| s)
+    } else {
+        None
+    };
+    let new_clip_depth = if has_clip_depth { r.u16() } else { None };
+    let mut new_visible = None;
+    let mut new_blend = None;
+    let mut new_filters = None;
+    let mut new_cache_as_bitmap = None;
+    if tag_code == 70 {
+        if (flags2 & 0x01) != 0 {
+            let (parsed, unmodeled) = parse_swf_filter_list(&mut r);
+            new_filters = Some(parsed);
+            unmodeled_filter |= unmodeled;
+        }
+        if (flags2 & 0x02) != 0 {
+            new_blend = r.u8();
+        }
+        if (flags2 & 0x04) != 0 {
+            new_cache_as_bitmap = r.u8().map(|v| v != 0);
+        }
+        if (flags2 & 0x20) != 0 {
+            new_visible = r.u8().map(|v| v != 0);
+        }
+        if (flags2 & 0x40) != 0 {
+            let _ = r.rgba();
         }
     }
+    let new_handlers = if has_clip_actions {
+        parse_raw_clip_handlers(&mut r, swf_version)
+    } else {
+        Vec::new()
+    };
+
+    if is_move && let Some(slot) = display_list.get_mut(&depth) {
+        if let Some(character_id) = new_char {
+            for handler in &new_handlers {
+                if (handler.event_flags & (CLIP_EVENT_LOAD | CLIP_EVENT_INITIALIZE)) != 0 {
+                    load_scripts.push(handler.actions.clone());
+                }
+            }
+            let matrix = new_matrix.unwrap_or(slot.matrix);
+            let transform = Transform::from_matrix(matrix).unwrap_or_default();
+            let (color_transform, alpha) = new_cxform
+                .map(|(color, alpha)| (color, alpha * 100.0))
+                .unwrap_or((slot.color_transform, slot.alpha));
+            *slot = LiveSlot {
+                character_id,
+                name: new_name.unwrap_or_default(),
+                matrix,
+                x: transform.x,
+                y: transform.y,
+                scale_x: transform.scale_x * 100.0,
+                scale_y: transform.scale_y * 100.0,
+                rotation: transform.rotation,
+                skew: transform.skew,
+                alpha,
+                color_transform,
+                visible: new_visible.unwrap_or(slot.visible),
+                blend_mode: new_blend.and_then(map_blend).unwrap_or(slot.blend_mode),
+                filters: new_filters.unwrap_or_else(|| slot.filters.clone()),
+                clip_depth: new_clip_depth
+                    .map(|value| (value > 0).then_some(value))
+                    .unwrap_or(slot.clip_depth),
+                ratio: new_ratio.or(slot.ratio),
+                cache_as_bitmap: new_cache_as_bitmap.unwrap_or(slot.cache_as_bitmap),
+                current_frame: 0,
+                total_frames: sprites
+                    .get(&character_id)
+                    .map_or(1, |sprite| sprite.total_frames.max(1)),
+                playing: true,
+                last_applied_frame: None,
+                children: BTreeMap::new(),
+                props: HashMap::new(),
+                clip_handlers: new_handlers,
+            };
+            return (load_scripts, unmodeled_filter);
+        }
+        if let Some(m) = new_matrix {
+            slot.matrix = m;
+            if let Some(tf) = Transform::from_matrix(m) {
+                slot.x = tf.x;
+                slot.y = tf.y;
+                slot.scale_x = tf.scale_x * 100.0;
+                slot.scale_y = tf.scale_y * 100.0;
+                slot.rotation = tf.rotation;
+                slot.skew = tf.skew;
+            }
+        }
+        if let Some((ct, a)) = new_cxform {
+            slot.color_transform = ct;
+            slot.alpha = a * 100.0;
+        }
+        if let Some(rat) = new_ratio {
+            slot.ratio = Some(rat);
+        }
+        if let Some(nm) = new_name {
+            slot.name = nm;
+        }
+        if let Some(cd) = new_clip_depth {
+            slot.clip_depth = (cd > 0).then_some(cd);
+        }
+        if let Some(vis) = new_visible {
+            slot.visible = vis;
+        }
+        if let Some(cab) = new_cache_as_bitmap {
+            slot.cache_as_bitmap = cab;
+        }
+        if let Some(b) = new_blend
+            && let Some(bm) = map_blend(b)
+        {
+            slot.blend_mode = bm;
+        }
+        if let Some(fl) = new_filters {
+            slot.filters = fl;
+        }
+        if has_clip_actions {
+            slot.clip_handlers = new_handlers;
+        }
+        return (load_scripts, unmodeled_filter);
+    }
+
+    let Some(character_id) = new_char else {
+        return (load_scripts, unmodeled_filter);
+    };
+    let matrix = new_matrix.unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+    let tf = Transform::from_matrix(matrix).unwrap_or_default();
+    let (color_transform, alpha) = new_cxform.map_or_else(
+        || (ColorTransform::default(), 100.0),
+        |(ct, a)| (ct, a * 100.0),
+    );
+    let sprite_total = sprites
+        .get(&character_id)
+        .map_or(1, |s| s.total_frames.max(1));
+
+    for h in &new_handlers {
+        if (h.event_flags & (CLIP_EVENT_LOAD | CLIP_EVENT_INITIALIZE)) != 0 {
+            load_scripts.push(h.actions.clone());
+        }
+    }
+
+    display_list.insert(
+        depth,
+        LiveSlot {
+            character_id,
+            name: new_name.unwrap_or_default(),
+            matrix,
+            x: tf.x,
+            y: tf.y,
+            scale_x: tf.scale_x * 100.0,
+            scale_y: tf.scale_y * 100.0,
+            rotation: tf.rotation,
+            skew: tf.skew,
+            alpha,
+            color_transform,
+            visible: new_visible.unwrap_or(true),
+            blend_mode: new_blend.and_then(map_blend).unwrap_or(BlendMode::Normal),
+            filters: new_filters.unwrap_or_default(),
+            clip_depth: new_clip_depth.filter(|&cd| cd > 0),
+            ratio: new_ratio,
+            cache_as_bitmap: new_cache_as_bitmap.unwrap_or(false),
+            current_frame: 0,
+            total_frames: sprite_total,
+            playing: true,
+            last_applied_frame: None,
+            children: BTreeMap::new(),
+            props: HashMap::new(),
+            clip_handlers: new_handlers,
+        },
+    );
+    (load_scripts, unmodeled_filter)
+}
+
+fn apply_remove_tag_to_map(
+    display_list: &mut BTreeMap<u16, LiveSlot>,
+    tag_code: u16,
+    payload: &[u8],
+) -> Vec<Vec<u8>> {
+    let mut r = SwfSlice::new(payload);
+    let depth = if tag_code == 5 {
+        let _cid = r.u16();
+        r.u16()
+    } else {
+        r.u16()
+    };
+    let mut unload_scripts = Vec::new();
+    if let Some(d) = depth
+        && let Some(removed) = display_list.remove(&d)
+    {
+        for h in removed.clip_handlers {
+            if (h.event_flags & CLIP_EVENT_UNLOAD) != 0 {
+                unload_scripts.push(h.actions);
+            }
+        }
+    }
+    unload_scripts
 }
 
 fn map_blend(b: u8) -> Option<BlendMode> {
@@ -3491,7 +4861,10 @@ fn avm1_equals(a: &Avm1Value, b: &Avm1Value, swf_version: u8, objects: &[Avm1Obj
         (Avm1Value::Bool(x), Avm1Value::Bool(y)) => x == y,
         (Avm1Value::String(x), Avm1Value::String(y)) => x == y,
         (Avm1Value::Object(x), Avm1Value::Object(y)) => x == y,
-        (Avm1Value::MovieClip(x), Avm1Value::MovieClip(y)) => x == y,
+        (Avm1Value::MovieClip(x), Avm1Value::MovieClip(y))
+        | (Avm1Value::MovieClipIdentity(x), Avm1Value::MovieClipIdentity(y))
+        | (Avm1Value::MovieClip(x), Avm1Value::MovieClipIdentity(y))
+        | (Avm1Value::MovieClipIdentity(x), Avm1Value::MovieClip(y)) => x == y,
         _ => {
             let na = a.to_number();
             let nb = b.to_number();

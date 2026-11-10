@@ -89,6 +89,13 @@ impl crate::app::Editor {
             )
         }) {
             self.focus_selected_text_editor(ctx);
+            if let Some(target) = self.selection.single().cloned() {
+                let len = self
+                    .selected_sampled()
+                    .and_then(|e| e.kind.text_utf16_len())
+                    .unwrap_or(0);
+                self.enter_stage_text_edit(target, len, Some(0));
+            }
         }
     }
 
@@ -2201,6 +2208,7 @@ pub(crate) fn paint(
         format,
         width,
         height,
+        word_wrap,
         ..
     } = kind
     else {
@@ -2208,7 +2216,20 @@ pub(crate) fn paint(
     };
     let result = layout(p, kind)?;
     let default_family = family(p, format);
-    let clip = Rect::from_min_size(Pos2::ZERO, Vec2::new(*width as f32, *height as f32));
+    let auto_size_active = format
+        .field_options()
+        .is_some_and(|o| !matches!(o.auto_size.as_str(), "" | "none"));
+    let clip_w = if !*word_wrap || auto_size_active {
+        (*width).max(result.text_width + 8.0) as f32
+    } else {
+        *width as f32
+    };
+    let clip_h = if !*word_wrap || auto_size_active {
+        (*height).max(result.text_height + 8.0) as f32
+    } else {
+        *height as f32
+    };
+    let clip = Rect::from_min_size(Pos2::ZERO, Vec2::new(clip_w, clip_h));
     let alpha = color.a();
     let rgb_to_color32 = |rgb: u32| {
         Color32::from_rgba_unmultiplied(

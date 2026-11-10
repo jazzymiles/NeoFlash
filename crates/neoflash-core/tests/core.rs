@@ -782,11 +782,11 @@ fn ruler_guides_are_validated() {
             .iter()
             .any(|i| i.message.contains("guide count"))
     );
-    project.format_version = 12;
+    project.format_version = 13;
     assert!(
         validate(&project)
             .iter()
-            .any(|i| i.message.contains("unsupported version 12"))
+            .any(|i| i.message.contains("unsupported version 13"))
     );
 }
 

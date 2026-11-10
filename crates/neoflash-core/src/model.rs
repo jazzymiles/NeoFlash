@@ -416,6 +416,26 @@ impl Project {
         if self.uses_format_11() {
             self.format_version = self.format_version.max(11);
         }
+        if self.uses_format_12() {
+            self.format_version = self.format_version.max(12);
+        }
+    }
+
+    /// Timeline-video out-point trims (format 12).
+    ///
+    /// The field is optional so documents without an authored out-point remain readable by the
+    /// format-9/11 video implementations. A document that stores one must advertise the newer
+    /// format so an older writer cannot silently discard the trim on save.
+    pub fn uses_format_12(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| {
+                key.video
+                    .as_ref()
+                    .is_some_and(|video| video.end_offset_ms.is_some())
+            })
     }
 
     /// Layer/keyframe display-filter stacks and non-embedded timeline-video deployment (format 11).
@@ -2523,6 +2543,61 @@ pub enum ElementKind {
         symbol_id: Id,
         playback: InstancePlayback,
     },
+}
+
+impl ElementKind {
+    pub fn is_text(&self) -> bool {
+        matches!(self, Self::Text { .. } | Self::TextBox { .. })
+    }
+
+    pub fn text_utf16_len(&self) -> Option<usize> {
+        crate::TextFieldState::from_kind(self).map(|s| s.utf16_len())
+    }
+
+    pub fn format_at_utf16(&self, offset_utf16: usize) -> Option<crate::TextFormat> {
+        crate::TextFieldState::from_kind(self).map(|s| s.format_at_utf16_offset(offset_utf16))
+    }
+
+    pub fn format_at_utf16_caret(&self, caret_utf16: usize) -> Option<crate::TextFormat> {
+        crate::TextFieldState::from_kind(self).map(|s| s.format_at_utf16_caret(caret_utf16))
+    }
+
+    pub fn format_for_utf16_selection(
+        &self,
+        start_utf16: usize,
+        end_utf16: usize,
+    ) -> Option<crate::TextFormat> {
+        crate::TextFieldState::from_kind(self)
+            .map(|s| s.format_for_utf16_selection(start_utf16, end_utf16))
+    }
+
+    pub fn apply_format_to_utf16_range(
+        &mut self,
+        start_utf16: usize,
+        end_utf16: usize,
+        patch: &crate::TextFormatPatch,
+    ) -> Result<(), crate::TextError> {
+        let mut state = crate::TextFieldState::from_kind(self)
+            .ok_or_else(|| crate::TextError("Element is not a text field".into()))?;
+        state.apply_format_to_utf16_range(start_utf16, end_utf16, patch)?;
+        state.write_to_kind(self);
+        Ok(())
+    }
+
+    pub fn replace_utf16_range(
+        &mut self,
+        start_utf16: usize,
+        end_utf16: usize,
+        inserted: &str,
+        typing_style: Option<&crate::TextFormat>,
+    ) -> Result<usize, crate::TextError> {
+        let mut state = crate::TextFieldState::from_kind(self)
+            .ok_or_else(|| crate::TextError("Element is not a text field".into()))?;
+        let new_caret =
+            state.replace_utf16_range(start_utf16, end_utf16, inserted, typing_style)?;
+        state.write_to_kind(self);
+        Ok(new_caret)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

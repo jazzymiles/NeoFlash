@@ -186,14 +186,35 @@ pub(super) fn paint(
     let mut draws = Vec::with_capacity(scene.draws.len());
     let mut images = HashMap::new();
     for draw in &scene.draws {
-        let texture = editor.bitmap_textures.texture_transformed(
-            painter.ctx(),
-            &editor.project,
-            &draw.item.kind,
-            draw.item.color_transform,
-        );
+        let texture = if matches!(draw.item.kind, neoflash_core::ElementKind::Video { .. }) {
+            let base_dir = editor
+                .tracked_disk_path()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf);
+            editor
+                .resolve_stage_video_placement(&draw.item)
+                .and_then(|placement| {
+                    editor.video_textures.texture_for_placement(
+                        painter.ctx(),
+                        &editor.project,
+                        base_dir.as_deref(),
+                        &placement,
+                        draw.item.color_transform,
+                    )
+                })
+        } else {
+            editor.bitmap_textures.texture_transformed(
+                painter.ctx(),
+                &editor.project,
+                &draw.item.kind,
+                draw.item.color_transform,
+            )
+        };
         if let Some(id) = texture
-            && let Some(image) = editor.bitmap_textures.image(id)
+            && let Some(image) = editor
+                .bitmap_textures
+                .image(id)
+                .or_else(|| editor.video_textures.image(id))
         {
             images.insert(id, image);
         }

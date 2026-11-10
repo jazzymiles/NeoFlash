@@ -307,57 +307,78 @@ impl Editor {
         if self.selection.single().is_none() || !self.selected_editable() {
             return false;
         }
+        self.sync_stage_text_edit();
         let Some(sampled) = self.selected_sampled() else {
             return false;
         };
+        let Some(mut state) = neoflash_core::TextFieldState::from_kind(&sampled.kind) else {
+            return false;
+        };
         let normalized = raw_text.replace("\r\n", "\n").replace('\r', "\n");
-        let next_text = match &sampled.kind {
+        let candidate = match &sampled.kind {
             neoflash_core::ElementKind::Text { .. } => normalized.replace('\n', " "),
-            neoflash_core::ElementKind::TextBox {
-                width,
-                height,
-                format,
-                multiline,
-                word_wrap,
-                ..
-            } => {
-                let candidate = if *multiline {
+            neoflash_core::ElementKind::TextBox { multiline, .. } => {
+                if *multiline {
                     normalized
                 } else {
                     normalized.replace('\n', " ")
-                };
-                let candidate_kind = neoflash_core::ElementKind::TextBox {
-                    text: candidate.clone(),
-                    width: *width,
-                    height: *height,
-                    format: format.clone(),
-                    word_wrap: *word_wrap,
-                    multiline: *multiline,
-                };
-                if let Some(state) = neoflash_core::TextFieldState::from_kind(&candidate_kind)
-                    && let Err(error) = state.validate()
-                {
-                    self.message(format!("Paste failed: {error}"));
-                    return true;
                 }
-                candidate
             }
             _ => return false,
         };
+        let inline_active = self.stage_text_edit.is_active(self);
+        let (rep_start, rep_end) = if inline_active {
+            self.stage_text_edit.selection_range_utf16()
+        } else {
+            (0, state.utf16_len())
+        };
+        let typing_style = if inline_active {
+            self.stage_text_edit.typing_format.clone()
+        } else {
+            None
+        };
+        let state_before = state.clone();
+        let new_caret = match state.replace_utf16_range(
+            rep_start,
+            rep_end,
+            &candidate,
+            typing_style.as_ref(),
+        ) {
+            Ok(caret) => caret,
+            Err(error) => {
+                self.message(format!("Paste failed: {error}"));
+                return true;
+            }
+        };
+        if !candidate.is_empty() && state == state_before {
+            self.message("Paste ignored: the text field rejected the inserted characters.");
+            return true;
+        }
+        if let Err(error) = state.validate() {
+            self.message(format!("Paste failed: {error}"));
+            return true;
+        }
+        let mut next_kind = sampled.kind.clone();
+        state.write_to_kind(&mut next_kind);
+        self.refresh_non_wrapping_text_box_bounds(&mut next_kind);
         self.finish_edits();
         self.playing = false;
         self.transact_named("Paste text", |s| {
             s.ensure_selected_key();
             if let Some(element) = s.selected_element_mut() {
-                match &mut element.kind {
-                    neoflash_core::ElementKind::Text { text, .. }
-                    | neoflash_core::ElementKind::TextBox { text, .. } => {
-                        *text = next_text;
-                    }
-                    _ => {}
-                }
+                crate::stage_text_edit::preserve_point_text_alpha_on_upgrade(
+                    &element.kind,
+                    &next_kind,
+                    &mut element.transform.alpha,
+                );
+                element.kind = next_kind;
             }
         });
+        if inline_active {
+            self.stage_text_edit.caret_utf16 = new_caret;
+            self.stage_text_edit.selection_anchor_utf16 = None;
+            self.stage_text_edit.preferred_x = None;
+        }
         self.message("Pasted text.");
         true
     }

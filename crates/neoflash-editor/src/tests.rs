@@ -1544,7 +1544,10 @@ fn open_path_imports_swf_and_save_to_path_exports_fla_and_nflash() {
         editor.path.is_none(),
         "a derived FLA copy must not become the native save target"
     );
-    assert_eq!(editor.status, "Exported derived FLA.");
+    assert_eq!(
+        editor.status,
+        "Exported derived FLA (Adobe Animate CC (XFL 2.97))."
+    );
 
     let mut reopened = Editor::from_project(&ctx, Project::blank());
     reopened.open_path(fla_path, &ctx);

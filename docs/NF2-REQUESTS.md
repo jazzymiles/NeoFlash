@@ -1161,3 +1161,18 @@ Status values: `open`, `answered` (design decision given, waiting for implementa
 - **Proposal (optional):** map the workflows to the already approved Tools group/icon masters and existing Properties
   sections, with command IDs for keyboard/menu dispatch; no new visual role is required.
 - **Answer:**
+
+### R-071 · Save As FLA target profile selection
+- **Status:** open
+- **Requested by / for:** implementation audit · T-208
+- **Where:** Save As flow and Publish Settings; Figma `BUz3pseopiuOg2Uiy3Fog7` v2.25.
+- **Need:** an approved NF2 control and location for choosing Animate CC, CS6, CS5.5, CS5, CS4, Flash 8 or
+  uncompressed XFL before Save As.
+- **Why:** all seven export profiles are implemented, and filename suffixes such as `.cs6.fla` remain a nonvisual
+  selection path. The nightly implementation added a new selector to Publish Settings without an approved panel
+  composition, so the audit removed that visual change while retaining the export functionality.
+- **Checked:** current Publish Settings outline and locked panel composition, `docs/NF2-FUNCTIONAL-SPEC.md`,
+  `crates/neoflash-editor/src/panels/publish_settings.rs`.
+- **Proposal (optional):** approve a profile selector in the existing Save As flow, with the file extension fixed to
+  `.fla` for archive profiles and `.xfl` for the uncompressed profile.
+- **Answer:**

@@ -250,6 +250,26 @@ impl TextFormat {
             }
         }
     }
+    pub fn is_plain_point_text_compatible(&self) -> bool {
+        !self.bold
+            && !self.italic
+            && !self.underline
+            && self.letter_spacing.abs() < 1e-9
+            && self.leading.abs() < 1e-9
+            && self.align == TextAlign::Left
+            && self.align_mode().is_none()
+            && self.display().is_none()
+            && self.left_margin.abs() < 1e-9
+            && self.right_margin.abs() < 1e-9
+            && self.indent.abs() < 1e-9
+            && self.block_indent.abs() < 1e-9
+            && !self.bullet
+            && self.kerning.is_none()
+            && self.tab_stops.is_empty()
+            && self.url.is_empty()
+            && self.target_str().is_empty()
+            && self.field_options().is_none()
+    }
     pub fn validate(&self) -> Result<(), TextError> {
         if let Some(mode) = self.align_mode()
             && !matches!(
@@ -372,7 +392,107 @@ pub struct TextFormatRangePatch {
     pub format: TextFormatPatch,
 }
 impl TextFormatPatch {
-    pub(crate) fn apply(&self, format: &mut TextFormat) {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn diff_from(before: &TextFormat, after: &TextFormat) -> Self {
+        let mut patch = Self::default();
+        if before.font != after.font {
+            patch.font = Some(after.font.clone());
+        }
+        if (before.size - after.size).abs() > 1e-9 {
+            patch.size = Some(after.size);
+        }
+        if before.color != after.color {
+            patch.color = Some(after.color);
+        }
+        if before.bold != after.bold {
+            patch.bold = Some(after.bold);
+        }
+        if before.italic != after.italic {
+            patch.italic = Some(after.italic);
+        }
+        if (before.leading - after.leading).abs() > 1e-9 {
+            patch.leading = Some(after.leading);
+        }
+        if before.effective_align_mode() != after.effective_align_mode() {
+            patch.align_mode = Some(after.effective_align_mode().to_owned());
+        } else if before.align != after.align {
+            patch.align = Some(after.align);
+        }
+        if before.display() != after.display() {
+            patch.display = Some(after.display().unwrap_or("block").to_owned());
+        }
+        if (before.left_margin - after.left_margin).abs() > 1e-9 {
+            patch.left_margin = Some(after.left_margin);
+        }
+        if (before.right_margin - after.right_margin).abs() > 1e-9 {
+            patch.right_margin = Some(after.right_margin);
+        }
+        if (before.indent - after.indent).abs() > 1e-9 {
+            patch.indent = Some(after.indent);
+        }
+        if (before.block_indent - after.block_indent).abs() > 1e-9 {
+            patch.block_indent = Some(after.block_indent);
+        }
+        if before.underline != after.underline {
+            patch.underline = Some(after.underline);
+        }
+        if (before.letter_spacing - after.letter_spacing).abs() > 1e-9 {
+            patch.letter_spacing = Some(after.letter_spacing);
+        }
+        if before.kerning != after.kerning {
+            patch.kerning = Some(after.kerning.unwrap_or(false));
+        }
+        if before.bullet != after.bullet {
+            patch.bullet = Some(after.bullet);
+        }
+        if before.tab_stops != after.tab_stops {
+            patch.tab_stops = Some(after.tab_stops.clone());
+        }
+        if before.url != after.url {
+            patch.url = Some(after.url.clone());
+        }
+        if before.target_str() != after.target_str() {
+            patch.target = Some(after.target_str().to_owned());
+        }
+        patch
+    }
+
+    pub fn character_only(&self) -> Self {
+        Self {
+            font: self.font.clone(),
+            size: self.size,
+            color: self.color,
+            bold: self.bold,
+            italic: self.italic,
+            underline: self.underline,
+            letter_spacing: self.letter_spacing,
+            kerning: self.kerning,
+            url: self.url.clone(),
+            target: self.target.clone(),
+            ..Self::default()
+        }
+    }
+
+    pub fn paragraph_only(&self) -> Self {
+        Self {
+            leading: self.leading,
+            align: self.align,
+            align_mode: self.align_mode.clone(),
+            display: self.display.clone(),
+            left_margin: self.left_margin,
+            right_margin: self.right_margin,
+            indent: self.indent,
+            block_indent: self.block_indent,
+            bullet: self.bullet,
+            tab_stops: self.tab_stops.clone(),
+            ..Self::default()
+        }
+    }
+
+    pub fn apply(&self, format: &mut TextFormat) {
         if let Some(value) = &self.font {
             format.font = value.clone()
         }
@@ -1314,31 +1434,107 @@ impl TextFieldState {
     }
 
     pub fn write_to_kind(&self, kind: &mut ElementKind) {
-        if let ElementKind::TextBox {
-            text,
-            width,
-            height,
-            format,
-            word_wrap,
-            multiline,
-        } = kind
-        {
-            let prev_opts = format.field_options();
-            let prev_var = prev_opts.as_ref().and_then(|o| o.variable.clone());
-            let prev_html = prev_opts.as_ref().is_some_and(|o| o.html);
-            *text = self.text.clone();
-            if let Some(size) = self.box_size {
-                *width = size.width;
-                *height = size.height;
+        match kind {
+            ElementKind::TextBox {
+                text,
+                width,
+                height,
+                format,
+                word_wrap,
+                multiline,
+            } => {
+                let prev_opts = format.field_options();
+                let prev_var = prev_opts.as_ref().and_then(|o| o.variable.clone());
+                let prev_html = prev_opts.as_ref().is_some_and(|o| o.html);
+                *text = self.text.clone();
+                if let Some(size) = self.box_size {
+                    *width = size.width;
+                    *height = size.height;
+                }
+                *word_wrap = self.word_wrap;
+                *multiline = self.multiline;
+                let mut next_fmt = self.format.clone();
+                let opts = AuthoredTextFieldOptions::from_state(self, prev_var, prev_html);
+                next_fmt.set_field_options((!opts.is_default()).then_some(opts));
+                *format = next_fmt;
             }
-            *word_wrap = self.word_wrap;
-            *multiline = self.multiline;
-            let mut next_fmt = self.format.clone();
-            let opts = AuthoredTextFieldOptions::from_state(self, prev_var, prev_html);
-            next_fmt.set_field_options((!opts.is_default()).then_some(opts));
-            *format = next_fmt;
+            ElementKind::Text {
+                text,
+                font_family,
+                font_size,
+                color,
+            } => {
+                let opts = AuthoredTextFieldOptions::from_state(self, None, false);
+                if self.format_runs.is_empty()
+                    && self.format.is_plain_point_text_compatible()
+                    && opts.is_default()
+                {
+                    *text = self.text.clone();
+                    *font_family = self.format.font.clone();
+                    *font_size = self.format.size;
+                    *color = [
+                        ((self.format.color >> 16) & 0xff) as u8,
+                        ((self.format.color >> 8) & 0xff) as u8,
+                        (self.format.color & 0xff) as u8,
+                        self.alpha,
+                    ];
+                } else {
+                    let (nat_w, nat_h) = self.natural_box_size();
+                    let size = self.box_size.unwrap_or(TextBoxSize {
+                        width: nat_w,
+                        height: nat_h,
+                    });
+                    let mut next_fmt = self.format.clone();
+                    next_fmt.set_field_options((!opts.is_default()).then_some(opts));
+                    *kind = ElementKind::TextBox {
+                        text: self.text.clone(),
+                        width: size.width,
+                        height: size.height,
+                        format: next_fmt,
+                        word_wrap: self.word_wrap,
+                        multiline: self.multiline,
+                    };
+                }
+            }
+            _ => {}
         }
     }
+
+    pub fn natural_box_size(&self) -> (f64, f64) {
+        let mut probe = self.clone();
+        probe.box_size = None;
+        probe.word_wrap = false;
+        let max_font_size = self
+            .format_runs
+            .iter()
+            .map(|r| r.format.size)
+            .fold(self.format.size, f64::max)
+            .max(4.0);
+        if let Ok(layout) = layout_text(&probe, |segments, seg_format| {
+            Ok(segments
+                .iter()
+                .map(|s| s.chars().count() as f64 * seg_format.size * 0.62)
+                .collect())
+        }) {
+            let w = layout
+                .lines
+                .iter()
+                .map(|l| l.x.max(0.0) + l.width)
+                .fold(0.0_f64, f64::max);
+            let h = layout
+                .lines
+                .last()
+                .map(|l| l.y.max(0.0) + l.height)
+                .unwrap_or(max_font_size * 1.2);
+            (
+                (w + max_font_size * 0.5 + 8.0).clamp(24.0, 1_000_000.0),
+                (h + 8.0).clamp(max_font_size * 1.2 + 4.0, 1_000_000.0),
+            )
+        } else {
+            (180.0, (max_font_size * 1.4).max(24.0))
+        }
+    }
+
     pub(crate) fn storage_bytes(&self) -> usize {
         self.text.len() + self.restrict.as_ref().map_or(0, String::len)
     }
@@ -1860,6 +2056,221 @@ impl TextFieldState {
             self.format = runs[0].format.clone();
             self.format_runs = runs;
         }
+    }
+
+    pub fn utf16_len(&self) -> usize {
+        self.text.encode_utf16().count()
+    }
+
+    pub fn clamp_utf16_offset(&self, offset_utf16: usize) -> usize {
+        clamp_utf16(&self.text, offset_utf16 as i64) as usize
+    }
+
+    pub fn format_at_utf16_offset(&self, offset_utf16: usize) -> TextFormat {
+        let total = self.utf16_len() as u32;
+        let clamped = self.clamp_utf16_offset(offset_utf16) as u32;
+        self.format_at_utf16(clamped, total)
+    }
+
+    pub fn format_at_utf16_caret(&self, caret_utf16: usize) -> TextFormat {
+        let total = self.utf16_len() as u32;
+        if total == 0 || self.format_runs.is_empty() {
+            return self.format.clone();
+        }
+        let clamped = self.clamp_utf16_offset(caret_utf16) as u32;
+        if clamped > 0 {
+            for r in &self.format_runs {
+                if r.start < clamped && clamped <= r.end {
+                    return r.format.clone();
+                }
+            }
+        }
+        self.format_at_utf16(clamped, total)
+    }
+
+    pub fn format_for_utf16_selection(&self, start_utf16: usize, end_utf16: usize) -> TextFormat {
+        let lo = start_utf16.min(end_utf16);
+        let hi = start_utf16.max(end_utf16);
+        if lo < hi {
+            self.format_at_utf16_offset(lo)
+        } else {
+            self.format_at_utf16_caret(lo)
+        }
+    }
+
+    pub fn paragraph_utf16_bounds_for_range(
+        &self,
+        start_utf16: usize,
+        end_utf16: usize,
+    ) -> (usize, usize) {
+        let lo = self.clamp_utf16_offset(start_utf16.min(end_utf16));
+        let hi = self.clamp_utf16_offset(start_utf16.max(end_utf16));
+        let mut para_start = 0usize;
+        let mut para_end = self.utf16_len();
+        let mut cursor = 0usize;
+        for ch in self.text.chars() {
+            let next = cursor + ch.len_utf16();
+            if ch == '\n' {
+                if next <= lo {
+                    para_start = next;
+                }
+                if cursor >= hi && (cursor > lo || lo == hi) {
+                    para_end = cursor;
+                    break;
+                }
+            }
+            cursor = next;
+        }
+        if para_end < para_start {
+            (lo, hi)
+        } else {
+            (para_start, para_end)
+        }
+    }
+
+    pub fn apply_format_to_utf16_range(
+        &mut self,
+        start_utf16: usize,
+        end_utf16: usize,
+        patch: &TextFormatPatch,
+    ) -> Result<(), TextError> {
+        if patch.is_empty() {
+            return Ok(());
+        }
+        let total = self.utf16_len();
+        if total == 0 {
+            let mut next = self.clone();
+            patch.apply(&mut next.format);
+            patch.apply(&mut next.default_format);
+            next.validate()?;
+            *self = next;
+            return Ok(());
+        }
+        let lo = self.clamp_utf16_offset(start_utf16.min(end_utf16)) as u32;
+        let hi = self.clamp_utf16_offset(start_utf16.max(end_utf16)) as u32;
+        if lo >= hi {
+            return Ok(());
+        }
+        self.apply(&TextPatch {
+            format_range: Some(TextFormatRangePatch {
+                begin: lo,
+                end: hi,
+                format: patch.clone(),
+            }),
+            ..TextPatch::default()
+        })
+    }
+
+    pub fn replace_utf16_range(
+        &mut self,
+        start_utf16: usize,
+        end_utf16: usize,
+        inserted: &str,
+        typing_style: Option<&TextFormat>,
+    ) -> Result<usize, TextError> {
+        let begin = self.clamp_utf16_offset(start_utf16.min(end_utf16)) as u32;
+        let end = self.clamp_utf16_offset(start_utf16.max(end_utf16)) as u32;
+        let byte_start = utf16_byte(&self.text, begin)?;
+        let byte_end = utf16_byte(&self.text, end)?;
+        let mut normalized = normalize_text(inserted);
+        if !self.multiline {
+            normalized = normalized.replace('\n', " ");
+        }
+        if let Some(pattern) = &self.restrict {
+            let rule = Restriction::compile(pattern)?;
+            normalized.retain(|ch| ch == '\n' || rule.allows(ch));
+        }
+        let old_units = self.text.encode_utf16().count() as u32;
+        let removed_units = end - begin;
+        if self.max_chars > 0 {
+            let retained_units = old_units.saturating_sub(removed_units) as usize;
+            let capacity = (self.max_chars as usize).saturating_sub(retained_units);
+            let mut capped = String::new();
+            let mut units = 0usize;
+            for ch in normalized.chars() {
+                if units + ch.len_utf16() > capacity {
+                    break;
+                }
+                capped.push(ch);
+                units += ch.len_utf16();
+            }
+            normalized = capped;
+        }
+        // A rejected typed/pasted value is a no-op, not a deletion of the active selection.
+        // Intentional deletion is represented by an actually empty `inserted` string.
+        if !inserted.is_empty() && normalized.is_empty() {
+            return Ok(begin as usize);
+        }
+        if self.text.len() - (byte_end - byte_start) + normalized.len() > MAX_TEXT_BYTES {
+            return Err(error("replacement exceeds 1048576 UTF-8 bytes"));
+        }
+        let insert_units = normalized.encode_utf16().count() as u32;
+        let mut insert_fmt = typing_style
+            .cloned()
+            .unwrap_or_else(|| self.format_at_utf16_caret(begin as usize));
+        insert_fmt.set_field_options(None);
+
+        let mut next = self.clone();
+        let retained = begin > 0 || end < old_units;
+        if !retained {
+            next.format = insert_fmt.clone();
+            next.default_format = insert_fmt;
+            next.format_runs.clear();
+        } else if !next.format_runs.is_empty() || insert_fmt != next.format {
+            let old_runs = next.materialized_runs(old_units);
+            let mut runs = Vec::new();
+            for r in &old_runs {
+                if r.end <= begin {
+                    runs.push(r.clone());
+                } else if r.start < begin {
+                    runs.push(TextFormatRun {
+                        start: r.start,
+                        end: begin,
+                        format: r.format.clone(),
+                    });
+                }
+            }
+            if insert_units > 0 {
+                runs.push(TextFormatRun {
+                    start: begin,
+                    end: begin + insert_units,
+                    format: insert_fmt,
+                });
+            }
+            for r in &old_runs {
+                if r.start >= end {
+                    runs.push(TextFormatRun {
+                        start: r.start - removed_units + insert_units,
+                        end: r.end - removed_units + insert_units,
+                        format: r.format.clone(),
+                    });
+                } else if r.end > end {
+                    runs.push(TextFormatRun {
+                        start: begin + insert_units,
+                        end: r.end - removed_units + insert_units,
+                        format: r.format.clone(),
+                    });
+                }
+            }
+            next.format_runs = runs;
+        }
+        next.text.replace_range(byte_start..byte_end, &normalized);
+        next.normalize_runs();
+        let new_caret = begin + insert_units;
+        next.selection_begin = new_caret;
+        next.selection_end = new_caret;
+        next.caret = new_caret;
+        next.validate()?;
+        if next != *self {
+            next.revision = self
+                .revision
+                .parse::<u64>()
+                .unwrap_or(0)
+                .saturating_add(1)
+                .to_string();
+            *self = next;
+        }
+        Ok(new_caret as usize)
     }
 
     pub fn merged_format_json(&self, begin: i64, end: i64) -> Result<serde_json::Value, TextError> {
@@ -5988,5 +6399,253 @@ mod query_tests {
                 "Kinsoku Shori prevents line from starting with '。'"
             );
         }
+    }
+
+    #[test]
+    fn utf16_range_formatting_splits_merges_and_preserves_surrounding_runs() {
+        let mut field = TextFieldState {
+            text: "Hello brave world".into(),
+            format: TextFormat {
+                font: "Inter".into(),
+                size: 16.0,
+                color: 0x112233,
+                ..TextFormat::default()
+            },
+            ..TextFieldState::default()
+        };
+
+        // 1. Format "brave" (UTF-16 6..11) with Bold + Georgia + 24pt + red.
+        field
+            .apply_format_to_utf16_range(
+                6,
+                11,
+                &TextFormatPatch {
+                    font: Some("Georgia".into()),
+                    size: Some(24.0),
+                    color: Some(0xff0000),
+                    bold: Some(true),
+                    ..TextFormatPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(field.format_runs.len(), 3);
+        assert_eq!(
+            (field.format_runs[0].start, field.format_runs[0].end),
+            (0, 6)
+        );
+        assert_eq!(field.format_runs[0].format.font, "Inter");
+        assert!(!field.format_runs[0].format.bold);
+        assert_eq!(
+            (field.format_runs[1].start, field.format_runs[1].end),
+            (6, 11)
+        );
+        assert_eq!(field.format_runs[1].format.font, "Georgia");
+        assert_eq!(field.format_runs[1].format.size, 24.0);
+        assert_eq!(field.format_runs[1].format.color, 0xff0000);
+        assert!(field.format_runs[1].format.bold);
+        assert_eq!(
+            (field.format_runs[2].start, field.format_runs[2].end),
+            (11, 17)
+        );
+        assert_eq!(field.format_runs[2].format.font, "Inter");
+        assert_eq!(field.format_runs[2].format.size, 16.0);
+        assert_eq!(field.format_runs[2].format.color, 0x112233);
+
+        // 2. Apply Italic + letter_spacing across an overlapping sub-range "lo bra" (UTF-16 3..9).
+        field
+            .apply_format_to_utf16_range(
+                3,
+                9,
+                &TextFormatPatch {
+                    italic: Some(true),
+                    letter_spacing: Some(2.5),
+                    ..TextFormatPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(field.format_runs.len(), 5);
+        assert_eq!(
+            (field.format_runs[0].start, field.format_runs[0].end),
+            (0, 3)
+        );
+        assert!(!field.format_runs[0].format.italic);
+        assert_eq!(
+            (field.format_runs[1].start, field.format_runs[1].end),
+            (3, 6)
+        );
+        assert_eq!(field.format_runs[1].format.font, "Inter");
+        assert!(field.format_runs[1].format.italic);
+        assert_eq!(field.format_runs[1].format.letter_spacing, 2.5);
+        assert_eq!(
+            (field.format_runs[2].start, field.format_runs[2].end),
+            (6, 9)
+        );
+        assert_eq!(field.format_runs[2].format.font, "Georgia");
+        assert!(field.format_runs[2].format.bold);
+        assert!(field.format_runs[2].format.italic);
+        assert_eq!(field.format_runs[2].format.letter_spacing, 2.5);
+        assert_eq!(
+            (field.format_runs[3].start, field.format_runs[3].end),
+            (9, 11)
+        );
+        assert_eq!(field.format_runs[3].format.font, "Georgia");
+        assert!(field.format_runs[3].format.bold);
+        assert!(!field.format_runs[3].format.italic);
+        assert_eq!(
+            (field.format_runs[4].start, field.format_runs[4].end),
+            (11, 17)
+        );
+
+        // 3. Clearing Italic + letter_spacing on 3..9 merges adjacent identical runs back to 3 runs.
+        field
+            .apply_format_to_utf16_range(
+                3,
+                9,
+                &TextFormatPatch {
+                    italic: Some(false),
+                    letter_spacing: Some(0.0),
+                    ..TextFormatPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(field.format_runs.len(), 3);
+        assert_eq!(
+            (field.format_runs[0].start, field.format_runs[0].end),
+            (0, 6)
+        );
+        assert_eq!(
+            (field.format_runs[1].start, field.format_runs[1].end),
+            (6, 11)
+        );
+        assert_eq!(
+            (field.format_runs[2].start, field.format_runs[2].end),
+            (11, 17)
+        );
+        field.validate().unwrap();
+    }
+
+    #[test]
+    fn utf16_replace_range_shifts_runs_handles_surrogate_pairs_and_applies_typing_style() {
+        // Surrogate pair '😀' is 2 UTF-16 code units: "A😀B" has UTF-16 length 4 (A=0..1, 😀=1..3, B=3..4).
+        let mut field = TextFieldState {
+            text: "A😀B".into(),
+            format: TextFormat {
+                font: "Inter".into(),
+                size: 14.0,
+                color: 0x000000,
+                ..TextFormat::default()
+            },
+            ..TextFieldState::default()
+        };
+        field
+            .apply_format_to_utf16_range(
+                3,
+                4,
+                &TextFormatPatch {
+                    bold: Some(true),
+                    color: Some(0x00ff00),
+                    ..TextFormatPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(field.format_runs.len(), 2);
+        assert_eq!(
+            (field.format_runs[0].start, field.format_runs[0].end),
+            (0, 3)
+        );
+        assert_eq!(
+            (field.format_runs[1].start, field.format_runs[1].end),
+            (3, 4)
+        );
+
+        // Insert "XY" at caret 1 (right after 'A') with an explicit italic typing style.
+        let mut typing = field.format_at_utf16_caret(1);
+        typing.italic = true;
+        typing.color = 0x0000ff;
+        let new_caret = field
+            .replace_utf16_range(1, 1, "XY", Some(&typing))
+            .unwrap();
+        assert_eq!(new_caret, 3);
+        assert_eq!(field.text, "AXY😀B");
+        assert_eq!(field.utf16_len(), 6);
+        // "A" = 0..1 (plain), "XY" = 1..3 (italic blue), "😀" = 3..5 (plain), "B" = 5..6 (bold green).
+        assert_eq!(field.format_runs.len(), 4);
+        assert_eq!(
+            (field.format_runs[0].start, field.format_runs[0].end),
+            (0, 1)
+        );
+        assert!(!field.format_runs[0].format.italic);
+        assert_eq!(
+            (field.format_runs[1].start, field.format_runs[1].end),
+            (1, 3)
+        );
+        assert!(field.format_runs[1].format.italic);
+        assert_eq!(field.format_runs[1].format.color, 0x0000ff);
+        assert_eq!(
+            (field.format_runs[2].start, field.format_runs[2].end),
+            (3, 5)
+        );
+        assert!(!field.format_runs[2].format.italic);
+        assert!(!field.format_runs[2].format.bold);
+        assert_eq!(
+            (field.format_runs[3].start, field.format_runs[3].end),
+            (5, 6)
+        );
+        assert!(field.format_runs[3].format.bold);
+        assert_eq!(field.format_runs[3].format.color, 0x00ff00);
+
+        // Delete "XY😀" (UTF-16 1..5): "A" (0..1) and "B" (1..2) remain intact with their styles!
+        let after_del = field.replace_utf16_range(1, 5, "", None).unwrap();
+        assert_eq!(after_del, 1);
+        assert_eq!(field.text, "AB");
+        assert_eq!(field.format_runs.len(), 2);
+        assert_eq!(
+            (field.format_runs[0].start, field.format_runs[0].end),
+            (0, 1)
+        );
+        assert!(!field.format_runs[0].format.bold);
+        assert_eq!(
+            (field.format_runs[1].start, field.format_runs[1].end),
+            (1, 2)
+        );
+        assert!(field.format_runs[1].format.bold);
+        assert_eq!(field.format_runs[1].format.color, 0x00ff00);
+        field.validate().unwrap();
+    }
+
+    #[test]
+    fn utf16_rejected_replacement_preserves_selection_text_and_runs() {
+        let mut field = TextFieldState {
+            text: "A12B".into(),
+            restrict: Some("0-9".into()),
+            format: TextFormat {
+                font: "Inter".into(),
+                ..TextFormat::default()
+            },
+            ..TextFieldState::default()
+        };
+        field
+            .apply_format_to_utf16_range(
+                1,
+                3,
+                &TextFormatPatch {
+                    bold: Some(true),
+                    ..TextFormatPatch::default()
+                },
+            )
+            .unwrap();
+        let before = field.clone();
+
+        let caret = field.replace_utf16_range(1, 3, "x", None).unwrap();
+        assert_eq!(caret, 1);
+        assert_eq!(field, before, "rejected typing must be a complete no-op");
+
+        let caret = field.replace_utf16_range(1, 3, "", None).unwrap();
+        assert_eq!(caret, 1);
+        assert_eq!(
+            field.text, "AB",
+            "an explicit empty replacement still deletes"
+        );
+        field.validate().unwrap();
     }
 }

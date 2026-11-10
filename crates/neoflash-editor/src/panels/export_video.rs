@@ -13,7 +13,7 @@ use neoflash_core::{Id, Project, SymbolKind};
 use neoflash_export::{
     VideoAudioBitrate, VideoEstimate, VideoExportReport, VideoFormat, VideoOptions, VideoStopMode,
     estimate_video, export_project_video, export_project_video_with_progress,
-    render_project_frame_rgba, video_scene_ranges,
+    render_project_frame_rgba_with_base_dir, video_scene_ranges,
 };
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
@@ -359,7 +359,7 @@ impl ExportVideoDraft {
             let (pw, ph) = preview_dimensions(project.width.max(1), project.height.max(1));
             let transparent =
                 self.options.transparent_bg && self.options.format.supports_transparent_bg();
-            if let Ok(rgba) = render_project_frame_rgba(
+            if let Ok(rgba) = render_project_frame_rgba_with_base_dir(
                 project,
                 self.options.symbol.as_deref(),
                 preview_frame,
@@ -367,6 +367,7 @@ impl ExportVideoDraft {
                 ph,
                 transparent,
                 self.options.runtime_capture,
+                self.options.base_dir.as_deref(),
             ) {
                 self.preview_rgba = Some((pw, ph, rgba));
                 self.preview_texture = None;
@@ -525,11 +526,14 @@ impl Editor {
     /// Open the `Export video` modal dialog (`DL-05` / `W3.3`).
     pub fn open_export_video(&mut self, symbol_id: Option<&str>) {
         self.finish_edits();
-        self.export_video = Some(ExportVideoDraft::for_project(
-            &self.project,
-            self.frame,
-            symbol_id,
-        ));
+        let mut draft = ExportVideoDraft::for_project(&self.project, self.frame, symbol_id);
+        draft.options.base_dir = self
+            .tracked_disk_path()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        draft.preview_dirty = true;
+        draft.sync_and_refresh(&self.project, self.frame);
+        self.export_video = Some(draft);
     }
 
     pub(crate) fn finish_video_export(
@@ -573,7 +577,15 @@ impl Editor {
         options: &VideoOptions,
     ) -> Result<VideoExportReport, String> {
         self.finish_edits();
-        let res = export_project_video(&self.project, path, options).map_err(|e| e.to_string());
+        let mut resolved_options = options.clone();
+        if resolved_options.base_dir.is_none() {
+            resolved_options.base_dir = self
+                .tracked_disk_path()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf);
+        }
+        let res =
+            export_project_video(&self.project, path, &resolved_options).map_err(|e| e.to_string());
         self.finish_video_export(path, res)
     }
 

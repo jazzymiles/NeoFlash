@@ -673,7 +673,8 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
     btn3.extend_from_slice(&btn_act);
     swf_tag(&mut tags, 34, &btn3);
 
-    // Place sprite 2 at depth 1 ("box") with ClipEventLoad (0x01) tracing "box_load":
+    // Place sprite 2 at depth 1 ("box") with spec-accurate ClipEvent flags for
+    // Load (0x80), EnterFrame (0x40), Unload (0x20), and Press (0x2000).
     let mut po2_box = Vec::new();
     po2_box.push(0xA6); // HasClipActions (0x80) | HasName (0x20) | HasMatrix (0x04) | HasCharacter (0x02)
     po2_box.extend_from_slice(&1_u16.to_le_bytes()); // depth 1
@@ -681,17 +682,29 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
     po2_box.extend_from_slice(&swf_matrix_bytes(None, None, 25.0, 40.0));
     po2_box.extend_from_slice(b"box\0");
     po2_box.extend_from_slice(&0_u16.to_le_bytes());
-    po2_box.extend_from_slice(&1_u32.to_le_bytes());
-    po2_box.extend_from_slice(&1_u32.to_le_bytes()); // ClipEventLoad
-    let mut load_act = Vec::new();
-    load_act.push(0x96);
-    let s_load = b"\x00box_load\0";
-    load_act.extend_from_slice(&(s_load.len() as u16).to_le_bytes());
-    load_act.extend_from_slice(s_load);
-    load_act.push(0x26);
-    load_act.push(0x00);
-    po2_box.extend_from_slice(&(load_act.len() as u32).to_le_bytes());
-    po2_box.extend_from_slice(&load_act);
+    po2_box.extend_from_slice(&(0x80_u32 | 0x40 | 0x20 | 0x2000).to_le_bytes());
+    let clip_trace_action = |message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x26);
+        action.push(0x00);
+        action
+    };
+    for (event_flag, message) in [
+        (0x80_u32, "box_load"),
+        (0x40_u32, "box_enter"),
+        (0x20_u32, "box_unload"),
+        (0x2000_u32, "box_press"),
+    ] {
+        let action = clip_trace_action(message);
+        po2_box.extend_from_slice(&event_flag.to_le_bytes());
+        po2_box.extend_from_slice(&(action.len() as u32).to_le_bytes());
+        po2_box.extend_from_slice(&action);
+    }
     po2_box.extend_from_slice(&0_u32.to_le_bytes());
     swf_tag(&mut tags, 26, &po2_box);
 
@@ -734,12 +747,16 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
     swf_tag(&mut tags, 12, &do_act);
     swf_tag(&mut tags, 1, &[]); // ShowFrame
 
+    // Frame 1 removes the clip, which must dispatch ClipEventUnload (0x20).
+    swf_tag(&mut tags, 28, &1_u16.to_le_bytes());
+    swf_tag(&mut tags, 1, &[]);
+
     let avm1_swf = build_uncompressed_swf(7, 2, &tags);
     let mut player = SwfBytecodePlayer::from_bytes(&avm1_swf).unwrap();
     assert_eq!(player.vm_kind(), SwfVmKind::Avm1);
     let state0 = player.step_frame();
     assert_eq!(state0.frame, 0);
-    assert_eq!(state0.traces, vec!["box_load", "30"]);
+    assert_eq!(state0.traces, vec!["box_load", "box_enter", "30"]);
     assert_eq!(state0.display_list.len(), 2);
     assert_eq!(state0.audio_events.len(), 1);
     assert_eq!(state0.audio_events[0].sound_id, 10);
@@ -750,10 +767,15 @@ fn swf_bytecode_player_executes_avm1_avm2_button_events_and_corpus_swfs() {
         player.trace_output(),
         &[
             "box_load".to_owned(),
+            "box_enter".to_owned(),
             "30".to_owned(),
+            "box_press".to_owned(),
             "btn_clicked".to_owned()
         ]
     );
+
+    let state1 = player.seek_to_frame(1);
+    assert_eq!(state1.traces, vec!["box_unload"]);
 
     // 2. Real Ruffle AVM1 corpus SWF (`avm1-frame-labels/test.swf`):
     let corpus =
@@ -1072,4 +1094,1295 @@ fn corpus_structural_visual_and_behavioral_comparison_harness() {
             );
         }
     }
+}
+
+#[test]
+fn t204_swf_bytecode_player_display_list_projection_seek_reset_masks_filters_and_avm1_avm2() {
+    let temp = TempDir::new();
+
+    // --- 1. Bounded AVM1 SWF fixture (3 frames, mask clip_depth, PlaceObject3 filter+blend, nested sprite, SetProperty) ---
+    let mut tags = Vec::new();
+    let shape1 = define_red_square_shape_tag(1);
+    swf_tag(&mut tags, 2, &shape1);
+
+    // DefineSprite 2 (2 frames: frame 0 at (0,0), frame 1 moves inner shape to (15,20)):
+    let mut sprite2 = Vec::new();
+    sprite2.extend_from_slice(&2_u16.to_le_bytes());
+    sprite2.extend_from_slice(&2_u16.to_le_bytes());
+    let mut po2_inner_f0 = vec![0x06]; // HasMatrix | HasCharacter
+    po2_inner_f0.extend_from_slice(&1_u16.to_le_bytes());
+    po2_inner_f0.extend_from_slice(&1_u16.to_le_bytes());
+    po2_inner_f0.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    swf_tag(&mut sprite2, 26, &po2_inner_f0);
+    swf_tag(&mut sprite2, 1, &[]); // ShowFrame 0
+    let mut po2_inner_f1 = vec![0x05]; // HasMatrix | Move
+    po2_inner_f1.extend_from_slice(&1_u16.to_le_bytes());
+    po2_inner_f1.extend_from_slice(&swf_matrix_bytes(None, None, 15.0, 20.0));
+    swf_tag(&mut sprite2, 26, &po2_inner_f1);
+    swf_tag(&mut sprite2, 1, &[]); // ShowFrame 1
+    swf_tag(&mut sprite2, 0, &[]); // End
+    swf_tag(&mut tags, 39, &sprite2);
+
+    // Frame 0: PlaceObject2 mask shape 1 at depth 1 with clip_depth = 2
+    let mut po2_mask = vec![0x46]; // HasClipDepth (0x40) | HasMatrix (0x04) | HasCharacter (0x02)
+    po2_mask.extend_from_slice(&1_u16.to_le_bytes()); // depth 1
+    po2_mask.extend_from_slice(&1_u16.to_le_bytes()); // char 1
+    po2_mask.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    po2_mask.extend_from_slice(&2_u16.to_le_bytes()); // clip_depth = 2
+    swf_tag(&mut tags, 26, &po2_mask);
+
+    // Frame 0: PlaceObject3 (tag 70) sprite 2 ("hero") at depth 2 with BlurFilter and BlendMode::Multiply
+    let mut po3_hero = Vec::new();
+    po3_hero.push(0x26); // flags1: HasName (0x20) | HasMatrix (0x04) | HasCharacter (0x02)
+    po3_hero.push(0x03); // flags2: HasBlendMode (0x02) | HasFilterList (0x01)
+    po3_hero.extend_from_slice(&2_u16.to_le_bytes()); // depth 2
+    po3_hero.extend_from_slice(&2_u16.to_le_bytes()); // char 2
+    po3_hero.extend_from_slice(&swf_matrix_bytes(None, None, 20.0, 30.0));
+    po3_hero.extend_from_slice(b"hero\0");
+    // FilterList: 1 filter = BlurFilter (id = 1), blur_x = 4.0 (FIXED 16.16), blur_y = 6.0 (FIXED 16.16), flags = 1 << 3
+    po3_hero.push(1); // count = 1
+    po3_hero.push(1); // BlurFilter
+    po3_hero.extend_from_slice(&((4i32 << 16).to_le_bytes()));
+    po3_hero.extend_from_slice(&((6i32 << 16).to_le_bytes()));
+    po3_hero.push(1 << 3); // passes = 1
+    po3_hero.push(3); // BlendMode::Multiply
+    swf_tag(&mut tags, 70, &po3_hero);
+
+    let push_set_prop = |buf: &mut Vec<u8>, target: &str, prop_idx: i32, val: i32| {
+        buf.push(0x96); // ActionPush
+        let mut p = Vec::new();
+        p.push(0x00);
+        p.extend_from_slice(target.as_bytes());
+        p.push(0);
+        p.push(0x07);
+        p.extend_from_slice(&prop_idx.to_le_bytes());
+        p.push(0x07);
+        p.extend_from_slice(&val.to_le_bytes());
+        buf.extend_from_slice(&(p.len() as u16).to_le_bytes());
+        buf.extend_from_slice(&p);
+        buf.push(0x23); // ActionSetProperty
+    };
+    let push_trace = |buf: &mut Vec<u8>, msg: &str| {
+        buf.push(0x96);
+        let mut p = Vec::new();
+        p.push(0x00);
+        p.extend_from_slice(msg.as_bytes());
+        p.push(0);
+        buf.extend_from_slice(&(p.len() as u16).to_le_bytes());
+        buf.extend_from_slice(&p);
+        buf.push(0x26); // ActionTrace
+    };
+
+    // Frame 0 DoAction: hero._x = 60, hero._y = 80, hero._xscale = 150, hero._alpha = 50, trace("avm1_f0")
+    let mut act_f0 = Vec::new();
+    push_set_prop(&mut act_f0, "hero", 0, 60); // _x = 60
+    push_set_prop(&mut act_f0, "hero", 1, 80); // _y = 80
+    push_set_prop(&mut act_f0, "hero", 2, 150); // _xscale = 150
+    push_set_prop(&mut act_f0, "hero", 6, 50); // _alpha = 50
+    push_trace(&mut act_f0, "avm1_f0");
+    act_f0.push(0x00);
+    swf_tag(&mut tags, 12, &act_f0);
+    swf_tag(&mut tags, 1, &[]); // ShowFrame 0
+
+    // Frame 1 DoAction: hero._rotation = 90, hero._visible = 0, trace("avm1_f1")
+    let mut act_f1 = Vec::new();
+    push_set_prop(&mut act_f1, "hero", 10, 90); // _rotation = 90
+    push_set_prop(&mut act_f1, "hero", 7, 0); // _visible = false
+    push_trace(&mut act_f1, "avm1_f1");
+    act_f1.push(0x00);
+    swf_tag(&mut tags, 12, &act_f1);
+    swf_tag(&mut tags, 1, &[]); // ShowFrame 1
+
+    // Frame 2 DoAction: hero._visible = 1, hero._x = 120, hero._alpha = 100, unsupported opcode 0xFE, trace("avm1_f2")
+    let mut act_f2 = Vec::new();
+    push_set_prop(&mut act_f2, "hero", 7, 1); // _visible = true
+    push_set_prop(&mut act_f2, "hero", 0, 120); // _x = 120
+    push_set_prop(&mut act_f2, "hero", 6, 100); // _alpha = 100
+    act_f2.push(0xFE); // unsupported AVM1 short opcode -> explicit diagnostic
+    push_trace(&mut act_f2, "avm1_f2");
+    act_f2.push(0x00);
+    swf_tag(&mut tags, 12, &act_f2);
+    swf_tag(&mut tags, 1, &[]); // ShowFrame 2
+
+    let avm1_bytes = build_uncompressed_swf(8, 3, &tags);
+    let avm1_path = temp.0.join("t204_avm1.swf");
+    fs::write(&avm1_path, &avm1_bytes).unwrap();
+
+    let project = import_project(&avm1_path).unwrap();
+    project.validate().unwrap();
+    let project_snapshot = project.clone();
+
+    let mut player = SwfBytecodePlayer::from_bytes(&avm1_bytes).unwrap();
+    let state0 = player.seek_to_frame(0);
+    assert_eq!(state0.frame, 0);
+    assert_eq!(state0.traces, vec!["avm1_f0"]);
+    let hero0 = state0
+        .display_list
+        .iter()
+        .find(|e| e.name == "hero")
+        .unwrap();
+    assert!((hero0.x - 60.0).abs() < 1e-3);
+    assert!((hero0.y - 80.0).abs() < 1e-3);
+    assert!((hero0.scale_x - 150.0).abs() < 1e-3);
+    assert!((hero0.alpha - 50.0).abs() < 1e-3);
+    assert!(hero0.visible);
+    assert_eq!(hero0.blend_mode, BlendMode::Multiply);
+    assert_eq!(hero0.filters.len(), 1);
+    assert_eq!(hero0.current_frame, 0);
+    assert_eq!(hero0.children.len(), 1);
+    assert!((hero0.children[0].x - 0.0).abs() < 1e-3);
+
+    let scene0 = player.evaluate_stage_scene(&project, &project.root, 0, true);
+    assert_eq!(
+        scene0.draws.len(),
+        1,
+        "expected 1 visible masked hero draw at frame 0"
+    );
+    assert!(
+        !scene0.clips.is_empty(),
+        "expected clip_depth mask clips at frame 0"
+    );
+    assert!(
+        scene0.has_blend_modes(),
+        "expected Multiply blend mode at frame 0"
+    );
+    assert!((scene0.draws[0].item.transform[4] - 60.0).abs() < 1e-3);
+    assert!((scene0.draws[0].item.transform[5] - 80.0).abs() < 1e-3);
+    assert!((scene0.draws[0].item.transform[0] - 1.5).abs() < 1e-3);
+    assert!((scene0.draws[0].item.alpha - 0.5).abs() < 1e-3);
+
+    // Step/seek to frame 1: hero is hidden (_visible = false), nested sprite stepped to frame 1 (15, 20)
+    let state1 = player.seek_to_frame(1);
+    assert_eq!(state1.frame, 1);
+    let hero1 = state1
+        .display_list
+        .iter()
+        .find(|e| e.name == "hero")
+        .unwrap();
+    assert!(!hero1.visible);
+    assert!((hero1.rotation - 90.0).abs() < 1e-3);
+    assert_eq!(hero1.current_frame, 1);
+    assert!((hero1.children[0].x - 15.0).abs() < 1e-3);
+    assert!((hero1.children[0].y - 20.0).abs() < 1e-3);
+    let scene1 = player.evaluate_stage_scene(&project, &project.root, 1, true);
+    assert!(
+        scene1.draws.is_empty(),
+        "expected 0 visible draws when hero._visible is false at frame 1"
+    );
+
+    // Seek to frame 2: hero is visible again at x=120 + nested sprite (frame 0 on loop = 0,0), unsupported diagnostic recorded
+    let state2 = player.seek_to_frame(2);
+    assert_eq!(state2.frame, 2);
+    assert!(
+        state2
+            .unsupported_diagnostics
+            .iter()
+            .any(|d| d.contains("0xFE")),
+        "expected explicit unsupported opcode diagnostic at frame 2, got: {:?}",
+        state2.unsupported_diagnostics
+    );
+    let scene2 = player.evaluate_stage_scene(&project, &project.root, 2, true);
+    assert_eq!(scene2.draws.len(), 1);
+    assert!((scene2.draws[0].item.transform[4] - 120.0).abs() < 1e-3);
+    assert!((scene2.draws[0].item.alpha - 1.0).abs() < 1e-3);
+
+    // Determinism of seek_to_frame(0) / reset() and immutability of authored Project:
+    let state0_again = player.seek_to_frame(0);
+    assert_eq!(state0_again.display_list, state0.display_list);
+    let scene0_again = player.evaluate_stage_scene(&project, &project.root, 0, true);
+    assert_eq!(scene0_again.draws.len(), scene0.draws.len());
+    assert_eq!(
+        scene0_again.draws[0].item.transform,
+        scene0.draws[0].item.transform
+    );
+    assert_eq!(
+        project, project_snapshot,
+        "authored Project must remain 100% untouched"
+    );
+
+    // --- 2. Bounded AVM2 SWF fixture (2 frames, DoABC2 mutating child x/y/alpha/visible) ---
+    let mut avm2_tags = Vec::new();
+    swf_tag(&mut avm2_tags, 69, &[0x08, 0x00, 0x00, 0x00]); // FileAttributes AS3
+    swf_tag(&mut avm2_tags, 2, &shape1);
+    let mut po2_box = vec![0x26]; // HasName | HasMatrix | HasCharacter
+    po2_box.extend_from_slice(&1_u16.to_le_bytes()); // depth 1
+    po2_box.extend_from_slice(&1_u16.to_le_bytes()); // char 1
+    po2_box.extend_from_slice(&swf_matrix_bytes(None, None, 10.0, 20.0));
+    po2_box.extend_from_slice(b"box\0");
+    swf_tag(&mut avm2_tags, 26, &po2_box);
+
+    // DoABC2 on frame 0: findpropstrict("box"), getproperty("box"), pushbyte(95), setproperty("x"), trace("avm2_f0")
+    let mut abc = Vec::new();
+    abc.extend_from_slice(&0_u32.to_le_bytes());
+    abc.push(0);
+    abc.extend_from_slice(&16_u16.to_le_bytes());
+    abc.extend_from_slice(&46_u16.to_le_bytes());
+    abc.push(1); // int_count
+    abc.push(1); // uint_count
+    abc.push(1); // double_count
+    abc.push(6); // string_count = 6 (1="", 2="trace", 3="avm2_f0", 4="box", 5="x")
+    abc.push(0);
+    abc.push(5);
+    abc.extend_from_slice(b"trace");
+    abc.push(7);
+    abc.extend_from_slice(b"avm2_f0");
+    abc.push(3);
+    abc.extend_from_slice(b"box");
+    abc.push(1);
+    abc.extend_from_slice(b"x");
+    abc.push(2); // namespace_count
+    abc.push(0x16);
+    abc.push(1);
+    abc.push(1); // ns_set_count
+    abc.push(4); // multiname_count = 4 (1="trace", 2="box", 3="x")
+    abc.extend_from_slice(&[0x07, 1, 2]); // mn 1: trace
+    abc.extend_from_slice(&[0x07, 1, 4]); // mn 2: box
+    abc.extend_from_slice(&[0x07, 1, 5]); // mn 3: x
+    abc.extend_from_slice(&[1, 0, 0, 0, 0]); // 1 method
+    abc.push(0); // metadata
+    abc.push(0); // class
+    abc.extend_from_slice(&[1, 0, 0]); // 1 script
+    abc.extend_from_slice(&[1, 0, 4, 1, 0, 1]); // 1 body
+    let avm2_code = [
+        0x5D, 0x02, // findpropstrict "box"
+        0x66, 0x02, // getproperty "box" -> Value::Object("box")
+        0x24, 95, // pushbyte 95
+        0x61, 0x03, // setproperty "x" -> box.x = 95
+        0x5D, 0x01, // findpropstrict "trace"
+        0x2C, 0x03, // pushstring "avm2_f0"
+        0x4F, 0x01, 0x01, // callpropvoid "trace", 1
+        0x47, // returnvoid
+    ];
+    abc.push(avm2_code.len() as u8);
+    abc.extend_from_slice(&avm2_code);
+    abc.push(0);
+    abc.push(0);
+    swf_tag(&mut avm2_tags, 82, &abc);
+    swf_tag(&mut avm2_tags, 1, &[]); // ShowFrame 0
+
+    // Frame 1: Move box via PlaceObject2 to (140, 55)
+    let mut po2_move = vec![0x05]; // HasMatrix | Move
+    po2_move.extend_from_slice(&1_u16.to_le_bytes());
+    po2_move.extend_from_slice(&swf_matrix_bytes(None, None, 140.0, 55.0));
+    swf_tag(&mut avm2_tags, 26, &po2_move);
+    swf_tag(&mut avm2_tags, 1, &[]); // ShowFrame 1
+
+    let avm2_bytes = build_uncompressed_swf(10, 2, &avm2_tags);
+    let avm2_path = temp.0.join("t204_avm2.swf");
+    fs::write(&avm2_path, &avm2_bytes).unwrap();
+    let avm2_project = import_project(&avm2_path).unwrap();
+    let mut avm2_player = SwfBytecodePlayer::from_bytes(&avm2_bytes).unwrap();
+
+    let avm2_s0 = avm2_player.seek_to_frame(0);
+    assert_eq!(avm2_s0.traces, vec!["avm2_f0"]);
+    let avm2_scene0 = avm2_player.evaluate_stage_scene(&avm2_project, &avm2_project.root, 0, true);
+    assert_eq!(avm2_scene0.draws.len(), 1);
+    assert!((avm2_scene0.draws[0].item.transform[4] - 95.0).abs() < 1e-3);
+    assert!((avm2_scene0.draws[0].item.transform[5] - 20.0).abs() < 1e-3);
+
+    let _avm2_s1 = avm2_player.seek_to_frame(1);
+    let avm2_scene1 = avm2_player.evaluate_stage_scene(&avm2_project, &avm2_project.root, 1, true);
+    assert!((avm2_scene1.draws[0].item.transform[4] - 140.0).abs() < 1e-3);
+    assert!((avm2_scene1.draws[0].item.transform[5] - 55.0).abs() < 1e-3);
+}
+
+#[test]
+fn t208_swf_runtime_keeps_same_sprite_instances_and_grandchildren_independent() {
+    let temp = TempDir::new();
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 2, &define_red_square_shape_tag(1));
+
+    // Inner sprite 3: the leaf shape moves from x=0 to x=30 on its second frame.
+    let mut inner = Vec::new();
+    inner.extend_from_slice(&3_u16.to_le_bytes());
+    inner.extend_from_slice(&2_u16.to_le_bytes());
+    let mut inner_place = vec![0x26]; // HasName | HasMatrix | HasCharacter
+    inner_place.extend_from_slice(&1_u16.to_le_bytes());
+    inner_place.extend_from_slice(&1_u16.to_le_bytes());
+    inner_place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    inner_place.extend_from_slice(b"leaf\0");
+    swf_tag(&mut inner, 26, &inner_place);
+    swf_tag(&mut inner, 1, &[]);
+    let mut inner_move = vec![0x05]; // HasMatrix | Move
+    inner_move.extend_from_slice(&1_u16.to_le_bytes());
+    inner_move.extend_from_slice(&swf_matrix_bytes(None, None, 30.0, 0.0));
+    swf_tag(&mut inner, 26, &inner_move);
+    swf_tag(&mut inner, 1, &[]);
+    swf_tag(&mut inner, 0, &[]);
+    swf_tag(&mut tags, 39, &inner);
+
+    // Outer sprite 2 keeps the inner sprite alive for two frames.
+    let mut outer = Vec::new();
+    outer.extend_from_slice(&2_u16.to_le_bytes());
+    outer.extend_from_slice(&2_u16.to_le_bytes());
+    let mut outer_place = vec![0x26];
+    outer_place.extend_from_slice(&1_u16.to_le_bytes());
+    outer_place.extend_from_slice(&3_u16.to_le_bytes());
+    outer_place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    outer_place.extend_from_slice(b"inner\0");
+    swf_tag(&mut outer, 26, &outer_place);
+    swf_tag(&mut outer, 1, &[]);
+    swf_tag(&mut outer, 1, &[]);
+    swf_tag(&mut outer, 0, &[]);
+    swf_tag(&mut tags, 39, &outer);
+
+    // Stagger identical outer instances by one root frame. At root frame 1 the first instance and
+    // its inner child are on frame 1 while the newly placed second instance remains on frame 0.
+    let place_outer = |depth: u16, name: &str, x: f64| {
+        let mut place = vec![0x26];
+        place.extend_from_slice(&depth.to_le_bytes());
+        place.extend_from_slice(&2_u16.to_le_bytes());
+        place.extend_from_slice(&swf_matrix_bytes(None, None, x, 0.0));
+        place.extend_from_slice(name.as_bytes());
+        place.push(0);
+        place
+    };
+    swf_tag(&mut tags, 26, &place_outer(1, "first", 100.0));
+    swf_tag(&mut tags, 1, &[]);
+    swf_tag(&mut tags, 26, &place_outer(2, "second", 200.0));
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 2, &tags);
+    let path = temp.0.join("t208-nested-instances.swf");
+    fs::write(&path, &bytes).unwrap();
+    let project = import_project(&path).unwrap();
+    project.validate().unwrap();
+    let authored_snapshot = project.clone();
+
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let state = player.seek_to_frame(1);
+    let first = state
+        .display_list
+        .iter()
+        .find(|entry| entry.name == "first")
+        .unwrap();
+    let second = state
+        .display_list
+        .iter()
+        .find(|entry| entry.name == "second")
+        .unwrap();
+    assert_eq!((first.current_frame, second.current_frame), (1, 0));
+    assert_eq!(first.children.len(), 1);
+    assert_eq!(second.children.len(), 1);
+    assert_eq!(
+        (
+            first.children[0].current_frame,
+            second.children[0].current_frame
+        ),
+        (1, 0)
+    );
+    assert_eq!(first.children[0].children.len(), 1);
+    assert_eq!(second.children[0].children.len(), 1);
+    assert!((first.children[0].children[0].x - 30.0).abs() < 1e-3);
+    assert!((second.children[0].children[0].x - 0.0).abs() < 1e-3);
+
+    let overlay = player.project_with_display_list_overlay(&project, &project.root, 1);
+    let instance_symbol = |symbol_id: &str, frame: u32, name: &str| {
+        overlay
+            .symbol(symbol_id)
+            .unwrap()
+            .timeline
+            .layers
+            .iter()
+            .filter_map(|layer| layer.key_at(frame))
+            .flat_map(|keyframe| &keyframe.elements)
+            .find_map(|element| {
+                if element.name == name {
+                    match &element.kind {
+                        ElementKind::Instance { symbol_id, .. } => Some(symbol_id.clone()),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap()
+    };
+    let first_outer = instance_symbol(&project.root, 1, "first");
+    let second_outer = instance_symbol(&project.root, 1, "second");
+    assert_ne!(first_outer, second_outer);
+    assert_ne!(first_outer, "swf-sym-2");
+    assert_ne!(second_outer, "swf-sym-2");
+    let first_inner = instance_symbol(&first_outer, 1, "inner");
+    let second_inner = instance_symbol(&second_outer, 0, "inner");
+    assert_ne!(first_inner, second_inner);
+    assert_ne!(first_inner, "swf-sym-3");
+    assert_ne!(second_inner, "swf-sym-3");
+
+    let scene = player.evaluate_stage_scene(&project, &project.root, 1, true);
+    let mut x_positions: Vec<f64> = scene
+        .draws
+        .iter()
+        .map(|draw| draw.item.transform[4])
+        .collect();
+    x_positions.sort_by(f64::total_cmp);
+    assert_eq!(x_positions.len(), 2, "unexpected scene: {scene:?}");
+    assert!((x_positions[0] - 130.0).abs() < 1e-3, "{x_positions:?}");
+    assert!((x_positions[1] - 200.0).abs() < 1e-3, "{x_positions:?}");
+    assert_eq!(project, authored_snapshot);
+}
+
+#[test]
+fn t208_nested_clip_events_and_frame_scripts_keep_instance_context() {
+    let trace_action = |message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x26);
+        action
+    };
+    let property_action = |property: i32, value: i32, message: &str, stop: bool| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00, 0x00]; // empty target string means the current clip
+        push.push(0x07);
+        push.extend_from_slice(&property.to_le_bytes());
+        push.push(0x07);
+        push.extend_from_slice(&value.to_le_bytes());
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x23); // ActionSetProperty
+        action.extend_from_slice(&trace_action(message));
+        if stop {
+            action.push(0x07); // ActionStop must stop this nested instance, not the root.
+        }
+        action.push(0x00);
+        action
+    };
+    let this_member_action = |member: &str, value: i32, message: &str, stop: bool| {
+        let mut action = vec![0x96];
+        let mut this_push = vec![0x00];
+        this_push.extend_from_slice(b"this\0");
+        action.extend_from_slice(&(this_push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&this_push);
+        action.push(0x1C); // ActionGetVariable -> current MovieClip
+        action.push(0x96);
+        let mut value_push = vec![0x00];
+        value_push.extend_from_slice(member.as_bytes());
+        value_push.push(0);
+        value_push.push(0x07);
+        value_push.extend_from_slice(&value.to_le_bytes());
+        action.extend_from_slice(&(value_push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&value_push);
+        action.push(0x4F); // ActionSetMember
+        action.extend_from_slice(&trace_action(message));
+        if stop {
+            action.push(0x07);
+        }
+        action.push(0x00);
+        action
+    };
+    let detached_unload_action = || {
+        let mut action = this_member_action("_x", 44, "nested_unload", false);
+        action.pop(); // replace ActionEnd with a read-back of this._x
+        action.push(0x96);
+        action.extend_from_slice(&6_u16.to_le_bytes());
+        action.extend_from_slice(b"\x00this\0");
+        action.push(0x1C);
+        action.push(0x96);
+        action.extend_from_slice(&4_u16.to_le_bytes());
+        action.extend_from_slice(b"\x00_x\0");
+        action.push(0x4E); // ActionGetMember
+        action.push(0x26);
+        action.push(0x07); // must stop only the detached instance
+        action.push(0x00);
+        action
+    };
+
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 2, &define_red_square_shape_tag(1));
+
+    // Inner sprite 3 has its own frame script. Its unnamed top-level parent exercises the stable
+    // `depthN/inner` target path used when a PlaceObject record has no instance name.
+    let mut inner = Vec::new();
+    inner.extend_from_slice(&3_u16.to_le_bytes());
+    inner.extend_from_slice(&2_u16.to_le_bytes());
+    let mut leaf = vec![0x06];
+    leaf.extend_from_slice(&1_u16.to_le_bytes());
+    leaf.extend_from_slice(&1_u16.to_le_bytes());
+    leaf.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    swf_tag(&mut inner, 26, &leaf);
+    swf_tag(
+        &mut inner,
+        12,
+        &this_member_action("_x", 13, "nested_frame", true),
+    );
+    swf_tag(&mut inner, 1, &[]);
+    swf_tag(&mut inner, 1, &[]);
+    swf_tag(&mut inner, 0, &[]);
+    swf_tag(&mut tags, 39, &inner);
+
+    // Outer sprite 2 places the inner sprite with Load, EnterFrame, Release and Unload handlers,
+    // then removes it on its second frame.
+    let mut outer = Vec::new();
+    outer.extend_from_slice(&2_u16.to_le_bytes());
+    outer.extend_from_slice(&2_u16.to_le_bytes());
+    let mut place_inner = vec![0xA6];
+    place_inner.extend_from_slice(&1_u16.to_le_bytes());
+    place_inner.extend_from_slice(&3_u16.to_le_bytes());
+    place_inner.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    place_inner.extend_from_slice(b"inner\0");
+    place_inner.extend_from_slice(&0_u16.to_le_bytes());
+    let all_flags = 0x80_u32 | 0x40 | 0x20 | 0x1000;
+    place_inner.extend_from_slice(&all_flags.to_le_bytes());
+    for (flag, action) in [
+        (0x80_u32, property_action(1, 11, "nested_load", false)),
+        (0x40_u32, property_action(6, 22, "nested_enter", false)),
+        (0x1000_u32, property_action(0, 33, "nested_click", false)),
+        (0x20_u32, detached_unload_action()),
+    ] {
+        place_inner.extend_from_slice(&flag.to_le_bytes());
+        place_inner.extend_from_slice(&(action.len() as u32).to_le_bytes());
+        place_inner.extend_from_slice(&action);
+    }
+    place_inner.extend_from_slice(&0_u32.to_le_bytes());
+    swf_tag(&mut outer, 26, &place_inner);
+    swf_tag(&mut outer, 1, &[]);
+    swf_tag(&mut outer, 28, &1_u16.to_le_bytes());
+    swf_tag(&mut outer, 1, &[]);
+    swf_tag(&mut outer, 0, &[]);
+    swf_tag(&mut tags, 39, &outer);
+
+    let mut place_outer = vec![0x06];
+    place_outer.extend_from_slice(&1_u16.to_le_bytes());
+    place_outer.extend_from_slice(&2_u16.to_le_bytes());
+    place_outer.extend_from_slice(&swf_matrix_bytes(None, None, 100.0, 0.0));
+    swf_tag(&mut tags, 26, &place_outer);
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 1, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let first = player.step_frame();
+    assert!(first.playing, "nested ActionStop must not stop the root");
+    let outer = &first.display_list[0];
+    assert!(outer.playing, "nested ActionStop must not stop its parent");
+    let inner = &outer.children[0];
+    assert!((inner.x - 13.0).abs() < 1e-3);
+    assert!((inner.y - 11.0).abs() < 1e-3);
+    assert!((inner.alpha - 22.0).abs() < 1e-3);
+    assert!(!inner.playing);
+    assert_eq!(
+        first.traces,
+        vec!["nested_load", "nested_enter", "nested_frame"]
+    );
+
+    player.trigger_pointer_click();
+    let clicked = player.display_list();
+    assert!((clicked[0].children[0].x - 33.0).abs() < 1e-3);
+    assert_eq!(player.trace_output().last().unwrap(), "nested_click");
+
+    let removed = player.step_frame();
+    assert!(removed.display_list[0].children.is_empty());
+    assert!(removed.playing);
+    assert!(removed.display_list[0].playing);
+    assert_eq!(removed.traces, vec!["nested_unload", "44"]);
+}
+
+#[test]
+fn t208_clip_event_identity_survives_duplicate_names_and_rename() {
+    let trace_bytes = |message: &str, action: &mut Vec<u8>| {
+        action.push(0x96);
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x26);
+    };
+    let set_numeric = |property: i32, value: i32, message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00, 0x00, 0x07];
+        push.extend_from_slice(&property.to_le_bytes());
+        push.push(0x07);
+        push.extend_from_slice(&value.to_le_bytes());
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x23);
+        trace_bytes(message, &mut action);
+        action.push(0x00);
+        action
+    };
+    let rename = |value: &str, message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00, 0x00, 0x07];
+        push.extend_from_slice(&13_i32.to_le_bytes());
+        push.push(0x00);
+        push.extend_from_slice(value.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x23);
+        trace_bytes(message, &mut action);
+        action.push(0x00);
+        action
+    };
+    let this_identity_action = || {
+        let push_string = |action: &mut Vec<u8>, value: &str| {
+            action.push(0x96);
+            let mut payload = vec![0x00];
+            payload.extend_from_slice(value.as_bytes());
+            payload.push(0);
+            action.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+            action.extend_from_slice(&payload);
+        };
+        let push_int = |action: &mut Vec<u8>, value: i32| {
+            action.push(0x96);
+            action.extend_from_slice(&5_u16.to_le_bytes());
+            action.push(0x07);
+            action.extend_from_slice(&value.to_le_bytes());
+        };
+        let push_this = |action: &mut Vec<u8>| {
+            push_string(action, "this");
+            action.push(0x1C);
+        };
+        let set_member = |action: &mut Vec<u8>, member: &str, value: i32| {
+            push_this(action);
+            push_string(action, member);
+            push_int(action, value);
+            action.push(0x4F);
+        };
+        let trace_member = |action: &mut Vec<u8>, member: &str| {
+            push_this(action);
+            push_string(action, member);
+            action.extend_from_slice(&[0x4E, 0x26]);
+        };
+
+        let mut action = Vec::new();
+        set_member(&mut action, "_x", 22);
+        set_member(&mut action, "custom", 77);
+        push_this(&mut action);
+        push_string(&mut action, "customMethod");
+        let mut method_body = Vec::new();
+        push_string(&mut method_body, "method_exact");
+        method_body.extend_from_slice(&[0x26, 0x00]);
+        let mut function_header = vec![0x00];
+        function_header.extend_from_slice(&0_u16.to_le_bytes());
+        function_header.extend_from_slice(&(method_body.len() as u16).to_le_bytes());
+        action.push(0x9B);
+        action.extend_from_slice(&(function_header.len() as u16).to_le_bytes());
+        action.extend_from_slice(&function_header);
+        action.extend_from_slice(&method_body);
+        action.push(0x4F);
+        trace_member(&mut action, "_x");
+        trace_member(&mut action, "custom");
+        trace_member(&mut action, "_name");
+        push_int(&mut action, 0);
+        push_this(&mut action);
+        push_string(&mut action, "customMethod");
+        action.extend_from_slice(&[0x52, 0x17]);
+        push_int(&mut action, 0);
+        push_this(&mut action);
+        push_string(&mut action, "stop");
+        action.extend_from_slice(&[0x52, 0x17, 0x00]);
+        action
+    };
+    let place_with_handlers = |depth: u16, name: &str, handlers: Vec<(u32, Vec<u8>)>| -> Vec<u8> {
+        let mut place = vec![0xA6];
+        place.extend_from_slice(&depth.to_le_bytes());
+        place.extend_from_slice(&2_u16.to_le_bytes());
+        place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+        place.extend_from_slice(name.as_bytes());
+        place.push(0);
+        place.extend_from_slice(&0_u16.to_le_bytes());
+        let all_flags = handlers.iter().fold(0_u32, |flags, (flag, _)| flags | flag);
+        place.extend_from_slice(&all_flags.to_le_bytes());
+        for (flag, action) in handlers {
+            place.extend_from_slice(&flag.to_le_bytes());
+            place.extend_from_slice(&(action.len() as u32).to_le_bytes());
+            place.extend_from_slice(&action);
+        }
+        place.extend_from_slice(&0_u32.to_le_bytes());
+        place
+    };
+
+    let mut tags = Vec::new();
+    let mut sprite = Vec::new();
+    sprite.extend_from_slice(&2_u16.to_le_bytes());
+    sprite.extend_from_slice(&1_u16.to_le_bytes());
+    swf_tag(&mut sprite, 1, &[]);
+    swf_tag(&mut sprite, 0, &[]);
+    swf_tag(&mut tags, 39, &sprite);
+    swf_tag(
+        &mut tags,
+        26,
+        &place_with_handlers(2, "depth2", vec![(0x80, this_identity_action())]),
+    );
+    swf_tag(
+        &mut tags,
+        26,
+        &place_with_handlers(
+            1,
+            "depth2",
+            vec![
+                (0x80, rename("renamed", "renamed_first")),
+                (0x80, set_numeric(0, 11, "queued_after_rename")),
+            ],
+        ),
+    );
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 1, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let state = player.step_frame();
+    assert_eq!(
+        state.traces,
+        vec![
+            "22",
+            "77",
+            "depth2",
+            "method_exact",
+            "renamed_first",
+            "queued_after_rename"
+        ]
+    );
+    assert_eq!(state.display_list[0].name, "renamed");
+    assert_eq!(state.display_list[1].name, "depth2");
+    assert!((state.display_list[0].x - 11.0).abs() < 1e-3);
+    assert!((state.display_list[1].x - 22.0).abs() < 1e-3);
+    assert!(state.display_list[0].playing);
+    assert!(!state.display_list[1].playing);
+}
+
+#[test]
+fn t208_avm1_timeline_opcodes_keep_exact_this_identity_through_depth_name_collisions() {
+    let push_string = |action: &mut Vec<u8>, value: &str| {
+        action.push(0x96);
+        let mut payload = vec![0x00];
+        payload.extend_from_slice(value.as_bytes());
+        payload.push(0);
+        action.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        action.extend_from_slice(&payload);
+    };
+    let push_int = |action: &mut Vec<u8>, value: i32| {
+        action.push(0x96);
+        action.extend_from_slice(&5_u16.to_le_bytes());
+        action.push(0x07);
+        action.extend_from_slice(&value.to_le_bytes());
+    };
+    let push_this = |action: &mut Vec<u8>| {
+        push_string(action, "this");
+        action.push(0x1C);
+    };
+    let trace_this_frame = |action: &mut Vec<u8>| {
+        push_this(action);
+        push_int(action, 4);
+        action.extend_from_slice(&[0x22, 0x26]);
+    };
+    let call_unqualified_goto = |name: &str, frame: i32| {
+        let mut action = Vec::new();
+        push_int(&mut action, frame);
+        push_int(&mut action, 1);
+        push_string(&mut action, name);
+        action.extend_from_slice(&[0x3D, 0x17]);
+        trace_this_frame(&mut action);
+        action.push(0x00);
+        action
+    };
+    let place_with_handlers = |depth: u16, handlers: Vec<Vec<u8>>| {
+        let mut place = vec![0xA6];
+        place.extend_from_slice(&depth.to_le_bytes());
+        place.extend_from_slice(&2_u16.to_le_bytes());
+        place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+        place.extend_from_slice(b"depth2\0");
+        place.extend_from_slice(&0_u16.to_le_bytes());
+        place.extend_from_slice(&0x80_u32.to_le_bytes());
+        for action in handlers {
+            place.extend_from_slice(&0x80_u32.to_le_bytes());
+            place.extend_from_slice(&(action.len() as u32).to_le_bytes());
+            place.extend_from_slice(&action);
+        }
+        place.extend_from_slice(&0_u32.to_le_bytes());
+        place
+    };
+
+    let mut set_target_this_then_goto_frame = Vec::new();
+    push_this(&mut set_target_this_then_goto_frame);
+    set_target_this_then_goto_frame.push(0x20); // ActionSetTarget2
+    set_target_this_then_goto_frame.extend_from_slice(&[0x81, 0x02, 0x00, 0x01, 0x00]);
+    trace_this_frame(&mut set_target_this_then_goto_frame);
+    set_target_this_then_goto_frame.push(0x00);
+
+    let mut goto_label = vec![0x8C];
+    goto_label.extend_from_slice(&6_u16.to_le_bytes());
+    goto_label.extend_from_slice(b"third\0");
+    trace_this_frame(&mut goto_label);
+    goto_label.push(0x00);
+
+    let handlers = vec![
+        set_target_this_then_goto_frame,
+        goto_label,
+        call_unqualified_goto("gotoAndStop", 1),
+        call_unqualified_goto("gotoAndPlay", 2),
+    ];
+
+    let mut tags = Vec::new();
+    let mut sprite = Vec::new();
+    sprite.extend_from_slice(&2_u16.to_le_bytes());
+    sprite.extend_from_slice(&3_u16.to_le_bytes());
+    for label in ["first", "second", "third"] {
+        let mut payload = label.as_bytes().to_vec();
+        payload.push(0);
+        swf_tag(&mut sprite, 43, &payload);
+        swf_tag(&mut sprite, 1, &[]);
+    }
+    swf_tag(&mut sprite, 0, &[]);
+    swf_tag(&mut tags, 39, &sprite);
+
+    // Both instances are authored as `depth2`. Internal runtime target `depth2` must mean the
+    // actual depth-2 slot, while an authored string lookup still selects the earlier named slot.
+    swf_tag(&mut tags, 26, &place_with_handlers(2, handlers));
+    swf_tag(&mut tags, 26, &place_with_handlers(1, Vec::new()));
+    let mut authored_set_target = Vec::new();
+    push_string(&mut authored_set_target, "depth2");
+    authored_set_target.extend_from_slice(&[0x20, 0x07, 0x00]);
+    swf_tag(&mut tags, 12, &authored_set_target);
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 1, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let state = player.step_frame();
+    assert_eq!(state.traces, vec!["2", "3", "1", "2"]);
+    assert_eq!(state.display_list[0].depth, 1);
+    assert_eq!(state.display_list[0].current_frame, 0);
+    assert!(!state.display_list[0].playing);
+    assert_eq!(state.display_list[1].depth, 2);
+    assert_eq!(state.display_list[1].current_frame, 1);
+    assert!(state.display_list[1].playing);
+}
+
+#[test]
+fn t208_swf_replacement_and_rewind_dispatch_complete_lifecycle() {
+    let trace_action = |message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.extend_from_slice(&[0x26, 0x00]);
+        action
+    };
+    let rename_and_trace = |name: &str, message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00, 0x00, 0x07];
+        push.extend_from_slice(&13_i32.to_le_bytes());
+        push.push(0x00);
+        push.extend_from_slice(name.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x23);
+        let mut trace = trace_action(message);
+        trace.pop();
+        action.extend_from_slice(&trace);
+        action.push(0x00);
+        action
+    };
+    let clip_records = |payload: &mut Vec<u8>, handlers: Vec<(u32, Vec<u8>)>| {
+        payload.extend_from_slice(&0_u16.to_le_bytes());
+        let all_flags = handlers.iter().fold(0_u32, |flags, (flag, _)| flags | flag);
+        payload.extend_from_slice(&all_flags.to_le_bytes());
+        for (flag, action) in handlers {
+            payload.extend_from_slice(&flag.to_le_bytes());
+            payload.extend_from_slice(&(action.len() as u32).to_le_bytes());
+            payload.extend_from_slice(&action);
+        }
+        payload.extend_from_slice(&0_u32.to_le_bytes());
+    };
+
+    let mut tags = Vec::new();
+    for character_id in [2_u16, 4] {
+        let mut sprite = Vec::new();
+        sprite.extend_from_slice(&character_id.to_le_bytes());
+        sprite.extend_from_slice(&1_u16.to_le_bytes());
+        swf_tag(&mut sprite, 1, &[]);
+        swf_tag(&mut sprite, 0, &[]);
+        swf_tag(&mut tags, 39, &sprite);
+    }
+
+    let mut old_place = vec![0xA6];
+    old_place.extend_from_slice(&1_u16.to_le_bytes());
+    old_place.extend_from_slice(&2_u16.to_le_bytes());
+    old_place.extend_from_slice(&swf_matrix_bytes(None, None, 5.0, 0.0));
+    old_place.extend_from_slice(b"old\0");
+    clip_records(
+        &mut old_place,
+        vec![
+            (0x80, rename_and_trace("mutated", "old_load")),
+            (0x40, trace_action("old_enter")),
+            (0x20, trace_action("old_unload")),
+        ],
+    );
+    swf_tag(&mut tags, 26, &old_place);
+    swf_tag(&mut tags, 1, &[]);
+
+    // Move+HasCharacter is a replacement lifecycle even when the character ID is unchanged.
+    let mut move_replace = vec![0x83];
+    move_replace.extend_from_slice(&1_u16.to_le_bytes());
+    move_replace.extend_from_slice(&2_u16.to_le_bytes());
+    clip_records(
+        &mut move_replace,
+        vec![
+            (0x80, trace_action("move_load")),
+            (0x20, trace_action("move_unload")),
+        ],
+    );
+    swf_tag(&mut tags, 26, &move_replace);
+    swf_tag(&mut tags, 1, &[]);
+
+    // A non-Move placement at an occupied depth also replaces and unloads the prior tree.
+    let mut occupied_replace = vec![0x82];
+    occupied_replace.extend_from_slice(&1_u16.to_le_bytes());
+    occupied_replace.extend_from_slice(&4_u16.to_le_bytes());
+    clip_records(
+        &mut occupied_replace,
+        vec![
+            (0x80, trace_action("occupied_load")),
+            (0x20, trace_action("occupied_unload")),
+        ],
+    );
+    swf_tag(&mut tags, 26, &occupied_replace);
+    swf_tag(&mut tags, 1, &[]);
+
+    let goto_zero_and_stop = [0x81, 0x02, 0x00, 0x00, 0x00, 0x07, 0x00];
+    swf_tag(&mut tags, 12, &goto_zero_and_stop);
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 4, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let old = player.step_frame();
+    assert_eq!(old.traces, vec!["old_load", "old_enter"]);
+    assert_eq!(old.display_list[0].name, "mutated");
+
+    let moved = player.step_frame();
+    assert_eq!(moved.traces, vec!["old_unload", "move_load"]);
+    assert_eq!(moved.display_list[0].character_id, 2);
+    assert_eq!(moved.display_list[0].name, "");
+    assert!((moved.display_list[0].x - 5.0).abs() < 1e-3);
+    assert!(moved.playing && moved.display_list[0].playing);
+
+    let occupied = player.step_frame();
+    assert_eq!(occupied.traces, vec!["move_unload", "occupied_load"]);
+    assert_eq!(occupied.display_list[0].character_id, 4);
+
+    let rewound = player.step_frame();
+    assert_eq!(rewound.frame, 0);
+    assert_eq!(
+        rewound.traces,
+        vec!["occupied_unload", "old_load", "old_enter"]
+    );
+    assert_eq!(rewound.display_list[0].character_id, 2);
+}
+
+#[test]
+fn t208_run_frames_keeps_advancing_playing_grandchildren() {
+    let trace_action = |message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.extend_from_slice(&[0x26, 0x00]);
+        action
+    };
+    let place_named = |depth: u16, character: u16, name: &str| {
+        let mut place = vec![0x26];
+        place.extend_from_slice(&depth.to_le_bytes());
+        place.extend_from_slice(&character.to_le_bytes());
+        place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+        place.extend_from_slice(name.as_bytes());
+        place.push(0);
+        place
+    };
+
+    let mut tags = Vec::new();
+    let mut grandchild = Vec::new();
+    grandchild.extend_from_slice(&3_u16.to_le_bytes());
+    grandchild.extend_from_slice(&2_u16.to_le_bytes());
+    swf_tag(&mut grandchild, 1, &[]);
+    swf_tag(&mut grandchild, 12, &trace_action("grandchild_advanced"));
+    swf_tag(&mut grandchild, 1, &[]);
+    swf_tag(&mut grandchild, 0, &[]);
+    swf_tag(&mut tags, 39, &grandchild);
+
+    let mut parent = Vec::new();
+    parent.extend_from_slice(&2_u16.to_le_bytes());
+    parent.extend_from_slice(&1_u16.to_le_bytes());
+    swf_tag(&mut parent, 26, &place_named(1, 3, "grandchild"));
+    swf_tag(&mut parent, 12, &[0x07, 0x00]); // stop only the parent
+    swf_tag(&mut parent, 1, &[]);
+    swf_tag(&mut parent, 0, &[]);
+    swf_tag(&mut tags, 39, &parent);
+
+    swf_tag(&mut tags, 26, &place_named(1, 2, "parent"));
+    swf_tag(&mut tags, 12, &[0x07, 0x00]); // stop the root
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 1, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let playback = player.run_frames(2);
+    assert_eq!(playback.frames_executed.len(), 2);
+    assert_eq!(playback.trace_output, vec!["grandchild_advanced"]);
+    let nested = &playback.frames_executed[1].display_list[0].children[0];
+    assert_eq!(nested.current_frame, 1);
+    assert!(!playback.frames_executed[1].playing);
+    assert!(!playback.frames_executed[1].display_list[0].playing);
+    assert!(nested.playing);
+}
+
+#[test]
+fn t208_natural_root_loop_rebuilds_display_list_once() {
+    let trace_action = |message: &str| {
+        let mut action = vec![0x96];
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.extend_from_slice(&[0x26, 0x00]);
+        action
+    };
+
+    let mut tags = Vec::new();
+    let mut sprite = Vec::new();
+    sprite.extend_from_slice(&2_u16.to_le_bytes());
+    sprite.extend_from_slice(&1_u16.to_le_bytes());
+    swf_tag(&mut sprite, 1, &[]);
+    swf_tag(&mut sprite, 0, &[]);
+    swf_tag(&mut tags, 39, &sprite);
+
+    swf_tag(&mut tags, 1, &[]); // frame 0 is intentionally empty
+    let mut transient = vec![0xA6];
+    transient.extend_from_slice(&1_u16.to_le_bytes());
+    transient.extend_from_slice(&2_u16.to_le_bytes());
+    transient.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    transient.extend_from_slice(b"transient\0");
+    transient.extend_from_slice(&0_u16.to_le_bytes());
+    transient.extend_from_slice(&(0x80_u32 | 0x20).to_le_bytes());
+    for (flag, action) in [
+        (0x80_u32, trace_action("natural_load")),
+        (0x20_u32, trace_action("natural_unload")),
+    ] {
+        transient.extend_from_slice(&flag.to_le_bytes());
+        transient.extend_from_slice(&(action.len() as u32).to_le_bytes());
+        transient.extend_from_slice(&action);
+    }
+    transient.extend_from_slice(&0_u32.to_le_bytes());
+    swf_tag(&mut tags, 26, &transient);
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 2, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let first = player.step_frame();
+    assert_eq!(first.frame, 0);
+    assert!(first.display_list.is_empty());
+    let last = player.step_frame();
+    assert_eq!(last.frame, 1);
+    assert_eq!(last.traces, vec!["natural_load"]);
+    assert_eq!(last.display_list.len(), 1);
+
+    let looped = player.step_frame();
+    assert_eq!(looped.frame, 0);
+    assert_eq!(looped.traces, vec!["natural_unload"]);
+    assert!(looped.display_list.is_empty());
+    assert_eq!(
+        player.trace_output(),
+        &["natural_load".to_owned(), "natural_unload".to_owned()]
+    );
+}
+
+#[test]
+fn t208_natural_loop_honors_pointer_and_unload_root_goto_overrides() {
+    let root_goto = |frame: i32, playing: bool| {
+        let push_int = |action: &mut Vec<u8>, value: i32| {
+            action.push(0x96);
+            action.extend_from_slice(&5_u16.to_le_bytes());
+            action.push(0x07);
+            action.extend_from_slice(&value.to_le_bytes());
+        };
+        let push_string = |action: &mut Vec<u8>, value: &str| {
+            action.push(0x96);
+            let mut payload = vec![0x00];
+            payload.extend_from_slice(value.as_bytes());
+            payload.push(0);
+            action.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+            action.extend_from_slice(&payload);
+        };
+        let mut action = Vec::new();
+        push_int(&mut action, frame);
+        push_int(&mut action, 1);
+        push_string(&mut action, "_root");
+        action.push(0x1C);
+        push_string(
+            &mut action,
+            if playing {
+                "gotoAndPlay"
+            } else {
+                "gotoAndStop"
+            },
+        );
+        action.extend_from_slice(&[0x52, 0x17, 0x00]);
+        action
+    };
+    let build = |event_flag: u32, playing: bool| {
+        let mut tags = Vec::new();
+        for character_id in [2_u16, 3] {
+            let mut sprite = Vec::new();
+            sprite.extend_from_slice(&character_id.to_le_bytes());
+            sprite.extend_from_slice(&1_u16.to_le_bytes());
+            swf_tag(&mut sprite, 1, &[]);
+            swf_tag(&mut sprite, 0, &[]);
+            swf_tag(&mut tags, 39, &sprite);
+        }
+        let mut marker = vec![0x26];
+        marker.extend_from_slice(&1_u16.to_le_bytes());
+        marker.extend_from_slice(&2_u16.to_le_bytes());
+        marker.extend_from_slice(&swf_matrix_bytes(None, None, 10.0, 0.0));
+        marker.extend_from_slice(b"marker\0");
+        swf_tag(&mut tags, 26, &marker);
+        swf_tag(&mut tags, 1, &[]);
+
+        let mut move_mid = vec![0x05];
+        move_mid.extend_from_slice(&1_u16.to_le_bytes());
+        move_mid.extend_from_slice(&swf_matrix_bytes(None, None, 20.0, 0.0));
+        swf_tag(&mut tags, 26, &move_mid);
+        swf_tag(&mut tags, 1, &[]);
+
+        let mut move_last = vec![0x05];
+        move_last.extend_from_slice(&1_u16.to_le_bytes());
+        move_last.extend_from_slice(&swf_matrix_bytes(None, None, 30.0, 0.0));
+        swf_tag(&mut tags, 26, &move_last);
+        let mut trigger = vec![0xA6];
+        trigger.extend_from_slice(&2_u16.to_le_bytes());
+        trigger.extend_from_slice(&3_u16.to_le_bytes());
+        trigger.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+        trigger.extend_from_slice(b"trigger\0");
+        trigger.extend_from_slice(&0_u16.to_le_bytes());
+        trigger.extend_from_slice(&event_flag.to_le_bytes());
+        let action = root_goto(2, playing);
+        trigger.extend_from_slice(&event_flag.to_le_bytes());
+        trigger.extend_from_slice(&(action.len() as u32).to_le_bytes());
+        trigger.extend_from_slice(&action);
+        trigger.extend_from_slice(&0_u32.to_le_bytes());
+        swf_tag(&mut tags, 26, &trigger);
+        swf_tag(&mut tags, 1, &[]);
+        build_uncompressed_swf(8, 3, &tags)
+    };
+
+    for (event_flag, playing) in [(0x1000_u32, false), (0x20, true)] {
+        let bytes = build(event_flag, playing);
+        let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+        let _ = player.step_frame();
+        let _ = player.step_frame();
+        let last = player.step_frame();
+        assert_eq!(last.frame, 2);
+        assert_eq!(last.display_list.len(), 2);
+        if event_flag == 0x1000 {
+            player.trigger_pointer_click();
+        }
+        let redirected = player.step_frame();
+        assert_eq!(redirected.frame, 1);
+        assert_eq!(redirected.playing, playing);
+        assert_eq!(redirected.display_list.len(), 1);
+        assert_eq!(redirected.display_list[0].name, "marker");
+        assert!((redirected.display_list[0].x - 20.0).abs() < 1e-3);
+    }
+}
+
+#[test]
+fn t208_swf_goto_presents_destination_display_list_and_keeps_diagnostics() {
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 2, &define_red_square_shape_tag(1));
+
+    let mut place = vec![0x06]; // HasMatrix | HasCharacter
+    place.extend_from_slice(&1_u16.to_le_bytes());
+    place.extend_from_slice(&1_u16.to_le_bytes());
+    place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    swf_tag(&mut tags, 26, &place);
+
+    let trace_action = |message: &str, action: &mut Vec<u8>| {
+        action.push(0x96);
+        let mut push = vec![0x00];
+        push.extend_from_slice(message.as_bytes());
+        push.push(0);
+        action.extend_from_slice(&(push.len() as u16).to_le_bytes());
+        action.extend_from_slice(&push);
+        action.push(0x26);
+    };
+    let mut frame0_action = Vec::new();
+    trace_action("before_goto", &mut frame0_action);
+    frame0_action.push(0x7E); // source-frame diagnostic must survive the jump and later seeks
+    frame0_action.push(0x81); // ActionGotoFrame
+    frame0_action.extend_from_slice(&2_u16.to_le_bytes());
+    frame0_action.extend_from_slice(&2_u16.to_le_bytes()); // zero-based frame 2
+    frame0_action.push(0x00);
+    swf_tag(&mut tags, 12, &frame0_action);
+    swf_tag(&mut tags, 1, &[]);
+
+    let mut move_mid = vec![0x05];
+    move_mid.extend_from_slice(&1_u16.to_le_bytes());
+    move_mid.extend_from_slice(&swf_matrix_bytes(None, None, 10.0, 0.0));
+    swf_tag(&mut tags, 26, &move_mid);
+    swf_tag(&mut tags, 1, &[]);
+
+    let mut move_destination = vec![0x05];
+    move_destination.extend_from_slice(&1_u16.to_le_bytes());
+    move_destination.extend_from_slice(&swf_matrix_bytes(None, None, 50.0, 0.0));
+    swf_tag(&mut tags, 26, &move_destination);
+    let mut frame2_action = Vec::new();
+    trace_action("after_goto", &mut frame2_action);
+    frame2_action.push(0x7F); // unsupported short action: must remain in destination diagnostics
+    frame2_action.push(0x07); // ActionStop
+    frame2_action.push(0x00);
+    swf_tag(&mut tags, 12, &frame2_action);
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 3, &tags);
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    let state = player.step_frame();
+    assert_eq!(state.frame, 2);
+    assert_eq!(player.presented_frame(), 2);
+    assert_eq!(state.traces, vec!["before_goto", "after_goto"]);
+    assert_eq!(state.display_list.len(), 1);
+    assert!((state.display_list[0].x - 50.0).abs() < 1e-3);
+    assert!(
+        state
+            .unsupported_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("0x7F")),
+        "{:?}",
+        state.unsupported_diagnostics
+    );
+    assert!(
+        state
+            .unsupported_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("0x7E"))
+    );
+
+    let seek_state = player.seek_to_frame(0);
+    assert_eq!(seek_state.frame, 2);
+    assert_eq!(player.presented_frame(), 2);
+    assert!((seek_state.display_list[0].x - 50.0).abs() < 1e-3);
+    assert!(
+        seek_state
+            .unsupported_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("0x7F"))
+    );
+
+    let replay_state = player.seek_to_frame(1);
+    assert_eq!(replay_state.frame, 1);
+    assert!((replay_state.display_list[0].x - 10.0).abs() < 1e-3);
+    assert!(
+        replay_state
+            .unsupported_diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("0x7E")),
+        "{:?}",
+        replay_state.unsupported_diagnostics
+    );
 }

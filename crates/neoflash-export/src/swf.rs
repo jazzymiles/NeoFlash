@@ -279,300 +279,19 @@ fn swf_text_outline_issue(element: &Element) -> Option<String> {
     None
 }
 
-fn simple_script_identifier(expr: &str) -> bool {
-    let expr = expr.trim();
-    !expr.is_empty()
-        && expr
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.'))
-}
-
-fn simple_avm1_expression(expr: &str) -> bool {
-    let expr = expr.trim();
-    if expr.is_empty()
-        || unquote_literal(expr).is_some()
-        || matches!(expr, "true" | "false" | "null" | "undefined")
-        || expr.parse::<f64>().is_ok()
-    {
-        return !expr.is_empty();
-    }
-    if simple_script_identifier(expr) {
-        return true;
-    }
-    if let Some((left, right, _)) = split_avm1_binary_expression(expr) {
-        return simple_avm1_expression(left) && simple_avm1_expression(right);
-    }
-    false
-}
-
-fn split_avm1_binary_expression(expr: &str) -> Option<(&str, &str, char)> {
-    fn rightmost_operator(expr: &str, operators: &[char]) -> Option<(usize, char)> {
-        let mut quote = None;
-        let mut escaped = false;
-        let mut candidate = None;
-        for (index, character) in expr.char_indices() {
-            if let Some(active_quote) = quote {
-                if escaped {
-                    escaped = false;
-                } else if character == '\\' {
-                    escaped = true;
-                } else if character == active_quote {
-                    quote = None;
-                }
-                continue;
-            }
-            if matches!(character, '\'' | '"') {
-                quote = Some(character);
-                continue;
-            }
-            if !operators.contains(&character) {
-                continue;
-            }
-            let left = expr[..index].trim_end();
-            let right = expr[index + character.len_utf8()..].trim_start();
-            if left.is_empty() || right.is_empty() {
-                continue;
-            }
-            let previous = left.chars().next_back();
-            if previous.is_some_and(|value| matches!(value, '+' | '-' | '*' | '/')) {
-                continue;
-            }
-            candidate = Some((index, character));
-        }
-        if quote.is_some() { None } else { candidate }
-    }
-
-    let (index, operator) =
-        rightmost_operator(expr, &['+', '-']).or_else(|| rightmost_operator(expr, &['*', '/']))?;
-    Some((
-        expr[..index].trim(),
-        expr[index + operator.len_utf8()..].trim(),
-        operator,
-    ))
-}
-
-fn supported_avm1_statement(statement: &str) -> bool {
-    let statement = statement.trim().trim_end_matches(';').trim();
-    if statement.is_empty() {
-        return true;
-    }
-    if let Some((function, args)) = parse_call_stmt(statement) {
-        if function.contains('.') {
-            return false;
-        }
-        let arguments: Vec<&str> = if args.is_empty() {
-            Vec::new()
-        } else {
-            args.split(',').map(str::trim).collect()
-        };
-        return match function {
-            "stop" | "play" | "nextFrame" | "prevFrame" | "stopAllSounds" => arguments.is_empty(),
-            "gotoAndStop" | "gotoAndPlay" => {
-                arguments.len() == 1 && simple_avm1_expression(arguments[0])
-            }
-            "trace" => arguments.len() == 1 && simple_avm1_expression(arguments[0]),
-            _ => {
-                function
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
-                    && arguments.iter().all(|arg| simple_avm1_expression(arg))
-            }
-        };
-    }
-    if let Some(rest) = statement.strip_prefix("var ") {
-        return rest.split_once('=').is_some_and(|(left, right)| {
-            let name = left.split(':').next().unwrap_or(left).trim();
-            !name.is_empty()
-                && name
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
-                && simple_avm1_expression(right)
-        });
-    }
-    statement.split_once('=').is_some_and(|(left, right)| {
-        let name = left.trim();
-        !name.is_empty()
-            && !left.ends_with(['=', '!', '<', '>'])
-            && !right.starts_with('=')
-            && name
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
-            && simple_avm1_expression(right)
-    })
-}
-
-fn supported_avm2_argument(argument: &str) -> bool {
-    let argument = argument.trim();
-    unquote_literal(argument).is_some()
-        || argument.parse::<i32>().is_ok()
-        || simple_avm2_identifier(argument)
-}
-
-fn simple_avm2_identifier(value: &str) -> bool {
-    let mut chars = value.trim().chars();
-    chars
-        .next()
-        .is_some_and(|ch| ch.is_ascii_alphabetic() || matches!(ch, '_' | '$'))
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$'))
-}
-
-fn simple_avm2_qualified_identifier(value: &str) -> bool {
-    !value.is_empty() && value.split('.').all(simple_avm2_identifier)
-}
-
-fn bounded_as3_package_declaration(line: &str) -> bool {
-    if line == "package {" {
-        return true;
-    }
-    line.strip_prefix("package ")
-        .and_then(|rest| rest.strip_suffix('{'))
-        .is_some_and(|name| simple_avm2_qualified_identifier(name.trim()))
-}
-
-fn bounded_as3_import_declaration(line: &str) -> bool {
-    let Some(path) = line
-        .strip_prefix("import ")
-        .and_then(|rest| rest.strip_suffix(';'))
-        .map(str::trim)
-    else {
-        return false;
-    };
-    path.strip_suffix(".*").map_or_else(
-        || simple_avm2_qualified_identifier(path),
-        simple_avm2_qualified_identifier,
-    )
-}
-
-fn bounded_as3_class_declaration(line: &str) -> bool {
-    let Some(declaration) = line.strip_suffix('{').map(str::trim) else {
-        return false;
-    };
-    let mut tokens = declaration.split_whitespace().peekable();
-    let mut modifiers = Vec::new();
-    while tokens
-        .peek()
-        .is_some_and(|token| matches!(*token, "public" | "internal" | "final" | "dynamic"))
-    {
-        let modifier = tokens.next().expect("peeked modifier");
-        if modifiers.contains(&modifier) {
-            return false;
-        }
-        modifiers.push(modifier);
-    }
-    if modifiers.contains(&"final") && modifiers.contains(&"dynamic") {
-        return false;
-    }
-    if tokens.next() != Some("class") {
-        return false;
-    }
-    if !tokens.next().is_some_and(simple_avm2_identifier) {
-        return false;
-    }
-    match tokens.next() {
-        None => true,
-        Some("extends") => {
-            tokens.next().is_some_and(simple_avm2_qualified_identifier) && tokens.next().is_none()
-        }
-        Some(_) => false,
-    }
-}
-
-fn supported_avm2_statement(statement: &str, external_source: bool) -> bool {
-    let statement = statement.trim().trim_end_matches(';').trim();
-    if statement.is_empty() {
-        return true;
-    }
-    let Some((function, args)) = parse_call_stmt(statement) else {
-        // The bounded AVM2 emitter has no assignment or local-variable bytecode yet.
-        return false;
-    };
-    if function.contains('.') {
-        return false;
-    }
-    let arguments: Vec<&str> = if args.is_empty() {
-        Vec::new()
-    } else {
-        args.split(',').map(str::trim).collect()
-    };
-    match function {
-        "stop" | "play" | "nextFrame" | "prevFrame" => arguments.is_empty(),
-        // The external class parser does not currently retain stopAllSounds calls.
-        "stopAllSounds" => !external_source && arguments.is_empty(),
-        "gotoAndStop" | "gotoAndPlay" => {
-            arguments.len() == 1
-                && (unquote_literal(arguments[0]).is_some() || arguments[0].parse::<i32>().is_ok())
-        }
-        "trace" => {
-            arguments.len() == 1
-                && (unquote_literal(arguments[0]).is_some() || arguments[0].parse::<i32>().is_ok())
-        }
-        _ => {
-            !external_source
-                && simple_avm2_identifier(function)
-                && arguments.iter().all(|arg| supported_avm2_argument(arg))
-        }
-    }
-}
-
 fn swf_script_compilation_issue(
     language: ScriptLanguage,
     source: &str,
     external_source: bool,
 ) -> Option<String> {
-    if matches!(
-        language,
-        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
-    ) {
-        return Some(format!("{language:?} is not supported by the SWF compiler"));
-    }
-
-    if language == ScriptLanguage::ActionScript3 && external_source {
-        for (line_index, line) in source.lines().enumerate() {
-            let line = line.trim();
-            if line.is_empty()
-                || line.starts_with("//")
-                || line == "{"
-                || line == "}"
-                || line == "};"
-                || bounded_as3_package_declaration(line)
-                || bounded_as3_import_declaration(line)
-                || bounded_as3_class_declaration(line)
-                || supported_avm2_statement(line, true)
-            {
-                continue;
-            }
-            return Some(format!(
-                "line {} uses syntax outside the bounded AVM2 compiler: {}",
-                line_index + 1,
-                line.chars().take(80).collect::<String>()
-            ));
+    match language {
+        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => {
+            Some(format!("{language:?} is not supported by the SWF compiler"))
         }
-        return None;
-    }
-
-    for (index, statement) in split_script_statements(source).iter().enumerate() {
-        let supported = match language {
-            ScriptLanguage::ActionScript3 => supported_avm2_statement(statement, external_source),
-            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
-                supported_avm1_statement(statement)
-            }
-            ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => false,
-        };
-        if !supported {
-            return Some(format!(
-                "statement {} uses syntax outside the bounded SWF compiler: {}",
-                index + 1,
-                statement.chars().take(80).collect::<String>()
-            ));
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+            compile_avm1_actions(source).err()
         }
-    }
-    if matches!(
-        language,
-        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
-    ) {
-        compile_avm1_actions(source).err()
-    } else {
-        None
+        ScriptLanguage::ActionScript3 => try_compile_avm2_source(source, external_source).err(),
     }
 }
 
@@ -2883,41 +2602,1147 @@ fn build_define_morph_shape_payload(
     Some(w.buf)
 }
 
-fn split_script_statements(source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SwfUnaryOp {
+    Not,
+    Neg,
+    Pos,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SwfBinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    Ne,
+    StrictEq,
+    StrictNe,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    UShr,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SwfAssignOp {
+    Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum SwfLValue {
+    Ident(String),
+    Member(Box<SwfExpr>, String),
+    Index(Box<SwfExpr>, Box<SwfExpr>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum SwfExpr {
+    Null,
+    Undefined,
+    Bool(bool),
+    Int(i32),
+    Float(f64),
+    Str(String),
+    Ident(String),
+    ArrayLit(Vec<SwfExpr>),
+    Member(Box<SwfExpr>, String),
+    Index(Box<SwfExpr>, Box<SwfExpr>),
+    Unary {
+        op: SwfUnaryOp,
+        expr: Box<SwfExpr>,
+    },
+    Binary {
+        op: SwfBinaryOp,
+        lhs: Box<SwfExpr>,
+        rhs: Box<SwfExpr>,
+    },
+    Call {
+        callee: Box<SwfExpr>,
+        args: Vec<SwfExpr>,
+    },
+    New {
+        callee: Box<SwfExpr>,
+        args: Vec<SwfExpr>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum SwfStmt {
+    VarDecl {
+        name: String,
+        init: Option<SwfExpr>,
+    },
+    Assign {
+        target: SwfLValue,
+        op: SwfAssignOp,
+        value: SwfExpr,
+    },
+    IncDec {
+        target: SwfLValue,
+        increment: bool,
+    },
+    Expr(SwfExpr),
+    Block(Vec<SwfStmt>),
+    If {
+        cond: SwfExpr,
+        then_branch: Vec<SwfStmt>,
+        else_branch: Option<Vec<SwfStmt>>,
+    },
+    While {
+        cond: SwfExpr,
+        body: Vec<SwfStmt>,
+    },
+    For {
+        init: Option<Box<SwfStmt>>,
+        cond: Option<SwfExpr>,
+        update: Option<Box<SwfStmt>>,
+        body: Vec<SwfStmt>,
+    },
+    FunctionDecl {
+        name: String,
+        params: Vec<String>,
+        body: Vec<SwfStmt>,
+    },
+    Return(Option<SwfExpr>),
+    EventHandler {
+        is_clip_event: bool,
+        events: Vec<String>,
+        body: Vec<SwfStmt>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum SwfToken {
+    Ident(String),
+    Int(i32),
+    Float(f64),
+    Str(String),
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Semi,
+    Comma,
+    Dot,
+    Colon,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    PlusPlus,
+    MinusMinus,
+    Assign,
+    PlusAssign,
+    MinusAssign,
+    StarAssign,
+    SlashAssign,
+    PercentAssign,
+    Eq,
+    Ne,
+    StrictEq,
+    StrictNe,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+    Not,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    UShr,
+}
+
+fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String> {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut tokens = Vec::new();
+
+    while i < len {
+        let b = bytes[i];
+        if b.is_ascii_whitespace() {
+            i += 1;
             continue;
         }
-        for part in trimmed.split(';') {
-            let stmt = part.trim();
-            if !stmt.is_empty() && !stmt.starts_with("//") {
-                out.push(stmt.to_owned());
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
             }
+            continue;
+        }
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            i += 2;
+            let mut closed = false;
+            while i + 1 < len {
+                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    i += 2;
+                    closed = true;
+                    break;
+                }
+                i += 1;
+            }
+            if !closed {
+                return Err("unterminated block comment in script".to_owned());
+            }
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            let mut s = String::new();
+            let mut closed = false;
+            while i < len {
+                let ch = source[i..].chars().next().unwrap();
+                i += ch.len_utf8();
+                if ch == '\\' {
+                    if i >= len {
+                        return Err("unterminated escape sequence in string literal".to_owned());
+                    }
+                    let esc = source[i..].chars().next().unwrap();
+                    i += esc.len_utf8();
+                    match esc {
+                        'n' => s.push('\n'),
+                        'r' => s.push('\r'),
+                        't' => s.push('\t'),
+                        other => s.push(other),
+                    }
+                } else if ch as u32 == u32::from(quote) {
+                    closed = true;
+                    break;
+                } else if ch == '\n' || ch == '\r' {
+                    return Err("unterminated string literal in script".to_owned());
+                } else {
+                    s.push(ch);
+                }
+            }
+            if !closed {
+                return Err("unterminated string literal in script".to_owned());
+            }
+            tokens.push(SwfToken::Str(s));
+            continue;
+        }
+        if b.is_ascii_digit() {
+            let start = i;
+            if b == b'0' && i + 1 < len && (bytes[i + 1] == b'x' || bytes[i + 1] == b'X') {
+                i += 2;
+                let hex_start = i;
+                while i < len && bytes[i].is_ascii_hexdigit() {
+                    i += 1;
+                }
+                if i == hex_start {
+                    return Err("invalid hex literal in script".to_owned());
+                }
+                let hex_str = &source[hex_start..i];
+                let val = i64::from_str_radix(hex_str, 16)
+                    .map_err(|_| format!("invalid hex literal '0x{hex_str}'"))?;
+                if let Ok(iv) = i32::try_from(val) {
+                    tokens.push(SwfToken::Int(iv));
+                } else {
+                    tokens.push(SwfToken::Float(val as f64));
+                }
+                continue;
+            }
+            let mut is_float = false;
+            while i < len && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i < len && bytes[i] == b'.' && (i + 1 >= len || bytes[i + 1].is_ascii_digit()) {
+                is_float = true;
+                i += 1;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+            }
+            if i < len && (bytes[i] == b'e' || bytes[i] == b'E') {
+                is_float = true;
+                i += 1;
+                if i < len && (bytes[i] == b'+' || bytes[i] == b'-') {
+                    i += 1;
+                }
+                let exp_start = i;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i == exp_start {
+                    return Err("invalid numeric exponent in script".to_owned());
+                }
+            }
+            let num_str = &source[start..i];
+            if !is_float && let Ok(iv) = num_str.parse::<i32>() {
+                tokens.push(SwfToken::Int(iv));
+            } else if let Ok(fv) = num_str.parse::<f64>() {
+                tokens.push(SwfToken::Float(fv));
+            } else {
+                return Err(format!("invalid numeric literal '{num_str}'"));
+            }
+            continue;
+        }
+        if b.is_ascii_alphabetic() || b == b'_' || b == b'$' {
+            let start = i;
+            i += 1;
+            while i < len
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+            {
+                i += 1;
+            }
+            tokens.push(SwfToken::Ident(source[start..i].to_owned()));
+            continue;
+        }
+        let rem = &source[i..];
+        if rem.starts_with("===") {
+            tokens.push(SwfToken::StrictEq);
+            i += 3;
+        } else if rem.starts_with("!==") {
+            tokens.push(SwfToken::StrictNe);
+            i += 3;
+        } else if rem.starts_with(">>>") {
+            tokens.push(SwfToken::UShr);
+            i += 3;
+        } else if rem.starts_with("==") {
+            tokens.push(SwfToken::Eq);
+            i += 2;
+        } else if rem.starts_with("!=") {
+            tokens.push(SwfToken::Ne);
+            i += 2;
+        } else if rem.starts_with("<=") {
+            tokens.push(SwfToken::Le);
+            i += 2;
+        } else if rem.starts_with(">=") {
+            tokens.push(SwfToken::Ge);
+            i += 2;
+        } else if rem.starts_with("&&") {
+            tokens.push(SwfToken::And);
+            i += 2;
+        } else if rem.starts_with("||") {
+            tokens.push(SwfToken::Or);
+            i += 2;
+        } else if rem.starts_with("++") {
+            tokens.push(SwfToken::PlusPlus);
+            i += 2;
+        } else if rem.starts_with("--") {
+            tokens.push(SwfToken::MinusMinus);
+            i += 2;
+        } else if rem.starts_with("+=") {
+            tokens.push(SwfToken::PlusAssign);
+            i += 2;
+        } else if rem.starts_with("-=") {
+            tokens.push(SwfToken::MinusAssign);
+            i += 2;
+        } else if rem.starts_with("*=") {
+            tokens.push(SwfToken::StarAssign);
+            i += 2;
+        } else if rem.starts_with("/=") {
+            tokens.push(SwfToken::SlashAssign);
+            i += 2;
+        } else if rem.starts_with("%=") {
+            tokens.push(SwfToken::PercentAssign);
+            i += 2;
+        } else if rem.starts_with("<<") {
+            tokens.push(SwfToken::Shl);
+            i += 2;
+        } else if rem.starts_with(">>") {
+            tokens.push(SwfToken::Shr);
+            i += 2;
+        } else {
+            let tok = match b {
+                b'(' => SwfToken::LParen,
+                b')' => SwfToken::RParen,
+                b'{' => SwfToken::LBrace,
+                b'}' => SwfToken::RBrace,
+                b'[' => SwfToken::LBracket,
+                b']' => SwfToken::RBracket,
+                b';' => SwfToken::Semi,
+                b',' => SwfToken::Comma,
+                b'.' => SwfToken::Dot,
+                b':' => SwfToken::Colon,
+                b'+' => SwfToken::Plus,
+                b'-' => SwfToken::Minus,
+                b'*' => SwfToken::Star,
+                b'/' => SwfToken::Slash,
+                b'%' => SwfToken::Percent,
+                b'=' => SwfToken::Assign,
+                b'<' => SwfToken::Lt,
+                b'>' => SwfToken::Gt,
+                b'!' => SwfToken::Not,
+                b'&' => SwfToken::BitAnd,
+                b'|' => SwfToken::BitOr,
+                b'^' => SwfToken::BitXor,
+                _ => {
+                    let ch = source[i..].chars().next().unwrap_or('?');
+                    return Err(format!(
+                        "unsupported syntax token '{ch}' in bounded SWF compiler"
+                    ));
+                }
+            };
+            tokens.push(tok);
+            i += 1;
         }
     }
-    out
+    Ok(tokens)
 }
 
-fn parse_call_stmt(stmt: &str) -> Option<(&str, &str)> {
-    let open = stmt.find('(')?;
-    let close = stmt.rfind(')')?;
-    if close < open || !stmt[close + 1..].trim().is_empty() {
-        return None;
-    }
-    let name = stmt[..open].trim();
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '$')
-    {
-        return None;
-    }
-    let args = stmt[open + 1..close].trim();
-    Some((name, args))
+struct SwfParser {
+    tokens: Vec<SwfToken>,
+    pos: usize,
+    is_avm2: bool,
 }
 
+impl SwfParser {
+    fn new(tokens: Vec<SwfToken>, is_avm2: bool) -> Self {
+        Self {
+            tokens,
+            pos: 0,
+            is_avm2,
+        }
+    }
+
+    fn peek(&self) -> Option<&SwfToken> {
+        self.tokens.get(self.pos)
+    }
+
+    fn next(&mut self) -> Option<SwfToken> {
+        if self.pos < self.tokens.len() {
+            let t = self.tokens[self.pos].clone();
+            self.pos += 1;
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    fn eat(&mut self, expected: &SwfToken) -> bool {
+        if self.peek() == Some(expected) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect(&mut self, expected: &SwfToken) -> Result<(), String> {
+        if self.eat(expected) {
+            Ok(())
+        } else {
+            Err(format!(
+                "expected {expected:?}, found {:?} in bounded SWF compiler",
+                self.peek()
+            ))
+        }
+    }
+
+    fn expect_ident(&mut self) -> Result<String, String> {
+        match self.next() {
+            Some(SwfToken::Ident(s)) => Ok(s),
+            other => Err(format!(
+                "expected identifier, found {other:?} in bounded SWF compiler"
+            )),
+        }
+    }
+
+    fn skip_type_annotation(&mut self) -> Result<(), String> {
+        if !self.eat(&SwfToken::Colon) {
+            return Ok(());
+        }
+        if self.eat(&SwfToken::Star) {
+            return Ok(());
+        }
+        let _ = self.expect_ident()?;
+        while self.eat(&SwfToken::Dot) {
+            if self.eat(&SwfToken::Lt) {
+                let mut depth = 1usize;
+                while depth > 0 {
+                    match self.next() {
+                        Some(SwfToken::Lt) => depth += 1,
+                        Some(SwfToken::Gt) => depth -= 1,
+                        Some(SwfToken::Shr) => depth = depth.saturating_sub(2),
+                        Some(SwfToken::UShr) => depth = depth.saturating_sub(3),
+                        Some(_) => {}
+                        None => return Err("unterminated generic type annotation".to_owned()),
+                    }
+                }
+                break;
+            }
+            let _ = self.expect_ident()?;
+        }
+        Ok(())
+    }
+
+    fn parse_stmt_list(&mut self, stop_at_rbrace: bool) -> Result<Vec<SwfStmt>, String> {
+        let mut stmts = Vec::new();
+        while let Some(tok) = self.peek() {
+            if stop_at_rbrace && *tok == SwfToken::RBrace {
+                break;
+            }
+            if *tok == SwfToken::Semi {
+                self.pos += 1;
+                continue;
+            }
+            self.parse_stmt_into(&mut stmts)?;
+        }
+        Ok(stmts)
+    }
+
+    fn parse_block_or_single(&mut self) -> Result<Vec<SwfStmt>, String> {
+        if self.eat(&SwfToken::LBrace) {
+            let stmts = self.parse_stmt_list(true)?;
+            self.expect(&SwfToken::RBrace)?;
+            Ok(stmts)
+        } else {
+            let mut stmts = Vec::new();
+            self.parse_stmt_into(&mut stmts)?;
+            Ok(stmts)
+        }
+    }
+
+    fn consume_optional_semi(&mut self) {
+        while self.eat(&SwfToken::Semi) {}
+    }
+
+    fn parse_stmt_into(&mut self, out: &mut Vec<SwfStmt>) -> Result<(), String> {
+        while let Some(SwfToken::Ident(m)) = self.peek() {
+            if matches!(
+                m.as_str(),
+                "public" | "private" | "protected" | "internal" | "static" | "override" | "final"
+            ) {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        let Some(tok) = self.peek().cloned() else {
+            return Ok(());
+        };
+        match tok {
+            SwfToken::Semi => {
+                self.pos += 1;
+                Ok(())
+            }
+            SwfToken::LBrace => {
+                self.pos += 1;
+                let inner = self.parse_stmt_list(true)?;
+                self.expect(&SwfToken::RBrace)?;
+                out.push(SwfStmt::Block(inner));
+                Ok(())
+            }
+            SwfToken::Ident(ref kw) => match kw.as_str() {
+                "try" | "catch" | "finally" | "switch" | "case" | "default" | "throw" | "with"
+                | "do" | "interface" | "break" | "continue" => Err(format!(
+                    "ActionScript '{kw}' is not supported by the bounded SWF compiler"
+                )),
+                "package" | "class" => Err(format!(
+                    "ActionScript '{kw}' declaration is not allowed inside a statement block"
+                )),
+                "import" => {
+                    if !self.is_avm2 {
+                        return Err("import statements are only supported in AS3".to_owned());
+                    }
+                    self.pos += 1;
+                    let _ = self.expect_ident()?;
+                    while self.eat(&SwfToken::Dot) {
+                        if !self.eat(&SwfToken::Star) {
+                            let _ = self.expect_ident()?;
+                        }
+                    }
+                    self.consume_optional_semi();
+                    Ok(())
+                }
+                "var" | "const" => {
+                    self.pos += 1;
+                    loop {
+                        let name = self.expect_ident()?;
+                        self.skip_type_annotation()?;
+                        let init = if self.eat(&SwfToken::Assign) {
+                            Some(self.parse_expr()?)
+                        } else {
+                            None
+                        };
+                        out.push(SwfStmt::VarDecl { name, init });
+                        if !self.eat(&SwfToken::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume_optional_semi();
+                    Ok(())
+                }
+                "if" => {
+                    self.pos += 1;
+                    self.expect(&SwfToken::LParen)?;
+                    let cond = self.parse_expr()?;
+                    self.expect(&SwfToken::RParen)?;
+                    let then_branch = self.parse_block_or_single()?;
+                    let else_branch = if self.peek() == Some(&SwfToken::Ident("else".to_owned())) {
+                        self.pos += 1;
+                        Some(self.parse_block_or_single()?)
+                    } else {
+                        None
+                    };
+                    out.push(SwfStmt::If {
+                        cond,
+                        then_branch,
+                        else_branch,
+                    });
+                    Ok(())
+                }
+                "while" => {
+                    self.pos += 1;
+                    self.expect(&SwfToken::LParen)?;
+                    let cond = self.parse_expr()?;
+                    self.expect(&SwfToken::RParen)?;
+                    let body = self.parse_block_or_single()?;
+                    out.push(SwfStmt::While { cond, body });
+                    Ok(())
+                }
+                "for" => {
+                    self.pos += 1;
+                    if self.peek() == Some(&SwfToken::Ident("each".to_owned())) {
+                        return Err(
+                            "for each..in loops are not supported by the bounded SWF compiler"
+                                .to_owned(),
+                        );
+                    }
+                    self.expect(&SwfToken::LParen)?;
+                    let init = if self.eat(&SwfToken::Semi) {
+                        None
+                    } else {
+                        let mut init_stmts = Vec::new();
+                        if self.peek() == Some(&SwfToken::Ident("var".to_owned()))
+                            || self.peek() == Some(&SwfToken::Ident("const".to_owned()))
+                        {
+                            self.pos += 1;
+                            let name = self.expect_ident()?;
+                            self.skip_type_annotation()?;
+                            if self.peek() == Some(&SwfToken::Ident("in".to_owned())) {
+                                return Err(
+                                    "for..in loops are not supported by the bounded SWF compiler"
+                                        .to_owned(),
+                                );
+                            }
+                            let init_val = if self.eat(&SwfToken::Assign) {
+                                Some(self.parse_expr()?)
+                            } else {
+                                None
+                            };
+                            init_stmts.push(SwfStmt::VarDecl {
+                                name,
+                                init: init_val,
+                            });
+                        } else {
+                            let s = self.parse_simple_assign_or_expr_stmt()?;
+                            if self.peek() == Some(&SwfToken::Ident("in".to_owned())) {
+                                return Err(
+                                    "for..in loops are not supported by the bounded SWF compiler"
+                                        .to_owned(),
+                                );
+                            }
+                            init_stmts.push(s);
+                        }
+                        self.expect(&SwfToken::Semi)?;
+                        init_stmts.into_iter().next().map(Box::new)
+                    };
+                    let cond = if self.eat(&SwfToken::Semi) {
+                        None
+                    } else {
+                        let c = self.parse_expr()?;
+                        self.expect(&SwfToken::Semi)?;
+                        Some(c)
+                    };
+                    let update = if self.eat(&SwfToken::RParen) {
+                        None
+                    } else {
+                        let u = self.parse_simple_assign_or_expr_stmt()?;
+                        self.expect(&SwfToken::RParen)?;
+                        Some(Box::new(u))
+                    };
+                    let body = self.parse_block_or_single()?;
+                    out.push(SwfStmt::For {
+                        init,
+                        cond,
+                        update,
+                        body,
+                    });
+                    Ok(())
+                }
+                "function" => {
+                    self.pos += 1;
+                    let name = self.expect_ident()?;
+                    self.expect(&SwfToken::LParen)?;
+                    let mut params = Vec::new();
+                    if !self.eat(&SwfToken::RParen) {
+                        loop {
+                            let pname = self.expect_ident()?;
+                            self.skip_type_annotation()?;
+                            if self.eat(&SwfToken::Assign) {
+                                let _ = self.parse_expr()?;
+                            }
+                            params.push(pname);
+                            if self.eat(&SwfToken::Comma) {
+                                continue;
+                            }
+                            self.expect(&SwfToken::RParen)?;
+                            break;
+                        }
+                    }
+                    self.skip_type_annotation()?;
+                    self.expect(&SwfToken::LBrace)?;
+                    let body = self.parse_stmt_list(true)?;
+                    self.expect(&SwfToken::RBrace)?;
+                    out.push(SwfStmt::FunctionDecl { name, params, body });
+                    Ok(())
+                }
+                "return" => {
+                    self.pos += 1;
+                    if self.eat(&SwfToken::Semi)
+                        || self.peek() == Some(&SwfToken::RBrace)
+                        || self.peek().is_none()
+                    {
+                        out.push(SwfStmt::Return(None));
+                    } else {
+                        let expr = self.parse_expr()?;
+                        self.consume_optional_semi();
+                        out.push(SwfStmt::Return(Some(expr)));
+                    }
+                    Ok(())
+                }
+                "on" | "onClipEvent" => {
+                    if self.is_avm2 {
+                        return Err(format!(
+                            "AVM1 '{kw}(...)' event handler syntax is not supported in ActionScript 3"
+                        ));
+                    }
+                    let is_clip_event = kw == "onClipEvent";
+                    self.pos += 1;
+                    self.expect(&SwfToken::LParen)?;
+                    let mut events = Vec::new();
+                    loop {
+                        let ev = self.expect_ident()?;
+                        events.push(ev);
+                        if !self.eat(&SwfToken::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(&SwfToken::RParen)?;
+                    self.expect(&SwfToken::LBrace)?;
+                    let body = self.parse_stmt_list(true)?;
+                    self.expect(&SwfToken::RBrace)?;
+                    out.push(SwfStmt::EventHandler {
+                        is_clip_event,
+                        events,
+                        body,
+                    });
+                    Ok(())
+                }
+                _ => {
+                    let stmt = self.parse_simple_assign_or_expr_stmt()?;
+                    self.consume_optional_semi();
+                    out.push(stmt);
+                    Ok(())
+                }
+            },
+            SwfToken::PlusPlus | SwfToken::MinusMinus => {
+                let stmt = self.parse_simple_assign_or_expr_stmt()?;
+                self.consume_optional_semi();
+                out.push(stmt);
+                Ok(())
+            }
+            other => Err(format!(
+                "unexpected token {other:?} at start of statement in bounded SWF compiler"
+            )),
+        }
+    }
+
+    fn parse_simple_assign_or_expr_stmt(&mut self) -> Result<SwfStmt, String> {
+        if self.eat(&SwfToken::PlusPlus) {
+            let expr = self.parse_postfix()?;
+            let target = expr_to_lvalue(expr)?;
+            return Ok(SwfStmt::IncDec {
+                target,
+                increment: true,
+            });
+        }
+        if self.eat(&SwfToken::MinusMinus) {
+            let expr = self.parse_postfix()?;
+            let target = expr_to_lvalue(expr)?;
+            return Ok(SwfStmt::IncDec {
+                target,
+                increment: false,
+            });
+        }
+        let lhs = self.parse_expr()?;
+        if let Some(op) = match self.peek() {
+            Some(SwfToken::Assign) => Some(SwfAssignOp::Assign),
+            Some(SwfToken::PlusAssign) => Some(SwfAssignOp::AddAssign),
+            Some(SwfToken::MinusAssign) => Some(SwfAssignOp::SubAssign),
+            Some(SwfToken::StarAssign) => Some(SwfAssignOp::MulAssign),
+            Some(SwfToken::SlashAssign) => Some(SwfAssignOp::DivAssign),
+            Some(SwfToken::PercentAssign) => Some(SwfAssignOp::ModAssign),
+            _ => None,
+        } {
+            self.pos += 1;
+            let target = expr_to_lvalue(lhs)?;
+            let value = self.parse_expr()?;
+            return Ok(SwfStmt::Assign { target, op, value });
+        }
+        if self.eat(&SwfToken::PlusPlus) {
+            let target = expr_to_lvalue(lhs)?;
+            return Ok(SwfStmt::IncDec {
+                target,
+                increment: true,
+            });
+        }
+        if self.eat(&SwfToken::MinusMinus) {
+            let target = expr_to_lvalue(lhs)?;
+            return Ok(SwfStmt::IncDec {
+                target,
+                increment: false,
+            });
+        }
+        if matches!(lhs, SwfExpr::Call { .. } | SwfExpr::New { .. }) {
+            Ok(SwfStmt::Expr(lhs))
+        } else {
+            Err(
+                "standalone expression is not a function call or assignment in bounded SWF compiler"
+                    .to_owned(),
+            )
+        }
+    }
+
+    fn parse_expr(&mut self) -> Result<SwfExpr, String> {
+        self.parse_logical_or()
+    }
+
+    fn parse_logical_or(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_logical_and()?;
+        while self.eat(&SwfToken::Or) {
+            let rhs = self.parse_logical_and()?;
+            lhs = SwfExpr::Binary {
+                op: SwfBinaryOp::Or,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_bit_or()?;
+        while self.eat(&SwfToken::And) {
+            let rhs = self.parse_bit_or()?;
+            lhs = SwfExpr::Binary {
+                op: SwfBinaryOp::And,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_bit_or(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_bit_xor()?;
+        while self.eat(&SwfToken::BitOr) {
+            let rhs = self.parse_bit_xor()?;
+            lhs = SwfExpr::Binary {
+                op: SwfBinaryOp::BitOr,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_bit_xor(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_bit_and()?;
+        while self.eat(&SwfToken::BitXor) {
+            let rhs = self.parse_bit_and()?;
+            lhs = SwfExpr::Binary {
+                op: SwfBinaryOp::BitXor,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_bit_and(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_equality()?;
+        while self.eat(&SwfToken::BitAnd) {
+            let rhs = self.parse_equality()?;
+            lhs = SwfExpr::Binary {
+                op: SwfBinaryOp::BitAnd,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_equality(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_relational()?;
+        while let Some(op) = match self.peek() {
+            Some(SwfToken::Eq) => Some(SwfBinaryOp::Eq),
+            Some(SwfToken::Ne) => Some(SwfBinaryOp::Ne),
+            Some(SwfToken::StrictEq) => Some(SwfBinaryOp::StrictEq),
+            Some(SwfToken::StrictNe) => Some(SwfBinaryOp::StrictNe),
+            _ => None,
+        } {
+            self.pos += 1;
+            let rhs = self.parse_relational()?;
+            lhs = SwfExpr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_relational(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_shift()?;
+        while let Some(op) = match self.peek() {
+            Some(SwfToken::Lt) => Some(SwfBinaryOp::Lt),
+            Some(SwfToken::Le) => Some(SwfBinaryOp::Le),
+            Some(SwfToken::Gt) => Some(SwfBinaryOp::Gt),
+            Some(SwfToken::Ge) => Some(SwfBinaryOp::Ge),
+            _ => None,
+        } {
+            self.pos += 1;
+            let rhs = self.parse_shift()?;
+            lhs = SwfExpr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_shift(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_additive()?;
+        while let Some(op) = match self.peek() {
+            Some(SwfToken::Shl) => Some(SwfBinaryOp::Shl),
+            Some(SwfToken::Shr) => Some(SwfBinaryOp::Shr),
+            Some(SwfToken::UShr) => Some(SwfBinaryOp::UShr),
+            _ => None,
+        } {
+            self.pos += 1;
+            let rhs = self.parse_additive()?;
+            lhs = SwfExpr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_additive(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_multiplicative()?;
+        while let Some(op) = match self.peek() {
+            Some(SwfToken::Plus) => Some(SwfBinaryOp::Add),
+            Some(SwfToken::Minus) => Some(SwfBinaryOp::Sub),
+            _ => None,
+        } {
+            self.pos += 1;
+            let rhs = self.parse_multiplicative()?;
+            lhs = SwfExpr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<SwfExpr, String> {
+        let mut lhs = self.parse_unary()?;
+        while let Some(op) = match self.peek() {
+            Some(SwfToken::Star) => Some(SwfBinaryOp::Mul),
+            Some(SwfToken::Slash) => Some(SwfBinaryOp::Div),
+            Some(SwfToken::Percent) => Some(SwfBinaryOp::Mod),
+            _ => None,
+        } {
+            self.pos += 1;
+            let rhs = self.parse_unary()?;
+            lhs = SwfExpr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_unary(&mut self) -> Result<SwfExpr, String> {
+        if self.eat(&SwfToken::Not) {
+            let expr = self.parse_unary()?;
+            return Ok(SwfExpr::Unary {
+                op: SwfUnaryOp::Not,
+                expr: Box::new(expr),
+            });
+        }
+        if self.eat(&SwfToken::Minus) {
+            let expr = self.parse_unary()?;
+            return Ok(match expr {
+                SwfExpr::Int(v) if v != i32::MIN => SwfExpr::Int(-v),
+                SwfExpr::Float(2_147_483_648.0) => SwfExpr::Int(i32::MIN),
+                SwfExpr::Float(v) => SwfExpr::Float(-v),
+                other => SwfExpr::Unary {
+                    op: SwfUnaryOp::Neg,
+                    expr: Box::new(other),
+                },
+            });
+        }
+        if self.eat(&SwfToken::Plus) {
+            let expr = self.parse_unary()?;
+            return Ok(match expr {
+                SwfExpr::Int(v) => SwfExpr::Int(v),
+                SwfExpr::Float(v) => SwfExpr::Float(v),
+                other => SwfExpr::Unary {
+                    op: SwfUnaryOp::Pos,
+                    expr: Box::new(other),
+                },
+            });
+        }
+        self.parse_postfix()
+    }
+
+    fn parse_postfix(&mut self) -> Result<SwfExpr, String> {
+        let is_new = self.peek() == Some(&SwfToken::Ident("new".to_owned()));
+        if is_new {
+            self.pos += 1;
+        }
+        let mut expr = self.parse_primary()?;
+        loop {
+            if self.eat(&SwfToken::Dot) {
+                let prop = self.expect_ident()?;
+                expr = SwfExpr::Member(Box::new(expr), prop);
+            } else if self.eat(&SwfToken::LBracket) {
+                let idx = self.parse_expr()?;
+                self.expect(&SwfToken::RBracket)?;
+                expr = SwfExpr::Index(Box::new(expr), Box::new(idx));
+            } else if self.eat(&SwfToken::LParen) {
+                let mut args = Vec::new();
+                if !self.eat(&SwfToken::RParen) {
+                    loop {
+                        args.push(self.parse_expr()?);
+                        if self.eat(&SwfToken::Comma) {
+                            continue;
+                        }
+                        self.expect(&SwfToken::RParen)?;
+                        break;
+                    }
+                }
+                if is_new {
+                    expr = SwfExpr::New {
+                        callee: Box::new(expr),
+                        args,
+                    };
+                    return Ok(expr);
+                }
+                expr = SwfExpr::Call {
+                    callee: Box::new(expr),
+                    args,
+                };
+            } else {
+                break;
+            }
+        }
+        if is_new {
+            return Ok(SwfExpr::New {
+                callee: Box::new(expr),
+                args: Vec::new(),
+            });
+        }
+        Ok(expr)
+    }
+
+    fn parse_primary(&mut self) -> Result<SwfExpr, String> {
+        match self.next() {
+            Some(SwfToken::Int(v)) => Ok(SwfExpr::Int(v)),
+            Some(SwfToken::Float(v)) => Ok(SwfExpr::Float(v)),
+            Some(SwfToken::Str(s)) => Ok(SwfExpr::Str(s)),
+            Some(SwfToken::Ident(s)) => match s.as_str() {
+                "true" => Ok(SwfExpr::Bool(true)),
+                "false" => Ok(SwfExpr::Bool(false)),
+                "null" => Ok(SwfExpr::Null),
+                "undefined" => Ok(SwfExpr::Undefined),
+                _ => Ok(SwfExpr::Ident(s)),
+            },
+            Some(SwfToken::LParen) => {
+                let e = self.parse_expr()?;
+                self.expect(&SwfToken::RParen)?;
+                Ok(e)
+            }
+            Some(SwfToken::LBracket) => {
+                let mut elems = Vec::new();
+                if !self.eat(&SwfToken::RBracket) {
+                    loop {
+                        elems.push(self.parse_expr()?);
+                        if self.eat(&SwfToken::Comma) {
+                            if self.eat(&SwfToken::RBracket) {
+                                break;
+                            }
+                            continue;
+                        }
+                        self.expect(&SwfToken::RBracket)?;
+                        break;
+                    }
+                }
+                Ok(SwfExpr::ArrayLit(elems))
+            }
+            other => Err(format!(
+                "unexpected token {other:?} in expression in bounded SWF compiler"
+            )),
+        }
+    }
+}
+
+fn expr_to_lvalue(expr: SwfExpr) -> Result<SwfLValue, String> {
+    match expr {
+        SwfExpr::Ident(name) => Ok(SwfLValue::Ident(name)),
+        SwfExpr::Member(obj, prop) => Ok(SwfLValue::Member(obj, prop)),
+        SwfExpr::Index(obj, idx) => Ok(SwfLValue::Index(obj, idx)),
+        _ => Err("invalid assignment target in bounded SWF compiler".to_owned()),
+    }
+}
+
+fn parse_swf_statements_strict(source: &str, is_avm2: bool) -> Result<Vec<SwfStmt>, String> {
+    let tokens = tokenize_swf_script(source)?;
+    let mut parser = SwfParser::new(tokens, is_avm2);
+    let stmts = parser.parse_stmt_list(false)?;
+    if parser.pos < parser.tokens.len() {
+        return Err(format!(
+            "unexpected trailing token {:?} in bounded SWF compiler",
+            parser.peek()
+        ));
+    }
+    Ok(stmts)
+}
+
+#[cfg(test)]
 fn unquote_literal(arg: &str) -> Option<String> {
     let s = arg.trim();
     if s.len() >= 2
@@ -2995,74 +3820,232 @@ fn avm1_push_bool(out: &mut Vec<u8>, v: bool) {
     out.push(u8::from(v));
 }
 
-fn avm1_compile_expr(out: &mut Vec<u8>, expr: &str) -> Result<(), String> {
-    let e = expr.trim();
-    if let Some(s) = unquote_literal(e) {
-        avm1_push_string(out, &s)?;
-    } else if e == "true" {
-        avm1_push_bool(out, true);
-    } else if e == "false" {
-        avm1_push_bool(out, false);
-    } else if let Ok(iv) = e.parse::<i32>() {
-        avm1_push_int(out, iv);
-    } else if let Ok(fv) = e.parse::<f64>() {
-        avm1_push_double(out, fv);
-    } else if let Some((lhs, rhs, operator)) = split_avm1_binary_expression(e) {
-        avm1_compile_expr(out, lhs)?;
-        avm1_compile_expr(out, rhs)?;
-        out.push(match operator {
-            '+' => 0x47, // ActionAdd2
-            '-' => 0x0b, // ActionSubtract
-            '*' => 0x0c, // ActionMultiply
-            '/' => 0x0d, // ActionDivide
-            _ => unreachable!("bounded AVM1 binary operator"),
-        });
-    } else {
-        // Variable lookup
-        avm1_push_string(out, e)?;
-        out.push(0x1c); // ActionGetVariable
+fn is_avm1_mc_builtin_prop(name: &str) -> bool {
+    matches!(
+        name,
+        "_x" | "_y" | "_xscale" | "_yscale" | "_alpha" | "_visible" | "_rotation" | "_name"
+    )
+}
+
+fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
+    match expr {
+        SwfExpr::Null => {
+            out.push(0x96);
+            out.extend_from_slice(&1u16.to_le_bytes());
+            out.push(0x02); // Null
+        }
+        SwfExpr::Undefined => {
+            out.push(0x96);
+            out.extend_from_slice(&1u16.to_le_bytes());
+            out.push(0x03); // Undefined
+        }
+        SwfExpr::Bool(b) => avm1_push_bool(out, *b),
+        SwfExpr::Int(iv) => avm1_push_int(out, *iv),
+        SwfExpr::Float(fv) => avm1_push_double(out, *fv),
+        SwfExpr::Str(s) => avm1_push_string(out, s)?,
+        SwfExpr::Ident(name) => {
+            avm1_push_string(out, name)?;
+            out.push(0x1c); // ActionGetVariable
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for el in elems.iter().rev() {
+                avm1_compile_expr(out, el)?;
+            }
+            avm1_push_int(out, elems.len() as i32);
+            out.push(0x42); // ActionInitArray
+        }
+        SwfExpr::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
+                && is_avm1_mc_builtin_prop(prop)
+            {
+                avm1_push_string(out, prop)?;
+                out.push(0x1c); // ActionGetVariable
+            } else {
+                avm1_compile_expr(out, obj)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x4e); // ActionGetMember
+            }
+        }
+        SwfExpr::Index(obj, idx) => {
+            avm1_compile_expr(out, obj)?;
+            avm1_compile_expr(out, idx)?;
+            out.push(0x4e); // ActionGetMember
+        }
+        SwfExpr::Unary { op, expr } => match op {
+            SwfUnaryOp::Not => {
+                avm1_compile_expr(out, expr)?;
+                out.push(0x12); // ActionNot
+            }
+            SwfUnaryOp::Neg => {
+                avm1_push_int(out, 0);
+                avm1_compile_expr(out, expr)?;
+                out.push(0x0b); // ActionSubtract
+            }
+            SwfUnaryOp::Pos => {
+                avm1_compile_expr(out, expr)?;
+                out.push(0x4a); // ActionToNumber
+            }
+        },
+        SwfExpr::Binary { op, lhs, rhs } => {
+            if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
+                avm1_compile_expr(out, lhs)?;
+                out.push(0x12); // ActionNot
+                out.push(0x12); // ActionNot: normalize lhs to Boolean
+                out.push(0x4c); // ActionPushDuplicate
+                if *op == SwfBinaryOp::And {
+                    out.push(0x12); // ActionNot: branch when lhs is false
+                }
+                let mut rhs_bytes = Vec::new();
+                avm1_compile_expr(&mut rhs_bytes, rhs)?;
+                rhs_bytes.push(0x12); // ActionNot
+                rhs_bytes.push(0x12); // ActionNot: normalize rhs to Boolean
+                let skip_rhs = rhs_bytes
+                    .len()
+                    .checked_add(1)
+                    .and_then(|len| i16::try_from(len).ok())
+                    .ok_or_else(|| "AVM1 logical RHS exceeds i16 branch range".to_owned())?;
+                out.push(0x9d); // ActionIf
+                out.extend_from_slice(&2u16.to_le_bytes());
+                out.extend_from_slice(&skip_rhs.to_le_bytes());
+                out.push(0x17); // ActionPop the non-short-circuit lhs
+                out.extend_from_slice(&rhs_bytes);
+                return Ok(());
+            }
+            avm1_compile_expr(out, lhs)?;
+            avm1_compile_expr(out, rhs)?;
+            match op {
+                SwfBinaryOp::Add => out.push(0x47), // ActionAdd2
+                SwfBinaryOp::Sub => out.push(0x0b), // ActionSubtract
+                SwfBinaryOp::Mul => out.push(0x0c), // ActionMultiply
+                SwfBinaryOp::Div => out.push(0x0d), // ActionDivide
+                SwfBinaryOp::Mod => out.push(0x53), // ActionModulo
+                SwfBinaryOp::Eq => out.push(0x49),  // ActionEquals2
+                SwfBinaryOp::Ne => {
+                    out.push(0x49); // ActionEquals2
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::StrictEq => out.push(0x66), // ActionStrictEquals
+                SwfBinaryOp::StrictNe => {
+                    out.push(0x66); // ActionStrictEquals
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::Lt => out.push(0x48), // ActionLess2
+                SwfBinaryOp::Ge => {
+                    out.push(0x48); // ActionLess2
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::Gt => out.push(0x67), // ActionGreater
+                SwfBinaryOp::Le => {
+                    out.push(0x67); // ActionGreater
+                    out.push(0x12); // ActionNot
+                }
+                SwfBinaryOp::And | SwfBinaryOp::Or => unreachable!("handled above"),
+                SwfBinaryOp::BitAnd => out.push(0x60), // ActionBitAnd
+                SwfBinaryOp::Shl => out.push(0x61),    // ActionBitLShift
+                SwfBinaryOp::BitOr => out.push(0x62),  // ActionBitOr
+                SwfBinaryOp::Shr => out.push(0x63),    // ActionBitRShift
+                SwfBinaryOp::UShr => out.push(0x64),   // ActionBitURShift
+                SwfBinaryOp::BitXor => out.push(0x65), // ActionBitXor
+            }
+        }
+        SwfExpr::Call { callee, args } => {
+            avm1_compile_call(out, callee, args, false)?;
+        }
+        SwfExpr::New { callee, args } => {
+            for a in args.iter().rev() {
+                avm1_compile_expr(out, a)?;
+            }
+            avm1_push_int(out, args.len() as i32);
+            match callee.as_ref() {
+                SwfExpr::Ident(name) => avm1_push_string(out, name)?,
+                SwfExpr::Member(_, prop) => avm1_push_string(out, prop)?,
+                _ => return Err("unsupported 'new' constructor expression in AVM1".to_owned()),
+            }
+            out.push(0x40); // ActionNewObject
+        }
     }
     Ok(())
 }
 
-/// Compile an AS1/AS2 script source into AVM1 action bytecode (terminated by `0x00`).
-pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    for stmt in split_script_statements(source) {
-        if let Some((func, args)) = parse_call_stmt(&stmt) {
-            let short_fn = func.rsplit('.').next().unwrap_or(func);
-            match short_fn {
-                "stop" if args.is_empty() => {
-                    out.push(0x07); // ActionStop
-                }
-                "play" if args.is_empty() => {
-                    out.push(0x06); // ActionPlay
-                }
-                "nextFrame" if args.is_empty() => {
-                    out.push(0x04); // ActionNextFrame
-                }
-                "prevFrame" if args.is_empty() => {
-                    out.push(0x05); // ActionPrevFrame
-                }
-                "stopAllSounds" if args.is_empty() => {
-                    out.push(0x09); // ActionStopSounds
-                }
-                "gotoAndStop" | "gotoAndPlay" => {
-                    let is_play = short_fn == "gotoAndPlay";
-                    let first_arg = args.rsplit(',').next().unwrap_or(args).trim();
-                    if let Ok(frame_1based) = first_arg.parse::<u32>() {
-                        let frame_0 = u16::try_from(frame_1based.saturating_sub(1)).map_err(|_| {
+fn avm1_compile_call(
+    out: &mut Vec<u8>,
+    callee: &SwfExpr,
+    args: &[SwfExpr],
+    discard_result: bool,
+) -> Result<(), String> {
+    let direct_fn = match callee {
+        SwfExpr::Ident(name) => Some(name.as_str()),
+        SwfExpr::Member(recv, prop) if matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "this") => {
+            Some(prop.as_str())
+        }
+        _ => None,
+    };
+
+    if let Some(short_fn) = direct_fn {
+        match short_fn {
+            "stop" if args.is_empty() && discard_result => {
+                out.push(0x07); // ActionStop
+                return Ok(());
+            }
+            "play" if args.is_empty() && discard_result => {
+                out.push(0x06); // ActionPlay
+                return Ok(());
+            }
+            "nextFrame" if args.is_empty() && discard_result => {
+                out.push(0x04); // ActionNextFrame
+                return Ok(());
+            }
+            "prevFrame" if args.is_empty() && discard_result => {
+                out.push(0x05); // ActionPrevFrame
+                return Ok(());
+            }
+            "stopAllSounds" if args.is_empty() && discard_result => {
+                out.push(0x09); // ActionStopSounds
+                return Ok(());
+            }
+            "gotoAndStop" | "gotoAndPlay" if !args.is_empty() && discard_result => {
+                let is_play = short_fn == "gotoAndPlay";
+                let target_arg = args.last().unwrap();
+                match target_arg {
+                    SwfExpr::Int(frame_i32) => {
+                        let frame_1based = u32::try_from(*frame_i32).map_err(|_| {
                             format!(
-                                "AVM1 numeric {short_fn} target {frame_1based} exceeds the ActionGotoFrame limit of 65536 one-based frames"
+                                "AVM1 numeric {short_fn} target {frame_i32} must be a one-based frame"
                             )
                         })?;
+                        if frame_1based == 0 {
+                            return Err(format!(
+                                "AVM1 numeric {short_fn} target 0 must be a one-based frame"
+                            ));
+                        }
+                        let frame_0 =
+                            u16::try_from(frame_1based - 1).map_err(|_| {
+                                format!(
+                                    "AVM1 numeric {short_fn} target {frame_1based} exceeds the ActionGotoFrame limit of 65536 one-based frames"
+                                )
+                            })?;
                         out.push(0x81); // ActionGotoFrame
                         out.extend_from_slice(&2u16.to_le_bytes());
                         out.extend_from_slice(&frame_0.to_le_bytes());
                         if is_play {
                             out.push(0x06); // ActionPlay
                         }
-                    } else if let Some(lbl) = unquote_literal(first_arg) {
+                    }
+                    SwfExpr::Float(fv) if fv.fract() == 0.0 => {
+                        if !(1.0..=65536.0).contains(fv) {
+                            return Err(format!(
+                                "AVM1 numeric {short_fn} target {fv} must be within 1..=65536 one-based frames"
+                            ));
+                        }
+                        let frame_0 = ((*fv as u32) - 1) as u16;
+                        out.push(0x81); // ActionGotoFrame
+                        out.extend_from_slice(&2u16.to_le_bytes());
+                        out.extend_from_slice(&frame_0.to_le_bytes());
+                        if is_play {
+                            out.push(0x06); // ActionPlay
+                        }
+                    }
+                    SwfExpr::Str(lbl) => {
                         if !is_play {
                             let lbl_bytes: Vec<u8> = lbl.bytes().filter(|&b| b != 0).collect();
                             let len = lbl_bytes
@@ -3081,54 +4064,333 @@ pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
                             out.extend_from_slice(&lbl_bytes);
                             out.push(0);
                         } else {
-                            avm1_push_string(&mut out, &lbl)?;
+                            avm1_push_string(out, lbl)?;
                             out.push(0x9f); // ActionGotoFrame2
                             out.extend_from_slice(&1u16.to_le_bytes());
                             out.push(0x01); // play = true
                         }
-                    } else {
-                        avm1_compile_expr(&mut out, first_arg)?;
+                    }
+                    SwfExpr::Unary {
+                        op: SwfUnaryOp::Neg,
+                        expr,
+                    } if matches!(expr.as_ref(), SwfExpr::Int(_) | SwfExpr::Float(_)) => {
+                        return Err(format!(
+                            "AVM1 numeric {short_fn} target must be a positive one-based frame"
+                        ));
+                    }
+                    other => {
+                        avm1_compile_expr(out, other)?;
                         out.push(0x9f); // ActionGotoFrame2
                         out.extend_from_slice(&1u16.to_le_bytes());
                         out.push(u8::from(is_play));
                     }
                 }
-                "trace" => {
-                    avm1_compile_expr(&mut out, args)?;
-                    out.push(0x26); // ActionTrace
+                return Ok(());
+            }
+            "trace" if discard_result => {
+                if let Some(first) = args.first() {
+                    avm1_compile_expr(out, first)?;
+                } else {
+                    avm1_push_string(out, "")?;
                 }
-                _ => {
-                    let call_args: Vec<&str> = if args.is_empty() {
-                        Vec::new()
-                    } else {
-                        args.split(',').map(str::trim).collect()
-                    };
-                    for a in call_args.iter().rev() {
-                        avm1_compile_expr(&mut out, a)?;
-                    }
-                    avm1_push_int(&mut out, call_args.len() as i32);
-                    avm1_push_string(&mut out, short_fn)?;
-                    out.push(0x3d); // ActionCallFunction
+                out.push(0x26); // ActionTrace
+                return Ok(());
+            }
+            _ => {
+                for a in args.iter().rev() {
+                    avm1_compile_expr(out, a)?;
+                }
+                avm1_push_int(out, args.len() as i32);
+                avm1_push_string(out, short_fn)?;
+                out.push(0x3d); // ActionCallFunction
+                if discard_result {
                     out.push(0x17); // ActionPop
                 }
+                return Ok(());
             }
-        } else if let Some(rest) = stmt.strip_prefix("var ") {
-            if let Some((lhs, rhs)) = rest.split_once('=') {
-                let var_name = lhs.split(':').next().unwrap_or(lhs).trim();
-                avm1_push_string(&mut out, var_name)?;
-                avm1_compile_expr(&mut out, rhs)?;
-                out.push(0x3c); // ActionDefineLocal
-            }
-        } else if let Some((lhs, rhs)) = stmt.split_once('=')
-            && !lhs.ends_with(['=', '!', '<', '>'])
-            && !rhs.starts_with('=')
-        {
-            let var_name = lhs.trim();
-            avm1_push_string(&mut out, var_name)?;
-            avm1_compile_expr(&mut out, rhs)?;
-            out.push(0x1d); // ActionSetVariable
         }
     }
+
+    if let SwfExpr::Member(recv, method_name) = callee {
+        for a in args.iter().rev() {
+            avm1_compile_expr(out, a)?;
+        }
+        avm1_push_int(out, args.len() as i32);
+        avm1_compile_expr(out, recv)?;
+        avm1_push_string(out, method_name)?;
+        out.push(0x52); // ActionCallMethod
+        if discard_result {
+            out.push(0x17); // ActionPop
+        }
+        return Ok(());
+    }
+
+    Err("unsupported function call target in AVM1 compiler".to_owned())
+}
+
+fn avm1_load_lvalue(out: &mut Vec<u8>, target: &SwfLValue) -> Result<(), String> {
+    match target {
+        SwfLValue::Ident(name) => {
+            avm1_push_string(out, name)?;
+            out.push(0x1c); // ActionGetVariable
+        }
+        SwfLValue::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
+                && is_avm1_mc_builtin_prop(prop)
+            {
+                avm1_push_string(out, prop)?;
+                out.push(0x1c); // ActionGetVariable
+            } else {
+                avm1_compile_expr(out, obj)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x4e); // ActionGetMember
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            avm1_compile_expr(out, obj)?;
+            avm1_compile_expr(out, idx)?;
+            out.push(0x4e); // ActionGetMember
+        }
+    }
+    Ok(())
+}
+
+fn avm1_store_lvalue_with_rhs<F>(
+    out: &mut Vec<u8>,
+    target: &SwfLValue,
+    emit_rhs: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<(), String>,
+{
+    match target {
+        SwfLValue::Ident(name) => {
+            avm1_push_string(out, name)?;
+            emit_rhs(out)?;
+            out.push(0x1d); // ActionSetVariable
+            if is_avm1_mc_builtin_prop(name) {
+                avm1_push_string(out, "this")?;
+                out.push(0x1c); // ActionGetVariable
+                avm1_push_string(out, name)?;
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // ActionGetVariable
+                out.push(0x4f); // ActionSetMember
+            }
+        }
+        SwfLValue::Member(obj, prop) => {
+            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "this")
+                && is_avm1_mc_builtin_prop(prop)
+            {
+                avm1_push_string(out, prop)?;
+                emit_rhs(out)?;
+                out.push(0x1d); // ActionSetVariable
+                avm1_push_string(out, "this")?;
+                out.push(0x1c); // ActionGetVariable
+                avm1_push_string(out, prop)?;
+                avm1_push_string(out, prop)?;
+                out.push(0x1c); // ActionGetVariable
+                out.push(0x4f); // ActionSetMember
+            } else {
+                avm1_compile_expr(out, obj)?;
+                avm1_push_string(out, prop)?;
+                emit_rhs(out)?;
+                out.push(0x4f); // ActionSetMember
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            avm1_compile_expr(out, obj)?;
+            avm1_compile_expr(out, idx)?;
+            emit_rhs(out)?;
+            out.push(0x4f); // ActionSetMember
+        }
+    }
+    Ok(())
+}
+
+fn avm1_compile_stmt_list(
+    out: &mut Vec<u8>,
+    stmts: &[SwfStmt],
+    in_function: bool,
+) -> Result<(), String> {
+    for stmt in stmts {
+        avm1_compile_stmt(out, stmt, in_function)?;
+    }
+    Ok(())
+}
+
+fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Result<(), String> {
+    match stmt {
+        SwfStmt::VarDecl { name, init } => {
+            if let Some(rhs) = init {
+                avm1_push_string(out, name)?;
+                avm1_compile_expr(out, rhs)?;
+                out.push(if in_function { 0x3c } else { 0x1d });
+            } else if in_function {
+                avm1_push_string(out, name)?;
+                out.push(0x41); // ActionDefineLocal2
+            } else {
+                avm1_push_string(out, name)?;
+                out.push(0x96);
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x03); // Undefined
+                out.push(0x1d); // ActionSetVariable
+            }
+        }
+        SwfStmt::Assign { target, op, value } => {
+            avm1_store_lvalue_with_rhs(out, target, |buf| {
+                if *op == SwfAssignOp::Assign {
+                    avm1_compile_expr(buf, value)
+                } else {
+                    avm1_load_lvalue(buf, target)?;
+                    avm1_compile_expr(buf, value)?;
+                    buf.push(match op {
+                        SwfAssignOp::AddAssign => 0x47,
+                        SwfAssignOp::SubAssign => 0x0b,
+                        SwfAssignOp::MulAssign => 0x0c,
+                        SwfAssignOp::DivAssign => 0x0d,
+                        SwfAssignOp::ModAssign => 0x53,
+                        SwfAssignOp::Assign => unreachable!(),
+                    });
+                    Ok(())
+                }
+            })?;
+        }
+        SwfStmt::IncDec { target, increment } => {
+            avm1_store_lvalue_with_rhs(out, target, |buf| {
+                avm1_load_lvalue(buf, target)?;
+                buf.push(if *increment { 0x50 } else { 0x51 }); // ActionIncrement / ActionDecrement
+                Ok(())
+            })?;
+        }
+        SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
+            avm1_compile_call(out, callee, args, true)?;
+        }
+        SwfStmt::Expr(expr) => {
+            avm1_compile_expr(out, expr)?;
+            out.push(0x17); // ActionPop
+        }
+        SwfStmt::Block(inner) => {
+            avm1_compile_stmt_list(out, inner, in_function)?;
+        }
+        SwfStmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            avm1_compile_expr(out, cond)?;
+            out.push(0x12); // ActionNot: jump if cond is false
+            let mut then_bytes = Vec::new();
+            avm1_compile_stmt_list(&mut then_bytes, then_branch, in_function)?;
+            if let Some(else_stmts) = else_branch
+                && !else_stmts.is_empty()
+            {
+                let mut else_bytes = Vec::new();
+                avm1_compile_stmt_list(&mut else_bytes, else_stmts, in_function)?;
+                let else_off = i16::try_from(else_bytes.len())
+                    .map_err(|_| "AVM1 else branch exceeds i16 jump offset limit".to_owned())?;
+                then_bytes.push(0x99); // ActionJump
+                then_bytes.extend_from_slice(&2u16.to_le_bytes());
+                then_bytes.extend_from_slice(&else_off.to_le_bytes());
+
+                let then_off = i16::try_from(then_bytes.len())
+                    .map_err(|_| "AVM1 then branch exceeds i16 jump offset limit".to_owned())?;
+                out.push(0x9d); // ActionIf
+                out.extend_from_slice(&2u16.to_le_bytes());
+                out.extend_from_slice(&then_off.to_le_bytes());
+                out.extend_from_slice(&then_bytes);
+                out.extend_from_slice(&else_bytes);
+            } else {
+                let then_off = i16::try_from(then_bytes.len())
+                    .map_err(|_| "AVM1 then branch exceeds i16 jump offset limit".to_owned())?;
+                out.push(0x9d); // ActionIf
+                out.extend_from_slice(&2u16.to_le_bytes());
+                out.extend_from_slice(&then_off.to_le_bytes());
+                out.extend_from_slice(&then_bytes);
+            }
+        }
+        SwfStmt::While { cond, body } => {
+            let loop_start = out.len();
+            avm1_compile_expr(out, cond)?;
+            out.push(0x12); // ActionNot
+            let mut body_bytes = Vec::new();
+            avm1_compile_stmt_list(&mut body_bytes, body, in_function)?;
+            let skip_off = i16::try_from(body_bytes.len() + 5)
+                .map_err(|_| "AVM1 while loop body exceeds i16 jump offset limit".to_owned())?;
+            out.push(0x9d); // ActionIf
+            out.extend_from_slice(&2u16.to_le_bytes());
+            out.extend_from_slice(&skip_off.to_le_bytes());
+            out.extend_from_slice(&body_bytes);
+            let back_off = i16::try_from((loop_start as isize) - ((out.len() + 5) as isize))
+                .map_err(|_| "AVM1 while loop backward jump exceeds i16 offset limit".to_owned())?;
+            out.push(0x99); // ActionJump
+            out.extend_from_slice(&2u16.to_le_bytes());
+            out.extend_from_slice(&back_off.to_le_bytes());
+        }
+        SwfStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(init_stmt) = init {
+                avm1_compile_stmt(out, init_stmt, in_function)?;
+            }
+            let loop_cond = cond.clone().unwrap_or(SwfExpr::Bool(true));
+            let mut combined_body = body.clone();
+            if let Some(upd_stmt) = update {
+                combined_body.push((**upd_stmt).clone());
+            }
+            let while_stmt = SwfStmt::While {
+                cond: loop_cond,
+                body: combined_body,
+            };
+            avm1_compile_stmt(out, &while_stmt, in_function)?;
+        }
+        SwfStmt::FunctionDecl { name, params, body } => {
+            let mut body_bytes = Vec::new();
+            avm1_compile_stmt_list(&mut body_bytes, body, true)?;
+            let code_size = u16::try_from(body_bytes.len())
+                .map_err(|_| "AVM1 function body exceeds 65535 bytes".to_owned())?;
+            let mut header = Vec::new();
+            header.extend(name.bytes().filter(|&b| b != 0));
+            header.push(0);
+            let num_params = u16::try_from(params.len())
+                .map_err(|_| "AVM1 function has too many parameters".to_owned())?;
+            header.extend_from_slice(&num_params.to_le_bytes());
+            for p in params {
+                header.extend(p.bytes().filter(|&b| b != 0));
+                header.push(0);
+            }
+            header.extend_from_slice(&code_size.to_le_bytes());
+            let header_len = u16::try_from(header.len())
+                .map_err(|_| "AVM1 function header exceeds 65535 bytes".to_owned())?;
+            out.push(0x9b); // ActionDefineFunction
+            out.extend_from_slice(&header_len.to_le_bytes());
+            out.extend_from_slice(&header);
+            out.extend_from_slice(&body_bytes);
+        }
+        SwfStmt::Return(expr_opt) => {
+            if let Some(expr) = expr_opt {
+                avm1_compile_expr(out, expr)?;
+            } else {
+                out.push(0x96);
+                out.extend_from_slice(&1u16.to_le_bytes());
+                out.push(0x03); // Undefined
+            }
+            out.push(0x3e); // ActionReturn
+        }
+        SwfStmt::EventHandler { body, .. } => {
+            avm1_compile_stmt_list(out, body, in_function)?;
+        }
+    }
+    Ok(())
+}
+
+/// Compile an AS1/AS2 script source into AVM1 action bytecode (terminated by `0x00`).
+pub(crate) fn compile_avm1_actions(source: &str) -> Result<Vec<u8>, String> {
+    let stmts = parse_swf_statements_strict(source, false)?;
+    let mut out = Vec::new();
+    avm1_compile_stmt_list(&mut out, &stmts, false)?;
     out.push(0x00); // ActionEndFlag
     Ok(out)
 }
@@ -3197,9 +4459,11 @@ fn encode_clip_actions(scripts: &[ObjectScript]) -> Option<Vec<u8>> {
             continue;
         }
         let (flag, key): (u32, Option<u8>) = match os.event {
-            ObjectEvent::Load => (0x0000_0001, None), // ClipEventLoad
-            ObjectEvent::EnterFrame => (0x0000_0002, None), // ClipEventEnterFrame
-            ObjectEvent::Click => (0x0000_0400, None), // ClipEventPress
+            ObjectEvent::Load => (0x0000_0080, None), // ClipEventLoad
+            ObjectEvent::EnterFrame => (0x0000_0040, None), // ClipEventEnterFrame
+            // NeoFlash's Click event is dispatched after a completed pointer activation, which
+            // corresponds to ClipEventRelease rather than Press/RollOver in SWF CLIPACTIONS.
+            ObjectEvent::Click => (0x0000_1000, None), // ClipEventRelease
         };
         all_flags |= flag;
         records.push((flag, key, actions));
@@ -3248,6 +4512,16 @@ impl AbcPoolBuilder {
         index
     }
 
+    fn add_double(&mut self, value: f64) -> u32 {
+        let bits = value.to_bits();
+        if let Some(pos) = self.doubles.iter().position(|d| d.to_bits() == bits) {
+            return (pos + 1) as u32;
+        }
+        let index = (self.doubles.len() + 1) as u32;
+        self.doubles.push(value);
+        index
+    }
+
     fn add_string(&mut self, s: &str) -> u32 {
         if let Some(&idx) = self.string_map.get(s) {
             return idx;
@@ -3293,14 +4567,25 @@ fn emit_avm2_int(pool: &mut AbcPoolBuilder, code: &mut SwfBitWriter, value: i32)
     }
 }
 
+fn emit_avm2_s24(code: &mut SwfBitWriter, offset: i32) -> Result<(), String> {
+    if !(-0x80_0000..=0x7F_FFFF).contains(&offset) {
+        return Err("AVM2 branch offset exceeds 24-bit signed range".to_owned());
+    }
+    let bytes = offset.to_le_bytes();
+    code.u8(bytes[0]);
+    code.u8(bytes[1]);
+    code.u8(bytes[2]);
+    Ok(())
+}
+
 struct AbcClassSpec {
     pkg: String,
     class_name: String,
     super_pkg: String,
     super_name: String,
-    ctor_statements: Vec<String>,
+    ctor_statements: Vec<SwfStmt>,
     frame_scripts: Vec<(u32, String)>,
-    extra_methods: Vec<(String, Vec<String>)>,
+    extra_methods: Vec<(String, Vec<String>, Vec<SwfStmt>)>,
 }
 
 fn split_qualified_class(qname: &str) -> (String, String) {
@@ -3310,67 +4595,213 @@ fn split_qualified_class(qname: &str) -> (String, String) {
     }
 }
 
-fn parse_as3_source_to_spec(source: &str, fallback_qname: &str) -> AbcClassSpec {
-    let mut pkg = String::new();
-    let mut class_name = String::new();
-    let mut super_pkg = "flash.display".to_owned();
-    let mut super_name = "MovieClip".to_owned();
-    let mut ctor_statements = Vec::new();
-    let mut extra_methods = Vec::new();
+fn parse_dotted_name(parser: &mut SwfParser) -> Result<String, String> {
+    let mut name = parser.expect_ident()?;
+    while parser.eat(&SwfToken::Dot) {
+        let next = parser.expect_ident()?;
+        name.push('.');
+        name.push_str(&next);
+    }
+    Ok(name)
+}
 
-    for line in source.lines() {
-        let t = line.trim();
-        if let Some(rest) = t.strip_prefix("package") {
-            let p = rest.trim_end_matches('{').trim();
-            if !p.is_empty() {
-                pkg = p.to_owned();
-            }
-        } else if t.contains("class ") {
-            let after_class = t.split("class ").nth(1).unwrap_or("");
-            let mut parts = after_class.split_whitespace();
-            if let Some(cname) = parts.next() {
-                class_name = cname.trim_end_matches('{').to_owned();
-            }
-            if let Some(ext_pos) = after_class.find("extends ") {
-                let after_ext = &after_class[ext_pos + "extends ".len()..];
-                if let Some(sup) = after_ext.split_whitespace().next() {
-                    let clean_sup = sup.trim_end_matches('{');
-                    if clean_sup.contains('.') {
-                        let (sp, sc) = split_qualified_class(clean_sup);
-                        super_pkg = sp;
-                        super_name = sc;
-                    } else {
-                        super_name = clean_sup.to_owned();
-                    }
+fn parse_as3_source_to_spec_strict(
+    source: &str,
+    fallback_qname: &str,
+    external_source: bool,
+) -> Result<AbcClassSpec, String> {
+    let tokens = tokenize_swf_script(source)?;
+    let mut parser = SwfParser::new(tokens, true);
+
+    let starts_with_package = parser.peek() == Some(&SwfToken::Ident("package".to_owned()));
+    let has_class_tok = parser
+        .tokens
+        .iter()
+        .any(|t| *t == SwfToken::Ident("class".to_owned()));
+
+    if !starts_with_package && !has_class_tok {
+        if external_source {
+            return Err(
+                "external ActionScript 3 source file must declare a package and class".to_owned(),
+            );
+        }
+        let stmts = parser.parse_stmt_list(false)?;
+        if parser.pos < parser.tokens.len() {
+            return Err(format!(
+                "unexpected trailing token {:?} in ActionScript 3 script",
+                parser.peek()
+            ));
+        }
+        let (pkg, fc) = split_qualified_class(fallback_qname);
+        return Ok(AbcClassSpec {
+            pkg,
+            class_name: if fc.is_empty() { "Main".to_owned() } else { fc },
+            super_pkg: "flash.display".to_owned(),
+            super_name: "MovieClip".to_owned(),
+            ctor_statements: stmts,
+            frame_scripts: Vec::new(),
+            extra_methods: Vec::new(),
+        });
+    }
+
+    let mut pkg = String::new();
+    let mut has_package_brace = false;
+    if starts_with_package {
+        parser.pos += 1;
+        if parser.peek() != Some(&SwfToken::LBrace) {
+            pkg = parse_dotted_name(&mut parser)?;
+        }
+        parser.expect(&SwfToken::LBrace)?;
+        has_package_brace = true;
+    }
+
+    // Consume package-level imports and [SWF(...)] metadata
+    loop {
+        if parser.eat(&SwfToken::Semi) {
+            continue;
+        }
+        if parser.eat(&SwfToken::LBracket) {
+            let mut depth = 1usize;
+            while depth > 0 {
+                match parser.next() {
+                    Some(SwfToken::LBracket) => depth += 1,
+                    Some(SwfToken::RBracket) => depth -= 1,
+                    Some(_) => {}
+                    None => return Err("unterminated metadata tag in AS3 source".to_owned()),
                 }
             }
-        } else if t.starts_with("trace(")
-            || t.starts_with("stop(")
-            || t.starts_with("play(")
-            || t.starts_with("gotoAndStop(")
-            || t.starts_with("gotoAndPlay(")
-            || t.starts_with("nextFrame(")
-            || t.starts_with("prevFrame(")
-        {
-            for stmt in split_script_statements(t) {
-                ctor_statements.push(stmt);
+            continue;
+        }
+        if parser.peek() == Some(&SwfToken::Ident("import".to_owned())) {
+            parser.pos += 1;
+            let _ = parser.expect_ident()?;
+            while parser.eat(&SwfToken::Dot) {
+                if !parser.eat(&SwfToken::Star) {
+                    let _ = parser.expect_ident()?;
+                }
+            }
+            parser.consume_optional_semi();
+            continue;
+        }
+        break;
+    }
+
+    // Consume class modifiers
+    while let Some(SwfToken::Ident(m)) = parser.peek() {
+        if matches!(m.as_str(), "public" | "internal" | "final" | "dynamic") {
+            parser.pos += 1;
+        } else {
+            break;
+        }
+    }
+
+    if parser.next() != Some(SwfToken::Ident("class".to_owned())) {
+        return Err("expected 'class' declaration in ActionScript 3 source".to_owned());
+    }
+    let class_name = parser.expect_ident()?;
+    let mut super_pkg = "flash.display".to_owned();
+    let mut super_name = "MovieClip".to_owned();
+
+    if parser.peek() == Some(&SwfToken::Ident("extends".to_owned())) {
+        parser.pos += 1;
+        let sup = parse_dotted_name(&mut parser)?;
+        if sup.contains('.') {
+            let (sp, sc) = split_qualified_class(&sup);
+            super_pkg = sp;
+            super_name = sc;
+        } else {
+            super_name = sup;
+        }
+    }
+
+    if parser.peek() == Some(&SwfToken::Ident("implements".to_owned())) {
+        parser.pos += 1;
+        loop {
+            let _ = parse_dotted_name(&mut parser)?;
+            if !parser.eat(&SwfToken::Comma) {
+                break;
             }
         }
     }
 
-    if class_name.is_empty() {
-        let (fp, fc) = split_qualified_class(fallback_qname);
-        pkg = fp;
-        class_name = if fc.is_empty() { "Main".to_owned() } else { fc };
+    parser.expect(&SwfToken::LBrace)?;
+
+    let mut ctor_statements = Vec::new();
+    let mut extra_methods = Vec::new();
+
+    while parser.peek().is_some() && parser.peek() != Some(&SwfToken::RBrace) {
+        if parser.eat(&SwfToken::Semi) {
+            continue;
+        }
+        while let Some(SwfToken::Ident(m)) = parser.peek() {
+            if matches!(
+                m.as_str(),
+                "public" | "private" | "protected" | "internal" | "static" | "override" | "final"
+            ) {
+                parser.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if parser.peek() == Some(&SwfToken::Ident("function".to_owned())) {
+            parser.pos += 1;
+            let fn_name = parser.expect_ident()?;
+            parser.expect(&SwfToken::LParen)?;
+            let mut params = Vec::new();
+            if !parser.eat(&SwfToken::RParen) {
+                loop {
+                    let pname = parser.expect_ident()?;
+                    parser.skip_type_annotation()?;
+                    if parser.eat(&SwfToken::Assign) {
+                        let _ = parser.parse_expr()?;
+                    }
+                    params.push(pname);
+                    if parser.eat(&SwfToken::Comma) {
+                        continue;
+                    }
+                    parser.expect(&SwfToken::RParen)?;
+                    break;
+                }
+            }
+            parser.skip_type_annotation()?;
+            parser.expect(&SwfToken::LBrace)?;
+            let body = parser.parse_stmt_list(true)?;
+            parser.expect(&SwfToken::RBrace)?;
+            if fn_name == class_name {
+                for s in body {
+                    if let SwfStmt::Expr(SwfExpr::Call { callee, .. }) = &s
+                        && matches!(callee.as_ref(), SwfExpr::Ident(id) if id == "super")
+                    {
+                        continue;
+                    }
+                    ctor_statements.push(s);
+                }
+            } else {
+                extra_methods.push((fn_name, params, body));
+            }
+        } else {
+            parser.parse_stmt_into(&mut ctor_statements)?;
+        }
     }
 
-    // Ensure non-pure user classes have a helper method if they have no extra methods so they are
-    // never misclassified as auto-generated pure timeline classes.
+    parser.expect(&SwfToken::RBrace)?;
+    if has_package_brace {
+        while parser.eat(&SwfToken::Semi) {}
+        parser.expect(&SwfToken::RBrace)?;
+    }
+    while parser.eat(&SwfToken::Semi) {}
+    if parser.pos < parser.tokens.len() {
+        return Err(format!(
+            "unexpected trailing token {:?} after ActionScript 3 class",
+            parser.peek()
+        ));
+    }
+
     if extra_methods.is_empty() {
-        extra_methods.push(("init".to_owned(), Vec::new()));
+        extra_methods.push(("init".to_owned(), Vec::new(), Vec::new()));
     }
 
-    AbcClassSpec {
+    Ok(AbcClassSpec {
         pkg,
         class_name,
         super_pkg,
@@ -3378,111 +4809,707 @@ fn parse_as3_source_to_spec(source: &str, fallback_qname: &str) -> AbcClassSpec 
         ctor_statements,
         frame_scripts: Vec::new(),
         extra_methods,
-    }
+    })
 }
 
-fn compile_avm2_statements(pool: &mut AbcPoolBuilder, stmts: &[String], code: &mut SwfBitWriter) {
-    for stmt in stmts {
-        if let Some((func, args)) = parse_call_stmt(stmt) {
-            let short_fn = func.rsplit('.').next().unwrap_or(func);
-            match short_fn {
-                "stop" | "play" | "nextFrame" | "prevFrame" | "stopAllSounds"
-                    if args.is_empty() =>
-                {
-                    let fn_mn = pool.add_qname("", short_fn);
-                    code.u8(0x5D); // findpropstrict
-                    code.u32_v(fn_mn);
-                    code.u8(0x4F); // callpropvoid
-                    code.u32_v(fn_mn);
-                    code.u32_v(0);
-                }
-                "gotoAndStop" | "gotoAndPlay" => {
-                    let fn_mn = pool.add_qname("", short_fn);
-                    code.u8(0x5D); // findpropstrict
-                    code.u32_v(fn_mn);
-                    let first_arg = args.split(',').next().unwrap_or(args).trim();
-                    if let Ok(frame_num) = first_arg.parse::<i32>() {
-                        emit_avm2_int(pool, code, frame_num);
-                    } else if let Some(lbl) = unquote_literal(first_arg) {
-                        let s_idx = pool.add_string(&lbl);
-                        code.u8(0x2C); // pushstring
-                        code.u32_v(s_idx);
-                    } else {
-                        let s_idx = pool.add_string(first_arg);
-                        code.u8(0x2C);
-                        code.u32_v(s_idx);
-                    }
-                    code.u8(0x4F); // callpropvoid
-                    code.u32_v(fn_mn);
-                    code.u32_v(1);
-                }
-                "trace" => {
-                    let trace_mn = pool.add_qname("", "trace");
-                    code.u8(0x5D); // findpropstrict
-                    code.u32_v(trace_mn);
-                    if let Some(s) = unquote_literal(args) {
-                        let s_idx = pool.add_string(&s);
-                        code.u8(0x2C); // pushstring
-                        code.u32_v(s_idx);
-                    } else if let Ok(iv) = args.parse::<i32>() {
-                        emit_avm2_int(pool, code, iv);
-                    } else {
-                        let s_idx = pool.add_string(args);
-                        code.u8(0x2C); // pushstring
-                        code.u32_v(s_idx);
-                    }
-                    code.u8(0x4F); // callpropvoid
-                    code.u32_v(trace_mn);
-                    code.u32_v(1);
-                }
-                _ => {
-                    let fn_mn = pool.add_qname("", short_fn);
-                    code.u8(0x5D); // findpropstrict
-                    code.u32_v(fn_mn);
-                    let call_args: Vec<&str> = if args.is_empty() {
-                        Vec::new()
-                    } else {
-                        args.split(',').map(str::trim).collect()
-                    };
-                    for a in &call_args {
-                        if let Some(s) = unquote_literal(a) {
-                            let s_idx = pool.add_string(&s);
-                            code.u8(0x2C);
-                            code.u32_v(s_idx);
-                        } else if let Ok(iv) = a.parse::<i32>() {
-                            emit_avm2_int(pool, code, iv);
-                        } else {
-                            let prop_mn = pool.add_qname("", a);
-                            code.u8(0x60); // getlex
-                            code.u32_v(prop_mn);
-                        }
-                    }
-                    code.u8(0x4F); // callpropvoid
-                    code.u32_v(fn_mn);
-                    code.u32_v(call_args.len() as u32);
-                }
-            }
-        } else if let Some(rest) = stmt.strip_prefix("var ")
-            && let Some((lhs, rhs)) = rest.split_once('=')
-        {
-            let var_name = lhs.split(':').next().unwrap_or(lhs).trim();
-            let prop_mn = pool.add_qname("", var_name);
-            code.u8(0xD0); // getlocal_0
-            if let Some(s) = unquote_literal(rhs) {
-                let s_idx = pool.add_string(&s);
-                code.u8(0x2C);
-                code.u32_v(s_idx);
-            } else if let Ok(iv) = rhs.trim().parse::<i32>() {
-                emit_avm2_int(pool, code, iv);
+fn parse_as3_source_to_spec(source: &str, fallback_qname: &str) -> AbcClassSpec {
+    parse_as3_source_to_spec_strict(source, fallback_qname, true).unwrap_or_else(|_| {
+        let (pkg, fc) = split_qualified_class(fallback_qname);
+        AbcClassSpec {
+            pkg,
+            class_name: if fc.is_empty() { "Main".to_owned() } else { fc },
+            super_pkg: "flash.display".to_owned(),
+            super_name: "MovieClip".to_owned(),
+            ctor_statements: Vec::new(),
+            frame_scripts: Vec::new(),
+            extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
+        }
+    })
+}
+
+fn try_compile_avm2_source(source: &str, external_source: bool) -> Result<AbcClassSpec, String> {
+    let spec = parse_as3_source_to_spec_strict(source, "Main", external_source)?;
+    let mut pool = AbcPoolBuilder::default();
+    let mut code = SwfBitWriter::new();
+    let mut method_count = 1u32;
+    let mut method_params = vec![0u32];
+    let mut method_bodies = Vec::new();
+    compile_avm2_stmt_list(
+        &mut pool,
+        &spec.ctor_statements,
+        &mut code,
+        &mut method_count,
+        &mut method_params,
+        &mut method_bodies,
+    )?;
+    for (_, _, m_stmts) in &spec.extra_methods {
+        let mut m_code = SwfBitWriter::new();
+        compile_avm2_stmt_list(
+            &mut pool,
+            m_stmts,
+            &mut m_code,
+            &mut method_count,
+            &mut method_params,
+            &mut method_bodies,
+        )?;
+    }
+    Ok(spec)
+}
+
+fn is_avm2_mc_display_prop(name: &str) -> bool {
+    matches!(
+        name,
+        "x" | "y" | "scaleX" | "scaleY" | "alpha" | "visible" | "rotation"
+    )
+}
+
+type AbcMethodBodyRecord = (u32, u32, u32, u32, u32, Vec<u8>);
+
+#[allow(clippy::too_many_arguments)]
+fn compile_avm2_expr(
+    pool: &mut AbcPoolBuilder,
+    expr: &SwfExpr,
+    code: &mut SwfBitWriter,
+    method_count: &mut u32,
+    method_params: &mut Vec<u32>,
+    method_bodies: &mut Vec<AbcMethodBodyRecord>,
+) -> Result<(), String> {
+    match expr {
+        SwfExpr::Null => code.u8(0x20),        // pushnull
+        SwfExpr::Undefined => code.u8(0x21),   // pushundefined
+        SwfExpr::Bool(true) => code.u8(0x26),  // pushtrue
+        SwfExpr::Bool(false) => code.u8(0x27), // pushfalse
+        SwfExpr::Int(iv) => emit_avm2_int(pool, code, *iv),
+        SwfExpr::Float(fv) => {
+            let d_idx = pool.add_double(*fv);
+            code.u8(0x2F); // pushdouble
+            code.u32_v(d_idx);
+        }
+        SwfExpr::Str(s) => {
+            let s_idx = pool.add_string(s);
+            code.u8(0x2C); // pushstring
+            code.u32_v(s_idx);
+        }
+        SwfExpr::Ident(name) => {
+            if name == "this" || name == "_root" {
+                code.u8(0xD0); // getlocal_0
             } else {
-                let s_idx = pool.add_string(rhs.trim());
-                code.u8(0x2C);
-                code.u32_v(s_idx);
+                let mn = pool.add_qname("", name);
+                code.u8(0x60); // getlex
+                code.u32_v(mn);
             }
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for el in elems {
+                compile_avm2_expr(pool, el, code, method_count, method_params, method_bodies)?;
+            }
+            code.u8(0x56); // newarray
+            code.u32_v(elems.len() as u32);
+        }
+        SwfExpr::Member(obj, prop) => {
+            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+            let mn = if let SwfExpr::Ident(id) = obj.as_ref()
+                && id != "this"
+                && id != "_root"
+                && is_avm2_mc_display_prop(prop)
+            {
+                pool.add_qname("", &format!("__nf_mc_{id}_{prop}"))
+            } else {
+                pool.add_qname("", prop)
+            };
+            code.u8(0x66); // getproperty
+            code.u32_v(mn);
+        }
+        SwfExpr::Index(obj, idx) => {
+            if let SwfExpr::Int(iv) = idx.as_ref() {
+                compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+                let mn = pool.add_qname("", &iv.to_string());
+                code.u8(0x66); // getproperty
+                code.u32_v(mn);
+            } else if let SwfExpr::Str(s) = idx.as_ref() {
+                compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+                let mn = pool.add_qname("", s);
+                code.u8(0x66); // getproperty
+                code.u32_v(mn);
+            } else {
+                return Err(
+                    "dynamic non-literal bracket indexing in AS3 requires MultinameL not in bounded SWF subset"
+                        .to_owned(),
+                );
+            }
+        }
+        SwfExpr::Unary { op, expr } => {
+            compile_avm2_expr(pool, expr, code, method_count, method_params, method_bodies)?;
+            match op {
+                SwfUnaryOp::Not => code.u8(0x96), // not
+                SwfUnaryOp::Neg => code.u8(0x90), // negate
+                SwfUnaryOp::Pos => code.u8(0x75), // convert_d
+            }
+        }
+        SwfExpr::Binary { op, lhs, rhs } => {
+            if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
+                compile_avm2_expr(pool, lhs, code, method_count, method_params, method_bodies)?;
+                code.u8(0x76); // convert_b
+                code.u8(0x2A); // dup: branch consumes one value and leaves the result
+                let mut rhs_code = SwfBitWriter::new();
+                compile_avm2_expr(
+                    pool,
+                    rhs,
+                    &mut rhs_code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                )?;
+                rhs_code.u8(0x76); // convert_b
+                let skip_rhs = i32::try_from(rhs_code.buf.len().saturating_add(1))
+                    .map_err(|_| "AVM2 logical RHS is too large".to_owned())?;
+                code.u8(if *op == SwfBinaryOp::And {
+                    0x12 // iffalse
+                } else {
+                    0x11 // iftrue
+                });
+                emit_avm2_s24(code, skip_rhs)?;
+                code.u8(0x29); // pop the non-short-circuit LHS
+                code.bytes(&rhs_code.buf);
+                return Ok(());
+            }
+            compile_avm2_expr(pool, lhs, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(pool, rhs, code, method_count, method_params, method_bodies)?;
+            match op {
+                SwfBinaryOp::Add => code.u8(0xA0),    // add
+                SwfBinaryOp::Sub => code.u8(0xA1),    // subtract
+                SwfBinaryOp::Mul => code.u8(0xA2),    // multiply
+                SwfBinaryOp::Div => code.u8(0xA3),    // divide
+                SwfBinaryOp::Mod => code.u8(0xA4),    // modulo
+                SwfBinaryOp::Shl => code.u8(0xA5),    // lshift
+                SwfBinaryOp::Shr => code.u8(0xA6),    // rshift
+                SwfBinaryOp::UShr => code.u8(0xA7),   // urshift
+                SwfBinaryOp::BitAnd => code.u8(0xA8), // bitand
+                SwfBinaryOp::BitOr => code.u8(0xA9),  // bitor
+                SwfBinaryOp::BitXor => code.u8(0xAA), // bitxor
+                SwfBinaryOp::Eq => code.u8(0xAB),     // equals
+                SwfBinaryOp::Ne => {
+                    code.u8(0xAB); // equals
+                    code.u8(0x96); // not
+                }
+                SwfBinaryOp::StrictEq => code.u8(0xAC), // strictequals
+                SwfBinaryOp::StrictNe => {
+                    code.u8(0xAC); // strictequals
+                    code.u8(0x96); // not
+                }
+                SwfBinaryOp::Lt => code.u8(0xAD), // lessthan
+                SwfBinaryOp::Le => code.u8(0xAE), // lessequals
+                SwfBinaryOp::Gt => code.u8(0xAF), // greaterthan
+                SwfBinaryOp::Ge => code.u8(0xB0), // greaterequals
+                SwfBinaryOp::And | SwfBinaryOp::Or => unreachable!("handled above"),
+            }
+        }
+        SwfExpr::Call { callee, args } => {
+            compile_avm2_call(
+                pool,
+                callee,
+                args,
+                false,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+        }
+        SwfExpr::New { callee, args } => {
+            let cls_name = match callee.as_ref() {
+                SwfExpr::Ident(n) => n.as_str(),
+                SwfExpr::Member(_, prop) => prop.as_str(),
+                _ => return Err("unsupported 'new' constructor target in AVM2".to_owned()),
+            };
+            let mn = pool.add_qname("", cls_name);
+            code.u8(0x5D); // findpropstrict
+            code.u32_v(mn);
+            for a in args {
+                compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+            }
+            code.u8(0x4A); // constructprop
+            code.u32_v(mn);
+            code.u32_v(args.len() as u32);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_avm2_call(
+    pool: &mut AbcPoolBuilder,
+    callee: &SwfExpr,
+    args: &[SwfExpr],
+    discard_result: bool,
+    code: &mut SwfBitWriter,
+    method_count: &mut u32,
+    method_params: &mut Vec<u32>,
+    method_bodies: &mut Vec<AbcMethodBodyRecord>,
+) -> Result<(), String> {
+    let direct_fn = match callee {
+        SwfExpr::Ident(name) => Some(name.as_str()),
+        SwfExpr::Member(recv, prop) if matches!(recv.as_ref(), SwfExpr::Ident(id) if id == "this" || id == "_root") => {
+            Some(prop.as_str())
+        }
+        _ => None,
+    };
+
+    if let Some(short_fn) = direct_fn {
+        let is_builtin = matches!(
+            short_fn,
+            "stop"
+                | "play"
+                | "nextFrame"
+                | "prevFrame"
+                | "stopAllSounds"
+                | "gotoAndStop"
+                | "gotoAndPlay"
+                | "trace"
+                | "int"
+                | "uint"
+                | "Number"
+                | "String"
+                | "Boolean"
+                | "parseInt"
+                | "parseFloat"
+        );
+        if is_builtin {
+            let fn_mn = pool.add_qname("", short_fn);
+            code.u8(0x5D); // findpropstrict
+            code.u32_v(fn_mn);
+            let effective_args =
+                if matches!(short_fn, "gotoAndStop" | "gotoAndPlay") && !args.is_empty() {
+                    &args[..1]
+                } else {
+                    args
+                };
+            for a in effective_args {
+                compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+            }
+            code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
+            code.u32_v(fn_mn);
+            code.u32_v(effective_args.len() as u32);
+            return Ok(());
+        }
+
+        // User-defined function or method on timeline/class:
+        let fn_mn = pool.add_qname("", short_fn);
+        code.u8(0x60); // getlex
+        code.u32_v(fn_mn);
+        code.u8(0xD0); // getlocal_0 (receiver)
+        for a in args {
+            compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+        }
+        code.u8(0x41); // call
+        code.u32_v(args.len() as u32);
+        if discard_result {
+            code.u8(0x29); // pop
+        }
+        return Ok(());
+    }
+
+    if let SwfExpr::Member(recv, method_name) = callee {
+        compile_avm2_expr(pool, recv, code, method_count, method_params, method_bodies)?;
+        for a in args {
+            compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+        }
+        let mn = pool.add_qname("", method_name);
+        code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
+        code.u32_v(mn);
+        code.u32_v(args.len() as u32);
+        return Ok(());
+    }
+
+    Err("unsupported function call target in AVM2 compiler".to_owned())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_avm2_load_lvalue(
+    pool: &mut AbcPoolBuilder,
+    target: &SwfLValue,
+    code: &mut SwfBitWriter,
+    method_count: &mut u32,
+    method_params: &mut Vec<u32>,
+    method_bodies: &mut Vec<AbcMethodBodyRecord>,
+) -> Result<(), String> {
+    match target {
+        SwfLValue::Ident(name) => {
+            let mn = pool.add_qname("", name);
+            code.u8(0x60); // getlex
+            code.u32_v(mn);
+        }
+        SwfLValue::Member(obj, prop) => {
+            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+            let mn = if let SwfExpr::Ident(id) = obj.as_ref()
+                && id != "this"
+                && id != "_root"
+                && is_avm2_mc_display_prop(prop)
+            {
+                pool.add_qname("", &format!("__nf_mc_{id}_{prop}"))
+            } else {
+                pool.add_qname("", prop)
+            };
+            code.u8(0x66); // getproperty
+            code.u32_v(mn);
+        }
+        SwfLValue::Index(obj, idx) => {
+            let expr = SwfExpr::Index(obj.clone(), idx.clone());
+            compile_avm2_expr(
+                pool,
+                &expr,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_avm2_store_lvalue_with_rhs<F>(
+    pool: &mut AbcPoolBuilder,
+    target: &SwfLValue,
+    code: &mut SwfBitWriter,
+    method_count: &mut u32,
+    method_params: &mut Vec<u32>,
+    method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    emit_rhs: F,
+) -> Result<(), String>
+where
+    F: FnOnce(
+        &mut AbcPoolBuilder,
+        &mut SwfBitWriter,
+        &mut u32,
+        &mut Vec<u32>,
+        &mut Vec<AbcMethodBodyRecord>,
+    ) -> Result<(), String>,
+{
+    match target {
+        SwfLValue::Ident(name) => {
+            let prop_mn = pool.add_qname("", name);
+            code.u8(0xD0); // getlocal_0
+            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+            code.u8(0x61); // setproperty
+            code.u32_v(prop_mn);
+        }
+        SwfLValue::Member(obj, prop) => {
+            let prop_mn = pool.add_qname("", prop);
+            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+            if let SwfExpr::Ident(id) = obj.as_ref()
+                && id != "this"
+                && id != "_root"
+                && is_avm2_mc_display_prop(prop)
+            {
+                let mirror_mn = pool.add_qname("", &format!("__nf_mc_{id}_{prop}"));
+                code.u8(0x63); // setlocal 63
+                code.u32_v(63);
+                code.u8(0x62); // getlocal 63
+                code.u32_v(63);
+                code.u8(0x61); // setproperty on obj
+                code.u32_v(prop_mn);
+                code.u8(0xD0); // getlocal_0
+                code.u8(0x62); // getlocal 63
+                code.u32_v(63);
+                code.u8(0x61); // setproperty on _root for get_avm2_property lookup
+                code.u32_v(mirror_mn);
+            } else {
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
+            }
+        }
+        SwfLValue::Index(obj, idx) => {
+            let prop_name = match idx.as_ref() {
+                SwfExpr::Int(iv) => iv.to_string(),
+                SwfExpr::Str(s) => s.clone(),
+                _ => {
+                    return Err(
+                        "dynamic non-literal bracket indexing in AS3 requires MultinameL not in bounded SWF subset"
+                            .to_owned(),
+                    )
+                }
+            };
+            let prop_mn = pool.add_qname("", &prop_name);
+            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
             code.u8(0x61); // setproperty
             code.u32_v(prop_mn);
         }
     }
+    Ok(())
+}
+
+fn compile_avm2_stmt_list(
+    pool: &mut AbcPoolBuilder,
+    stmts: &[SwfStmt],
+    code: &mut SwfBitWriter,
+    method_count: &mut u32,
+    method_params: &mut Vec<u32>,
+    method_bodies: &mut Vec<AbcMethodBodyRecord>,
+) -> Result<(), String> {
+    for stmt in stmts {
+        compile_avm2_stmt(pool, stmt, code, method_count, method_params, method_bodies)?;
+    }
+    Ok(())
+}
+
+fn compile_avm2_stmt(
+    pool: &mut AbcPoolBuilder,
+    stmt: &SwfStmt,
+    code: &mut SwfBitWriter,
+    method_count: &mut u32,
+    method_params: &mut Vec<u32>,
+    method_bodies: &mut Vec<AbcMethodBodyRecord>,
+) -> Result<(), String> {
+    match stmt {
+        SwfStmt::VarDecl { name, init } => {
+            let prop_mn = pool.add_qname("", name);
+            code.u8(0xD0); // getlocal_0
+            if let Some(rhs) = init {
+                compile_avm2_expr(pool, rhs, code, method_count, method_params, method_bodies)?;
+            } else {
+                code.u8(0x21); // pushundefined
+            }
+            code.u8(0x61); // setproperty
+            code.u32_v(prop_mn);
+        }
+        SwfStmt::Assign { target, op, value } => {
+            compile_avm2_store_lvalue_with_rhs(
+                pool,
+                target,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                |p, c, mc, mp, mb| {
+                    if *op == SwfAssignOp::Assign {
+                        compile_avm2_expr(p, value, c, mc, mp, mb)
+                    } else {
+                        compile_avm2_load_lvalue(p, target, c, mc, mp, mb)?;
+                        compile_avm2_expr(p, value, c, mc, mp, mb)?;
+                        c.u8(match op {
+                            SwfAssignOp::AddAssign => 0xA0, // add
+                            SwfAssignOp::SubAssign => 0xA1, // subtract
+                            SwfAssignOp::MulAssign => 0xA2, // multiply
+                            SwfAssignOp::DivAssign => 0xA3, // divide
+                            SwfAssignOp::ModAssign => 0xA4, // modulo
+                            SwfAssignOp::Assign => unreachable!(),
+                        });
+                        Ok(())
+                    }
+                },
+            )?;
+        }
+        SwfStmt::IncDec { target, increment } => {
+            compile_avm2_store_lvalue_with_rhs(
+                pool,
+                target,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                |p, c, mc, mp, mb| {
+                    compile_avm2_load_lvalue(p, target, c, mc, mp, mb)?;
+                    c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
+                    Ok(())
+                },
+            )?;
+        }
+        SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
+            compile_avm2_call(
+                pool,
+                callee,
+                args,
+                true,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+        }
+        SwfStmt::Expr(expr) => {
+            compile_avm2_expr(pool, expr, code, method_count, method_params, method_bodies)?;
+            code.u8(0x29); // pop
+        }
+        SwfStmt::Block(inner) => {
+            compile_avm2_stmt_list(
+                pool,
+                inner,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+        }
+        SwfStmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            compile_avm2_expr(pool, cond, code, method_count, method_params, method_bodies)?;
+            let mut then_writer = SwfBitWriter::new();
+            compile_avm2_stmt_list(
+                pool,
+                then_branch,
+                &mut then_writer,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+            if let Some(else_stmts) = else_branch
+                && !else_stmts.is_empty()
+            {
+                let mut else_writer = SwfBitWriter::new();
+                compile_avm2_stmt_list(
+                    pool,
+                    else_stmts,
+                    &mut else_writer,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                )?;
+                let else_len = i32::try_from(else_writer.buf.len())
+                    .map_err(|_| "AVM2 else branch is too large".to_owned())?;
+                then_writer.u8(0x10); // jump
+                emit_avm2_s24(&mut then_writer, else_len)?;
+
+                let then_len = i32::try_from(then_writer.buf.len())
+                    .map_err(|_| "AVM2 then branch is too large".to_owned())?;
+                code.u8(0x12); // iffalse
+                emit_avm2_s24(code, then_len)?;
+                code.bytes(&then_writer.buf);
+                code.bytes(&else_writer.buf);
+            } else {
+                let then_len = i32::try_from(then_writer.buf.len())
+                    .map_err(|_| "AVM2 then branch is too large".to_owned())?;
+                code.u8(0x12); // iffalse
+                emit_avm2_s24(code, then_len)?;
+                code.bytes(&then_writer.buf);
+            }
+        }
+        SwfStmt::While { cond, body } => {
+            // Standard ASC while loop layout: `jump +body_len`, `L_body: ...`, `L_cond: ... iftrue L_body`
+            let mut body_writer = SwfBitWriter::new();
+            compile_avm2_stmt_list(
+                pool,
+                body,
+                &mut body_writer,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+            let mut cond_writer = SwfBitWriter::new();
+            compile_avm2_expr(
+                pool,
+                cond,
+                &mut cond_writer,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+            let body_len = i32::try_from(body_writer.buf.len())
+                .map_err(|_| "AVM2 while loop body is too large".to_owned())?;
+            let cond_len = i32::try_from(cond_writer.buf.len())
+                .map_err(|_| "AVM2 while loop condition is too large".to_owned())?;
+            code.u8(0x10); // jump to L_cond
+            emit_avm2_s24(code, body_len)?;
+            code.bytes(&body_writer.buf);
+            code.bytes(&cond_writer.buf);
+            code.u8(0x11); // iftrue back to L_body
+            emit_avm2_s24(code, -(body_len + cond_len + 4))?;
+        }
+        SwfStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(init_stmt) = init {
+                compile_avm2_stmt(
+                    pool,
+                    init_stmt,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                )?;
+            }
+            let loop_cond = cond.clone().unwrap_or(SwfExpr::Bool(true));
+            let mut combined_body = body.clone();
+            if let Some(upd_stmt) = update {
+                combined_body.push((**upd_stmt).clone());
+            }
+            let while_stmt = SwfStmt::While {
+                cond: loop_cond,
+                body: combined_body,
+            };
+            compile_avm2_stmt(
+                pool,
+                &while_stmt,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+        }
+        SwfStmt::FunctionDecl { name, params, body } => {
+            let m_idx = *method_count;
+            *method_count += 1;
+            method_params.push(params.len() as u32);
+            let mut fn_code = SwfBitWriter::new();
+            fn_code.u8(0xD0); // getlocal_0
+            fn_code.u8(0x30); // pushscope
+            for (idx, param_name) in params.iter().enumerate() {
+                let param_mn = pool.add_qname("", param_name);
+                fn_code.u8(0xD0); // getlocal_0
+                let reg = (idx + 1) as u32;
+                match reg {
+                    1 => fn_code.u8(0xD1), // getlocal_1
+                    2 => fn_code.u8(0xD2), // getlocal_2
+                    3 => fn_code.u8(0xD3), // getlocal_3
+                    r => {
+                        fn_code.u8(0x62); // getlocal
+                        fn_code.u32_v(r);
+                    }
+                }
+                fn_code.u8(0x61); // setproperty
+                fn_code.u32_v(param_mn);
+            }
+            compile_avm2_stmt_list(
+                pool,
+                body,
+                &mut fn_code,
+                method_count,
+                method_params,
+                method_bodies,
+            )?;
+            fn_code.u8(0x47); // returnvoid
+            let local_count = (params.len() + 2).max(64) as u32;
+            method_bodies.push((m_idx, 16, local_count, 1, 2, fn_code.buf));
+
+            let fn_mn = pool.add_qname("", name);
+            code.u8(0xD0); // getlocal_0
+            code.u8(0x40); // newfunction
+            code.u32_v(m_idx);
+            code.u8(0x61); // setproperty
+            code.u32_v(fn_mn);
+        }
+        SwfStmt::Return(expr_opt) => {
+            if let Some(expr) = expr_opt {
+                compile_avm2_expr(pool, expr, code, method_count, method_params, method_bodies)?;
+                code.u8(0x48); // returnvalue
+            } else {
+                code.u8(0x47); // returnvoid
+            }
+        }
+        SwfStmt::EventHandler { body, .. } => {
+            compile_avm2_stmt_list(pool, body, code, method_count, method_params, method_bodies)?;
+        }
+    }
+    Ok(())
 }
 
 fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
@@ -3499,6 +5526,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
     }
 
     let mut method_count = 0u32;
+    let mut method_params: Vec<u32> = Vec::new();
     let mut method_bodies: Vec<(u32, u32, u32, u32, u32, Vec<u8>)> = Vec::new();
     let mut compiled_classes = Vec::with_capacity(classes.len());
 
@@ -3509,6 +5537,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
         // 1. cinit
         let cinit_method = method_count;
         method_count += 1;
+        method_params.push(0);
         let mut cinit_code = SwfBitWriter::new();
         cinit_code.u8(0xD0); // getlocal_0
         cinit_code.u8(0x30); // pushscope
@@ -3524,36 +5553,73 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             let fn_mn = pool.add_qname("", &fn_name);
             let m_idx = method_count;
             method_count += 1;
+            method_params.push(0);
 
             let mut m_code = SwfBitWriter::new();
             m_code.u8(0xD0); // getlocal_0
             m_code.u8(0x30); // pushscope
-            let stmts = split_script_statements(script_src);
-            compile_avm2_statements(&mut pool, &stmts, &mut m_code);
+            let stmts = parse_swf_statements_strict(script_src, true)
+                .expect("AVM2 frame scripts are validated by SWF preflight");
+            compile_avm2_stmt_list(
+                &mut pool,
+                &stmts,
+                &mut m_code,
+                &mut method_count,
+                &mut method_params,
+                &mut method_bodies,
+            )
+            .expect("AVM2 frame scripts are validated by SWF preflight");
             m_code.u8(0x47); // returnvoid
-            method_bodies.push((m_idx, 8, 1, 1, 2, m_code.buf));
+            method_bodies.push((m_idx, 16, 64, 1, 2, m_code.buf));
 
             trait_methods.push((fn_mn, m_idx));
             frame_bindings.push((*frame_idx, fn_mn));
         }
 
-        for (m_name, m_stmts) in &cls.extra_methods {
+        for (m_name, m_params, m_stmts) in &cls.extra_methods {
             let fn_mn = pool.add_qname("", m_name);
             let m_idx = method_count;
             method_count += 1;
+            method_params.push(m_params.len() as u32);
 
             let mut m_code = SwfBitWriter::new();
             m_code.u8(0xD0); // getlocal_0
             m_code.u8(0x30); // pushscope
-            compile_avm2_statements(&mut pool, m_stmts, &mut m_code);
+            for (idx, param_name) in m_params.iter().enumerate() {
+                let param_mn = pool.add_qname("", param_name);
+                m_code.u8(0xD0); // getlocal_0
+                let reg = (idx + 1) as u32;
+                match reg {
+                    1 => m_code.u8(0xD1),
+                    2 => m_code.u8(0xD2),
+                    3 => m_code.u8(0xD3),
+                    r => {
+                        m_code.u8(0x62);
+                        m_code.u32_v(r);
+                    }
+                }
+                m_code.u8(0x61); // setproperty
+                m_code.u32_v(param_mn);
+            }
+            compile_avm2_stmt_list(
+                &mut pool,
+                m_stmts,
+                &mut m_code,
+                &mut method_count,
+                &mut method_params,
+                &mut method_bodies,
+            )
+            .expect("AVM2 class methods are validated by SWF preflight");
             m_code.u8(0x47); // returnvoid
-            method_bodies.push((m_idx, 8, 1, 1, 2, m_code.buf));
+            let local_count = (m_params.len() + 2).max(64) as u32;
+            method_bodies.push((m_idx, 16, local_count, 1, 2, m_code.buf));
             trait_methods.push((fn_mn, m_idx));
         }
 
         // 3. iinit (constructor)
         let iinit_method = method_count;
         method_count += 1;
+        method_params.push(0);
         let mut iinit_code = SwfBitWriter::new();
         iinit_code.u8(0xD0); // getlocal_0
         iinit_code.u8(0x30); // pushscope
@@ -3576,10 +5642,18 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             iinit_code.u32_v(add_frame_script_mn);
             iinit_code.u32_v((frame_bindings.len() * 2) as u32);
         }
-        compile_avm2_statements(&mut pool, &cls.ctor_statements, &mut iinit_code);
+        compile_avm2_stmt_list(
+            &mut pool,
+            &cls.ctor_statements,
+            &mut iinit_code,
+            &mut method_count,
+            &mut method_params,
+            &mut method_bodies,
+        )
+        .expect("AVM2 constructor statements are validated by SWF preflight");
         iinit_code.u8(0x47); // returnvoid
-        let max_stack = (2 + frame_bindings.len() * 2).max(8) as u32;
-        method_bodies.push((iinit_method, max_stack, 1, 1, 2, iinit_code.buf));
+        let max_stack = (2 + frame_bindings.len() * 2).max(16) as u32;
+        method_bodies.push((iinit_method, max_stack, 64, 1, 2, iinit_code.buf));
 
         compiled_classes.push(CompiledClass {
             class_mn,
@@ -3593,6 +5667,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
     // Script init method
     let sinit_method = method_count;
     method_count += 1;
+    method_params.push(0);
     let mut sinit_code = SwfBitWriter::new();
     sinit_code.u8(0xD0); // getlocal_0
     sinit_code.u8(0x30); // pushscope
@@ -3667,9 +5742,13 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
 
     // Methods
     w.u32_v(method_count);
-    for _ in 0..method_count {
-        w.u32_v(0); // param_count = 0
+    for m_idx in 0..method_count {
+        let p_count = method_params.get(m_idx as usize).copied().unwrap_or(0);
+        w.u32_v(p_count);
         w.u32_v(0); // return_type = *
+        for _ in 0..p_count {
+            w.u32_v(0); // param_type = *
+        }
         w.u32_v(0); // name = ""
         w.u8(0); // flags = 0
     }
@@ -4957,7 +7036,7 @@ pub fn publish_swf_bytes(
                     super_name: "MovieClip".to_owned(),
                     ctor_statements: Vec::new(),
                     frame_scripts: Vec::new(),
-                    extra_methods: vec![("init".to_owned(), Vec::new())],
+                    extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
                 });
             }
             compiler.avm2_symbol_classes.push((0, clean));
@@ -4973,7 +7052,7 @@ pub fn publish_swf_bytes(
                     super_name: "MovieClip".to_owned(),
                     ctor_statements: Vec::new(),
                     frame_scripts: Vec::new(),
-                    extra_methods: vec![("init".to_owned(), Vec::new())],
+                    extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
                 });
             }
         }
@@ -5555,6 +7634,52 @@ mod dictionary_capacity_tests {
     }
 
     #[test]
+    fn clip_actions_use_spec_event_flag_bits() {
+        let scripts = [
+            ObjectScript {
+                event: ObjectEvent::Load,
+                script: neoflash_core::Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "trace('load');".to_owned(),
+                },
+            },
+            ObjectScript {
+                event: ObjectEvent::EnterFrame,
+                script: neoflash_core::Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "trace('frame');".to_owned(),
+                },
+            },
+            ObjectScript {
+                event: ObjectEvent::Click,
+                script: neoflash_core::Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "trace('click');".to_owned(),
+                },
+            },
+        ];
+        let encoded = encode_clip_actions(&scripts).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(encoded[2..6].try_into().unwrap()),
+            0x10C0
+        );
+        let mut offset = 6;
+        for expected in [0x80_u32, 0x40, 0x1000] {
+            assert_eq!(
+                u32::from_le_bytes(encoded[offset..offset + 4].try_into().unwrap()),
+                expected
+            );
+            let size =
+                u32::from_le_bytes(encoded[offset + 4..offset + 8].try_into().unwrap()) as usize;
+            offset += 8 + size;
+        }
+        assert_eq!(
+            u32::from_le_bytes(encoded[offset..offset + 4].try_into().unwrap()),
+            0
+        );
+    }
+
+    #[test]
     fn avm1_record_lengths_refuse_oversized_strings_labels_and_conditional_blocks() {
         let oversized_string = "x".repeat(usize::from(u16::MAX) - 1);
         let trace_source = format!("trace(\"{oversized_string}\");");
@@ -5625,10 +7750,18 @@ mod dictionary_capacity_tests {
             swf_script_compilation_issue(ScriptLanguage::ActionScript3, valid_external, true),
             None
         );
-        assert!(
+        assert_eq!(
             swf_script_compilation_issue(
                 ScriptLanguage::ActionScript3,
                 "package app { public class Main { trace(1.5); } }",
+                true,
+            ),
+            None
+        );
+        assert!(
+            swf_script_compilation_issue(
+                ScriptLanguage::ActionScript3,
+                "package app { public class Main { try { trace(1); } catch (e:Error) {} } }",
                 true,
             )
             .is_some()
@@ -5650,14 +7783,15 @@ mod dictionary_capacity_tests {
             .is_some()
         );
 
-        let (left, right, operator) = split_avm1_binary_expression("8 - 4 - 2").unwrap();
-        assert_eq!((left, right, operator), ("8 - 4", "2", '-'));
-        let (left, right, operator) = split_avm1_binary_expression("8 / 4 / 2").unwrap();
-        assert_eq!((left, right, operator), ("8 / 4", "2", '/'));
-        assert!(simple_avm1_expression("8 - 4 - 2"));
+        let stmts = parse_swf_statements_strict("trace(8 - 4 - 2); trace(8 / 4 / 2);", false)
+            .expect("parse left-associative binary ops");
+        assert_eq!(stmts.len(), 2);
         assert_eq!(unquote_literal("\"a\" + \"b\""), None);
 
         assert!(compile_avm1_actions("gotoAndStop(65536);").is_ok());
+        assert!(compile_avm1_actions("gotoAndStop(3.0);").is_ok());
+        assert!(compile_avm1_actions("gotoAndStop(0);").is_err());
+        assert!(compile_avm1_actions("gotoAndStop(-1);").is_err());
         let issue = swf_script_compilation_issue(
             ScriptLanguage::ActionScript2,
             "gotoAndStop(65537);",
@@ -5665,6 +7799,24 @@ mod dictionary_capacity_tests {
         )
         .expect("out-of-range numeric AVM1 frame must fail preflight");
         assert!(issue.contains("65536 one-based frames"), "got: {issue}");
+
+        let local_goto = compile_avm1_actions("this.gotoAndStop(3);").unwrap();
+        assert!(
+            local_goto.contains(&0x81),
+            "this.gotoAndStop uses ActionGotoFrame"
+        );
+        let root_goto = compile_avm1_actions("_root.gotoAndStop(3);").unwrap();
+        assert!(
+            root_goto.contains(&0x52),
+            "_root.gotoAndStop must call the root MovieClip method"
+        );
+        assert!(
+            !root_goto.contains(&0x81),
+            "_root.gotoAndStop must not retarget the current nested timeline"
+        );
+        let root_x = compile_avm1_actions("_root._x = 25;").unwrap();
+        assert!(root_x.contains(&0x4f), "_root._x uses ActionSetMember");
+        assert!(!root_x.contains(&0x1d), "_root._x is not a local variable");
     }
 
     #[test]
@@ -5680,6 +7832,74 @@ mod dictionary_capacity_tests {
         assert_eq!(large_code.buf, vec![0x2D, 0x01]);
         assert_eq!(pool.ints, vec![i32::MAX]);
         assert_eq!(pool.add_int(i32::MAX), 1);
-        assert!(supported_avm2_statement("trace(2147483647)", false));
+        assert!(
+            swf_script_compilation_issue(
+                ScriptLanguage::ActionScript3,
+                "trace(2147483647);",
+                false
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn avm1_and_avm2_logical_operators_short_circuit_rhs_evaluation() {
+        let mut avm1_and = Vec::new();
+        avm1_compile_expr(
+            &mut avm1_and,
+            &SwfExpr::Binary {
+                op: SwfBinaryOp::And,
+                lhs: Box::new(SwfExpr::Bool(false)),
+                rhs: Box::new(SwfExpr::Int(7)),
+            },
+        )
+        .unwrap();
+        assert!(avm1_and.contains(&0x9d), "AVM1 && uses ActionIf");
+        assert!(!avm1_and.contains(&0x10), "AVM1 && is not eager ActionAnd");
+
+        let mut avm1_or = Vec::new();
+        avm1_compile_expr(
+            &mut avm1_or,
+            &SwfExpr::Binary {
+                op: SwfBinaryOp::Or,
+                lhs: Box::new(SwfExpr::Bool(true)),
+                rhs: Box::new(SwfExpr::Int(7)),
+            },
+        )
+        .unwrap();
+        assert!(avm1_or.contains(&0x9d), "AVM1 || uses ActionIf");
+        assert!(!avm1_or.contains(&0x11), "AVM1 || is not eager ActionOr");
+
+        fn compile(op: SwfBinaryOp, lhs: bool) -> Vec<u8> {
+            let mut pool = AbcPoolBuilder::default();
+            let mut code = SwfBitWriter::new();
+            let mut method_count = 0;
+            let mut method_params = Vec::new();
+            let mut method_bodies = Vec::new();
+            compile_avm2_expr(
+                &mut pool,
+                &SwfExpr::Binary {
+                    op,
+                    lhs: Box::new(SwfExpr::Bool(lhs)),
+                    rhs: Box::new(SwfExpr::Int(7)),
+                },
+                &mut code,
+                &mut method_count,
+                &mut method_params,
+                &mut method_bodies,
+            )
+            .unwrap();
+            code.buf
+        }
+
+        let and_code = compile(SwfBinaryOp::And, false);
+        assert_eq!(&and_code[..4], &[0x27, 0x76, 0x2A, 0x12]);
+        assert!(and_code.contains(&0x29), "non-short-circuit path drops lhs");
+        assert!(!and_code.contains(&0xA8), "logical && is not eager bitand");
+
+        let or_code = compile(SwfBinaryOp::Or, true);
+        assert_eq!(&or_code[..4], &[0x26, 0x76, 0x2A, 0x11]);
+        assert!(or_code.contains(&0x29), "non-short-circuit path drops lhs");
+        assert!(!or_code.contains(&0xA9), "logical || is not eager bitor");
     }
 }

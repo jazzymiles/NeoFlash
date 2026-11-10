@@ -873,3 +873,115 @@ fn preferences_publish_preview_vs_clean_hud_checkboxes_and_test_movie_distinctio
         "Publish uses clean stage output without technical HUD"
     );
 }
+
+#[test]
+fn save_as_fla_supports_all_seven_version_profiles_logs_compatibility_and_preserves_dirty_state() {
+    use neoflash_export::FlaTargetProfile;
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("neoflash-save-as-fla-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let mut d = Driver::new(ThemeMode::Dark);
+    let native_path = temp_dir.join("canonical.nflash");
+    assert!(d.editor.save_to_path(native_path.clone()));
+    assert_eq!(d.editor.path.as_deref(), Some(native_path.as_path()));
+    assert!(!d.editor.dirty());
+
+    // Make the canonical project dirty and set FPS > 120 so FLA compatibility report emits a non-Exact item
+    d.editor.project.fps = 144;
+    assert!(d.editor.dirty());
+
+    // Export all 7 FlaTargetProfile versions through Save As and verify round-trip + Output logging + dirty preservation
+    for (idx, profile) in FlaTargetProfile::ALL.into_iter().enumerate() {
+        d.editor.workspace.publish.fla_target_profile = profile;
+        d.editor.output.clear();
+        let target_path = if profile.is_directory() {
+            temp_dir.join(format!("export_{idx}.xfl"))
+        } else {
+            temp_dir.join(format!("export_{idx}.fla"))
+        };
+        assert_eq!(
+            d.editor.resolve_fla_target_profile_for_path(&target_path),
+            Some(profile)
+        );
+        assert!(
+            d.editor.save_to_path(target_path.clone()),
+            "Save As FLA failed for {:?}",
+            profile
+        );
+        assert!(
+            d.editor.dirty(),
+            "Save As FLA must keep native .nflash dirty state intact for {:?}",
+            profile
+        );
+        assert_eq!(
+            d.editor.path.as_deref(),
+            Some(native_path.as_path()),
+            "Save As FLA must not overwrite canonical .nflash path"
+        );
+        assert!(
+            d.editor
+                .output
+                .iter()
+                .any(|line| line.contains("frame_rate_clamped")),
+            "Save As FLA must log compatibility report items to Output for {:?}: {:?}",
+            profile,
+            d.editor.output
+        );
+        assert!(
+            d.editor
+                .output
+                .iter()
+                .any(|line| line.contains(profile.label())),
+            "Save As FLA must log target profile to Output for {:?}",
+            profile
+        );
+        let reimported = neoflash_import::import_project(&target_path)
+            .unwrap_or_else(|e| panic!("reimport {:?} failed: {e}", profile));
+        assert_eq!(reimported.fps, 120);
+    }
+
+    // Verify suffix-based profile resolution overrides default profile when user types e.g. scene.cs6.fla or scene.flash8.fla
+    d.editor.workspace.publish.fla_target_profile = FlaTargetProfile::AnimateCC;
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.cs6.fla")),
+        Some(FlaTargetProfile::FlashCS6)
+    );
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.cs5_5.fla")),
+        Some(FlaTargetProfile::FlashCS5_5)
+    );
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.cs5.fla")),
+        Some(FlaTargetProfile::FlashCS5)
+    );
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.cs4.fla")),
+        Some(FlaTargetProfile::LegacyFlashCS4)
+    );
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.flash8.fla")),
+        Some(FlaTargetProfile::LegacyFlash8)
+    );
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.xfl")),
+        Some(FlaTargetProfile::UncompressedXfl)
+    );
+    d.editor.workspace.publish.fla_target_profile = FlaTargetProfile::UncompressedXfl;
+    assert_eq!(
+        d.editor
+            .resolve_fla_target_profile_for_path(Path::new("scene.fla")),
+        Some(FlaTargetProfile::AnimateCC),
+        "a .fla archive must never be written as an XFL directory"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

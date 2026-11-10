@@ -530,6 +530,30 @@ impl Editor {
                             }
                         });
                     }
+                    let shown_text_format =
+                        TextFieldState::from_kind(&original.kind).map(|orig_state| {
+                            let fmt = self.resolved_inspector_text_format(&original.id, &orig_state);
+                            match &mut element.kind {
+                                ElementKind::Text {
+                                    font_family,
+                                    font_size,
+                                    color,
+                                    ..
+                                } => {
+                                    *font_family = fmt.font.clone();
+                                    *font_size = fmt.size;
+                                    let [_, r, g, b] = fmt.color.to_be_bytes();
+                                    *color = [r, g, b, color[3]];
+                                }
+                                ElementKind::TextBox { format, .. } => {
+                                    let opts = format.field_options();
+                                    *format = fmt.clone();
+                                    format.set_field_options(opts);
+                                }
+                                _ => {}
+                            }
+                            fmt
+                        });
                     inspector_section(ui, appearance_title(&element.kind), |ui| {
                         if !is_instance && !is_text_box {
                             changes.note(percent_row(ui, "Opacity", &mut element.transform.alpha));
@@ -726,6 +750,18 @@ impl Editor {
                         hint(ui, element.accessibility.as_ref().map(|a| a.name.as_str()).unwrap_or("Not exposed to assistive technology"));
                         if ui.add(nf::Button::new("Edit accessibility…")).clicked() { self.show_panel(crate::workspace::PanelId::Accessibility); }
                     });
+                    if !convert_text
+                        && changes.control.is_some()
+                        && let Some(shown_format) = &shown_text_format
+                    {
+                        self.reconcile_inspector_text_edit(
+                            &original.id,
+                            &original.kind,
+                            shown_format,
+                            &mut element.kind,
+                            &mut element.transform.alpha,
+                        );
+                    }
                 });
                 if let (ElementKind::PaintedPath { fill: old_fill, stroke: old_stroke, .. },
                     ElementKind::PaintedPath { fill, stroke, fill_gradient, stroke_gradient, .. })

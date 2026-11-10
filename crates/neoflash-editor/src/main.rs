@@ -44,6 +44,7 @@ mod stage_cursor;
 mod stage_mapping;
 mod stage_primitives;
 mod stage_selection;
+mod stage_text_edit;
 mod stage_view;
 mod svg_graphics;
 mod symbol_dialog;
@@ -62,6 +63,7 @@ mod timeline_sound;
 mod transform_geometry;
 mod ui_icons;
 mod vector;
+mod video_cache;
 mod workspace;
 mod workspace_presets;
 

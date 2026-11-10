@@ -198,8 +198,11 @@ pub use timeline_sound::{
     timeline_sound_resources, wav_waveform_peaks,
 };
 pub use timeline_video::{
-    TimelineVideoSpan, VideoCodecDiagnostic, VideoCommand, VideoCuePoint, VideoCuePointKind,
-    VideoSyncMode, collect_crossed_cue_points, compute_frame_video_time_ms, inspect_video_resource,
+    ResolvedVideoPlacement, TimelineVideoSpan, TimelineVideoTracker, VideoCodecDiagnostic,
+    VideoCommand, VideoCuePoint, VideoCuePointKind, VideoSyncMode, clamp_or_loop_video_time_ms,
+    collect_crossed_cue_points, compute_frame_video_time_ms, compute_trimmed_video_time_ms,
+    effective_video_span_at_frame, effective_video_span_for_element_at_frame,
+    inspect_video_resource, resolve_draw_item_video_placement, resolve_scene_video_placements,
 };
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use vector_effects::{

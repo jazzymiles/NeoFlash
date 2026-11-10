@@ -724,22 +724,77 @@ fn render_draw_svg(
             }
         }
         ElementKind::TextBox { text, format, .. } => {
-            let raw_color = [
-                ((format.color >> 16) & 0xff) as u8,
-                ((format.color >> 8) & 0xff) as u8,
-                (format.color & 0xff) as u8,
-                255,
-            ];
-            let col = apply_color_transform(raw_color, ct);
-            let _ = writeln!(
-                body,
-                "{indent}<text x=\"0\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" fill=\"{}\"{xf}>{}</text>",
-                fmt_num(format.size, prec),
-                xml_escape(&format.font),
-                fmt_num(format.size, prec),
-                svg_color_hex(col),
-                xml_escape(text)
-            );
+            let fmt_attrs = |fmt: &neoflash_core::TextFormat| -> String {
+                let raw_color = [
+                    ((fmt.color >> 16) & 0xff) as u8,
+                    ((fmt.color >> 8) & 0xff) as u8,
+                    (fmt.color & 0xff) as u8,
+                    255,
+                ];
+                let col = apply_color_transform(raw_color, ct);
+                let mut attrs = format!(
+                    "font-family=\"{}\" font-size=\"{}\" fill=\"{}\"",
+                    xml_escape(&fmt.font),
+                    fmt_num(fmt.size, prec),
+                    svg_color_hex(col)
+                );
+                if fmt.bold {
+                    attrs.push_str(" font-weight=\"bold\"");
+                }
+                if fmt.italic {
+                    attrs.push_str(" font-style=\"italic\"");
+                }
+                if fmt.underline {
+                    attrs.push_str(" text-decoration=\"underline\"");
+                }
+                if fmt.letter_spacing.abs() > 1e-6 {
+                    attrs.push_str(&format!(
+                        " letter-spacing=\"{}\"",
+                        fmt_num(fmt.letter_spacing, prec)
+                    ));
+                }
+                attrs
+            };
+            let state = neoflash_core::TextFieldState::from_kind(&draw.item.kind);
+            if let Some(state) = state
+                && state.format_runs.len() > 1
+            {
+                let base_attrs = fmt_attrs(format);
+                let mut inner = String::new();
+                let mut cursor_u16 = 0u32;
+                let mut char_iter = state.text.chars().peekable();
+                for run in &state.format_runs {
+                    while cursor_u16 < run.start {
+                        let Some(ch) = char_iter.next() else {
+                            break;
+                        };
+                        cursor_u16 += ch.len_utf16() as u32;
+                    }
+                    let mut slice = String::new();
+                    while cursor_u16 < run.end {
+                        let Some(ch) = char_iter.next() else {
+                            break;
+                        };
+                        slice.push(ch);
+                        cursor_u16 += ch.len_utf16() as u32;
+                    }
+                    let run_attrs = fmt_attrs(&run.format);
+                    let _ = write!(inner, "<tspan {run_attrs}>{}</tspan>", xml_escape(&slice));
+                }
+                let _ = writeln!(
+                    body,
+                    "{indent}<text x=\"0\" y=\"{}\" {base_attrs}{xf}>{inner}</text>",
+                    fmt_num(format.size, prec),
+                );
+            } else {
+                let attrs = fmt_attrs(format);
+                let _ = writeln!(
+                    body,
+                    "{indent}<text x=\"0\" y=\"{}\" {attrs}{xf}>{}</text>",
+                    fmt_num(format.size, prec),
+                    xml_escape(text)
+                );
+            }
         }
         ElementKind::Video { width, height } => {
             let _ = writeln!(

@@ -256,6 +256,109 @@ impl Editor {
         }
     }
 
+    pub(crate) fn parse_palette_file_bytes(
+        bytes: &[u8],
+        file_name: &str,
+    ) -> Result<Vec<neoflash_core::GlobalSwatch>, String> {
+        let ext = std::path::Path::new(file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        let prefix = std::path::Path::new(file_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("Swatch");
+        let swatches = match ext.as_str() {
+            "act" => neoflash_import::import_act_palette(bytes, prefix)
+                .map_err(|e| format!("{file_name} [palette-act]: {e}"))?,
+            "clr" => neoflash_import::import_clr_palette(bytes, prefix)
+                .map_err(|e| format!("{file_name} [palette-clr]: {e}"))?,
+            "ase" => neoflash_import::import_ase_palette(bytes)
+                .map_err(|e| format!("{file_name} [palette-ase]: {e}"))?,
+            _ => {
+                return Err(format!(
+                    "{file_name}: unsupported palette extension (expected .act, .clr, or .ase)"
+                ));
+            }
+        };
+        if swatches.is_empty() {
+            return Err(format!("{file_name}: colour palette contains no swatches"));
+        }
+        Ok(swatches)
+    }
+
+    pub(crate) fn merge_swatches_into_project(
+        project: &mut Project,
+        swatches: &[neoflash_core::GlobalSwatch],
+    ) -> usize {
+        if swatches.is_empty() {
+            return 0;
+        }
+        let mut globals = project.global_swatches();
+        let mut custom = project.custom_swatches();
+        for sw in swatches {
+            if let Some(existing) = globals
+                .iter_mut()
+                .find(|g| g.id == sw.id && g.name == sw.name)
+            {
+                existing.color = sw.color;
+            } else {
+                let mut entry = sw.clone();
+                let base_id = entry.id.clone();
+                let mut suffix = 2;
+                while globals.iter().any(|g| g.id == entry.id) {
+                    entry.id = format!("{base_id}-{suffix}");
+                    suffix += 1;
+                }
+                globals.push(entry);
+            }
+            push_unique_color(&mut custom, sw.color);
+        }
+        custom.truncate(256);
+        project.set_global_swatches(&globals);
+        project.set_custom_swatches(&custom);
+        swatches.len()
+    }
+
+    pub(crate) fn import_palette_paths(
+        &mut self,
+        paths: &[std::path::PathBuf],
+    ) -> Result<usize, String> {
+        if paths.is_empty() {
+            return Err("No palette files selected".into());
+        }
+        let mut all_swatches = Vec::new();
+        for path in paths {
+            let display = path.display().to_string();
+            let bytes = std::fs::read(path).map_err(|e| format!("{display}: {e}"))?;
+            let mut swatches = Self::parse_palette_file_bytes(&bytes, &display)?;
+            all_swatches.append(&mut swatches);
+        }
+        let count = all_swatches.len();
+        self.transact_named("Import colour palette", |editor| {
+            Self::merge_swatches_into_project(&mut editor.project, &all_swatches);
+        });
+        self.message(format!(
+            "Imported {count} swatch(es) from {} palette file(s)",
+            paths.len()
+        ));
+        Ok(count)
+    }
+
+    pub(crate) fn import_palette_dialog(&mut self) {
+        let Some(paths) = rfd::FileDialog::new()
+            .add_filter("Colour palettes", &["act", "clr", "ase"])
+            .pick_files()
+        else {
+            return;
+        };
+        if let Err(err) = self.import_palette_paths(&paths) {
+            self.message(err);
+        }
+    }
+
     /// Delete a custom swatch from both document swatches and `WorkspacePrefs::custom_swatches`.
     #[allow(dead_code)]
     pub(crate) fn delete_custom_swatch(&mut self, color: Color) -> bool {
@@ -992,6 +1095,15 @@ impl Editor {
                 {
                     ctx.data_mut(|d| d.insert_temp(jsfl_pair_id, (jsfl_to, jsfl_to)));
                 }
+            if ui
+                .add(c::Button::new("Import palette (.act, .clr, .ase)…"))
+                .on_hover_text(
+                    "Import colour swatches from an Adobe Color Table (.act), Flash Color Set (.clr), or Adobe Swatch Exchange (.ase) palette",
+                )
+                .clicked()
+            {
+                self.import_palette_dialog();
+            }
         }
 
         self.end_property_interaction(&ctx);

@@ -1626,6 +1626,7 @@ impl Editor {
         self.authoring_tools.cancel();
         self.finish_property_edit();
         self.finish_selection_gesture();
+        self.finish_stage_text_typing();
         self.shape_draft = None;
         self.finish_point_drag();
         if self.vector.draft.is_some() {
@@ -1649,6 +1650,7 @@ impl Editor {
         self.authoring_tools.cancel();
         self.finish_property_edit();
         self.cancel_selection_gesture();
+        self.exit_stage_text_edit();
         self.cancel_vector();
         self.shape_draft = None;
         self.timeline_key_drag = None;
@@ -1679,6 +1681,9 @@ impl Editor {
         }
         if tool != self.tool {
             self.finish_edits();
+            if tool != Tool::Text {
+                self.exit_stage_text_edit();
+            }
             self.timeline_key_drag = None;
             self.vector = Default::default();
             if self.authoring_tools.primitive_drawn_selection && tool != Tool::Select {

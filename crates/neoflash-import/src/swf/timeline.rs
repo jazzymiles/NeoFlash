@@ -2061,7 +2061,9 @@ fn parse_swf_blend_mode(blend: u8) -> Option<neoflash_core::BlendMode> {
     }
 }
 
-fn parse_swf_filter_list(r: &mut SwfSlice<'_>) -> (Vec<neoflash_core::FilterSpec>, bool) {
+pub(super) fn parse_swf_filter_list(
+    r: &mut SwfSlice<'_>,
+) -> (Vec<neoflash_core::FilterSpec>, bool) {
     use neoflash_core::{FilterSpec, MAX_OBJECT_FILTERS};
     let Some(count) = r.u8().map(usize::from) else {
         return (Vec::new(), true);

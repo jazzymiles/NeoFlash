@@ -76,11 +76,11 @@ impl Project {
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=11) {
+    if !matches!(project.format_version, 1..=12) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 11",
+                "unsupported version {}; supported versions are 1 through 12",
                 project.format_version
             ),
         );
@@ -124,6 +124,12 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
             "format_version".into(),
             "layer/keyframe display-filter stacks and External/Progressive timeline-video deployment require document version 11"
                 .into(),
+        );
+    }
+    if project.uses_format_12() && project.format_version < 12 {
+        add(
+            "format_version".into(),
+            "timeline-video out-point trims require document version 12".into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -1427,6 +1433,17 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 add(format!("{kp}.video.stream_url"), err);
                             }
                         }
+                    }
+                    if let Some(end_offset_ms) = video.end_offset_ms
+                        && end_offset_ms <= video.start_offset_ms
+                    {
+                        add(
+                            format!("{kp}.video.end_offset_ms"),
+                            format!(
+                                "video out-point ({end_offset_ms} ms) must be greater than in-point ({} ms)",
+                                video.start_offset_ms
+                            ),
+                        );
                     }
                     for (ci, cue) in video.cue_points.iter().enumerate() {
                         if cue.name.trim().is_empty() {

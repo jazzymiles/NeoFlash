@@ -407,8 +407,19 @@ fn pass3_jpeg_quality_spritesheets_sourcemaps_minify_and_video_deployment_modes(
         let out = dir.join(format!("jpeg-q{q}"));
         export_project_with_config(&bitmap_proj, &out, &rt, &options, &cfg)
             .expect("export bitmap project");
+        assert!(out.join("sprite_sheet.png").is_file());
         assert!(out.join("sprite_sheet.json").is_file());
         assert!(out.join("bundle.js.map").is_file());
+        let sheet_img = image::open(out.join("sprite_sheet.png")).expect("decode sprite_sheet.png");
+        assert!(sheet_img.width() >= 24 && sheet_img.height() >= 24);
+        let sheet_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(out.join("sprite_sheet.json")).unwrap()).unwrap();
+        assert_eq!(sheet_json["image"], "sprite_sheet.png");
+        assert_eq!(sheet_json["bitmaps"][0]["frame"]["w"], 24);
+        assert_eq!(sheet_json["bitmaps"][0]["frame"]["h"], 24);
+        let map_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(out.join("bundle.js.map")).unwrap()).unwrap();
+        assert!(!map_json["mappings"].as_str().unwrap_or("").is_empty());
 
         let bundle_raw = fs::read_to_string(out.join("bundle.js")).expect("bundle.js");
         assert!(bundle_raw.ends_with(";\n"));
@@ -768,6 +779,7 @@ fn pass5_sequential_overwrite_and_stale_file_cleanup_stress() {
     export_project_with_config(&proj, &out, &rt, &opts_balanced, &cfg_rich).expect("step 1 export");
     assert!(out.join("neoflash_web_bg.wasm").is_file());
     assert!(out.join("bundle.js.map").is_file());
+    assert!(out.join("sprite_sheet.png").is_file());
     assert!(out.join("sprite_sheet.json").is_file());
     assert!(out.join("media/clip.mp4").is_file());
     assert!(out.join("index.html").is_file());
@@ -797,6 +809,10 @@ fn pass5_sequential_overwrite_and_stale_file_cleanup_stress() {
     assert!(
         !out.join("bundle.js.map").exists(),
         "stale bundle.js.map must be removed when source_maps is turned off"
+    );
+    assert!(
+        !out.join("sprite_sheet.png").exists(),
+        "stale sprite_sheet.png must be removed when sprite_sheets is turned off"
     );
     assert!(
         !out.join("sprite_sheet.json").exists(),
