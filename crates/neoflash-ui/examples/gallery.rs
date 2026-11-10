@@ -3,6 +3,8 @@
 //! ```bash
 //! cargo run -p neoflash-ui --example gallery              # interactive, Dark
 //! cargo run -p neoflash-ui --example gallery -- light     # Light
+//! cargo run -p neoflash-ui --example gallery -- mid-neutral-gray
+//! cargo run -p neoflash-ui --example gallery -- dark-graphite
 //! cargo run -p neoflash-ui --example gallery -- dark  target/ui-shots/gallery-dark.png   # save a PNG and quit
 //! NF2_GALLERY_SECTION=answers cargo run -p neoflash-ui --example gallery -- dark x.png  # design-answer pieces
 //! NF2_GALLERY_SECTION=timeline cargo run -p neoflash-ui --example gallery -- dark x.png # Mode & Solo + timeline
@@ -16,13 +18,22 @@ use neoflash_ui::metrics::FrameView;
 use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::{Theme, palette, typography};
 
+const HELP: &str = "NF2 component gallery\n\nUsage: gallery [dark|light|mid-neutral-gray|dark-graphite] [screenshot.png]";
+
+fn parse_theme(value: Option<&str>) -> Theme {
+    value.and_then(Theme::from_slug).unwrap_or_default()
+}
+
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
-    let theme = if args.get(1).is_some_and(|a| a == "light") {
-        Theme::Light
-    } else {
-        Theme::Dark
-    };
+    if args
+        .get(1)
+        .is_some_and(|arg| matches!(arg.as_str(), "-h" | "--help"))
+    {
+        println!("{HELP}");
+        return Ok(());
+    }
+    let theme = parse_theme(args.get(1).map(String::as_str));
     let shot = args.get(2).cloned();
     eframe::run_native(
         "NF2 gallery",
@@ -40,6 +51,20 @@ fn main() -> eframe::Result {
             }))
         }),
     )
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn parses_every_public_theme_slug() {
+        assert_eq!(parse_theme(None), Theme::Dark);
+        assert_eq!(parse_theme(Some("dark")), Theme::Dark);
+        assert_eq!(parse_theme(Some("light")), Theme::Light);
+        assert_eq!(parse_theme(Some("mid-neutral-gray")), Theme::MidNeutralGray);
+        assert_eq!(parse_theme(Some("dark-graphite")), Theme::DarkGraphite);
+    }
 }
 
 #[derive(Default)]

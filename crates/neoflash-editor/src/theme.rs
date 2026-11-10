@@ -56,13 +56,50 @@ pub enum ThemeMode {
     /// NF2 default theme.
     #[default]
     Dark,
+    MidNeutralGray,
+    DarkGraphite,
 }
 
 impl ThemeMode {
+    pub const ALL: [Self; 4] = [
+        Self::Dark,
+        Self::Light,
+        Self::MidNeutralGray,
+        Self::DarkGraphite,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+            Self::MidNeutralGray => "Mid Neutral Gray",
+            Self::DarkGraphite => "Dark Graphite",
+        }
+    }
+
+    pub fn from_slug(value: &str) -> Option<Self> {
+        neoflash_ui::Theme::from_slug(value).map(Self::from_nf2)
+    }
+
     pub fn palette(self) -> &'static UiPalette {
         match self {
             Self::Light => &LIGHT,
             Self::Dark => &DARK,
+            Self::MidNeutralGray => &MID_NEUTRAL_GRAY,
+            Self::DarkGraphite => &DARK_GRAPHITE,
+        }
+    }
+
+    pub fn current(ctx: &egui::Context) -> Self {
+        Self::from_nf2(neoflash_ui::Theme::current(ctx))
+    }
+
+    pub const fn from_nf2(theme: neoflash_ui::Theme) -> Self {
+        match theme {
+            neoflash_ui::Theme::Light => Self::Light,
+            neoflash_ui::Theme::Dark => Self::Dark,
+            neoflash_ui::Theme::MidNeutralGray => Self::MidNeutralGray,
+            neoflash_ui::Theme::DarkGraphite => Self::DarkGraphite,
         }
     }
 
@@ -76,6 +113,8 @@ impl ThemeMode {
         match self {
             Self::Light => neoflash_ui::Theme::Light,
             Self::Dark => neoflash_ui::Theme::Dark,
+            Self::MidNeutralGray => neoflash_ui::Theme::MidNeutralGray,
+            Self::DarkGraphite => neoflash_ui::Theme::DarkGraphite,
         }
     }
 }
@@ -113,10 +152,7 @@ pub struct UiPalette {
 }
 impl UiPalette {
     pub fn current(ctx: &egui::Context) -> &'static Self {
-        match ctx.theme() {
-            egui::Theme::Light => ThemeMode::Light.palette(),
-            egui::Theme::Dark => ThemeMode::Dark.palette(),
-        }
+        ThemeMode::current(ctx).palette()
     }
 }
 
@@ -127,6 +163,8 @@ fn palette(theme: ThemeMode) -> UiPalette {
     let t = match theme {
         ThemeMode::Light => &neoflash_ui::LIGHT,
         ThemeMode::Dark => &neoflash_ui::DARK,
+        ThemeMode::MidNeutralGray => &neoflash_ui::MID_NEUTRAL_GRAY,
+        ThemeMode::DarkGraphite => &neoflash_ui::DARK_GRAPHITE,
     };
     let x = StageOverlay::of(theme);
     UiPalette {
@@ -181,7 +219,7 @@ impl StageOverlay {
                 onion_after: rgb(0xa05c16),
                 stage_shadow: Color32::from_black_alpha(38),
             },
-            ThemeMode::Dark => Self {
+            ThemeMode::Dark | ThemeMode::MidNeutralGray | ThemeMode::DarkGraphite => Self {
                 overlay: rgb(0x98c5ff),
                 overlay_halo: rgb(0x18202c),
                 handle: rgb(0x20242b),
@@ -194,6 +232,8 @@ impl StageOverlay {
 }
 static LIGHT: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::Light));
 static DARK: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::Dark));
+static MID_NEUTRAL_GRAY: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::MidNeutralGray));
+static DARK_GRAPHITE: LazyLock<UiPalette> = LazyLock::new(|| palette(ThemeMode::DarkGraphite));
 
 /// Shared disabled presentation keeps concrete colors opaque and leaves layout
 /// and widget IDs intact. Native widget semantics still reject interaction.
@@ -376,8 +416,8 @@ mod tests {
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
     }
     #[test]
-    fn essential_text_and_timeline_markers_have_contrast_in_both_themes() {
-        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+    fn essential_text_and_timeline_markers_have_contrast_in_every_theme() {
+        for mode in ThemeMode::ALL {
             let p = mode.palette();
             let t = mode.nf2().palette();
             for (name, a, b) in [
@@ -440,7 +480,7 @@ mod tests {
     #[test]
     fn strong_labels_contrast_with_panels_and_clicked_widget_backgrounds() {
         let ctx = egui::Context::default();
-        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        for mode in ThemeMode::ALL {
             mode.apply(&ctx);
             let style = ctx.style();
             let visuals = &style.visuals;
@@ -467,9 +507,16 @@ mod tests {
                 .text_styles
                 .insert(egui::TextStyle::Body, egui::FontId::proportional(19.));
         });
-        for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::Dark] {
+        for mode in [
+            ThemeMode::Dark,
+            ThemeMode::Light,
+            ThemeMode::MidNeutralGray,
+            ThemeMode::DarkGraphite,
+            ThemeMode::Dark,
+        ] {
             mode.apply(&ctx);
-            assert_eq!(ctx.style().visuals.dark_mode, mode == ThemeMode::Dark);
+            assert_eq!(ctx.style().visuals.dark_mode, mode.nf2().is_dark());
+            assert_eq!(ThemeMode::current(&ctx), mode);
             assert_eq!(ctx.style().visuals.panel_fill, mode.palette().panel_fill);
             assert_eq!(
                 neoflash_ui::palette(&ctx).text_primary,
@@ -515,7 +562,7 @@ mod tests {
         let focus = initial.id.with(1_usize);
         ctx.memory_mut(|memory| memory.request_focus(focus));
         render(vec![]);
-        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        for mode in ThemeMode::ALL {
             mode.apply(&ctx);
             let before = egui::scroll_area::State::load(&ctx, initial.id)
                 .unwrap()
@@ -537,5 +584,21 @@ mod tests {
                 if rect.stroke.width == 2. && rect.stroke.color == mode.palette().scrollbar_focus))
             );
         }
+    }
+
+    #[test]
+    fn editor_theme_slugs_map_to_the_same_four_nf2_palettes() {
+        for mode in ThemeMode::ALL {
+            assert_eq!(ThemeMode::from_slug(mode.nf2().slug()), Some(mode));
+        }
+        assert_eq!(
+            ThemeMode::from_slug("mid_neutral_gray"),
+            Some(ThemeMode::MidNeutralGray)
+        );
+        assert_eq!(
+            ThemeMode::from_slug("DARK_GRAPHITE"),
+            Some(ThemeMode::DarkGraphite)
+        );
+        assert_eq!(ThemeMode::from_slug("unknown"), None);
     }
 }

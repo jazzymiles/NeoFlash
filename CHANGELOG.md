@@ -2,6 +2,14 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Expanded NF2 v2.25 from two to four complete interface themes: Dark (default), Light, Mid Neutral Gray
+  (`#505050` application background) and Dark Graphite (`#171717` application background). Window ▸ Appearance
+  switches all four; Preferences ▸ General
+  previews them live, Save persists the choice, and Cancel/Escape/close restores the saved theme without changing
+  document content or Undo. The Figma interface pages, panel exports, generated tokens, design bible and gallery now
+  use the same stable `dark`, `light`, `mid-neutral-gray` and `dark-graphite` slugs; native screenshot mode and the
+  component gallery accept those slugs for comparison.
+
 - Audited and hardened the overnight authoring/export batch without removing working paths (`T-199`): document
   format 11 now protects layer/keyframe filters and non-embedded video deployment; mixed Embedded/External/
   Progressive uses of one resource remain deterministic and retain required bytes; SWF export no longer drops the

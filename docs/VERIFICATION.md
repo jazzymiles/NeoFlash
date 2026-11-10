@@ -49,6 +49,24 @@ movie just because a previous export was deleted. For deliberate artifact genera
 to produce MP4/GIF (MP4 requires FFmpeg). Set `NEOFLASH_EXPORT_CARTOON_HTML5=1` after `scripts/build-web.sh` to export
 the cartoon tests with the real browser runtime. Requested artifacts go under `dist/generated-examples/`.
 
+### NF2 v2.25 four-theme integration
+
+The 10 November 2026 `T-207` design export resolves four named public themes: Dark, Light, Mid Neutral Gray and
+Dark Graphite. The documentation/token generator completed with JSON groups `dark`, `light`, `mid_neutral_gray` and
+`dark_graphite`; the generated Mid Neutral Gray `color/bg/app` value is `#505050`, while Dark Graphite uses
+`color/bg/app = #171717` and `color/timeline/grid = #2E2E2E`. Its public CSS, gallery, export and screenshot slugs are
+`dark`, `light`, `mid-neutral-gray` and `dark-graphite`. Generator Python syntax, export-plugin JavaScript syntax,
+source JSON parsing and in-memory four-theme table/gallery probes passed.
+
+Focused Rust coverage checks exact palette identity rather than reducing all dark-class palettes to egui's Dark
+slot, essential text/timeline contrast in every theme, preference serialization and legacy names, Preferences live
+preview with Cancel restoration and Save persistence, gallery/screenshot slug parsing, and the portable Help/Reference
+edition's active-theme inheritance, four-theme CSS cycle and script-free output. This evidence establishes token
+generation, selection, persistence and semantic-palette wiring. It does not by itself establish pixel parity,
+native menu interaction, every panel state, VoiceOver, IME or mixed-DPI behavior. Direct visual acceptance requires
+1920 × 1080 native captures and representative panel captures in all four themes compared with the matching final
+Figma exports. The generated PDFs and gallery verify reference layout only, not application interaction.
+
 ### Dense vector and post-delivery regression
 
 The 9 November 2026 `T-176` audit completed one uninterrupted `./scripts/check.sh` pass with local loopback enabled.

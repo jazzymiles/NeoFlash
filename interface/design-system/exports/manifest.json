@@ -12,6 +12,30 @@
   "pngMaxDimension": 3840
  },
  {
+  "id": "259:216214",
+  "name": "NF2 / Editor — Main",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-main",
+  "png": "exports/interface/mid-neutral-gray/png/editor-main.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-main.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:41750",
+  "name": "NF2 / Editor — Main",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-main",
+  "png": "exports/interface/dark-graphite/png/editor-main.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-main.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
   "id": "59:50910",
   "name": "NF2 / Editor — Main",
   "group": "interface",
@@ -31,6 +55,30 @@
   "slug": "editor-actions-tab",
   "png": "exports/interface/dark/png/editor-actions-tab.png",
   "svg": "exports/interface/dark/svg/editor-actions-tab.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:216462",
+  "name": "NF2 / Editor — Actions tab",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-actions-tab",
+  "png": "exports/interface/mid-neutral-gray/png/editor-actions-tab.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-actions-tab.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:41998",
+  "name": "NF2 / Editor — Actions tab",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-actions-tab",
+  "png": "exports/interface/dark-graphite/png/editor-actions-tab.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-actions-tab.svg",
   "w": 1920,
   "h": 1080,
   "pngMaxDimension": 3840
@@ -60,6 +108,30 @@
   "pngMaxDimension": 3840
  },
  {
+  "id": "259:216686",
+  "name": "NF2 / Editor — Unsaved changes dialog",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-unsaved-changes-dialog",
+  "png": "exports/interface/mid-neutral-gray/png/editor-unsaved-changes-dialog.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-unsaved-changes-dialog.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:42222",
+  "name": "NF2 / Editor — Unsaved changes dialog",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-unsaved-changes-dialog",
+  "png": "exports/interface/dark-graphite/png/editor-unsaved-changes-dialog.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-unsaved-changes-dialog.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
   "id": "59:51375",
   "name": "NF2 / Editor — Unsaved changes dialog",
   "group": "interface",
@@ -79,6 +151,30 @@
   "slug": "editor-convert-to-symbol-dialog",
   "png": "exports/interface/dark/png/editor-convert-to-symbol-dialog.png",
   "svg": "exports/interface/dark/svg/editor-convert-to-symbol-dialog.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:216947",
+  "name": "NF2 / Editor — Convert to Symbol dialog",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-convert-to-symbol-dialog",
+  "png": "exports/interface/mid-neutral-gray/png/editor-convert-to-symbol-dialog.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-convert-to-symbol-dialog.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:42483",
+  "name": "NF2 / Editor — Convert to Symbol dialog",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-convert-to-symbol-dialog",
+  "png": "exports/interface/dark-graphite/png/editor-convert-to-symbol-dialog.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-convert-to-symbol-dialog.svg",
   "w": 1920,
   "h": 1080,
   "pngMaxDimension": 3840
@@ -108,6 +204,30 @@
   "pngMaxDimension": 2640
  },
  {
+  "id": "259:217218",
+  "name": "NF2 / Timeline — states legend",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "timeline-states-legend",
+  "png": "exports/interface/mid-neutral-gray/png/timeline-states-legend.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/timeline-states-legend.svg",
+  "w": 1320,
+  "h": 782,
+  "pngMaxDimension": 2640
+ },
+ {
+  "id": "259:42754",
+  "name": "NF2 / Timeline — states legend",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "timeline-states-legend",
+  "png": "exports/interface/dark-graphite/png/timeline-states-legend.png",
+  "svg": "exports/interface/dark-graphite/svg/timeline-states-legend.svg",
+  "w": 1320,
+  "h": 782,
+  "pngMaxDimension": 2640
+ },
+ {
   "id": "59:51899",
   "name": "NF2 / Timeline — states legend",
   "group": "interface",
@@ -127,6 +247,30 @@
   "slug": "editor-view-settings-open",
   "png": "exports/interface/dark/png/editor-view-settings-open.png",
   "svg": "exports/interface/dark/svg/editor-view-settings-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:217370",
+  "name": "NF2 / Editor — View settings open",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-view-settings-open",
+  "png": "exports/interface/mid-neutral-gray/png/editor-view-settings-open.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-view-settings-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:42906",
+  "name": "NF2 / Editor — View settings open",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-view-settings-open",
+  "png": "exports/interface/dark-graphite/png/editor-view-settings-open.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-view-settings-open.svg",
   "w": 1920,
   "h": 1080,
   "pngMaxDimension": 3840
@@ -156,6 +300,30 @@
   "pngMaxDimension": 3840
  },
  {
+  "id": "259:217618",
+  "name": "NF2 / Editor — Swatches open",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-swatches-open",
+  "png": "exports/interface/mid-neutral-gray/png/editor-swatches-open.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-swatches-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:43154",
+  "name": "NF2 / Editor — Swatches open",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-swatches-open",
+  "png": "exports/interface/dark-graphite/png/editor-swatches-open.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-swatches-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
   "id": "59:52295",
   "name": "NF2 / Editor — Swatches open",
   "group": "interface",
@@ -175,6 +343,30 @@
   "slug": "editor-ease-panel-open",
   "png": "exports/interface/dark/png/editor-ease-panel-open.png",
   "svg": "exports/interface/dark/svg/editor-ease-panel-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:217867",
+  "name": "NF2 / Editor — Ease panel open",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-ease-panel-open",
+  "png": "exports/interface/mid-neutral-gray/png/editor-ease-panel-open.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-ease-panel-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:43403",
+  "name": "NF2 / Editor — Ease panel open",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-ease-panel-open",
+  "png": "exports/interface/dark-graphite/png/editor-ease-panel-open.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-ease-panel-open.svg",
   "w": 1920,
   "h": 1080,
   "pngMaxDimension": 3840
@@ -204,6 +396,30 @@
   "pngMaxDimension": 3840
  },
  {
+  "id": "259:218159",
+  "name": "NF2 / Editor — Edit menu open",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-edit-menu-open",
+  "png": "exports/interface/mid-neutral-gray/png/editor-edit-menu-open.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-edit-menu-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:43695",
+  "name": "NF2 / Editor — Edit menu open",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-edit-menu-open",
+  "png": "exports/interface/dark-graphite/png/editor-edit-menu-open.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-edit-menu-open.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
   "id": "59:52828",
   "name": "NF2 / Editor — Edit menu open",
   "group": "interface",
@@ -223,6 +439,30 @@
   "slug": "editor-editing-symbol-in-place",
   "png": "exports/interface/dark/png/editor-editing-symbol-in-place.png",
   "svg": "exports/interface/dark/svg/editor-editing-symbol-in-place.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:218440",
+  "name": "NF2 / Editor — Editing symbol in place",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-editing-symbol-in-place",
+  "png": "exports/interface/mid-neutral-gray/png/editor-editing-symbol-in-place.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-editing-symbol-in-place.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:43976",
+  "name": "NF2 / Editor — Editing symbol in place",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-editing-symbol-in-place",
+  "png": "exports/interface/dark-graphite/png/editor-editing-symbol-in-place.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-editing-symbol-in-place.svg",
   "w": 1920,
   "h": 1080,
   "pngMaxDimension": 3840
@@ -252,6 +492,30 @@
   "pngMaxDimension": 3840
  },
  {
+  "id": "259:218713",
+  "name": "NF2 / Editor — Video on timeline",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-video-on-timeline",
+  "png": "exports/interface/mid-neutral-gray/png/editor-video-on-timeline.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-video-on-timeline.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:44249",
+  "name": "NF2 / Editor — Video on timeline",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-video-on-timeline",
+  "png": "exports/interface/dark-graphite/png/editor-video-on-timeline.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-video-on-timeline.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
   "id": "59:53374",
   "name": "NF2 / Editor — Video on timeline",
   "group": "interface",
@@ -271,6 +535,30 @@
   "slug": "editor-motion-tween-path",
   "png": "exports/interface/dark/png/editor-motion-tween-path.png",
   "svg": "exports/interface/dark/svg/editor-motion-tween-path.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:219005",
+  "name": "NF2 / Editor — Motion tween path",
+  "group": "interface",
+  "theme": "mid-neutral-gray",
+  "slug": "editor-motion-tween-path",
+  "png": "exports/interface/mid-neutral-gray/png/editor-motion-tween-path.png",
+  "svg": "exports/interface/mid-neutral-gray/svg/editor-motion-tween-path.svg",
+  "w": 1920,
+  "h": 1080,
+  "pngMaxDimension": 3840
+ },
+ {
+  "id": "259:44541",
+  "name": "NF2 / Editor — Motion tween path",
+  "group": "interface",
+  "theme": "dark-graphite",
+  "slug": "editor-motion-tween-path",
+  "png": "exports/interface/dark-graphite/png/editor-motion-tween-path.png",
+  "svg": "exports/interface/dark-graphite/svg/editor-motion-tween-path.svg",
   "w": 1920,
   "h": 1080,
   "pngMaxDimension": 3840
@@ -300,6 +588,30 @@
   "pngMaxDimension": 740
  },
  {
+  "id": "265:624551",
+  "name": "Panel / Align",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-align",
+  "png": "exports/panels/mid-neutral-gray/png/panel-align.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-align.svg",
+  "w": 264,
+  "h": 370,
+  "pngMaxDimension": 740
+ },
+ {
+  "id": "265:639787",
+  "name": "Panel / Align",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-align",
+  "png": "exports/panels/dark-graphite/png/panel-align.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-align.svg",
+  "w": 264,
+  "h": 370,
+  "pngMaxDimension": 740
+ },
+ {
   "id": "69:15210",
   "name": "Panel / Align",
   "group": "panels",
@@ -319,6 +631,30 @@
   "slug": "panel-transform",
   "png": "exports/panels/dark/png/panel-transform.png",
   "svg": "exports/panels/dark/svg/panel-transform.svg",
+  "w": 264,
+  "h": 360,
+  "pngMaxDimension": 720
+ },
+ {
+  "id": "265:624576",
+  "name": "Panel / Transform",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-transform",
+  "png": "exports/panels/mid-neutral-gray/png/panel-transform.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-transform.svg",
+  "w": 264,
+  "h": 360,
+  "pngMaxDimension": 720
+ },
+ {
+  "id": "265:639812",
+  "name": "Panel / Transform",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-transform",
+  "png": "exports/panels/dark-graphite/png/panel-transform.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-transform.svg",
   "w": 264,
   "h": 360,
   "pngMaxDimension": 720
@@ -348,6 +684,30 @@
   "pngMaxDimension": 1124
  },
  {
+  "id": "265:624604",
+  "name": "Panel / Tools (floating)",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-tools-floating",
+  "png": "exports/panels/mid-neutral-gray/png/panel-tools-floating.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-tools-floating.svg",
+  "w": 108,
+  "h": 562,
+  "pngMaxDimension": 1124
+ },
+ {
+  "id": "265:639840",
+  "name": "Panel / Tools (floating)",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-tools-floating",
+  "png": "exports/panels/dark-graphite/png/panel-tools-floating.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-tools-floating.svg",
+  "w": 108,
+  "h": 562,
+  "pngMaxDimension": 1124
+ },
+ {
   "id": "69:15263",
   "name": "Panel / Tools (floating)",
   "group": "panels",
@@ -367,6 +727,30 @@
   "slug": "panel-color-solid",
   "png": "exports/panels/dark/png/panel-color-solid.png",
   "svg": "exports/panels/dark/svg/panel-color-solid.svg",
+  "w": 280,
+  "h": 555,
+  "pngMaxDimension": 1110
+ },
+ {
+  "id": "265:624608",
+  "name": "Panel / Color — Solid",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-color-solid",
+  "png": "exports/panels/mid-neutral-gray/png/panel-color-solid.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-color-solid.svg",
+  "w": 280,
+  "h": 555,
+  "pngMaxDimension": 1110
+ },
+ {
+  "id": "265:639844",
+  "name": "Panel / Color — Solid",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-color-solid",
+  "png": "exports/panels/dark-graphite/png/panel-color-solid.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-color-solid.svg",
   "w": 280,
   "h": 555,
   "pngMaxDimension": 1110
@@ -396,6 +780,30 @@
   "pngMaxDimension": 1318
  },
  {
+  "id": "265:624634",
+  "name": "Panel / Color — Radial gradient",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-color-radial-gradient",
+  "png": "exports/panels/mid-neutral-gray/png/panel-color-radial-gradient.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-color-radial-gradient.svg",
+  "w": 280,
+  "h": 659,
+  "pngMaxDimension": 1318
+ },
+ {
+  "id": "265:639870",
+  "name": "Panel / Color — Radial gradient",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-color-radial-gradient",
+  "png": "exports/panels/dark-graphite/png/panel-color-radial-gradient.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-color-radial-gradient.svg",
+  "w": 280,
+  "h": 659,
+  "pngMaxDimension": 1318
+ },
+ {
   "id": "69:15295",
   "name": "Panel / Color — Radial gradient",
   "group": "panels",
@@ -415,6 +823,30 @@
   "slug": "color-type-menu-open",
   "png": "exports/panels/dark/png/color-type-menu-open.png",
   "svg": "exports/panels/dark/svg/color-type-menu-open.svg",
+  "w": 280,
+  "h": 561,
+  "pngMaxDimension": 1122
+ },
+ {
+  "id": "265:624665",
+  "name": "Color — type menu open",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "color-type-menu-open",
+  "png": "exports/panels/mid-neutral-gray/png/color-type-menu-open.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/color-type-menu-open.svg",
+  "w": 280,
+  "h": 561,
+  "pngMaxDimension": 1122
+ },
+ {
+  "id": "265:639901",
+  "name": "Color — type menu open",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "color-type-menu-open",
+  "png": "exports/panels/dark-graphite/png/color-type-menu-open.png",
+  "svg": "exports/panels/dark-graphite/svg/color-type-menu-open.svg",
   "w": 280,
   "h": 561,
   "pngMaxDimension": 1122
@@ -444,6 +876,30 @@
   "pngMaxDimension": 1318
  },
  {
+  "id": "265:624698",
+  "name": "Color — panel menu open",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "color-panel-menu-open",
+  "png": "exports/panels/mid-neutral-gray/png/color-panel-menu-open.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/color-panel-menu-open.svg",
+  "w": 280,
+  "h": 659,
+  "pngMaxDimension": 1318
+ },
+ {
+  "id": "265:639934",
+  "name": "Color — panel menu open",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "color-panel-menu-open",
+  "png": "exports/panels/dark-graphite/png/color-panel-menu-open.png",
+  "svg": "exports/panels/dark-graphite/svg/color-panel-menu-open.svg",
+  "w": 280,
+  "h": 659,
+  "pngMaxDimension": 1318
+ },
+ {
   "id": "69:15363",
   "name": "Color — panel menu open",
   "group": "panels",
@@ -463,6 +919,32 @@
   "slug": "panel-properties-text",
   "png": "exports/panels/dark/png/panel-properties-text.png",
   "svg": "exports/panels/dark/svg/panel-properties-text.svg",
+  "w": 320,
+  "h": 1628,
+  "pngMaxDimension": 3256,
+  "split": true
+ },
+ {
+  "id": "265:624737",
+  "name": "Panel / Properties — Text",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-properties-text",
+  "png": "exports/panels/mid-neutral-gray/png/panel-properties-text.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-properties-text.svg",
+  "w": 320,
+  "h": 1628,
+  "pngMaxDimension": 3256,
+  "split": true
+ },
+ {
+  "id": "265:639973",
+  "name": "Panel / Properties — Text",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-properties-text",
+  "png": "exports/panels/dark-graphite/png/panel-properties-text.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-properties-text.svg",
   "w": 320,
   "h": 1628,
   "pngMaxDimension": 3256,
@@ -494,6 +976,30 @@
   "pngMaxDimension": 1920
  },
  {
+  "id": "265:624830",
+  "name": "Panel / Actions (floating)",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-actions-floating",
+  "png": "exports/panels/mid-neutral-gray/png/panel-actions-floating.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-actions-floating.svg",
+  "w": 960,
+  "h": 660,
+  "pngMaxDimension": 1920
+ },
+ {
+  "id": "265:640066",
+  "name": "Panel / Actions (floating)",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-actions-floating",
+  "png": "exports/panels/dark-graphite/png/panel-actions-floating.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-actions-floating.svg",
+  "w": 960,
+  "h": 660,
+  "pngMaxDimension": 1920
+ },
+ {
   "id": "69:15459",
   "name": "Panel / Actions (floating)",
   "group": "panels",
@@ -513,6 +1019,30 @@
   "slug": "panel-ease",
   "png": "exports/panels/dark/png/panel-ease.png",
   "svg": "exports/panels/dark/svg/panel-ease.svg",
+  "w": 376,
+  "h": 693,
+  "pngMaxDimension": 1386
+ },
+ {
+  "id": "265:624975",
+  "name": "Panel / Ease",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-ease",
+  "png": "exports/panels/mid-neutral-gray/png/panel-ease.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-ease.svg",
+  "w": 376,
+  "h": 693,
+  "pngMaxDimension": 1386
+ },
+ {
+  "id": "265:640211",
+  "name": "Panel / Ease",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-ease",
+  "png": "exports/panels/dark-graphite/png/panel-ease.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-ease.svg",
   "w": 376,
   "h": 693,
   "pngMaxDimension": 1386
@@ -542,6 +1072,30 @@
   "pngMaxDimension": 860
  },
  {
+  "id": "265:625020",
+  "name": "NF2/Swatches Popover",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "swatches-popover",
+  "png": "exports/panels/mid-neutral-gray/png/swatches-popover.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/swatches-popover.svg",
+  "w": 300,
+  "h": 430,
+  "pngMaxDimension": 860
+ },
+ {
+  "id": "265:640256",
+  "name": "NF2/Swatches Popover",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "swatches-popover",
+  "png": "exports/panels/dark-graphite/png/swatches-popover.png",
+  "svg": "exports/panels/dark-graphite/svg/swatches-popover.svg",
+  "w": 300,
+  "h": 430,
+  "pngMaxDimension": 860
+ },
+ {
   "id": "69:15649",
   "name": "NF2/Swatches Popover",
   "group": "panels",
@@ -561,6 +1115,30 @@
   "slug": "view-settings",
   "png": "exports/panels/dark/png/view-settings.png",
   "svg": "exports/panels/dark/svg/view-settings.svg",
+  "w": 320,
+  "h": 542,
+  "pngMaxDimension": 1084
+ },
+ {
+  "id": "265:625021",
+  "name": "NF2/View Settings",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "view-settings",
+  "png": "exports/panels/mid-neutral-gray/png/view-settings.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/view-settings.svg",
+  "w": 320,
+  "h": 542,
+  "pngMaxDimension": 1084
+ },
+ {
+  "id": "265:640257",
+  "name": "NF2/View Settings",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "view-settings",
+  "png": "exports/panels/dark-graphite/png/view-settings.png",
+  "svg": "exports/panels/dark-graphite/svg/view-settings.svg",
   "w": 320,
   "h": 542,
   "pngMaxDimension": 1084
@@ -590,6 +1168,30 @@
   "pngMaxDimension": 1408
  },
  {
+  "id": "265:625022",
+  "name": "Panel / Properties — Oval primitive",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-properties-oval-primitive",
+  "png": "exports/panels/mid-neutral-gray/png/panel-properties-oval-primitive.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-properties-oval-primitive.svg",
+  "w": 320,
+  "h": 704,
+  "pngMaxDimension": 1408
+ },
+ {
+  "id": "265:640258",
+  "name": "Panel / Properties — Oval primitive",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-properties-oval-primitive",
+  "png": "exports/panels/dark-graphite/png/panel-properties-oval-primitive.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-properties-oval-primitive.svg",
+  "w": 320,
+  "h": 704,
+  "pngMaxDimension": 1408
+ },
+ {
   "id": "69:15651",
   "name": "Panel / Properties — Oval primitive",
   "group": "panels",
@@ -609,6 +1211,30 @@
   "slug": "panel-properties-movie-clip",
   "png": "exports/panels/dark/png/panel-properties-movie-clip.png",
   "svg": "exports/panels/dark/svg/panel-properties-movie-clip.svg",
+  "w": 320,
+  "h": 592,
+  "pngMaxDimension": 1184
+ },
+ {
+  "id": "265:625066",
+  "name": "Panel / Properties — Movie clip",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-properties-movie-clip",
+  "png": "exports/panels/mid-neutral-gray/png/panel-properties-movie-clip.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-properties-movie-clip.svg",
+  "w": 320,
+  "h": 592,
+  "pngMaxDimension": 1184
+ },
+ {
+  "id": "265:640302",
+  "name": "Panel / Properties — Movie clip",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-properties-movie-clip",
+  "png": "exports/panels/dark-graphite/png/panel-properties-movie-clip.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-properties-movie-clip.svg",
   "w": 320,
   "h": 592,
   "pngMaxDimension": 1184
@@ -638,6 +1264,30 @@
   "pngMaxDimension": 854
  },
  {
+  "id": "265:625099",
+  "name": "Panel / Properties — Sound",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-properties-sound",
+  "png": "exports/panels/mid-neutral-gray/png/panel-properties-sound.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-properties-sound.svg",
+  "w": 320,
+  "h": 427,
+  "pngMaxDimension": 854
+ },
+ {
+  "id": "265:640335",
+  "name": "Panel / Properties — Sound",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-properties-sound",
+  "png": "exports/panels/dark-graphite/png/panel-properties-sound.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-properties-sound.svg",
+  "w": 320,
+  "h": 427,
+  "pngMaxDimension": 854
+ },
+ {
   "id": "69:15728",
   "name": "Panel / Properties — Sound",
   "group": "panels",
@@ -657,6 +1307,32 @@
   "slug": "dialogs-sound-stroke",
   "png": "exports/panels/dark/boards/png/dialogs-sound-stroke.png",
   "svg": "exports/panels/dark/boards/svg/dialogs-sound-stroke.svg",
+  "w": 680,
+  "h": 1164,
+  "pngMaxDimension": 2328,
+  "split": true
+ },
+ {
+  "id": "265:625123",
+  "name": "Dialogs — sound & stroke",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialogs-sound-stroke",
+  "png": "exports/panels/mid-neutral-gray/boards/png/dialogs-sound-stroke.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/dialogs-sound-stroke.svg",
+  "w": 680,
+  "h": 1164,
+  "pngMaxDimension": 2328,
+  "split": true
+ },
+ {
+  "id": "265:640359",
+  "name": "Dialogs — sound & stroke",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialogs-sound-stroke",
+  "png": "exports/panels/dark-graphite/boards/png/dialogs-sound-stroke.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/dialogs-sound-stroke.svg",
   "w": 680,
   "h": 1164,
   "pngMaxDimension": 2328,
@@ -689,6 +1365,32 @@
   "split": true
  },
  {
+  "id": "265:625210",
+  "name": "Panels — more",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panels-more",
+  "png": "exports/panels/mid-neutral-gray/boards/png/panels-more.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/panels-more.svg",
+  "w": 324,
+  "h": 1711,
+  "pngMaxDimension": 3422,
+  "split": true
+ },
+ {
+  "id": "265:640446",
+  "name": "Panels — more",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panels-more",
+  "png": "exports/panels/dark-graphite/boards/png/panels-more.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/panels-more.svg",
+  "w": 324,
+  "h": 1711,
+  "pngMaxDimension": 3422,
+  "split": true
+ },
+ {
   "id": "69:15839",
   "name": "Panels — more",
   "group": "panels",
@@ -709,6 +1411,32 @@
   "slug": "panels-more-2",
   "png": "exports/panels/dark/boards/png/panels-more-2.png",
   "svg": "exports/panels/dark/boards/svg/panels-more-2.svg",
+  "w": 560,
+  "h": 1005,
+  "pngMaxDimension": 2010,
+  "split": true
+ },
+ {
+  "id": "265:625273",
+  "name": "Panels — more 2",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panels-more-2",
+  "png": "exports/panels/mid-neutral-gray/boards/png/panels-more-2.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/panels-more-2.svg",
+  "w": 560,
+  "h": 1005,
+  "pngMaxDimension": 2010,
+  "split": true
+ },
+ {
+  "id": "265:640509",
+  "name": "Panels — more 2",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panels-more-2",
+  "png": "exports/panels/dark-graphite/boards/png/panels-more-2.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/panels-more-2.svg",
   "w": 560,
   "h": 1005,
   "pngMaxDimension": 2010,
@@ -741,6 +1469,32 @@
   "split": true
  },
  {
+  "id": "265:625350",
+  "name": "Dialogs — Convert to Symbol",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialogs-convert-to-symbol",
+  "png": "exports/panels/mid-neutral-gray/boards/png/dialogs-convert-to-symbol.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/dialogs-convert-to-symbol.svg",
+  "w": 560,
+  "h": 1550,
+  "pngMaxDimension": 3100,
+  "split": true
+ },
+ {
+  "id": "265:640586",
+  "name": "Dialogs — Convert to Symbol",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialogs-convert-to-symbol",
+  "png": "exports/panels/dark-graphite/boards/png/dialogs-convert-to-symbol.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/dialogs-convert-to-symbol.svg",
+  "w": 560,
+  "h": 1550,
+  "pngMaxDimension": 3100,
+  "split": true
+ },
+ {
   "id": "69:15975",
   "name": "Dialogs — Convert to Symbol",
   "group": "panels",
@@ -761,6 +1515,32 @@
   "slug": "ease-range-states",
   "png": "exports/panels/dark/boards/png/ease-range-states.png",
   "svg": "exports/panels/dark/boards/svg/ease-range-states.svg",
+  "w": 376,
+  "h": 1418,
+  "pngMaxDimension": 2836,
+  "split": true
+ },
+ {
+  "id": "265:625458",
+  "name": "Ease — range states",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "ease-range-states",
+  "png": "exports/panels/mid-neutral-gray/boards/png/ease-range-states.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/ease-range-states.svg",
+  "w": 376,
+  "h": 1418,
+  "pngMaxDimension": 2836,
+  "split": true
+ },
+ {
+  "id": "265:640694",
+  "name": "Ease — range states",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "ease-range-states",
+  "png": "exports/panels/dark-graphite/boards/png/ease-range-states.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/ease-range-states.svg",
   "w": 376,
   "h": 1418,
   "pngMaxDimension": 2836,
@@ -792,6 +1572,30 @@
   "pngMaxDimension": 1560
  },
  {
+  "id": "265:625549",
+  "name": "Panel / Properties — Video",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-properties-video",
+  "png": "exports/panels/mid-neutral-gray/png/panel-properties-video.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-properties-video.svg",
+  "w": 320,
+  "h": 780,
+  "pngMaxDimension": 1560
+ },
+ {
+  "id": "265:640785",
+  "name": "Panel / Properties — Video",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-properties-video",
+  "png": "exports/panels/dark-graphite/png/panel-properties-video.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-properties-video.svg",
+  "w": 320,
+  "h": 780,
+  "pngMaxDimension": 1560
+ },
+ {
   "id": "69:16174",
   "name": "Panel / Properties — Video",
   "group": "panels",
@@ -816,6 +1620,30 @@
   "pngMaxDimension": 1440
  },
  {
+  "id": "265:625593",
+  "name": "Dialog / Import video",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-import-video",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-import-video.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-import-video.svg",
+  "w": 720,
+  "h": 476,
+  "pngMaxDimension": 1440
+ },
+ {
+  "id": "265:640829",
+  "name": "Dialog / Import video",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-import-video",
+  "png": "exports/panels/dark-graphite/png/dialog-import-video.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-import-video.svg",
+  "w": 720,
+  "h": 476,
+  "pngMaxDimension": 1440
+ },
+ {
   "id": "69:16218",
   "name": "Dialog / Import video",
   "group": "panels",
@@ -835,6 +1663,32 @@
   "slug": "dialogs-export",
   "png": "exports/panels/dark/boards/png/dialogs-export.png",
   "svg": "exports/panels/dark/boards/svg/dialogs-export.svg",
+  "w": 880,
+  "h": 3540,
+  "pngMaxDimension": 7080,
+  "split": true
+ },
+ {
+  "id": "265:625632",
+  "name": "Dialogs — Export",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialogs-export",
+  "png": "exports/panels/mid-neutral-gray/boards/png/dialogs-export.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/dialogs-export.svg",
+  "w": 880,
+  "h": 3540,
+  "pngMaxDimension": 7080,
+  "split": true
+ },
+ {
+  "id": "265:640868",
+  "name": "Dialogs — Export",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialogs-export",
+  "png": "exports/panels/dark-graphite/boards/png/dialogs-export.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/dialogs-export.svg",
   "w": 880,
   "h": 3540,
   "pngMaxDimension": 7080,
@@ -867,6 +1721,32 @@
   "split": true
  },
  {
+  "id": "265:625919",
+  "name": "Drawing tools — panels",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "drawing-tools-panels",
+  "png": "exports/panels/mid-neutral-gray/boards/png/drawing-tools-panels.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/drawing-tools-panels.svg",
+  "w": 560,
+  "h": 1318,
+  "pngMaxDimension": 2636,
+  "split": true
+ },
+ {
+  "id": "265:641155",
+  "name": "Drawing tools — panels",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "drawing-tools-panels",
+  "png": "exports/panels/dark-graphite/boards/png/drawing-tools-panels.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/drawing-tools-panels.svg",
+  "w": 560,
+  "h": 1318,
+  "pngMaxDimension": 2636,
+  "split": true
+ },
+ {
   "id": "69:16544",
   "name": "Drawing tools — panels",
   "group": "panels",
@@ -887,6 +1767,32 @@
   "slug": "drawing-tools-panels-2",
   "png": "exports/panels/dark/boards/png/drawing-tools-panels-2.png",
   "svg": "exports/panels/dark/boards/svg/drawing-tools-panels-2.svg",
+  "w": 320,
+  "h": 1600,
+  "pngMaxDimension": 3200,
+  "split": true
+ },
+ {
+  "id": "265:625996",
+  "name": "Drawing tools — panels 2",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "drawing-tools-panels-2",
+  "png": "exports/panels/mid-neutral-gray/boards/png/drawing-tools-panels-2.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/drawing-tools-panels-2.svg",
+  "w": 320,
+  "h": 1600,
+  "pngMaxDimension": 3200,
+  "split": true
+ },
+ {
+  "id": "265:641232",
+  "name": "Drawing tools — panels 2",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "drawing-tools-panels-2",
+  "png": "exports/panels/dark-graphite/boards/png/drawing-tools-panels-2.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/drawing-tools-panels-2.svg",
   "w": 320,
   "h": 1600,
   "pngMaxDimension": 3200,
@@ -919,6 +1825,32 @@
   "split": true
  },
  {
+  "id": "265:626093",
+  "name": "Symbols — panels",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "symbols-panels",
+  "png": "exports/panels/mid-neutral-gray/boards/png/symbols-panels.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/symbols-panels.svg",
+  "w": 440,
+  "h": 938,
+  "pngMaxDimension": 1876,
+  "split": true
+ },
+ {
+  "id": "265:641329",
+  "name": "Symbols — panels",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "symbols-panels",
+  "png": "exports/panels/dark-graphite/boards/png/symbols-panels.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/symbols-panels.svg",
+  "w": 440,
+  "h": 938,
+  "pngMaxDimension": 1876,
+  "split": true
+ },
+ {
   "id": "69:16718",
   "name": "Symbols — panels",
   "group": "panels",
@@ -944,6 +1876,30 @@
   "pngMaxDimension": 1800
  },
  {
+  "id": "265:626160",
+  "name": "Timeline — Button symbol (cta_btn)",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "timeline-button-symbol-cta-btn",
+  "png": "exports/panels/mid-neutral-gray/png/timeline-button-symbol-cta-btn.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/timeline-button-symbol-cta-btn.svg",
+  "w": 900,
+  "h": 300,
+  "pngMaxDimension": 1800
+ },
+ {
+  "id": "265:641396",
+  "name": "Timeline — Button symbol (cta_btn)",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "timeline-button-symbol-cta-btn",
+  "png": "exports/panels/dark-graphite/png/timeline-button-symbol-cta-btn.png",
+  "svg": "exports/panels/dark-graphite/svg/timeline-button-symbol-cta-btn.svg",
+  "w": 900,
+  "h": 300,
+  "pngMaxDimension": 1800
+ },
+ {
   "id": "69:16785",
   "name": "Timeline — Button symbol (cta_btn)",
   "group": "panels",
@@ -963,6 +1919,32 @@
   "slug": "scripting-panels",
   "png": "exports/panels/dark/boards/png/scripting-panels.png",
   "svg": "exports/panels/dark/boards/svg/scripting-panels.svg",
+  "w": 960,
+  "h": 1001,
+  "pngMaxDimension": 2002,
+  "split": true
+ },
+ {
+  "id": "265:626219",
+  "name": "Scripting — panels",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "scripting-panels",
+  "png": "exports/panels/mid-neutral-gray/boards/png/scripting-panels.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/scripting-panels.svg",
+  "w": 960,
+  "h": 1001,
+  "pngMaxDimension": 2002,
+  "split": true
+ },
+ {
+  "id": "265:641455",
+  "name": "Scripting — panels",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "scripting-panels",
+  "png": "exports/panels/dark-graphite/boards/png/scripting-panels.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/scripting-panels.svg",
   "w": 960,
   "h": 1001,
   "pngMaxDimension": 2002,
@@ -995,6 +1977,32 @@
   "split": true
  },
  {
+  "id": "265:626335",
+  "name": "Document — dialogs",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "document-dialogs",
+  "png": "exports/panels/mid-neutral-gray/boards/png/document-dialogs.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/document-dialogs.svg",
+  "w": 640,
+  "h": 1424,
+  "pngMaxDimension": 2848,
+  "split": true
+ },
+ {
+  "id": "265:641571",
+  "name": "Document — dialogs",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "document-dialogs",
+  "png": "exports/panels/dark-graphite/boards/png/document-dialogs.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/document-dialogs.svg",
+  "w": 640,
+  "h": 1424,
+  "pngMaxDimension": 2848,
+  "split": true
+ },
+ {
   "id": "69:16960",
   "name": "Document — dialogs",
   "group": "panels",
@@ -1015,6 +2023,32 @@
   "slug": "motion-panels",
   "png": "exports/panels/dark/boards/png/motion-panels.png",
   "svg": "exports/panels/dark/boards/svg/motion-panels.svg",
+  "w": 1120,
+  "h": 1120,
+  "pngMaxDimension": 2240,
+  "split": true
+ },
+ {
+  "id": "265:626434",
+  "name": "Motion — panels",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "motion-panels",
+  "png": "exports/panels/mid-neutral-gray/boards/png/motion-panels.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/motion-panels.svg",
+  "w": 1120,
+  "h": 1120,
+  "pngMaxDimension": 2240,
+  "split": true
+ },
+ {
+  "id": "265:641670",
+  "name": "Motion — panels",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "motion-panels",
+  "png": "exports/panels/dark-graphite/boards/png/motion-panels.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/motion-panels.svg",
   "w": 1120,
   "h": 1120,
   "pngMaxDimension": 2240,
@@ -1047,6 +2081,32 @@
   "split": true
  },
  {
+  "id": "265:626612",
+  "name": "Publish & misc — dialogs",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "publish-misc-dialogs",
+  "png": "exports/panels/mid-neutral-gray/boards/png/publish-misc-dialogs.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/publish-misc-dialogs.svg",
+  "w": 1000,
+  "h": 2177,
+  "pngMaxDimension": 4354,
+  "split": true
+ },
+ {
+  "id": "265:641848",
+  "name": "Publish & misc — dialogs",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "publish-misc-dialogs",
+  "png": "exports/panels/dark-graphite/boards/png/publish-misc-dialogs.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/publish-misc-dialogs.svg",
+  "w": 1000,
+  "h": 2177,
+  "pngMaxDimension": 4354,
+  "split": true
+ },
+ {
   "id": "69:17237",
   "name": "Publish & misc — dialogs",
   "group": "panels",
@@ -1067,6 +2127,32 @@
   "slug": "menus",
   "png": "exports/panels/dark/boards/png/menus.png",
   "svg": "exports/panels/dark/boards/svg/menus.svg",
+  "w": 1438,
+  "h": 2054,
+  "pngMaxDimension": 4108,
+  "split": true
+ },
+ {
+  "id": "265:634656",
+  "name": "Menus",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "menus",
+  "png": "exports/panels/mid-neutral-gray/boards/png/menus.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/menus.svg",
+  "w": 1438,
+  "h": 2054,
+  "pngMaxDimension": 4108,
+  "split": true
+ },
+ {
+  "id": "265:649892",
+  "name": "Menus",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "menus",
+  "png": "exports/panels/dark-graphite/boards/png/menus.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/menus.svg",
   "w": 1438,
   "h": 2054,
   "pngMaxDimension": 4108,
@@ -1098,6 +2184,30 @@
   "pngMaxDimension": 1840
  },
  {
+  "id": "265:636283",
+  "name": "Dialog / Preferences — General",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-general",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-general.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-general.svg",
+  "w": 920,
+  "h": 652,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651519",
+  "name": "Dialog / Preferences — General",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-general",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-general.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-general.svg",
+  "w": 920,
+  "h": 652,
+  "pngMaxDimension": 1840
+ },
+ {
   "id": "60:10560",
   "name": "Dialog / Preferences — General",
   "group": "panels",
@@ -1117,6 +2227,30 @@
   "slug": "dialog-preferences-code-editor",
   "png": "exports/panels/dark/png/dialog-preferences-code-editor.png",
   "svg": "exports/panels/dark/svg/dialog-preferences-code-editor.svg",
+  "w": 920,
+  "h": 774,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:636347",
+  "name": "Dialog / Preferences — Code editor",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-code-editor",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-code-editor.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-code-editor.svg",
+  "w": 920,
+  "h": 774,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651583",
+  "name": "Dialog / Preferences — Code editor",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-code-editor",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-code-editor.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-code-editor.svg",
   "w": 920,
   "h": 774,
   "pngMaxDimension": 1840
@@ -1146,6 +2280,30 @@
   "pngMaxDimension": 1840
  },
  {
+  "id": "265:636476",
+  "name": "Dialog / Preferences — Timeline",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-timeline",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-timeline.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-timeline.svg",
+  "w": 920,
+  "h": 614,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651712",
+  "name": "Dialog / Preferences — Timeline",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-timeline",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-timeline.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-timeline.svg",
+  "w": 920,
+  "h": 614,
+  "pngMaxDimension": 1840
+ },
+ {
   "id": "60:10753",
   "name": "Dialog / Preferences — Timeline",
   "group": "panels",
@@ -1165,6 +2323,30 @@
   "slug": "dialog-preferences-drawing",
   "png": "exports/panels/dark/png/dialog-preferences-drawing.png",
   "svg": "exports/panels/dark/svg/dialog-preferences-drawing.svg",
+  "w": 920,
+  "h": 641,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:636541",
+  "name": "Dialog / Preferences — Drawing",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-drawing",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-drawing.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-drawing.svg",
+  "w": 920,
+  "h": 641,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651777",
+  "name": "Dialog / Preferences — Drawing",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-drawing",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-drawing.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-drawing.svg",
   "w": 920,
   "h": 641,
   "pngMaxDimension": 1840
@@ -1194,6 +2376,30 @@
   "pngMaxDimension": 1840
  },
  {
+  "id": "265:636601",
+  "name": "Dialog / Preferences — Text",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-text",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-text.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-text.svg",
+  "w": 920,
+  "h": 445,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651837",
+  "name": "Dialog / Preferences — Text",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-text",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-text.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-text.svg",
+  "w": 920,
+  "h": 445,
+  "pngMaxDimension": 1840
+ },
+ {
   "id": "60:10878",
   "name": "Dialog / Preferences — Text",
   "group": "panels",
@@ -1213,6 +2419,30 @@
   "slug": "dialog-preferences-clipboard",
   "png": "exports/panels/dark/png/dialog-preferences-clipboard.png",
   "svg": "exports/panels/dark/svg/dialog-preferences-clipboard.svg",
+  "w": 920,
+  "h": 435,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:636645",
+  "name": "Dialog / Preferences — Clipboard",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-clipboard",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-clipboard.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-clipboard.svg",
+  "w": 920,
+  "h": 435,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651881",
+  "name": "Dialog / Preferences — Clipboard",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-clipboard",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-clipboard.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-clipboard.svg",
   "w": 920,
   "h": 435,
   "pngMaxDimension": 1840
@@ -1242,6 +2472,30 @@
   "pngMaxDimension": 1840
  },
  {
+  "id": "265:636687",
+  "name": "Dialog / Preferences — Shortcuts",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-shortcuts",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-shortcuts.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-shortcuts.svg",
+  "w": 920,
+  "h": 530,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651923",
+  "name": "Dialog / Preferences — Shortcuts",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-shortcuts",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-shortcuts.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-shortcuts.svg",
+  "w": 920,
+  "h": 530,
+  "pngMaxDimension": 1840
+ },
+ {
   "id": "60:10964",
   "name": "Dialog / Preferences — Shortcuts",
   "group": "panels",
@@ -1261,6 +2515,30 @@
   "slug": "dialog-preferences-publish",
   "png": "exports/panels/dark/png/dialog-preferences-publish.png",
   "svg": "exports/panels/dark/svg/dialog-preferences-publish.svg",
+  "w": 920,
+  "h": 524,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:636743",
+  "name": "Dialog / Preferences — Publish",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-publish",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-publish.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-publish.svg",
+  "w": 920,
+  "h": 524,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:651979",
+  "name": "Dialog / Preferences — Publish",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-publish",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-publish.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-publish.svg",
   "w": 920,
   "h": 524,
   "pngMaxDimension": 1840
@@ -1290,6 +2568,30 @@
   "pngMaxDimension": 1840
  },
  {
+  "id": "265:636796",
+  "name": "Dialog / Preferences — Updates",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-preferences-updates",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-preferences-updates.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-preferences-updates.svg",
+  "w": 920,
+  "h": 484,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:652032",
+  "name": "Dialog / Preferences — Updates",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-preferences-updates",
+  "png": "exports/panels/dark-graphite/png/dialog-preferences-updates.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-preferences-updates.svg",
+  "w": 920,
+  "h": 484,
+  "pngMaxDimension": 1840
+ },
+ {
   "id": "60:11073",
   "name": "Dialog / Preferences — Updates",
   "group": "panels",
@@ -1314,6 +2616,30 @@
   "pngMaxDimension": 2696
  },
  {
+  "id": "265:637731",
+  "name": "Timeline frame views",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "timeline-frame-views",
+  "png": "exports/panels/mid-neutral-gray/png/timeline-frame-views.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/timeline-frame-views.svg",
+  "w": 1250,
+  "h": 1348,
+  "pngMaxDimension": 2696
+ },
+ {
+  "id": "265:652967",
+  "name": "Timeline frame views",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "timeline-frame-views",
+  "png": "exports/panels/dark-graphite/png/timeline-frame-views.png",
+  "svg": "exports/panels/dark-graphite/svg/timeline-frame-views.svg",
+  "w": 1250,
+  "h": 1348,
+  "pngMaxDimension": 2696
+ },
+ {
   "id": "60:11121",
   "name": "Timeline frame views",
   "group": "panels",
@@ -1333,6 +2659,32 @@
   "slug": "tools-flyout-groups",
   "png": "exports/panels/dark/boards/png/tools-flyout-groups.png",
   "svg": "exports/panels/dark/boards/svg/tools-flyout-groups.svg",
+  "w": 780,
+  "h": 1982,
+  "pngMaxDimension": 3964,
+  "split": true
+ },
+ {
+  "id": "265:626779",
+  "name": "Tools — flyout groups",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "tools-flyout-groups",
+  "png": "exports/panels/mid-neutral-gray/boards/png/tools-flyout-groups.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/tools-flyout-groups.svg",
+  "w": 780,
+  "h": 1982,
+  "pngMaxDimension": 3964,
+  "split": true
+ },
+ {
+  "id": "265:642015",
+  "name": "Tools — flyout groups",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "tools-flyout-groups",
+  "png": "exports/panels/dark-graphite/boards/png/tools-flyout-groups.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/tools-flyout-groups.svg",
   "w": 780,
   "h": 1982,
   "pngMaxDimension": 3964,
@@ -1364,6 +2716,30 @@
   "pngMaxDimension": 1560
  },
  {
+  "id": "265:626839",
+  "name": "Dialog / Customize tools panel",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-customize-tools-panel",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-customize-tools-panel.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-customize-tools-panel.svg",
+  "w": 780,
+  "h": 682,
+  "pngMaxDimension": 1560
+ },
+ {
+  "id": "265:642075",
+  "name": "Dialog / Customize tools panel",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-customize-tools-panel",
+  "png": "exports/panels/dark-graphite/png/dialog-customize-tools-panel.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-customize-tools-panel.svg",
+  "w": 780,
+  "h": 682,
+  "pngMaxDimension": 1560
+ },
+ {
   "id": "104:17009",
   "name": "Dialog / Customize tools panel",
   "group": "panels",
@@ -1383,6 +2759,32 @@
   "slug": "commands-panel-dialog",
   "png": "exports/panels/dark/boards/png/commands-panel-dialog.png",
   "svg": "exports/panels/dark/boards/svg/commands-panel-dialog.svg",
+  "w": 420,
+  "h": 1555,
+  "pngMaxDimension": 3110,
+  "split": true
+ },
+ {
+  "id": "265:626910",
+  "name": "Commands — panel & dialog",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "commands-panel-dialog",
+  "png": "exports/panels/mid-neutral-gray/boards/png/commands-panel-dialog.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/commands-panel-dialog.svg",
+  "w": 420,
+  "h": 1555,
+  "pngMaxDimension": 3110,
+  "split": true
+ },
+ {
+  "id": "265:642146",
+  "name": "Commands — panel & dialog",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "commands-panel-dialog",
+  "png": "exports/panels/dark-graphite/boards/png/commands-panel-dialog.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/commands-panel-dialog.svg",
   "w": 420,
   "h": 1555,
   "pngMaxDimension": 3110,
@@ -1415,6 +2817,32 @@
   "split": true
  },
  {
+  "id": "265:627004",
+  "name": "Brushes & pencil — panels",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "brushes-pencil-panels",
+  "png": "exports/panels/mid-neutral-gray/boards/png/brushes-pencil-panels.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/brushes-pencil-panels.svg",
+  "w": 760,
+  "h": 2462,
+  "pngMaxDimension": 4924,
+  "split": true
+ },
+ {
+  "id": "265:642240",
+  "name": "Brushes & pencil — panels",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "brushes-pencil-panels",
+  "png": "exports/panels/dark-graphite/boards/png/brushes-pencil-panels.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/brushes-pencil-panels.svg",
+  "w": 760,
+  "h": 2462,
+  "pngMaxDimension": 4924,
+  "split": true
+ },
+ {
   "id": "104:17174",
   "name": "Brushes & pencil — panels",
   "group": "panels",
@@ -1435,6 +2863,30 @@
   "slug": "canvas-brush-pencil",
   "png": "exports/panels/dark/png/canvas-brush-pencil.png",
   "svg": "exports/panels/dark/svg/canvas-brush-pencil.svg",
+  "w": 760,
+  "h": 520,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "265:627119",
+  "name": "Canvas — brush & pencil",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "canvas-brush-pencil",
+  "png": "exports/panels/mid-neutral-gray/png/canvas-brush-pencil.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/canvas-brush-pencil.svg",
+  "w": 760,
+  "h": 520,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "265:642355",
+  "name": "Canvas — brush & pencil",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "canvas-brush-pencil",
+  "png": "exports/panels/dark-graphite/png/canvas-brush-pencil.png",
+  "svg": "exports/panels/dark-graphite/svg/canvas-brush-pencil.svg",
   "w": 760,
   "h": 520,
   "pngMaxDimension": 1520
@@ -1464,6 +2916,30 @@
   "pngMaxDimension": 1368
  },
  {
+  "id": "265:627153",
+  "name": "Dialog / Trace bitmap",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-trace-bitmap",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-trace-bitmap.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-trace-bitmap.svg",
+  "w": 680,
+  "h": 684,
+  "pngMaxDimension": 1368
+ },
+ {
+  "id": "265:642389",
+  "name": "Dialog / Trace bitmap",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-trace-bitmap",
+  "png": "exports/panels/dark-graphite/png/dialog-trace-bitmap.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-trace-bitmap.svg",
+  "w": 680,
+  "h": 684,
+  "pngMaxDimension": 1368
+ },
+ {
   "id": "104:17323",
   "name": "Dialog / Trace bitmap",
   "group": "panels",
@@ -1482,6 +2958,30 @@
   "theme": "-",
   "slug": "colors-dark",
   "png": "docs/illustrations/colors-dark.png",
+  "svg": null,
+  "w": 700,
+  "h": 1766,
+  "pngMaxDimension": 3532
+ },
+ {
+  "id": "265:655022",
+  "name": "Colors — Mid Neutral Gray",
+  "group": "docs",
+  "theme": "-",
+  "slug": "colors-mid-neutral-gray",
+  "png": "docs/illustrations/colors-mid-neutral-gray.png",
+  "svg": null,
+  "w": 700,
+  "h": 1766,
+  "pngMaxDimension": 3532
+ },
+ {
+  "id": "265:655167",
+  "name": "Colors — Dark Graphite",
+  "group": "docs",
+  "theme": "-",
+  "slug": "colors-dark-graphite",
+  "png": "docs/illustrations/colors-dark-graphite.png",
   "svg": null,
   "w": 700,
   "h": 1766,
@@ -1848,6 +3348,30 @@
   "pngMaxDimension": 2480
  },
  {
+  "id": "265:639220",
+  "name": "Tools — v2.25 Stage anchors",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "tools-v2-25-stage-anchors",
+  "png": "exports/panels/mid-neutral-gray/boards/png/tools-v2-25-stage-anchors.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/tools-v2-25-stage-anchors.svg",
+  "w": 1240,
+  "h": 840,
+  "pngMaxDimension": 2480
+ },
+ {
+  "id": "265:654456",
+  "name": "Tools — v2.25 Stage anchors",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "tools-v2-25-stage-anchors",
+  "png": "exports/panels/dark-graphite/boards/png/tools-v2-25-stage-anchors.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/tools-v2-25-stage-anchors.svg",
+  "w": 1240,
+  "h": 840,
+  "pngMaxDimension": 2480
+ },
+ {
   "id": "227:452817",
   "name": "Tools — v2.25 Stage anchors — Light",
   "group": "panels",
@@ -1867,6 +3391,30 @@
   "slug": "dialog-help-reference",
   "png": "exports/panels/dark/png/dialog-help-reference.png",
   "svg": "exports/panels/dark/svg/dialog-help-reference.svg",
+  "w": 920,
+  "h": 760,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:639251",
+  "name": "Dialog / Help & Reference",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-help-reference",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-help-reference.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-help-reference.svg",
+  "w": 920,
+  "h": 760,
+  "pngMaxDimension": 1840
+ },
+ {
+  "id": "265:654487",
+  "name": "Dialog / Help & Reference",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-help-reference",
+  "png": "exports/panels/dark-graphite/png/dialog-help-reference.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-help-reference.svg",
   "w": 920,
   "h": 760,
   "pngMaxDimension": 1840
@@ -1896,6 +3444,30 @@
   "pngMaxDimension": 1520
  },
  {
+  "id": "265:639363",
+  "name": "Dialog / Help & Reference — constrained viewport",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "dialog-help-reference-constrained-viewport",
+  "png": "exports/panels/mid-neutral-gray/png/dialog-help-reference-constrained-viewport.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/dialog-help-reference-constrained-viewport.svg",
+  "w": 760,
+  "h": 560,
+  "pngMaxDimension": 1520
+ },
+ {
+  "id": "265:654599",
+  "name": "Dialog / Help & Reference — constrained viewport",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "dialog-help-reference-constrained-viewport",
+  "png": "exports/panels/dark-graphite/png/dialog-help-reference-constrained-viewport.png",
+  "svg": "exports/panels/dark-graphite/svg/dialog-help-reference-constrained-viewport.svg",
+  "w": 760,
+  "h": 560,
+  "pngMaxDimension": 1520
+ },
+ {
   "id": "227:453394",
   "name": "Dialog / Help & Reference — constrained viewport — Light",
   "group": "panels",
@@ -1915,6 +3487,30 @@
   "slug": "popover-function-search",
   "png": "exports/panels/dark/png/popover-function-search.png",
   "svg": "exports/panels/dark/svg/popover-function-search.svg",
+  "w": 560,
+  "h": 520,
+  "pngMaxDimension": 1120
+ },
+ {
+  "id": "265:639475",
+  "name": "Popover / Function Search",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "popover-function-search",
+  "png": "exports/panels/mid-neutral-gray/png/popover-function-search.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/popover-function-search.svg",
+  "w": 560,
+  "h": 520,
+  "pngMaxDimension": 1120
+ },
+ {
+  "id": "265:654711",
+  "name": "Popover / Function Search",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "popover-function-search",
+  "png": "exports/panels/dark-graphite/png/popover-function-search.png",
+  "svg": "exports/panels/dark-graphite/svg/popover-function-search.svg",
   "w": 560,
   "h": 520,
   "pngMaxDimension": 1120
@@ -1944,6 +3540,30 @@
   "pngMaxDimension": 2400
  },
  {
+  "id": "265:639541",
+  "name": "Floating panels — v2.25 headers, docking and minima",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "floating-panels-v2-25-headers-docking-and-minima",
+  "png": "exports/panels/mid-neutral-gray/boards/png/floating-panels-v2-25-headers-docking-and-minima.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg",
+  "w": 1200,
+  "h": 980,
+  "pngMaxDimension": 2400
+ },
+ {
+  "id": "265:654777",
+  "name": "Floating panels — v2.25 headers, docking and minima",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "floating-panels-v2-25-headers-docking-and-minima",
+  "png": "exports/panels/dark-graphite/boards/png/floating-panels-v2-25-headers-docking-and-minima.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg",
+  "w": 1200,
+  "h": 980,
+  "pngMaxDimension": 2400
+ },
+ {
   "id": "227:453892",
   "name": "Floating panels — v2.25 headers, docking and minima — Light",
   "group": "panels",
@@ -1963,6 +3583,30 @@
   "slug": "properties-v2-25-contextual-states",
   "png": "exports/panels/dark/boards/png/properties-v2-25-contextual-states.png",
   "svg": "exports/panels/dark/boards/svg/properties-v2-25-contextual-states.svg",
+  "w": 1180,
+  "h": 560,
+  "pngMaxDimension": 2360
+ },
+ {
+  "id": "265:639695",
+  "name": "Properties — v2.25 contextual states",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "properties-v2-25-contextual-states",
+  "png": "exports/panels/mid-neutral-gray/boards/png/properties-v2-25-contextual-states.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/properties-v2-25-contextual-states.svg",
+  "w": 1180,
+  "h": 560,
+  "pngMaxDimension": 2360
+ },
+ {
+  "id": "265:654931",
+  "name": "Properties — v2.25 contextual states",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "properties-v2-25-contextual-states",
+  "png": "exports/panels/dark-graphite/boards/png/properties-v2-25-contextual-states.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/properties-v2-25-contextual-states.svg",
   "w": 1180,
   "h": 560,
   "pngMaxDimension": 2360
@@ -1992,6 +3636,30 @@
   "pngMaxDimension": 2080
  },
  {
+  "id": "265:639778",
+  "name": "v2.25 · Behavioral contract notes",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "v2-25-behavioral-contract-notes",
+  "png": "exports/panels/mid-neutral-gray/boards/png/v2-25-behavioral-contract-notes.png",
+  "svg": "exports/panels/mid-neutral-gray/boards/svg/v2-25-behavioral-contract-notes.svg",
+  "w": 1040,
+  "h": 520,
+  "pngMaxDimension": 2080
+ },
+ {
+  "id": "265:655014",
+  "name": "v2.25 · Behavioral contract notes",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "v2-25-behavioral-contract-notes",
+  "png": "exports/panels/dark-graphite/boards/png/v2-25-behavioral-contract-notes.png",
+  "svg": "exports/panels/dark-graphite/boards/svg/v2-25-behavioral-contract-notes.svg",
+  "w": 1040,
+  "h": 520,
+  "pngMaxDimension": 2080
+ },
+ {
   "id": "227:455090",
   "name": "v2.25 · Behavioral contract notes — Light",
   "group": "panels",
@@ -2011,6 +3679,32 @@
   "slug": "panel-properties-text-narrow-fallback",
   "png": "exports/panels/dark/png/panel-properties-text-narrow-fallback.png",
   "svg": "exports/panels/dark/svg/panel-properties-text-narrow-fallback.svg",
+  "w": 192,
+  "h": 2614,
+  "pngMaxDimension": 5228,
+  "split": true
+ },
+ {
+  "id": "265:638933",
+  "name": "Panel / Properties — Text — narrow fallback",
+  "group": "panels",
+  "theme": "mid-neutral-gray",
+  "slug": "panel-properties-text-narrow-fallback",
+  "png": "exports/panels/mid-neutral-gray/png/panel-properties-text-narrow-fallback.png",
+  "svg": "exports/panels/mid-neutral-gray/svg/panel-properties-text-narrow-fallback.svg",
+  "w": 192,
+  "h": 2614,
+  "pngMaxDimension": 5228,
+  "split": true
+ },
+ {
+  "id": "265:654169",
+  "name": "Panel / Properties — Text — narrow fallback",
+  "group": "panels",
+  "theme": "dark-graphite",
+  "slug": "panel-properties-text-narrow-fallback",
+  "png": "exports/panels/dark-graphite/png/panel-properties-text-narrow-fallback.png",
+  "svg": "exports/panels/dark-graphite/svg/panel-properties-text-narrow-fallback.svg",
   "w": 192,
   "h": 2614,
   "pngMaxDimension": 5228,

@@ -350,11 +350,7 @@ impl Editor {
             }
         }
         // Live theme preview: the stage and panels behind the dialog follow the draft.
-        let shown = if ctx.theme() == egui::Theme::Light {
-            ThemeMode::Light
-        } else {
-            ThemeMode::Dark
-        };
+        let shown = ThemeMode::current(ctx);
         if close_cancel {
             clear_shortcuts_ui_state(ctx);
             self.preferences = None;
@@ -423,11 +419,12 @@ fn prefs_general(ui: &mut Ui, draft: &mut PreferencesDraft) {
     let nf = neoflash_ui::palette(ui.ctx());
     disabled(ui, |ui| section(ui, "Interface"));
     row(ui, "Theme", |ui| {
-        c::Segmented::show(
+        c::Select::options(
             ui,
+            "prefs-theme",
             &mut draft.theme,
-            &[(ThemeMode::Dark, "Dark"), (ThemeMode::Light, "Light")],
-            false,
+            &ThemeMode::ALL.map(|theme| (theme, theme.label())),
+            220.0,
         );
         // Follow system has no control in the design (caption only): NF2-REQUESTS R-012.
         disabled(ui, |ui| caption(ui, "or follow system"));

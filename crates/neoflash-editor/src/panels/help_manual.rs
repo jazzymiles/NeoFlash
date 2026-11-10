@@ -630,18 +630,18 @@ pub(crate) fn paint_clipped_text(
         .text(pos, align, fitted, font_id, color);
 }
 
-fn help_browser_html() -> String {
-    super::help_as_reference::render_full_browser_help_html()
+fn help_browser_html(theme: neoflash_ui::Theme) -> String {
+    super::help_as_reference::render_full_browser_help_html(theme)
 }
 
-fn write_help_browser_document() -> Result<PathBuf, String> {
+fn write_help_browser_document(theme: neoflash_ui::Theme) -> Result<PathBuf, String> {
     let directory = std::env::temp_dir()
         .join("neoflash-help")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create the browser Help folder: {error}"))?;
     let path = directory.join("help-reference.html");
-    std::fs::write(&path, help_browser_html())
+    std::fs::write(&path, help_browser_html(theme))
         .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
     Ok(path)
 }
@@ -988,7 +988,7 @@ impl crate::app::Editor {
         }
         ctx.data_mut(|d| d.insert_temp(state_id(), state));
         if open_in_browser {
-            match write_help_browser_document().and_then(|path| {
+            match write_help_browser_document(neoflash_ui::Theme::current(ctx)).and_then(|path| {
                 std::process::Command::new("open")
                     .arg(&path)
                     .spawn()
@@ -3001,7 +3001,7 @@ mod tests {
 
     #[test]
     fn browser_help_is_a_complete_escaped_text_edition() {
-        let html = help_browser_html();
+        let html = help_browser_html(neoflash_ui::Theme::Dark);
         assert!(html.starts_with("<!doctype html>"));
         assert!(html.contains("NeoFlash Help &amp; Reference"));
         for (chapter, topics) in HELP_CHAPTERS.iter().zip(HELP_BROWSER_TOPICS) {
@@ -3246,9 +3246,33 @@ mod tests {
             });
         }
 
-        let html = help_browser_html();
+        let html = help_browser_html(neoflash_ui::Theme::Dark);
         assert!(html.contains("--bg-app:rgb("));
         assert!(html.contains("--accent-default:rgb("));
+        for (theme, slug, label) in [
+            (neoflash_ui::Theme::Dark, "dark", "Dark"),
+            (neoflash_ui::Theme::Light, "light", "Light"),
+            (
+                neoflash_ui::Theme::MidNeutralGray,
+                "mid-neutral-gray",
+                "Mid Neutral Gray",
+            ),
+            (
+                neoflash_ui::Theme::DarkGraphite,
+                "dark-graphite",
+                "Dark Graphite",
+            ),
+        ] {
+            let themed = help_browser_html(theme);
+            assert!(themed.contains(&format!("data-initial-theme=\"{slug}\"")));
+            assert!(themed.contains(&format!(
+                "id=\"nf2-theme-{slug}\" class=\"sr-toggle\" aria-label=\"{label} theme\" checked"
+            )));
+            assert!(themed.contains(&format!("Theme: {label}</label>")));
+            assert!(themed.contains(&format!("body:has(#nf2-theme-{slug}:checked)")));
+        }
+        assert!(html.contains("class=\"theme-btn theme-from-mid-neutral-gray\""));
+        assert!(html.contains("class=\"theme-btn theme-from-dark-graphite\""));
         assert!(html.contains("id=\"nf2-tag-AS1\""));
         assert!(html.contains("id=\"nf2-tag-AS2\""));
         assert!(html.contains("id=\"nf2-tag-AS3\""));

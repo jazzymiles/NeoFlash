@@ -187,7 +187,7 @@
  "dialog-preferences-general": {
   "cat": "prefs",
   "title": "Preferences — General",
-  "text": "Interface: Theme Dark / Light (or follow system), UI scale, Accent colour, Language. Workspace: on launch (Welcome screen / New document / Last documents), undo levels, Autosave every N min, tooltips with shortcuts. Selection: Shift-select behaviour, highlight colour (layer colour / custom)."
+  "text": "Interface: Theme Dark / Light / Mid Neutral Gray / Dark Graphite (or follow system), UI scale, Accent colour, Language. Workspace: on launch (Welcome screen / New document / Last documents), undo levels, Autosave every N min, tooltips with shortcuts. Selection: Shift-select behaviour, highlight colour (layer colour / custom)."
  },
  "dialog-preferences-code-editor": {
   "cat": "prefs",

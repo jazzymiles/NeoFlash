@@ -1,10 +1,17 @@
 //! Generates Rust code from the exported design system in `interface/design-system`:
-//! colour palettes (Dark / Light), spacing, radii, typography, icons and cursors.
+//! colour palettes, spacing, radii, typography, icons and cursors.
 //! The Figma export is the source of truth; never edit the generated files.
 use serde_json::Value;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+
+const COLOR_MODES: [(&str, &str); 4] = [
+    ("dark", "DARK"),
+    ("light", "LIGHT"),
+    ("mid_neutral_gray", "MID_NEUTRAL_GRAY"),
+    ("dark_graphite", "DARK_GRAPHITE"),
+];
 
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
@@ -93,15 +100,16 @@ fn tokens_rs(tokens: &Value) -> String {
         .unwrap();
     }
     writeln!(s, "}}\n").unwrap();
-    for theme in ["dark", "light"] {
+    let field_names: Vec<_> = fields.iter().map(|(path, _)| ident(path)).collect();
+    for (theme, const_name) in COLOR_MODES {
         let mut theme_fields = Vec::new();
         flatten(vec![], &tokens[theme]["color"], &mut theme_fields);
-        writeln!(
-            s,
-            "pub const {}: Palette = Palette {{",
-            theme.to_uppercase()
-        )
-        .unwrap();
+        let theme_field_names: Vec<_> = theme_fields.iter().map(|(path, _)| ident(path)).collect();
+        assert_eq!(
+            theme_field_names, field_names,
+            "NF2 colour mode {theme:?} must define the same token paths as dark"
+        );
+        writeln!(s, "pub const {}: Palette = Palette {{", const_name).unwrap();
         for (path, v) in theme_fields {
             writeln!(
                 s,
@@ -113,7 +121,7 @@ fn tokens_rs(tokens: &Value) -> String {
         }
         writeln!(s, "}};\n").unwrap();
     }
-    // Spacing and radius (same in both modes).
+    // Spacing and radius (same in every colour mode).
     writeln!(
         s,
         "/// `space/1..6`: 4 · 8 · 12 · 16 · 24 · 32.\npub mod space {{"

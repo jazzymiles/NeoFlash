@@ -225,11 +225,11 @@ F Functional coverage — v2 1800×1992 [V gap 16]
     T "Editor screens · Technical shelf"
   F Row 1688×36 [H gap 16]
     T "Workspace"
-    T "Main menu with shortcuts, Preferences (9 pages), shortcuts editor, Dark/Light"
+    T "Main menu with shortcuts, Preferences (9 pages), shortcuts editor, four themes"
     F Status cell 110×10 [H gap 0]
       F Status 69×21 [H gap 0]
         T "Covered"
-    T "Menus · Preferences · Interface Dark/Light"
+    T "Menus · Preferences · Interfaces in all four themes"
   F Row 1688×36 [H gap 16]
     T "Workspace"
     T "Document settings dialog (⌘J), Find & replace, Movie explorer / outline"

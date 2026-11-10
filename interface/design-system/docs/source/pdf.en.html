@@ -34,9 +34,9 @@
 
 <h2>In short</h2>
 <p class="lead">NeoFlash is a desktop vector-animation editor in the tradition of Macromedia&nbsp;/ Adobe&nbsp;Flash: a stage, a timeline with layers and keyframes, nested symbols (movie clip, graphic, button), ActionScript-style scripting and publishing to HTML5 (Rust&nbsp;/ WebAssembly), video, images and audio.</p>
-<p>The design system <b>NF2</b> keeps the mental model Flash animators already have and modernises everything around it: one primary action per screen, task-grouped controls, surfaces instead of borders, two themes on one set of tokens, accessible contrast and focus. Every element is a real Figma component bound to variables — no bitmaps.</p>
+<p>The design system <b>NF2</b> keeps the mental model Flash animators already have and modernises everything around it: one primary action per screen, task-grouped controls, surfaces instead of borders, four themes on one set of semantic tokens, accessible contrast and focus. Every element is a real Figma component bound to variables — no bitmaps.</p>
 <div class="stats">
-  <div class="stat"><b>{{N_TOKENS}}</b><span>tokens · Dark + Light</span></div>
+  <div class="stat"><b>{{N_TOKENS}}</b><span>tokens · four themes</span></div>
   <div class="stat"><b>{{N_COMPONENTS}}</b><span>components &amp; sets</span></div>
   <div class="stat"><b>{{N_ICONS}}</b><span>icons · {{N_CURSORS}} cursors</span></div>
   <div class="stat"><b>33/33</b><span>capabilities covered</span></div>
@@ -49,7 +49,7 @@
   <div class="card"><b>One primary path</b><span>Every screen has one obvious primary action — Publish, Play, Save, Apply. The rest is secondary.</span></div>
   <div class="card"><b>Group by task</b><span>Transport, onion skin, zoom and layer actions are grouped controls, not scattered rows.</span></div>
   <div class="card"><b>Surfaces, not borders</b><span>Depth comes from background levels: app → panel → raised → field. Borders only separate.</span></div>
-  <div class="card"><b>Systematic</b><span>Own colour, spacing and radius variables, text styles and components; two themes on one collection.</span></div>
+  <div class="card"><b>Systematic</b><span>Own colour, spacing and radius variables, text styles and components; four themes on one collection.</span></div>
   <div class="card"><b>Accessible</b><span>Text contrast ≥ 4.5:1, 2 px focus ring, hit areas ≥ 32 px, tooltips with shortcuts.</span></div>
   <div class="card"><b>Flash-literate</b><span>Layer kinds, frame states, keyframe glyphs, symbol types, menus and shortcuts follow Flash.</span></div>
 </div>
@@ -66,21 +66,21 @@
 <tr><td>Surfaces</td><td>Every control outlined; no depth.</td><td>Surface levels, borders as separators, radii from tokens.</td></tr>
 <tr><td>Fields</td><td>Fields look like buttons; no units, steppers or scrub.</td><td>One Field component: prefix label, units, steppers, scrub, states.</td></tr>
 <tr><td>Dialogs</td><td>Equal-weight buttons, two title styles, long single column.</td><td>One dialog pattern: primary last, destructive left, Advanced collapsed.</td></tr>
-<tr><td>Accessibility &amp; themes</td><td>Weak focus, 24–28 px targets, no dark theme.</td><td>Focus ring, ≥ 32 px targets, Dark and Light.</td></tr>
+<tr><td>Accessibility &amp; themes</td><td>Weak focus, 24–28 px targets, no dark theme.</td><td>Focus ring, ≥ 32 px targets, Dark, Light, Mid Neutral Gray and Dark Graphite.</td></tr>
 </tbody></table>
 {{GEN:img:docs/illustrations/audit-v1-to-v2.png|Audit board in Figma: annotated v1 map, findings and principles}}
 
 <!-- 2 -->
 <h1><span class="num">2</span>Foundations</h1>
 <h2>Colour</h2>
-<p>All colours are variables of the collection <code>NF2 · Tokens</code> with two modes, <b>Dark</b> and <b>Light</b>. A theme is switched by setting the mode of a frame (in code: <code>data-theme="light"</code>); component structure never changes.</p>
+<p>All colours are variables of the collection <code>NF2 · Tokens</code> with four modes: <b>Dark</b>, <b>Light</b>, <b>Mid Neutral Gray</b> and <b>Dark Graphite</b>. A theme is switched by setting the frame mode (in code: <code>data-theme="light"</code>, <code>mid-neutral-gray</code> or <code>dark-graphite</code>); component structure never changes. Mid Neutral Gray starts from <code>bg/app = #505050</code>; Dark Graphite starts from <code>bg/app = #171717</code> and uses <code>timeline/grid = #2E2E2E</code>.</p>
 <ul>
-  <li><b>Surfaces</b> stack <code>bg/app → bg/panel → bg/raised → bg/field</code>; <code>bg/hover</code> and <code>bg/selected</code> for interaction. <code>bg/canvas</code> is the pasteboard, <code>bg/stage</code> the document background (user content, same in both themes).</li>
+  <li><b>Surfaces</b> stack <code>bg/app → bg/panel → bg/raised → bg/field</code>; <code>bg/hover</code> and <code>bg/selected</code> for interaction. <code>bg/canvas</code> is the pasteboard, <code>bg/stage</code> the document background (user content, same in every theme).</li>
   <li><b>Accent</b> is the only interactive colour: primary buttons, selection, active tool, toggles, focus.</li>
   <li><b>Red is reserved for errors</b> and destructive actions (plus the Flash conventions: playhead and frame labels). Breakpoints are orange, warnings amber, strings green, XML tags blue.</li>
 </ul>
 {{GEN:colors}}
-<div class="two">{{GEN:img:docs/illustrations/colors-dark.png|Colour board — Dark}}{{GEN:img:docs/illustrations/colors-light.png|Colour board — Light}}</div>
+<div class="two">{{GEN:img:docs/illustrations/colors-dark.png|Colour board — Dark}}{{GEN:img:docs/illustrations/colors-light.png|Colour board — Light}}{{GEN:img:docs/illustrations/colors-mid-neutral-gray.png|Colour board — Mid Neutral Gray}}{{GEN:img:docs/illustrations/colors-dark-graphite.png|Colour board — Dark Graphite}}</div>
 
 <h2>Spacing and radius</h2>
 <div class="two"><div>{{GEN:dimensions}}</div><div>
@@ -131,6 +131,8 @@
 </tbody></table>
 <p><b>Timeline controls</b>, left to right: new layer, new folder, motion guide, delete · first, step back, <b>Play</b>, step forward, last · loop · timecode <code>00:01.21</code> and <code>30 / 120 F</code> · scene · FPS · duration · insert frame / keyframe / blank keyframe · classic / shape / motion tween · ease · sound · onion skin, outlines, edit multiple frames, markers · centre playhead · frame view menu · zoom.</p>
 {{GEN:img:exports/interface/light/png/editor-main.png|Editor — Main, Light theme (the same frame with the Light mode)}}
+{{GEN:img:exports/interface/mid-neutral-gray/png/editor-main.png|Editor — Main, Mid Neutral Gray; bg/app #505050}}
+{{GEN:img:exports/interface/dark-graphite/png/editor-main.png|Editor — Main, Dark Graphite}}
 
 <!-- 5 -->
 <h1><span class="num">5</span>Timeline</h1>
@@ -169,12 +171,13 @@
 
 <!-- 6 -->
 <h1><span class="num">6</span>Panels</h1>
-<p>Detached panels share one header (drag grip, up to three tabs, panel menu, collapse, close), the raised surface, radius 12 and a shadow. Bodies use 12 px padding and collapsible section headers. Every panel exists in Dark and Light; the Light versions are in <code>exports/panels/light/</code>.</p>
+<p>Detached panels share one header (drag grip, up to three tabs, panel menu, collapse, close), the raised surface, radius 12 and a shadow. Bodies use 12 px padding and collapsible section headers. Every panel exists in Dark, Light, Mid Neutral Gray and Dark Graphite under its matching <code>exports/panels/&lt;theme&gt;/</code> folder.</p>
 {{GEN:panels}}
 
 <!-- 7 -->
 <h1><span class="num">7</span>Code editor</h1>
 <p>Roboto Mono 13 px with line height 1.6. The gutter shows line numbers and markers: error, warning, breakpoint, execution arrow, folding. Errors also appear inline under the line with a quick fix, and on the overview ruler. Code hints, script tabs, a toolbox and a script navigator complete the Actions panel (see chapter 6).</p>
+<p>The concise syntax table shows the Dark and Light endpoints. Mid Neutral Gray and Dark Graphite use the same semantic roles with the values listed in the complete generated colour-token table.</p>
 <table>
 <thead><tr><th>Token</th><th>Dark</th><th>Light</th><th>Rule</th></tr></thead>
 <tbody>
@@ -206,7 +209,7 @@
 
 <!-- 10 -->
 <h1><span class="num">10</span>Editor states</h1>
-<p>Full 1920 × 1080 screens, each in Dark and Light (<code>exports/interface/</code>).</p>
+<p>Full 1920 × 1080 screens, each in Dark, Light, Mid Neutral Gray and Dark Graphite (<code>exports/interface/</code>).</p>
 {{GEN:interface-gallery}}
 
 <!-- 11 -->
@@ -229,8 +232,8 @@
     data/                           Figma dump, outlines of every frame
     source/                         sources of the docs
   exports/
-    interface/{dark,light}/{png,svg}
-    panels/{dark,light}/{png,svg}
+    interface/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}
+    panels/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}
     icons/{12,16,20}/ · cursors/
   tools/                            export plugin, receiver, build scripts</div>
 {{GEN:exports}}

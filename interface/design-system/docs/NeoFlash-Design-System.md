@@ -6,7 +6,7 @@
 > Generated parts (tokens, styles, components, icons, cursors, exports, outlines) are rebuilt from the Figma file
 > by `tools/build-docs.py`. Do not hand-edit this file; edit `docs/source/NeoFlash-Design-System.src.md` and rebuild.
 
-Generated: 2026-11-08 · Figma file: `Interface test` (key `BUz3pseopiuOg2Uiy3Fog7`).
+Generated: 2026-11-10 · Figma file: `Interface test` (key `BUz3pseopiuOg2Uiy3Fog7`).
 
 ---
 
@@ -16,8 +16,8 @@ Generated: 2026-11-08 · Figma file: `Interface test` (key `BUz3pseopiuOg2Uiy3Fo
   stage + timeline + layers + nested symbols (movie clip / graphic / button) + ActionScript-style scripting,
   publishing to HTML5 (Rust / WebAssembly runtime), video, images and audio.
 - **Two designs live in one Figma file.** `v1` is a faithful vector reconstruction of the current app
-  (NF1 components, `NF1 · Tokens`). `v2.25` is the current redesign (NF2 components, `NF2 · Tokens`, Dark + Light
-  modes); the detached `v2.2` archive pages are a preserved comparison checkpoint.
+  (NF1 components, `NF1 · Tokens`). `v2.25` is the current redesign (NF2 components, `NF2 · Tokens`, Dark, Light,
+  Mid Neutral Gray and Dark Graphite modes); the detached `v2.2` archive pages are a preserved comparison checkpoint.
   **They never share a variable, style or component.** Editing one must not change the other.
 - **Source of truth is the Figma file**, edited through the Figma MCP `use_figma` tool (Plugin API).
   The old generator plugin in `figma-plugin/` is history; never re-run it on this file.
@@ -28,7 +28,7 @@ Generated: 2026-11-08 · Figma file: `Interface test` (key `BUz3pseopiuOg2Uiy3Fo
 - **Timeline geometry:** 12 px per frame (Normal view), rows 28 px, ruler 32 px, frame `n` starts at `x = (n − 1) × 12`;
   every major frame label is centred on its tick (including 1-, 2- and 3-digit labels).
 - **Icons:** monochrome optical masters at 12, 16 and 20 px, components `NF2 Icon/{12,16,20}/*`, recoloured by token.
-- **Exports and data** live next to this file: `../exports/` (PNG @2x + SVG, Dark and Light), `data/figma-dump.json`,
+- **Exports and data** live next to this file: `../exports/` (PNG @2x + SVG in all four themes), `data/figma-dump.json`,
   `data/outline/*.txt` (text outline of every exported frame). Re-export with `tools/export-plugin` (no MCP limits).
 
 ---
@@ -42,7 +42,7 @@ NeoFlash keeps the mental model Flash animators already have, and modernises the
 | One primary path | Every screen has one obvious primary action (Publish, Play, Save, Apply). Everything else is secondary and never competes in weight. |
 | Group by task | Transport, onion skin, zoom, layer actions are grouped controls, not scattered rows. |
 | Surfaces, not borders | Depth comes from background levels (`bg/app → panel → raised → field`); borders are separators only. |
-| Systematic | Own variables (colour, spacing, radius), text styles and components; two themes on one collection. |
+| Systematic | Own variables (colour, spacing, radius), text styles and components; four themes on one collection. |
 | Accessible | Text contrast ≥ 4.5:1, focus ring 2 px, hit areas ≥ 32 px, every tool tooltip shows its shortcut. |
 | Isolated from v1 | No v2 variable, style or component references v1. |
 | Flash-literate | Layer kinds, frame states, keyframe glyphs, symbol types, menus and shortcuts follow Flash semantics so that a Flash user is instantly at home. |
@@ -67,7 +67,7 @@ in v1 is 2.16:1 (norm 4.5:1); 20 tool buttons had no labels or tooltips.
 | 11 | Unsaved changes dialog | High | Save/Discard/Cancel equal weight; two different dialog title styles. | One Dialog: Save primary, Discard danger-ghost left, Cancel secondary, consequence text, Esc/Enter. |
 | 12 | Convert to Symbol dialog | Med | Eight fields in one column, linkage expanded, disabled fields look active. | Name / Type / Folder first, compact registration picker, linkage under Advanced, Convert primary. |
 | 13 | Status line | Low | Hints and shortcuts in one 12 px grey line; broken glyph "⌘□". | 24 px status bar: state left, shortcut chips (F5/F6/F7/⌘↵) right. |
-| 14 | Accessibility & themes | Med | Selection by colour + 1 px border, weak focus, 24–28 px targets, no dark theme. | 2 px focus ring, ≥ 32 px targets, Dark/Light on one variable collection. |
+| 14 | Accessibility & themes | Med | Selection by colour + 1 px border, weak focus, 24–28 px targets, no dark theme. | 2 px focus ring, ≥ 32 px targets, four semantic themes on one variable collection. |
 
 ![Audit board](illustrations/audit-v1-to-v2.png)
 
@@ -94,7 +94,11 @@ maps every capability to the frame that shows it.
 | v2.25 · System & Components | 1:2845 | Colors / Dark (1:8742), Colors / Light (1:8887), Type scale (1:9032), Spacing and radius (1:9058), Shelf / Icons · 16 and 20 px (1:9092), Shelf / Button (1:9503), Shelf / Icon button (1:9566), Shelf / Segmented control (1:9605), Shelf / Field · Search · Select (1:9617), Shelf / Checkbox · Slider · Swatch · Badge (1:9658), Shelf / Dock tab · Section header · Panel header (1:9690), Shelf / Tree item (1:9726), Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo (1:9778), Shelf / Code editor (1:9816) … |
 | v2.25 · Panels | 22:31 | Panels — Dark (22:431), Menus — Dark (44:5714), Preferences (45:6580), Timeline frame views — Dark (55:6837), Menus — Light (60:10332), Preferences — Light (60:10559), Timeline frame views — Light (60:11121), Panels — Light (69:15209), Answers — Codex batch (R-022 · R-032…R-038) — Dark (124:18100), Answers — Codex batch (R-022 · R-032…R-038) — Light (132:19052), Answers — Lottie export (R-043) — Dark (134:19883), Segments (134:19991), Answers — Lottie export (R-043) — Light (136:20439), Answers — R-044 · Gemini R-039…R-042 · AE timeline EXP-01…06 — Dark (138:20571) … |
 | v2.25 · Interface — Dark | 1:2846 | NF2 / Editor — Main (1:10114), NF2 / Editor — Actions tab (1:11378), NF2 / Editor — Unsaved changes dialog (1:11790), NF2 / Editor — Convert to Symbol dialog (1:12024), NF2 / Timeline — states legend (12:11901), NF2 / Editor — View settings open (33:26705), NF2 / Editor — Swatches open (33:27679), NF2 / Editor — Ease panel open (33:31667), NF2 / Editor — Edit menu open (46:36610), NF2 / Editor — Editing symbol in place (47:34191), NF2 / Editor — Video on timeline (59:46641), NF2 / Editor — Motion tween path (67:51373), Frame 30 (67:55259) |
+| v2.25 · Interface — Dark Graphite | 259:41749 | NF2 / Editor — Main (259:41750), NF2 / Editor — Actions tab (259:41998), NF2 / Editor — Unsaved changes dialog (259:42222), NF2 / Editor — Convert to Symbol dialog (259:42483), NF2 / Timeline — states legend (259:42754), NF2 / Editor — View settings open (259:42906), NF2 / Editor — Swatches open (259:43154), NF2 / Editor — Ease panel open (259:43403), NF2 / Editor — Edit menu open (259:43695), NF2 / Editor — Editing symbol in place (259:43976), NF2 / Editor — Video on timeline (259:44249), NF2 / Editor — Motion tween path (259:44541), Frame 30 (259:44891) |
 | v2.25 · Interface — Light | 59:50907 | NF2 / Editor — Main (59:50910), NF2 / Editor — Actions tab (59:51153), NF2 / Editor — Unsaved changes dialog (59:51375), NF2 / Editor — Convert to Symbol dialog (59:51632), NF2 / Timeline — states legend (59:51899), NF2 / Editor — View settings open (59:52051), NF2 / Editor — Swatches open (59:52295), NF2 / Editor — Ease panel open (59:52540), NF2 / Editor — Edit menu open (59:52828), NF2 / Editor — Editing symbol in place (59:53105), NF2 / Editor — Video on timeline (59:53374), NF2 / Editor — Motion tween path (67:55347) |
+| v2.25 · Interface — Mid Neutral Gray | 259:216213 | NF2 / Editor — Main (259:216214), NF2 / Editor — Actions tab (259:216462), NF2 / Editor — Unsaved changes dialog (259:216686), NF2 / Editor — Convert to Symbol dialog (259:216947), NF2 / Timeline — states legend (259:217218), NF2 / Editor — View settings open (259:217370), NF2 / Editor — Swatches open (259:217618), NF2 / Editor — Ease panel open (259:217867), NF2 / Editor — Edit menu open (259:218159), NF2 / Editor — Editing symbol in place (259:218440), NF2 / Editor — Video on timeline (259:218713), NF2 / Editor — Motion tween path (259:219005) |
+| v2.25 · Interface — Light Neutral Gray (light) | 259:86151 | NF2 / Editor — Main (259:86152), NF2 / Editor — Actions tab (259:86400), NF2 / Editor — Unsaved changes dialog (259:86624), NF2 / Editor — Convert to Symbol dialog (259:86885), NF2 / Timeline — states legend (259:87156), NF2 / Editor — View settings open (259:87308), NF2 / Editor — Swatches open (259:87556), NF2 / Editor — Ease panel open (259:87805), NF2 / Editor — Edit menu open (259:88097), NF2 / Editor — Editing symbol in place (259:88378), NF2 / Editor — Video on timeline (259:88651), NF2 / Editor — Motion tween path (259:88943) |
+| v2.25 · Interface — Light Neutral Gray (draft) | 259:130552 | NF2 / Editor — Main (259:130553), NF2 / Editor — Actions tab (259:130801), NF2 / Editor — Unsaved changes dialog (259:131025), NF2 / Editor — Convert to Symbol dialog (259:131286), NF2 / Timeline — states legend (259:131557), NF2 / Editor — View settings open (259:131709), NF2 / Editor — Swatches open (259:131957), NF2 / Editor — Ease panel open (259:132206), NF2 / Editor — Edit menu open (259:132498), NF2 / Editor — Editing symbol in place (259:132779), NF2 / Editor — Video on timeline (259:133052), NF2 / Editor — Motion tween path (259:133344) |
 | v2.2 · System & Components (archive 2026-11-09) | 227:160007 | Colors / Dark (227:160010), Colors / Light (227:160155), Type scale (227:160300), Spacing and radius (227:160329), Shelf / Icons · 16 and 20 px (227:160363), Shelf / Button (227:160704), Shelf / Icon button (227:160755), Shelf / Segmented control (227:160782), Shelf / Field · Search · Select (227:160792), Shelf / Checkbox · Slider · Swatch · Badge (227:160825), Shelf / Dock tab · Section header · Panel header (227:160881), Shelf / Tree item (227:160904), Shelf / Kbd · Tooltip · Dialog header · Zoom control · Logo (227:160927), Shelf / Code editor (227:160957) … |
 | v2.2 · Panels (archive 2026-11-09) | 227:169586 | Panels — Dark (227:169588), Menus — Dark (227:172343), Preferences (227:172610), Timeline frame views — Dark (227:173172), Menus — Light (227:174235), Preferences — Light (227:174502), Timeline frame views — Light (227:175064), Panels — Light (227:176127), Answers — Codex batch (R-022 · R-032…R-038) — Dark (227:178882), Answers — Codex batch (R-022 · R-032…R-038) — Light (227:179786), Answers — Lottie export (R-043) — Dark (227:180690), Segments (227:181046), Answers — Lottie export (R-043) — Light (227:181047), Answers — R-044 · Gemini R-039…R-042 · AE timeline EXP-01…06 — Dark (227:181403) … |
 | v2.2 · Interface — Dark (archive 2026-11-09) | 227:260004 | NF2 / Editor — Main (227:260007), NF2 / Editor — Actions tab (227:260255), NF2 / Editor — Unsaved changes dialog (227:260479), NF2 / Editor — Convert to Symbol dialog (227:260740), NF2 / Timeline — states legend (227:261011), NF2 / Editor — View settings open (227:261163), NF2 / Editor — Swatches open (227:261411), NF2 / Editor — Ease panel open (227:261660), NF2 / Editor — Edit menu open (227:261952), NF2 / Editor — Editing symbol in place (227:262233), NF2 / Editor — Video on timeline (227:262506), NF2 / Editor — Motion tween path (227:262798), Frame 30 (227:263148) |
@@ -105,15 +109,17 @@ Page roles:
 
 - **v1 · Components / v1 · Interface** — reconstruction of the shipped app. Touch only when asked.
 - **Audit · v1 → v2** — findings, annotated v1 map, principles, functional coverage table.
-- **v2.25 · System & Components** — tokens boards (Colors Dark/Light, Type scale, Spacing and radius) and component
+- **v2.25 · System & Components** — token boards for Dark, Light, Mid Neutral Gray and Dark Graphite, plus Type scale,
+  Spacing and radius, and component
   *shelves* (`Shelf / …` frames). Every NF2 component lives here.
 - **Icons** — every NF2 / NF1 icon grouped with "where used", the Cursors section and the list of unused icons.
   Regenerate it after adding icons (see §11).
-- **v2.25 · Panels** — every floating panel, dialog, menu, preferences page and timeline view mode, in a Dark board and a
-  Light twin board (`Panels — Light`, `Menus — Light`, `Preferences — Light`, `Timeline frame views — Light`).
-- **v2.25 · Interface — Dark / Light** — full 1920 × 1080 editor screens in each state. The Light page holds clones of the
-  Dark frames with the NF2 collection set to Light mode on the frame. **After changing a Dark screen, re-clone it to
-  Light** (delete the old twin, clone, set explicit mode Light).
+- **v2.25 · Panels** — every floating panel, dialog, menu, preferences page and timeline view mode, with equivalent
+  Dark, Light, Mid Neutral Gray and Dark Graphite boards.
+- **v2.25 · Interface — Dark / Light / Mid Neutral Gray / Dark Graphite** — full 1920 × 1080 editor screens in each
+  state. Dark is the canonical structural page; the other pages hold equivalent clones with the matching explicit
+  NF2 collection mode. **After changing a Dark screen, update all three theme variants** without changing their
+  component structure.
 - **v2.2 · … (archive 2026-11-09)** — detached reference pages frozen immediately before the v2.25 migration. Do not
   relink these pages to live masters or use them as implementation references.
 
@@ -121,17 +127,20 @@ Page roles:
 
 ## 3. Foundations
 
-### 3.1 Colour tokens (`NF2 · Tokens`, modes Dark / Light)
+### 3.1 Colour tokens (`NF2 · Tokens`, four theme modes)
 
-All colours are variables in one collection with two modes. Themes switch by setting the explicit mode of a frame
-(`frame.setExplicitVariableModeForCollection(collection, lightModeId)`); nothing else changes.
+All colours are variables in one collection with Dark, Light, Mid Neutral Gray and Dark Graphite modes. Themes switch
+by setting the explicit mode of a frame (`frame.setExplicitVariableModeForCollection(collection, modeId)`); nothing
+else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite starts at
+`color/bg/app = #171717` and uses `color/timeline/grid = #2E2E2E`. Code and export folders use stable slugs `dark`,
+`light`, `mid-neutral-gray` and `dark-graphite`.
 
 **Semantic rules**
 
 - Surfaces stack: `bg/app` (window) → `bg/panel` (docked panels, inspector) → `bg/raised` (popovers, cards, menus,
   floating panels) → `bg/field` (inputs). Hover = `bg/hover`, selected row = `bg/selected`.
 - `bg/canvas` is the pasteboard around the stage; `bg/stage` is the *document* background (user content, so it is the
-  same in both modes).
+  same in every theme).
 - Borders: `border/subtle` separators inside panels, `border/default` control outlines where needed,
   `border/strong` emphasised outlines, `border/focus` focus ring (2 px).
 - Text: `text/primary` content, `text/secondary` labels, `text/tertiary` hints and metadata, `text/disabled`,
@@ -144,133 +153,135 @@ All colours are variables in one collection with two modes. Themes switch by set
 
 #### Surfaces
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/bg/app` | `#0d1016` | `#eef0f5` |
-| `color/bg/panel` | `#12151c` | `#f6f7fa` |
-| `color/bg/raised` | `#171b24` | `#ffffff` |
-| `color/bg/field` | `#0d1016` | `#ffffff` |
-| `color/bg/hover` | `#1e2330` | `#e9ecf3` |
-| `color/bg/selected` | `#1f2a48` | `#e3ebff` |
-| `color/bg/canvas` | `#0a0c11` | `#dadde6` |
-| `color/bg/stage` | `#131824` | `#131824` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/bg/app` | `#0d1016` | `#eef0f5` | `#505050` | `#171717` |
+| `color/bg/panel` | `#12151c` | `#f6f7fa` | `#686868` | `#1f1f1f` |
+| `color/bg/raised` | `#171b24` | `#ffffff` | `#6e6e6e` | `#292929` |
+| `color/bg/field` | `#0d1016` | `#ffffff` | `#565656` | `#1b1b1b` |
+| `color/bg/hover` | `#1e2330` | `#e9ecf3` | `#707070` | `#323232` |
+| `color/bg/selected` | `#1f2a48` | `#e3ebff` | `#576572` | `#233a52` |
+| `color/bg/canvas` | `#0a0c11` | `#dadde6` | `#727272` | `#171717` |
+| `color/bg/stage` | `#131824` | `#131824` | `#767676` | `#1f1f1f` |
 
 #### Borders & focus
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/border/subtle` | `#232938` | `#e1e4ec` |
-| `color/border/default` | `#2e3547` | `#cfd4e0` |
-| `color/border/strong` | `#444d63` | `#a9b0c2` |
-| `color/border/focus` | `#6c93ff` | `#3c6bf0` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/border/subtle` | `#232938` | `#e1e4ec` | `#747474` | `#2a2a2a` |
+| `color/border/default` | `#2e3547` | `#cfd4e0` | `#868686` | `#3a3a3a` |
+| `color/border/strong` | `#444d63` | `#a9b0c2` | `#a0a0a0` | `#484848` |
+| `color/border/focus` | `#6c93ff` | `#3c6bf0` | `#b9dbff` | `#4f91ca` |
 
 #### Text
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/text/primary` | `#e7eaf2` | `#171b26` |
-| `color/text/secondary` | `#9aa3b6` | `#5b6477` |
-| `color/text/tertiary` | `#8790a4` | `#667086` |
-| `color/text/disabled` | `#566073` | `#a2a9b8` |
-| `color/text/on-accent` | `#0b1020` | `#ffffff` |
-| `color/text/inverse` | `#0d1016` | `#f6f7fa` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/text/primary` | `#e7eaf2` | `#171b26` | `#f4f4f4` | `#d0d0d0` |
+| `color/text/secondary` | `#9aa3b6` | `#5b6477` | `#e8e8e8` | `#929292` |
+| `color/text/tertiary` | `#8790a4` | `#667086` | `#cacaca` | `#808080` |
+| `color/text/disabled` | `#566073` | `#a2a9b8` | `#a2a2a2` | `#626262` |
+| `color/text/on-accent` | `#0b1020` | `#ffffff` | `#1f1f1f` | `#171717` |
+| `color/text/inverse` | `#0d1016` | `#f6f7fa` | `#f2f2f2` | `#1f1f1f` |
 
 #### Accent (interactive)
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/accent/default` | `#6c93ff` | `#3c6bf0` |
-| `color/accent/hover` | `#86a5ff` | `#2f59d6` |
-| `color/accent/subtle` | `#1f2a48` | `#e3ebff` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/accent/default` | `#6c93ff` | `#3c6bf0` | `#dcecff` | `#4f91ca` |
+| `color/accent/hover` | `#86a5ff` | `#2f59d6` | `#c5ddf6` | `#63a6de` |
+| `color/accent/subtle` | `#1f2a48` | `#e3ebff` | `#576572` | `#223242` |
 
 #### Brand
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/brand/orange` | `#ff9a5c` | `#e8731f` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/brand/orange` | `#ff9a5c` | `#e8731f` | `#d98a4c` | `#d9854a` |
 
 #### Danger / error
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/danger/default` | `#ff6b6b` | `#d92d2d` |
-| `color/danger/subtle` | `#3a1d22` | `#fde8e8` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/danger/default` | `#ff6b6b` | `#d92d2d` | `#fff5f4` | `#f47b75` |
+| `color/danger/subtle` | `#3a1d22` | `#fde8e8` | `#755555` | `#3a1f1f` |
 
 #### Warning
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/warning/default` | `#f5b94a` | `#b26a00` |
-| `color/warning/subtle` | `#38300f` | `#fef3d6` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/warning/default` | `#f5b94a` | `#b26a00` | `#fff5e0` | `#c0a000` |
+| `color/warning/subtle` | `#38300f` | `#fef3d6` | `#766a45` | `#3a3315` |
 
 #### Success
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/success/default` | `#3dd68c` | `#168a57` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/success/default` | `#3dd68c` | `#168a57` | `#54b370` | `#25a044` |
 
 #### Layer colours
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/layer/green` | `#3dd68c` | `#168a57` |
-| `color/layer/red` | `#ff6b6b` | `#d92d2d` |
-| `color/layer/blue` | `#6c93ff` | `#3c6bf0` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/layer/green` | `#3dd68c` | `#168a57` | `#54b370` | `#25a044` |
+| `color/layer/red` | `#ff6b6b` | `#d92d2d` | `#e06a63` | `#f47b75` |
+| `color/layer/blue` | `#6c93ff` | `#3c6bf0` | `#4f8cc4` | `#225992` |
 
 #### Timeline
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/timeline/cell` | `#12151c` | `#ffffff` |
-| `color/timeline/cell-alt` | `#151922` | `#f6f7fa` |
-| `color/timeline/line` | `#1c2130` | `#e8ebf2` |
-| `color/timeline/row-selected` | `#1a2236` | `#e8eeff` |
-| `color/timeline/playhead` | `#ff5c6c` | `#e5334a` |
-| `color/timeline/empty` | `#141820` | `#ffffff` |
-| `color/timeline/empty-5th` | `#181d26` | `#edf0f5` |
-| `color/timeline/grid` | `#222833` | `#d5dae4` |
-| `color/timeline/static` | `#363d4b` | `#cbd0da` |
-| `color/timeline/classic-tween` | `#4b3f92` | `#d9d2ff` |
-| `color/timeline/shape-tween` | `#1d6a4c` | `#c8eed6` |
-| `color/timeline/motion-tween` | `#2a5b9e` | `#cde0ff` |
-| `color/timeline/selected` | `#3550b8` | `#3c6bf0` |
-| `color/timeline/marker` | `#d9dee8` | `#171b26` |
-| `color/timeline/marker-inverse` | `#ffffff` | `#ffffff` |
-| `color/timeline/label` | `#ff6b6b` | `#d92d2d` |
-| `color/timeline/comment` | `#3dd68c` | `#168a57` |
-| `color/timeline/folder` | `#171b23` | `#e6e9f0` |
-| `color/timeline/onion` | `#6c93ff` | `#3c6bf0` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/timeline/cell` | `#12151c` | `#ffffff` | `#686868` | `#1f1f1f` |
+| `color/timeline/cell-alt` | `#151922` | `#f6f7fa` | `#626262` | `#202020` |
+| `color/timeline/line` | `#1c2130` | `#e8ebf2` | `#7c7c7c` | `#2a2a2a` |
+| `color/timeline/row-selected` | `#1a2236` | `#e8eeff` | `#7a7a7a` | `#223242` |
+| `color/timeline/playhead` | `#ff5c6c` | `#e5334a` | `#e05a57` | `#d14745` |
+| `color/timeline/empty` | `#141820` | `#ffffff` | `#707070` | `#1b1b1b` |
+| `color/timeline/empty-5th` | `#181d26` | `#edf0f5` | `#686868` | `#202020` |
+| `color/timeline/grid` | `#222833` | `#d5dae4` | `#888888` | `#2e2e2e` |
+| `color/timeline/static` | `#363d4b` | `#cbd0da` | `#a4a4a4` | `#444444` |
+| `color/timeline/classic-tween` | `#4b3f92` | `#d9d2ff` | `#6f4b9a` | `#522791` |
+| `color/timeline/shape-tween` | `#1d6a4c` | `#c8eed6` | `#397a4d` | `#286b3a` |
+| `color/timeline/motion-tween` | `#2a5b9e` | `#cde0ff` | `#3f6f9f` | `#225992` |
+| `color/timeline/selected` | `#3550b8` | `#3c6bf0` | `#576572` | `#3a78b2` |
+| `color/timeline/marker` | `#d9dee8` | `#171b26` | `#f4f4f4` | `#d0d0d0` |
+| `color/timeline/marker-inverse` | `#ffffff` | `#ffffff` | `#ffffff` | `#ffffff` |
+| `color/timeline/label` | `#ff6b6b` | `#d92d2d` | `#fff5f4` | `#f47b75` |
+| `color/timeline/comment` | `#3dd68c` | `#168a57` | `#237a3b` | `#25a044` |
+| `color/timeline/folder` | `#171b23` | `#e6e9f0` | `#e1e1e1` | `#252525` |
+| `color/timeline/onion` | `#6c93ff` | `#3c6bf0` | `#3f6f9f` | `#3a78b2` |
 
 #### Code syntax
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/syntax/function` | `#8aadf4` | `#2f5bd8` |
-| `color/syntax/string` | `#a6da95` | `#3d7a2a` |
-| `color/syntax/keyword` | `#c6a0f6` | `#7e3fc2` |
-| `color/syntax/type` | `#8bd5ca` | `#0b7f72` |
-| `color/syntax/comment` | `#6e7891` | `#8a93a6` |
-| `color/syntax/number` | `#f5a97f` | `#b5521b` |
-| `color/syntax/tag` | `#7dc4e4` | `#0b6e99` |
-| `color/syntax/attr` | `#eed49f` | `#8a6500` |
-| `color/syntax/error` | `#ff6b6b` | `#d92d2d` |
-| `color/syntax/warning` | `#f5b94a` | `#b26a00` |
-| `color/syntax/breakpoint` | `#ff9a5c` | `#e8731f` |
-| `color/syntax/selection` | `#2a3a63` | `#d5e2ff` |
-| `color/syntax/current-line` | `#171c27` | `#f2f5fb` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/syntax/function` | `#8aadf4` | `#2f5bd8` | `#3f6f9f` | `#4a88bd` |
+| `color/syntax/string` | `#a6da95` | `#3d7a2a` | `#4f7f3a` | `#70a75a` |
+| `color/syntax/keyword` | `#c6a0f6` | `#7e3fc2` | `#77539b` | `#8b6bb5` |
+| `color/syntax/type` | `#8bd5ca` | `#0b7f72` | `#3f7c73` | `#4e9d91` |
+| `color/syntax/comment` | `#6e7891` | `#8a93a6` | `#777777` | `#747474` |
+| `color/syntax/number` | `#f5a97f` | `#b5521b` | `#b86a32` | `#c46f3a` |
+| `color/syntax/tag` | `#7dc4e4` | `#0b6e99` | `#3f6f9f` | `#3a78b2` |
+| `color/syntax/attr` | `#eed49f` | `#8a6500` | `#8a6a00` | `#c0a000` |
+| `color/syntax/error` | `#ff6b6b` | `#d92d2d` | `#b83a34` | `#f47b75` |
+| `color/syntax/warning` | `#f5b94a` | `#b26a00` | `#9a7400` | `#c0a000` |
+| `color/syntax/breakpoint` | `#ff9a5c` | `#e8731f` | `#c56f2b` | `#d9854a` |
+| `color/syntax/selection` | `#2a3a63` | `#d5e2ff` | `#d8d8d8` | `#233a52` |
+| `color/syntax/current-line` | `#171c27` | `#f2f5fb` | `#e1e1e1` | `#292929` |
 
 #### Canvas aids & overlays
 
-| Token | Dark | Light |
-|---|---|---|
-| `color/overlay` | `#05070bb3` | `#10131a66` |
-| `color/guide` | `#2ec4e6` | `#0b93bf` |
-| `color/guide-selected` | `#8be7fb` | `#05698a` |
-| `color/stage-grid` | `#ffffff` | `#1b2233` |
+| Token | Dark | Light | Mid Neutral Gray | Dark Graphite |
+|---|---|---|---|---|
+| `color/overlay` | `#05070bb3` | `#10131a66` | `#10131a66` | `#000000b3` |
+| `color/guide` | `#2ec4e6` | `#0b93bf` | `#0b93bf` | `#3a78b2` |
+| `color/guide-selected` | `#8be7fb` | `#05698a` | `#05698a` | `#72a9c5` |
+| `color/stage-grid` | `#ffffff` | `#1b2233` | `#888888` | `#484848` |
 
 
 ![Colours — Dark](illustrations/colors-dark.png)
 ![Colours — Light](illustrations/colors-light.png)
+![Colours — Mid Neutral Gray](illustrations/colors-mid-neutral-gray.png)
+![Colours — Dark Graphite](illustrations/colors-dark-graphite.png)
 
 ### 3.2 Spacing and radius tokens
 
@@ -401,7 +412,7 @@ The hotspot is stored in each component's description (`Hotspot at x N, y N`) an
 ### 3.6 Elevation, focus and states
 
 - Floating panels and popovers: `bg/raised`, radius 12, 1 px `border/subtle`, drop shadow **y 12, blur 32,
-  black 35 %** (same in both themes). Dialogs: drop shadow **y 16, blur 48, black 45 %**, on the `overlay` scrim.
+  black 35 %** (same in every theme). Dialogs: drop shadow **y 16, blur 48, black 45 %**, on the `overlay` scrim.
   (Values read from the SVG exports.)
 - Focus: 2 px `border/focus` ring, 2 px outside the control radius (`NF2/Focus Ring`). Shown only for keyboard focus.
 - Hover: background `bg/hover` (ghost controls) or `accent/hover` (primary). Pressed / on = the `Selected` variant.
@@ -433,7 +444,7 @@ style when on) · timecode `00:01.21` + `30 / 120 F` (mono) · Scene `Select` ·
 ease · sound · onion group (onion skin on/off, outlines, edit multiple frames, modify markers) · centre playhead ·
 frame view ⋯ · zoom − slider +.
 
-### 4.1 Editor states (all exported in Dark and Light)
+### 4.1 Editor states (all exported in the four themes)
 
 | Frame | Shows |
 |---|---|
@@ -450,20 +461,20 @@ frame view ⋯ · zoom − slider +.
 | Editor — Video on timeline | Video layer `intro.mp4` with filmstrip span, video on stage, Properties — Video floating. |
 | Editor — Motion tween path | Motion path on stage with frame dots, property keyframes ◆ on the hand layer. |
 
-| Screen | Dark | Light | Figma |
-|---|---|---|---|
-| Editor — Main | [PNG](../exports/interface/dark/png/editor-main.png) · [SVG](../exports/interface/dark/svg/editor-main.svg) | [PNG](../exports/interface/light/png/editor-main.png) · [SVG](../exports/interface/light/svg/editor-main.svg) | `1:10114` / `59:50910` |
-| Editor — Actions tab | [PNG](../exports/interface/dark/png/editor-actions-tab.png) · [SVG](../exports/interface/dark/svg/editor-actions-tab.svg) | [PNG](../exports/interface/light/png/editor-actions-tab.png) · [SVG](../exports/interface/light/svg/editor-actions-tab.svg) | `1:11378` / `59:51153` |
-| Editor — Unsaved changes dialog | [PNG](../exports/interface/dark/png/editor-unsaved-changes-dialog.png) · [SVG](../exports/interface/dark/svg/editor-unsaved-changes-dialog.svg) | [PNG](../exports/interface/light/png/editor-unsaved-changes-dialog.png) · [SVG](../exports/interface/light/svg/editor-unsaved-changes-dialog.svg) | `1:11790` / `59:51375` |
-| Editor — Convert to Symbol dialog | [PNG](../exports/interface/dark/png/editor-convert-to-symbol-dialog.png) · [SVG](../exports/interface/dark/svg/editor-convert-to-symbol-dialog.svg) | [PNG](../exports/interface/light/png/editor-convert-to-symbol-dialog.png) · [SVG](../exports/interface/light/svg/editor-convert-to-symbol-dialog.svg) | `1:12024` / `59:51632` |
-| Timeline — states legend | [PNG](../exports/interface/dark/png/timeline-states-legend.png) · [SVG](../exports/interface/dark/svg/timeline-states-legend.svg) | [PNG](../exports/interface/light/png/timeline-states-legend.png) · [SVG](../exports/interface/light/svg/timeline-states-legend.svg) | `12:11901` / `59:51899` |
-| Editor — View settings open | [PNG](../exports/interface/dark/png/editor-view-settings-open.png) · [SVG](../exports/interface/dark/svg/editor-view-settings-open.svg) | [PNG](../exports/interface/light/png/editor-view-settings-open.png) · [SVG](../exports/interface/light/svg/editor-view-settings-open.svg) | `33:26705` / `59:52051` |
-| Editor — Swatches open | [PNG](../exports/interface/dark/png/editor-swatches-open.png) · [SVG](../exports/interface/dark/svg/editor-swatches-open.svg) | [PNG](../exports/interface/light/png/editor-swatches-open.png) · [SVG](../exports/interface/light/svg/editor-swatches-open.svg) | `33:27679` / `59:52295` |
-| Editor — Ease panel open | [PNG](../exports/interface/dark/png/editor-ease-panel-open.png) · [SVG](../exports/interface/dark/svg/editor-ease-panel-open.svg) | [PNG](../exports/interface/light/png/editor-ease-panel-open.png) · [SVG](../exports/interface/light/svg/editor-ease-panel-open.svg) | `33:31667` / `59:52540` |
-| Editor — Edit menu open | [PNG](../exports/interface/dark/png/editor-edit-menu-open.png) · [SVG](../exports/interface/dark/svg/editor-edit-menu-open.svg) | [PNG](../exports/interface/light/png/editor-edit-menu-open.png) · [SVG](../exports/interface/light/svg/editor-edit-menu-open.svg) | `46:36610` / `59:52828` |
-| Editor — Editing symbol in place | [PNG](../exports/interface/dark/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/dark/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/light/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/light/svg/editor-editing-symbol-in-place.svg) | `47:34191` / `59:53105` |
-| Editor — Video on timeline | [PNG](../exports/interface/dark/png/editor-video-on-timeline.png) · [SVG](../exports/interface/dark/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/light/png/editor-video-on-timeline.png) · [SVG](../exports/interface/light/svg/editor-video-on-timeline.svg) | `59:46641` / `59:53374` |
-| Editor — Motion tween path | [PNG](../exports/interface/dark/png/editor-motion-tween-path.png) · [SVG](../exports/interface/dark/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/light/png/editor-motion-tween-path.png) · [SVG](../exports/interface/light/svg/editor-motion-tween-path.svg) | `67:51373` / `67:55347` |
+| Screen | Dark | Light | Mid Neutral Gray | Dark Graphite | Figma |
+|---|---|---|---|---|---|
+| Editor — Main | [PNG](../exports/interface/dark/png/editor-main.png) · [SVG](../exports/interface/dark/svg/editor-main.svg) | [PNG](../exports/interface/light/png/editor-main.png) · [SVG](../exports/interface/light/svg/editor-main.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-main.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-main.svg) | [PNG](../exports/interface/dark-graphite/png/editor-main.png) · [SVG](../exports/interface/dark-graphite/svg/editor-main.svg) | `1:10114` / `59:50910` / `259:216214` / `259:41750` |
+| Editor — Actions tab | [PNG](../exports/interface/dark/png/editor-actions-tab.png) · [SVG](../exports/interface/dark/svg/editor-actions-tab.svg) | [PNG](../exports/interface/light/png/editor-actions-tab.png) · [SVG](../exports/interface/light/svg/editor-actions-tab.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-actions-tab.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-actions-tab.svg) | [PNG](../exports/interface/dark-graphite/png/editor-actions-tab.png) · [SVG](../exports/interface/dark-graphite/svg/editor-actions-tab.svg) | `1:11378` / `59:51153` / `259:216462` / `259:41998` |
+| Editor — Unsaved changes dialog | [PNG](../exports/interface/dark/png/editor-unsaved-changes-dialog.png) · [SVG](../exports/interface/dark/svg/editor-unsaved-changes-dialog.svg) | [PNG](../exports/interface/light/png/editor-unsaved-changes-dialog.png) · [SVG](../exports/interface/light/svg/editor-unsaved-changes-dialog.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-unsaved-changes-dialog.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-unsaved-changes-dialog.svg) | [PNG](../exports/interface/dark-graphite/png/editor-unsaved-changes-dialog.png) · [SVG](../exports/interface/dark-graphite/svg/editor-unsaved-changes-dialog.svg) | `1:11790` / `59:51375` / `259:216686` / `259:42222` |
+| Editor — Convert to Symbol dialog | [PNG](../exports/interface/dark/png/editor-convert-to-symbol-dialog.png) · [SVG](../exports/interface/dark/svg/editor-convert-to-symbol-dialog.svg) | [PNG](../exports/interface/light/png/editor-convert-to-symbol-dialog.png) · [SVG](../exports/interface/light/svg/editor-convert-to-symbol-dialog.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-convert-to-symbol-dialog.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-convert-to-symbol-dialog.svg) | [PNG](../exports/interface/dark-graphite/png/editor-convert-to-symbol-dialog.png) · [SVG](../exports/interface/dark-graphite/svg/editor-convert-to-symbol-dialog.svg) | `1:12024` / `59:51632` / `259:216947` / `259:42483` |
+| Timeline — states legend | [PNG](../exports/interface/dark/png/timeline-states-legend.png) · [SVG](../exports/interface/dark/svg/timeline-states-legend.svg) | [PNG](../exports/interface/light/png/timeline-states-legend.png) · [SVG](../exports/interface/light/svg/timeline-states-legend.svg) | [PNG](../exports/interface/mid-neutral-gray/png/timeline-states-legend.png) · [SVG](../exports/interface/mid-neutral-gray/svg/timeline-states-legend.svg) | [PNG](../exports/interface/dark-graphite/png/timeline-states-legend.png) · [SVG](../exports/interface/dark-graphite/svg/timeline-states-legend.svg) | `12:11901` / `59:51899` / `259:217218` / `259:42754` |
+| Editor — View settings open | [PNG](../exports/interface/dark/png/editor-view-settings-open.png) · [SVG](../exports/interface/dark/svg/editor-view-settings-open.svg) | [PNG](../exports/interface/light/png/editor-view-settings-open.png) · [SVG](../exports/interface/light/svg/editor-view-settings-open.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-view-settings-open.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-view-settings-open.svg) | [PNG](../exports/interface/dark-graphite/png/editor-view-settings-open.png) · [SVG](../exports/interface/dark-graphite/svg/editor-view-settings-open.svg) | `33:26705` / `59:52051` / `259:217370` / `259:42906` |
+| Editor — Swatches open | [PNG](../exports/interface/dark/png/editor-swatches-open.png) · [SVG](../exports/interface/dark/svg/editor-swatches-open.svg) | [PNG](../exports/interface/light/png/editor-swatches-open.png) · [SVG](../exports/interface/light/svg/editor-swatches-open.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-swatches-open.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-swatches-open.svg) | [PNG](../exports/interface/dark-graphite/png/editor-swatches-open.png) · [SVG](../exports/interface/dark-graphite/svg/editor-swatches-open.svg) | `33:27679` / `59:52295` / `259:217618` / `259:43154` |
+| Editor — Ease panel open | [PNG](../exports/interface/dark/png/editor-ease-panel-open.png) · [SVG](../exports/interface/dark/svg/editor-ease-panel-open.svg) | [PNG](../exports/interface/light/png/editor-ease-panel-open.png) · [SVG](../exports/interface/light/svg/editor-ease-panel-open.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-ease-panel-open.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-ease-panel-open.svg) | [PNG](../exports/interface/dark-graphite/png/editor-ease-panel-open.png) · [SVG](../exports/interface/dark-graphite/svg/editor-ease-panel-open.svg) | `33:31667` / `59:52540` / `259:217867` / `259:43403` |
+| Editor — Edit menu open | [PNG](../exports/interface/dark/png/editor-edit-menu-open.png) · [SVG](../exports/interface/dark/svg/editor-edit-menu-open.svg) | [PNG](../exports/interface/light/png/editor-edit-menu-open.png) · [SVG](../exports/interface/light/svg/editor-edit-menu-open.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-edit-menu-open.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-edit-menu-open.svg) | [PNG](../exports/interface/dark-graphite/png/editor-edit-menu-open.png) · [SVG](../exports/interface/dark-graphite/svg/editor-edit-menu-open.svg) | `46:36610` / `59:52828` / `259:218159` / `259:43695` |
+| Editor — Editing symbol in place | [PNG](../exports/interface/dark/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/dark/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/light/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/light/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-editing-symbol-in-place.svg) | [PNG](../exports/interface/dark-graphite/png/editor-editing-symbol-in-place.png) · [SVG](../exports/interface/dark-graphite/svg/editor-editing-symbol-in-place.svg) | `47:34191` / `59:53105` / `259:218440` / `259:43976` |
+| Editor — Video on timeline | [PNG](../exports/interface/dark/png/editor-video-on-timeline.png) · [SVG](../exports/interface/dark/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/light/png/editor-video-on-timeline.png) · [SVG](../exports/interface/light/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-video-on-timeline.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-video-on-timeline.svg) | [PNG](../exports/interface/dark-graphite/png/editor-video-on-timeline.png) · [SVG](../exports/interface/dark-graphite/svg/editor-video-on-timeline.svg) | `59:46641` / `59:53374` / `259:218713` / `259:44249` |
+| Editor — Motion tween path | [PNG](../exports/interface/dark/png/editor-motion-tween-path.png) · [SVG](../exports/interface/dark/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/light/png/editor-motion-tween-path.png) · [SVG](../exports/interface/light/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/mid-neutral-gray/png/editor-motion-tween-path.png) · [SVG](../exports/interface/mid-neutral-gray/svg/editor-motion-tween-path.svg) | [PNG](../exports/interface/dark-graphite/png/editor-motion-tween-path.png) · [SVG](../exports/interface/dark-graphite/svg/editor-motion-tween-path.svg) | `67:51373` / `67:55347` / `259:219005` / `259:44541` |
 
 
 ---
@@ -506,21 +517,21 @@ outline-only square). Header icons eye, lock, outline toggle all rows.
 
 ### 5.3 Frames and markers
 
-| State | Token | Dark | Light | Look |
-|---|---|---|---|---|
-| Empty frames | `timeline/empty` | `#141820` | `#ffffff` | grid, every 5th frame shaded (`timeline/empty-5th`) |
-| Static frames | `timeline/static` | `#363d4b` | `#cbd0da` | frames holding content after a keyframe ●, ends with ▯ |
-| Blank keyframe | `timeline/empty` | `#141820` | `#ffffff` | hollow ○; following empty frames stay empty |
-| Classic tween | `timeline/classic-tween` | `#4b3f92` | `#d9d2ff` | violet span with a solid arrow between keyframes |
-| Shape tween | `timeline/shape-tween` | `#1d6a4c` | `#c8eed6` | green span with a solid arrow |
-| Motion tween | `timeline/motion-tween` | `#2a5b9e` | `#cde0ff` | blue span, property keyframes ◆, no arrow |
-| Broken tween | `timeline/classic-tween` | `#4b3f92` | `#d9d2ff` | dashed arrow: end keyframe missing |
-| Selected frames | `timeline/selected` | `#3550b8` | `#3c6bf0` | markers switch to Tone = On Selection |
-| Sound | `timeline/static` | `#363d4b` | `#cbd0da` | waveform drawn in the span (`success/default`) |
-| Video | `timeline/static` | `#363d4b` | `#cbd0da` | filmstrip of the clip in the span |
-| Frame label / comment | `timeline/label` | `#ff6b6b` | `#d92d2d` | red flag label, green // comment (`timeline/comment`), ⚓ anchor |
-| Playhead | `timeline/playhead` | `#ff5c6c` | `#e5334a` | line through all rows + frame chip + time chip |
-| Onion skin range | `timeline/onion` | `#6c93ff` | `#3c6bf0` | handles on the ruler around the playhead |
+| State | Token | Dark | Light | Mid Neutral Gray | Dark Graphite | Look |
+|---|---|---|---|---|---|---|
+| Empty frames | `timeline/empty` | `#141820` | `#ffffff` | `#707070` | `#1b1b1b` | grid, every 5th frame shaded (`timeline/empty-5th`) |
+| Static frames | `timeline/static` | `#363d4b` | `#cbd0da` | `#a4a4a4` | `#444444` | frames holding content after a keyframe ●, ends with ▯ |
+| Blank keyframe | `timeline/empty` | `#141820` | `#ffffff` | `#707070` | `#1b1b1b` | hollow ○; following empty frames stay empty |
+| Classic tween | `timeline/classic-tween` | `#4b3f92` | `#d9d2ff` | `#6f4b9a` | `#522791` | violet span with a solid arrow between keyframes |
+| Shape tween | `timeline/shape-tween` | `#1d6a4c` | `#c8eed6` | `#397a4d` | `#286b3a` | green span with a solid arrow |
+| Motion tween | `timeline/motion-tween` | `#2a5b9e` | `#cde0ff` | `#3f6f9f` | `#225992` | blue span, property keyframes ◆, no arrow |
+| Broken tween | `timeline/classic-tween` | `#4b3f92` | `#d9d2ff` | `#6f4b9a` | `#522791` | dashed arrow: end keyframe missing |
+| Selected frames | `timeline/selected` | `#3550b8` | `#3c6bf0` | `#576572` | `#3a78b2` | markers switch to Tone = On Selection |
+| Sound | `timeline/static` | `#363d4b` | `#cbd0da` | `#a4a4a4` | `#444444` | waveform drawn in the span (`success/default`) |
+| Video | `timeline/static` | `#363d4b` | `#cbd0da` | `#a4a4a4` | `#444444` | filmstrip of the clip in the span |
+| Frame label / comment | `timeline/label` | `#ff6b6b` | `#d92d2d` | `#fff5f4` | `#f47b75` | red flag label, green // comment (`timeline/comment`), ⚓ anchor |
+| Playhead | `timeline/playhead` | `#ff5c6c` | `#e5334a` | `#e05a57` | `#d14745` | line through all rows + frame chip + time chip |
+| Onion skin range | `timeline/onion` | `#6c93ff` | `#3c6bf0` | `#3f6f9f` | `#3a78b2` | handles on the ruler around the playhead |
 
 
 `NF2/TL Marker` kinds: Keyframe ● (filled, 6 px), Blank Keyframe ○, Span End ▯ (small 5 × 8 rectangle on the last frame
@@ -616,7 +627,7 @@ Extend / Reflect / Repeat and Linear RGB, stops, RGB/HSB, alpha, stroke width an
 
 Standard **Tools** panel header, matching the Properties title style and left inset. The body has no Tools / View / Colors / Options captions: dividers preserve every group and control without redundant labels. Layout = **1 Column** at the Stage middle-left/right anchors and **2 Columns** at corners or top/bottom centres. Tool = `NF2/Tool Button` with the same flyouts, shortcuts and states as before. Fill/Stroke plus default/swap actions are centred on the active grid; clicking them opens or focuses the real Color panel instead of squeezing a picker into the narrow Tools window.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-tools-floating.png) · [SVG](../exports/panels/dark/svg/panel-tools-floating.svg) · [Light PNG](../exports/panels/light/png/panel-tools-floating.png) · [SVG](../exports/panels/light/svg/panel-tools-floating.svg) · Figma node `22:728`
+Files: [Dark PNG](../exports/panels/dark/png/panel-tools-floating.png) · [SVG](../exports/panels/dark/svg/panel-tools-floating.svg) · [Light PNG](../exports/panels/light/png/panel-tools-floating.png) · [SVG](../exports/panels/light/svg/panel-tools-floating.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-tools-floating.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-tools-floating.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-tools-floating.png) · [SVG](../exports/panels/dark-graphite/svg/panel-tools-floating.svg) · Figma node `22:728`
 
 ### Tools — eight Stage anchors
 
@@ -624,7 +635,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-tools-floating.png) · [SVG](
 
 Detached Tools snaps 16 px inside the Stage workspace at Top Left / Centre / Right, Middle Left / Right and Bottom Left / Centre / Right; magnetic capture distance is 112 px. Middle side anchors force the vertical rail. Top anchors grow down, bottom anchors grow up; left-side popovers open right and right-side popovers open left. Anchor persistence is scale-stable.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/tools-v2-25-stage-anchors.png) · [SVG](../exports/panels/dark/boards/svg/tools-v2-25-stage-anchors.svg) · [Light PNG](../exports/panels/light/boards/png/tools-v2-25-stage-anchors.png) · [SVG](../exports/panels/light/boards/svg/tools-v2-25-stage-anchors.svg) · Figma node `227:452786`
+Files: [Dark PNG](../exports/panels/dark/boards/png/tools-v2-25-stage-anchors.png) · [SVG](../exports/panels/dark/boards/svg/tools-v2-25-stage-anchors.svg) · [Light PNG](../exports/panels/light/boards/png/tools-v2-25-stage-anchors.png) · [SVG](../exports/panels/light/boards/svg/tools-v2-25-stage-anchors.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/tools-v2-25-stage-anchors.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/tools-v2-25-stage-anchors.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/tools-v2-25-stage-anchors.png) · [SVG](../exports/panels/dark-graphite/boards/svg/tools-v2-25-stage-anchors.svg) · Figma node `227:452786`
 
 ### Floating panels — headers, docking and minima
 
@@ -632,7 +643,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/tools-v2-25-stage-anchors.pn
 
 One `NF2/Floating Panel Header`, never extra native title chrome. Shows one/two/three tabs, active, overflow, compact and collapsed states with menu/collapse/close. Tabs still reorder, tear off and dock individually. Width minima apply docked and floating; panel-specific height minima only floating. Visible edge target ≈5.5% (44–80 px / 36–66 px); invisible hit halo ≈9.5% (72–132 px / 60–112 px, at most 30%). Dashed halo is annotation only.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/floating-panels-v2-25-headers-docking-and-minima.png) · [SVG](../exports/panels/dark/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg) · [Light PNG](../exports/panels/light/boards/png/floating-panels-v2-25-headers-docking-and-minima.png) · [SVG](../exports/panels/light/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg) · Figma node `227:453738`
+Files: [Dark PNG](../exports/panels/dark/boards/png/floating-panels-v2-25-headers-docking-and-minima.png) · [SVG](../exports/panels/dark/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg) · [Light PNG](../exports/panels/light/boards/png/floating-panels-v2-25-headers-docking-and-minima.png) · [SVG](../exports/panels/light/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/floating-panels-v2-25-headers-docking-and-minima.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/floating-panels-v2-25-headers-docking-and-minima.png) · [SVG](../exports/panels/dark-graphite/boards/svg/floating-panels-v2-25-headers-docking-and-minima.svg) · Figma node `227:453738`
 
 ### Properties — automatic context
 
@@ -640,7 +651,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/floating-panels-v2-25-header
 
 Properties follows the Stage, selected object/text/symbol/video, Timeline frame/range/tween/sound or active tool automatically. There is no persistent Selection / Tool mode switch. Brush options selects Brush and opens its contextual settings. Every implemented field and command remains available in its context.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/properties-v2-25-contextual-states.png) · [SVG](../exports/panels/dark/boards/svg/properties-v2-25-contextual-states.svg) · [Light PNG](../exports/panels/light/boards/png/properties-v2-25-contextual-states.png) · [SVG](../exports/panels/light/boards/svg/properties-v2-25-contextual-states.svg) · Figma node `227:454916`
+Files: [Dark PNG](../exports/panels/dark/boards/png/properties-v2-25-contextual-states.png) · [SVG](../exports/panels/dark/boards/svg/properties-v2-25-contextual-states.svg) · [Light PNG](../exports/panels/light/boards/png/properties-v2-25-contextual-states.png) · [SVG](../exports/panels/light/boards/svg/properties-v2-25-contextual-states.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/properties-v2-25-contextual-states.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/properties-v2-25-contextual-states.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/properties-v2-25-contextual-states.png) · [SVG](../exports/panels/dark-graphite/boards/svg/properties-v2-25-contextual-states.svg) · Figma node `227:454916`
 
 ### Function Search — direct focus
 
@@ -648,7 +659,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/properties-v2-25-contextual-
 
 Help ▸ Search functions… / F1 opens with the input already focused. The first character survives native-menu dismissal and keyboard selection scrolls into view. Maximum width 560, at most 24 results, result region at most 392 px; the reference state shows a typed query and highlighted keyboard result.
 
-Files: [Dark PNG](../exports/panels/dark/png/popover-function-search.png) · [SVG](../exports/panels/dark/svg/popover-function-search.svg) · [Light PNG](../exports/panels/light/png/popover-function-search.png) · [SVG](../exports/panels/light/svg/popover-function-search.svg) · Figma node `227:453576`
+Files: [Dark PNG](../exports/panels/dark/png/popover-function-search.png) · [SVG](../exports/panels/dark/svg/popover-function-search.svg) · [Light PNG](../exports/panels/light/png/popover-function-search.png) · [SVG](../exports/panels/light/svg/popover-function-search.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/popover-function-search.png) · [SVG](../exports/panels/mid-neutral-gray/svg/popover-function-search.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/popover-function-search.png) · [SVG](../exports/panels/dark-graphite/svg/popover-function-search.svg) · Figma node `227:453576`
 
 ### v2.25 behavioral contracts
 
@@ -656,7 +667,7 @@ Files: [Dark PNG](../exports/panels/dark/png/popover-function-search.png) · [SV
 
 Design notes distinguish behavior from visible chrome: automatic Properties context, Stage-anchor persistence, invisible dock halo, direct-focus Function Search, Color-panel reveal/focus, floating-only minimum heights and tab drag semantics. No implemented feature, tool, modifier, color mode, text option or command is removed.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/v2-25-behavioral-contract-notes.png) · [SVG](../exports/panels/dark/boards/svg/v2-25-behavioral-contract-notes.svg) · [Light PNG](../exports/panels/light/boards/png/v2-25-behavioral-contract-notes.png) · [SVG](../exports/panels/light/boards/svg/v2-25-behavioral-contract-notes.svg) · Figma node `227:455082`
+Files: [Dark PNG](../exports/panels/dark/boards/png/v2-25-behavioral-contract-notes.png) · [SVG](../exports/panels/dark/boards/svg/v2-25-behavioral-contract-notes.svg) · [Light PNG](../exports/panels/light/boards/png/v2-25-behavioral-contract-notes.png) · [SVG](../exports/panels/light/boards/svg/v2-25-behavioral-contract-notes.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/v2-25-behavioral-contract-notes.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/v2-25-behavioral-contract-notes.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/v2-25-behavioral-contract-notes.png) · [SVG](../exports/panels/dark-graphite/boards/svg/v2-25-behavioral-contract-notes.svg) · Figma node `227:455082`
 
 ### Align
 
@@ -664,7 +675,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/v2-25-behavioral-contract-no
 
 Align to **Selection / Stage** (segmented). Groups, each an `NF2/Icon Group`: **Align** (left, h-centre, right · top, v-middle, bottom), **Distribute** (left, h-centre, right edges · top, v-middle, bottom), **Spacing** (horizontal, vertical + `Gap` field, e.g. 16 px), **Match size** (width, height, both). Width 264.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-align.png) · [SVG](../exports/panels/dark/svg/panel-align.svg) · [Light PNG](../exports/panels/light/png/panel-align.png) · [SVG](../exports/panels/light/svg/panel-align.svg) · Figma node `22:432`
+Files: [Dark PNG](../exports/panels/dark/png/panel-align.png) · [SVG](../exports/panels/dark/svg/panel-align.svg) · [Light PNG](../exports/panels/light/png/panel-align.png) · [SVG](../exports/panels/light/svg/panel-align.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-align.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-align.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-align.png) · [SVG](../exports/panels/dark-graphite/svg/panel-align.svg) · Figma node `22:432`
 
 ### Transform
 
@@ -672,7 +683,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-align.png) · [SVG](../export
 
 **Position and size** X, Y, W, H with link (constrain) toggle; **Scale** W % / H % (linked); **Rotate and skew** rotation ↻ and Skew fields; icon group: rotate 90° CCW / CW, flip horizontal / vertical, reset transform. Fields support scrubbing on the prefix, arrow keys step, ⇧ = ×10.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-transform.png) · [SVG](../exports/panels/dark/svg/panel-transform.svg) · [Light PNG](../exports/panels/light/png/panel-transform.png) · [SVG](../exports/panels/light/svg/panel-transform.svg) · Figma node `22:621`
+Files: [Dark PNG](../exports/panels/dark/png/panel-transform.png) · [SVG](../exports/panels/dark/svg/panel-transform.svg) · [Light PNG](../exports/panels/light/png/panel-transform.png) · [SVG](../exports/panels/light/svg/panel-transform.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-transform.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-transform.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-transform.png) · [SVG](../exports/panels/dark-graphite/svg/panel-transform.svg) · Figma node `22:621`
 
 ### Color — Solid
 
@@ -680,7 +691,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-transform.png) · [SVG](../ex
 
 Contextual Color panel with no Selection / Drawing switch, object count or Mixed/apply gate. **Fill is left; Stroke is right**; the active `NF2/Color Well` is edited and swap is preserved. Type select **Solid colour**. `NF2/Color Picker` includes saturation/brightness, hue and alpha; RGB / HSB, channel fields, hex + alpha, stroke width/style and Add to swatches remain available. Floating minimum 248 × 190.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-color-solid.png) · [SVG](../exports/panels/dark/svg/panel-color-solid.svg) · [Light PNG](../exports/panels/light/png/panel-color-solid.png) · [SVG](../exports/panels/light/svg/panel-color-solid.svg) · Figma node `24:773`
+Files: [Dark PNG](../exports/panels/dark/png/panel-color-solid.png) · [SVG](../exports/panels/dark/svg/panel-color-solid.svg) · [Light PNG](../exports/panels/light/png/panel-color-solid.png) · [SVG](../exports/panels/light/svg/panel-color-solid.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-color-solid.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-color-solid.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-color-solid.png) · [SVG](../exports/panels/dark-graphite/svg/panel-color-solid.svg) · Figma node `24:773`
 
 ### Color — Radial gradient
 
@@ -688,7 +699,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-color-solid.png) · [SVG](../
 
 Same contextual shell as Solid plus approved **Overflow** previews (Extend / Reflect / Repeat), **Linear RGB** and a `NF2/Gradient Bar` with draggable `Gradient Stop`s (click to add, drag off to remove; the selected stop is edited by the picker). Linear gradient uses the same controls with a linear preview. The on-stage editor is the approved `NF2/Gradient Transform` master.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-color-radial-gradient.png) · [SVG](../exports/panels/dark/svg/panel-color-radial-gradient.svg) · [Light PNG](../exports/panels/light/png/panel-color-radial-gradient.png) · [SVG](../exports/panels/light/svg/panel-color-radial-gradient.svg) · Figma node `24:884`
+Files: [Dark PNG](../exports/panels/dark/png/panel-color-radial-gradient.png) · [SVG](../exports/panels/dark/svg/panel-color-radial-gradient.svg) · [Light PNG](../exports/panels/light/png/panel-color-radial-gradient.png) · [SVG](../exports/panels/light/svg/panel-color-radial-gradient.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-color-radial-gradient.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-color-radial-gradient.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-color-radial-gradient.png) · [SVG](../exports/panels/dark-graphite/svg/panel-color-radial-gradient.svg) · Figma node `24:884`
 
 ### Color — type menu
 
@@ -696,7 +707,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-color-radial-gradient.png) ·
 
 Fill type menu: None · Solid colour · Linear gradient · Radial gradient · Bitmap fill.
 
-Files: [Dark PNG](../exports/panels/dark/png/color-type-menu-open.png) · [SVG](../exports/panels/dark/svg/color-type-menu-open.svg) · [Light PNG](../exports/panels/light/png/color-type-menu-open.png) · [SVG](../exports/panels/light/svg/color-type-menu-open.svg) · Figma node `24:1180`
+Files: [Dark PNG](../exports/panels/dark/png/color-type-menu-open.png) · [SVG](../exports/panels/dark/svg/color-type-menu-open.svg) · [Light PNG](../exports/panels/light/png/color-type-menu-open.png) · [SVG](../exports/panels/light/svg/color-type-menu-open.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/color-type-menu-open.png) · [SVG](../exports/panels/mid-neutral-gray/svg/color-type-menu-open.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/color-type-menu-open.png) · [SVG](../exports/panels/dark-graphite/svg/color-type-menu-open.svg) · Figma node `24:1180`
 
 ### Color — panel menu
 
@@ -704,7 +715,7 @@ Files: [Dark PNG](../exports/panels/dark/png/color-type-menu-open.png) · [SVG](
 
 Panel ⋯ menu: Add swatch · Help (F1) · Close (⌘W) · Close group. Every floating panel has the same menu skeleton.
 
-Files: [Dark PNG](../exports/panels/dark/png/color-panel-menu-open.png) · [SVG](../exports/panels/dark/svg/color-panel-menu-open.svg) · [Light PNG](../exports/panels/light/png/color-panel-menu-open.png) · [SVG](../exports/panels/light/svg/color-panel-menu-open.svg) · Figma node `24:1363`
+Files: [Dark PNG](../exports/panels/dark/png/color-panel-menu-open.png) · [SVG](../exports/panels/dark/svg/color-panel-menu-open.svg) · [Light PNG](../exports/panels/light/png/color-panel-menu-open.png) · [SVG](../exports/panels/light/svg/color-panel-menu-open.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/color-panel-menu-open.png) · [SVG](../exports/panels/mid-neutral-gray/svg/color-panel-menu-open.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/color-panel-menu-open.png) · [SVG](../exports/panels/dark-graphite/svg/color-panel-menu-open.svg) · Figma node `24:1363`
 
 ### Swatches popover (quick colours)
 
@@ -712,7 +723,7 @@ Files: [Dark PNG](../exports/panels/dark/png/color-panel-menu-open.png) · [SVG]
 
 Opens from the fill/stroke chip in Tools, from any colour well and colour field. Hex + alpha input, eyedropper, no colour, colour wheel (→ Color panel), then sections **Recent**, **Document**, **Palette** (`NF2/Swatch Cell` grid, selected cell ringed) and **Gradients**. Width 300.
 
-Files: [Dark PNG](../exports/panels/dark/png/swatches-popover.png) · [SVG](../exports/panels/dark/svg/swatches-popover.svg) · [Light PNG](../exports/panels/light/png/swatches-popover.png) · [SVG](../exports/panels/light/svg/swatches-popover.svg) · Figma node `32:2945`
+Files: [Dark PNG](../exports/panels/dark/png/swatches-popover.png) · [SVG](../exports/panels/dark/svg/swatches-popover.svg) · [Light PNG](../exports/panels/light/png/swatches-popover.png) · [SVG](../exports/panels/light/svg/swatches-popover.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/swatches-popover.png) · [SVG](../exports/panels/mid-neutral-gray/svg/swatches-popover.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/swatches-popover.png) · [SVG](../exports/panels/dark-graphite/svg/swatches-popover.svg) · Figma node `32:2945`
 
 ### View settings (rulers, guides & grid)
 
@@ -720,7 +731,7 @@ Files: [Dark PNG](../exports/panels/dark/png/swatches-popover.png) · [SVG](../e
 
 `NF2/View Settings` popover, opened from ⚙ in the canvas zoom control and from View ▸ Rulers, guides & grid…. **Rulers**: Show rulers, Units (Pixels), Labels **Auto / Every** N px (Auto picks 10 / 50 / 100 / 500 units so labels never overlap at the current zoom). **Guides**: Show, Snap, Lock, guide colour (#2EC4E6 · 100 %), snap accuracy. **Grid**: Show, Snap, Over objects, spacing ↔ / ↕ (20 px, linked), grid colour (white · 14 %), snap accuracy. Footer: Clear guides · Save as default.
 
-Files: [Dark PNG](../exports/panels/dark/png/view-settings.png) · [SVG](../exports/panels/dark/svg/view-settings.svg) · [Light PNG](../exports/panels/light/png/view-settings.png) · [SVG](../exports/panels/light/svg/view-settings.svg) · Figma node `32:3232`
+Files: [Dark PNG](../exports/panels/dark/png/view-settings.png) · [SVG](../exports/panels/dark/svg/view-settings.svg) · [Light PNG](../exports/panels/light/png/view-settings.png) · [SVG](../exports/panels/light/svg/view-settings.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/view-settings.png) · [SVG](../exports/panels/mid-neutral-gray/svg/view-settings.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/view-settings.png) · [SVG](../exports/panels/dark-graphite/svg/view-settings.svg) · Figma node `32:3232`
 
 ### Properties — Text
 
@@ -728,7 +739,7 @@ Files: [Dark PNG](../exports/panels/dark/png/view-settings.png) · [SVG](../expo
 
 Contextual Properties has no Selection / Tool switch. Minimum content width 320; equal two-column pairs use an 8 px gap and stack in the narrow fallback instead of clipping. Transform order is W/H, X/Y, Scale X/Y, Rotation/Skew. Text preserves **Character**, **Advanced character**, **Paragraph**, **Container and flow**, **Options** and **Filters**, including engine/type/orientation, columns and gutter, four-sided padding, vertical alignment, border width, first-line offset, highlight, strike/super/subscript, case/digit/ligature/break options, leading mode, paragraph spacing, direction/orientation and baseline/locale controls.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-properties-text.png) · [SVG](../exports/panels/dark/svg/panel-properties-text.svg) · [Light PNG](../exports/panels/light/png/panel-properties-text.png) · [SVG](../exports/panels/light/svg/panel-properties-text.svg) · Figma node `25:1179`
+Files: [Dark PNG](../exports/panels/dark/png/panel-properties-text.png) · [SVG](../exports/panels/dark/svg/panel-properties-text.svg) · [Light PNG](../exports/panels/light/png/panel-properties-text.png) · [SVG](../exports/panels/light/svg/panel-properties-text.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-properties-text.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-properties-text.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-properties-text.png) · [SVG](../exports/panels/dark-graphite/svg/panel-properties-text.svg) · Figma node `25:1179`
 
 ### Properties — Oval primitive
 
@@ -736,7 +747,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-properties-text.png) · [SVG]
 
 Type header "Oval primitive · Drawing object · layer ball". **Position and size** (X Y, link, W H). **Fill and stroke**: colour wells, stroke size `Combo Field`, `Line Style Select` (Solid, Dashed, Dotted, Ragged, Stipple, Hatched) + Custom… (Stroke style dialog), Stroke hinting switch, Scale (Normal / Horizontal / Vertical / None), Miter, **Cap** (none / round / square) and **Join** (miter / round / bevel) icon groups. **Oval options**: Start angle, End angle, Inner radius %, Close path, Reset.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-properties-oval-primitive.png) · [SVG](../exports/panels/dark/svg/panel-properties-oval-primitive.svg) · [Light PNG](../exports/panels/light/png/panel-properties-oval-primitive.png) · [SVG](../exports/panels/light/svg/panel-properties-oval-primitive.svg) · Figma node `41:3891`
+Files: [Dark PNG](../exports/panels/dark/png/panel-properties-oval-primitive.png) · [SVG](../exports/panels/dark/svg/panel-properties-oval-primitive.svg) · [Light PNG](../exports/panels/light/png/panel-properties-oval-primitive.png) · [SVG](../exports/panels/light/svg/panel-properties-oval-primitive.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-properties-oval-primitive.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-properties-oval-primitive.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-properties-oval-primitive.png) · [SVG](../exports/panels/dark-graphite/svg/panel-properties-oval-primitive.svg) · Figma node `41:3891`
 
 ### Properties — Movie clip
 
@@ -744,7 +755,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-properties-oval-primitive.png
 
 Tabs Properties / Filters / Parameters. Instance name field (orbit_mc) + Swap…. **Position and size**. **Colour effect**: Style (None / Brightness / Tint / Advanced / Alpha) + value slider. **Display**: Visible, Cache as bitmap, Blending (Normal, Layer, Multiply, Screen, …), Render (Original / Export as bitmap). **Accessibility**, **Filters** collapsed.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-properties-movie-clip.png) · [SVG](../exports/panels/dark/svg/panel-properties-movie-clip.svg) · [Light PNG](../exports/panels/light/png/panel-properties-movie-clip.png) · [SVG](../exports/panels/light/svg/panel-properties-movie-clip.svg) · Figma node `41:4097`
+Files: [Dark PNG](../exports/panels/dark/png/panel-properties-movie-clip.png) · [SVG](../exports/panels/dark/svg/panel-properties-movie-clip.svg) · [Light PNG](../exports/panels/light/png/panel-properties-movie-clip.png) · [SVG](../exports/panels/light/svg/panel-properties-movie-clip.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-properties-movie-clip.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-properties-movie-clip.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-properties-movie-clip.png) · [SVG](../exports/panels/dark-graphite/svg/panel-properties-movie-clip.svg) · Figma node `41:4097`
 
 ### Properties — Sound (frame)
 
@@ -752,7 +763,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-properties-movie-clip.png) ·
 
 Shown when a keyframe on a sound layer is selected. **Label** section (name, type). **Sound**: file select, Effect (None, Left/Right channel, Fade left→right, Fade in, Fade out, Custom) + Envelope…, Sync (Event / Start / Stop / **Stream**), Repeat / Loop + count, mini waveform, file info ("44 kHz · Stereo · 16 bit · 32.4 s · 518.6 kB"), Play, Sound properties….
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-properties-sound.png) · [SVG](../exports/panels/dark/svg/panel-properties-sound.svg) · [Light PNG](../exports/panels/light/png/panel-properties-sound.png) · [SVG](../exports/panels/light/svg/panel-properties-sound.svg) · Figma node `41:4207`
+Files: [Dark PNG](../exports/panels/dark/png/panel-properties-sound.png) · [SVG](../exports/panels/dark/svg/panel-properties-sound.svg) · [Light PNG](../exports/panels/light/png/panel-properties-sound.png) · [SVG](../exports/panels/light/svg/panel-properties-sound.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-properties-sound.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-properties-sound.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-properties-sound.png) · [SVG](../exports/panels/dark-graphite/svg/panel-properties-sound.svg) · Figma node `41:4207`
 
 ### Properties — Video
 
@@ -760,7 +771,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-properties-sound.png) · [SVG
 
 Tabs Properties / Cue points. Video preview with transport (00:07 / 00:24), instance name + Swap…, file info (intro.mp4 · H.264 · 1280×720 · 30 fps · 24.0 s). **Position and size**. **Playback**: Deployment (Embedded / External / Progressive), Autoplay, Loop, Muted, Skin, Scale (Fit / Fill / None), Volume slider. **Cue points** table (name, time, type Event / Navigation) + add / remove, Edit in timeline. On the timeline a video is a Video layer with a filmstrip span.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-properties-video.png) · [SVG](../exports/panels/dark/svg/panel-properties-video.svg) · [Light PNG](../exports/panels/light/png/panel-properties-video.png) · [SVG](../exports/panels/light/svg/panel-properties-video.svg) · Figma node `56:7523`
+Files: [Dark PNG](../exports/panels/dark/png/panel-properties-video.png) · [SVG](../exports/panels/dark/svg/panel-properties-video.svg) · [Light PNG](../exports/panels/light/png/panel-properties-video.png) · [SVG](../exports/panels/light/svg/panel-properties-video.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-properties-video.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-properties-video.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-properties-video.png) · [SVG](../exports/panels/dark-graphite/svg/panel-properties-video.svg) · Figma node `56:7523`
 
 ### Ease
 
@@ -768,7 +779,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-properties-video.png) · [SVG
 
 Context line ("Classic tween · ball · frames 1–40"). Property select (All / Position / Rotation / Scale / Colour / Filters) + One curve for all. Presets `NF2/Ease Preset` (Linear, Ease In, Ease Out, Ease In-Out, Back, Bounce, Elastic, Custom). `NF2/Ease Graph` (Range 0–100 %) with bezier handles, numeric X1 Y1 X2 Y2, preview track with play and the current frame / progress, Reset · Cancel · **Apply**. Opens from the timeline ease button, the frame context menu (Ease…) and Edit curve… in motion tween properties.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-ease.png) · [SVG](../exports/panels/dark/svg/panel-ease.svg) · [Light PNG](../exports/panels/light/png/panel-ease.png) · [SVG](../exports/panels/light/svg/panel-ease.svg) · Figma node `32:2775`
+Files: [Dark PNG](../exports/panels/dark/png/panel-ease.png) · [SVG](../exports/panels/dark/svg/panel-ease.svg) · [Light PNG](../exports/panels/light/png/panel-ease.png) · [SVG](../exports/panels/light/svg/panel-ease.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-ease.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-ease.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-ease.png) · [SVG](../exports/panels/dark-graphite/svg/panel-ease.svg) · Figma node `32:2775`
 
 ### Ease — overshoot / undershoot
 
@@ -776,7 +787,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-ease.png) · [SVG](../exports
 
 When a handle goes above 100 % (Back out, overshoot to 112 %) or below 0 % (anticipation, dips to −8 %) the graph switches to `Range = Overshoot` / `Undershoot`: Y axis extends to −30…130 % and the out-of-range bands are tinted; Y1 / Y2 fields accept values outside 0–1.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/ease-range-states.png) · [SVG](../exports/panels/dark/boards/svg/ease-range-states.svg) · [Light PNG](../exports/panels/light/boards/png/ease-range-states.png) · [SVG](../exports/panels/light/boards/svg/ease-range-states.svg) · Figma node `56:7102`
+Files: [Dark PNG](../exports/panels/dark/boards/png/ease-range-states.png) · [SVG](../exports/panels/dark/boards/svg/ease-range-states.svg) · [Light PNG](../exports/panels/light/boards/png/ease-range-states.png) · [SVG](../exports/panels/light/boards/svg/ease-range-states.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/ease-range-states.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/ease-range-states.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/ease-range-states.png) · [SVG](../exports/panels/dark-graphite/boards/svg/ease-range-states.svg) · Figma node `56:7102`
 
 ### Library · Scene · History · Swatches
 
@@ -784,7 +795,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/ease-range-states.png) · [S
 
 **Library**: document select, panel actions (new symbol, new folder, properties, delete), preview of the selected item, search, item count ("7 items"), tree with type icons (folder, movie clip, graphic, button, bitmap, sound, font), pin. **Scene**: search ("Find scene"), list of scenes with the current one highlighted, add / duplicate / delete. **History**: list of steps (Oval, Move, Fill colour, Transform, Delete) with the current position, undo / redo, clear. **Swatches** as a panel tab (the same content as the Swatches popover).
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more.png) · [SVG](../exports/panels/dark/boards/svg/panels-more.svg) · [Light PNG](../exports/panels/light/boards/png/panels-more.png) · [SVG](../exports/panels/light/boards/svg/panels-more.svg) · Figma node `43:4271`
+Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more.png) · [SVG](../exports/panels/dark/boards/svg/panels-more.svg) · [Light PNG](../exports/panels/light/boards/png/panels-more.png) · [SVG](../exports/panels/light/boards/svg/panels-more.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/panels-more.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/panels-more.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/panels-more.png) · [SVG](../exports/panels/dark-graphite/boards/svg/panels-more.svg) · Figma node `43:4271`
 
 ### Output · Compiler errors · Accessibility · Info
 
@@ -792,7 +803,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more.png) · [SVG](..
 
 **Output**: Show (All / Errors / Warnings / Trace), filter field, clear and copy; timestamped log with info, warning (amber) and error (red) lines. **Compiler errors**: badges "1 warning" "1 error", entries with code, message and location (scene · layer · frame · line); double-click jumps to the code. **Accessibility**: make object accessible, make child objects accessible, auto label, Name, Description, Shortcut, Tab index. **Info**: W H X Y of the selection, cursor position, colour under the cursor (R G B A).
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more-2.png) · [SVG](../exports/panels/dark/boards/svg/panels-more-2.svg) · [Light PNG](../exports/panels/light/boards/png/panels-more-2.png) · [SVG](../exports/panels/light/boards/svg/panels-more-2.svg) · Figma node `43:4272`
+Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more-2.png) · [SVG](../exports/panels/dark/boards/svg/panels-more-2.svg) · [Light PNG](../exports/panels/light/boards/png/panels-more-2.png) · [SVG](../exports/panels/light/boards/svg/panels-more-2.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/panels-more-2.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/panels-more-2.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/panels-more-2.png) · [SVG](../exports/panels/dark-graphite/boards/svg/panels-more-2.svg) · Figma node `43:4272`
 
 ### Rectangle primitive · PolyStar · Armature
 
@@ -800,7 +811,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/panels-more-2.png) · [SVG](
 
 **Properties — Rectangle primitive**: position and size, fill and stroke, **Rectangle options**: four corner radii (linked by default, unlink to edit separately), radius slider, Reset. **PolyStar tool settings** dialog: Style (Polygon / Star), Sides, Star point size 0–1 (smaller = sharper). **Armature sample**: bone chain on stage + pose layer on the timeline; poses are property keyframes ◆ on the Armature layer; joints honour rotation limits.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/dark/boards/svg/drawing-tools-panels.svg) · [Light PNG](../exports/panels/light/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/light/boards/svg/drawing-tools-panels.svg) · Figma node `63:12029`
+Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/dark/boards/svg/drawing-tools-panels.svg) · [Light PNG](../exports/panels/light/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/light/boards/svg/drawing-tools-panels.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/drawing-tools-panels.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/drawing-tools-panels.png) · [SVG](../exports/panels/dark-graphite/boards/svg/drawing-tools-panels.svg) · Figma node `63:12029`
 
 ### Deco · Spray brush · IK bone
 
@@ -808,7 +819,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels.png) ·
 
 **Deco tool**: Drawing effect (Vine fill, Grid fill, Symmetry brush, …), Leaf / Flower symbols (Edit… or default shape), Advanced: branch angle, pattern scale, segment length, step, Animate pattern. **Spray brush**: symbol or default dots, W/H scale, random scaling, rotate symbol, random rotation; Brush width, height, angle. **IK bone**: bone name, Position (X, Y, length, angle), Joint: rotation (enable, constrain, min, max), Joint: X / Y translation, Spring (strength, damping), Armature (type Authortime / Runtime, style, speed, enable spring).
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/dark/boards/svg/drawing-tools-panels-2.svg) · [Light PNG](../exports/panels/light/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/light/boards/svg/drawing-tools-panels-2.svg) · Figma node `63:12030`
+Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/dark/boards/svg/drawing-tools-panels-2.svg) · [Light PNG](../exports/panels/light/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/light/boards/svg/drawing-tools-panels-2.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/drawing-tools-panels-2.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/drawing-tools-panels-2.png) · [SVG](../exports/panels/dark-graphite/boards/svg/drawing-tools-panels-2.svg) · Figma node `63:12030`
 
 ### Properties — Graphic · Layer properties
 
@@ -816,7 +827,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/drawing-tools-panels-2.png) 
 
 **Graphic** instances have no instance name (timeline synced to the parent). Looping: Loop / Play once / Single frame / Loop reverse / Play once reverse, First and Last frame, thumbnail strip (click to set the first frame). **Layer properties** dialog: Name, Visible, Locked, Type (Normal, Guide, Guided, Mask, Masked, Folder, Armature), Outline colour swatch, View layer as outlines, Layer height (100 / 200 / 300 %).
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/symbols-panels.png) · [SVG](../exports/panels/dark/boards/svg/symbols-panels.svg) · [Light PNG](../exports/panels/light/boards/png/symbols-panels.png) · [SVG](../exports/panels/light/boards/svg/symbols-panels.svg) · Figma node `64:12881`
+Files: [Dark PNG](../exports/panels/dark/boards/png/symbols-panels.png) · [SVG](../exports/panels/dark/boards/svg/symbols-panels.svg) · [Light PNG](../exports/panels/light/boards/png/symbols-panels.png) · [SVG](../exports/panels/light/boards/svg/symbols-panels.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/symbols-panels.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/symbols-panels.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/symbols-panels.png) · [SVG](../exports/panels/dark-graphite/boards/svg/symbols-panels.svg) · Figma node `64:12881`
 
 ### Debugger · Project · Code snippets
 
@@ -824,7 +835,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/symbols-panels.png) · [SVG]
 
 **Debugger**: toolbar continue / stop / step over / step into / step out, Remove all breakpoints, state badge ("Paused · orbit : Frame 1 · line 18 (breakpoint)"). **Call stack**, **Variables** (expandable tree, changed values marked), **Watch** (expressions, errors shown as values), **Breakpoints** list with checkboxes. **Project**: project select, find file, file tree (unsaved ● marker), Publish; footer explains linkage ("Orbit.as is linked to symbol orbit"). **Code snippets**: search, categories (Actions, Timeline navigation, Animation, Load and unload, Audio and video, Event handlers), preview of the code, Copy, Insert at frame 1.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/scripting-panels.png) · [SVG](../exports/panels/dark/boards/svg/scripting-panels.svg) · [Light PNG](../exports/panels/light/boards/png/scripting-panels.png) · [SVG](../exports/panels/light/boards/svg/scripting-panels.svg) · Figma node `65:13033`
+Files: [Dark PNG](../exports/panels/dark/boards/png/scripting-panels.png) · [SVG](../exports/panels/dark/boards/svg/scripting-panels.svg) · [Light PNG](../exports/panels/light/boards/png/scripting-panels.png) · [SVG](../exports/panels/light/boards/svg/scripting-panels.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/scripting-panels.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/scripting-panels.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/scripting-panels.png) · [SVG](../exports/panels/dark-graphite/boards/svg/scripting-panels.svg) · Figma node `65:13033`
 
 ### Motion editor · Motion tween properties
 
@@ -832,7 +843,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/scripting-panels.png) · [SV
 
 **Motion editor** (tab next to Timeline): columns Property · Value · Ease · Keyframe + frame ruler. Sections Basic motion (X, Y, Rotation Z), Transformation (Scale X/Y, skew), Colour effect (Alpha …), Filters; each property row has value field, ease select (No ease, Simple (slow), Bounce …), keyframe navigation (◀ ◆ ▶) and a curve. Footer: graph size slider, expanded height, visible frames. **Properties — Motion tween**: ease value (−100 in … +100 out) + Edit curve…, Rotation (count, direction CW / CCW, orient to path), Path X Y W H, show path / frame dots, Sync graphic symbols, Snap to motion guide.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/motion-panels.png) · [SVG](../exports/panels/dark/boards/svg/motion-panels.svg) · [Light PNG](../exports/panels/light/boards/png/motion-panels.png) · [SVG](../exports/panels/light/boards/svg/motion-panels.svg) · Figma node `67:13512`
+Files: [Dark PNG](../exports/panels/dark/boards/png/motion-panels.png) · [SVG](../exports/panels/dark/boards/svg/motion-panels.svg) · [Light PNG](../exports/panels/light/boards/png/motion-panels.png) · [SVG](../exports/panels/light/boards/svg/motion-panels.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/motion-panels.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/motion-panels.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/motion-panels.png) · [SVG](../exports/panels/dark-graphite/boards/svg/motion-panels.svg) · Figma node `67:13512`
 
 ### Actions (script editor)
 
@@ -840,7 +851,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/motion-panels.png) · [SVG](
 
 Floating 960 × 660 (also docked as a dock tab). Toolbar: language (ActionScript 3.0), target, Script assist, format, hints, debug, fold, comment, sidebar, help. Left sidebar: toolbox search + tree (Top level, Language elements, fl.* packages) and **Script navigator** (current selection, scenes, symbol definitions). Editor: gutter with line numbers and markers (error, warning, breakpoint, execution arrow, folds), syntax-coloured code, current line, code hint popover, inline error peek with Quick fix ⌘., overview ruler. Bottom: script tabs (pinned), status "Line 19, Col 10 · 20 lines", problems counter.
 
-Files: [Dark PNG](../exports/panels/dark/png/panel-actions-floating.png) · [SVG](../exports/panels/dark/svg/panel-actions-floating.svg) · [Light PNG](../exports/panels/light/png/panel-actions-floating.png) · [SVG](../exports/panels/light/svg/panel-actions-floating.svg) · Figma node `27:1526`
+Files: [Dark PNG](../exports/panels/dark/png/panel-actions-floating.png) · [SVG](../exports/panels/dark/svg/panel-actions-floating.svg) · [Light PNG](../exports/panels/light/png/panel-actions-floating.png) · [SVG](../exports/panels/light/svg/panel-actions-floating.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/panel-actions-floating.png) · [SVG](../exports/panels/mid-neutral-gray/svg/panel-actions-floating.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/panel-actions-floating.png) · [SVG](../exports/panels/dark-graphite/svg/panel-actions-floating.svg) · Figma node `27:1526`
 
 ### Tools — flyout groups
 
@@ -848,7 +859,7 @@ Files: [Dark PNG](../exports/panels/dark/png/panel-actions-floating.png) · [SVG
 
 Rail of the `NF2/Tools Panel` with the flyout menu of every grouped tool (`NF2/Tool Flyout Item`: ■ marks the tool shown on the rail, 20 px icon, name, shortcut). Groups: Selection · Subselection (V, A); Free transform · Gradient transform · 3D rotation · 3D translation (Q, F, W, G); Pen · Add / Delete / Convert anchor point (P, =, −, C); Rectangle · Oval · Rectangle primitive · Oval primitive · PolyStar (R, O); Pencil · Brush · Spray brush (Y, B); Paint bucket · Ink bottle (K, S); Bone · Bind (M); Deco (U). Long-press a tool with a corner mark to open its group.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/dark/boards/svg/tools-flyout-groups.svg) · [Light PNG](../exports/panels/light/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/light/boards/svg/tools-flyout-groups.svg) · Figma node `97:15992`
+Files: [Dark PNG](../exports/panels/dark/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/dark/boards/svg/tools-flyout-groups.svg) · [Light PNG](../exports/panels/light/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/light/boards/svg/tools-flyout-groups.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/tools-flyout-groups.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/tools-flyout-groups.png) · [SVG](../exports/panels/dark-graphite/boards/svg/tools-flyout-groups.svg) · Figma node `97:15992`
 
 ### Commands panel · Commands set
 
@@ -856,7 +867,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/tools-flyout-groups.png) · 
 
 **Commands** panel (script commands run on the document, like xJSFL snippets): search, open commands folder, count, folder tree (Animation, Development ▸ ActionScript / Tools / Extensions, Library, Stage, Tools) with an icon per command, bottom toolbar: new command, new folder, info, refresh, delete. **Commands** dialog: Set — User commands / Commands folder / API examples; Action — Load (replace list); Cancel · **OK**.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/dark/boards/svg/commands-panel-dialog.svg) · [Light PNG](../exports/panels/light/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/light/boards/svg/commands-panel-dialog.svg) · Figma node `100:16596`
+Files: [Dark PNG](../exports/panels/dark/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/dark/boards/svg/commands-panel-dialog.svg) · [Light PNG](../exports/panels/light/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/light/boards/svg/commands-panel-dialog.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/commands-panel-dialog.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/commands-panel-dialog.png) · [SVG](../exports/panels/dark-graphite/boards/svg/commands-panel-dialog.svg) · Figma node `100:16596`
 
 ### Brushes · Brush tool · Pencil tool
 
@@ -864,7 +875,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/commands-panel-dialog.png) �
 
 **Brushes** library: search, sections Basic / Artistic / Pattern with stroke previews (`NF2/Brush Preset`, `NF2 Brush/*`), size slider, new brush / folder, delete. **Properties — Brush tool**: brush mode (Paint normal / fills / behind / selection / inside), brush shape (`NF2/Brush Shape`, 8 Flash shapes), size, smoothing, pen pressure → size and tilt → angle, fill colour + Lock fill, Brush library…. **Properties — Pencil tool**: pencil mode Straighten / Smooth / Ink, smoothing, stroke colour and size, line style, cap and join, stroke hinting, scale.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/dark/boards/svg/brushes-pencil-panels.svg) · [Light PNG](../exports/panels/light/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/light/boards/svg/brushes-pencil-panels.svg) · Figma node `101:16811`
+Files: [Dark PNG](../exports/panels/dark/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/dark/boards/svg/brushes-pencil-panels.svg) · [Light PNG](../exports/panels/light/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/light/boards/svg/brushes-pencil-panels.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/brushes-pencil-panels.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/brushes-pencil-panels.png) · [SVG](../exports/panels/dark-graphite/boards/svg/brushes-pencil-panels.svg) · Figma node `101:16811`
 
 ### Canvas — brush and pencil feedback
 
@@ -872,7 +883,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/brushes-pencil-panels.png) �
 
 How brushes show on the canvas: `NF2/Brush Cursor` footprint ring at the current size (black + white, readable on any colour), resize with ⌥⌘-drag (dashed ring + size chip), square eraser footprint, pressure stroke whose width follows the pen, live pencil preview (committed solid, smoothing ahead dashed), and the three pencil modes.
 
-Files: [Dark PNG](../exports/panels/dark/png/canvas-brush-pencil.png) · [SVG](../exports/panels/dark/svg/canvas-brush-pencil.svg) · [Light PNG](../exports/panels/light/png/canvas-brush-pencil.png) · [SVG](../exports/panels/light/svg/canvas-brush-pencil.svg) · Figma node `102:17071`
+Files: [Dark PNG](../exports/panels/dark/png/canvas-brush-pencil.png) · [SVG](../exports/panels/dark/svg/canvas-brush-pencil.svg) · [Light PNG](../exports/panels/light/png/canvas-brush-pencil.png) · [SVG](../exports/panels/light/svg/canvas-brush-pencil.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/canvas-brush-pencil.png) · [SVG](../exports/panels/mid-neutral-gray/svg/canvas-brush-pencil.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/canvas-brush-pencil.png) · [SVG](../exports/panels/dark-graphite/svg/canvas-brush-pencil.svg) · Figma node `102:17071`
 
 
 ---
@@ -887,7 +898,8 @@ Files: [Dark PNG](../exports/panels/dark/png/canvas-brush-pencil.png) · [SVG](.
 - Toolbar: language select (ActionScript 3.0), target, auto-format, code hint, debug, collapse/expand, comment block/line,
   uncomment, toggle sidebar, Script assist, help.
 
-**Syntax scheme "NF2 Night"** (Dark values; the Light column is the same tokens in Light mode)
+**Syntax scheme "NF2 Night"** (the concise table shows the Dark and Light endpoints; the complete generated token
+table in §3.1 includes Mid Neutral Gray and Dark Graphite values for the same semantic roles)
 
 | Token | Dark | Light | Rule |
 |---|---|---|---|
@@ -1208,7 +1220,7 @@ footer Reset to defaults · Cancel · **Save**.
 
 Nominal 920 × 760 clamped shell with fixed 52 px header and close control, stationary search/filter and chapter badge, 212 px chapter sidebar, independently scrolling chapter list and article, stationary Previous/Next, and footer Open in browser · Command Search (F1) · Close.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-help-reference.png) · [SVG](../exports/panels/dark/svg/dialog-help-reference.svg) · [Light PNG](../exports/panels/light/png/dialog-help-reference.png) · [SVG](../exports/panels/light/svg/dialog-help-reference.svg) · Figma node `227:452848`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-help-reference.png) · [SVG](../exports/panels/dark/svg/dialog-help-reference.svg) · [Light PNG](../exports/panels/light/png/dialog-help-reference.png) · [SVG](../exports/panels/light/svg/dialog-help-reference.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-help-reference.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-help-reference.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-help-reference.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-help-reference.svg) · Figma node `227:452848`
 
 ### Help — constrained viewport / high scale
 
@@ -1216,7 +1228,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-help-reference.png) · [SVG]
 
 The same Help shell clamped at the minimum viewport or high UI scale. Header, close, filter, navigation and footer stay fixed; the two content regions scroll without overlap, horizontal jumping or width changes.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-help-reference-constrained-viewport.png) · [SVG](../exports/panels/dark/svg/dialog-help-reference-constrained-viewport.svg) · [Light PNG](../exports/panels/light/png/dialog-help-reference-constrained-viewport.png) · [SVG](../exports/panels/light/svg/dialog-help-reference-constrained-viewport.svg) · Figma node `227:453030`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-help-reference-constrained-viewport.png) · [SVG](../exports/panels/dark/svg/dialog-help-reference-constrained-viewport.svg) · [Light PNG](../exports/panels/light/png/dialog-help-reference-constrained-viewport.png) · [SVG](../exports/panels/light/svg/dialog-help-reference-constrained-viewport.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-help-reference-constrained-viewport.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-help-reference-constrained-viewport.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-help-reference-constrained-viewport.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-help-reference-constrained-viewport.svg) · Figma node `227:453030`
 
 ### Edit envelope · Sound properties · Stroke style
 
@@ -1224,7 +1236,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-help-reference-constrained-v
 
 **Edit envelope**: effect select, Seconds / Frames units, left and right channel lanes with waveform and draggable volume handles (click a lane to add a point), time ruler, zoom, Cancel / OK. **Sound properties**: name, path, source info, Export compression (MP3 / ADPCM / Raw / Speech), bit rate, quality, convert stereo to mono, result size, Update / Import… / Test. **Stroke style**: preview, Type (Solid, Dashed, Dotted, Ragged, Stipple, Hatched), thickness, 4× zoom, dash / gap lengths, Sharp corners.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-sound-stroke.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/light/boards/svg/dialogs-sound-stroke.svg) · Figma node `42:4160`
+Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-sound-stroke.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/light/boards/svg/dialogs-sound-stroke.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/dialogs-sound-stroke.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/dialogs-sound-stroke.png) · [SVG](../exports/panels/dark-graphite/boards/svg/dialogs-sound-stroke.svg) · Figma node `42:4160`
 
 ### Convert to Symbol (F8)
 
@@ -1232,7 +1244,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-sound-stroke.png) ·
 
 Three states. **Default**: Name, Type (Movie clip / Button / Graphic), Folder, Registration — compact 28 px `NF2/Registration Picker` 3 × 3 + caption ("Centre"), helper text for the chosen type, Advanced collapsed, Cancel / **Convert**. **Type menu**: each type with a hint (own timeline · up/over/down/hit · synced to parent). **Advanced**: 9-slice guides, ActionScript linkage (Export for ActionScript, Export in frame 1, Identifier, Class, Base class), Runtime shared library (export / import, URL), Authortime sharing (source file, symbol, update automatically).
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-convert-to-symbol.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/light/boards/svg/dialogs-convert-to-symbol.svg) · Figma node `54:6859`
+Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-convert-to-symbol.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/light/boards/svg/dialogs-convert-to-symbol.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/dialogs-convert-to-symbol.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/dialogs-convert-to-symbol.png) · [SVG](../exports/panels/dark-graphite/boards/svg/dialogs-convert-to-symbol.svg) · Figma node `54:6859`
 
 ### Import video
 
@@ -1240,7 +1252,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-convert-to-symbol.pn
 
 Preview with a trim strip (In / Out handles and fields), File + Browse…, Deployment radio: **Embed in timeline** (frames sync with the timeline; short clips) · **Load external video** (player component, keeps .nfl small) · **Progressive download** (plays while downloading). Embedding: symbol type, codec, Place on stage, Expand timeline if needed, Include audio, Match document frame rate. Footer summary "1280×720 · 30 fps → 24 fps · 24.0 s · ~6.1 MB".
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-import-video.png) · [SVG](../exports/panels/dark/svg/dialog-import-video.svg) · [Light PNG](../exports/panels/light/png/dialog-import-video.png) · [SVG](../exports/panels/light/svg/dialog-import-video.svg) · Figma node `56:7655`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-import-video.png) · [SVG](../exports/panels/dark/svg/dialog-import-video.svg) · [Light PNG](../exports/panels/light/png/dialog-import-video.png) · [SVG](../exports/panels/light/svg/dialog-import-video.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-import-video.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-import-video.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-import-video.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-import-video.svg) · Figma node `56:7655`
 
 ### Export image / video / audio · Import PSD
 
@@ -1248,7 +1260,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-import-video.png) · [SVG](.
 
 **Export image** with format segments PNG · SVG · PSD · AI · PDF and a live preview ("Frame 30 of 120 · 960 × 600"): range (current frame / frames), size W × H linked + scale, background (stage colour / transparent). PSD options: layers as Photoshop layers or flatten, folders → groups, symbols → smart objects, editable text, colour profile, resolution. SVG options: images embed/link, text as outlines or text, minify, CSS classes, include hidden & guide layers, precision, ID prefix. AI options: version, layers or keyframes → artboards, strokes as strokes, text to outlines. **Export video**: MP4 · WebM · MOV · GIF · PNG sequence, range (whole movie / scene / frames), size + scale, fps, codec, quality, render nested movie clips and scripts (runtime capture), stop at last frame / after N s, audio, transparent background, live render progress. **Export audio**: WAV · MP3 · OGG · AAC, source (timeline mix / layer), range, sample rate, bit depth, channels, bit rate, normalize, fade out, trim silence. **Import PSD to library**: layer list with checkboxes and per-layer options (bitmap with editable styles / flattened bitmap / vector shapes; create movie clip with instance name and registration; compression), placement (convert layers to timeline layers / keyframes / one layer), keep positions, set stage size to canvas.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-export.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-export.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-export.png) · [SVG](../exports/panels/light/boards/svg/dialogs-export.svg) · Figma node `57:7729`
+Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-export.png) · [SVG](../exports/panels/dark/boards/svg/dialogs-export.svg) · [Light PNG](../exports/panels/light/boards/png/dialogs-export.png) · [SVG](../exports/panels/light/boards/svg/dialogs-export.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/dialogs-export.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/dialogs-export.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/dialogs-export.png) · [SVG](../exports/panels/dark-graphite/boards/svg/dialogs-export.svg) · Figma node `57:7729`
 
 ### Document settings · Find and replace · Movie Explorer
 
@@ -1256,7 +1268,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/dialogs-export.png) · [SVG]
 
 **Document settings (⌘J)**: stage size W × H linked, Match contents / Match printer, scale content with stage + anchor (registration picker), units, background colour, frame rate (fps → "120 frames · 5.00 s"), script version, Make default · Cancel · OK. **Find and replace (⌘F)**: search type segments (Text, Font, Colour, Symbol, Sound, Video, Bitmap), scope (current document / scene), find / replace fields, whole word, match case, regex, live edit, where to search (text fields, frames/layers/scenes, ActionScript), results table (location → found), Find all / Replace / Replace all. **Movie Explorer** panel: filter buttons, search, tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, path of the selection in the footer.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/document-dialogs.png) · [SVG](../exports/panels/dark/boards/svg/document-dialogs.svg) · [Light PNG](../exports/panels/light/boards/png/document-dialogs.png) · [SVG](../exports/panels/light/boards/svg/document-dialogs.svg) · Figma node `66:13302`
+Files: [Dark PNG](../exports/panels/dark/boards/png/document-dialogs.png) · [SVG](../exports/panels/dark/boards/svg/document-dialogs.svg) · [Light PNG](../exports/panels/light/boards/png/document-dialogs.png) · [SVG](../exports/panels/light/boards/svg/document-dialogs.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/document-dialogs.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/document-dialogs.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/document-dialogs.png) · [SVG](../exports/panels/dark-graphite/boards/svg/document-dialogs.svg) · Figma node `66:13302`
 
 ### Bitmap fill · Publish settings · Font embedding · Test Movie
 
@@ -1264,7 +1276,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/document-dialogs.png) · [SV
 
 **Color — Bitmap fill**: bitmap grid + Import…, Lock fill. **Publish settings**: profile, targets with checkboxes (HTML5 · Rust / WebAssembly, Desktop app, Video MP4, Image sequence / sprite sheet, SVG animation); per target: output file, HTML wrapper + template, runtime (WASM optimisation), scale mode, loop, autoplay, preloader, source maps, JPEG quality, audio, sprite sheets, embed fonts (subset), scripts (strict, include trace(), minify); estimated size; Cancel · OK · **Publish**. **Font embedding**: font list + add/remove, name / family / style, character ranges with counts (Latin, Cyrillic, Greek, …), extra characters, Export for ActionScript + class, glyph count badge. **Test Movie window**: title + fps/memory badge, stage, transport (first, step, play/pause, last, loop, frame / time), speed select, Output drawer with trace lines.
 
-Files: [Dark PNG](../exports/panels/dark/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/dark/boards/svg/publish-misc-dialogs.svg) · [Light PNG](../exports/panels/light/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/light/boards/svg/publish-misc-dialogs.svg) · Figma node `69:13727`
+Files: [Dark PNG](../exports/panels/dark/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/dark/boards/svg/publish-misc-dialogs.svg) · [Light PNG](../exports/panels/light/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/light/boards/svg/publish-misc-dialogs.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/mid-neutral-gray/boards/svg/publish-misc-dialogs.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/boards/png/publish-misc-dialogs.png) · [SVG](../exports/panels/dark-graphite/boards/svg/publish-misc-dialogs.svg) · Figma node `69:13727`
 
 ### Customize tools panel
 
@@ -1272,7 +1284,7 @@ Files: [Dark PNG](../exports/panels/dark/boards/png/publish-misc-dialogs.png) ·
 
 Rail preview with the selected slot, **Available tools** (search, alphabetical list with icons and shortcuts, scrollbar), **Add ›** / **‹ Remove**, **Current selection** of the slot (the first tool is the default shown on the rail; several tools in one slot form a flyout group). Footer: Restore default · Cancel · **OK**.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/dark/svg/dialog-customize-tools-panel.svg) · [Light PNG](../exports/panels/light/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/light/svg/dialog-customize-tools-panel.svg) · Figma node `99:16270`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/dark/svg/dialog-customize-tools-panel.svg) · [Light PNG](../exports/panels/light/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/light/svg/dialog-customize-tools-panel.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-customize-tools-panel.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-customize-tools-panel.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-customize-tools-panel.svg) · Figma node `99:16270`
 
 ### Trace bitmap
 
@@ -1280,15 +1292,15 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-customize-tools-panel.png) �
 
 Split preview (bitmap ▏traced) with the result size, Preset, Mode (Colour / Greyscale / Black and white), Palette (Limited / Full / Automatic), Colours 2–30. **Advanced options**: Paths (Low–High), Corners (Less–More), Noise (1–100 px), Method Abutting / Overlapping, Create fills / strokes, stroke width, Snap curves to lines, Ignore white. Footer: Live preview · Cancel · **Trace**.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/dark/svg/dialog-trace-bitmap.svg) · [Light PNG](../exports/panels/light/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/light/svg/dialog-trace-bitmap.svg) · Figma node `103:17084`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/dark/svg/dialog-trace-bitmap.svg) · [Light PNG](../exports/panels/light/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/light/svg/dialog-trace-bitmap.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-trace-bitmap.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-trace-bitmap.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-trace-bitmap.svg) · Figma node `103:17084`
 
 ### Preferences — General
 
 ![Preferences — General](../exports/panels/dark/png/dialog-preferences-general.png)
 
-Interface: Theme Dark / Light (or follow system), UI scale, Accent colour, Language. Workspace: on launch (Welcome screen / New document / Last documents), undo levels, Autosave every N min, tooltips with shortcuts. Selection: Shift-select behaviour, highlight colour (layer colour / custom).
+Interface: Theme Dark / Light / Mid Neutral Gray / Dark Graphite (or follow system), UI scale, Accent colour, Language. Workspace: on launch (Welcome screen / New document / Last documents), undo levels, Autosave every N min, tooltips with shortcuts. Selection: Shift-select behaviour, highlight colour (layer colour / custom).
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-general.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-general.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-general.png) · [SVG](../exports/panels/light/svg/dialog-preferences-general.svg) · Figma node `45:6581`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-general.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-general.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-general.png) · [SVG](../exports/panels/light/svg/dialog-preferences-general.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-general.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-general.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-general.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-general.svg) · Figma node `45:6581`
 
 ### Preferences — Code editor
 
@@ -1296,7 +1308,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-general.png) · 
 
 Font (Roboto Mono), size, line height. Editing: line numbers, word wrap, auto-close brackets, code hints + delay slider (300 ms), tab size, format on save, highlight current line. Colour scheme select (NF2 Night) + Duplicate / Import…, colour table for every syntax token (hex editable) with the note "Red is reserved for errors only. Breakpoints use orange, warnings amber.", live preview with gutter.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-code-editor.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-code-editor.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-code-editor.png) · [SVG](../exports/panels/light/svg/dialog-preferences-code-editor.svg) · Figma node `45:6771`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-code-editor.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-code-editor.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-code-editor.png) · [SVG](../exports/panels/light/svg/dialog-preferences-code-editor.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-code-editor.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-code-editor.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-code-editor.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-code-editor.svg) · Figma node `45:6771`
 
 ### Preferences — Timeline
 
@@ -1304,7 +1316,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-code-editor.png)
 
 Selection & view: span-based selection, default frame view (Tiny … Large / Preview), row height, show seconds on ruler, snap playhead to keyframes, named anchor on each scene. Onion skin defaults: before / after range, tint colours before / after, opacity falloff (70 → 15 %). Animation: auto keyframe on transform, default ease, tween type on drag.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-timeline.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-timeline.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-timeline.png) · [SVG](../exports/panels/light/svg/dialog-preferences-timeline.svg) · Figma node `59:8085`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-timeline.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-timeline.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-timeline.png) · [SVG](../exports/panels/light/svg/dialog-preferences-timeline.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-timeline.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-timeline.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-timeline.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-timeline.svg) · Figma node `59:8085`
 
 ### Preferences — Drawing
 
@@ -1312,7 +1324,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-timeline.png) ·
 
 Default mode for new shapes: Merge drawing / Object drawing. Pen tool: show pen preview, show solid points, precise cursors. Recognition: connect lines, smooth curves, recognise lines, recognise shapes, click accuracy. Snapping: tolerance (px), snap to pixels, snap align.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-drawing.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-drawing.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-drawing.png) · [SVG](../exports/panels/light/svg/dialog-preferences-drawing.svg) · Figma node `59:8300`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-drawing.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-drawing.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-drawing.png) · [SVG](../exports/panels/light/svg/dialog-preferences-drawing.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-drawing.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-drawing.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-drawing.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-drawing.svg) · Figma node `59:8300`
 
 ### Preferences — Text
 
@@ -1320,7 +1332,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-drawing.png) · 
 
 Defaults: font, size, anti-alias, font substitution warning. Behaviour: embed used glyphs automatically, spell check, vertical text right-to-left, no kerning for vertical, input method.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-text.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-text.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-text.png) · [SVG](../exports/panels/light/svg/dialog-preferences-text.svg) · Figma node `59:8503`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-text.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-text.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-text.png) · [SVG](../exports/panels/light/svg/dialog-preferences-text.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-text.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-text.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-text.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-text.svg) · Figma node `59:8503`
 
 ### Preferences — Clipboard
 
@@ -1328,7 +1340,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-text.png) · [SV
 
 Copying: bitmap resolution, gradient quality, copy as SVG to other apps, keep layer names. Pasting: default paste In centre / In place, import vector paste as editable paths, ask before pasting large bitmaps.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-clipboard.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-clipboard.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-clipboard.png) · [SVG](../exports/panels/light/svg/dialog-preferences-clipboard.svg) · Figma node `59:8681`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-clipboard.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-clipboard.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-clipboard.png) · [SVG](../exports/panels/light/svg/dialog-preferences-clipboard.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-clipboard.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-clipboard.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-clipboard.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-clipboard.svg) · Figma node `59:8681`
 
 ### Preferences — Shortcuts
 
@@ -1336,7 +1348,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-clipboard.png) �
 
 Shortcut set (NeoFlash default) + Duplicate / Rename / Delete, search, command filter, table command → keys (`NF2/Kbd` chips), recording state "Press keys…", conflict badge ("Conflicts with Insert ▸ Keyframe"), Reset command, Export as HTML….
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-shortcuts.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-shortcuts.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-shortcuts.png) · [SVG](../exports/panels/light/svg/dialog-preferences-shortcuts.svg) · Figma node `59:8846`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-shortcuts.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-shortcuts.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-shortcuts.png) · [SVG](../exports/panels/light/svg/dialog-preferences-shortcuts.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-shortcuts.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-shortcuts.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-shortcuts.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-shortcuts.svg) · Figma node `59:8846`
 
 ### Preferences — Publish
 
@@ -1344,7 +1356,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-shortcuts.png) �
 
 Default target (HTML5 · Rust / WebAssembly), output folder + Browse…, HTML wrapper, assets folder, source maps. Compression: image quality (JPEG 80), audio (MP3 128 kbps), acceleration (GPU WebGL). Scripts: strict mode, treat warnings as errors, publish on save.
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-publish.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-publish.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-publish.png) · [SVG](../exports/panels/light/svg/dialog-preferences-publish.svg) · Figma node `59:9050`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-publish.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-publish.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-publish.png) · [SVG](../exports/panels/light/svg/dialog-preferences-publish.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-publish.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-publish.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-publish.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-publish.svg) · Figma node `59:9050`
 
 ### Preferences — Updates
 
@@ -1352,7 +1364,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-publish.png) · 
 
 Version ("NeoFlash 2.0.0 · build 412 · up to date") + Check now / Release notes, channel Stable / Beta, automatic checks, background download. Privacy: anonymous usage statistics, crash reports. Extensions: installed count + updates, Manage….
 
-Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-updates.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-updates.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-updates.png) · [SVG](../exports/panels/light/svg/dialog-preferences-updates.svg) · Figma node `59:9244`
+Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-updates.png) · [SVG](../exports/panels/dark/svg/dialog-preferences-updates.svg) · [Light PNG](../exports/panels/light/png/dialog-preferences-updates.png) · [SVG](../exports/panels/light/svg/dialog-preferences-updates.svg) · [Mid Neutral Gray PNG](../exports/panels/mid-neutral-gray/png/dialog-preferences-updates.png) · [SVG](../exports/panels/mid-neutral-gray/svg/dialog-preferences-updates.svg) · [Dark Graphite PNG](../exports/panels/dark-graphite/png/dialog-preferences-updates.png) · [SVG](../exports/panels/dark-graphite/svg/dialog-preferences-updates.svg) · Figma node `59:9244`
 
 
 ### 9.1 Functional coverage map
@@ -1390,7 +1402,7 @@ Files: [Dark PNG](../exports/panels/dark/png/dialog-preferences-updates.png) · 
 | Colour | Mixer, gradients, swatches, quick colours, gradient transform | Color panel · Swatches · Gradient Transform |
 | Workspace | Floating panels, docking zones/compass, splitters, drag & drop, scrollbars | Panels board · Technical shelf |
 | Workspace | Rulers, guides, grid, settings popover, cursors, toasts, progress, focus ring | Editor screens · Technical shelf |
-| Workspace | Main menu with shortcuts, Preferences (9 pages), shortcuts editor, Dark/Light | Menus · Preferences · Interface Dark/Light |
+| Workspace | Main menu with shortcuts, Preferences (9 pages), shortcuts editor, four themes | Menus · Preferences · Interfaces in all four themes |
 | Workspace | Document settings dialog (⌘J), Find & replace, Movie explorer / outline | Dialog / Document settings · Find and replace · Panel / Movie Explorer |
 
 
@@ -1697,7 +1709,8 @@ const al = (name, dir, gap) => { const f = figma.createAutoLayout(dir, { name, i
 6. Page roots may contain TEXT nodes (titles): skip them before calling `findOne` / `findAll` on children.
 7. Lines and vectors inside components need constraints STRETCH / SCALE and an instance re-resize to stretch.
 8. Cross-page copy: `node.clone()` then `targetPage.appendChild(clone)`.
-9. Light twin: `frame.setExplicitVariableModeForCollection(coll, coll.modes[1].modeId)`.
+9. Theme variants: resolve the intended collection mode by name and call
+   `frame.setExplicitVariableModeForCollection(coll, mode.modeId)`; never rely on a numeric mode index.
 10. Fonts: only Inter and Roboto Mono (Helvetica broke `setProperties` in the past).
 11. Descriptions: the API returns straight quotes and `&` HTML-escaped (`&quot;`, `&amp;`). Write typographic
     quotes “…” and the word “and” in component descriptions instead.
@@ -1706,7 +1719,7 @@ const al = (name, dir, gap) => { const f = figma.createAutoLayout(dir, { name, i
 
 - New v2 work: NF2 components only; colours via `P(token)`; text via NF2 styles; spacing/radius values from tokens.
 - New component → put it on a `Shelf / …` frame on `v2.25 · System & Components`, give it a description (what, when,
-  interaction), then use instances in panels/screens. Add Light twins for new panels/screens.
+  interaction), then use instances in panels/screens. Add structurally identical variants for all four themes.
 - New icon → `NF2 Icon/16/<name>` (or 20), stroke-only, then regenerate the Icons page.
 - Keep the coverage table and this document in sync: run the export plugin, then `tools/build-docs.py`.
 
@@ -1730,9 +1743,11 @@ design-system/
     source/                          ← doc sources (md + html templates)
   exports/
     manifest.json                    ← node id → file paths
-    interface/{dark,light}/{png,svg}/
-    panels/{dark,light}/{png,svg}/     ← one file per panel / dialog / menu / flyout
-    panels/{dark,light}/boards/       ← multi-panel boards as laid out in Figma
+    interface/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}/
+    panels/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}/
+                                      ← one file per panel / dialog / menu / flyout
+    panels/{dark,light,mid-neutral-gray,dark-graphite}/boards/
+                                      ← multi-panel boards as laid out in Figma
     icons/{12,16,20}/*.svg            ← every NF2 optical icon master
     cursors/*.svg                     ← every NF2 cursor
   tools/
@@ -1752,10 +1767,18 @@ SVG text is outlined.
 | `exports/icons/12/` | 260 |
 | `exports/icons/16/` | 260 |
 | `exports/icons/20/` | 129 |
+| `exports/interface/dark-graphite/png/` | 12 |
+| `exports/interface/dark-graphite/svg/` | 12 |
 | `exports/interface/dark/png/` | 12 |
 | `exports/interface/dark/svg/` | 12 |
 | `exports/interface/light/png/` | 12 |
 | `exports/interface/light/svg/` | 12 |
+| `exports/interface/mid-neutral-gray/png/` | 12 |
+| `exports/interface/mid-neutral-gray/svg/` | 12 |
+| `exports/panels/dark-graphite/boards/png/` | 21 |
+| `exports/panels/dark-graphite/boards/svg/` | 21 |
+| `exports/panels/dark-graphite/png/` | 105 |
+| `exports/panels/dark-graphite/svg/` | 105 |
 | `exports/panels/dark/boards/png/` | 21 |
 | `exports/panels/dark/boards/svg/` | 21 |
 | `exports/panels/dark/png/` | 105 |
@@ -1764,6 +1787,10 @@ SVG text is outlined.
 | `exports/panels/light/boards/svg/` | 21 |
 | `exports/panels/light/png/` | 105 |
 | `exports/panels/light/svg/` | 105 |
+| `exports/panels/mid-neutral-gray/boards/png/` | 21 |
+| `exports/panels/mid-neutral-gray/boards/svg/` | 21 |
+| `exports/panels/mid-neutral-gray/png/` | 105 |
+| `exports/panels/mid-neutral-gray/svg/` | 105 |
 
 
 ---
@@ -1776,9 +1803,9 @@ SVG text is outlined.
 
 | File | Content |
 |---|---|
-| `tokens/tokens.css` | CSS custom properties. `:root` = Dark (default), `[data-theme="light"]` = Light. Names: `color/bg/panel` → `--nf-color-bg-panel`, `space/3` → `--nf-space-3`, `radius/md` → `--nf-radius-md`. |
+| `tokens/tokens.css` | CSS custom properties. `:root` = Dark (default); `[data-theme="light"]`, `[data-theme="mid-neutral-gray"]` and `[data-theme="dark-graphite"]` select the other palettes. Names: `color/bg/panel` → `--nf-color-bg-panel`, `space/3` → `--nf-space-3`, `radius/md` → `--nf-radius-md`. |
 | `tokens/typography.css` | One class per text style: `.nf-text-body`, `.nf-text-overline`, … (font family, weight, size, line height, tracking, case). |
-| `tokens/tokens.json` | W3C Design Tokens format (`$type`, `$value`) with `dark` and `light` groups; text styles under `typography`. |
+| `tokens/tokens.json` | W3C Design Tokens format (`$type`, `$value`) with `dark`, `light`, `mid_neutral_gray` and `dark_graphite` groups; text styles under `typography`. Export/CSS theme slugs remain `mid-neutral-gray` and `dark-graphite`. |
 
 ```css
 @import "tokens/tokens.css";
@@ -1786,7 +1813,8 @@ SVG text is outlined.
          border-radius: var(--nf-radius-xl); padding: var(--nf-space-3); }
 ```
 
-Switch theme by setting `data-theme="light"` on the root (or on a subtree, like Figma's per-frame mode).
+Switch theme by setting `data-theme="light"`, `data-theme="mid-neutral-gray"` or `data-theme="dark-graphite"` on
+the root (or on a subtree, like Figma's per-frame mode). Omit the attribute for the default Dark palette.
 
 ### 13.2 Mapping components
 
@@ -1978,7 +2006,7 @@ Use the full outlines for exact structure (auto layout direction and gap, sizes,
 ### panels-dialog-preferences-general
 
 ```
-§Dialog / Preferences — General · [Dialog Header "Preferences"] · §Main · §Categories · [Tree Item "General"] · [Tree Item "Code editor"] · [Tree Item "Timeline"] · [Tree Item "Drawing"] · [Tree Item "Text"] · [Tree Item "Clipboard"] · [Tree Item "Shortcuts"] · [Tree Item "Publish"] · [Tree Item "Updates"] · §Interface · "Interface" · "Theme" · [Segmented Control "Dark" "Light"] · "or follow system" · "UI scale" · [Select "100 %"] · "Accent" · [Swatch Cell] · "Language" · [Select "English"] · §Workspace · "Workspace" · "On launch" · [Select "Welcome screen"] · "Undo levels" · [Stepper Field "Steps" "100"] · "Autosave" · [Switch "Every"] · [Stepper Field "Min" "5"] · "Tooltips" · [Switch "Show tooltips with shortcuts"] · §Selection · "Selection" · "Shift-select" · [Switch "Add with ⇧ (otherwise click adds)"] · "Highlight" · [Select "Layer colour"] · [Button "Reset to defaults"] · [Button "Cancel"] · [Button "Save"]
+§Dialog / Preferences — General · [Dialog Header "Preferences"] · §Main · §Categories · [Tree Item "General"] · [Tree Item "Code editor"] · [Tree Item "Timeline"] · [Tree Item "Drawing"] · [Tree Item "Text"] · [Tree Item "Clipboard"] · [Tree Item "Shortcuts"] · [Tree Item "Publish"] · [Tree Item "Updates"] · §Interface · "Interface" · "Theme" · [Select "Dark"] · "or follow system" · "UI scale" · [Select "100 %"] · "Accent" · [Swatch Cell] · "Language" · [Select "English"] · §Workspace · "Workspace" · "On launch" · [Select "Welcome screen"] · "Undo levels" · [Stepper Field "Steps" "100"] · "Autosave" · [Switch "Every"] · [Stepper Field "Min" "5"] · "Tooltips" · [Switch "Show tooltips with shortcuts"] · §Selection · "Selection" · "Shift-select" · [Switch "Add with ⇧ (otherwise click adds)"] · "Highlight" · [Select "Layer colour"] · [Button "Reset to defaults"] · [Button "Cancel"] · [Button "Save"]
 ```
 
 ### panels-dialog-preferences-publish

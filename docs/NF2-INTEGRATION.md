@@ -14,6 +14,9 @@ and AGENTS.md › "Design system (NF2) — locked". Work still to do: [NF2-FUNCT
   Accessibility), status bar; breadcrumb, stage size and zoom control float over the canvas.
 - Every existing panel was restyled with NF2 components and moved to one file per panel under
   `crates/neoflash-editor/src/panels/`. Behaviour, undo, selection, shortcuts and accessibility names are unchanged.
+- Four stable palettes share that component structure: Dark (default), Light, Mid Neutral Gray
+  (`color/bg/app = #505050`) and Dark Graphite (`color/bg/app = #171717`). Window ▸ Appearance switches them directly; Preferences ▸ General
+  previews a draft live, persists it with Save and restores the saved palette with Cancel, Escape or close.
 - NF2 features the engine does not support are visible but honest: disabled controls with "Not available yet", and
   read-only planned previews (33 on 2026-11-01), opened from their natural menu items and buttons as well as Window ▸
   Planned panels. Ease, Scene, Motion editor, Properties — Motion tween, Properties — Sound and the View settings popover
@@ -26,11 +29,11 @@ and AGENTS.md › "Design system (NF2) — locked". Work still to do: [NF2-FUNCT
 
 | Source (`interface/design-system/`) | Generated / used by | Notes |
 | --- | --- | --- |
-| `tokens/tokens.json` (colour variables Dark/Light, spacing, radii, text styles) | `neoflash-ui/build.rs` → `tokens::Palette`, `DARK`, `LIGHT`, `space`, `radius`, `TextStyle` | One `Palette` field per Figma variable: `color/bg/panel` → `bg_panel`. |
+| `tokens/tokens.json` (`dark`, `light`, `mid_neutral_gray`, `dark_graphite`, spacing, radii, text styles) | `neoflash-ui/build.rs` → `tokens::Palette`, `DARK`, `LIGHT`, `MID_NEUTRAL_GRAY`, `DARK_GRAPHITE`, `space`, `radius`, `TextStyle` | One `Palette` field per Figma variable: `color/bg/panel` → `bg_panel`. Public UI/export slugs use hyphens. |
 | `exports/icons/{16,20}/*.svg` (304) | `build.rs` → `icons::i16::*`, `icons::i20::*` | Rendered white with resvg and tinted by token; cached per display scale. |
 | `exports/cursors/*.svg` (39) + hotspots from `docs/data/figma-dump.json` | `build.rs` → `cursors::*` | Painted over the canvas (`cursors::show`); not yet used by stage tools. |
-| `docs/data/outline/*.txt` | read by people/agents | Exact auto-layout gaps, sizes, texts of every exported frame. Use these, not the PNGs, for numbers. |
-| `exports/interface|panels/{dark,light}/{png,svg}` | visual comparison only | Local only (ignored by Git, 105 MB); regenerate with `tools/export-plugin`. |
+| `docs/data/outline/*.txt` | read by people/agents | Exact auto-layout gaps, sizes and texts from canonical Dark frames. Palette variants share the same structure and do not overwrite these files. |
+| `exports/interface|panels/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}` | visual comparison only | Local only (ignored by Git); regenerate with `tools/export-plugin`. Figma interface pages and panel boards exist for every theme. |
 | Fonts | `crates/neoflash-ui/assets/fonts/` | Inter 4.1 Regular/Medium/SemiBold, Roboto Mono Regular, SIL OFL; licences in the folder and `THIRD_PARTY_NOTICES.txt`. |
 
 Versioned from `interface/`: tokens, icons, cursors, manifests, Markdown docs, outlines, figma-dump, illustrations,
@@ -40,7 +43,7 @@ tools (≈ 7.6 MB). Ignored: screen/panel PNG/SVG exports, PDFs, the gallery sit
 
 | Area | File(s) | What it does |
 | --- | --- | --- |
-| Theme | `theme.rs` | `ThemeMode` (Dark default) installs NF2 visuals; `UiPalette` roles map to NF2 tokens; layout constants are NF2 metrics; `StageOverlay` holds the few values NF2 lacks. |
+| Theme | `theme.rs` | `ThemeMode::{Dark, Light, MidNeutralGray, DarkGraphite}` (Dark default) installs the exact NF2 palette; `UiPalette` roles map to NF2 tokens; layout constants are NF2 metrics; `StageOverlay` holds the few values NF2 lacks. |
 | Fonts | `fonts.rs` | Adds the bundled NF2 fonts first; authored fonts still load from the system. |
 | Window chrome | `shell.rs`, `panels/menu.rs` | Top bar, workspace menu, status bar, stage breadcrumb / size badge / zoom control, View zoom commands, screenshot mode. |
 | Docking | `dock_grid.rs`, `detached.rs`, `native_windows.rs` | NF2 dock tabs / panel headers / splitters; floating panel chrome; macOS auxiliary windows for detached panels. |
@@ -50,7 +53,7 @@ tools (≈ 7.6 MB). Ignored: screen/panel PNG/SVG exports, PDFs, the gallery sit
 
 ### Defaults that changed for users
 
-- Dark theme by default (an explicit saved choice is kept).
+- Dark theme by default; an explicit saved Dark, Light, Mid Neutral Gray or Dark Graphite choice is kept.
 - New layout: the old saved layout (`neoflash.workspace.v1`) is not migrated; the NF2 default replaces it once.
 - Timeline: 12 pt per frame by default (was 13), rows 28, layer column 280; onion details moved to a popover.
 - Tools: two columns by default; one column with a "…" overflow when the panel is narrow.
@@ -68,21 +71,23 @@ tools (≈ 7.6 MB). Ignored: screen/panel PNG/SVG exports, PDFs, the gallery sit
 | Docked tools header | The rail has no title; a 14 pt grip strip keeps drag/detach/context menu. |
 | Publishing | Publishing runs from the top-bar Publish button and File ▸ Publish; Properties › "Publish settings…" opens the Publish settings preview, as designed. |
 | Unsupported features | Disabled with "Not available yet" or shown as planned previews; nothing pretends to work. |
+| Theme identity | egui has Light/Dark style slots, but NF2 retains the exact four-value `ThemeMode` separately so Mid Neutral Gray and Dark Graphite cannot collapse to canonical Dark. Hand-painted and ordinary controls receive the same selected palette. |
 | Actions toolbox / Script navigator | Built from the declaration audit through `scripts/editor-api-index.py`; folder rows use `TreeItem::icon()` (package, class, scene, target overrides from Figma). Details: [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md). |
 | Detached panels on macOS | Automatic window tabbing is disabled and panel windows are `FullScreenAuxiliary`, so undocking keeps the panel's own size even when the main window is full screen. |
 
-## 5. Verification performed
+## 5. Verification boundary
 
-- `cargo test -p neoflash-editor -p neoflash-ui`: 129 + 2 tests pass (UI tests were updated to NF2 geometry; behavioural assertions kept).
-- `cargo clippy -p neoflash-ui -p neoflash-editor --all-targets -- -D warnings` and `cargo fmt --check` for both crates: clean.
-- Screenshots at 1920 × 1080 in Dark and Light compared region by region with `editor-main.png` (top bar, inspector,
-  timeline controls) and with `editor-actions-tab.png` (Actions toolbar); gallery compared with the component shelves
-  and `view-settings.png`.
-- Distribution: `scripts/package-macos.sh release` builds `dist/NeoFlash.app` (release binary, web runtime,
-  `THIRD_PARTY_NOTICES.txt` with the bundled font licences, ad-hoc signature); the packaged binary was launched in
-  screenshot mode at 1920 × 1080 and renders the NF2 main window. Not notarized.
-- Not verified here: VoiceOver, IME, mixed-DPI monitors; detaching while the main window is in native full screen
-  (the macOS fix is in place but was checked by reasoning and build only); every planned preview against its PNG.
+- The design-doc builder resolves the four Figma modes by name and generates four token groups without treating the
+  temporary Figma `Mode 2` as a public theme. Generated tokens preserve Mid Neutral Gray `bg/app = #505050`.
+- Focused Rust tests cover exact four-theme identity and palette selection, essential contrast in every theme,
+  workspace preference round trips (including legacy names), Preferences live preview/Cancel/Save and the public
+  gallery/screenshot slugs.
+- `NEOFLASH_SCREENSHOT_THEME=dark|light|mid-neutral-gray|dark-graphite` and the UI gallery accept the same public
+  slugs. These checks establish selection, persistence and palette wiring; they do not establish pixel identity.
+- Visual acceptance remains a direct comparison of all four 1920 × 1080 captures and representative panel captures
+  with the matching final Figma exports. PDF/gallery rendering verifies documentation layout, not native interaction,
+  keyboard access, docking, VoiceOver, IME or mixed-DPI behavior. The shared delivery boundary is recorded in
+  [VERIFICATION.md](VERIFICATION.md).
 
 ## 6. Known gaps (next work)
 

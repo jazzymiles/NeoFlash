@@ -122,7 +122,10 @@ async function run(opts) {
         const svg = await node.exportAsync({ format: 'SVG', svgOutlineText: true, svgIdAttribute: false });
         if (!(await post(it.svg, svg))) throw new Error('receiver rejected ' + it.svg);
       }
-      if (opts.data && it.theme !== 'light') await postText(`docs/data/outline/${it.group}-${it.png.split('/').pop().replace('.png', '')}.txt`, (await outline(node)).join('\n'));
+      // Outlines describe structure, which is shared by every palette. Export
+      // document frames and the canonical Dark theme so later palette clones
+      // cannot overwrite the same outline file.
+      if (opts.data && (it.group === 'docs' || it.theme === 'dark')) await postText(`docs/data/outline/${it.group}-${it.png.split('/').pop().replace('.png', '')}.txt`, (await outline(node)).join('\n'));
       if (it.split) singles += await exportParts(node, it, opts, used, failed);
     } catch (e) { failed.push(it.id + ' ' + it.png + ': ' + e.message); }
   }

@@ -1670,15 +1670,22 @@ fn menu_bar_toggles_live_state_without_changing_the_document() {
         assert_eq!(d.tab(PanelId::Timeline).is_some(), visible);
     }
     let initial_theme = d.editor.workspace.theme;
-    for theme in [ThemeMode::Light, ThemeMode::Dark, initial_theme] {
+    d.click("Window");
+    d.click("Appearance");
+    for theme in ThemeMode::ALL {
+        assert!(
+            d.find(theme.label()).is_some(),
+            "Window ▸ Appearance must show {}",
+            theme.label()
+        );
+    }
+    close_menu(&mut d);
+    for theme in ThemeMode::ALL.into_iter().chain([initial_theme]) {
         d.click("Window");
         d.click("Appearance");
-        d.click(if theme == ThemeMode::Light {
-            "Light"
-        } else {
-            "Dark"
-        });
+        d.click(theme.label());
         assert_eq!(d.editor.workspace.theme, theme);
+        assert_eq!(ThemeMode::current(&d.ctx), theme);
         assert_eq!(
             neoflash_ui::palette(&d.ctx).bg_app,
             theme.nf2().palette().bg_app
@@ -1753,8 +1760,10 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
     };
 
     open(&mut d);
-    d.click("Dark");
+    d.click("Light");
+    d.click("Mid Neutral Gray");
     assert_eq!(d.ctx.theme(), egui::Theme::Dark, "the theme previews live");
+    assert_eq!(ThemeMode::current(&d.ctx), ThemeMode::MidNeutralGray);
     assert_eq!(d.editor.workspace.theme, ThemeMode::Light, "not saved yet");
     d.click("Cancel");
     assert!(d.editor.preferences.is_none());
@@ -1764,13 +1773,15 @@ fn preferences_dialog_previews_saves_cancels_and_resets() {
         "Cancel restores the theme"
     );
 
-    // Light → Dark with Save, plus Shift-select.
+    // Light → Dark Graphite with Save, plus Shift-select.
     open(&mut d);
-    d.click("Dark");
+    d.click("Light");
+    d.click("Dark Graphite");
     d.click("Add with ⇧ (otherwise click adds)");
     d.click("Save");
     assert!(d.editor.preferences.is_none());
-    assert_eq!(d.editor.workspace.theme, ThemeMode::Dark);
+    assert_eq!(d.editor.workspace.theme, ThemeMode::DarkGraphite);
+    assert_eq!(ThemeMode::current(&d.ctx), ThemeMode::DarkGraphite);
     assert_eq!(d.ctx.theme(), egui::Theme::Dark);
     assert!(!d.editor.workspace.shift_select);
 

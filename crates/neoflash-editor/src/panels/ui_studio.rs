@@ -11,7 +11,7 @@
 //! - **Edit Systems as Systems**: live inspector for the NF2 spacing scale (`S1`..`S6`),
 //!   typography scale (`Title`, `Body`, `Small`, `Caption`, `Mono`, `Heading`), density metrics
 //!   (`Comfortable`, `Compact`, `Classic Flash`), shared layout systems (`TwoColumnFormSystem`,
-//!   `SectionHeaderSystem`, `PanelHeaderSystem`, `ToolRailSystem`), and Dark/Light palette overrides.
+//!   `SectionHeaderSystem`, `PanelHeaderSystem`, `ToolRailSystem`), and four-theme palette overrides.
 //! - **Structural Container Operations**: wrap selected nodes into a `Row`, `Column`, or
 //!   `Grid` (with 1-click 2-col, 3-col, 4-col, and mixed `[120px, 50%, 50%]` presets), unwrap
 //!   containers, nest grids inside grid cells to arbitrary depth, create/duplicate/delete widgets,
@@ -23,14 +23,14 @@
 
 #![allow(dead_code)]
 
-use crate::theme::ScrollTheme as _;
+use crate::theme::{ScrollTheme as _, ThemeMode};
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use neoflash_ui::components as c;
 use neoflash_ui::components::timeline::{
     self as tl, GridKind, LayerColumns, LayerKind, LayerRow, LayersHeaderColumns, ModeCell,
 };
 use neoflash_ui::icons::{self, Icon, i16};
-use neoflash_ui::tokens::{DARK, LIGHT, Palette, TextStyle, radius, space};
+use neoflash_ui::tokens::{Palette, TextStyle, radius, space};
 use neoflash_ui::typography::rich;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -1553,44 +1553,57 @@ impl Default for StageOverlaySystem {
     }
 }
 
-/// Dark & Light semantic palette token overrides.
+/// Per-theme semantic palette token overrides.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PaletteTokenOverrides {
+    #[serde(default)]
     pub dark: BTreeMap<StudioColorRole, [u8; 4]>,
+    #[serde(default)]
     pub light: BTreeMap<StudioColorRole, [u8; 4]>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mid_neutral_gray: BTreeMap<StudioColorRole, [u8; 4]>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dark_graphite: BTreeMap<StudioColorRole, [u8; 4]>,
 }
 
 impl PaletteTokenOverrides {
-    pub fn resolve_color(&self, dark_mode: bool, role: StudioColorRole) -> Color32 {
-        let map = if dark_mode { &self.dark } else { &self.light };
+    fn for_theme(&self, theme: ThemeMode) -> &BTreeMap<StudioColorRole, [u8; 4]> {
+        match theme {
+            ThemeMode::Dark => &self.dark,
+            ThemeMode::Light => &self.light,
+            ThemeMode::MidNeutralGray => &self.mid_neutral_gray,
+            ThemeMode::DarkGraphite => &self.dark_graphite,
+        }
+    }
+
+    fn for_theme_mut(&mut self, theme: ThemeMode) -> &mut BTreeMap<StudioColorRole, [u8; 4]> {
+        match theme {
+            ThemeMode::Dark => &mut self.dark,
+            ThemeMode::Light => &mut self.light,
+            ThemeMode::MidNeutralGray => &mut self.mid_neutral_gray,
+            ThemeMode::DarkGraphite => &mut self.dark_graphite,
+        }
+    }
+
+    pub fn resolve_color(&self, theme: ThemeMode, role: StudioColorRole) -> Color32 {
+        let map = self.for_theme(theme);
         if let Some(&[r, g, b, a]) = map.get(&role) {
             return Color32::from_rgba_unmultiplied(r, g, b, a);
         }
-        let base = if dark_mode { &DARK } else { &LIGHT };
-        role.read_from_palette(base)
+        role.read_from_palette(theme.nf2().palette())
     }
 
-    pub fn set_color_override(&mut self, dark_mode: bool, role: StudioColorRole, color: Color32) {
-        let map = if dark_mode {
-            &mut self.dark
-        } else {
-            &mut self.light
-        };
-        map.insert(role, color.to_srgba_unmultiplied());
+    pub fn set_color_override(&mut self, theme: ThemeMode, role: StudioColorRole, color: Color32) {
+        self.for_theme_mut(theme)
+            .insert(role, color.to_srgba_unmultiplied());
     }
 
-    pub fn reset_color_override(&mut self, dark_mode: bool, role: StudioColorRole) {
-        let map = if dark_mode {
-            &mut self.dark
-        } else {
-            &mut self.light
-        };
-        map.remove(&role);
+    pub fn reset_color_override(&mut self, theme: ThemeMode, role: StudioColorRole) {
+        self.for_theme_mut(theme).remove(&role);
     }
 
-    pub fn has_override(&self, dark_mode: bool, role: StudioColorRole) -> bool {
-        let map = if dark_mode { &self.dark } else { &self.light };
-        map.contains_key(&role)
+    pub fn has_override(&self, theme: ThemeMode, role: StudioColorRole) -> bool {
+        self.for_theme(theme).contains_key(&role)
     }
 }
 
@@ -5149,7 +5162,7 @@ fn parse_svg_hex_color(s: &str) -> Option<[u8; 4]> {
 pub fn export_artboard_to_svg(
     doc: &UiStudioDocument,
     systems: &UiStudioSystems,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) -> String {
     let default_w = match doc.root.box_constraints.width {
         UiSizeUnit::Px(px) => px.max(240.0),
@@ -5171,7 +5184,7 @@ pub fn export_artboard_to_svg(
         &doc.root,
         systems,
         &computed,
-        dark_mode,
+        theme,
         Pos2::ZERO,
         1,
         &mut svg,
@@ -5181,7 +5194,7 @@ pub fn export_artboard_to_svg(
 }
 
 /// Export all visible artboards on the Studio Canvas into one composite multi-panel `.svg` board.
-pub fn export_all_artboards_to_svg(state: &UiLayoutStudioState, dark_mode: bool) -> String {
+pub fn export_all_artboards_to_svg(state: &UiLayoutStudioState, theme: ThemeMode) -> String {
     let mut max_x = 640.0_f32;
     let mut max_y = 480.0_f32;
     for ab in &state.artboards {
@@ -5193,7 +5206,7 @@ pub fn export_all_artboards_to_svg(state: &UiLayoutStudioState, dark_mode: bool)
     let bg_app = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgApp);
+        .resolve_color(theme, StudioColorRole::BgApp);
 
     let mut svg = String::new();
     writeln!(
@@ -5226,14 +5239,14 @@ pub fn export_all_artboards_to_svg(state: &UiLayoutStudioState, dark_mode: bool)
             &ab.document.root,
             &state.systems,
             &computed,
-            dark_mode,
+            theme,
             Pos2::ZERO,
             2,
             &mut svg,
         );
         if ab.preset.is_timeline_surface() || ab.preset.is_full_shell() {
             let tl_rect = Rect::from_min_size(origin, avail);
-            emit_timeline_geometry_svg(&mut svg, tl_rect, &state.systems, dark_mode, 2);
+            emit_timeline_geometry_svg(&mut svg, tl_rect, &state.systems, theme, 2);
         }
         writeln!(svg, "  </g>").unwrap();
     }
@@ -5245,7 +5258,7 @@ fn emit_timeline_geometry_svg(
     svg: &mut String,
     rect: Rect,
     systems: &UiStudioSystems,
-    dark_mode: bool,
+    theme: ThemeMode,
     indent: usize,
 ) {
     let pad = "  ".repeat(indent);
@@ -5263,8 +5276,9 @@ fn emit_timeline_geometry_svg(
         ),
     );
     let (shaft_start, _tip, tri) = tg.compute_tween_arrow_points(classic_span);
-    let arrow_col = if dark_mode { "#E2E7F2" } else { "#1F2430" };
-    let span_fill = if dark_mode { "#2B224C" } else { "#DDD2FC" };
+    let palette = theme.nf2().palette();
+    let arrow_col = color32_to_hex(palette.timeline_marker);
+    let span_fill = color32_to_hex(palette.timeline_classic_tween);
     writeln!(
         svg,
         r#"{pad}<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{span_fill}" data-nf-timeline-span="classic" />"#,
@@ -5296,7 +5310,7 @@ fn emit_node_svg(
     node: &UiStudioNode,
     systems: &UiStudioSystems,
     computed: &ComputedStudioLayout,
-    dark_mode: bool,
+    theme: ThemeMode,
     offset: Pos2,
     indent: usize,
     svg: &mut String,
@@ -5309,49 +5323,46 @@ fn emit_node_svg(
     };
     let r = b.rect.translate(offset.to_vec2());
     let pad = "  ".repeat(indent);
-    let base_pal = if dark_mode { &DARK } else { &LIGHT };
-
     let bg_panel = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::BgPanel),
+            .resolve_color(theme, StudioColorRole::BgPanel),
     );
     let bg_raised = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::BgRaised),
+            .resolve_color(theme, StudioColorRole::BgRaised),
     );
     let bg_field = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::BgField),
+            .resolve_color(theme, StudioColorRole::BgField),
     );
     let border_def = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::BorderDefault),
+            .resolve_color(theme, StudioColorRole::BorderDefault),
     );
     let border_sub = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::BorderSubtle),
+            .resolve_color(theme, StudioColorRole::BorderSubtle),
     );
     let text_pri = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::TextPrimary),
+            .resolve_color(theme, StudioColorRole::TextPrimary),
     );
     let text_sec = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::TextSecondary),
+            .resolve_color(theme, StudioColorRole::TextSecondary),
     );
     let accent = color32_to_hex(
         systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::AccentDefault),
+            .resolve_color(theme, StudioColorRole::AccentDefault),
     );
-    let _ = base_pal;
 
     let kind_tag = node.kind.type_badge();
     let w_attr = node.box_constraints.width.format_compact();
@@ -5496,7 +5507,7 @@ fn emit_node_svg(
                 .unwrap();
             }
             for child in &node.children {
-                emit_node_svg(child, systems, computed, dark_mode, offset, indent + 1, svg);
+                emit_node_svg(child, systems, computed, theme, offset, indent + 1, svg);
             }
         }
         UiNodeKind::Section { expanded, .. } => {
@@ -5520,13 +5531,13 @@ fn emit_node_svg(
             .unwrap();
             if *expanded {
                 for child in &node.children {
-                    emit_node_svg(child, systems, computed, dark_mode, offset, indent + 1, svg);
+                    emit_node_svg(child, systems, computed, theme, offset, indent + 1, svg);
                 }
             }
         }
         UiNodeKind::Row | UiNodeKind::Column | UiNodeKind::Grid { .. } => {
             for child in &node.children {
-                emit_node_svg(child, systems, computed, dark_mode, offset, indent + 1, svg);
+                emit_node_svg(child, systems, computed, theme, offset, indent + 1, svg);
             }
         }
         UiNodeKind::Field {
@@ -6558,6 +6569,24 @@ pub struct StudioPersistedBundle {
     pub artboards: Vec<StudioArtboard>,
 }
 
+fn deserialize_studio_theme<'de, D>(deserializer: D) -> Result<ThemeMode, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StoredTheme {
+        Theme(ThemeMode),
+        LegacyDarkMode(bool),
+    }
+
+    Ok(match StoredTheme::deserialize(deserializer)? {
+        StoredTheme::Theme(theme) => theme,
+        StoredTheme::LegacyDarkMode(true) => ThemeMode::Dark,
+        StoredTheme::LegacyDarkMode(false) => ThemeMode::Light,
+    })
+}
+
 /// Complete interactive state of the UI Layout Studio (`Window ▸ Developer ▸ UI Layout Studio…`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiLayoutStudioState {
@@ -6588,7 +6617,12 @@ pub struct UiLayoutStudioState {
     pub show_wireframe_outlines: bool,
     pub show_dimension_badges: bool,
     pub preview_canvas_width: f32,
-    pub preview_dark_mode: bool,
+    #[serde(
+        default,
+        alias = "preview_dark_mode",
+        deserialize_with = "deserialize_studio_theme"
+    )]
+    pub preview_theme: ThemeMode,
     pub status_message: String,
     #[serde(skip)]
     pub history: UiStudioHistory,
@@ -6626,7 +6660,7 @@ impl Default for UiLayoutStudioState {
             show_wireframe_outlines: true,
             show_dimension_badges: true,
             preview_canvas_width: 820.0,
-            preview_dark_mode: true,
+            preview_theme: ThemeMode::Dark,
             status_message: "Multi-Panel Artboard Canvas ready — drag headers to move, drag bottom-right grips to resize (% vs px), or Import/Export SVG."
                 .to_owned(),
             history: UiStudioHistory::new(64),
@@ -6866,12 +6900,12 @@ impl UiLayoutStudioState {
 
     /// Export the active artboard to SVG XML.
     pub fn export_active_svg(&self) -> String {
-        export_artboard_to_svg(&self.document, &self.systems, self.preview_dark_mode)
+        export_artboard_to_svg(&self.document, &self.systems, self.preview_theme)
     }
 
     /// Export all visible artboards on the multi-panel board into a combined SVG document.
     pub fn export_board_svg(&self) -> String {
-        export_all_artboards_to_svg(self, self.preview_dark_mode)
+        export_all_artboards_to_svg(self, self.preview_theme)
     }
 
     /// Write the active or multi-panel SVG export to disk (`target/ui-studio/exported_panel.svg`).
@@ -7096,6 +7130,7 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
 /// Embeddable panel/body UI for the Interactive Visual UI & System Layout Studio.
 pub fn ui_layout_studio_panel_ui(ui: &mut Ui, state: &mut UiLayoutStudioState) {
     let nf = neoflash_ui::palette(ui.ctx());
+    state.preview_theme = ThemeMode::current(ui.ctx());
     ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
     state.sync_active_to_artboard();
 
@@ -8009,15 +8044,16 @@ fn render_live_canvas_column(
     });
 
     let canvas_h = (height - 40.0).max(240.0);
-    let dark_mode = ui.ctx().style().visuals.dark_mode;
+    let theme = ThemeMode::current(ui.ctx());
+    let artboard_shadow = theme.nf2().palette().overlay;
     let stage_bg = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgApp);
+        .resolve_color(theme, StudioColorRole::BgApp);
     let border_col = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderSubtle);
+        .resolve_color(theme, StudioColorRole::BorderSubtle);
 
     egui::Frame::new()
         .fill(stage_bg)
@@ -8276,7 +8312,7 @@ fn render_live_canvas_column(
                         ui.painter().rect_filled(
                             ab_rect.translate(egui::vec2(2.0, 3.0)),
                             6.0,
-                            Color32::from_black_alpha(if dark_mode { 72 } else { 28 }),
+                            artboard_shadow,
                         );
 
                         let doc_for_layout = if is_active {
@@ -8297,7 +8333,7 @@ fn render_live_canvas_column(
                                 state,
                                 ab_rect,
                                 &mut computed,
-                                dark_mode,
+                                theme,
                             );
                         } else if ab_snapshot.preset.is_timeline_surface() {
                             paint_timeline_studio_canvas(
@@ -8305,7 +8341,7 @@ fn render_live_canvas_column(
                                 state,
                                 ab_rect,
                                 &mut computed,
-                                dark_mode,
+                                theme,
                             );
                         } else if is_active {
                             paint_node_wysiwyg(
@@ -8313,7 +8349,7 @@ fn render_live_canvas_column(
                                 &mut state.document.root,
                                 &state.systems,
                                 &computed,
-                                dark_mode,
+                                theme,
                             );
                         } else if let Some(ab_mut) = state.artboards.get_mut(idx) {
                             paint_node_wysiwyg(
@@ -8321,7 +8357,7 @@ fn render_live_canvas_column(
                                 &mut ab_mut.document.root,
                                 &state.systems,
                                 &computed,
-                                dark_mode,
+                                theme,
                             );
                         }
 
@@ -8333,7 +8369,7 @@ fn render_live_canvas_column(
                                 Stroke::new(1.5_f32, nf.accent_default.gamma_multiply(0.85)),
                                 StrokeKind::Outside,
                             );
-                            paint_canvas_overlays(ui, state, &computed, dark_mode);
+                            paint_canvas_overlays(ui, state, &computed, theme);
                         }
 
                         // Pointer click inside `ab_rect` selects this artboard and hit-tests its nodes
@@ -8482,7 +8518,7 @@ fn paint_full_workspace_shell_canvas(
     state: &mut UiLayoutStudioState,
     shell_rect: Rect,
     computed: &mut ComputedStudioLayout,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
     computed.root_rect = shell_rect;
     computed.order.clear();
@@ -8492,35 +8528,35 @@ fn paint_full_workspace_shell_canvas(
     let bg_app = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgApp);
+        .resolve_color(theme, StudioColorRole::BgApp);
     let bg_panel = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgPanel);
+        .resolve_color(theme, StudioColorRole::BgPanel);
     let bg_raised = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgRaised);
+        .resolve_color(theme, StudioColorRole::BgRaised);
     let border_sub = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderSubtle);
+        .resolve_color(theme, StudioColorRole::BorderSubtle);
     let border_def = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderDefault);
+        .resolve_color(theme, StudioColorRole::BorderDefault);
     let text_pri = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextPrimary);
+        .resolve_color(theme, StudioColorRole::TextPrimary);
     let text_sec = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextSecondary);
+        .resolve_color(theme, StudioColorRole::TextSecondary);
     let accent = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::AccentDefault);
+        .resolve_color(theme, StudioColorRole::AccentDefault);
 
     let rects = state
         .systems
@@ -8690,11 +8726,11 @@ fn paint_full_workspace_shell_canvas(
 
     // 3. Center Stage Viewport with Rulers, Cyan Guides & Selected Vector Instance (Node 4)
     register_hit_box(computed, &state.systems, 4, rects.center_stage);
-    paint_stage_viewport_mock(ui, state, rects.center_stage, dark_mode);
+    paint_stage_viewport_mock(ui, state, rects.center_stage, theme);
 
     // 4. Right Multi-Panel Inspector Dock (Node 5)
     register_hit_box(computed, &state.systems, 5, rects.right_inspector);
-    paint_right_inspector_dock_mock(ui, state, rects.right_inspector, dark_mode);
+    paint_right_inspector_dock_mock(ui, state, rects.right_inspector, theme);
 
     // 5. Bottom Timeline Dock (Node 6 + Sub-Nodes 7..14)
     register_hit_box(computed, &state.systems, 6, rects.bottom_timeline);
@@ -8709,43 +8745,34 @@ fn paint_full_workspace_shell_canvas(
         audio_waveform: 14,
     };
     let _ = nf;
-    paint_interactive_timeline_surface(
-        ui,
-        state,
-        rects.bottom_timeline,
-        computed,
-        hit_ids,
-        dark_mode,
-    );
+    paint_interactive_timeline_surface(ui, state, rects.bottom_timeline, computed, hit_ids, theme);
 }
 
 fn paint_stage_viewport_mock(
     ui: &mut Ui,
     state: &UiLayoutStudioState,
     rect: Rect,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
-    let pasteboard = if dark_mode {
-        Color32::from_rgb(24, 26, 31)
-    } else {
-        Color32::from_rgb(212, 216, 224)
-    };
+    let palette = theme.nf2().palette();
+    let pasteboard = palette.bg_canvas;
+    let stage = palette.bg_stage;
     let ruler_bg = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgRaised);
+        .resolve_color(theme, StudioColorRole::BgRaised);
     let border_sub = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderSubtle);
+        .resolve_color(theme, StudioColorRole::BorderSubtle);
     let text_sec = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextSecondary);
+        .resolve_color(theme, StudioColorRole::TextSecondary);
     let accent = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::AccentDefault);
+        .resolve_color(theme, StudioColorRole::AccentDefault);
 
     ui.painter().rect_filled(rect, 4.0, pasteboard);
     ui.painter().rect_stroke(
@@ -8822,21 +8849,13 @@ fn paint_stage_viewport_mock(
     ui.painter().rect_filled(
         stage_rect.translate(egui::vec2(3.0, 4.0)),
         2.0,
-        Color32::from_black_alpha(70),
+        palette.overlay,
     );
-    ui.painter().rect_filled(
-        stage_rect,
-        2.0,
-        if dark_mode {
-            Color32::from_rgb(246, 248, 252)
-        } else {
-            Color32::WHITE
-        },
-    );
+    ui.painter().rect_filled(stage_rect, 2.0, stage);
 
     // Cyan guides
     if state.systems.stage_overlay.show_guides {
-        let cyan = Color32::from_rgb(0, 212, 255);
+        let cyan = palette.guide;
         let gw = state
             .systems
             .stage_overlay
@@ -8904,36 +8923,36 @@ fn paint_right_inspector_dock_mock(
     ui: &mut Ui,
     state: &UiLayoutStudioState,
     rect: Rect,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
     let bg_panel = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgPanel);
+        .resolve_color(theme, StudioColorRole::BgPanel);
     let bg_raised = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgRaised);
+        .resolve_color(theme, StudioColorRole::BgRaised);
     let bg_field = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgField);
+        .resolve_color(theme, StudioColorRole::BgField);
     let border_sub = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderSubtle);
+        .resolve_color(theme, StudioColorRole::BorderSubtle);
     let text_pri = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextPrimary);
+        .resolve_color(theme, StudioColorRole::TextPrimary);
     let text_sec = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextSecondary);
+        .resolve_color(theme, StudioColorRole::TextSecondary);
     let accent = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::AccentDefault);
+        .resolve_color(theme, StudioColorRole::AccentDefault);
 
     ui.painter().rect_filled(rect, 4.0, bg_panel);
     ui.painter().rect_stroke(
@@ -9080,8 +9099,9 @@ fn paint_timeline_studio_canvas(
     state: &mut UiLayoutStudioState,
     tl_rect: Rect,
     computed: &mut ComputedStudioLayout,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
+    let palette = theme.nf2().palette();
     computed.root_rect = tl_rect;
     computed.order.clear();
     register_hit_box(computed, &state.systems, 1, tl_rect);
@@ -9089,27 +9109,27 @@ fn paint_timeline_studio_canvas(
     let bg_panel = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgPanel);
+        .resolve_color(theme, StudioColorRole::BgPanel);
     let bg_raised = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgRaised);
+        .resolve_color(theme, StudioColorRole::BgRaised);
     let border_def = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderDefault);
+        .resolve_color(theme, StudioColorRole::BorderDefault);
     let border_sub = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderSubtle);
+        .resolve_color(theme, StudioColorRole::BorderSubtle);
     let text_pri = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextPrimary);
+        .resolve_color(theme, StudioColorRole::TextPrimary);
     let text_sec = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextSecondary);
+        .resolve_color(theme, StudioColorRole::TextSecondary);
 
     ui.painter().rect_filled(tl_rect, 6.0, bg_panel);
     ui.painter().rect_stroke(
@@ -9216,7 +9236,7 @@ fn paint_timeline_studio_canvas(
         keyframes_badges: 9,
         audio_waveform: 10,
     };
-    paint_interactive_timeline_surface(ui, state, surface_rect, computed, hit_ids, dark_mode);
+    paint_interactive_timeline_surface(ui, state, surface_rect, computed, hit_ids, theme);
 
     // Bottom 2.5x Zoomed Tween Arrow & Keyframe Geometry Callout Strip
     let mag_rect = Rect::from_min_max(
@@ -9252,14 +9272,13 @@ fn paint_timeline_studio_canvas(
             egui::pos2(mag_rect.left() + 24.0, mag_rect.top() + 28.0),
             egui::pos2(mag_rect.right() - 24.0, mag_rect.bottom() - 10.0),
         );
-        let purple_bg =
-            Color32::from_rgba_unmultiplied(136, 94, 242, if dark_mode { 68 } else { 52 });
-        let purple_fg = Color32::from_rgb(176, 138, 255);
-        ui.painter().rect_filled(sample_span, 4.0, purple_bg);
+        let classic_fill = palette.timeline_classic_tween;
+        let marker = palette.timeline_marker;
+        ui.painter().rect_filled(sample_span, 4.0, classic_fill);
         ui.painter().rect_stroke(
             sample_span,
             4.0,
-            Stroke::new(1.0_f32, purple_fg.gamma_multiply(0.5)),
+            Stroke::new(1.0_f32, marker.gamma_multiply(0.5)),
             StrokeKind::Inside,
         );
 
@@ -9272,7 +9291,7 @@ fn paint_timeline_studio_canvas(
         ui.painter().circle_filled(
             egui::pos2(dot_x, kf_y),
             (tg.keyframe_dot_radius_px * zoom).clamp(3.0, 18.0),
-            text_pri,
+            marker,
         );
 
         let shaft_start_x = (sample_span.left() + tg.tween_arrow_start_inset_px * zoom)
@@ -9290,7 +9309,7 @@ fn paint_timeline_studio_canvas(
             ],
             Stroke::new(
                 (tg.tween_arrow_stroke_width_px * zoom).clamp(1.0, 10.0),
-                purple_fg,
+                marker,
             ),
         );
         ui.painter().add(egui::Shape::convex_polygon(
@@ -9299,7 +9318,7 @@ fn paint_timeline_studio_canvas(
                 egui::pos2(base_x, y_line - wing),
                 egui::pos2(base_x, y_line + wing),
             ],
-            purple_fg,
+            marker,
             Stroke::NONE,
         ));
     }
@@ -9311,32 +9330,17 @@ fn paint_interactive_timeline_surface(
     rect: Rect,
     computed: &mut ComputedStudioLayout,
     hit_ids: TimelineHitIds,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
+    let palette = theme.nf2().palette();
     let bg_panel = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgPanel);
-    let bg_raised = state
-        .systems
-        .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgRaised);
+        .resolve_color(theme, StudioColorRole::BgPanel);
     let border_sub = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderSubtle);
-    let text_pri = state
-        .systems
-        .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextPrimary);
-    let text_sec = state
-        .systems
-        .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextSecondary);
-    let accent = state
-        .systems
-        .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::AccentDefault);
+        .resolve_color(theme, StudioColorRole::BorderSubtle);
 
     ui.painter().rect_filled(rect, 4.0, bg_panel);
     ui.painter().rect_stroke(
@@ -9488,7 +9492,6 @@ fn paint_interactive_timeline_surface(
         );
     }
 
-    let _ = (bg_raised, accent);
     ui.painter().vline(
         layers_col_rect.right(),
         rect.y_range(),
@@ -9530,8 +9533,8 @@ fn paint_interactive_timeline_surface(
             egui::pos2(onion_l.max(ruler_rect.left()), ruler_rect.top() + 2.0),
             egui::pos2(onion_r.min(ruler_rect.right()), ruler_rect.bottom() - 2.0),
         );
-        let onion_col = Color32::from_rgba_unmultiplied(64, 196, 255, 48);
-        let onion_stroke = Color32::from_rgb(64, 196, 255);
+        let onion_col = palette.accent_subtle;
+        let onion_stroke = palette.timeline_onion;
         ui.painter().rect_filled(o_rect, 2.0, onion_col);
         let bw = tg.onion_bracket_width_px.clamp(2.0, 14.0);
         let hr = tg.onion_handle_radius_px.clamp(1.5, 8.0);
@@ -9620,9 +9623,13 @@ fn paint_interactive_timeline_surface(
             + cell_rect.height() * (tg.keyframe_dot_y_pct.clamp(15.0, 85.0) / 100.0);
         let rad = tg.keyframe_dot_radius_px.clamp(1.5, 8.0);
         if hollow {
-            painter.circle_stroke(egui::pos2(cx, cy), rad, Stroke::new(1.2_f32, text_pri));
+            painter.circle_stroke(
+                egui::pos2(cx, cy),
+                rad,
+                Stroke::new(1.2_f32, palette.timeline_marker),
+            );
         } else {
-            painter.circle_filled(egui::pos2(cx, cy), rad, text_pri);
+            painter.circle_filled(egui::pos2(cx, cy), rad, palette.timeline_marker);
         }
     };
 
@@ -9636,11 +9643,11 @@ fn paint_interactive_timeline_surface(
                 tg.span_end_rect_h_px.clamp(3.0, 16.0),
             ),
         );
-        painter.rect_filled(m_rect, 1.0, Color32::WHITE);
+        painter.rect_filled(m_rect, 1.0, palette.timeline_empty);
         painter.rect_stroke(
             m_rect,
             1.0,
-            Stroke::new(1.0_f32, text_sec),
+            Stroke::new(1.0_f32, palette.timeline_marker),
             StrokeKind::Inside,
         );
     };
@@ -9648,15 +9655,8 @@ fn paint_interactive_timeline_surface(
     // Row 0 (`Folder: Character`) & Row 3 (`Guide: Motion Path`): Ordinary Keyframe Span + Label Flag + Action `a` + `[ ]`
     let kf_span = span_rect_for(3, 1, 22);
     register_hit_box(computed, &state.systems, hit_ids.keyframes_badges, kf_span);
-    ui.painter().rect_filled(
-        kf_span,
-        2.0,
-        if dark_mode {
-            Color32::from_rgba_unmultiplied(180, 188, 206, 28)
-        } else {
-            Color32::from_rgba_unmultiplied(120, 130, 150, 32)
-        },
-    );
+    ui.painter()
+        .rect_filled(kf_span, 2.0, palette.timeline_static);
     paint_keyframe_dot(ui.painter(), kf_span, false);
     paint_span_end_marker(ui.painter(), kf_span);
 
@@ -9664,7 +9664,7 @@ fn paint_interactive_timeline_surface(
     let flag_sz = tg.label_flag_size_px.clamp(3.0, 12.0);
     let flag_x = kf_span.left() + 2.0;
     let flag_y = kf_span.top() + 2.0;
-    let red_flag = Color32::from_rgb(238, 72, 82);
+    let red_flag = palette.timeline_label;
     ui.painter().add(egui::Shape::convex_polygon(
         vec![
             egui::pos2(flag_x, flag_y),
@@ -9687,7 +9687,7 @@ fn paint_interactive_timeline_surface(
         egui::Align2::CENTER_CENTER,
         "a",
         egui::FontId::monospace(tg.action_marker_size_px.clamp(5.0, 14.0)),
-        Color32::from_rgb(255, 208, 72),
+        palette.timeline_marker,
     );
     let blank_kf_rect = span_rect_for(3, 23, 25);
     paint_keyframe_dot(ui.painter(), blank_kf_rect, true);
@@ -9700,9 +9700,8 @@ fn paint_interactive_timeline_surface(
         hit_ids.classic_tween,
         classic_span,
     );
-    let purple_fill =
-        Color32::from_rgba_unmultiplied(138, 92, 246, if dark_mode { 76 } else { 58 });
-    let purple_arrow = Color32::from_rgb(184, 146, 255);
+    let purple_fill = palette.timeline_classic_tween;
+    let purple_arrow = palette.timeline_marker;
     ui.painter().rect_filled(classic_span, 2.0, purple_fill);
     paint_keyframe_dot(ui.painter(), classic_span, false);
     let (c_start, _c_tip, c_tri) = tg.compute_tween_arrow_points(classic_span);
@@ -9722,8 +9721,8 @@ fn paint_interactive_timeline_surface(
     // Row 2 (`Masked: Hero_MC`): Motion Tween Span (Blue + Property Diamonds `◆`) + Broken Tween Span (`- - - -`)
     let motion_span = span_rect_for(2, 1, 18);
     register_hit_box(computed, &state.systems, hit_ids.motion_tween, motion_span);
-    let blue_fill = Color32::from_rgba_unmultiplied(56, 148, 255, if dark_mode { 76 } else { 56 });
-    let blue_diamond = Color32::from_rgb(112, 192, 255);
+    let blue_fill = palette.timeline_motion_tween;
+    let blue_diamond = palette.timeline_marker;
     ui.painter().rect_filled(motion_span, 2.0, blue_fill);
     paint_keyframe_dot(ui.painter(), motion_span, false);
     let dr = tg.motion_diamond_radius_px.clamp(1.5, 9.0);
@@ -9748,11 +9747,8 @@ fn paint_interactive_timeline_surface(
     // Broken Tween Span on Row 2 (frames 19..30)
     let broken_span = span_rect_for(2, 19, 30);
     register_hit_box(computed, &state.systems, hit_ids.broken_tween, broken_span);
-    ui.painter().rect_filled(
-        broken_span,
-        2.0,
-        Color32::from_rgba_unmultiplied(138, 92, 246, 36),
-    );
+    ui.painter()
+        .rect_filled(broken_span, 2.0, palette.timeline_classic_tween);
     paint_keyframe_dot(ui.painter(), broken_span, false);
     let dash_w = tg.broken_tween_dash_px.clamp(1.0, 16.0);
     let gap_w = tg.broken_tween_gap_px.clamp(1.0, 16.0);
@@ -9770,8 +9766,8 @@ fn paint_interactive_timeline_surface(
     // Row 4 (`Normal: Background`): Shape Tween Span (Green + Parametric Arrow `──────►`)
     let shape_span = span_rect_for(4, 1, 24);
     register_hit_box(computed, &state.systems, hit_ids.shape_tween, shape_span);
-    let green_fill = Color32::from_rgba_unmultiplied(46, 204, 118, if dark_mode { 74 } else { 54 });
-    let green_arrow = Color32::from_rgb(92, 236, 156);
+    let green_fill = palette.timeline_shape_tween;
+    let green_arrow = palette.timeline_marker;
     ui.painter().rect_filled(shape_span, 2.0, green_fill);
     paint_keyframe_dot(ui.painter(), shape_span, false);
     let (s_start, _s_tip, s_tri) = tg.compute_tween_arrow_points(shape_span);
@@ -9790,13 +9786,10 @@ fn paint_interactive_timeline_surface(
     // Row 5 (`Audio: Soundtrack`): Sound Waveform Span
     let audio_span = span_rect_for(5, 1, 30);
     register_hit_box(computed, &state.systems, hit_ids.audio_waveform, audio_span);
-    ui.painter().rect_filled(
-        audio_span,
-        2.0,
-        Color32::from_rgba_unmultiplied(255, 154, 62, 34),
-    );
+    ui.painter()
+        .rect_filled(audio_span, 2.0, palette.timeline_static);
     paint_keyframe_dot(ui.painter(), audio_span, false);
-    let wave_col = Color32::from_rgb(255, 164, 76);
+    let wave_col = palette.success_default;
     let mid_y = audio_span.center().y;
     let max_amp = (audio_span.height() * 0.40).max(2.0);
     let mut wx = audio_span.left() + 8.0;
@@ -9819,7 +9812,7 @@ fn paint_interactive_timeline_surface(
     let ph_frame = tg.playhead_frame.clamp(1, max_frames);
     let ph_x = ruler_rect.left() + (ph_frame as f32 - 0.5) * cell_w;
     if ph_x >= ruler_rect.left() && ph_x <= ruler_rect.right() {
-        let playhead_red = Color32::from_rgb(242, 62, 72);
+        let playhead_red = palette.timeline_playhead;
         let cap_w = tg.playhead_cap_width_px.clamp(6.0, 24.0);
         let cap_h = tg.playhead_cap_height_px.clamp(6.0, ruler_h);
         let cap_rect = Rect::from_center_size(
@@ -9840,7 +9833,7 @@ fn paint_node_wysiwyg(
     node: &mut UiStudioNode,
     systems: &UiStudioSystems,
     computed: &ComputedStudioLayout,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
     if !node.visible {
         return;
@@ -9855,12 +9848,12 @@ fn paint_node_wysiwyg(
     let bg_fill = node
         .style
         .bg_token
-        .map(|tok| systems.palette_overrides.resolve_color(dark_mode, tok))
+        .map(|tok| systems.palette_overrides.resolve_color(theme, tok))
         .or_else(|| match node.kind {
             UiNodeKind::Panel { .. } => Some(
                 systems
                     .palette_overrides
-                    .resolve_color(dark_mode, StudioColorRole::BgPanel),
+                    .resolve_color(theme, StudioColorRole::BgPanel),
             ),
             _ => None,
         });
@@ -9875,9 +9868,7 @@ fn paint_node_wysiwyg(
             .rect_filled(rect, egui::CornerRadius::same(rad as u8), fill);
     }
     if let Some(border_tok) = node.style.border_token {
-        let bcol = systems
-            .palette_overrides
-            .resolve_color(dark_mode, border_tok);
+        let bcol = systems.palette_overrides.resolve_color(theme, border_tok);
         ui.painter().rect_stroke(
             rect,
             egui::CornerRadius::same(rad as u8),
@@ -9887,7 +9878,7 @@ fn paint_node_wysiwyg(
     } else if matches!(node.kind, UiNodeKind::Panel { .. }) {
         let bcol = systems
             .palette_overrides
-            .resolve_color(dark_mode, StudioColorRole::BorderDefault);
+            .resolve_color(theme, StudioColorRole::BorderDefault);
         ui.painter().rect_stroke(
             rect,
             egui::CornerRadius::same(rad as u8),
@@ -9898,7 +9889,7 @@ fn paint_node_wysiwyg(
 
     let text_col = systems
         .palette_overrides
-        .resolve_color(dark_mode, box_info.typography.color_token);
+        .resolve_color(theme, box_info.typography.color_token);
 
     match &mut node.kind {
         UiNodeKind::Panel { tabs, active_tab } => {
@@ -9918,7 +9909,7 @@ fn paint_node_wysiwyg(
                 }
             }
             for child in &mut node.children {
-                paint_node_wysiwyg(ui, child, systems, computed, dark_mode);
+                paint_node_wysiwyg(ui, child, systems, computed, theme);
             }
         }
         UiNodeKind::Section { expanded, .. } => {
@@ -9953,13 +9944,13 @@ fn paint_node_wysiwyg(
             );
             if *expanded {
                 for child in &mut node.children {
-                    paint_node_wysiwyg(ui, child, systems, computed, dark_mode);
+                    paint_node_wysiwyg(ui, child, systems, computed, theme);
                 }
             }
         }
         UiNodeKind::Row | UiNodeKind::Column | UiNodeKind::Grid { .. } => {
             for child in &mut node.children {
-                paint_node_wysiwyg(ui, child, systems, computed, dark_mode);
+                paint_node_wysiwyg(ui, child, systems, computed, theme);
             }
         }
         UiNodeKind::Field {
@@ -10139,24 +10130,24 @@ fn paint_canvas_overlays(
     ui: &mut Ui,
     state: &UiLayoutStudioState,
     computed: &ComputedStudioLayout,
-    dark_mode: bool,
+    theme: ThemeMode,
 ) {
     let accent = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::AccentDefault);
+        .resolve_color(theme, StudioColorRole::AccentDefault);
     let muted_border = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BorderStrong);
+        .resolve_color(theme, StudioColorRole::BorderStrong);
     let badge_bg = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::BgRaised);
+        .resolve_color(theme, StudioColorRole::BgRaised);
     let badge_fg = state
         .systems
         .palette_overrides
-        .resolve_color(dark_mode, StudioColorRole::TextPrimary);
+        .resolve_color(theme, StudioColorRole::TextPrimary);
 
     if state.show_wireframe_outlines {
         for &id in &computed.order {
@@ -11741,54 +11732,52 @@ fn render_systems_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _w
                 });
         }
         SystemsSubTab::PaletteTokens => {
-            let dark_mode = ui.ctx().style().visuals.dark_mode;
-            c::SectionHeader::new(if dark_mode {
-                "DARK PALETTE TOKEN OVERRIDES"
-            } else {
-                "LIGHT PALETTE TOKEN OVERRIDES"
-            })
-            .id_salt("sys-sec-palette")
-            .show(ui, |ui| {
-                for role in [
-                    StudioColorRole::BgApp,
-                    StudioColorRole::BgPanel,
-                    StudioColorRole::BgRaised,
-                    StudioColorRole::BgField,
-                    StudioColorRole::TextPrimary,
-                    StudioColorRole::TextSecondary,
-                    StudioColorRole::AccentDefault,
-                    StudioColorRole::BorderDefault,
-                    StudioColorRole::BorderSubtle,
-                ] {
-                    let mut col = state
-                        .systems
-                        .palette_overrides
-                        .resolve_color(dark_mode, role);
-                    ui.horizontal(|ui| {
-                        ui.label(rich(role.label(), TextStyle::MonoSmall).color(nf.text_secondary));
-                        let resp = c::ColorField::new(&mut col, role.label())
-                            .width(124.0)
-                            .show(ui);
-                        if resp.response.changed() {
-                            state
-                                .systems
-                                .palette_overrides
-                                .set_color_override(dark_mode, role, col);
-                        }
-                        if state
-                            .systems
-                            .palette_overrides
-                            .has_override(dark_mode, role)
-                            && ui.add(c::Button::ghost("Reset")).clicked()
-                        {
-                            state
-                                .systems
-                                .palette_overrides
-                                .reset_color_override(dark_mode, role);
-                        }
-                    });
-                }
-            });
+            let theme = ThemeMode::current(ui.ctx());
+            let heading = match theme {
+                ThemeMode::Dark => "DARK PALETTE TOKEN OVERRIDES",
+                ThemeMode::Light => "LIGHT PALETTE TOKEN OVERRIDES",
+                ThemeMode::MidNeutralGray => "MID NEUTRAL GRAY PALETTE TOKEN OVERRIDES",
+                ThemeMode::DarkGraphite => "DARK GRAPHITE PALETTE TOKEN OVERRIDES",
+            };
+            c::SectionHeader::new(heading)
+                .id_salt("sys-sec-palette")
+                .show(ui, |ui| {
+                    for role in [
+                        StudioColorRole::BgApp,
+                        StudioColorRole::BgPanel,
+                        StudioColorRole::BgRaised,
+                        StudioColorRole::BgField,
+                        StudioColorRole::TextPrimary,
+                        StudioColorRole::TextSecondary,
+                        StudioColorRole::AccentDefault,
+                        StudioColorRole::BorderDefault,
+                        StudioColorRole::BorderSubtle,
+                    ] {
+                        let mut col = state.systems.palette_overrides.resolve_color(theme, role);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                rich(role.label(), TextStyle::MonoSmall).color(nf.text_secondary),
+                            );
+                            let resp = c::ColorField::new(&mut col, role.label())
+                                .width(124.0)
+                                .show(ui);
+                            if resp.response.changed() {
+                                state
+                                    .systems
+                                    .palette_overrides
+                                    .set_color_override(theme, role, col);
+                            }
+                            if state.systems.palette_overrides.has_override(theme, role)
+                                && ui.add(c::Button::ghost("Reset")).clicked()
+                            {
+                                state
+                                    .systems
+                                    .palette_overrides
+                                    .reset_color_override(theme, role);
+                            }
+                        });
+                    }
+                });
         }
     }
 }
@@ -11870,7 +11859,7 @@ fn render_code_export_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, width: f
 /// Standalone native `eframe::App` for `NeoFlash UI Studio.app`.
 pub struct StandaloneUiStudioApp {
     pub state: UiLayoutStudioState,
-    pub dark_mode: bool,
+    pub theme: ThemeMode,
 }
 
 impl StandaloneUiStudioApp {
@@ -11879,26 +11868,18 @@ impl StandaloneUiStudioApp {
         neoflash_ui::typography::add_fonts(&mut defs);
         cc.egui_ctx.set_fonts(defs);
         crate::theme::initialize_editor_style(&cc.egui_ctx);
-        let dark_mode = std::env::var("NEOFLASH_SCREENSHOT_THEME")
-            .ok()
-            .is_none_or(|t| !t.eq_ignore_ascii_case("light"));
-        neoflash_ui::theme::apply_visuals(
-            &cc.egui_ctx,
-            if dark_mode {
-                neoflash_ui::Theme::Dark
-            } else {
-                neoflash_ui::Theme::Light
-            },
-        );
+        let theme = crate::shell::screenshot_theme().unwrap_or_default();
+        theme.apply(&cc.egui_ctx);
         let mut state = UiLayoutStudioState {
             open: true,
+            preview_theme: theme,
             ..Default::default()
         };
         let json_path = Path::new(DEFAULT_STUDIO_JSON_PATH);
         if json_path.exists() {
             let _ = state.load_studio_json(json_path);
         }
-        Self { state, dark_mode }
+        Self { state, theme }
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
@@ -12001,21 +11982,15 @@ impl eframe::App for StandaloneUiStudioApp {
                         .color(nf.text_primary),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let theme_lbl = if self.dark_mode {
-                            "Theme: Dark"
-                        } else {
-                            "Theme: Light"
-                        };
-                        if ui.add(c::Button::new(theme_lbl)).clicked() {
-                            self.dark_mode = !self.dark_mode;
-                            neoflash_ui::theme::apply_visuals(
-                                ctx,
-                                if self.dark_mode {
-                                    neoflash_ui::Theme::Dark
-                                } else {
-                                    neoflash_ui::Theme::Light
-                                },
-                            );
+                        let theme_label = format!("Theme: {}", self.theme.label());
+                        if ui.add(c::Button::new(&theme_label)).clicked() {
+                            let index = ThemeMode::ALL
+                                .iter()
+                                .position(|theme| *theme == self.theme)
+                                .unwrap_or(0);
+                            self.theme = ThemeMode::ALL[(index + 1) % ThemeMode::ALL.len()];
+                            self.state.preview_theme = self.theme;
+                            self.theme.apply(ctx);
                         }
                     });
                 });
@@ -12325,12 +12300,98 @@ mod tests {
     }
 
     #[test]
-    fn studio_window_and_all_presets_render_in_both_themes() {
+    fn studio_palette_overrides_and_legacy_preview_theme_cover_all_four_modes() {
+        let mut overrides = PaletteTokenOverrides::default();
+        let colors = [
+            Color32::from_rgb(1, 2, 3),
+            Color32::from_rgb(4, 5, 6),
+            Color32::from_rgb(7, 8, 9),
+            Color32::from_rgb(10, 11, 12),
+        ];
+        for (theme, color) in ThemeMode::ALL.into_iter().zip(colors) {
+            assert_eq!(
+                overrides.resolve_color(theme, StudioColorRole::BgApp),
+                theme.nf2().palette().bg_app
+            );
+            overrides.set_color_override(theme, StudioColorRole::BgApp, color);
+            assert_eq!(
+                overrides.resolve_color(theme, StudioColorRole::BgApp),
+                color
+            );
+        }
+        for (theme, color) in ThemeMode::ALL.into_iter().zip(colors) {
+            assert_eq!(
+                overrides.resolve_color(theme, StudioColorRole::BgApp),
+                color,
+                "{theme:?} override must stay isolated"
+            );
+        }
+
+        let mut state = UiLayoutStudioState::default();
+        state.systems.palette_overrides = overrides;
+        for (theme, color) in ThemeMode::ALL.into_iter().zip(colors) {
+            state.preview_theme = theme;
+            let svg = state.export_board_svg();
+            let palette = theme.nf2().palette();
+            assert!(
+                svg.contains(&format!(r#"fill="{}""#, color32_to_hex(color))),
+                "{theme:?} SVG export must use its exact override"
+            );
+            assert!(
+                svg.contains(&format!(
+                    r#"fill="{}" data-nf-timeline-span="classic""#,
+                    color32_to_hex(palette.timeline_classic_tween)
+                )),
+                "{theme:?} SVG export must use its exact classic-tween token"
+            );
+            assert!(
+                svg.contains(&format!(
+                    r#"stroke="{}" stroke-width="#,
+                    color32_to_hex(palette.timeline_marker)
+                )),
+                "{theme:?} SVG export must use its exact timeline-marker token"
+            );
+        }
+        state.preview_theme = ThemeMode::DarkGraphite;
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains(r#""preview_theme":"dark_graphite""#));
+        let legacy_light = json.replace(
+            r#""preview_theme":"dark_graphite""#,
+            r#""preview_dark_mode":false"#,
+        );
+        let legacy_dark = json.replace(
+            r#""preview_theme":"dark_graphite""#,
+            r#""preview_dark_mode":true"#,
+        );
+        assert_eq!(
+            serde_json::from_str::<UiLayoutStudioState>(&legacy_light)
+                .unwrap()
+                .preview_theme,
+            ThemeMode::Light
+        );
+        assert_eq!(
+            serde_json::from_str::<UiLayoutStudioState>(&legacy_dark)
+                .unwrap()
+                .preview_theme,
+            ThemeMode::Dark
+        );
+    }
+
+    #[test]
+    fn studio_window_and_all_presets_render_in_all_four_themes() {
+        fn has_rect_fill(output: &egui::FullOutput, color: Color32) -> bool {
+            output
+                .shapes
+                .iter()
+                .any(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == color))
+        }
+
         let ctx = egui::Context::default();
         ctx.set_fonts(neoflash_ui::typography::font_definitions());
 
-        for theme in [neoflash_ui::Theme::Dark, neoflash_ui::Theme::Light] {
-            neoflash_ui::theme::install(&ctx, theme);
+        for theme in ThemeMode::ALL {
+            neoflash_ui::theme::install(&ctx, theme.nf2());
+            let palette = theme.nf2().palette();
             let mut state = UiLayoutStudioState {
                 open: true,
                 ..Default::default()
@@ -12355,10 +12416,38 @@ mod tests {
                     });
                     assert!(
                         out.shapes.len() > 20,
-                        "Preset {:?} tab {:?} painted too few shapes",
+                        "Theme {theme:?} preset {:?} tab {:?} painted too few shapes",
                         preset,
                         tab
                     );
+                    assert_eq!(state.preview_theme, theme);
+                    if tab == StudioInspectorTab::NodeInspector
+                        && preset == StudioPanelPreset::FullWorkspaceShell
+                    {
+                        assert!(
+                            has_rect_fill(&out, palette.bg_canvas),
+                            "Theme {theme:?} workspace shell must paint bg/canvas"
+                        );
+                        assert!(
+                            has_rect_fill(&out, palette.bg_stage),
+                            "Theme {theme:?} workspace shell must paint bg/stage"
+                        );
+                    }
+                    if tab == StudioInspectorTab::NodeInspector
+                        && preset == StudioPanelPreset::TimelineStudio
+                    {
+                        for (name, color) in [
+                            ("timeline/static", palette.timeline_static),
+                            ("timeline/classic-tween", palette.timeline_classic_tween),
+                            ("timeline/motion-tween", palette.timeline_motion_tween),
+                            ("timeline/shape-tween", palette.timeline_shape_tween),
+                        ] {
+                            assert!(
+                                has_rect_fill(&out, color),
+                                "Theme {theme:?} timeline studio must paint {name}"
+                            );
+                        }
+                    }
                 }
             }
         }

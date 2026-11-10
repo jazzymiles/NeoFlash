@@ -25,7 +25,8 @@ Generated: {{GENERATED}} · Figma file: `{{FILE_NAME}}` (key `BUz3pseopiuOg2Uiy3
 
 - **Implementing UI?** Read §3 (foundations), §4–§9 (layout, timeline, panels, dialogs), §10 (component API) and
   §13 (implementation guide). Colours, spacing, radii and type come from `../tokens/tokens.css` / `tokens.json`;
-  never hard-code values. Pixel references: `../exports/{interface,panels}/{dark,light}/{png,svg}/`.
+  never hard-code values. Pixel references:
+  `../exports/{interface,panels}/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}/`.
 - **Changing the design itself** happens in Figma, not in this repo. If you have the Figma MCP server, follow §11;
   otherwise describe the change and leave the Figma edit to a designer.
 <!--END-->
@@ -34,8 +35,8 @@ Generated: {{GENERATED}} · Figma file: `{{FILE_NAME}}` (key `BUz3pseopiuOg2Uiy3
   stage + timeline + layers + nested symbols (movie clip / graphic / button) + ActionScript-style scripting,
   publishing to HTML5 (Rust / WebAssembly runtime), video, images and audio.
 - **Two designs live in one Figma file.** `v1` is a faithful vector reconstruction of the current app
-  (NF1 components, `NF1 · Tokens`). `v2.25` is the current redesign (NF2 components, `NF2 · Tokens`, Dark + Light
-  modes); the detached `v2.2` archive pages are a preserved comparison checkpoint.
+  (NF1 components, `NF1 · Tokens`). `v2.25` is the current redesign (NF2 components, `NF2 · Tokens`, Dark, Light,
+  Mid Neutral Gray and Dark Graphite modes); the detached `v2.2` archive pages are a preserved comparison checkpoint.
   **They never share a variable, style or component.** Editing one must not change the other.
 - **Source of truth is the Figma file**, edited through the Figma MCP `use_figma` tool (Plugin API).
   The old generator plugin in `figma-plugin/` is history; never re-run it on this file.
@@ -46,7 +47,7 @@ Generated: {{GENERATED}} · Figma file: `{{FILE_NAME}}` (key `BUz3pseopiuOg2Uiy3
 - **Timeline geometry:** 12 px per frame (Normal view), rows 28 px, ruler 32 px, frame `n` starts at `x = (n − 1) × 12`;
   every major frame label is centred on its tick (including 1-, 2- and 3-digit labels).
 - **Icons:** monochrome optical masters at 12, 16 and 20 px, components `NF2 Icon/{12,16,20}/*`, recoloured by token.
-- **Exports and data** live next to this file: `../exports/` (PNG @2x + SVG, Dark and Light), `data/figma-dump.json`,
+- **Exports and data** live next to this file: `../exports/` (PNG @2x + SVG in all four themes), `data/figma-dump.json`,
   `data/outline/*.txt` (text outline of every exported frame). Re-export with `tools/export-plugin` (no MCP limits).
 
 ---
@@ -60,7 +61,7 @@ NeoFlash keeps the mental model Flash animators already have, and modernises the
 | One primary path | Every screen has one obvious primary action (Publish, Play, Save, Apply). Everything else is secondary and never competes in weight. |
 | Group by task | Transport, onion skin, zoom, layer actions are grouped controls, not scattered rows. |
 | Surfaces, not borders | Depth comes from background levels (`bg/app → panel → raised → field`); borders are separators only. |
-| Systematic | Own variables (colour, spacing, radius), text styles and components; two themes on one collection. |
+| Systematic | Own variables (colour, spacing, radius), text styles and components; four themes on one collection. |
 | Accessible | Text contrast ≥ 4.5:1, focus ring 2 px, hit areas ≥ 32 px, every tool tooltip shows its shortcut. |
 | Isolated from v1 | No v2 variable, style or component references v1. |
 | Flash-literate | Layer kinds, frame states, keyframe glyphs, symbol types, menus and shortcuts follow Flash semantics so that a Flash user is instantly at home. |
@@ -85,7 +86,7 @@ in v1 is 2.16:1 (norm 4.5:1); 20 tool buttons had no labels or tooltips.
 | 11 | Unsaved changes dialog | High | Save/Discard/Cancel equal weight; two different dialog title styles. | One Dialog: Save primary, Discard danger-ghost left, Cancel secondary, consequence text, Esc/Enter. |
 | 12 | Convert to Symbol dialog | Med | Eight fields in one column, linkage expanded, disabled fields look active. | Name / Type / Folder first, compact registration picker, linkage under Advanced, Convert primary. |
 | 13 | Status line | Low | Hints and shortcuts in one 12 px grey line; broken glyph "⌘□". | 24 px status bar: state left, shortcut chips (F5/F6/F7/⌘↵) right. |
-| 14 | Accessibility & themes | Med | Selection by colour + 1 px border, weak focus, 24–28 px targets, no dark theme. | 2 px focus ring, ≥ 32 px targets, Dark/Light on one variable collection. |
+| 14 | Accessibility & themes | Med | Selection by colour + 1 px border, weak focus, 24–28 px targets, no dark theme. | 2 px focus ring, ≥ 32 px targets, four semantic themes on one variable collection. |
 
 ![Audit board](illustrations/audit-v1-to-v2.png)
 
@@ -105,15 +106,17 @@ Page roles:
 
 - **v1 · Components / v1 · Interface** — reconstruction of the shipped app. Touch only when asked.
 - **Audit · v1 → v2** — findings, annotated v1 map, principles, functional coverage table.
-- **v2.25 · System & Components** — tokens boards (Colors Dark/Light, Type scale, Spacing and radius) and component
+- **v2.25 · System & Components** — token boards for Dark, Light, Mid Neutral Gray and Dark Graphite, plus Type scale,
+  Spacing and radius, and component
   *shelves* (`Shelf / …` frames). Every NF2 component lives here.
 - **Icons** — every NF2 / NF1 icon grouped with "where used", the Cursors section and the list of unused icons.
   Regenerate it after adding icons (see §11).
-- **v2.25 · Panels** — every floating panel, dialog, menu, preferences page and timeline view mode, in a Dark board and a
-  Light twin board (`Panels — Light`, `Menus — Light`, `Preferences — Light`, `Timeline frame views — Light`).
-- **v2.25 · Interface — Dark / Light** — full 1920 × 1080 editor screens in each state. The Light page holds clones of the
-  Dark frames with the NF2 collection set to Light mode on the frame. **After changing a Dark screen, re-clone it to
-  Light** (delete the old twin, clone, set explicit mode Light).
+- **v2.25 · Panels** — every floating panel, dialog, menu, preferences page and timeline view mode, with equivalent
+  Dark, Light, Mid Neutral Gray and Dark Graphite boards.
+- **v2.25 · Interface — Dark / Light / Mid Neutral Gray / Dark Graphite** — full 1920 × 1080 editor screens in each
+  state. Dark is the canonical structural page; the other pages hold equivalent clones with the matching explicit
+  NF2 collection mode. **After changing a Dark screen, update all three theme variants** without changing their
+  component structure.
 - **v2.2 · … (archive 2026-11-09)** — detached reference pages frozen immediately before the v2.25 migration. Do not
   relink these pages to live masters or use them as implementation references.
 
@@ -121,17 +124,20 @@ Page roles:
 
 ## 3. Foundations
 
-### 3.1 Colour tokens (`NF2 · Tokens`, modes Dark / Light)
+### 3.1 Colour tokens (`NF2 · Tokens`, four theme modes)
 
-All colours are variables in one collection with two modes. Themes switch by setting the explicit mode of a frame
-(`frame.setExplicitVariableModeForCollection(collection, lightModeId)`); nothing else changes.
+All colours are variables in one collection with Dark, Light, Mid Neutral Gray and Dark Graphite modes. Themes switch
+by setting the explicit mode of a frame (`frame.setExplicitVariableModeForCollection(collection, modeId)`); nothing
+else changes. Mid Neutral Gray starts at `color/bg/app = #505050`; Dark Graphite starts at
+`color/bg/app = #171717` and uses `color/timeline/grid = #2E2E2E`. Code and export folders use stable slugs `dark`,
+`light`, `mid-neutral-gray` and `dark-graphite`.
 
 **Semantic rules**
 
 - Surfaces stack: `bg/app` (window) → `bg/panel` (docked panels, inspector) → `bg/raised` (popovers, cards, menus,
   floating panels) → `bg/field` (inputs). Hover = `bg/hover`, selected row = `bg/selected`.
 - `bg/canvas` is the pasteboard around the stage; `bg/stage` is the *document* background (user content, so it is the
-  same in both modes).
+  same in every theme).
 - Borders: `border/subtle` separators inside panels, `border/default` control outlines where needed,
   `border/strong` emphasised outlines, `border/focus` focus ring (2 px).
 - Text: `text/primary` content, `text/secondary` labels, `text/tertiary` hints and metadata, `text/disabled`,
@@ -146,6 +152,8 @@ All colours are variables in one collection with two modes. Themes switch by set
 
 ![Colours — Dark](illustrations/colors-dark.png)
 ![Colours — Light](illustrations/colors-light.png)
+![Colours — Mid Neutral Gray](illustrations/colors-mid-neutral-gray.png)
+![Colours — Dark Graphite](illustrations/colors-dark-graphite.png)
 
 ### 3.2 Spacing and radius tokens
 
@@ -211,7 +219,7 @@ The hotspot is stored in each component's description (`Hotspot at x N, y N`) an
 ### 3.6 Elevation, focus and states
 
 - Floating panels and popovers: `bg/raised`, radius 12, 1 px `border/subtle`, drop shadow **y 12, blur 32,
-  black 35 %** (same in both themes). Dialogs: drop shadow **y 16, blur 48, black 45 %**, on the `overlay` scrim.
+  black 35 %** (same in every theme). Dialogs: drop shadow **y 16, blur 48, black 45 %**, on the `overlay` scrim.
   (Values read from the SVG exports.)
 - Focus: 2 px `border/focus` ring, 2 px outside the control radius (`NF2/Focus Ring`). Shown only for keyboard focus.
 - Hover: background `bg/hover` (ghost controls) or `accent/hover` (primary). Pressed / on = the `Selected` variant.
@@ -243,7 +251,7 @@ style when on) · timecode `00:01.21` + `30 / 120 F` (mono) · Scene `Select` ·
 ease · sound · onion group (onion skin on/off, outlines, edit multiple frames, modify markers) · centre playhead ·
 frame view ⋯ · zoom − slider +.
 
-### 4.1 Editor states (all exported in Dark and Light)
+### 4.1 Editor states (all exported in the four themes)
 
 | Frame | Shows |
 |---|---|
@@ -405,7 +413,8 @@ Extend / Reflect / Repeat and Linear RGB, stops, RGB/HSB, alpha, stroke width an
 - Toolbar: language select (ActionScript 3.0), target, auto-format, code hint, debug, collapse/expand, comment block/line,
   uncomment, toggle sidebar, Script assist, help.
 
-**Syntax scheme "NF2 Night"** (Dark values; the Light column is the same tokens in Light mode)
+**Syntax scheme "NF2 Night"** (the concise table shows the Dark and Light endpoints; the complete generated token
+table in §3.1 includes Mid Neutral Gray and Dark Graphite values for the same semantic roles)
 
 | Token | Dark | Light | Rule |
 |---|---|---|---|
@@ -521,7 +530,8 @@ const al = (name, dir, gap) => { const f = figma.createAutoLayout(dir, { name, i
 6. Page roots may contain TEXT nodes (titles): skip them before calling `findOne` / `findAll` on children.
 7. Lines and vectors inside components need constraints STRETCH / SCALE and an instance re-resize to stretch.
 8. Cross-page copy: `node.clone()` then `targetPage.appendChild(clone)`.
-9. Light twin: `frame.setExplicitVariableModeForCollection(coll, coll.modes[1].modeId)`.
+9. Theme variants: resolve the intended collection mode by name and call
+   `frame.setExplicitVariableModeForCollection(coll, mode.modeId)`; never rely on a numeric mode index.
 10. Fonts: only Inter and Roboto Mono (Helvetica broke `setProperties` in the past).
 11. Descriptions: the API returns straight quotes and `&` HTML-escaped (`&quot;`, `&amp;`). Write typographic
     quotes “…” and the word “and” in component descriptions instead.
@@ -530,7 +540,7 @@ const al = (name, dir, gap) => { const f = figma.createAutoLayout(dir, { name, i
 
 - New v2 work: NF2 components only; colours via `P(token)`; text via NF2 styles; spacing/radius values from tokens.
 - New component → put it on a `Shelf / …` frame on `v2.25 · System & Components`, give it a description (what, when,
-  interaction), then use instances in panels/screens. Add Light twins for new panels/screens.
+  interaction), then use instances in panels/screens. Add structurally identical variants for all four themes.
 - New icon → `NF2 Icon/16/<name>` (or 20), stroke-only, then regenerate the Icons page.
 - Keep the coverage table and this document in sync: run the export plugin, then `tools/build-docs.py`.
 
@@ -554,9 +564,11 @@ design-system/
     source/                          ← doc sources (md + html templates)
   exports/
     manifest.json                    ← node id → file paths
-    interface/{dark,light}/{png,svg}/
-    panels/{dark,light}/{png,svg}/     ← one file per panel / dialog / menu / flyout
-    panels/{dark,light}/boards/       ← multi-panel boards as laid out in Figma
+    interface/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}/
+    panels/{dark,light,mid-neutral-gray,dark-graphite}/{png,svg}/
+                                      ← one file per panel / dialog / menu / flyout
+    panels/{dark,light,mid-neutral-gray,dark-graphite}/boards/
+                                      ← multi-panel boards as laid out in Figma
     icons/{12,16,20}/*.svg            ← every NF2 optical icon master
     cursors/*.svg                     ← every NF2 cursor
   tools/
@@ -582,9 +594,9 @@ SVG text is outlined.
 
 | File | Content |
 |---|---|
-| `tokens/tokens.css` | CSS custom properties. `:root` = Dark (default), `[data-theme="light"]` = Light. Names: `color/bg/panel` → `--nf-color-bg-panel`, `space/3` → `--nf-space-3`, `radius/md` → `--nf-radius-md`. |
+| `tokens/tokens.css` | CSS custom properties. `:root` = Dark (default); `[data-theme="light"]`, `[data-theme="mid-neutral-gray"]` and `[data-theme="dark-graphite"]` select the other palettes. Names: `color/bg/panel` → `--nf-color-bg-panel`, `space/3` → `--nf-space-3`, `radius/md` → `--nf-radius-md`. |
 | `tokens/typography.css` | One class per text style: `.nf-text-body`, `.nf-text-overline`, … (font family, weight, size, line height, tracking, case). |
-| `tokens/tokens.json` | W3C Design Tokens format (`$type`, `$value`) with `dark` and `light` groups; text styles under `typography`. |
+| `tokens/tokens.json` | W3C Design Tokens format (`$type`, `$value`) with `dark`, `light`, `mid_neutral_gray` and `dark_graphite` groups; text styles under `typography`. Export/CSS theme slugs remain `mid-neutral-gray` and `dark-graphite`. |
 
 ```css
 @import "tokens/tokens.css";
@@ -592,7 +604,8 @@ SVG text is outlined.
          border-radius: var(--nf-radius-xl); padding: var(--nf-space-3); }
 ```
 
-Switch theme by setting `data-theme="light"` on the root (or on a subtree, like Figma's per-frame mode).
+Switch theme by setting `data-theme="light"`, `data-theme="mid-neutral-gray"` or `data-theme="dark-graphite"` on
+the root (or on a subtree, like Figma's per-frame mode). Omit the attribute for the default Dark palette.
 
 ### 13.2 Mapping components
 

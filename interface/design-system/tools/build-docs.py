@@ -26,6 +26,42 @@ dump = json.load(open(os.path.join(DOCS, 'data', 'figma-dump.json')))
 manifest = json.load(open(os.path.join(ROOT, 'exports', 'manifest.json')))
 NF2 = next(c for c in dump['collections'] if c['name'] == 'NF2 · Tokens')
 TOK = {v['name']: v for v in NF2['variables']}
+# Public theme identifiers stay stable even when the display names in Figma use
+# typographic separators. Extra working modes in Figma (for example a temporary
+# "Mode 2") are deliberately ignored.
+THEMES = (
+    {'slug': 'dark', 'token_key': 'dark', 'modes': ('Dark',), 'en': 'Dark', 'ru': 'Тёмная'},
+    {'slug': 'light', 'token_key': 'light', 'modes': ('Light',), 'en': 'Light', 'ru': 'Светлая'},
+    {
+        'slug': 'mid-neutral-gray',
+        'token_key': 'mid_neutral_gray',
+        'modes': ('Mid · Neutral Gray', 'Mid Neutral Gray'),
+        'en': 'Mid Neutral Gray',
+        'ru': 'Средняя нейтрально-серая',
+    },
+    {
+        'slug': 'dark-graphite',
+        'token_key': 'dark_graphite',
+        'modes': ('Dark · Graphite', 'Dark Graphite'),
+        'en': 'Dark Graphite',
+        'ru': 'Тёмный графит',
+    },
+)
+for theme in THEMES:
+    theme['mode'] = next(
+        (name for name in theme['modes'] if name in NF2['modes']),
+        None,
+    )
+    if theme['mode'] is None:
+        raise ValueError(
+            f'NF2 · Tokens is missing the {theme["en"]!r} mode; found {NF2["modes"]!r}'
+        )
+
+
+def theme_label(theme, lang):
+    return theme[lang]
+
+
 # Prefer the current live component page while retaining older dump compatibility.
 COMPS = next(
     dump['components'][name]
@@ -161,14 +197,25 @@ def gen_colors(fmt, lang, out_dir):
     for key, vs in color_groups():
         title = COLOR_USAGE[lang].get(key, key)
         out.append(f'#### {title}\n' if fmt == 'md' else f'<h4>{esc(title)}</h4>')
-        rows = [[f'`{v["name"]}`' if fmt == 'md' else f'<code>{esc(v["name"])}</code>', swatch(val(v, 'Dark'), fmt), swatch(val(v, 'Light'), fmt)] for v in vs]
-        out.append(table([t['token'], t['dark'], t['light']], rows, fmt, 'tokens'))
+        rows = [
+            [f'`{v["name"]}`' if fmt == 'md' else f'<code>{esc(v["name"])}</code>']
+            + [swatch(val(v, theme['mode']), fmt) for theme in THEMES]
+            for v in vs
+        ]
+        out.append(
+            table(
+                [t['token']] + [theme_label(theme, lang) for theme in THEMES],
+                rows,
+                fmt,
+                'tokens',
+            )
+        )
     return '\n'.join(out)
 
 
 def gen_dimensions(fmt, lang, out_dir):
     t = T[lang]
-    rows = [[f'`{v["name"]}`' if fmt == 'md' else f'<code>{v["name"]}</code>', f'{val(v, "Dark")} px'] for v in NF2['variables'] if v['type'] == 'FLOAT']
+    rows = [[f'`{v["name"]}`' if fmt == 'md' else f'<code>{v["name"]}</code>', f'{val(v, THEMES[0]["mode"])} px'] for v in NF2['variables'] if v['type'] == 'FLOAT']
     return table([t['token'], t['value']], rows, fmt, 'narrow')
 
 
@@ -250,8 +297,18 @@ def gen_timeline_states(fmt, lang, out_dir):
     rows = []
     for en, ru, tok, den, dru in TL_STATES:
         v = TOK['color/' + tok]
-        rows.append([en if lang == 'en' else ru, inline(f'`{tok}`', fmt), swatch(val(v, 'Dark'), fmt), swatch(val(v, 'Light'), fmt), inline(den if lang == 'en' else dru, fmt)])
-    return table([t['state'], t['token'], t['dark'], t['light'], t['look']], rows, fmt)
+        rows.append(
+            [en if lang == 'en' else ru, inline(f'`{tok}`', fmt)]
+            + [swatch(val(v, theme['mode']), fmt) for theme in THEMES]
+            + [inline(den if lang == 'en' else dru, fmt)]
+        )
+    return table(
+        [t['state'], t['token']]
+        + [theme_label(theme, lang) for theme in THEMES]
+        + [t['look']],
+        rows,
+        fmt,
+    )
 
 
 def gen_notes(cat, fmt, lang, out_dir, level=3):
@@ -261,16 +318,21 @@ def gen_notes(cat, fmt, lang, out_dir, level=3):
         if n['cat'] != cat:
             continue
         it = item(slug)
-        lt = item(slug, theme='light')
         if fmt == 'md':
             out.append(f'{"#" * level} {n["title"]}\n')
             if it:
                 out.append(img(it['png'], fmt, out_dir, n['title']) + '\n')
             out.append(n['text'] + '\n')
             if it:
-                links = [f'[{t["dark"]} PNG]({os.path.relpath(os.path.join(ROOT, it["png"]), out_dir)})', f'[SVG]({os.path.relpath(os.path.join(ROOT, it["svg"]), out_dir)})']
-                if lt:
-                    links += [f'[{t["light"]} PNG]({os.path.relpath(os.path.join(ROOT, lt["png"]), out_dir)})', f'[SVG]({os.path.relpath(os.path.join(ROOT, lt["svg"]), out_dir)})']
+                links = []
+                for theme in THEMES:
+                    twin = item(slug, theme=theme['slug'])
+                    if not twin:
+                        continue
+                    links += [
+                        f'[{theme_label(theme, lang)} PNG]({os.path.relpath(os.path.join(ROOT, twin["png"]), out_dir)})',
+                        f'[SVG]({os.path.relpath(os.path.join(ROOT, twin["svg"]), out_dir)})',
+                    ]
                 out.append('Files: ' + ' · '.join(links) + f' · Figma node `{it["id"]}`\n')
         else:
             wide = it and (it['w'] >= 500 or it['h'] >= 1200)  # boards of several dialogs: text on top, picture full width
@@ -299,10 +361,19 @@ def gen_interface_gallery(fmt, lang, out_dir):
         for it in manifest:
             if it['group'] != 'interface' or it['theme'] != 'dark':
                 continue
-            lt = item(it['slug'], 'interface', 'light')
             r = lambda p: os.path.relpath(os.path.join(ROOT, p), out_dir)
-            rows.append([it['name'].replace('NF2 / ', ''), f'[PNG]({r(it["png"])}) · [SVG]({r(it["svg"])})', f'[PNG]({r(lt["png"])}) · [SVG]({r(lt["svg"])})', f'`{it["id"]}` / `{lt["id"]}`'])
-        return table([t['screen'], t['dark'], t['light'], 'Figma'], rows, fmt)
+            twins = [item(it['slug'], 'interface', theme['slug']) for theme in THEMES]
+            files = [
+                f'[PNG]({r(twin["png"])}) · [SVG]({r(twin["svg"])})' if twin else '—'
+                for twin in twins
+            ]
+            ids = ' / '.join(f'`{twin["id"]}`' if twin else '—' for twin in twins)
+            rows.append([it['name'].replace('NF2 / ', ''), *files, ids])
+        return table(
+            [t['screen']] + [theme_label(theme, lang) for theme in THEMES] + ['Figma'],
+            rows,
+            fmt,
+        )
     out = []
     for it in manifest:
         if it['group'] != 'interface' or it['theme'] != 'dark' or it['slug'] in ('editor-main', 'timeline-states-legend'):
@@ -480,7 +551,7 @@ GENS = {k[4:].replace('_', '-'): v for k, v in globals().items() if k.startswith
 
 
 def write_tokens():
-    """tokens/tokens.css (Dark on :root, Light on [data-theme=light]), typography.css, tokens.json (W3C format)."""
+    """Write four NF2 palettes to CSS and W3C Design Tokens JSON."""
     out = os.path.join(ROOT, 'tokens')
     os.makedirs(out, exist_ok=True)
     css_name = lambda n: '--nf-' + n.replace('/', '-')
@@ -492,10 +563,16 @@ def write_tokens():
         return f'{x}px' if v['type'] == 'FLOAT' else x
 
     lines = ['/* Generated by tools/build-docs.py from Figma "NF2 · Tokens". Do not edit. */', ':root {']
-    lines += [f'  {css_name(v["name"])}: {css_val(v, "Dark")};' for v in NF2['variables']]
-    lines += ['}', '', '[data-theme="light"] {']
-    lines += [f'  {css_name(v["name"])}: {css_val(v, "Light")};' for v in NF2['variables'] if v['type'] == 'COLOR']
+    lines += [f'  {css_name(v["name"])}: {css_val(v, THEMES[0]["mode"])};' for v in NF2['variables']]
     lines.append('}')
+    for theme in THEMES[1:]:
+        lines += ['', f'[data-theme="{theme["slug"]}"] {{']
+        lines += [
+            f'  {css_name(v["name"])}: {css_val(v, theme["mode"])};'
+            for v in NF2['variables']
+            if v['type'] == 'COLOR'
+        ]
+        lines.append('}')
     open(os.path.join(out, 'tokens.css'), 'w').write('\n'.join(lines) + '\n')
 
     weights = {'Regular': 400, 'Medium': 500, 'Semi Bold': 600, 'Bold': 700}
@@ -526,7 +603,9 @@ def write_tokens():
             node[parts[-1]] = {'$type': 'color' if v['type'] == 'COLOR' else 'dimension',
                                '$value': ('{' + x['alias'].replace('/', '.') + '}') if isinstance(x, dict) else (f'{x}px' if v['type'] == 'FLOAT' else x)}
         return root
-    json.dump({'dark': tree('Dark'), 'light': tree('Light'), 'typography': js_type}, open(os.path.join(out, 'tokens.json'), 'w'), indent=1, ensure_ascii=False)
+    token_groups = {theme['token_key']: tree(theme['mode']) for theme in THEMES}
+    token_groups['typography'] = js_type
+    json.dump(token_groups, open(os.path.join(out, 'tokens.json'), 'w'), indent=1, ensure_ascii=False)
     print('tokens/: tokens.css, typography.css, tokens.json')
 
 

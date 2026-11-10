@@ -32,7 +32,7 @@ entry point opens the real panel. Status markers in §5: **done** = works as spe
    lacks (e.g. stage ruler painter), add `R-nnn` to `docs/NF2-REQUESTS.md` and continue with the parts that do not
    depend on it. Requests known in advance are listed in §4.
 6. **AGENTS.md applies to every item:** meaningful model/runtime tests; UI verified by running it (screenshot mode,
-   both themes) and HTML5 output inspected in a browser; `docs/progress/*.json` capability status/evidence updated and
+   all four NF2 themes) and HTML5 output inspected in a browser; `docs/progress/*.json` capability status/evidence updated and
    `python3 scripts/progress.py --write-reports` run; CHANGELOG (user-visible changes), README/ROADMAP/COMPATIBILITY
    kept consistent; unsupported cases produce actionable diagnostics, never silent drops. Validate several items as
    one delivery batch with one shared regression pass (`scripts/check.sh`); rerun only concrete failures.
@@ -80,7 +80,8 @@ related items into one delivery (AGENTS.md).
    (serde default) — **verify** with a load test of an old prefs blob.
 3. Remove the preview from `PlannedPanel` and update `planned.rs` tests (`every_preview_paints_in_both_themes`,
    `previews_leave_the_project_unchanged`).
-4. Screenshot the panel in Dark and Light and compare with its reference PNG (`PlannedPanel::reference`).
+4. Screenshot the panel in Dark, Light, Mid Neutral Gray and Dark Graphite and compare with each matching reference
+   PNG (`PlannedPanel::reference`).
 
 ### 3.3 Turning a planned dialog into a real dialog
 
@@ -100,7 +101,7 @@ if the preview frame differs from the modal frame in any visible way, file a req
 - [ ] Tests added: <unit/integration/project-execute family/browser scenario>
 - [ ] Diagnostics for unsupported cases: <messages>
 - [ ] Undo: one transaction per action (test)
-- [ ] Light + Dark screenshots compared with <reference PNG>; keyboard path checked
+- [ ] Dark + Light + Mid Neutral Gray + Dark Graphite screenshots compared with <reference PNG>; keyboard path checked
 - [ ] HTML5 output checked in a browser (if exported behaviour changed)
 - [ ] docs/progress/<file>.json capability <id> updated; `python3 scripts/progress.py --write-reports`
 - [ ] CHANGELOG / README / ROADMAP / COMPATIBILITY / WORKSPACE updated as relevant
@@ -453,8 +454,9 @@ Graphic thumbnail strip (PR-07, can reuse `timeline_preview.rs`). Registry: `ani
 | W3.10 9-slice, sharing, accessibility extras, Script assist, Bitmap fill — partial | DL-15, DL-17, AC-07, CO-02 | Script assist and Bitmap fill are wired. Library Properties edits 9-slice/shared linkage, Stage paints 9-slice guides, and open documents can supply donor symbols; direct guide drag, separate external-file mounting and accessibility extras remain open. | E-29 | `editor-symbols`, `platform-accessibility`, `editor-paint-effects` |
 
 **W3.6 · Preferences (DL-01) & W3.7 · Shortcut editor** — **done** across all 8 active pages (`panels/preferences.rs`,
-`commands.rs`, `recovery.rs`): modal dialog with per-page draft groups and `Reset to defaults`, live theme preview,
-`Save` / `Cancel`; **General** (Theme, UI scale, On launch + `File ▸ Open recent`, Undo levels, Autosave every N min to
+`commands.rs`, `recovery.rs`): modal dialog with per-page draft groups and `Reset to defaults`; Dark, Light,
+Mid Neutral Gray and Dark Graphite preview live, Save persists the draft, and Cancel / Escape / close restores the
+saved theme; **General** (Theme, UI scale, On launch + `File ▸ Open recent`, Undo levels, Autosave every N min to
 `<app_support>/Recovery` + launch crash-recovery prompt, Show tooltips with shortcuts, Shift-select); **Code editor**
 (font family, size, line height, line numbers, word wrap, auto-close brackets/quotes, code hints + delay, tab size,
 format on save, highlight current line, live preview); **Timeline** (span-based selection, frame view / row height, Show
@@ -580,10 +582,20 @@ that object's unkeyed values to the displayed pose, `prune_motion_guides` drops 
   `project-execute.mjs`).
 - Examples: `examples/timeline-tweens.nflash` (shape, motion and guided tweens, two scenes) and
   `examples/timeline-sound.nflash` (Stream, Event and `SoundMixer.stopAll()` with generated WAV tones).
-- Screenshot: `NEOFLASH_OPEN=examples/timeline-tweens.nflash NEOFLASH_SCREENSHOT_FRAME=2,16 NEOFLASH_WINDOW=1920x1080
-  NEOFLASH_SCREENSHOT=target/ui-shots/t.png NEOFLASH_SCREENSHOT_THEME=dark cargo run -p neoflash-editor`
-  (`NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>`, both zero-based; layer index 0 is the bottom row). Capture both
-  themes.
+- Screenshot each slug:
+
+  ```bash
+  for theme in dark light mid-neutral-gray dark-graphite; do
+    NEOFLASH_OPEN=examples/timeline-tweens.nflash \
+    NEOFLASH_SCREENSHOT_FRAME=2,16 \
+    NEOFLASH_WINDOW=1920x1080 \
+    NEOFLASH_SCREENSHOT="target/ui-shots/t-${theme}.png" \
+    NEOFLASH_SCREENSHOT_THEME="$theme" \
+    cargo run -p neoflash-editor
+  done
+  ```
+
+  `NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>` is zero-based; layer index 0 is the bottom row.
 
 Layer copy remaps copied motion-guide links; layer merge samples guided poses and preserves frame sounds. A same-frame
 sound collision or shortened Stream span is rejected before editing (`layer_controls.rs` family tests).

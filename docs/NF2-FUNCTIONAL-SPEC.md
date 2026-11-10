@@ -30,7 +30,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 - **Priority** (suggestion, breadth first per AGENTS.md): **P1** high value and UI/editor-only or a small engine
   extension; **P2** core Flash authoring capability needing real engine work; **P3** large, specialised or low value.
 - Every element must keep: Undo as one transaction per user action (`Editor::transact` / `History::begin…commit`),
-  honest diagnostics (no silent drops), Light/Dark, keyboard access and NF2 tooltips with shortcuts.
+  honest diagnostics (no silent drops), all four NF2 themes, keyboard access and NF2 tooltips with shortcuts.
 - Enabling an element may only drop its "— not available yet" / "Not available yet" suffix or disabled hover text;
   any other label, tooltip or layout change is a design request.
 
@@ -466,7 +466,7 @@ actions are tracked separately.
   `rotate` just outside a corner, `move` inside the box; Subselection — `subselect-point` over a path/shape point and `pen-add`
   with ⌥ over a path/shape segment; Pen — `pen-close` over the first anchor, `pen-remove` over an existing interior anchor, `pen-convert` with ⌥ over any anchor, and `pen-add` over a selected path segment; Hand —
   `hand-closed` while dragging; Zoom — `zoom-out` with ⌥; motion path ◆ — `hand-open/closed`. The mapping follows Flash
-  conventions; the design has no per-handle table (R-011). Cursors are identical in both themes. Not yet:
+  conventions; the design has no per-handle table (R-011). Cursors are identical in all four themes. Not yet:
   `drag-copy`.
 - Purpose: 39 `NF2 Cursor/*` glyphs (tool cursors, reshape corner/curve, move, rotate, skew, hand open/closed,
   zoom in/out, eyedropper, bucket, pen add/remove/close …) over the canvas.
@@ -885,9 +885,10 @@ persists; Cancel discards; Reset restores defaults for the current page only.
 
 Done (`panels/preferences.rs`, modal like Document settings; Edit ▸ Preferences… ⌘U, Edit ▸ Keyboard shortcuts…
 opens the Shortcuts page): edits live on a draft; global F1 and Timeline Frame view ▸ Help also open Shortcuts as a
-searchable command/function catalogue; the theme previews live and Cancel / Esc / ✕ restores it; Save /
-Enter applies and persists; Reset to defaults resets the active page's group. Wired across all 8 working pages:
-- **General:** Theme Dark / Light, UI scale (80–150 %, egui zoom), On launch (`New document` / `Last document` /
+searchable command/function catalogue; Dark, Light, Mid Neutral Gray and Dark Graphite preview live, and Cancel /
+Esc / ✕ restores the previously saved theme; Save / Enter applies and persists; Reset to defaults resets the active
+page's group. Wired across all 8 working pages:
+- **General:** Theme Dark / Light / Mid Neutral Gray / Dark Graphite, UI scale (80–150 %, egui zoom), On launch (`New document` / `Last document` /
   `Example`, plus `File ▸ Open recent` up to 10 existing files), Undo levels (10–1000, history capacity), Autosave
   (`Every` switch + `1–120 Min` stepper writing atomic snapshots to `<app_support>/Recovery` and offering `Recover
   unsaved work?` on launch via `recovery.rs`), Show tooltips with shortcuts, Shift-select.
@@ -912,11 +913,12 @@ Enter applies and persists; Reset to defaults resets the active page's group. Wi
 - **Publish:** Default target (`HTML5 · Rust / WebAssembly`, `Desktop app (macOS / Windows)`, `Video (MP4)`, `Image sequence / sprite sheet`, or `SVG animation`), Output folder + `Browse…`, `HTML wrapper`, `Assets folder`, `Source maps`, `Preview & publish` (`Preview mode`: `Technical bar` vs `Clean stage`, `Clean publish output` checkbox, and individual `FPS & frames`, `Stage size (W×H)`, `Playback controls`, `Weight & size report` and `Trace & diagnostics` checkboxes), `Compression` (`Images` JPEG quality slider `1..=100`, `Audio` policy, `Acceleration`: `GPU (WebGL)`, `Canvas 2D`, `Software`), `Strict mode`, `Treat warnings as errors`, and `Publish on save` (`T-198`). Five target routes, wrapper/template/scale/playback, JPEG, trace, preview chrome and compiled-code Source Map v3 are functional; Assets folder, Strict mode and Acceleration are stored future options, while bitmap-atlas generation and runtime-module minification remain incomplete.
 - **Updates** and controls waiting on NF2 design tokens (`R-013`–`R-020`) or standalone subsystems (merge drawing, font
   embedding `E-26`, spell check, vertical text, native OS bitmap/SVG clipboard, asset re-encoding, WebGL) stay disabled.
-Screenshot aid: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>`.
+Screenshot aids: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` and
+`NEOFLASH_SCREENSHOT_THEME=dark|light|mid-neutral-gray|dark-graphite`.
 
 | Page | Controls (from the preview) | Effect when wired | Model / engine | Prio |
 | --- | --- | --- | --- | --- |
-| General | Theme Dark / Light / follow system; UI scale; Accent; Language; On launch; Undo levels; Autosave every N min; tooltips with shortcuts; Shift-select; highlight colour | Theme → existing `set_theme`; Undo levels → `History::new(n)`; Autosave → recovery (`platform-recovery`); UI scale → egui zoom; Language/Accent → **request** (no localisation, single accent token) | editor; autosave editor | P1 (theme, undo levels), P2 (autosave), P3 (language, accent) |
+| General | Theme Dark / Light / Mid Neutral Gray / Dark Graphite; UI scale; Accent; Language; On launch; Undo levels; Autosave every N min; tooltips with shortcuts; Shift-select; highlight colour | Theme → `set_theme` with live draft preview and Save/Cancel restoration; Undo levels → `History::new(n)`; Autosave → recovery (`platform-recovery`); UI scale → egui zoom; Follow system, Language and Accent → **request** (no localisation, single accent token) | editor; autosave editor | P1 (theme, undo levels), P2 (autosave), P3 (language, accent) |
 | Code editor | Font, size, line height; line numbers, word wrap, auto-close brackets, code hints + delay, tab size, format on save, highlight current line; colour scheme + Duplicate / Import…; syntax colour table; preview | Code editor rendering options; scheme edits must keep "red = errors only" | editor (`components::code` reads tokens — custom colours need a request) | P2 |
 | Timeline | span-based selection, default frame view, row height, show seconds, snap playhead, named anchor per scene; onion range + tints + opacity falloff; auto keyframe on transform, default ease, tween type on drag | Defaults for TL-09/TL-11, onion state (`onion_before/after/opacity` exist), default `Easing` for new tweens | editor | P1 |
 | Drawing | Merge / Object drawing; pen preview, solid points, precise cursors; connect lines, smooth curves, recognise lines/shapes, click accuracy; snap tolerance, snap to pixels, snap align | Tool defaults (TO-07), snapping (ST-04) | editor | P2 |
@@ -1019,8 +1021,8 @@ that is distinct from an unimplemented command. Labelled previews do not execute
 | Modify | Convert to Symbol, Break Apart, shape hints, Combine objects, timeline operations, transforms/arrange/align, Group/Ungroup and Bitmap ▸ Trace bitmap | Other Bitmap operations and Symbol submenu remain unavailable; shape hints need a shape-tween endpoint |
 | Control | Play/Stop, Rewind/End/step, browser Test movie/scene, Live ActionScript, Loop playback, Play all scenes, Mute sounds, Enable simple buttons | Native Test Movie host remains planned |
 | Document | Document settings; open-document list and Next/Previous document | Requires an open document for settings and navigation |
-| Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Light/Dark | Duplicate window disabled; Debugger is connected; other planned panels retain their stated limits |
-| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
+| Window | `Panels` groups all real authoring panels including Brushes; built-in and named workspaces, Save/Update/Reset/Rename/Delete layouts, Hide panels, detach/dock, Appearance ▸ Dark / Light / Mid Neutral Gray / Dark Graphite | Duplicate window disabled; Debugger is connected; Follow system is not exposed; other planned panels retain their stated limits |
+| Help | `Search functions…` (F1) opens an immediate focused fuzzy-search palette of registered menu commands, accepts the first keystroke after menu dismissal, supports ↑/↓/↵/Esc and runs the chosen command; NeoFlash Help & Reference keeps fixed bounds with independently scrolling chapters/article and can open a portable English text edition in the browser; that edition inherits the active theme and its single header control cycles all four NF2 themes; Open example; About NeoFlash | Keyboard shortcuts remains a separate Preferences page |
 
 New/Open insert a tab after the active tab; opening an already open path activates it without replacing edits.
 Each document keeps its selection, playhead, script state, Undo and recovery. Dirty Close/Close all/Quit prompts

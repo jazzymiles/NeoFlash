@@ -1,4 +1,4 @@
-"""Build site/: two Russian gallery pages (dark.html, light.html) with every exported screen and panel.
+"""Build one Russian gallery page per NF2 theme with every exported screen and panel.
 
 Self-contained: images are copied to site/img/<theme>/, all links are relative (no leading "/").
 Run after the NeoFlash Export plugin:  python3 tools/build-gallery.py
@@ -14,6 +14,8 @@ SITE = os.path.join(ROOT, 'site')
 manifest = json.load(open(os.path.join(ROOT, 'exports', 'manifest.json')))
 notes = json.load(open(os.path.join(ROOT, 'docs', 'source', 'notes.ru.json')))
 dump = json.load(open(os.path.join(ROOT, 'docs', 'data', 'figma-dump.json')))
+NF2 = next(c for c in dump['collections'] if c['name'] == 'NF2 · Tokens')
+TOKENS = {v['name']: v for v in NF2['variables']}
 
 EXTRA = {  # frames without a note in notes.ru.json
     'menus': ('menus', 'Главное и контекстные меню', 'Выпадающие меню File, Edit, View, Insert, Modify, Control, Window с горячими клавишами и подменю; контекстные меню кадра, слоя и объекта на сцене.'),
@@ -31,11 +33,48 @@ SECTIONS = [
 ]
 
 THEMES = {
-    'dark': dict(name='Тёмная тема', other='light', other_name='Светлая тема', bg='#0d1016', panel='#12151c', raised='#171b24',
-                 border='#232938', text='#e7eaf2', text2='#9aa3b6', text3='#8790a4', accent='#6c93ff', scheme='dark'),
-    'light': dict(name='Светлая тема', other='dark', other_name='Тёмная тема', bg='#eef0f5', panel='#f6f7fa', raised='#ffffff',
-                  border='#e1e4ec', text='#171b26', text2='#5b6477', text3='#667086', accent='#3c6bf0', scheme='light'),
+    'dark': dict(name='Тёмная тема', modes=('Dark',), scheme='dark'),
+    'light': dict(name='Светлая тема', modes=('Light',), scheme='light'),
+    'mid-neutral-gray': dict(
+        name='Средняя нейтрально-серая тема',
+        modes=('Mid · Neutral Gray', 'Mid Neutral Gray'),
+        scheme='dark',
+    ),
+    'dark-graphite': dict(
+        name='Тема «Тёмный графит»',
+        modes=('Dark · Graphite', 'Dark Graphite'),
+        scheme='dark',
+    ),
 }
+
+
+def token(name, mode):
+    value = TOKENS[name]['values'][mode]
+    seen = {name}
+    while isinstance(value, dict):
+        name = value['alias']
+        if name in seen:
+            raise ValueError(f'cyclic NF2 token alias: {name}')
+        seen.add(name)
+        value = TOKENS[name]['values'][mode]
+    return value
+
+
+for theme in THEMES.values():
+    theme['mode'] = next((name for name in theme['modes'] if name in NF2['modes']), None)
+    if theme['mode'] is None:
+        raise ValueError(f'NF2 · Tokens is missing theme mode {theme["modes"]!r}')
+    mode = theme['mode']
+    theme.update(
+        bg=token('color/bg/app', mode),
+        panel=token('color/bg/panel', mode),
+        raised=token('color/bg/raised', mode),
+        border=token('color/border/subtle', mode),
+        text=token('color/text/primary', mode),
+        text2=token('color/text/secondary', mode),
+        text3=token('color/text/tertiary', mode),
+        accent=token('color/accent/default', mode),
+    )
 
 
 def esc(s):
@@ -81,6 +120,10 @@ def page(theme):
     t = THEMES[theme]
     data = entries(theme)
     nav = ''.join(f'<a href="#{k}">{esc(name)}<span>{len(data[k])}</span></a>' for k, name, _ in SECTIONS if data[k])
+    theme_switch = ''.join(
+        f'<a class="switch{" active" if slug == theme else ""}" href="{slug}.html">{esc(spec["name"])}</a>'
+        for slug, spec in THEMES.items()
+    )
     body = []
     for key, name, lead in SECTIONS:
         items = data[key]
@@ -114,9 +157,11 @@ nav {{ display: flex; gap: 4px; flex-wrap: wrap; }}
 nav a {{ color: var(--text2); text-decoration: none; padding: 5px 10px; border-radius: 6px; font-size: 13px; }}
 nav a:hover {{ background: var(--raised); color: var(--text); }}
 nav a span {{ color: var(--text3); margin-left: 6px; font-size: 12px; }}
-.switch {{ margin-left: auto; color: var(--text); text-decoration: none; border: 1px solid var(--border); background: var(--raised);
+.theme-switch {{ margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }}
+.switch {{ color: var(--text); text-decoration: none; border: 1px solid var(--border); background: var(--raised);
   padding: 6px 12px; border-radius: 6px; font-size: 13px; }}
 .switch:hover {{ border-color: var(--accent); }}
+.switch.active {{ border-color: var(--accent); color: var(--accent); }}
 main {{ max-width: 1440px; margin: 0 auto; padding: 32px 24px 80px; }}
 .hero h1 {{ font-size: 32px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }}
 .hero p {{ color: var(--text2); max-width: 760px; margin: 0; font-size: 15px; }}
@@ -153,7 +198,7 @@ footer {{ max-width: 1440px; margin: 0 auto; padding: 0 24px 40px; color: var(--
 <div class="top"><div class="in">
   <div class="brand"><span class="logo"><i></i></span>NeoFlash 2.0</div>
   <nav>{nav}</nav>
-  <a class="switch" href="{t['other']}.html">{esc(t['other_name'])} →</a>
+  <div class="theme-switch">{theme_switch}</div>
 </div></div>
 <main>
   <div class="hero">

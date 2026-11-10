@@ -1,10 +1,10 @@
-//! Dark / Light theme installation. Dark is the NF2 default; Light swaps values only.
+//! NF2 theme installation. Dark is the default; every theme swaps values only.
 //!
-//! [`install`] writes the palette into egui's `Visuals` for **both** egui themes and selects one, so
-//! plain egui widgets that panels still use (scroll areas, text edits, combo popups) already look NF2.
-//! Hand-painted components read colours with [`palette`] and never compare themes.
+//! egui exposes only Light and Dark style slots. NF2 has several dark-class palettes, so the exact
+//! active [`Theme`] is also stored in the context. Plain egui widgets use the selected slot while
+//! hand-painted components read the full palette with [`palette`] and never compare themes.
 use crate::metrics::{self, SHADOW_DIALOG, SHADOW_POPOVER};
-use crate::tokens::{DARK, LIGHT, Palette, radius, space};
+use crate::tokens::{DARK, DARK_GRAPHITE, LIGHT, MID_NEUTRAL_GRAY, Palette, radius, space};
 use crate::typography;
 use eframe::egui::{self, Color32, CornerRadius, Margin, Stroke};
 
@@ -13,30 +13,86 @@ pub enum Theme {
     #[default]
     Dark,
     Light,
+    MidNeutralGray,
+    DarkGraphite,
 }
 
 impl Theme {
+    pub const ALL: [Self; 4] = [
+        Self::Dark,
+        Self::Light,
+        Self::MidNeutralGray,
+        Self::DarkGraphite,
+    ];
+
     pub const fn palette(self) -> &'static Palette {
         match self {
             Self::Dark => &DARK,
             Self::Light => &LIGHT,
+            Self::MidNeutralGray => &MID_NEUTRAL_GRAY,
+            Self::DarkGraphite => &DARK_GRAPHITE,
         }
     }
+
+    pub const fn is_dark(self) -> bool {
+        !matches!(self, Self::Light)
+    }
+
+    /// Parse a stable public theme slug. Hyphens are canonical; underscore aliases keep older
+    /// automation and persisted tooling compatible.
+    pub fn from_slug(value: &str) -> Option<Self> {
+        if value.eq_ignore_ascii_case("dark") {
+            Some(Self::Dark)
+        } else if value.eq_ignore_ascii_case("light") {
+            Some(Self::Light)
+        } else if value.eq_ignore_ascii_case("mid-neutral-gray")
+            || value.eq_ignore_ascii_case("mid_neutral_gray")
+        {
+            Some(Self::MidNeutralGray)
+        } else if value.eq_ignore_ascii_case("dark-graphite")
+            || value.eq_ignore_ascii_case("dark_graphite")
+        {
+            Some(Self::DarkGraphite)
+        } else {
+            None
+        }
+    }
+
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::MidNeutralGray => "mid-neutral-gray",
+            Self::DarkGraphite => "dark-graphite",
+        }
+    }
+
     pub fn current(ctx: &egui::Context) -> Self {
+        let selected = ctx.data(|data| data.get_temp::<Self>(active_theme_id()));
+        if let Some(selected) = selected
+            && selected.egui() == ctx.theme()
+        {
+            return selected;
+        }
         match ctx.theme() {
             egui::Theme::Dark => Self::Dark,
             egui::Theme::Light => Self::Light,
         }
     }
+
     const fn egui(self) -> egui::Theme {
         match self {
-            Self::Dark => egui::Theme::Dark,
             Self::Light => egui::Theme::Light,
+            Self::Dark | Self::MidNeutralGray | Self::DarkGraphite => egui::Theme::Dark,
         }
     }
 }
 
-/// Current palette for a context (follows `ctx.theme()`).
+fn active_theme_id() -> egui::Id {
+    egui::Id::new("nf2-active-theme")
+}
+
+/// Current full NF2 palette for a context.
 pub fn palette(ctx: &egui::Context) -> &'static Palette {
     Theme::current(ctx).palette()
 }
@@ -45,7 +101,7 @@ pub(crate) fn cr(r: f32) -> CornerRadius {
     CornerRadius::same(r.min(255.0) as u8)
 }
 
-/// Install NF2 spacing, text styles and both themes' visuals, then switch to `theme`.
+/// Install NF2 spacing, text styles and both egui theme-slot visuals, then switch to `theme`.
 /// Call once at start-up; use [`apply_visuals`] for later theme switches.
 pub fn install(ctx: &egui::Context, theme: Theme) {
     ctx.all_styles_mut(|style| {
@@ -58,9 +114,15 @@ pub fn install(ctx: &egui::Context, theme: Theme) {
 /// Switch theme: replaces only colours, so customised spacing / typography, widget memory and fonts
 /// are untouched.
 pub fn apply_visuals(ctx: &egui::Context, theme: Theme) {
-    for t in [Theme::Dark, Theme::Light] {
-        ctx.style_mut_of(t.egui(), |style| style.visuals = visuals(t));
-    }
+    // Keep both built-in slots valid. The dark slot receives the exact selected dark-class NF2
+    // palette; switching back to canonical Dark replaces it again without disturbing other style.
+    ctx.style_mut_of(egui::Theme::Light, |style| {
+        style.visuals = visuals(Theme::Light)
+    });
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
+        style.visuals = visuals(if theme.is_dark() { theme } else { Theme::Dark })
+    });
+    ctx.data_mut(|data| data.insert_temp(active_theme_id(), theme));
     ctx.set_theme(theme.egui());
     ctx.request_repaint();
 }
@@ -104,9 +166,10 @@ pub fn spacing(style: &mut egui::Style) {
 
 pub fn visuals(theme: Theme) -> egui::Visuals {
     let p = theme.palette();
-    let mut v = match theme {
-        Theme::Dark => egui::Visuals::dark(),
-        Theme::Light => egui::Visuals::light(),
+    let mut v = if theme.is_dark() {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
     };
     v.override_text_color = None;
     v.weak_text_color = Some(p.text_tertiary);
@@ -196,4 +259,45 @@ pub fn keyboard_focus(ui: &egui::Ui, response: &egui::Response) -> bool {
 /// Translucent black used for the modal scrim if a caller needs a non-token shade.
 pub fn black(alpha: f32) -> Color32 {
     Color32::from_black_alpha((alpha * 255.0) as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_nf2_theme_keeps_its_full_identity_and_palette() {
+        let ctx = egui::Context::default();
+        assert_eq!(MID_NEUTRAL_GRAY.bg_app, Color32::from_rgb(0x50, 0x50, 0x50));
+        assert_ne!(MID_NEUTRAL_GRAY, DARK_GRAPHITE);
+        for theme in Theme::ALL {
+            install(&ctx, theme);
+            assert_eq!(Theme::current(&ctx), theme);
+            assert_eq!(palette(&ctx), theme.palette());
+            assert_eq!(ctx.style().visuals.dark_mode, theme.is_dark());
+            assert_eq!(ctx.style().visuals.panel_fill, theme.palette().bg_panel);
+        }
+    }
+
+    #[test]
+    fn a_direct_egui_slot_change_cannot_report_the_wrong_lightness() {
+        let ctx = egui::Context::default();
+        install(&ctx, Theme::MidNeutralGray);
+        ctx.set_theme(egui::Theme::Light);
+        assert_eq!(Theme::current(&ctx), Theme::Light);
+        assert_eq!(palette(&ctx), &LIGHT);
+    }
+
+    #[test]
+    fn public_theme_slugs_cover_all_four_palettes_and_legacy_aliases() {
+        for theme in Theme::ALL {
+            assert_eq!(Theme::from_slug(theme.slug()), Some(theme));
+        }
+        assert_eq!(
+            Theme::from_slug("MID_NEUTRAL_GRAY"),
+            Some(Theme::MidNeutralGray)
+        );
+        assert_eq!(Theme::from_slug("dark_graphite"), Some(Theme::DarkGraphite));
+        assert_eq!(Theme::from_slug("unknown"), None);
+    }
 }

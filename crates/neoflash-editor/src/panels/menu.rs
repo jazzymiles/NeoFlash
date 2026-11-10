@@ -1171,10 +1171,10 @@ impl Editor {
                 })
             });
         }
-        menu_popup(ui, "Appearance", "Light", "", |ui| {
-            for (name, theme) in [("Light", ThemeMode::Light), ("Dark", ThemeMode::Dark)] {
+        menu_popup(ui, "Appearance", self.workspace.theme.label(), "", |ui| {
+            for theme in ThemeMode::ALL {
                 let mut selected = self.workspace.theme == theme;
-                if menu_toggle(ui, &mut selected, name, "").clicked() {
+                if menu_toggle(ui, &mut selected, theme.label(), "").clicked() {
                     self.set_theme(ctx, theme);
                     ui.close();
                 }

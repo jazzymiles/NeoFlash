@@ -447,8 +447,8 @@ impl Editor {
 }
 
 /// `NEOFLASH_SCREENSHOT=path.png` saves a PNG of the main window after a few frames and quits.
-/// Optional `NEOFLASH_SCREENSHOT_THEME=light|dark`. Used to compare against
-/// `interface/design-system/exports/interface/{dark,light}/png/editor-main.png`.
+/// Optional `NEOFLASH_SCREENSHOT_THEME=light|dark|mid-neutral-gray|dark-graphite`. Used to
+/// compare against the matching `interface/design-system/exports/interface/*` reference.
 /// `NEOFLASH_SCREENSHOT_DRAG=1` waits for the docking overlay to paint a panel
 /// preview in the main window instead of capturing an idle frame.
 pub(crate) fn capture(ctx: &egui::Context, frame_index: u64) {
@@ -513,9 +513,38 @@ pub(crate) fn screenshot_workspace() -> Option<crate::workspace::WorkspaceTempla
 
 /// Theme forced by `NEOFLASH_SCREENSHOT_THEME`, if any.
 pub(crate) fn screenshot_theme() -> Option<crate::theme::ThemeMode> {
-    match std::env::var("NEOFLASH_SCREENSHOT_THEME").ok()?.as_str() {
-        "light" => Some(crate::theme::ThemeMode::Light),
-        "dark" => Some(crate::theme::ThemeMode::Dark),
-        _ => None,
+    parse_screenshot_theme(&std::env::var("NEOFLASH_SCREENSHOT_THEME").ok()?)
+}
+
+pub(crate) fn parse_screenshot_theme(value: &str) -> Option<crate::theme::ThemeMode> {
+    crate::theme::ThemeMode::from_slug(value)
+}
+
+#[cfg(test)]
+mod screenshot_theme_tests {
+    use super::*;
+    use crate::theme::ThemeMode;
+
+    #[test]
+    fn screenshot_theme_parser_accepts_public_slugs_and_legacy_aliases() {
+        assert_eq!(parse_screenshot_theme("dark"), Some(ThemeMode::Dark));
+        assert_eq!(parse_screenshot_theme("LIGHT"), Some(ThemeMode::Light));
+        assert_eq!(
+            parse_screenshot_theme("mid-neutral-gray"),
+            Some(ThemeMode::MidNeutralGray)
+        );
+        assert_eq!(
+            parse_screenshot_theme("mid_neutral_gray"),
+            Some(ThemeMode::MidNeutralGray)
+        );
+        assert_eq!(
+            parse_screenshot_theme("dark-graphite"),
+            Some(ThemeMode::DarkGraphite)
+        );
+        assert_eq!(
+            parse_screenshot_theme("dark_graphite"),
+            Some(ThemeMode::DarkGraphite)
+        );
+        assert_eq!(parse_screenshot_theme("unknown"), None);
     }
 }

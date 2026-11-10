@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-08T23:44:18.894Z",
+ "generated": "2026-11-10T18:42:03.551Z",
  "file": "Interface test",
  "pages": [
   {
@@ -797,6 +797,18 @@
      "name": "Shelf / v2.25 — Gradient overflow — Light",
      "w": 560,
      "h": 146
+    },
+    {
+     "id": "265:655022",
+     "name": "Colors — Mid Neutral Gray",
+     "w": 700,
+     "h": 1676
+    },
+    {
+     "id": "265:655167",
+     "name": "Colors — Dark Graphite",
+     "w": 700,
+     "h": 1676
     }
    ]
   },
@@ -1025,6 +1037,150 @@
      "name": "v2.25 · Behavioral contract notes — Light",
      "w": 1040,
      "h": 520
+    },
+    {
+     "id": "265:624550",
+     "name": "Panels — Mid Neutral Gray",
+     "w": 19448,
+     "h": 3518
+    },
+    {
+     "id": "265:634656",
+     "name": "Menus — Mid Neutral Gray",
+     "w": 1438,
+     "h": 2592
+    },
+    {
+     "id": "265:636282",
+     "name": "Preferences — Mid Neutral Gray",
+     "w": 1880,
+     "h": 2967
+    },
+    {
+     "id": "265:637731",
+     "name": "Timeline frame views — Mid Neutral Gray",
+     "w": 1250,
+     "h": 1286
+    },
+    {
+     "id": "265:638933",
+     "name": "Panel / Properties — Text — narrow fallback — Mid Neutral Gray",
+     "w": 192,
+     "h": 2586
+    },
+    {
+     "id": "265:639220",
+     "name": "Tools — v2.25 Stage anchors — Mid Neutral Gray",
+     "w": 1240,
+     "h": 840
+    },
+    {
+     "id": "265:639251",
+     "name": "Dialog / Help & Reference — Mid Neutral Gray",
+     "w": 920,
+     "h": 760
+    },
+    {
+     "id": "265:639363",
+     "name": "Dialog / Help & Reference — constrained viewport — Mid Neutral Gray",
+     "w": 760,
+     "h": 560
+    },
+    {
+     "id": "265:639475",
+     "name": "Popover / Function Search — Mid Neutral Gray",
+     "w": 560,
+     "h": 520
+    },
+    {
+     "id": "265:639541",
+     "name": "Floating panels — v2.25 headers, docking and minima — Mid Neutral Gray",
+     "w": 1200,
+     "h": 980
+    },
+    {
+     "id": "265:639695",
+     "name": "Properties — v2.25 contextual states — Mid Neutral Gray",
+     "w": 1180,
+     "h": 560
+    },
+    {
+     "id": "265:639778",
+     "name": "v2.25 · Behavioral contract notes — Mid Neutral Gray",
+     "w": 1040,
+     "h": 520
+    },
+    {
+     "id": "265:639786",
+     "name": "Panels — Dark Graphite",
+     "w": 19448,
+     "h": 3518
+    },
+    {
+     "id": "265:649892",
+     "name": "Menus — Dark Graphite",
+     "w": 1438,
+     "h": 2592
+    },
+    {
+     "id": "265:651518",
+     "name": "Preferences — Dark Graphite",
+     "w": 1880,
+     "h": 2967
+    },
+    {
+     "id": "265:652967",
+     "name": "Timeline frame views — Dark Graphite",
+     "w": 1250,
+     "h": 1286
+    },
+    {
+     "id": "265:654169",
+     "name": "Panel / Properties — Text — narrow fallback — Dark Graphite",
+     "w": 192,
+     "h": 2586
+    },
+    {
+     "id": "265:654456",
+     "name": "Tools — v2.25 Stage anchors — Dark Graphite",
+     "w": 1240,
+     "h": 840
+    },
+    {
+     "id": "265:654487",
+     "name": "Dialog / Help & Reference — Dark Graphite",
+     "w": 920,
+     "h": 760
+    },
+    {
+     "id": "265:654599",
+     "name": "Dialog / Help & Reference — constrained viewport — Dark Graphite",
+     "w": 760,
+     "h": 560
+    },
+    {
+     "id": "265:654711",
+     "name": "Popover / Function Search — Dark Graphite",
+     "w": 560,
+     "h": 520
+    },
+    {
+     "id": "265:654777",
+     "name": "Floating panels — v2.25 headers, docking and minima — Dark Graphite",
+     "w": 1200,
+     "h": 980
+    },
+    {
+     "id": "265:654931",
+     "name": "Properties — v2.25 contextual states — Dark Graphite",
+     "w": 1180,
+     "h": 560
+    },
+    {
+     "id": "265:655014",
+     "name": "v2.25 · Behavioral contract notes — Dark Graphite",
+     "w": 1040,
+     "h": 520
     }
    ]
   },
@@ -1113,6 +1269,90 @@
    ]
   },
   {
+   "name": "v2.25 · Interface — Dark Graphite",
+   "id": "259:41749",
+   "frames": [
+    {
+     "id": "259:41750",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:41998",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:42222",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:42483",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:42754",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "259:42906",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:43154",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:43403",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:43695",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:43976",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:44249",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:44541",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:44891",
+     "name": "Frame 30",
+     "w": 0,
+     "h": 0
+    }
+   ]
+  },
+  {
    "name": "v2.25 · Interface — Light",
    "id": "59:50907",
    "frames": [
@@ -1184,6 +1424,240 @@
     },
     {
      "id": "67:55347",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "name": "v2.25 · Interface — Mid Neutral Gray",
+   "id": "259:216213",
+   "frames": [
+    {
+     "id": "259:216214",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:216462",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:216686",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:216947",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:217218",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "259:217370",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:217618",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:217867",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:218159",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:218440",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:218713",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:219005",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "name": "v2.25 · Interface — Light Neutral Gray (light)",
+   "id": "259:86151",
+   "frames": [
+    {
+     "id": "259:86152",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:86400",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:86624",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:86885",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:87156",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "259:87308",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:87556",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:87805",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88097",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88378",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88651",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:88943",
+     "name": "NF2 / Editor — Motion tween path",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "name": "v2.25 · Interface — Light Neutral Gray (draft)",
+   "id": "259:130552",
+   "frames": [
+    {
+     "id": "259:130553",
+     "name": "NF2 / Editor — Main",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:130801",
+     "name": "NF2 / Editor — Actions tab",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131025",
+     "name": "NF2 / Editor — Unsaved changes dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131286",
+     "name": "NF2 / Editor — Convert to Symbol dialog",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131557",
+     "name": "NF2 / Timeline — states legend",
+     "w": 1320,
+     "h": 782
+    },
+    {
+     "id": "259:131709",
+     "name": "NF2 / Editor — View settings open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:131957",
+     "name": "NF2 / Editor — Swatches open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:132206",
+     "name": "NF2 / Editor — Ease panel open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:132498",
+     "name": "NF2 / Editor — Edit menu open",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:132779",
+     "name": "NF2 / Editor — Editing symbol in place",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:133052",
+     "name": "NF2 / Editor — Video on timeline",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "id": "259:133344",
      "name": "NF2 / Editor — Motion tween path",
      "w": 1920,
      "h": 1080
@@ -1982,7 +2456,10 @@
    "id": "VariableCollectionId:1:8678",
    "modes": [
     "Dark",
-    "Light"
+    "Light",
+    "Mid · Neutral Gray",
+    "Mode 2",
+    "Dark · Graphite"
    ],
    "variables": [
     {
@@ -1994,7 +2471,10 @@
      ],
      "values": {
       "Dark": "#0d1016",
-      "Light": "#eef0f5"
+      "Light": "#eef0f5",
+      "Mid · Neutral Gray": "#505050",
+      "Mode 2": "#eef0f5",
+      "Dark · Graphite": "#171717"
      }
     },
     {
@@ -2006,7 +2486,10 @@
      ],
      "values": {
       "Dark": "#12151c",
-      "Light": "#f6f7fa"
+      "Light": "#f6f7fa",
+      "Mid · Neutral Gray": "#686868",
+      "Mode 2": "#f6f7fa",
+      "Dark · Graphite": "#1f1f1f"
      }
     },
     {
@@ -2018,7 +2501,10 @@
      ],
      "values": {
       "Dark": "#171b24",
-      "Light": "#ffffff"
+      "Light": "#ffffff",
+      "Mid · Neutral Gray": "#6e6e6e",
+      "Mode 2": "#ffffff",
+      "Dark · Graphite": "#292929"
      }
     },
     {
@@ -2030,7 +2516,10 @@
      ],
      "values": {
       "Dark": "#0d1016",
-      "Light": "#ffffff"
+      "Light": "#ffffff",
+      "Mid · Neutral Gray": "#565656",
+      "Mode 2": "#ffffff",
+      "Dark · Graphite": "#1b1b1b"
      }
     },
     {
@@ -2042,7 +2531,10 @@
      ],
      "values": {
       "Dark": "#1e2330",
-      "Light": "#e9ecf3"
+      "Light": "#e9ecf3",
+      "Mid · Neutral Gray": "#707070",
+      "Mode 2": "#e9ecf3",
+      "Dark · Graphite": "#323232"
      }
     },
     {
@@ -2054,7 +2546,10 @@
      ],
      "values": {
       "Dark": "#1f2a48",
-      "Light": "#e3ebff"
+      "Light": "#e3ebff",
+      "Mid · Neutral Gray": "#576572",
+      "Mode 2": "#e3ebff",
+      "Dark · Graphite": "#233a52"
      }
     },
     {
@@ -2066,7 +2561,10 @@
      ],
      "values": {
       "Dark": "#0a0c11",
-      "Light": "#dadde6"
+      "Light": "#dadde6",
+      "Mid · Neutral Gray": "#727272",
+      "Mode 2": "#dadde6",
+      "Dark · Graphite": "#171717"
      }
     },
     {
@@ -2078,7 +2576,10 @@
      ],
      "values": {
       "Dark": "#131824",
-      "Light": "#131824"
+      "Light": "#131824",
+      "Mid · Neutral Gray": "#767676",
+      "Mode 2": "#131824",
+      "Dark · Graphite": "#1f1f1f"
      }
     },
     {
@@ -2090,7 +2591,10 @@
      ],
      "values": {
       "Dark": "#232938",
-      "Light": "#e1e4ec"
+      "Light": "#e1e4ec",
+      "Mid · Neutral Gray": "#747474",
+      "Mode 2": "#e1e4ec",
+      "Dark · Graphite": "#2a2a2a"
      }
     },
     {
@@ -2102,7 +2606,10 @@
      ],
      "values": {
       "Dark": "#2e3547",
-      "Light": "#cfd4e0"
+      "Light": "#cfd4e0",
+      "Mid · Neutral Gray": "#868686",
+      "Mode 2": "#cfd4e0",
+      "Dark · Graphite": "#3a3a3a"
      }
     },
     {
@@ -2114,7 +2621,10 @@
      ],
      "values": {
       "Dark": "#444d63",
-      "Light": "#a9b0c2"
+      "Light": "#a9b0c2",
+      "Mid · Neutral Gray": "#a0a0a0",
+      "Mode 2": "#a9b0c2",
+      "Dark · Graphite": "#484848"
      }
     },
     {
@@ -2126,7 +2636,10 @@
      ],
      "values": {
       "Dark": "#6c93ff",
-      "Light": "#3c6bf0"
+      "Light": "#3c6bf0",
+      "Mid · Neutral Gray": "#b9dbff",
+      "Mode 2": "#3c6bf0",
+      "Dark · Graphite": "#4f91ca"
      }
     },
     {
@@ -2138,7 +2651,10 @@
      ],
      "values": {
       "Dark": "#e7eaf2",
-      "Light": "#171b26"
+      "Light": "#171b26",
+      "Mid · Neutral Gray": "#f4f4f4",
+      "Mode 2": "#171b26",
+      "Dark · Graphite": "#d0d0d0"
      }
     },
     {
@@ -2150,7 +2666,10 @@
      ],
      "values": {
       "Dark": "#9aa3b6",
-      "Light": "#5b6477"
+      "Light": "#5b6477",
+      "Mid · Neutral Gray": "#e8e8e8",
+      "Mode 2": "#5b6477",
+      "Dark · Graphite": "#929292"
      }
     },
     {
@@ -2162,7 +2681,10 @@
      ],
      "values": {
       "Dark": "#8790a4",
-      "Light": "#667086"
+      "Light": "#667086",
+      "Mid · Neutral Gray": "#cacaca",
+      "Mode 2": "#667086",
+      "Dark · Graphite": "#808080"
      }
     },
     {
@@ -2174,7 +2696,10 @@
      ],
      "values": {
       "Dark": "#566073",
-      "Light": "#a2a9b8"
+      "Light": "#a2a9b8",
+      "Mid · Neutral Gray": "#a2a2a2",
+      "Mode 2": "#a2a9b8",
+      "Dark · Graphite": "#626262"
      }
     },
     {
@@ -2186,7 +2711,10 @@
      ],
      "values": {
       "Dark": "#0b1020",
-      "Light": "#ffffff"
+      "Light": "#ffffff",
+      "Mid · Neutral Gray": "#1f1f1f",
+      "Mode 2": "#ffffff",
+      "Dark · Graphite": "#171717"
      }
     },
     {
@@ -2198,7 +2726,10 @@
      ],
      "values": {
       "Dark": "#0d1016",
-      "Light": "#f6f7fa"
+      "Light": "#f6f7fa",
+      "Mid · Neutral Gray": "#f2f2f2",
+      "Mode 2": "#f6f7fa",
+      "Dark · Graphite": "#1f1f1f"
      }
     },
     {
@@ -2210,7 +2741,10 @@
      ],
      "values": {
       "Dark": "#6c93ff",
-      "Light": "#3c6bf0"
+      "Light": "#3c6bf0",
+      "Mid · Neutral Gray": "#dcecff",
+      "Mode 2": "#3c6bf0",
+      "Dark · Graphite": "#4f91ca"
      }
     },
     {
@@ -2222,7 +2756,10 @@
      ],
      "values": {
       "Dark": "#86a5ff",
-      "Light": "#2f59d6"
+      "Light": "#2f59d6",
+      "Mid · Neutral Gray": "#c5ddf6",
+      "Mode 2": "#2f59d6",
+      "Dark · Graphite": "#63a6de"
      }
     },
     {
@@ -2234,7 +2771,10 @@
      ],
      "values": {
       "Dark": "#1f2a48",
-      "Light": "#e3ebff"
+      "Light": "#e3ebff",
+      "Mid · Neutral Gray": "#576572",
+      "Mode 2": "#e3ebff",
+      "Dark · Graphite": "#223242"
      }
     },
     {
@@ -2246,7 +2786,10 @@
      ],
      "values": {
       "Dark": "#ff9a5c",
-      "Light": "#e8731f"
+      "Light": "#e8731f",
+      "Mid · Neutral Gray": "#d98a4c",
+      "Mode 2": "#e8731f",
+      "Dark · Graphite": "#d9854a"
      }
     },
     {
@@ -2258,7 +2801,10 @@
      ],
      "values": {
       "Dark": "#ff6b6b",
-      "Light": "#d92d2d"
+      "Light": "#d92d2d",
+      "Mid · Neutral Gray": "#fff5f4",
+      "Mode 2": "#d92d2d",
+      "Dark · Graphite": "#f47b75"
      }
     },
     {
@@ -2270,7 +2816,10 @@
      ],
      "values": {
       "Dark": "#3a1d22",
-      "Light": "#fde8e8"
+      "Light": "#fde8e8",
+      "Mid · Neutral Gray": "#755555",
+      "Mode 2": "#fde8e8",
+      "Dark · Graphite": "#3a1f1f"
      }
     },
     {
@@ -2282,7 +2831,10 @@
      ],
      "values": {
       "Dark": "#3dd68c",
-      "Light": "#168a57"
+      "Light": "#168a57",
+      "Mid · Neutral Gray": "#54b370",
+      "Mode 2": "#168a57",
+      "Dark · Graphite": "#25a044"
      }
     },
     {
@@ -2294,7 +2846,10 @@
      ],
      "values": {
       "Dark": "#f5b94a",
-      "Light": "#b26a00"
+      "Light": "#b26a00",
+      "Mid · Neutral Gray": "#fff5e0",
+      "Mode 2": "#b26a00",
+      "Dark · Graphite": "#c0a000"
      }
     },
     {
@@ -2306,7 +2861,10 @@
      ],
      "values": {
       "Dark": "#38300f",
-      "Light": "#fef3d6"
+      "Light": "#fef3d6",
+      "Mid · Neutral Gray": "#766a45",
+      "Mode 2": "#fef3d6",
+      "Dark · Graphite": "#3a3315"
      }
     },
     {
@@ -2318,7 +2876,10 @@
      ],
      "values": {
       "Dark": "#3dd68c",
-      "Light": "#168a57"
+      "Light": "#168a57",
+      "Mid · Neutral Gray": "#54b370",
+      "Mode 2": "#168a57",
+      "Dark · Graphite": "#25a044"
      }
     },
     {
@@ -2330,7 +2891,10 @@
      ],
      "values": {
       "Dark": "#ff6b6b",
-      "Light": "#d92d2d"
+      "Light": "#d92d2d",
+      "Mid · Neutral Gray": "#e06a63",
+      "Mode 2": "#d92d2d",
+      "Dark · Graphite": "#f47b75"
      }
     },
     {
@@ -2342,7 +2906,10 @@
      ],
      "values": {
       "Dark": "#6c93ff",
-      "Light": "#3c6bf0"
+      "Light": "#3c6bf0",
+      "Mid · Neutral Gray": "#4f8cc4",
+      "Mode 2": "#3c6bf0",
+      "Dark · Graphite": "#225992"
      }
     },
     {
@@ -2354,7 +2921,10 @@
      ],
      "values": {
       "Dark": "#12151c",
-      "Light": "#ffffff"
+      "Light": "#ffffff",
+      "Mid · Neutral Gray": "#686868",
+      "Mode 2": "#ffffff",
+      "Dark · Graphite": "#1f1f1f"
      }
     },
     {
@@ -2366,7 +2936,10 @@
      ],
      "values": {
       "Dark": "#151922",
-      "Light": "#f6f7fa"
+      "Light": "#f6f7fa",
+      "Mid · Neutral Gray": "#626262",
+      "Mode 2": "#f6f7fa",
+      "Dark · Graphite": "#202020"
      }
     },
     {
@@ -2378,7 +2951,10 @@
      ],
      "values": {
       "Dark": "#1c2130",
-      "Light": "#e8ebf2"
+      "Light": "#e8ebf2",
+      "Mid · Neutral Gray": "#7c7c7c",
+      "Mode 2": "#e8ebf2",
+      "Dark · Graphite": "#2a2a2a"
      }
     },
     {
@@ -2390,7 +2966,10 @@
      ],
      "values": {
       "Dark": "#1a2236",
-      "Light": "#e8eeff"
+      "Light": "#e8eeff",
+      "Mid · Neutral Gray": "#7a7a7a",
+      "Mode 2": "#e8eeff",
+      "Dark · Graphite": "#223242"
      }
     },
     {
@@ -2402,7 +2981,10 @@
      ],
      "values": {
       "Dark": "#ff5c6c",
-      "Light": "#e5334a"
+      "Light": "#e5334a",
+      "Mid · Neutral Gray": "#e05a57",
+      "Mode 2": "#e5334a",
+      "Dark · Graphite": "#d14745"
      }
     },
     {
@@ -2414,7 +2996,10 @@
      ],
      "values": {
       "Dark": "#8aadf4",
-      "Light": "#2f5bd8"
+      "Light": "#2f5bd8",
+      "Mid · Neutral Gray": "#3f6f9f",
+      "Mode 2": "#2f5bd8",
+      "Dark · Graphite": "#4a88bd"
      }
     },
     {
@@ -2426,7 +3011,10 @@
      ],
      "values": {
       "Dark": "#a6da95",
-      "Light": "#3d7a2a"
+      "Light": "#3d7a2a",
+      "Mid · Neutral Gray": "#4f7f3a",
+      "Mode 2": "#3d7a2a",
+      "Dark · Graphite": "#70a75a"
      }
     },
     {
@@ -2438,7 +3026,10 @@
      ],
      "values": {
       "Dark": "#05070bb3",
-      "Light": "#10131a66"
+      "Light": "#10131a66",
+      "Mid · Neutral Gray": "#10131a66",
+      "Mode 2": "#10131a66",
+      "Dark · Graphite": "#000000b3"
      }
     },
     {
@@ -2450,7 +3041,10 @@
      ],
      "values": {
       "Dark": "#e7eaf2",
-      "Light": "#171b26"
+      "Light": "#171b26",
+      "Mid · Neutral Gray": "#2a2a2a",
+      "Mode 2": "#171b26",
+      "Dark · Graphite": "#d0d0d0"
      }
     },
     {
@@ -2462,7 +3056,10 @@
      ],
      "values": {
       "Dark": 4,
-      "Light": 4
+      "Light": 4,
+      "Mid · Neutral Gray": 4,
+      "Mode 2": 4,
+      "Dark · Graphite": 4
      }
     },
     {
@@ -2474,7 +3071,10 @@
      ],
      "values": {
       "Dark": 8,
-      "Light": 8
+      "Light": 8,
+      "Mid · Neutral Gray": 8,
+      "Mode 2": 8,
+      "Dark · Graphite": 8
      }
     },
     {
@@ -2486,7 +3086,10 @@
      ],
      "values": {
       "Dark": 12,
-      "Light": 12
+      "Light": 12,
+      "Mid · Neutral Gray": 12,
+      "Mode 2": 12,
+      "Dark · Graphite": 12
      }
     },
     {
@@ -2498,7 +3101,10 @@
      ],
      "values": {
       "Dark": 16,
-      "Light": 16
+      "Light": 16,
+      "Mid · Neutral Gray": 16,
+      "Mode 2": 16,
+      "Dark · Graphite": 16
      }
     },
     {
@@ -2510,7 +3116,10 @@
      ],
      "values": {
       "Dark": 24,
-      "Light": 24
+      "Light": 24,
+      "Mid · Neutral Gray": 24,
+      "Mode 2": 24,
+      "Dark · Graphite": 24
      }
     },
     {
@@ -2522,7 +3131,10 @@
      ],
      "values": {
       "Dark": 32,
-      "Light": 32
+      "Light": 32,
+      "Mid · Neutral Gray": 32,
+      "Mode 2": 32,
+      "Dark · Graphite": 32
      }
     },
     {
@@ -2534,7 +3146,10 @@
      ],
      "values": {
       "Dark": 4,
-      "Light": 4
+      "Light": 4,
+      "Mid · Neutral Gray": 4,
+      "Mode 2": 4,
+      "Dark · Graphite": 4
      }
     },
     {
@@ -2546,7 +3161,10 @@
      ],
      "values": {
       "Dark": 6,
-      "Light": 6
+      "Light": 6,
+      "Mid · Neutral Gray": 6,
+      "Mode 2": 6,
+      "Dark · Graphite": 6
      }
     },
     {
@@ -2558,7 +3176,10 @@
      ],
      "values": {
       "Dark": 8,
-      "Light": 8
+      "Light": 8,
+      "Mid · Neutral Gray": 8,
+      "Mode 2": 8,
+      "Dark · Graphite": 8
      }
     },
     {
@@ -2570,7 +3191,10 @@
      ],
      "values": {
       "Dark": 12,
-      "Light": 12
+      "Light": 12,
+      "Mid · Neutral Gray": 12,
+      "Mode 2": 12,
+      "Dark · Graphite": 12
      }
     },
     {
@@ -2582,7 +3206,10 @@
      ],
      "values": {
       "Dark": 999,
-      "Light": 999
+      "Light": 999,
+      "Mid · Neutral Gray": 999,
+      "Mode 2": 999,
+      "Dark · Graphite": 999
      }
     },
     {
@@ -2595,7 +3222,10 @@
      ],
      "values": {
       "Dark": "#141820",
-      "Light": "#ffffff"
+      "Light": "#ffffff",
+      "Mid · Neutral Gray": "#707070",
+      "Mode 2": "#ffffff",
+      "Dark · Graphite": "#1b1b1b"
      }
     },
     {
@@ -2608,7 +3238,10 @@
      ],
      "values": {
       "Dark": "#181d26",
-      "Light": "#edf0f5"
+      "Light": "#edf0f5",
+      "Mid · Neutral Gray": "#686868",
+      "Mode 2": "#edf0f5",
+      "Dark · Graphite": "#202020"
      }
     },
     {
@@ -2621,7 +3254,10 @@
      ],
      "values": {
       "Dark": "#222833",
-      "Light": "#d5dae4"
+      "Light": "#d5dae4",
+      "Mid · Neutral Gray": "#888888",
+      "Mode 2": "#d5dae4",
+      "Dark · Graphite": "#2e2e2e"
      }
     },
     {
@@ -2634,7 +3270,10 @@
      ],
      "values": {
       "Dark": "#363d4b",
-      "Light": "#cbd0da"
+      "Light": "#cbd0da",
+      "Mid · Neutral Gray": "#a4a4a4",
+      "Mode 2": "#cbd0da",
+      "Dark · Graphite": "#444444"
      }
     },
     {
@@ -2647,7 +3286,10 @@
      ],
      "values": {
       "Dark": "#4b3f92",
-      "Light": "#d9d2ff"
+      "Light": "#d9d2ff",
+      "Mid · Neutral Gray": "#6f4b9a",
+      "Mode 2": "#d9d2ff",
+      "Dark · Graphite": "#522791"
      }
     },
     {
@@ -2660,7 +3302,10 @@
      ],
      "values": {
       "Dark": "#1d6a4c",
-      "Light": "#c8eed6"
+      "Light": "#c8eed6",
+      "Mid · Neutral Gray": "#397a4d",
+      "Mode 2": "#c8eed6",
+      "Dark · Graphite": "#286b3a"
      }
     },
     {
@@ -2673,7 +3318,10 @@
      ],
      "values": {
       "Dark": "#2a5b9e",
-      "Light": "#cde0ff"
+      "Light": "#cde0ff",
+      "Mid · Neutral Gray": "#3f6f9f",
+      "Mode 2": "#cde0ff",
+      "Dark · Graphite": "#225992"
      }
     },
     {
@@ -2686,7 +3334,10 @@
      ],
      "values": {
       "Dark": "#3550b8",
-      "Light": "#3c6bf0"
+      "Light": "#3c6bf0",
+      "Mid · Neutral Gray": "#576572",
+      "Mode 2": "#3c6bf0",
+      "Dark · Graphite": "#3a78b2"
      }
     },
     {
@@ -2699,7 +3350,10 @@
      ],
      "values": {
       "Dark": "#d9dee8",
-      "Light": "#171b26"
+      "Light": "#171b26",
+      "Mid · Neutral Gray": "#f4f4f4",
+      "Mode 2": "#171b26",
+      "Dark · Graphite": "#d0d0d0"
      }
     },
     {
@@ -2712,7 +3366,10 @@
      ],
      "values": {
       "Dark": "#ffffff",
-      "Light": "#ffffff"
+      "Light": "#ffffff",
+      "Mid · Neutral Gray": "#ffffff",
+      "Mode 2": "#ffffff",
+      "Dark · Graphite": "#ffffff"
      }
     },
     {
@@ -2725,7 +3382,10 @@
      ],
      "values": {
       "Dark": "#ff6b6b",
-      "Light": "#d92d2d"
+      "Light": "#d92d2d",
+      "Mid · Neutral Gray": "#fff5f4",
+      "Mode 2": "#d92d2d",
+      "Dark · Graphite": "#f47b75"
      }
     },
     {
@@ -2738,7 +3398,10 @@
      ],
      "values": {
       "Dark": "#3dd68c",
-      "Light": "#168a57"
+      "Light": "#168a57",
+      "Mid · Neutral Gray": "#237a3b",
+      "Mode 2": "#168a57",
+      "Dark · Graphite": "#25a044"
      }
     },
     {
@@ -2751,7 +3414,10 @@
      ],
      "values": {
       "Dark": "#171b23",
-      "Light": "#e6e9f0"
+      "Light": "#e6e9f0",
+      "Mid · Neutral Gray": "#e1e1e1",
+      "Mode 2": "#e6e9f0",
+      "Dark · Graphite": "#252525"
      }
     },
     {
@@ -2764,7 +3430,10 @@
      ],
      "values": {
       "Dark": "#6c93ff",
-      "Light": "#3c6bf0"
+      "Light": "#3c6bf0",
+      "Mid · Neutral Gray": "#3f6f9f",
+      "Mode 2": "#3c6bf0",
+      "Dark · Graphite": "#3a78b2"
      }
     },
     {
@@ -2777,7 +3446,10 @@
      ],
      "values": {
       "Dark": "#c6a0f6",
-      "Light": "#7e3fc2"
+      "Light": "#7e3fc2",
+      "Mid · Neutral Gray": "#77539b",
+      "Mode 2": "#7e3fc2",
+      "Dark · Graphite": "#8b6bb5"
      }
     },
     {
@@ -2790,7 +3462,10 @@
      ],
      "values": {
       "Dark": "#8bd5ca",
-      "Light": "#0b7f72"
+      "Light": "#0b7f72",
+      "Mid · Neutral Gray": "#3f7c73",
+      "Mode 2": "#0b7f72",
+      "Dark · Graphite": "#4e9d91"
      }
     },
     {
@@ -2803,7 +3478,10 @@
      ],
      "values": {
       "Dark": "#6e7891",
-      "Light": "#8a93a6"
+      "Light": "#8a93a6",
+      "Mid · Neutral Gray": "#777777",
+      "Mode 2": "#8a93a6",
+      "Dark · Graphite": "#747474"
      }
     },
     {
@@ -2816,7 +3494,10 @@
      ],
      "values": {
       "Dark": "#f5a97f",
-      "Light": "#b5521b"
+      "Light": "#b5521b",
+      "Mid · Neutral Gray": "#b86a32",
+      "Mode 2": "#b5521b",
+      "Dark · Graphite": "#c46f3a"
      }
     },
     {
@@ -2829,7 +3510,10 @@
      ],
      "values": {
       "Dark": "#7dc4e4",
-      "Light": "#0b6e99"
+      "Light": "#0b6e99",
+      "Mid · Neutral Gray": "#3f6f9f",
+      "Mode 2": "#0b6e99",
+      "Dark · Graphite": "#3a78b2"
      }
     },
     {
@@ -2842,7 +3526,10 @@
      ],
      "values": {
       "Dark": "#eed49f",
-      "Light": "#8a6500"
+      "Light": "#8a6500",
+      "Mid · Neutral Gray": "#8a6a00",
+      "Mode 2": "#8a6500",
+      "Dark · Graphite": "#c0a000"
      }
     },
     {
@@ -2855,7 +3542,10 @@
      ],
      "values": {
       "Dark": "#2ec4e6",
-      "Light": "#0b93bf"
+      "Light": "#0b93bf",
+      "Mid · Neutral Gray": "#0b93bf",
+      "Mode 2": "#0b93bf",
+      "Dark · Graphite": "#3a78b2"
      }
     },
     {
@@ -2868,7 +3558,10 @@
      ],
      "values": {
       "Dark": "#8be7fb",
-      "Light": "#05698a"
+      "Light": "#05698a",
+      "Mid · Neutral Gray": "#05698a",
+      "Mode 2": "#05698a",
+      "Dark · Graphite": "#72a9c5"
      }
     },
     {
@@ -2881,7 +3574,10 @@
      ],
      "values": {
       "Dark": "#ffffff",
-      "Light": "#1b2233"
+      "Light": "#1b2233",
+      "Mid · Neutral Gray": "#888888",
+      "Mode 2": "#1b2233",
+      "Dark · Graphite": "#484848"
      }
     },
     {
@@ -2894,7 +3590,10 @@
      ],
      "values": {
       "Dark": "#ff6b6b",
-      "Light": "#d92d2d"
+      "Light": "#d92d2d",
+      "Mid · Neutral Gray": "#b83a34",
+      "Mode 2": "#d92d2d",
+      "Dark · Graphite": "#f47b75"
      }
     },
     {
@@ -2907,7 +3606,10 @@
      ],
      "values": {
       "Dark": "#f5b94a",
-      "Light": "#b26a00"
+      "Light": "#b26a00",
+      "Mid · Neutral Gray": "#9a7400",
+      "Mode 2": "#b26a00",
+      "Dark · Graphite": "#c0a000"
      }
     },
     {
@@ -2920,7 +3622,10 @@
      ],
      "values": {
       "Dark": "#ff9a5c",
-      "Light": "#e8731f"
+      "Light": "#e8731f",
+      "Mid · Neutral Gray": "#c56f2b",
+      "Mode 2": "#e8731f",
+      "Dark · Graphite": "#d9854a"
      }
     },
     {
@@ -2933,7 +3638,10 @@
      ],
      "values": {
       "Dark": "#2a3a63",
-      "Light": "#d5e2ff"
+      "Light": "#d5e2ff",
+      "Mid · Neutral Gray": "#d8d8d8",
+      "Mode 2": "#d5e2ff",
+      "Dark · Graphite": "#233a52"
      }
     },
     {
@@ -2946,7 +3654,10 @@
      ],
      "values": {
       "Dark": "#171c27",
-      "Light": "#f2f5fb"
+      "Light": "#f2f5fb",
+      "Mid · Neutral Gray": "#e1e1e1",
+      "Mode 2": "#f2f5fb",
+      "Dark · Graphite": "#292929"
      }
     }
    ]

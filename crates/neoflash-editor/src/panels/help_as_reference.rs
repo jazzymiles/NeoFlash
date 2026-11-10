@@ -11,10 +11,10 @@ use super::help_manual::{
 };
 use eframe::egui::{self, Rect, Stroke, StrokeKind, Ui, vec2};
 use neoflash_ui::{
-    Palette, TextStyle,
+    Palette, TextStyle, Theme,
     components::{self as c, Badge, BadgeType, Button},
     icons::{self, i16},
-    tokens::{DARK, LIGHT, radius, space},
+    tokens::{radius, space},
     typography::rich,
 };
 use std::fmt::Write as _;
@@ -3745,23 +3745,57 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
     }
 }
 
-pub(crate) fn render_full_browser_help_html() -> String {
+const fn browser_theme_slug(theme: Theme) -> &'static str {
+    match theme {
+        Theme::Dark => "dark",
+        Theme::Light => "light",
+        Theme::MidNeutralGray => "mid-neutral-gray",
+        Theme::DarkGraphite => "dark-graphite",
+    }
+}
+
+const fn browser_theme_label(theme: Theme) -> &'static str {
+    match theme {
+        Theme::Dark => "Dark",
+        Theme::Light => "Light",
+        Theme::MidNeutralGray => "Mid Neutral Gray",
+        Theme::DarkGraphite => "Dark Graphite",
+    }
+}
+
+pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
     let hash = char::from(35u8);
     let mut html = String::with_capacity(81_920);
-    html.push_str(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+    let _ = write!(
+        html,
+        "<!doctype html><html lang=\"en\" data-initial-theme=\"{}\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
          <meta name=\"color-scheme\" content=\"dark light\">\
          <title>NeoFlash Help &amp; Reference</title><style>",
+        browser_theme_slug(initial_theme)
     );
-    html.push_str(":root,.help-shell{");
-    write_palette_css_vars(&DARK, &mut html);
-    html.push_str("}@media (prefers-color-scheme: light){:root{");
-    write_palette_css_vars(&LIGHT, &mut html);
-    html.push_str("}}");
-    html.push_str(".theme-toggle-input:checked ~ .help-shell{");
-    write_palette_css_vars(&LIGHT, &mut html);
+    html.push_str(":root{");
+    let _ = write!(
+        html,
+        "color-scheme:{};",
+        if initial_theme.is_dark() {
+            "dark"
+        } else {
+            "light"
+        }
+    );
+    write_palette_css_vars(initial_theme.palette(), &mut html);
     html.push('}');
+    for theme in Theme::ALL {
+        let _ = write!(
+            html,
+            "body:has(#nf2-theme-{}:checked){{color-scheme:{};",
+            browser_theme_slug(theme),
+            if theme.is_dark() { "dark" } else { "light" }
+        );
+        write_palette_css_vars(theme.palette(), &mut html);
+        html.push('}');
+    }
     html.push_str(
         "*{box-sizing:border-box}body{margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;line-height:1.55;background:var(--bg-app);color:var(--text-primary)}\
          .sr-toggle{position:absolute;opacity:0;pointer-events:none}\
@@ -3769,8 +3803,9 @@ pub(crate) fn render_full_browser_help_html() -> String {
          .top-header{position:sticky;top:0;z-index:10;background:var(--bg-raised);border-bottom:1px solid var(--border-subtle);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}\
          .top-header h1{margin:0;font-size:16px;font-weight:600;color:var(--text-primary)}\
          .top-header p{margin:2px 0 0;font-size:12px;color:var(--text-secondary)}\
-         .theme-btn{cursor:pointer;padding:6px 12px;border-radius:6px;background:var(--bg-panel);border:1px solid var(--border-default);color:var(--text-primary);font-size:12px;font-weight:500;user-select:none}\
+         .theme-btn{display:none;cursor:pointer;padding:6px 12px;border-radius:6px;background:var(--bg-panel);border:1px solid var(--border-default);color:var(--text-primary);font-size:12px;font-weight:500;user-select:none}\
          .theme-btn:hover{background:var(--bg-hover);border-color:var(--border-strong)}\
+         body:has(#nf2-theme-dark:checked) .theme-from-dark,body:has(#nf2-theme-light:checked) .theme-from-light,body:has(#nf2-theme-mid-neutral-gray:checked) .theme-from-mid-neutral-gray,body:has(#nf2-theme-dark-graphite:checked) .theme-from-dark-graphite{display:inline-block}\
          .tag-bar{background:var(--bg-panel);border-bottom:1px solid var(--border-subtle);padding:8px 24px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}\
          .tag-bar-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-tertiary);margin-right:4px}\
          .tag-pill{cursor:pointer;padding:3px 10px;border-radius:999px;background:var(--bg-raised);border:1px solid var(--border-subtle);color:var(--text-secondary);font-size:11px;font-weight:500;user-select:none;text-decoration:none}\
@@ -3819,10 +3854,23 @@ pub(crate) fn render_full_browser_help_html() -> String {
     );
     html.push_str("</style></head><body>");
 
-    // Theme checkbox + Tag filter radio inputs (100% declarative CSS state)
+    // Theme and tag filters remain fully declarative. Four labels occupy the same header slot, but
+    // CSS exposes only the label for the selected theme; activating it selects the next palette.
+    for theme in Theme::ALL {
+        let _ = write!(
+            html,
+            "<input type=\"radio\" name=\"nf2-theme\" id=\"nf2-theme-{}\" class=\"sr-toggle\" aria-label=\"{} theme\"{}>",
+            browser_theme_slug(theme),
+            browser_theme_label(theme),
+            if theme == initial_theme {
+                " checked"
+            } else {
+                ""
+            }
+        );
+    }
     html.push_str(
-        "<input type=\"checkbox\" id=\"nf2-theme-toggle\" class=\"sr-toggle theme-toggle-input\">\
-         <div class=\"help-shell\">\
+        "<div class=\"help-shell\">\
          <input type=\"radio\" name=\"nf2-tag\" id=\"nf2-tag-ALL\" data-tag=\"ALL\" class=\"sr-toggle\" checked>",
     );
     for tag in HELP_ALL_TAGS {
@@ -3837,7 +3885,10 @@ pub(crate) fn render_full_browser_help_html() -> String {
          <h1>NeoFlash Help &amp; Reference</h1>\
          <p>Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19).</p>\
          </div>\
-         <label for=\"nf2-theme-toggle\" class=\"theme-btn\">Switch Dark / Light Theme</label>\
+         <label for=\"nf2-theme-light\" class=\"theme-btn theme-from-dark\" aria-label=\"Switch Help theme from Dark to Light\">Theme: Dark</label>\
+         <label for=\"nf2-theme-mid-neutral-gray\" class=\"theme-btn theme-from-light\" aria-label=\"Switch Help theme from Light to Mid Neutral Gray\">Theme: Light</label>\
+         <label for=\"nf2-theme-dark-graphite\" class=\"theme-btn theme-from-mid-neutral-gray\" aria-label=\"Switch Help theme from Mid Neutral Gray to Dark Graphite\">Theme: Mid Neutral Gray</label>\
+         <label for=\"nf2-theme-dark\" class=\"theme-btn theme-from-dark-graphite\" aria-label=\"Switch Help theme from Dark Graphite to Dark\">Theme: Dark Graphite</label>\
          </header>",
     );
 

@@ -4077,6 +4077,33 @@ mod tests {
         assert!(!storage.values[PREFS_KEY].contains("keyframes"));
     }
     #[test]
+    fn every_theme_roundtrips_and_legacy_names_remain_compatible() {
+        for theme in ThemeMode::ALL {
+            let prefs = WorkspacePrefs {
+                theme,
+                ..Default::default()
+            };
+            let encoded = serde_json::to_string(&prefs).unwrap();
+            assert_eq!(WorkspacePrefs::from_json(&encoded).theme, theme);
+        }
+        assert_eq!(
+            WorkspacePrefs::from_json(r#"{"theme":"dark"}"#).theme,
+            ThemeMode::Dark
+        );
+        assert_eq!(
+            WorkspacePrefs::from_json(r#"{"theme":"light"}"#).theme,
+            ThemeMode::Light
+        );
+        assert_eq!(
+            WorkspacePrefs::from_json(r#"{"theme":"mid_neutral_gray"}"#).theme,
+            ThemeMode::MidNeutralGray
+        );
+        assert_eq!(
+            WorkspacePrefs::from_json(r#"{"theme":"dark_graphite"}"#).theme,
+            ThemeMode::DarkGraphite
+        );
+    }
+    #[test]
     fn legacy_preferences_without_track2_panels_or_swatches_load_and_new_fields_roundtrip() {
         let legacy = r#"{"version":1,"theme":"dark","panels":{"timeline":true,"tools":true,"library":true,"properties":true,"actions":false,"accessibility":false,"output":false}}"#;
         let loaded = WorkspacePrefs::from_json(legacy);
