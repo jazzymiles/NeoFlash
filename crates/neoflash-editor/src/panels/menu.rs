@@ -541,8 +541,8 @@ impl Editor {
             menu_popup(
                 ui,
                 "Export",
-                "Export Flash Movie (.swf)…",
-                &self.sc(C::FileExportLottie),
+                "Export After Effects (.aep)…",
+                &self.sc(C::FileExportAfterEffects),
                 |ui| {
                     Self::planned_menu_item(ui, "File ▸ Export ▸ Export image…", "");
                     Self::planned_menu_item(
@@ -560,11 +560,29 @@ impl Editor {
                         self.export_lottie_dialog(None);
                         ui.close();
                     }
-                    if menu_item(ui, "Export Texture Atlas…", "").clicked() {
+                    if menu_item(
+                        ui,
+                        "Export After Effects (.aep)…",
+                        &self.sc(C::FileExportAfterEffects),
+                    )
+                    .clicked()
+                    {
+                        self.export_aep_dialog(None, None);
+                        ui.close();
+                    }
+                    if menu_item(
+                        ui,
+                        "Export Texture Atlas…",
+                        &self.sc(C::FileExportTextureAtlas),
+                    )
+                    .clicked()
+                    {
                         self.export_texture_atlas_dialog(None);
                         ui.close();
                     }
-                    if menu_item(ui, "Export Flash Movie (.swf)…", "").clicked() {
+                    if menu_item(ui, "Export Flash Movie (.swf)…", &self.sc(C::FileExportSwf))
+                        .clicked()
+                    {
                         self.export_swf_dialog(None);
                         ui.close();
                     }

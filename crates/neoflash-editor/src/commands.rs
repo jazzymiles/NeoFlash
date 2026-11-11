@@ -643,6 +643,9 @@ pub enum CommandId {
     FileExportVideo,
     FileExportAudio,
     FileExportLottie,
+    FileExportAfterEffects,
+    FileExportTextureAtlas,
+    FileExportSwf,
     FilePublishSettings,
     FilePublish,
     // Edit
@@ -801,6 +804,7 @@ const S_CMD_W: &[Shortcut] = &[Shortcut::cmd(Key::W)];
 const S_CMD_S: &[Shortcut] = &[Shortcut::cmd(Key::S)];
 const S_SHIFT_CMD_S: &[Shortcut] = &[Shortcut::shift_cmd(Key::S)];
 const S_ALT_SHIFT_CMD_L: &[Shortcut] = &[Shortcut::alt_shift_cmd(Key::L)];
+const S_ALT_SHIFT_CMD_A: &[Shortcut] = &[Shortcut::alt_shift_cmd(Key::A)];
 const S_SHIFT_F12: &[Shortcut] = &[Shortcut::shift(Key::F12)];
 const S_PUBLISH: &[Shortcut] = &[Shortcut::shift_alt(Key::F12)];
 
@@ -933,6 +937,9 @@ impl CommandId {
         Self::FileExportVideo,
         Self::FileExportAudio,
         Self::FileExportLottie,
+        Self::FileExportAfterEffects,
+        Self::FileExportTextureAtlas,
+        Self::FileExportSwf,
         Self::FilePublishSettings,
         Self::FilePublish,
         Self::EditUndo,
@@ -1158,6 +1165,30 @@ impl CommandId {
                 title: "File ▸ Export ▸ Export Lottie…",
                 keywords: "bodymovin json animation vector",
                 defaults: S_ALT_SHIFT_CMD_L,
+                allow_when_typing: false,
+            },
+            Self::FileExportAfterEffects => CommandMeta {
+                id: "file.export.after_effects",
+                category: C::File,
+                title: "File ▸ Export ▸ Export After Effects (.aep)…",
+                keywords: "aep aepx jsx adobe after effects composition expressions vector interchange",
+                defaults: S_ALT_SHIFT_CMD_A,
+                allow_when_typing: false,
+            },
+            Self::FileExportTextureAtlas => CommandMeta {
+                id: "file.export.texture_atlas",
+                category: C::File,
+                title: "File ▸ Export ▸ Export Texture Atlas…",
+                keywords: "sprite sheet spritesheet starling easeljs css json atlas pack",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::FileExportSwf => CommandMeta {
+                id: "file.export.swf",
+                category: C::File,
+                title: "File ▸ Export ▸ Export Flash Movie (.swf)…",
+                keywords: "swf flash player movie bytecode",
+                defaults: &[],
                 allow_when_typing: false,
             },
             Self::FilePublishSettings => CommandMeta {

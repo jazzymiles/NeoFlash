@@ -2086,6 +2086,77 @@ impl Editor {
         self.open_export_lottie(symbol_id);
     }
 
+    /// Export the document (or a specific `symbol_id`) to an Adobe After Effects interchange
+    /// package (`.aep` + `.aepx` + self-building `.jsx` ExtendScript + `<stem>_Footage/`) (`T-246`).
+    pub fn export_aep_dialog(&mut self, symbol_id: Option<&str>, dest: Option<PathBuf>) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        self.finish_edits();
+        let raw_name = symbol_id
+            .and_then(|sid| self.project.symbol(sid))
+            .map(|s| s.name.as_str())
+            .unwrap_or(self.project.name.as_str());
+        let clean_stem: String = raw_name
+            .trim()
+            .chars()
+            .map(|c| {
+                if matches!(c, '/' | '\\' | ':' | '\0') {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let stem = if clean_stem.is_empty() {
+            "composition"
+        } else {
+            clean_stem.as_str()
+        };
+        let default_name = format!("{stem}.aep");
+        let aep_path = if let Some(path) = dest {
+            path
+        } else if let Some(file) = rfd::FileDialog::new()
+            .set_title("Export After Effects Project (.aep)")
+            .add_filter("After Effects Project", &["aep", "aepx", "jsx"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            file
+        } else {
+            return false;
+        };
+        let opts = neoflash_export::AepOptions {
+            symbol: symbol_id.map(str::to_owned),
+            jpeg_quality: self.workspace.publish.jpeg_quality,
+            ..neoflash_export::AepOptions::default()
+        };
+        match neoflash_export::export_project_aep(&self.project, &aep_path, &opts) {
+            Ok(report) => {
+                for diag in &report.diagnostics {
+                    self.output.push(format!(
+                        "[aep:{}] {}: {}",
+                        diag.code, diag.location, diag.message
+                    ));
+                }
+                self.message(format!(
+                    "After Effects exported: {} ({} comp(s), {} vector layer(s), {} expression(s), {} footage)",
+                    report.aep_path.display(),
+                    report.composition_count,
+                    report.vector_shape_layer_count,
+                    report.expression_count,
+                    report.footage_files.len()
+                ));
+                true
+            }
+            Err(e) => {
+                self.message(format!("After Effects export failed: {e}"));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
+
     /// Export a packed Texture Atlas (`JSON-Hash`, `JSON-Array`, `Starling XML`, `EaselJS`, `CSS`) (`T-250`).
     pub fn export_texture_atlas_dialog(&mut self, dest: Option<PathBuf>) -> bool {
         if !self.has_document() {
@@ -2743,6 +2814,15 @@ impl Editor {
         }
         if self.take_command_shortcut(ctx, C::FileExportLottie) {
             self.export_lottie_dialog(None);
+        }
+        if self.take_command_shortcut(ctx, C::FileExportAfterEffects) {
+            self.export_aep_dialog(None, None);
+        }
+        if self.take_command_shortcut(ctx, C::FileExportTextureAtlas) {
+            self.export_texture_atlas_dialog(None);
+        }
+        if self.take_command_shortcut(ctx, C::FileExportSwf) {
+            self.export_swf_dialog(None);
         }
         if self.take_command_shortcut(ctx, C::FilePublishSettings) {
             Self::open_planned(ctx, "File ▸ Publish settings…");

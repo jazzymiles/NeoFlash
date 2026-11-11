@@ -336,6 +336,7 @@ enum Action {
     DuplicateSymbol(String),
     SwapSymbol(String),
     ExportSymbolLottie(String),
+    ExportSymbolAep(String),
     DeleteSymbol(String),
     EditFolder(String),
     NewFolder(String),
@@ -1711,6 +1712,14 @@ impl Editor {
                                 {
                                     action = Some(Action::ExportSymbolLottie(symbol.id.clone()));
                                 }
+                                if ui
+                                    .add(nf::MenuItem::new(
+                                        "Export symbol as After Effects (.aep)…",
+                                    ))
+                                    .clicked()
+                                {
+                                    action = Some(Action::ExportSymbolAep(symbol.id.clone()));
+                                }
                                 nf::menu_separator(ui);
                                 if ui
                                     .add_enabled(source_active, nf::MenuItem::new("Batch rename…"))
@@ -1870,6 +1879,14 @@ impl Editor {
                 Action::ExportSymbolLottie(id) => {
                     match self.import_symbol_from_current_library_source(&id) {
                         Ok(imported) => self.export_lottie_dialog(Some(&imported)),
+                        Err(error) => self.message(error),
+                    }
+                }
+                Action::ExportSymbolAep(id) => {
+                    match self.import_symbol_from_current_library_source(&id) {
+                        Ok(imported) => {
+                            self.export_aep_dialog(Some(&imported), None);
+                        }
                         Err(error) => self.message(error),
                     }
                 }
@@ -2077,6 +2094,18 @@ impl Editor {
             {
                 match self.import_symbol_from_current_library_source(&symbol.id) {
                     Ok(imported) => self.export_lottie_dialog(Some(&imported)),
+                    Err(error) => self.message(error),
+                }
+                ui.close();
+            }
+            if ui
+                .add(nf::MenuItem::new("Export symbol as After Effects (.aep)…"))
+                .clicked()
+            {
+                match self.import_symbol_from_current_library_source(&symbol.id) {
+                    Ok(imported) => {
+                        self.export_aep_dialog(Some(&imported), None);
+                    }
                     Err(error) => self.message(error),
                 }
                 ui.close();

@@ -409,4 +409,32 @@ mod tests {
             "active keyboard result must remain inside the results viewport"
         );
     }
+
+    #[test]
+    fn after_effects_aep_export_is_searchable_and_exports_without_document_mutation() {
+        let hits = function_search_results("after effects");
+        assert_eq!(hits.first(), Some(&CommandId::FileExportAfterEffects));
+        let aep_hits = function_search_results("aep");
+        assert!(aep_hits.contains(&CommandId::FileExportAfterEffects));
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::demo());
+        let before_json = serde_json::to_string(&editor.project).unwrap();
+        let dir = std::env::temp_dir().join(format!("nf-editor-aep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let out_aep = dir.join("demo_scene.aep");
+
+        assert!(editor.export_aep_dialog(None, Some(out_aep.clone())));
+        assert!(out_aep.exists());
+        assert!(out_aep.with_extension("aepx").exists());
+        assert!(out_aep.with_extension("jsx").exists());
+        assert_eq!(
+            serde_json::to_string(&editor.project).unwrap(),
+            before_json,
+            "exporting AEP must never mutate the authored document"
+        );
+        assert!(editor.status.contains("After Effects exported:"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

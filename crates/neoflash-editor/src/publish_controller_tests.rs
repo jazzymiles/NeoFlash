@@ -349,8 +349,8 @@ fn export_image_and_native_banner_publish_persist_confirmed_settings_and_discard
         draft.options.format = neoflash_export::ImageExportFormat::Webp;
         draft.options.jpeg_quality = 77;
         draft.options.scale = 2.0;
-        draft.options.width = u32::from(editor.project.width) * 2;
-        draft.options.height = u32::from(editor.project.height) * 2;
+        draft.options.width = editor.project.width * 2;
+        draft.options.height = editor.project.height * 2;
     });
     let out_webp = fixture.0.join("still.webp");
     editor

@@ -1,9 +1,9 @@
 use neoflash_core::Project;
 use neoflash_export::{
-    AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat, BannerOptions,
-    FontExportPolicy, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, ImageExportFormat,
-    ImageExportOptions, ImageExportRange, LottieOptions, PublishOptions, SizeLevel, SvgOptions,
-    VideoFormat, VideoOptions,
+    AepOptions, AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
+    BannerOptions, FontExportPolicy, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign,
+    ImageExportFormat, ImageExportOptions, ImageExportRange, LottieOptions, PublishOptions,
+    SizeLevel, SvgOptions, VideoFormat, VideoOptions,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -28,6 +28,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut atlas_extrude: u32 = 0;
     let mut banner_output: Option<PathBuf> = None;
     let mut banner_max_gzip: Option<usize> = None;
+    let mut aep_output: Option<PathBuf> = None;
     let mut sequence_output: Option<PathBuf> = None;
     let mut audio_format = None;
     let mut lottie_symbol = None;
@@ -111,6 +112,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         .ok_or("--banner-max-gzip requires a byte limit")?
                         .parse()?,
                 );
+            }
+            "--aep" | "--after-effects" => {
+                aep_output = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--aep requires an output .aep, .aepx, or .jsx file")?,
+                ));
             }
             "--sequence" => {
                 sequence_output = Some(PathBuf::from(
@@ -258,6 +265,33 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             report.gzip_bytes,
             report.frame_count
         );
+        return Ok(());
+    }
+    if let Some(aep_path) = aep_output {
+        let report = neoflash_export::export_project_aep(
+            &project,
+            &aep_path,
+            &AepOptions {
+                symbol: lottie_symbol.clone(),
+                ..AepOptions::default()
+            },
+        )?;
+        let total_layers = report.vector_shape_layer_count
+            + report.text_layer_count
+            + report.precomp_layer_count
+            + report.footage_layer_count;
+        println!(
+            "After Effects export: {} ({} comps, {} layers, {} expressions, {} markers, {} footage)",
+            report.aep_path.display(),
+            report.composition_count,
+            total_layers,
+            report.expression_count,
+            report.marker_count,
+            report.footage_files.len()
+        );
+        for diag in &report.diagnostics {
+            eprintln!("Note [{} @ {}]: {}", diag.code, diag.location, diag.message);
+        }
         return Ok(());
     }
     if let Some(seq_path) = sequence_output {
