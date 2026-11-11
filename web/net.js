@@ -65,7 +65,7 @@
     const schedule=options.schedule||(callback=>global.queueMicrotask(callback));
     const fetchTransport=options.fetch||(typeof global.fetch==='function'?global.fetch.bind(global):null);
     const baseURL=options.baseURL||global.location?.href||null;
-    const assetUrls=options.assetUrls||null;
+    const assetUrls=new Map(Object.entries(options.assetUrls||{}));
     const requests=new WeakSet(),headers=new WeakSet(),variables=new WeakSet(),loaders=new WeakMap(),legacy=new WeakMap();
     const active=new Set(),resources=new Map(),resourceCache=new Map();
     let generation=1,disposed=false,activeBytes=0;
@@ -77,7 +77,7 @@
       if(resources.has(resource.path))throw new TypeError('Duplicate portable resource path.');
       resources.set(resource.path,{...resource,byteLength:length});resourceBytes+=length;
     }
-    function registerResources(list){
+    function registerResources(list,extraAssetUrls=null){
       open();const added=[];
       for(const resource of list||[]){
         if(!resource||typeof resource.path!=='string'||!resource.path)continue;
@@ -87,6 +87,9 @@
         if(resources.size>=1024)throw new RangeError('A publication supports at most 1024 portable resources.');
         resources.set(resource.path,{...resource,byteLength:length});resourceBytes+=length;added.push(resource.path);
       }
+      if(extraAssetUrls&&typeof extraAssetUrls==='object'){
+        for(const[k,v]of Object.entries(extraAssetUrls)){if(typeof k==='string'&&typeof v==='string'&&!assetUrls.has(k))assetUrls.set(k,v);}
+      }
       return added;
     }
     function unregisterResources(paths){
@@ -94,6 +97,7 @@
       for(const path of paths||[]){
         const existing=resources.get(path);
         if(existing){resourceBytes=Math.max(0,resourceBytes-(existing.byteLength||0));resources.delete(path);resourceCache.delete(path);}
+        assetUrls.delete(path);
       }
     }
     const hub=events.create({weakTargets:true,alive:target=>!disposed&&loaders.get(target)?.generation===generation});
@@ -291,7 +295,7 @@
       open();const source=text(value,'Media URL');if(!source||source.length>8192)throw new RangeError('Media URL must contain 1 through 8192 characters.');
       const resource=resourceFor(source);
       if(resource){
-        const extRel=assetUrls?.[resource.path];
+        const extRel=assetUrls.get(resource.path)||null;
         if(resource.byteLength===0&&extRel){
           let url=null;try{url=new URL(extRel,baseURL||undefined);}catch(_){url=null;}
           return {kind:'http',url:url?url.href:extRel,mediaType:resource.media_type};
@@ -307,7 +311,7 @@
     }
     async function read(operation,request){
       const resource=resourceFor(request.url),record=operation.record;
-      const extRel=(resource&&resource.byteLength===0)?assetUrls?.[resource.path]:null;
+      const extRel=(resource&&resource.byteLength===0)?(assetUrls.get(resource.path)||null):null;
       if(resource&&!extRel){
         if(request.method!=='GET')throw new TypeError('Bundled resources are immutable and support GET only; POST requires an HTTP(S) endpoint.');
         const bytes=decodeResource(resource);retained(operation,bytes.length);record.total=bytes.length;
@@ -318,7 +322,10 @@
       }
       const targetUrl=extRel||request.url;
       let url;try{url=new URL(targetUrl,baseURL||undefined);}catch(_){throw new TypeError(`Resource '${request.url}' is not bundled and no HTTP(S) base URL is available.`);}
-      if(!['http:','https:'].includes(url.protocol))throw new TypeError(`Resource '${request.url}' is not bundled. Only browser HTTP(S) loading is supported; filesystem URLs are unavailable.`);
+      if(!['http:','https:'].includes(url.protocol)){
+        if(extRel&&url.protocol==='file:')throw new TypeError(`Resource '${request.url}' uses externalized assets (${extRel}), which browsers block over file://. Serve the published folder over HTTP(S), or disable 'Put assets in subfolder' in Publish settings.`);
+        throw new TypeError(`Resource '${request.url}' is not bundled. Only browser HTTP(S) loading is supported; filesystem URLs are unavailable.`);
+      }
       if(url.username||url.password)throw new TypeError('Credentials embedded in request URLs are unsupported; use an explicit permitted request header.');
       if(!fetchTransport)throw new Error('This browser does not provide fetch.');
       const response=await fetchTransport(url.href,{method:request.method,headers:request.headers,body:request.body,signal:operation.controller.signal,credentials:'same-origin',mode:'cors'});

@@ -677,17 +677,17 @@ impl Editor {
                 draft.settings.enable_target(draft.selected_target);
                 draft.settings.default_target = draft.selected_target;
             }
-            // Persist draft settings immediately when publishing so Publish settings never reset after Publish.
-            self.workspace.publish = draft.settings.clone();
             let publish_video = draft.settings.video_enabled;
             let publish_html5 = draft.settings.html5_enabled;
             let publish_desktop = draft.settings.desktop_app_enabled;
             let publish_images = draft.settings.image_sequence_enabled;
             let publish_svg = draft.settings.svg_enabled;
+            let unconfigured =
+                |opt: &Option<String>| opt.as_deref().is_none_or(|s| s.trim().is_empty());
             let needs_shared_output = publish_html5
-                || (publish_desktop && draft.settings.desktop_app_folder.is_none())
-                || (publish_images && draft.settings.image_sequence_folder.is_none())
-                || (publish_svg && draft.settings.svg_file.is_none());
+                || (publish_desktop && unconfigured(&draft.settings.desktop_app_folder))
+                || (publish_images && unconfigured(&draft.settings.image_sequence_folder))
+                || (publish_svg && unconfigured(&draft.settings.svg_file));
             if !needs_shared_output {
                 let mut ok = true;
                 if publish_video {
@@ -707,6 +707,7 @@ impl Editor {
                     ok &= self.publish_svg_with_settings(None, &draft.settings);
                 }
                 if ok {
+                    self.workspace.publish = draft.settings.clone();
                     close = true;
                 } else {
                     draft.error = Some(self.status.clone());
@@ -737,6 +738,7 @@ impl Editor {
                     ok &= self.publish_svg_with_settings(Some(&output), &draft.settings);
                 }
                 if ok {
+                    self.workspace.publish = draft.settings.clone();
                     close = true;
                 } else {
                     draft.error = Some(self.status.clone());

@@ -29,7 +29,9 @@ use std::{
 
 const MAX_FIGMA_FILE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_FIGMA_DECODE_BYTES: usize = 128 * 1024 * 1024;
+const MAX_FIGMA_IMAGE_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 const MAX_FIGMA_NODES: usize = 50_000;
+const MAX_KIWI_VALUES: usize = 2_000_000;
 
 /// How top-level Figma artboard/frame children map into the NeoFlash timeline (`T-249`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,7 +385,8 @@ impl<'a> KiwiReader<'a> {
 
 fn parse_kiwi_schema(bytes: &[u8]) -> Result<Vec<KiwiDef>, String> {
     let mut r = KiwiReader::new(bytes);
-    let def_count = r.read_var_uint()? as usize;
+    let def_count = usize::try_from(r.read_var_uint()?)
+        .map_err(|_| "Kiwi schema definition count overflow".to_owned())?;
     if def_count > 4096 {
         return Err("Kiwi schema exceeds 4096 definitions".into());
     }
@@ -397,16 +400,19 @@ fn parse_kiwi_schema(bytes: &[u8]) -> Result<Vec<KiwiDef>, String> {
             2 => KiwiDefKind::Message,
             other => return Err(format!("Unknown Kiwi definition kind {other}")),
         };
-        let field_count = r.read_var_uint()? as usize;
+        let field_count = usize::try_from(r.read_var_uint()?)
+            .map_err(|_| "Kiwi definition field count overflow".to_owned())?;
         if field_count > 4096 {
             return Err("Kiwi definition exceeds 4096 fields".into());
         }
         let mut fields = Vec::with_capacity(field_count);
         for _ in 0..field_count {
             let fname = r.read_string()?;
-            let type_id = r.read_var_int()? as i32;
+            let type_id = i32::try_from(r.read_var_int()?)
+                .map_err(|_| "Kiwi field type_id out of i32 range".to_owned())?;
             let is_array = r.read_byte()? != 0;
-            let value = r.read_var_uint()? as u32;
+            let value = u32::try_from(r.read_var_uint()?)
+                .map_err(|_| "Kiwi field tag out of u32 range".to_owned())?;
             fields.push(KiwiField {
                 name: fname,
                 type_id,
@@ -425,13 +431,19 @@ fn decode_kiwi_field_value(
     type_id: i32,
     is_array: bool,
     depth: usize,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
 ) -> Result<KiwiVal, String> {
     if depth > 64 {
         return Err("Kiwi message nesting exceeds depth 64".into());
     }
+    *budget = budget
+        .checked_sub(1)
+        .ok_or_else(|| "Kiwi stream exceeds 2M decoded value budget".to_owned())?;
     if is_array {
-        let len = r.read_var_uint()? as usize;
-        if len > 2_000_000 {
+        let len = usize::try_from(r.read_var_uint()?)
+            .map_err(|_| "Kiwi array length overflow".to_owned())?;
+        if len > MAX_KIWI_VALUES {
             return Err("Kiwi array exceeds 2M elements".into());
         }
         // Fast path for byte arrays (`bytes` field in `Blob` uses type_id == -2, is_array == true)
@@ -449,11 +461,18 @@ fn decode_kiwi_field_value(
         }
         let mut items = Vec::with_capacity(len.min(4096));
         for _ in 0..len {
-            items.push(decode_kiwi_scalar(r, defs, type_id, depth + 1)?);
+            items.push(decode_kiwi_scalar(
+                r,
+                defs,
+                type_id,
+                depth + 1,
+                budget,
+                active_structs,
+            )?);
         }
         return Ok(KiwiVal::Array(items));
     }
-    decode_kiwi_scalar(r, defs, type_id, depth)
+    decode_kiwi_scalar(r, defs, type_id, depth, budget, active_structs)
 }
 
 fn decode_kiwi_scalar(
@@ -461,7 +480,15 @@ fn decode_kiwi_scalar(
     defs: &[KiwiDef],
     type_id: i32,
     depth: usize,
+    budget: &mut usize,
+    active_structs: &mut Vec<usize>,
 ) -> Result<KiwiVal, String> {
+    if depth > 64 {
+        return Err("Kiwi message nesting exceeds depth 64".into());
+    }
+    *budget = budget
+        .checked_sub(1)
+        .ok_or_else(|| "Kiwi stream exceeds 2M decoded value budget".to_owned())?;
     match type_id {
         -1 => Ok(KiwiVal::Bool(r.read_byte()? != 0)),
         -2 => Ok(KiwiVal::Byte(r.read_byte()?)),
@@ -472,12 +499,14 @@ fn decode_kiwi_scalar(
         -7 => Ok(KiwiVal::Int(r.read_var_int()?)),
         -8 => Ok(KiwiVal::Uint(r.read_var_uint()?)),
         idx if idx >= 0 => {
+            let def_idx = idx as usize;
             let def = defs
-                .get(idx as usize)
+                .get(def_idx)
                 .ok_or_else(|| format!("Invalid Kiwi definition index {idx}"))?;
             match def.kind {
                 KiwiDefKind::Enum => {
-                    let val = r.read_var_uint()? as u32;
+                    let val = u32::try_from(r.read_var_uint()?)
+                        .map_err(|_| "Kiwi enum value out of u32 range".to_owned())?;
                     let name = def
                         .fields
                         .iter()
@@ -487,17 +516,39 @@ fn decode_kiwi_scalar(
                     Ok(KiwiVal::Enum(name))
                 }
                 KiwiDefKind::Struct => {
+                    if active_structs.contains(&def_idx) {
+                        return Err(format!("Cyclic Kiwi struct definition '{}'", def.name));
+                    }
+                    active_structs.push(def_idx);
                     let mut map = BTreeMap::new();
                     for f in &def.fields {
-                        let v = decode_kiwi_field_value(r, defs, f.type_id, f.is_array, depth + 1)?;
-                        map.insert(f.name.clone(), v);
+                        let res = decode_kiwi_field_value(
+                            r,
+                            defs,
+                            f.type_id,
+                            f.is_array,
+                            depth + 1,
+                            budget,
+                            active_structs,
+                        );
+                        match res {
+                            Ok(v) => {
+                                map.insert(f.name.clone(), v);
+                            }
+                            Err(e) => {
+                                active_structs.pop();
+                                return Err(e);
+                            }
+                        }
                     }
+                    active_structs.pop();
                     Ok(KiwiVal::Object(map))
                 }
                 KiwiDefKind::Message => {
                     let mut map = BTreeMap::new();
                     loop {
-                        let tag = r.read_var_uint()? as u32;
+                        let tag = u32::try_from(r.read_var_uint()?)
+                            .map_err(|_| "Kiwi message tag out of u32 range".to_owned())?;
                         if tag == 0 {
                             break;
                         }
@@ -513,6 +564,8 @@ fn decode_kiwi_scalar(
                             field.type_id,
                             field.is_array,
                             depth + 1,
+                            budget,
+                            active_structs,
                         )?;
                         map.insert(field.name.clone(), v);
                     }
@@ -796,8 +849,17 @@ fn parse_fig_kiwi_canvas(
         .position(|d| d.name == "Message")
         .unwrap_or_else(|| defs.len().saturating_sub(1));
     let mut mr = KiwiReader::new(&chunks[1]);
-    let root_val = decode_kiwi_scalar(&mut mr, &defs, root_def_idx as i32, 0)
-        .map_err(ImportError::Container)?;
+    let mut budget = MAX_KIWI_VALUES;
+    let mut active_structs = Vec::new();
+    let root_val = decode_kiwi_scalar(
+        &mut mr,
+        &defs,
+        root_def_idx as i32,
+        0,
+        &mut budget,
+        &mut active_structs,
+    )
+    .map_err(ImportError::Container)?;
     let root_obj = root_val
         .as_obj()
         .ok_or_else(|| ImportError::Container("Decoded Kiwi root is not an object".into()))?;
@@ -1731,6 +1793,7 @@ fn parse_figma_json_doc(json_str: &str, source_name: &str) -> Result<FigmaDoc, I
         .to_owned();
 
     let mut images = BTreeMap::new();
+    let mut total_image_bytes = 0usize;
     for key in ["images", "imageFills"] {
         if let Some(map) = root.get(key).and_then(Value::as_object) {
             for (iref, val) in map {
@@ -1740,9 +1803,25 @@ fn parse_figma_json_doc(json_str: &str, source_name: &str) -> Result<FigmaDoc, I
                         .map(|(_, tail)| tail)
                         .unwrap_or(s)
                         .trim();
+                    if b64.len() > neoflash_core::MAX_RESOURCE_BYTES * 2 {
+                        return Err(ImportError::Container(format!(
+                            "Figma JSON image '{iref}' exceeds resource size budget"
+                        )));
+                    }
                     if let Ok(decoded) = BASE64.decode(b64.as_bytes())
                         && !decoded.is_empty()
                     {
+                        if decoded.len() > neoflash_core::MAX_RESOURCE_BYTES {
+                            return Err(ImportError::Container(format!(
+                                "Figma JSON image '{iref}' exceeds resource size budget"
+                            )));
+                        }
+                        total_image_bytes = total_image_bytes.saturating_add(decoded.len());
+                        if total_image_bytes > MAX_FIGMA_IMAGE_TOTAL_BYTES {
+                            return Err(ImportError::Container(
+                                "Figma JSON embedded images exceed 64 MiB aggregate budget".into(),
+                            ));
+                        }
                         images.insert(iref.clone(), decoded);
                     }
                 }
@@ -1916,7 +1995,14 @@ impl<'a> FigmaBuildCtx<'a> {
             );
             return None;
         };
-        let fmt = image::guess_format(bytes).ok()?;
+        let Ok(fmt) = image::guess_format(bytes) else {
+            self.report.warning(
+                "figma-corrupt-image-blob",
+                location.to_owned(),
+                format!("Figma image fill '{image_ref}' has unrecognized image format; converted to placeholder shape."),
+            );
+            return None;
+        };
         let (ext, mime) = match fmt {
             image::ImageFormat::Png => ("png", "image/png"),
             image::ImageFormat::Jpeg => ("jpg", "image/jpeg"),
@@ -1942,8 +2028,22 @@ impl<'a> FigmaBuildCtx<'a> {
             self.project.resources.len(),
             ext
         );
-        let unit = ResourceUnit::from_bytes(res_id.clone(), rel_path, mime, bytes).ok()?;
-        let decoded = unit.decode_image().ok()?;
+        let Ok(unit) = ResourceUnit::from_bytes(res_id.clone(), rel_path, mime, bytes) else {
+            self.report.warning(
+                "figma-corrupt-image-blob",
+                location.to_owned(),
+                format!("Figma image fill '{image_ref}' exceeded resource limits; converted to placeholder shape."),
+            );
+            return None;
+        };
+        let Ok(decoded) = unit.decode_image() else {
+            self.report.warning(
+                "figma-corrupt-image-blob",
+                location.to_owned(),
+                format!("Figma image fill '{image_ref}' could not be decoded; converted to placeholder shape."),
+            );
+            return None;
+        };
         let (w, h) = (decoded.width, decoded.height);
         self.project.resources.push(unit);
         self.image_resources
@@ -1968,7 +2068,28 @@ impl<'a> FigmaBuildCtx<'a> {
                 ..Transform::default()
             }
         };
-        tf.alpha = node.opacity.clamp(0.0, 1.0);
+        let finite_or = |v: f64, def: f64| if v.is_finite() { v } else { def };
+        tf.x = finite_or(tf.x, 0.0).clamp(-100_000.0, 100_000.0);
+        tf.y = finite_or(tf.y, 0.0).clamp(-100_000.0, 100_000.0);
+        tf.scale_x = finite_or(tf.scale_x, 1.0).clamp(-1000.0, 1000.0);
+        if tf.scale_x.abs() < 1e-4 {
+            tf.scale_x = if tf.scale_x.is_sign_negative() {
+                -1e-4
+            } else {
+                1e-4
+            };
+        }
+        tf.scale_y = finite_or(tf.scale_y, 1.0).clamp(-1000.0, 1000.0);
+        if tf.scale_y.abs() < 1e-4 {
+            tf.scale_y = if tf.scale_y.is_sign_negative() {
+                -1e-4
+            } else {
+                1e-4
+            };
+        }
+        tf.rotation = finite_or(tf.rotation, 0.0).rem_euclid(360.0);
+        tf.skew = finite_or(tf.skew, 0.0).clamp(-89.9, 89.9);
+        tf.alpha = finite_or(node.opacity, 1.0).clamp(0.0, 1.0);
         tf
     }
 
@@ -1976,15 +2097,42 @@ impl<'a> FigmaBuildCtx<'a> {
         &self,
         node: &FigmaNode,
     ) -> (Vec<PathCommand>, Option<PrimitiveOptions>) {
-        let w = node.width.max(1.0);
-        let h = node.height.max(1.0);
+        let w = (if node.width.is_finite() {
+            node.width
+        } else {
+            100.0
+        })
+        .clamp(1.0, 32_768.0);
+        let h = (if node.height.is_finite() {
+            node.height
+        } else {
+            100.0
+        })
+        .clamp(1.0, 32_768.0);
         match node.node_type.as_str() {
             "ELLIPSE" => {
                 if let Some((start_rad, end_rad, inner_ratio)) = node.arc_data {
+                    let s_deg = if start_rad.is_finite() {
+                        start_rad.to_degrees().rem_euclid(360.0)
+                    } else {
+                        0.0
+                    };
+                    let span_rad = (end_rad - start_rad).abs();
+                    let e_deg = if !end_rad.is_finite() || span_rad >= std::f64::consts::TAU - 1e-4
+                    {
+                        360.0
+                    } else {
+                        end_rad.to_degrees().rem_euclid(360.0)
+                    };
                     let oval_opts = OvalOptions {
-                        start_angle: start_rad.to_degrees(),
-                        end_angle: end_rad.to_degrees(),
-                        inner_radius: (inner_ratio * 100.0).clamp(0.0, 99.0),
+                        start_angle: s_deg,
+                        end_angle: e_deg,
+                        inner_radius: (if inner_ratio.is_finite() {
+                            inner_ratio * 100.0
+                        } else {
+                            0.0
+                        })
+                        .clamp(0.0, 99.0),
                         close_path: true,
                     };
                     (
@@ -1997,7 +2145,11 @@ impl<'a> FigmaBuildCtx<'a> {
             }
             "STAR" => {
                 let pts = node.point_count.unwrap_or(5).clamp(3, 32);
-                let inner = node.star_inner_radius.unwrap_or(0.382).clamp(0.05, 0.95);
+                let inner = node
+                    .star_inner_radius
+                    .filter(|v| v.is_finite())
+                    .unwrap_or(0.382)
+                    .clamp(0.05, 0.95);
                 let (cmds, _) = polystar_path_commands(
                     [w * 0.5, h * 0.5],
                     w.min(h) * 0.5,
@@ -2028,7 +2180,14 @@ impl<'a> FigmaBuildCtx<'a> {
                 None,
             ),
             _ => {
-                let r = node.corner_radii;
+                let max_r = 0.5 * w.min(h);
+                let r = node.corner_radii.map(|v| {
+                    if v.is_finite() {
+                        v.clamp(0.0, max_r)
+                    } else {
+                        0.0
+                    }
+                });
                 if r.iter().any(|&v| v > 0.0) {
                     let rect_opts = RectangleOptions {
                         corner_radii: r,
@@ -2050,17 +2209,71 @@ impl<'a> FigmaBuildCtx<'a> {
         }
     }
 
-    fn register_components_recursive(&mut self, node: &FigmaNode, depth: usize) {
+    fn collect_component_nodes<'n>(
+        &mut self,
+        node: &'n FigmaNode,
+        out: &mut Vec<&'n FigmaNode>,
+        depth: usize,
+    ) {
         if depth > 48 {
             return;
         }
         if node.node_type == "COMPONENT" && !self.component_symbols.contains_key(&node.id) {
-            let sym_id = self.build_symbol_from_container(node, "Figma Components", depth + 1);
-            self.component_symbols.insert(node.id.clone(), sym_id);
+            let sym_id = new_id("figsym");
+            self.component_symbols
+                .insert(node.id.clone(), sym_id.clone());
+            self.project.symbols.push(Symbol {
+                id: sym_id,
+                name: node.name.clone(),
+                folder: "Figma Components".into(),
+                kind: SymbolKind::MovieClip,
+                timeline: Timeline {
+                    frame_count: 1,
+                    layers: vec![Layer {
+                        id: new_id("layer"),
+                        name: "Layer 1".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe::default()],
+                        properties: LayerProperties::default(),
+                    }],
+                    scripts: Vec::new(),
+                    guides: Vec::new(),
+                },
+                class_name: None,
+                linkage_id: None,
+            });
+            out.push(node);
         }
         for child in &node.children {
-            self.register_components_recursive(child, depth + 1);
+            self.collect_component_nodes(child, out, depth + 1);
         }
+    }
+
+    fn populate_component_symbols(&mut self, components: &[&FigmaNode]) {
+        for comp in components {
+            let Some(sym_id) = self.component_symbols.get(&comp.id).cloned() else {
+                continue;
+            };
+            let layers = self.build_layers_for_children(
+                &comp.children,
+                0.0,
+                0.0,
+                if comp.clips_content {
+                    Some((comp.width.max(1.0), comp.height.max(1.0)))
+                } else {
+                    None
+                },
+                &comp.name,
+                1,
+            );
+            if !layers.is_empty()
+                && let Some(sym) = self.project.symbol_mut(&sym_id)
+            {
+                sym.timeline.layers = layers;
+            }
+        }
+        self.report.statistics.symbols = self.project.symbols.len();
     }
 
     fn build_symbol_from_container(
@@ -2793,6 +3006,46 @@ impl<'a> FigmaBuildCtx<'a> {
                     "LUMINANCE" => MaskMode::Luminance,
                     _ => MaskMode::Alpha,
                 };
+                // Sanitize mask elements so `validate_layers` always passes:
+                // - `TextBox` has no vector path in mask evaluation -> convert to bounding rectangle
+                // - `Bitmap` on a `Geometry` mask requires paint coverage -> upgrade to `MaskMode::Alpha`
+                let mut had_text = false;
+                let mut had_bitmap = false;
+                for el in &mut elements {
+                    match &el.kind {
+                        ElementKind::TextBox { width, height, .. } => {
+                            let w = (*width).clamp(1.0, 32_768.0);
+                            let h = (*height).clamp(1.0, 32_768.0);
+                            el.kind = ElementKind::Rectangle {
+                                width: w,
+                                height: h,
+                                fill: [0, 0, 0, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            };
+                            had_text = true;
+                        }
+                        ElementKind::Bitmap { .. } => {
+                            had_bitmap = true;
+                        }
+                        _ => {}
+                    }
+                }
+                if had_text {
+                    self.report.warning(
+                        "figma-mask-text-bounds-approximated",
+                        loc.clone(),
+                        "Figma text mask approximated as its bounding rectangle mask.",
+                    );
+                }
+                if had_bitmap && props.mask_mode == MaskMode::Geometry {
+                    props.mask_mode = MaskMode::Alpha;
+                    self.report.warning(
+                        "figma-mask-bitmap-alpha",
+                        loc.clone(),
+                        "Figma vector mask with bitmap fill upgraded to Alpha mask mode.",
+                    );
+                }
                 active_mask_layer_id = Some(lid.clone());
             } else if let Some(mid) = &active_mask_layer_id {
                 props.mask = Some(mid.clone());
@@ -2870,10 +3123,13 @@ fn build_project_from_figma_doc(
         report: &mut report,
     };
 
-    // Pass 1: Register all `COMPONENT` definitions across all pages so `INSTANCE` nodes link cleanly.
+    // Pass 1: Pre-allocate all `COMPONENT` symbol IDs first, then populate their timelines,
+    // so forward-referenced or nested `INSTANCE`s resolve deterministically and cycles cannot loop.
+    let mut comp_nodes = Vec::new();
     for page in &doc.pages {
-        ctx.register_components_recursive(page, 0);
+        ctx.collect_component_nodes(page, &mut comp_nodes, 0);
     }
+    ctx.populate_component_symbols(&comp_nodes);
 
     // Pass 2: Pick primary page & primary composition artboard (if the page has a main artboard Frame,
     // decompose its children directly into the composition's Timeline layers!).
@@ -2969,6 +3225,9 @@ fn build_project_from_figma_doc(
         project.format_version = project.format_version.max(4);
     }
     project.upgrade_format_for_features();
+    project.validate().map_err(|e| {
+        ImportError::Blocked(format!("Imported Figma composition failed validation: {e}"))
+    })?;
     report.statistics.symbols = project.symbols.len();
     report.diagnostics.push(Diagnostic {
         severity: Severity::Info,
@@ -3015,24 +3274,44 @@ pub fn import_figma_bytes(
     if bytes.starts_with(b"PK\x03\x04") {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
             .map_err(|e| ImportError::Container(format!("Invalid .fig ZIP archive: {e}")))?;
+        if zip.len() > 4096 {
+            return Err(ImportError::Container(
+                ".fig ZIP archive exceeds 4096 entries".into(),
+            ));
+        }
         let mut canvas_bytes: Option<Vec<u8>> = None;
         let mut json_bytes: Option<Vec<u8>> = None;
         let mut images = BTreeMap::new();
+        let mut total_image_bytes = 0usize;
         let mut meta_name: Option<String> = None;
 
-        for i in 0..zip.len().min(4096) {
+        for i in 0..zip.len() {
             let entry = zip
                 .by_index(i)
                 .map_err(|e| ImportError::Container(e.to_string()))?;
+            let ename = entry.name().to_owned();
+            crate::source::safe_name(&ename)?;
+            if entry
+                .unix_mode()
+                .is_some_and(|mode| mode & 0o170000 == 0o120000)
+            {
+                return Err(ImportError::Container(format!(
+                    "Symlink ZIP entry in .fig archive: {ename}"
+                )));
+            }
             if entry.is_dir() {
                 continue;
             }
-            let ename = entry.name().to_owned();
             if ename == "canvas.fig" || ename.ends_with(".fig") {
                 let mut raw = Vec::new();
                 entry
                     .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
                     .read_to_end(&mut raw)?;
+                if raw.len() > MAX_FIGMA_DECODE_BYTES {
+                    return Err(ImportError::Container(
+                        "canvas.fig entry exceeds 128 MiB limit".into(),
+                    ));
+                }
                 canvas_bytes = Some(raw);
             } else if ename == "meta.json" {
                 let mut raw = String::new();
@@ -3054,15 +3333,29 @@ pub fn import_figma_bytes(
                     entry
                         .take(neoflash_core::MAX_RESOURCE_BYTES as u64 + 1)
                         .read_to_end(&mut raw)?;
-                    if raw.len() <= neoflash_core::MAX_RESOURCE_BYTES {
-                        images.insert(key, raw);
+                    if raw.len() > neoflash_core::MAX_RESOURCE_BYTES {
+                        return Err(ImportError::Container(format!(
+                            ".fig image '{ename}' exceeds resource size budget"
+                        )));
                     }
+                    total_image_bytes = total_image_bytes.saturating_add(raw.len());
+                    if total_image_bytes > MAX_FIGMA_IMAGE_TOTAL_BYTES {
+                        return Err(ImportError::Container(
+                            ".fig archive images exceed 64 MiB aggregate budget".into(),
+                        ));
+                    }
+                    images.insert(key, raw);
                 }
             } else if ename.ends_with(".json") && json_bytes.is_none() {
                 let mut raw = Vec::new();
                 entry
                     .take(MAX_FIGMA_DECODE_BYTES as u64 + 1)
                     .read_to_end(&mut raw)?;
+                if raw.len() > MAX_FIGMA_DECODE_BYTES {
+                    return Err(ImportError::Container(
+                        ".fig JSON entry exceeds 128 MiB limit".into(),
+                    ));
+                }
                 json_bytes = Some(raw);
             }
         }
@@ -3115,6 +3408,7 @@ fn build_figma_gradient_paint(
     };
     let mut sorted = stops.to_vec();
     sorted.sort_by_key(|st| st.ratio);
+    sorted.truncate(15);
     GradientPaint {
         kind,
         matrix,
@@ -3552,5 +3846,111 @@ mod tests {
         assert_eq!(root.timeline.layers.len(), 2);
         assert_eq!(root.timeline.layers[0].name, "Card BG");
         assert_eq!(root.timeline.layers[1].name, "Avatar Badge");
+    }
+
+    #[test]
+    fn t259_figma_hardening_handles_forward_components_text_masks_arcs_and_cyclic_kiwi_structs() {
+        // 1. Forward-referenced INSTANCE before COMPONENT + TEXT mask + >360° arc + 20 gradient stops + oversized corner radii
+        let stops_json: String = (0..20)
+            .map(|i| {
+                let p = f64::from(i) / 19.0;
+                format!(r#"{{"position": {p:.4}, "color": {{"r": {p:.4}, "g": 0.4, "b": 0.8, "a": 1.0}}}}"#)
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let figma_json = format!(
+            r#"{{
+              "name": "Seam Torture",
+              "schemaVersion": 0,
+              "document": {{
+                "id": "0:0", "name": "Doc", "type": "DOCUMENT",
+                "children": [{{
+                  "id": "0:1", "name": "Page 1", "type": "CANVAS",
+                  "children": [
+                    {{
+                      "id": "2:1", "name": "Board", "type": "FRAME",
+                      "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 600, "height": 400}},
+                      "children": [
+                        {{
+                          "id": "2:2", "name": "Forward CTA", "type": "INSTANCE",
+                          "componentId": "9:99",
+                          "absoluteBoundingBox": {{"x": 20, "y": 20, "width": 120, "height": 40}}
+                        }},
+                        {{
+                          "id": "2:3", "name": "Text Mask", "type": "TEXT",
+                          "isMask": true, "maskType": "VECTOR",
+                          "characters": "CLIP",
+                          "absoluteBoundingBox": {{"x": 40, "y": 80, "width": 200, "height": 60}},
+                          "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 1, "b": 1, "a": 1}}}}],
+                          "style": {{"fontFamily": "Inter", "fontSize": 32}}
+                        }},
+                        {{
+                          "id": "2:4", "name": "Masked Arc", "type": "ELLIPSE",
+                          "arcData": {{"startingAngle": -3.14159, "endingAngle": 9.42477, "innerRadius": 1.5}},
+                          "absoluteBoundingBox": {{"x": 50, "y": 90, "width": 100, "height": 100}},
+                          "fills": [{{"type": "GRADIENT_LINEAR", "gradientStops": [{stops_json}]}}]
+                        }},
+                        {{
+                          "id": "2:5", "name": "Huge Radius Pill", "type": "RECTANGLE",
+                          "cornerRadius": 9999.0,
+                          "absoluteBoundingBox": {{"x": 10, "y": 200, "width": 80, "height": 30}},
+                          "fills": [{{"type": "SOLID", "color": {{"r": 0.3, "g": 0.9, "b": 0.5, "a": 1.0}}}}]
+                        }}
+                      ]
+                    }},
+                    {{
+                      "id": "9:99", "name": "Late_Defined_Component", "type": "COMPONENT",
+                      "absoluteBoundingBox": {{"x": 700, "y": 0, "width": 120, "height": 40}},
+                      "children": [{{
+                        "id": "9:100", "name": "Inner Pill", "type": "RECTANGLE",
+                        "cornerRadius": 20.0,
+                        "absoluteBoundingBox": {{"x": 700, "y": 0, "width": 120, "height": 40}},
+                        "fills": [{{"type": "SOLID", "color": {{"r": 0.9, "g": 0.2, "b": 0.4, "a": 1.0}}}}]
+                      }}]
+                    }}
+                  ]
+                }}]
+              }}
+            }}"#
+        );
+        let opts = FigmaImportOptions::default();
+        let (project, report) = import_figma_json_str(&figma_json, "Seam Torture", &opts)
+            .expect("torture figma json must import and validate");
+        project.validate().expect("validated");
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "figma-mask-text-bounds-approximated")
+        );
+
+        // 2. Cyclic Kiwi Struct definition must fail cleanly without stack overflow
+        let mut cyc_schema = Vec::new();
+        write_var_uint(&mut cyc_schema, 1);
+        write_cstr(&mut cyc_schema, "SelfCycle");
+        cyc_schema.push(1); // Struct
+        write_var_uint(&mut cyc_schema, 1);
+        write_cstr(&mut cyc_schema, "self");
+        write_var_int(&mut cyc_schema, 0); // type_id 0 -> SelfCycle!
+        cyc_schema.push(0);
+        write_var_uint(&mut cyc_schema, 1);
+        let defs = parse_kiwi_schema(&cyc_schema).unwrap();
+        let mut mr = KiwiReader::new(&[0; 16]);
+        let mut budget = MAX_KIWI_VALUES;
+        let mut active = Vec::new();
+        let err = decode_kiwi_scalar(&mut mr, &defs, 0, 0, &mut budget, &mut active)
+            .expect_err("cyclic Kiwi struct must error");
+        assert!(err.contains("Cyclic Kiwi struct"));
+
+        // 3. Path-traversal ZIP entry inside .fig archive must be rejected
+        let mut zip_buf = Cursor::new(Vec::new());
+        {
+            let mut zw = zip::ZipWriter::new(&mut zip_buf);
+            let zopts = zip::write::SimpleFileOptions::default();
+            zw.start_file("../escape.fig", zopts).unwrap();
+            zw.write_all(b"fig-kiwi").unwrap();
+            zw.finish().unwrap();
+        }
+        assert!(import_figma_bytes(&zip_buf.into_inner(), "bad", &opts).is_err());
     }
 }

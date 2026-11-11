@@ -189,6 +189,7 @@ impl Player {
                 player: Box::new(scoped),
                 nodes,
                 depth,
+                mounted_prefix: None,
             },
         );
         self.sync_linked(project);

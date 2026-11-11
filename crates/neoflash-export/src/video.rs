@@ -1882,6 +1882,161 @@ pub fn render_project_frame_rgba_with_base_dir(
     ))
 }
 
+/// Stateful sequential frame renderer for image-sequence exports (`T-259`), avoiding `O(N^2)`
+/// video decode and `AuthoredPlayback` re-stepping when `has_timeline_video` is true.
+pub(crate) struct SequentialVideoFrameSession {
+    prepared: PreparedTimeline,
+    video_cache: HashMap<String, Option<Arc<DecodedVideoStream>>>,
+    bitmap_cache: HashMap<String, Option<Arc<DecodedImage>>>,
+    base_dir: Option<PathBuf>,
+    width: u32,
+    height: u32,
+    transparent_bg: bool,
+    runtime_capture: bool,
+    dt_ms: u32,
+    live_state: Option<(AuthoredPlayback, TimelineVideoTracker, u32)>,
+}
+
+impl SequentialVideoFrameSession {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        project: &Project,
+        symbol: Option<&str>,
+        start_frame: u32,
+        width: u32,
+        height: u32,
+        transparent_bg: bool,
+        runtime_capture: bool,
+        base_dir: Option<&Path>,
+    ) -> Result<Self, ExportError> {
+        let opts = VideoOptions {
+            symbol: symbol.map(str::to_owned),
+            width,
+            height,
+            transparent_bg,
+            runtime_capture,
+            base_dir: base_dir.map(Path::to_path_buf),
+            ..VideoOptions::default()
+        };
+        let prepared = prepare_timeline(project, &opts)?;
+        let video_cache = preflight_and_decode_timeline_videos(
+            &prepared.eval_project,
+            &prepared.root_id,
+            base_dir,
+        )?;
+        let fps = opts.resolved_fps(&prepared.eval_project);
+        let dt_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
+        let live_state = runtime_capture.then(|| {
+            let mut playback = AuthoredPlayback::with_live_scripts(
+                &prepared.eval_project,
+                &prepared.root_id,
+                0,
+                true,
+            );
+            let mut tracker = TimelineVideoTracker::new();
+            tracker.step_with_commands(playback.drain_video_commands(), 0);
+            for _ in 0..start_frame {
+                playback.tick(&prepared.eval_project);
+                tracker.step_with_commands(playback.drain_video_commands(), dt_ms);
+            }
+            (playback, tracker, start_frame)
+        });
+        Ok(Self {
+            prepared,
+            video_cache,
+            bitmap_cache: HashMap::new(),
+            base_dir: base_dir.map(Path::to_path_buf),
+            width: width.max(1),
+            height: height.max(1),
+            transparent_bg,
+            runtime_capture,
+            dt_ms,
+            live_state,
+        })
+    }
+
+    pub(crate) fn render_frame(&mut self, frame: u32) -> Result<Vec<u8>, ExportError> {
+        let target_frame = if self.runtime_capture {
+            frame
+        } else {
+            frame % self.prepared.authored_span.max(1)
+        };
+
+        let (scene, placements) = if let Some((playback, tracker, cur_frame)) = &mut self.live_state
+        {
+            if target_frame < *cur_frame {
+                *playback = AuthoredPlayback::with_live_scripts(
+                    &self.prepared.eval_project,
+                    &self.prepared.root_id,
+                    0,
+                    true,
+                );
+                *tracker = TimelineVideoTracker::new();
+                tracker.step_with_commands(playback.drain_video_commands(), 0);
+                *cur_frame = 0;
+            }
+            while *cur_frame < target_frame {
+                playback.tick(&self.prepared.eval_project);
+                tracker.step_with_commands(playback.drain_video_commands(), self.dt_ms);
+                *cur_frame += 1;
+            }
+            let scene = playback.scene(&self.prepared.eval_project, false, true);
+            let mut map = HashMap::new();
+            for draw in &scene.draws {
+                if matches!(draw.item.kind, ElementKind::Video { .. })
+                    && let Some(p) = tracker.placement_for_target(&draw.item.instance_path)
+                {
+                    map.insert(draw.item.instance_path.clone(), p.clone());
+                }
+            }
+            (scene, map)
+        } else {
+            let scene = evaluate_scene(
+                &self.prepared.eval_project,
+                &self.prepared.root_id,
+                target_frame,
+                false,
+                true,
+            );
+            let items: Vec<DrawItem> = scene.draws.iter().map(|d| d.item.clone()).collect();
+            let map = resolve_scene_video_placements(
+                &self.prepared.eval_project,
+                &self.prepared.root_id,
+                target_frame,
+                &HashMap::new(),
+                &items,
+            );
+            (scene, map)
+        };
+
+        for placement in placements.values() {
+            let cache_key = placement_video_cache_key(placement);
+            if !self.video_cache.contains_key(&cache_key) {
+                let stream = resolve_and_decode_project_video(
+                    &self.prepared.eval_project,
+                    &placement.resource,
+                    placement.source.as_ref(),
+                    self.base_dir.as_deref(),
+                )
+                .map_err(ExportError::Options)?;
+                insert_decoded_video_stream(&mut self.video_cache, cache_key, stream)
+                    .map_err(ExportError::Options)?;
+            }
+        }
+
+        Ok(render_authored_scene_with_video_rgba(
+            &self.prepared.eval_project,
+            &scene,
+            self.width,
+            self.height,
+            self.transparent_bg,
+            &mut self.bitmap_cache,
+            &mut self.video_cache,
+            &placements,
+        ))
+    }
+}
+
 struct BundledFonts {
     regular: FontRef<'static>,
     bold: FontRef<'static>,

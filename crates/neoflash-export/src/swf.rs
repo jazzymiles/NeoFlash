@@ -1493,6 +1493,72 @@ fn wrap_swf_container(
     }
 }
 
+/// Build a `DefineShape3` (`tag 32`) payload wrapping a `DefineBitsLossless2` bitmap (`0x41`
+/// smoothed clipped bitmap or `0x43` non-smoothed clipped bitmap) over `(0, 0)..(width, height)`
+/// so real SWF players and `neoflash-import` both render and round-trip placed bitmaps cleanly.
+fn build_define_bitmap_quad_shape_payload(
+    shape_id: u16,
+    bitmap_id: u16,
+    bitmap_w: u32,
+    bitmap_h: u32,
+    display_w: u32,
+    display_h: u32,
+    smoothing: bool,
+) -> Vec<u8> {
+    let dw = display_w.max(1);
+    let dh = display_h.max(1);
+    let w_twips = (i64::from(dw) * 20).clamp(20, i64::from(i32::MAX)) as i32;
+    let h_twips = (i64::from(dh) * 20).clamp(20, i64::from(i32::MAX)) as i32;
+    let sx = 20.0 * f64::from(dw) / f64::from(bitmap_w.max(1));
+    let sy = 20.0 * f64::from(dh) / f64::from(bitmap_h.max(1));
+
+    let mut w = SwfBitWriter::new();
+    w.u16(shape_id);
+    w.rect_twips([0, w_twips, 0, h_twips]);
+
+    // FillStyleArray: 1 ClippedBitmap fill style (0x41 smoothed, 0x43 non-smoothed)
+    w.u8(1);
+    w.u8(if smoothing { 0x41 } else { 0x43 });
+    w.u16(bitmap_id);
+    w.matrix_px([sx, 0.0, 0.0, sy, 0.0, 0.0]);
+
+    // LineStyleArray: 0 line styles
+    w.u8(0);
+
+    let edges = [
+        SwfEdge {
+            fill_1: 1,
+            line: 0,
+            start: [0, 0],
+            control: None,
+            end: [w_twips, 0],
+        },
+        SwfEdge {
+            fill_1: 1,
+            line: 0,
+            start: [w_twips, 0],
+            control: None,
+            end: [w_twips, h_twips],
+        },
+        SwfEdge {
+            fill_1: 1,
+            line: 0,
+            start: [w_twips, h_twips],
+            control: None,
+            end: [0, h_twips],
+        },
+        SwfEdge {
+            fill_1: 1,
+            line: 0,
+            start: [0, h_twips],
+            control: None,
+            end: [0, 0],
+        },
+    ];
+    write_shape_edges_records(&mut w, &edges, 1, 0);
+    w.buf
+}
+
 /// Build a `DefineBitsLossless2` (tag 36) payload for a PNG bitmap resource.
 fn build_define_bits_lossless2_payload(
     bitmap_id: u16,
@@ -6190,6 +6256,8 @@ struct SwfDictionaryCompiler<'a> {
     dictionary_overflow: bool,
     root_tags: SwfBitWriter,
     bitmap_ids: BTreeMap<String, u16>,
+    bitmap_meta: BTreeMap<String, (u32, u32, Option<bool>)>,
+    bitmap_quad_ids: BTreeMap<(String, u32, u32, bool), u16>,
     sound_ids: BTreeMap<String, u16>,
     font_ids: BTreeMap<(String, bool, bool), u16>,
     symbol_char_ids: BTreeMap<String, u16>,
@@ -6213,6 +6281,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
             dictionary_overflow: false,
             root_tags: SwfBitWriter::new(),
             bitmap_ids: BTreeMap::new(),
+            bitmap_meta: BTreeMap::new(),
+            bitmap_quad_ids: BTreeMap::new(),
             sound_ids: BTreeMap::new(),
             font_ids: BTreeMap::new(),
             symbol_char_ids: BTreeMap::new(),
@@ -6249,9 +6319,13 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     }))
             {
                 let bid = self.alloc_char_id();
-                if let Some((payload, _, _)) = build_define_bits_lossless2_payload(bid, &raw) {
+                if let Some((payload, bw, bh)) = build_define_bits_lossless2_payload(bid, &raw) {
                     self.root_tags.write_tag(36, &payload);
                     self.bitmap_ids.insert(res.id.clone(), bid);
+                    self.bitmap_meta.insert(
+                        res.id.clone(),
+                        (bw, bh, res.bitmap_export.map(|s| s.allow_smoothing)),
+                    );
                 } else {
                     return Err(ExportError::Options(format!(
                         "Placed PNG '{}' could not be encoded as DefineBitsLossless2",
@@ -6290,7 +6364,31 @@ impl<'a> SwfDictionaryCompiler<'a> {
     fn ensure_element_character(&mut self, element: &Element) -> Option<u16> {
         match &element.kind {
             ElementKind::Instance { symbol_id, .. } => self.symbol_char_ids.get(symbol_id).copied(),
-            ElementKind::Bitmap { resource_id, .. } => self.bitmap_ids.get(resource_id).copied(),
+            ElementKind::Bitmap {
+                resource_id,
+                width,
+                height,
+                smoothing,
+            } => {
+                let bid = *self.bitmap_ids.get(resource_id)?;
+                let (bw, bh, override_smooth) = self
+                    .bitmap_meta
+                    .get(resource_id)
+                    .copied()
+                    .unwrap_or(((*width).max(1), (*height).max(1), None));
+                let eff_smooth = override_smooth.unwrap_or(*smoothing);
+                let quad_key = (resource_id.clone(), *width, *height, eff_smooth);
+                if let Some(&existing) = self.bitmap_quad_ids.get(&quad_key) {
+                    return Some(existing);
+                }
+                let sid = self.alloc_char_id();
+                let payload = build_define_bitmap_quad_shape_payload(
+                    sid, bid, bw, bh, *width, *height, eff_smooth,
+                );
+                self.root_tags.write_tag(32, &payload);
+                self.bitmap_quad_ids.insert(quad_key, sid);
+                Some(sid)
+            }
             ElementKind::TextBox {
                 text,
                 width,

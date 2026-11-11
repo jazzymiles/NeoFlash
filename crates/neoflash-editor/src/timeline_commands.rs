@@ -2065,7 +2065,11 @@ impl Editor {
         else {
             return false;
         };
+        if video.is_some() {
+            key.keyed_properties = None;
+        }
         key.video = video;
+        layer.normalize_motion_keys();
         candidate.upgrade_format_for_features();
         if let Err(error) = candidate.validate() {
             self.message(format!("Could not set timeline video span: {error}"));
@@ -3665,11 +3669,18 @@ impl Editor {
             .collect();
         let removed_count = remove_ids.len();
         self.transact_named("Delete empty layers", move |editor| {
-            editor
-                .symbol_mut()
-                .timeline
-                .layers
-                .retain(|l| !remove_ids.contains(&l.id));
+            let timeline = &mut editor.symbol_mut().timeline;
+            timeline.layers.retain(|l| !remove_ids.contains(&l.id));
+            for layer in &mut timeline.layers {
+                if layer
+                    .properties
+                    .linked_layer
+                    .as_ref()
+                    .is_some_and(|partner| remove_ids.contains(partner))
+                {
+                    layer.properties.linked_layer = None;
+                }
+            }
             let len = editor.symbol().timeline.layers.len();
             if editor.layer >= len {
                 editor.layer = len.saturating_sub(1);

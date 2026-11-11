@@ -82,7 +82,13 @@ pub(crate) fn encoded_image_dimensions(bytes: &[u8]) -> Result<(u32, u32), Resou
             "only PNG, JPEG, GIF, WebP, BMP, and TIFF images are supported".into(),
         ));
     }
-    let (w, h) = ImageReader::with_format(Cursor::new(bytes), format)
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_BITMAP_DIMENSION);
+    limits.max_image_height = Some(MAX_BITMAP_DIMENSION);
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(limits);
+    let (w, h) = reader
         .into_dimensions()
         .map_err(|e| ResourceError(format!("image dimensions: {e}")))?;
     if w == 0 || h == 0 || w > MAX_BITMAP_DIMENSION || h > MAX_BITMAP_DIMENSION {
@@ -149,14 +155,8 @@ fn decode_gif(bytes: &[u8]) -> Result<DecodedImage, ResourceError> {
     }
 
     let mut transparent_idx: Option<u8> = None;
-    let mut canvas = vec![0u8; (width as usize) * (height as usize) * 4];
     let bg_index = bytes[11] as usize;
-    if has_gct && bg_index < gct_size {
-        let bg = gct[bg_index];
-        for px in canvas.as_chunks_mut::<4>().0 {
-            px.copy_from_slice(&bg);
-        }
-    }
+    let mut decoded_canvas: Option<Vec<u8>> = None;
 
     while pos < bytes.len() {
         let introducer = bytes[pos];
@@ -250,6 +250,13 @@ fn decode_gif(bytes: &[u8]) -> Result<DecodedImage, ResourceError> {
                     &lzw_data,
                     (img_w as usize).saturating_mul(img_h as usize),
                 )?;
+                let mut canvas = vec![0u8; (width as usize) * (height as usize) * 4];
+                if has_gct && bg_index < gct_size && transparent_idx != Some(bg_index as u8) {
+                    let bg = gct[bg_index];
+                    for px in canvas.as_chunks_mut::<4>().0 {
+                        px.copy_from_slice(&bg);
+                    }
+                }
                 let mut row_map = Vec::with_capacity(img_h as usize);
                 if interlaced {
                     for (start, step) in [(0u32, 8u32), (4, 8), (2, 4), (1, 2)] {
@@ -285,11 +292,18 @@ fn decode_gif(bytes: &[u8]) -> Result<DecodedImage, ResourceError> {
                         }
                     }
                 }
+                decoded_canvas = Some(canvas);
                 break; // First frame decoded
             }
             _ => break,
         }
     }
+
+    let Some(canvas) = decoded_canvas else {
+        return Err(ResourceError(
+            "GIF image contains zero decodable frame descriptors".into(),
+        ));
+    };
 
     Ok(DecodedImage {
         width,

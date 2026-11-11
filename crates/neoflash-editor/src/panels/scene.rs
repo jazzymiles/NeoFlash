@@ -8,7 +8,6 @@ use neoflash_core::*;
 use neoflash_ui::components as c;
 use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
-use std::collections::HashMap;
 
 /// Inline rename draft of one scene row.
 #[derive(Clone, Debug, PartialEq)]
@@ -32,50 +31,10 @@ fn state_id() -> egui::Id {
 }
 
 /// Fresh IDs for a copied timeline: layers and elements get new IDs, links between layers
-/// (parent, mask, motion guide) and authoring groups follow them. An element keeps one ID on every
-/// keyframe of its layer, so tweens keep pairing it.
+/// (parent, mask, motion guide, linked A/V layer) and authoring groups / motion side-tables follow
+/// them. An element keeps one ID on every keyframe of its layer, so tweens keep pairing it.
 pub(crate) fn refresh_timeline_ids(timeline: &mut Timeline) {
-    let mut layers: HashMap<Id, Id> = HashMap::new();
-    let mut elements: HashMap<Id, Id> = HashMap::new();
-    for layer in &mut timeline.layers {
-        let id = new_id("layer");
-        layers.insert(std::mem::replace(&mut layer.id, id.clone()), id);
-        for key in &mut layer.keyframes {
-            for element in &mut key.elements {
-                let fresh = elements
-                    .entry(element.id.clone())
-                    .or_insert_with(|| new_id("element"))
-                    .clone();
-                element.id = fresh;
-            }
-        }
-    }
-    for layer in &mut timeline.layers {
-        for key in &mut layer.keyframes {
-            key.remap_motion_element_ids(&elements);
-        }
-        let properties = &mut layer.properties;
-        for link in [
-            &mut properties.parent,
-            &mut properties.mask,
-            &mut properties.motion_guide,
-        ] {
-            if let Some(id) = link.as_mut() {
-                match layers.get(id) {
-                    Some(fresh) => *id = fresh.clone(),
-                    None => *link = None,
-                }
-            }
-        }
-        for group in &mut properties.groups {
-            group.id = new_id("group");
-            for member in &mut group.members {
-                if let Some(fresh) = elements.get(member) {
-                    *member = fresh.clone();
-                }
-            }
-        }
-    }
+    timeline.remap_internal_ids(new_id, None, None);
 }
 
 impl Editor {

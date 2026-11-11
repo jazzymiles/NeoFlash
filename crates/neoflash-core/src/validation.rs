@@ -55,6 +55,23 @@ impl Project {
         Self::parse_and_validate_json(json, true)
     }
 
+    /// Validate an already-deserialized published bundle `Project` (allowing externalized
+    /// sprite-sheet / `assets/` resources with empty `data_base64`) (`T-259`).
+    pub fn validate_published_bundle(&self) -> Result<(), ProjectError> {
+        let issues = validate_with_options(self, true);
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(ProjectError::Invalid(
+                issues
+                    .into_iter()
+                    .map(|i| format!("{}: {}", i.path, i.message))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ))
+        }
+    }
+
     fn parse_and_validate_json(
         json: &str,
         allow_external_sprite_sheet: bool,

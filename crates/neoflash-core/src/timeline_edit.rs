@@ -137,6 +137,64 @@ struct TimelineSampleContext<'a> {
 fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32, fps: f64) -> Keyframe {
     let mut key = blank(frame);
     key.elements = sample_layer_in_at_fps(timeline, layer, frame, fps);
+    if let Some(span_key) = layer
+        .keyframes
+        .iter()
+        .rfind(|k| k.frame <= frame && k.keyed_properties.is_none())
+    {
+        let present: std::collections::HashSet<&str> =
+            key.elements.iter().map(|e| e.id.as_str()).collect();
+        key.instance_overrides = span_key
+            .instance_overrides
+            .iter()
+            .filter(|ov| present.contains(ov.instance_id.as_str()))
+            .cloned()
+            .collect();
+        key.appearances = span_key
+            .appearances
+            .iter()
+            .filter(|app| present.contains(app.element_id.as_str()))
+            .cloned()
+            .collect();
+        key.bitmap_fills = span_key
+            .bitmap_fills
+            .iter()
+            .filter(|bf| present.contains(bf.element_id.as_str()))
+            .cloned()
+            .collect();
+        key.asset_warps = span_key
+            .asset_warps
+            .iter()
+            .filter(|w| present.contains(w.element_id.as_str()))
+            .cloned()
+            .collect();
+        key.element_parents = span_key
+            .element_parents
+            .iter()
+            .filter(|p| {
+                present.contains(p.child_id.as_str()) && present.contains(p.parent_id.as_str())
+            })
+            .cloned()
+            .collect();
+        key.controller_elements = span_key
+            .controller_elements
+            .iter()
+            .filter(|id| present.contains(id.as_str()))
+            .cloned()
+            .collect();
+        key.extended_accessibility = span_key
+            .extended_accessibility
+            .iter()
+            .filter(|acc| present.contains(acc.element_id.as_str()))
+            .cloned()
+            .collect();
+        key.vector_effects = span_key
+            .vector_effects
+            .iter()
+            .filter(|fx| present.contains(fx.element_id.as_str()))
+            .cloned()
+            .collect();
+    }
     if let Some(original) = layer.keyframes.iter().find(|key| key.frame == frame) {
         key.label = original.label.clone();
         key.video = original.video.clone();
@@ -214,24 +272,31 @@ pub fn split_stream_sound_at(
         24.0
     };
     let delta_sec = f64::from(cut_frame.saturating_sub(span_start)) / safe_fps;
-    let base_in = sound.in_point.unwrap_or(0.0).max(0.0);
-    let raw_in = (base_in + delta_sec).clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS);
+    let max_in = (FrameSound::MAX_SOUND_TRIM_SECONDS - 1e-3).max(0.0);
+    let base_in = sound.in_point.unwrap_or(0.0).clamp(0.0, max_in);
+    let raw_in = (base_in + delta_sec).clamp(0.0, max_in);
     let mut left = sound.clone();
     let mut right = sound.clone();
     let is_looping = sound.loop_forever || sound.loops > 1;
     let next_in = if let Some(outp) = sound.out_point {
-        let win = (outp - base_in).max(1e-3);
+        let clamped_out = outp.clamp(
+            (base_in + 1e-3).min(FrameSound::MAX_SOUND_TRIM_SECONDS),
+            FrameSound::MAX_SOUND_TRIM_SECONDS,
+        );
+        let win = (clamped_out - base_in).max(1e-3);
         if is_looping {
-            (base_in + (delta_sec % win)).min((outp - 1e-3).max(0.0))
-        } else if raw_in >= outp {
-            (outp - 1e-3).max(0.0)
+            (base_in + (delta_sec % win)).min((clamped_out - 1e-3).max(0.0))
+        } else if raw_in >= clamped_out {
+            (clamped_out - 1e-3).max(0.0)
         } else {
             raw_in
         }
     } else {
         raw_in
-    };
+    }
+    .min(max_in);
     if !is_looping {
+        left.in_point = Some(base_in);
         let left_out = next_in.max((base_in + 1e-3).min(FrameSound::MAX_SOUND_TRIM_SECONDS));
         left.out_point = Some(left_out);
     }
@@ -986,13 +1051,141 @@ fn bake_touched(
 }
 fn split(timeline: &Timeline, layer: &mut Layer, frame: u32, fps: f64) {
     if frame >= layer.properties.end_frame.unwrap_or(MAX_FRAME)
-        || layer.keyframes.iter().any(|key| key.frame == frame)
+        || layer
+            .keyframes
+            .iter()
+            .any(|key| key.frame == frame && key.keyed_properties.is_none())
     {
         return;
     }
     let key = sampled_key(timeline, layer, frame, fps);
+    layer.keyframes.retain(|k| k.frame != frame);
     layer.keyframes.push(key);
     layer.keyframes.sort_by_key(|key| key.frame);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn split_span_at(
+    timeline: &Timeline,
+    layer: &mut Layer,
+    start_pos: usize,
+    span_start: u32,
+    span_end: u32,
+    at: u32,
+    budget: &mut usize,
+    fps: f64,
+) -> Result<(), String> {
+    let first_key = layer.keyframes[start_pos].clone();
+    if first_key.tween.is_none() {
+        split(timeline, layer, at, fps);
+        return Ok(());
+    }
+    match first_key.tween_kind {
+        TweenKind::Motion => {
+            isolate_range(timeline, layer, at, at, budget, fps)?;
+            split(timeline, layer, at, fps);
+            Ok(())
+        }
+        TweenKind::Classic => {
+            let has_end_key = layer
+                .keyframes
+                .iter()
+                .any(|k| k.frame == span_end && k.keyed_properties.is_none());
+            if !has_end_key {
+                layer.keyframes[start_pos].tween = None;
+                split(timeline, layer, at, fps);
+                return Ok(());
+            }
+            let sampling = TimelineSampleContext { timeline, fps };
+            let original = layer.clone();
+            if let (Some(left_keys), Some(right_keys)) = (
+                subdivide_classic_subrange(
+                    sampling, &original, &first_key, span_start, span_end, span_start, at,
+                ),
+                subdivide_classic_subrange(
+                    sampling, &original, &first_key, span_start, span_end, at, span_end,
+                ),
+            ) {
+                layer
+                    .keyframes
+                    .retain(|k| k.frame < span_start || k.frame >= span_end);
+                layer.keyframes.extend(left_keys);
+                layer.keyframes.extend(right_keys);
+                layer.keyframes.sort_by_key(|k| k.frame);
+            } else {
+                charge_bake_budget(&original, span_start, span_end, budget)?;
+                layer
+                    .keyframes
+                    .retain(|k| k.frame < span_start || k.frame >= span_end);
+                layer.keyframes.extend(
+                    (span_start..span_end)
+                        .map(|frame| sampled_key(timeline, &original, frame, fps)),
+                );
+                layer.keyframes.sort_by_key(|k| k.frame);
+            }
+            Ok(())
+        }
+        TweenKind::Shape => {
+            let has_end_key = layer
+                .keyframes
+                .iter()
+                .any(|k| k.frame == span_end && k.keyed_properties.is_none());
+            if !has_end_key {
+                layer.keyframes[start_pos].tween = None;
+                split(timeline, layer, at, fps);
+                return Ok(());
+            }
+            let mut classic_proxy = first_key.clone();
+            classic_proxy.tween_kind = TweenKind::Classic;
+            let mut original_un_guided = layer.clone();
+            original_un_guided.properties.motion_guide = None;
+            let sampling = TimelineSampleContext { timeline, fps };
+            if let (Some(mut left_keys), Some(mut right_keys)) = (
+                subdivide_classic_subrange(
+                    sampling,
+                    &original_un_guided,
+                    &classic_proxy,
+                    span_start,
+                    span_end,
+                    span_start,
+                    at,
+                ),
+                subdivide_classic_subrange(
+                    sampling,
+                    &original_un_guided,
+                    &classic_proxy,
+                    span_start,
+                    span_end,
+                    at,
+                    span_end,
+                ),
+            ) {
+                for k in left_keys.iter_mut().chain(right_keys.iter_mut()) {
+                    k.tween_kind = TweenKind::Shape;
+                    k.orient_to_path = false;
+                    k.shape_hints.clear();
+                }
+                layer
+                    .keyframes
+                    .retain(|k| k.frame < span_start || k.frame >= span_end);
+                layer.keyframes.extend(left_keys);
+                layer.keyframes.extend(right_keys);
+                layer.keyframes.sort_by_key(|k| k.frame);
+            } else {
+                let original = layer.clone();
+                charge_bake_budget(&original, span_start, span_end, budget)?;
+                layer
+                    .keyframes
+                    .retain(|k| k.frame < span_start || k.frame >= span_end);
+                layer.keyframes.extend(
+                    (span_start..span_end)
+                        .map(|frame| sampled_key(timeline, &original, frame, fps)),
+                );
+                layer.keyframes.sort_by_key(|k| k.frame);
+            }
+            Ok(())
+        }
+    }
 }
 pub fn copy_frames(
     project: &Project,
@@ -2100,8 +2293,16 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 } else {
                     None
                 };
-                isolate_range(timeline, &mut layer, at, at, &mut budget, fps)?;
-                split(timeline, &mut layer, at, fps);
+                split_span_at(
+                    timeline,
+                    &mut layer,
+                    start_pos,
+                    span_start,
+                    span_end,
+                    at,
+                    &mut budget,
+                    fps,
+                )?;
                 if let Some((left_video, right_video)) = video_split {
                     if let Some(left_key) = layer
                         .keyframes

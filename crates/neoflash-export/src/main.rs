@@ -203,6 +203,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if demo && source.is_some() {
         return Err("Choose a project or --demo".into());
     }
+    let source_base_dir = source
+        .as_ref()
+        .and_then(|p| p.parent())
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(std::path::Path::to_path_buf);
     let project = if demo {
         Project::demo()
     } else {
@@ -273,6 +278,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             &aep_path,
             &AepOptions {
                 symbol: lottie_symbol.clone(),
+                base_dir: source_base_dir.clone(),
                 ..AepOptions::default()
             },
         )?;

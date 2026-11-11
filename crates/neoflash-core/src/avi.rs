@@ -12,6 +12,7 @@ use std::sync::Arc;
 const MAX_AVI_BYTES: usize = 512 * 1024 * 1024;
 const MAX_AVI_FRAMES: usize = 36_000;
 const MAX_AVI_DECODED_BYTES: usize = 256 * 1024 * 1024;
+const MAX_AVI_REC_DEPTH: usize = 16;
 
 /// Parsed container and elementary-stream metadata from an AVI `hdrl` list.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,9 +38,16 @@ impl AviHeaderInfo {
         if self.video_fourcc == [0, 0, 0, 0] {
             return "BI_RGB".to_owned();
         }
-        String::from_utf8_lossy(&self.video_fourcc)
-            .trim()
-            .to_owned()
+        if self.video_fourcc.iter().all(|b| (0x20..=0x7E).contains(b)) {
+            let trimmed = std::str::from_utf8(&self.video_fourcc).unwrap_or("").trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_owned();
+            }
+        }
+        format!(
+            "0x{:02X}{:02X}{:02X}{:02X}",
+            self.video_fourcc[0], self.video_fourcc[1], self.video_fourcc[2], self.video_fourcc[3]
+        )
     }
 
     pub fn duration_ms(&self) -> u32 {
@@ -56,11 +64,32 @@ impl AviHeaderInfo {
             self.video_fourcc[2].to_ascii_uppercase(),
             self.video_fourcc[3].to_ascii_uppercase(),
         ];
-        matches!(
-            &fcc_upper,
-            b"\0\0\0\0" | b"DIB " | b"RGB " | b"RAW " | b"MJPG" | b"JPEG" | b"PNG " | b"MPNG"
-        )
+        match &fcc_upper {
+            b"MJPG" | b"JPEG" | b"PNG " | b"MPNG" => true,
+            b"\0\0\0\0" | b"DIB " | b"RGB " | b"RAW " => {
+                matches!(self.bit_count, 8 | 24 | 32)
+            }
+            _ => false,
+        }
     }
+}
+
+/// Byte-offset index entry for a single frame inside an AVI `movi` list (`T-259` / `T-229`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AviFrameEntry {
+    pub timestamp_ms: u32,
+    /// `Some((start, end))` into the container byte slice (resolved across 0-byte drop/hold chunks).
+    pub chunk_range: Option<(usize, usize)>,
+}
+
+/// Sequential chunk-offset index of an AVI container for $O(1)$ on-demand frame decoding.
+#[derive(Clone, Debug)]
+pub struct AviIndexedContainer {
+    pub info: AviHeaderInfo,
+    palette: Vec<[u8; 4]>,
+    is_encoded_image: bool,
+    pub frames: Vec<AviFrameEntry>,
+    audio_ranges: Vec<(usize, usize)>,
 }
 
 /// Decoded video frames (`(timestamp_ms, DecodedImage)`) and optional canonical WAV/MP3 audio bytes.
@@ -196,10 +225,25 @@ fn parse_avi_structure(
                                 if &current_fcc_type == b"vids" && !found_video && slen >= 40 {
                                     found_video = true;
                                     video_stream_index = stream_idx;
-                                    let bi_size = read_u32_le(bytes, sstart).unwrap_or(40) as usize;
+                                    let bi_size = read_u32_le(bytes, sstart).unwrap_or(0) as usize;
+                                    if bi_size < 40 {
+                                        return Err(format!(
+                                            "AVI video BITMAPINFOHEADER biSize ({bi_size}) must be at least 40 bytes."
+                                        ));
+                                    }
                                     let w_raw = read_i32_le(bytes, sstart + 4).unwrap_or(0);
+                                    if w_raw <= 0 {
+                                        return Err(format!(
+                                            "AVI video BITMAPINFOHEADER biWidth ({w_raw}) must be positive."
+                                        ));
+                                    }
                                     let h_raw = read_i32_le(bytes, sstart + 8).unwrap_or(0);
-                                    bih_width = w_raw.unsigned_abs();
+                                    if h_raw == 0 || h_raw == i32::MIN {
+                                        return Err(format!(
+                                            "AVI video BITMAPINFOHEADER biHeight ({h_raw}) is invalid."
+                                        ));
+                                    }
+                                    bih_width = w_raw as u32;
                                     bih_height = h_raw.unsigned_abs();
                                     bottom_up = h_raw >= 0;
                                     bit_count = read_u16_le(bytes, sstart + 14).unwrap_or(24);
@@ -210,7 +254,8 @@ fn parse_avi_structure(
                                     {
                                         // Keep BI_RGB (`[0,0,0,0]`) when strf compression is 0.
                                     }
-                                    if bit_count == 8 && slen > bi_size {
+                                    if bit_count == 8 && slen > bi_size && sstart + bi_size <= send
+                                    {
                                         let pal_bytes = &bytes[sstart + bi_size..send];
                                         for entry in pal_bytes.as_chunks::<4>().0.iter().take(256) {
                                             palette.push([entry[2], entry[1], entry[0], 255]);
@@ -306,13 +351,23 @@ fn decode_dib_frame(
 ) -> Result<DecodedImage, String> {
     let w = info.width as usize;
     let h = info.height as usize;
-    let mut rgba = vec![0u8; w * h * 4];
+    let frame_rgba_bytes = w
+        .checked_mul(h)
+        .and_then(|px| px.checked_mul(4))
+        .ok_or("AVI DIB frame dimensions overflow.")?;
+    if frame_rgba_bytes > MAX_AVI_DECODED_BYTES {
+        return Err(format!(
+            "Decoded AVI DIB frame exceeds {} MiB frame budget.",
+            MAX_AVI_DECODED_BYTES / (1024 * 1024)
+        ));
+    }
     match info.bit_count {
         24 => {
             let stride = (w * 3).div_ceil(4) * 4;
-            if chunk.len() < stride * h {
+            if chunk.len() < stride.saturating_mul(h) {
                 return Err("Truncated 24-bit DIB video frame in AVI.".into());
             }
+            let mut rgba = vec![0u8; frame_rgba_bytes];
             for y in 0..h {
                 let src_y = if info.bottom_up { h - 1 - y } else { y };
                 let row = &chunk[src_y * stride..src_y * stride + w * 3];
@@ -324,12 +379,18 @@ fn decode_dib_frame(
                     dst_row[x * 4 + 3] = 255;
                 }
             }
+            Ok(DecodedImage {
+                width: info.width,
+                height: info.height,
+                rgba: rgba.into(),
+            })
         }
         32 => {
             let stride = w * 4;
-            if chunk.len() < stride * h {
+            if chunk.len() < stride.saturating_mul(h) {
                 return Err("Truncated 32-bit DIB video frame in AVI.".into());
             }
+            let mut rgba = vec![0u8; frame_rgba_bytes];
             for y in 0..h {
                 let src_y = if info.bottom_up { h - 1 - y } else { y };
                 let row = &chunk[src_y * stride..src_y * stride + stride];
@@ -347,12 +408,18 @@ fn decode_dib_frame(
                     px[3] = 255;
                 }
             }
+            Ok(DecodedImage {
+                width: info.width,
+                height: info.height,
+                rgba: rgba.into(),
+            })
         }
         8 => {
             let stride = w.div_ceil(4) * 4;
-            if chunk.len() < stride * h {
+            if chunk.len() < stride.saturating_mul(h) {
                 return Err("Truncated 8-bit paletted DIB video frame in AVI.".into());
             }
+            let mut rgba = vec![0u8; frame_rgba_bytes];
             for y in 0..h {
                 let src_y = if info.bottom_up { h - 1 - y } else { y };
                 let row = &chunk[src_y * stride..src_y * stride + w];
@@ -365,18 +432,16 @@ fn decode_dib_frame(
                     dst_row[x * 4..x * 4 + 4].copy_from_slice(&color);
                 }
             }
+            Ok(DecodedImage {
+                width: info.width,
+                height: info.height,
+                rgba: rgba.into(),
+            })
         }
-        other => {
-            return Err(format!(
-                "Unsupported uncompressed AVI DIB bit depth {other} (expected 8, 24 or 32)."
-            ));
-        }
+        other => Err(format!(
+            "Unsupported uncompressed AVI DIB bit depth {other} (expected 8, 24 or 32)."
+        )),
     }
-    Ok(DecodedImage {
-        width: info.width,
-        height: info.height,
-        rgba: rgba.into(),
-    })
 }
 
 fn stream_chunk_index(two_digits: &[u8]) -> Option<u8> {
@@ -398,13 +463,85 @@ fn stream_chunk_index(two_digits: &[u8]) -> Option<u8> {
     Some((hi << 4) | lo)
 }
 
-/// Decode an AVI byte stream in pure Rust (`MJPEG`, `PNG`, or `BI_RGB` video + `PCM`/`MP3` audio).
-pub fn decode_avi_bytes(bytes: &[u8]) -> Result<DecodedAviMedia, String> {
-    let (info, palette, movi_range) = parse_avi_structure(bytes)?;
+impl AviIndexedContainer {
+    /// Binary-search the indexed frame entry active at `timestamp_ms`.
+    pub fn frame_index_at_ms(&self, timestamp_ms: u32) -> Option<usize> {
+        if self.frames.is_empty() {
+            return None;
+        }
+        let idx = self
+            .frames
+            .partition_point(|entry| entry.timestamp_ms <= timestamp_ms);
+        Some(idx.saturating_sub(1).min(self.frames.len() - 1))
+    }
+
+    /// Decode a single indexed video frame on demand without touching any other frame (`T-229` / `T-259`).
+    pub fn decode_frame(&self, bytes: &[u8], frame_index: usize) -> Result<DecodedImage, String> {
+        let entry = self
+            .frames
+            .get(frame_index)
+            .ok_or_else(|| format!("AVI frame index {frame_index} is out of bounds."))?;
+        let (cstart, cend) = entry
+            .chunk_range
+            .ok_or_else(|| format!("AVI frame {frame_index} has no backing video payload."))?;
+        let chunk = bytes
+            .get(cstart..cend)
+            .ok_or_else(|| format!("AVI frame {frame_index} slice is out of bounds."))?;
+        if self.is_encoded_image {
+            decode_encoded_image(chunk)
+                .map_err(|e| format!("AVI frame {frame_index} decode failed: {e}"))
+        } else {
+            decode_dib_frame(chunk, &self.info, &self.palette)
+        }
+    }
+
+    /// Extract canonical WAV (`0x0001` PCM) or MP3 (`0x0055`) audio bytes from the indexed chunks.
+    pub fn extract_audio(
+        &self,
+        bytes: &[u8],
+    ) -> Result<(Option<Vec<u8>>, Option<&'static str>), String> {
+        if self.audio_ranges.is_empty() {
+            return Ok((None, None));
+        }
+        let total_len: usize = self
+            .audio_ranges
+            .iter()
+            .map(|(s, e)| e.saturating_sub(*s))
+            .sum();
+        if total_len == 0 {
+            return Ok((None, None));
+        }
+        let mut payload = Vec::with_capacity(total_len);
+        for &(s, e) in &self.audio_ranges {
+            if let Some(slice) = bytes.get(s..e) {
+                payload.extend_from_slice(slice);
+            }
+        }
+        match self.info.audio_format_tag {
+            Some(1) => {
+                let wav = wrap_pcm_as_wav(
+                    &payload,
+                    self.info.audio_channels,
+                    self.info.audio_sample_rate,
+                    self.info.audio_bits_per_sample,
+                )?;
+                Ok((Some(wav), Some("audio/wav")))
+            }
+            Some(0x0055) => Ok((Some(payload), Some("audio/mpeg"))),
+            _ => Ok((None, None)),
+        }
+    }
+}
+
+/// Index an AVI container's `movi` frame and audio chunk byte offsets sequentially without
+/// decoding video pixels (`T-259` / `T-229`).
+pub fn index_avi_container(bytes: &[u8]) -> Result<AviIndexedContainer, String> {
+    let (mut info, palette, movi_range) = parse_avi_structure(bytes)?;
     if !info.supports_pure_rust_video() {
         return Err(format!(
-            "AVI codec '{}' requires external ffmpeg decoding.",
-            info.video_fourcc_label()
+            "AVI codec '{}' ({}-bit) requires external ffmpeg decoding.",
+            info.video_fourcc_label(),
+            info.bit_count
         ));
     }
     let (movi_start, movi_end) =
@@ -418,22 +555,28 @@ pub fn decode_avi_bytes(bytes: &[u8]) -> Result<DecodedAviMedia, String> {
     ];
     let is_encoded_image = matches!(&fcc_upper, b"MJPG" | b"JPEG" | b"PNG " | b"MPNG");
 
-    let mut frames: Vec<(u32, Arc<DecodedImage>)> = Vec::new();
-    let mut audio_payload = Vec::new();
-    let mut decoded_rgba_bytes = 0usize;
+    let mut frames: Vec<AviFrameEntry> = Vec::new();
+    let mut last_non_empty_range: Option<(usize, usize)> = None;
+    let mut audio_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut audio_total_bytes = 0usize;
 
     #[allow(clippy::too_many_arguments)]
     fn walk_movi_chunks(
         bytes: &[u8],
         start: usize,
         end: usize,
+        depth: usize,
         info: &AviHeaderInfo,
-        palette: &[[u8; 4]],
-        is_encoded_image: bool,
-        frames: &mut Vec<(u32, Arc<DecodedImage>)>,
-        audio_payload: &mut Vec<u8>,
-        decoded_rgba_bytes: &mut usize,
+        frames: &mut Vec<AviFrameEntry>,
+        last_non_empty_range: &mut Option<(usize, usize)>,
+        audio_ranges: &mut Vec<(usize, usize)>,
+        audio_total_bytes: &mut usize,
     ) -> Result<(), String> {
+        if depth > MAX_AVI_REC_DEPTH {
+            return Err(format!(
+                "AVI 'rec ' list nesting exceeds maximum depth ({MAX_AVI_REC_DEPTH})."
+            ));
+        }
         let mut pos = start;
         while pos + 8 <= end {
             let id = &bytes[pos..pos + 4];
@@ -448,16 +591,15 @@ pub fn decode_avi_bytes(bytes: &[u8]) -> Result<DecodedAviMedia, String> {
                     bytes,
                     cstart + 4,
                     cend,
+                    depth + 1,
                     info,
-                    palette,
-                    is_encoded_image,
                     frames,
-                    audio_payload,
-                    decoded_rgba_bytes,
+                    last_non_empty_range,
+                    audio_ranges,
+                    audio_total_bytes,
                 )?;
             } else if let Some(sidx) = stream_chunk_index(&id[0..2]) {
                 let kind = &id[2..4];
-                let chunk = &bytes[cstart..cend];
                 if sidx == info.video_stream_index && (kind == b"dc" || kind == b"db") {
                     if frames.len() >= MAX_AVI_FRAMES {
                         return Err(format!(
@@ -466,35 +608,27 @@ pub fn decode_avi_bytes(bytes: &[u8]) -> Result<DecodedAviMedia, String> {
                     }
                     let ts_ms = (((frames.len() as f64) * 1000.0 / info.fps).round() as u64)
                         .min(u32::MAX as u64) as u32;
-                    if chunk.is_empty() {
-                        // Repeat previous frame (0-byte drop/hold chunk in AVI).
-                        if let Some((_, prev)) = frames.last().cloned() {
-                            frames.push((ts_ms, prev));
+                    if cstart == cend {
+                        if let Some(prev_range) = *last_non_empty_range {
+                            frames.push(AviFrameEntry {
+                                timestamp_ms: ts_ms,
+                                chunk_range: Some(prev_range),
+                            });
                         }
                     } else {
-                        let decoded = if is_encoded_image {
-                            decode_encoded_image(chunk).map_err(|e| {
-                                format!("AVI frame {} decode failed: {e}", frames.len())
-                            })?
-                        } else {
-                            decode_dib_frame(chunk, info, palette)?
-                        };
-                        *decoded_rgba_bytes = decoded_rgba_bytes
-                            .checked_add(decoded.rgba.len())
-                            .ok_or("AVI decoded frame memory overflow")?;
-                        if *decoded_rgba_bytes > MAX_AVI_DECODED_BYTES {
-                            return Err(format!(
-                                "Decoded AVI video exceeds {} MiB frame budget.",
-                                MAX_AVI_DECODED_BYTES / (1024 * 1024)
-                            ));
-                        }
-                        frames.push((ts_ms, Arc::new(decoded)));
+                        *last_non_empty_range = Some((cstart, cend));
+                        frames.push(AviFrameEntry {
+                            timestamp_ms: ts_ms,
+                            chunk_range: Some((cstart, cend)),
+                        });
                     }
                 } else if Some(sidx) == info.audio_stream_index
                     && kind == b"wb"
-                    && audio_payload.len().saturating_add(chunk.len()) <= 64 * 1024 * 1024
+                    && cend > cstart
+                    && audio_total_bytes.saturating_add(cend - cstart) <= 64 * 1024 * 1024
                 {
-                    audio_payload.extend_from_slice(chunk);
+                    *audio_total_bytes += cend - cstart;
+                    audio_ranges.push((cstart, cend));
                 }
             }
             pos = cend + (len & 1);
@@ -506,53 +640,107 @@ pub fn decode_avi_bytes(bytes: &[u8]) -> Result<DecodedAviMedia, String> {
         bytes,
         movi_start,
         movi_end,
+        0,
         &info,
-        &palette,
-        is_encoded_image,
         &mut frames,
-        &mut audio_payload,
-        &mut decoded_rgba_bytes,
+        &mut last_non_empty_range,
+        &mut audio_ranges,
+        &mut audio_total_bytes,
     )?;
 
     if frames.is_empty() {
         return Err("AVI container contains zero decodable video frames.".into());
     }
+    if info.frame_count == 0 {
+        info.frame_count = u32::try_from(frames.len()).unwrap_or(u32::MAX);
+    }
 
-    let (audio_bytes, audio_mime) = if !audio_payload.is_empty() {
-        match info.audio_format_tag {
-            Some(1) => {
-                // Wrap raw PCM in canonical RIFF WAVE container.
-                let wav = wrap_pcm_as_wav(
-                    &audio_payload,
-                    info.audio_channels.max(1),
-                    info.audio_sample_rate.max(8_000),
-                    info.audio_bits_per_sample.max(8),
-                );
-                (Some(wav), Some("audio/wav"))
-            }
-            Some(0x0055) => (Some(audio_payload), Some("audio/mpeg")),
-            _ => (None, None),
+    Ok(AviIndexedContainer {
+        info,
+        palette,
+        is_encoded_image,
+        frames,
+        audio_ranges,
+    })
+}
+
+/// Decode an AVI byte stream in pure Rust (`MJPEG`, `PNG`, or `BI_RGB` video + `PCM`/`MP3` audio).
+pub fn decode_avi_bytes(bytes: &[u8]) -> Result<DecodedAviMedia, String> {
+    let indexed = index_avi_container(bytes)?;
+    let mut frames: Vec<(u32, Arc<DecodedImage>)> = Vec::with_capacity(indexed.frames.len());
+    let mut decoded_rgba_bytes = 0usize;
+    let mut prev_decoded: Option<((usize, usize), Arc<DecodedImage>)> = None;
+
+    for (idx, entry) in indexed.frames.iter().enumerate() {
+        if let Some(range) = entry.chunk_range
+            && let Some((prev_range, ref prev_img)) = prev_decoded
+            && prev_range == range
+        {
+            frames.push((entry.timestamp_ms, Arc::clone(prev_img)));
+            continue;
         }
-    } else {
-        (None, None)
-    };
+        let decoded = indexed.decode_frame(bytes, idx)?;
+        decoded_rgba_bytes = decoded_rgba_bytes
+            .checked_add(decoded.rgba.len())
+            .ok_or("AVI decoded frame memory overflow")?;
+        if decoded_rgba_bytes > MAX_AVI_DECODED_BYTES {
+            return Err(format!(
+                "Decoded AVI video exceeds {} MiB frame budget.",
+                MAX_AVI_DECODED_BYTES / (1024 * 1024)
+            ));
+        }
+        let arc = Arc::new(decoded);
+        if let Some(range) = entry.chunk_range {
+            prev_decoded = Some((range, Arc::clone(&arc)));
+        }
+        frames.push((entry.timestamp_ms, arc));
+    }
+
+    let (audio_bytes, audio_mime) = indexed.extract_audio(bytes)?;
 
     Ok(DecodedAviMedia {
-        info,
+        info: indexed.info,
         frames,
         audio_bytes,
         audio_mime,
     })
 }
 
-fn wrap_pcm_as_wav(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample: u16) -> Vec<u8> {
-    let bytes_per_sample = (bits_per_sample.div_ceil(8)).max(1);
+/// Wrap raw linear PCM bytes in a canonical RIFF `WAVE` container with validated channel,
+/// sample-rate, bit-depth, and even-byte RIFF padding (`T-259` / `T-260`).
+pub fn wrap_pcm_as_wav(
+    pcm: &[u8],
+    channels: u16,
+    sample_rate: u32,
+    bits_per_sample: u16,
+) -> Result<Vec<u8>, String> {
+    if !(1..=8).contains(&channels) {
+        return Err(format!(
+            "Unsupported PCM channel count {channels} (expected 1..=8)."
+        ));
+    }
+    if !(1_000..=384_000).contains(&sample_rate) {
+        return Err(format!(
+            "Unsupported PCM sample rate {sample_rate} Hz (expected 1000..=384000)."
+        ));
+    }
+    if !matches!(bits_per_sample, 8 | 16 | 24 | 32) {
+        return Err(format!(
+            "Unsupported PCM bit depth {bits_per_sample} (expected 8, 16, 24 or 32)."
+        ));
+    }
+    let bytes_per_sample = bits_per_sample / 8;
     let block_align = channels.saturating_mul(bytes_per_sample);
-    let byte_rate = sample_rate.saturating_mul(block_align as u32);
-    let data_len = pcm.len() as u32;
-    let riff_len = 36u32.saturating_add(data_len);
+    let byte_rate = sample_rate.saturating_mul(u32::from(block_align));
+    let data_len = u32::try_from(pcm.len()).map_err(|_| "PCM audio exceeds 4 GiB WAV limit.")?;
+    let pad = pcm.len() & 1;
+    let padded_data_len = u32::try_from(pcm.len().saturating_add(pad))
+        .map_err(|_| "PCM audio exceeds 4 GiB WAV limit.")?;
+    let riff_len = 36u32
+        .checked_add(padded_data_len)
+        .ok_or("PCM audio exceeds RIFF WAVE size limit.")?;
 
-    let mut out = Vec::with_capacity(44 + pcm.len());
+    let mut out = Vec::with_capacity(44 + pcm.len() + pad);
     out.extend_from_slice(b"RIFF");
     out.extend_from_slice(&riff_len.to_le_bytes());
     out.extend_from_slice(b"WAVE");
@@ -567,7 +755,10 @@ fn wrap_pcm_as_wav(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample:
     out.extend_from_slice(b"data");
     out.extend_from_slice(&data_len.to_le_bytes());
     out.extend_from_slice(pcm);
-    out
+    if pad == 1 {
+        out.push(0);
+    }
+    Ok(out)
 }
 
 /// Build a canonical RIFF/AVI container with `MJPG` video frames and optional 16-bit PCM audio.

@@ -643,7 +643,7 @@
           } else {
             const activation = global.navigator?.userActivation;
             if (activation && !activation.isActive) throw securityError('Stage.displayState fullscreen requires an active user gesture.');
-            requestViewportFullscreen();
+            Promise.resolve(requestViewportFullscreen()).catch(() => {});
           }
           const changed = displayState !== next;
           displayState = next;

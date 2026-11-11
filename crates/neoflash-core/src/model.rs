@@ -330,6 +330,104 @@ impl Symbol {
     }
 }
 
+impl Timeline {
+    /// Remap all internal layer, group, and element IDs on this timeline using `fresh_id`,
+    /// plus optional `symbol_map` (`ElementKind::Instance`) and `resource_map` (`sound`, `video`,
+    /// `bitmap_fills`, `ElementKind::Bitmap`) (`T-259` / `T-260`).
+    ///
+    /// Preserves element identity across keyframes on the same layer and updates every layer
+    /// (`parent`, `mask`, `motion_guide`, `linked_layer`, `groups`) and keyframe element-ID
+    /// side-table (`motion_tracks`, `motion_keys`, `instance_overrides`, `bitmap_fills`,
+    /// `asset_warps`, `element_parents`, `controller_elements`, `ik_armatures`, `appearances`,
+    /// `extended_accessibility`, `vector_effects`).
+    pub fn remap_internal_ids(
+        &mut self,
+        mut fresh_id: impl FnMut(&str) -> Id,
+        symbol_map: Option<&std::collections::BTreeMap<Id, Id>>,
+        resource_map: Option<&std::collections::BTreeMap<Id, Id>>,
+    ) {
+        let mut layer_map = std::collections::HashMap::with_capacity(self.layers.len());
+        for layer in &self.layers {
+            layer_map.insert(layer.id.clone(), fresh_id("lyr"));
+        }
+        for layer in &mut self.layers {
+            let mut elem_map = std::collections::HashMap::new();
+            for kf in &layer.keyframes {
+                for el in &kf.elements {
+                    elem_map
+                        .entry(el.id.clone())
+                        .or_insert_with(|| fresh_id("el"));
+                }
+            }
+            if let Some(lid) = layer_map.get(&layer.id) {
+                layer.id = lid.clone();
+            }
+            layer.properties.parent = layer
+                .properties
+                .parent
+                .as_ref()
+                .and_then(|id| layer_map.get(id).cloned());
+            layer.properties.mask = layer
+                .properties
+                .mask
+                .as_ref()
+                .and_then(|id| layer_map.get(id).cloned());
+            layer.properties.motion_guide = layer
+                .properties
+                .motion_guide
+                .as_ref()
+                .and_then(|id| layer_map.get(id).cloned());
+            layer.properties.linked_layer = layer
+                .properties
+                .linked_layer
+                .as_ref()
+                .and_then(|id| layer_map.get(id).cloned());
+            for group in &mut layer.properties.groups {
+                group.id = fresh_id("grp");
+                for member in &mut group.members {
+                    if let Some(eid) = elem_map.get(member) {
+                        *member = eid.clone();
+                    }
+                }
+            }
+            for kf in &mut layer.keyframes {
+                kf.remap_all_ids(&elem_map, symbol_map, resource_map);
+            }
+        }
+    }
+
+    /// Remap referenced `ResourceUnit` IDs across `sound`, `video`, `bitmap_fills`, and
+    /// `ElementKind::Bitmap` (`T-259` / `T-260`).
+    pub fn remap_resource_ids(&mut self, resource_map: &std::collections::HashMap<Id, Id>) {
+        for layer in &mut self.layers {
+            for kf in &mut layer.keyframes {
+                if let Some(snd) = &mut kf.sound
+                    && let Some(rid) = resource_map.get(&snd.resource)
+                {
+                    snd.resource = rid.clone();
+                }
+                if let Some(vid) = &mut kf.video
+                    && let Some(rid) = resource_map.get(&vid.resource)
+                {
+                    vid.resource = rid.clone();
+                }
+                for bf in &mut kf.bitmap_fills {
+                    if let Some(rid) = resource_map.get(&bf.resource_id) {
+                        bf.resource_id = rid.clone();
+                    }
+                }
+                for el in &mut kf.elements {
+                    if let ElementKind::Bitmap { resource_id, .. } = &mut el.kind
+                        && let Some(rid) = resource_map.get(resource_id)
+                    {
+                        *resource_id = rid.clone();
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthoringGroup {
     pub id: Id,
@@ -1191,6 +1289,105 @@ impl Keyframe {
         self.motion_tracks
             .push(MotionTrackOverride::new(element_id));
         self.motion_tracks.last_mut().unwrap()
+    }
+
+    /// Follow a fresh-ID operation for all element, symbol, and resource references on this keyframe (`T-259` / `T-260`).
+    pub fn remap_all_ids(
+        &mut self,
+        elem_map: &HashMap<Id, Id>,
+        symbol_map: Option<&std::collections::BTreeMap<Id, Id>>,
+        resource_map: Option<&std::collections::BTreeMap<Id, Id>>,
+    ) {
+        if let Some(rmap) = resource_map {
+            if let Some(snd) = &mut self.sound
+                && let Some(rid) = rmap.get(&snd.resource)
+            {
+                snd.resource = rid.clone();
+            }
+            if let Some(vid) = &mut self.video
+                && let Some(rid) = rmap.get(&vid.resource)
+            {
+                vid.resource = rid.clone();
+            }
+        }
+        self.remap_motion_element_ids(elem_map);
+        for ov in &mut self.instance_overrides {
+            if let Some(eid) = elem_map.get(&ov.instance_id) {
+                ov.instance_id = eid.clone();
+            }
+        }
+        for bf in &mut self.bitmap_fills {
+            if let Some(eid) = elem_map.get(&bf.element_id) {
+                bf.element_id = eid.clone();
+            }
+            if let Some(rmap) = resource_map
+                && let Some(rid) = rmap.get(&bf.resource_id)
+            {
+                bf.resource_id = rid.clone();
+            }
+        }
+        for warp in &mut self.asset_warps {
+            if let Some(eid) = elem_map.get(&warp.element_id) {
+                warp.element_id = eid.clone();
+            }
+        }
+        for pl in &mut self.element_parents {
+            if let Some(eid) = elem_map.get(&pl.child_id) {
+                pl.child_id = eid.clone();
+            }
+            if let Some(pid) = elem_map.get(&pl.parent_id) {
+                pl.parent_id = pid.clone();
+            }
+        }
+        for cid in &mut self.controller_elements {
+            if let Some(eid) = elem_map.get(cid) {
+                *cid = eid.clone();
+            }
+        }
+        for arm in &mut self.ik_armatures {
+            for bone in &mut arm.bones {
+                if let Some(eid) = elem_map.get(&bone.element_id) {
+                    bone.element_id = eid.clone();
+                }
+            }
+        }
+        for app in &mut self.appearances {
+            if let Some(eid) = elem_map.get(&app.element_id) {
+                app.element_id = eid.clone();
+            }
+        }
+        for acc in &mut self.extended_accessibility {
+            if let Some(eid) = elem_map.get(&acc.element_id) {
+                acc.element_id = eid.clone();
+            }
+        }
+        for fx in &mut self.vector_effects {
+            if let Some(eid) = elem_map.get(&fx.element_id) {
+                fx.element_id = eid.clone();
+            }
+        }
+        for el in &mut self.elements {
+            if let Some(eid) = elem_map.get(&el.id) {
+                el.id = eid.clone();
+            }
+            match &mut el.kind {
+                ElementKind::Instance { symbol_id, .. } => {
+                    if let Some(smap) = symbol_map
+                        && let Some(sid) = smap.get(symbol_id)
+                    {
+                        *symbol_id = sid.clone();
+                    }
+                }
+                ElementKind::Bitmap { resource_id, .. } => {
+                    if let Some(rmap) = resource_map
+                        && let Some(rid) = rmap.get(resource_id)
+                    {
+                        *resource_id = rid.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Follow a fresh-ID operation for only the object references owned by Motion data.

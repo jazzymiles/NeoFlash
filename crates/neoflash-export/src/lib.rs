@@ -1810,7 +1810,7 @@ pub struct BitmapPublishStats {
 }
 
 type BitmapCacheKey = ([u8; 32], u8, u8);
-type BitmapCacheVal = (String, std::sync::Arc<str>, usize);
+type BitmapCacheVal = (String, std::sync::Arc<str>, usize, bool);
 
 static BITMAP_ENCODE_CACHE: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<BitmapCacheKey, BitmapCacheVal>>,
@@ -1893,21 +1893,18 @@ pub fn apply_bitmap_export_settings(
 
         let src_digest = sha256_bytes(&raw);
         let cache_key: BitmapCacheKey = (src_digest, mode_tag, target_q);
-        if mode_tag == 1
-            && let Ok(img) = image::load_from_memory(&raw)
-            && img.to_rgba8().pixels().any(|px| px[3] < 255)
-        {
-            warnings.push(format!(
-                "Bitmap '{}' has translucent alpha pixels; Photo JPEG flattens alpha onto opaque RGB (switch its Library Bitmap Properties to Lossless PNG or WebP to preserve transparency).",
-                resource.path
-            ));
-        }
 
-        if let Some((cached_mime, cached_b64, out_len)) = BITMAP_ENCODE_CACHE
+        if let Some((cached_mime, cached_b64, out_len, cached_has_alpha)) = BITMAP_ENCODE_CACHE
             .lock()
             .ok()
             .and_then(|guard| guard.get(&cache_key).cloned())
         {
+            if mode_tag == 1 && cached_has_alpha {
+                warnings.push(format!(
+                    "Bitmap '{}' has translucent alpha pixels; Photo JPEG flattens alpha onto opaque RGB (switch its Library Bitmap Properties to Lossless PNG or WebP to preserve transparency).",
+                    resource.path
+                ));
+            }
             stats.cache_hits += 1;
             stats.saved_bytes += raw_len as isize - out_len as isize;
             let out_digest = sha256_bytes(cached_b64.as_bytes());
@@ -1925,6 +1922,13 @@ pub fn apply_bitmap_export_settings(
         let Ok(img) = image::load_from_memory(&raw) else {
             continue;
         };
+        let has_alpha = img.to_rgba8().pixels().any(|px| px[3] < 255);
+        if mode_tag == 1 && has_alpha {
+            warnings.push(format!(
+                "Bitmap '{}' has translucent alpha pixels; Photo JPEG flattens alpha onto opaque RGB (switch its Library Bitmap Properties to Lossless PNG or WebP to preserve transparency).",
+                resource.path
+            ));
+        }
         let mut out = Vec::new();
         let out_mime = match mode_tag {
             1 => {
@@ -1984,10 +1988,13 @@ pub fn apply_bitmap_export_settings(
             stats.reencoded += 1;
             stats.saved_bytes += raw_len as isize - out_len as isize;
             if let Ok(mut guard) = BITMAP_ENCODE_CACHE.lock() {
-                if guard.len() >= 512 {
+                if guard.len() >= 256 {
                     guard.clear();
                 }
-                guard.insert(cache_key, (out_mime.to_owned(), b64_arc.clone(), out_len));
+                guard.insert(
+                    cache_key,
+                    (out_mime.to_owned(), b64_arc.clone(), out_len, has_alpha),
+                );
             }
             let out_digest = sha256_bytes(b64_arc.as_bytes());
             if let Some(shared) = seen_outputs.get(&out_digest) {
@@ -2013,12 +2020,12 @@ pub fn apply_bitmap_export_settings(
                         } = &mut el.kind
                             && let Some(&allow) = smoothing_overrides.get(resource_id)
                         {
-                            *smoothing |= allow;
+                            *smoothing = allow;
                         }
                     }
                     for bf in &mut key.bitmap_fills {
                         if let Some(&allow) = smoothing_overrides.get(&bf.resource_id) {
-                            bf.smoothing |= allow;
+                            bf.smoothing = allow;
                         }
                     }
                 }
@@ -2045,8 +2052,17 @@ fn apply_sequence_publish_policy(
                 );
                 return (true, warnings);
             };
+            struct SeqTempGuard(std::path::PathBuf);
+            impl Drop for SeqTempGuard {
+                fn drop(&mut self) {
+                    let _ = fs::remove_dir_all(&self.0);
+                }
+            }
+
             let fps = project.fps.max(1);
             let mut transcoded_any = false;
+            let mut fallback_pack_atlas = false;
+            let mut candidate_orphan_res_ids = BTreeSet::<String>::new();
             let mut next_seq_idx = 0usize;
             for sym_idx in 0..project.symbols.len() {
                 for layer_idx in 0..project.symbols[sym_idx].timeline.layers.len() {
@@ -2097,6 +2113,7 @@ fn apply_sequence_publish_policy(
                         .iter()
                         .any(|(_, w, h, _)| *w != first_w || *h != first_h)
                     {
+                        fallback_pack_atlas = true;
                         continue;
                     }
                     let nonce = std::time::SystemTime::now()
@@ -2109,8 +2126,10 @@ fn apply_sequence_publish_policy(
                     ));
                     next_seq_idx += 1;
                     if fs::create_dir_all(&temp_dir).is_err() {
+                        fallback_pack_atlas = true;
                         continue;
                     }
+                    let _temp_guard = SeqTempGuard(temp_dir.clone());
                     let mut wrote_all = true;
                     for (idx, (res_id, _, _, _)) in frame_ids.iter().enumerate() {
                         let Some(res) = project.resources.iter().find(|r| r.id == *res_id) else {
@@ -2166,32 +2185,51 @@ fn apply_sequence_publish_policy(
                     } else {
                         None
                     };
-                    let _ = fs::remove_dir_all(&temp_dir);
                     let Some(mp4_bytes) = mp4_bytes else {
                         warnings.push(format!(
                             "Sequence layer '{}' could not be transcoded to MP4; falling back to 'Pack atlas'.",
                             project.symbols[sym_idx].timeline.layers[layer_idx].name
                         ));
-                        return (true, warnings);
+                        fallback_pack_atlas = true;
+                        continue;
                     };
                     if mp4_bytes.is_empty() || mp4_bytes.len() > neoflash_core::MAX_RESOURCE_BYTES {
+                        fallback_pack_atlas = true;
                         continue;
                     }
-                    let vid_res_id = format!("__seq_video_{next_seq_idx}");
-                    let vid_res_path = format!("video/seq_{next_seq_idx}.mp4");
+                    let mut vid_res_id = format!("__seq_video_{next_seq_idx}");
+                    let mut vid_res_path = format!("video/seq_{next_seq_idx}.mp4");
+                    while project
+                        .resources
+                        .iter()
+                        .any(|r| r.id == vid_res_id || r.path == vid_res_path)
+                    {
+                        next_seq_idx += 1;
+                        vid_res_id = format!("__seq_video_{next_seq_idx}");
+                        vid_res_path = format!("video/seq_{next_seq_idx}.mp4");
+                    }
                     let Ok(vid_unit) = neoflash_core::ResourceUnit::from_bytes(
                         &vid_res_id,
                         &vid_res_path,
                         "video/mp4",
                         &mp4_bytes,
                     ) else {
+                        fallback_pack_atlas = true;
                         continue;
                     };
+                    for (res_id, _, _, _) in &frame_ids {
+                        candidate_orphan_res_ids.insert(res_id.clone());
+                    }
                     project.resources.push(vid_unit);
-                    project.format_version = project.format_version.max(10);
+                    project.format_version = project.format_version.max(11);
                     let layer = &mut project.symbols[sym_idx].timeline.layers[layer_idx];
                     let mut kf0 = layer.keyframes[0].clone();
                     kf0.frame = 0;
+                    kf0.tween = None;
+                    kf0.keyed_properties = None;
+                    kf0.element_parents.clear();
+                    kf0.controller_elements.clear();
+                    kf0.appearances.clear();
                     let mut vid_el = kf0.elements[0].clone();
                     vid_el.transform.x = first_pos[0];
                     vid_el.transform.y = first_pos[1];
@@ -2205,7 +2243,33 @@ fn apply_sequence_publish_policy(
                     transcoded_any = true;
                 }
             }
-            if !transcoded_any {
+            if !candidate_orphan_res_ids.is_empty() {
+                let mut still_referenced = BTreeSet::<String>::new();
+                for symbol in &project.symbols {
+                    for layer in &symbol.timeline.layers {
+                        for kf in &layer.keyframes {
+                            for el in &kf.elements {
+                                if let ElementKind::Bitmap { resource_id, .. } = &el.kind {
+                                    still_referenced.insert(resource_id.clone());
+                                }
+                            }
+                            for bf in &kf.bitmap_fills {
+                                still_referenced.insert(bf.resource_id.clone());
+                            }
+                            if let Some(snd) = &kf.sound {
+                                still_referenced.insert(snd.resource.clone());
+                            }
+                            if let Some(vid) = &kf.video {
+                                still_referenced.insert(vid.resource.clone());
+                            }
+                        }
+                    }
+                }
+                project.resources.retain(|r| {
+                    !candidate_orphan_res_ids.contains(&r.id) || still_referenced.contains(&r.id)
+                });
+            }
+            if !transcoded_any || fallback_pack_atlas {
                 return (true, warnings);
             }
             (false, warnings)
@@ -2344,9 +2408,26 @@ pub(crate) fn assemble_with_config(
     let assets_folder = config.is_some_and(|c| c.assets_folder);
     let effective_sprite_sheets =
         config.is_some_and(|c| c.sprite_sheets) || prepared.sequence_pack_atlas;
+    let mut placed_bitmap_ids = BTreeSet::<String>::new();
+    let mut fill_bitmap_ids = BTreeSet::<String>::new();
+    for symbol in &prepared.published.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for el in &key.elements {
+                    if let ElementKind::Bitmap { resource_id, .. } = &el.kind {
+                        placed_bitmap_ids.insert(resource_id.clone());
+                    }
+                }
+                for bf in &key.bitmap_fills {
+                    fill_bitmap_ids.insert(bf.resource_id.clone());
+                }
+            }
+        }
+    }
     let packed_sprite_sheet = if effective_sprite_sheets {
-        atlas::pack_project_bitmap_resources_sprite_sheet(
+        atlas::pack_project_bitmap_resources_sprite_sheet_filtered(
             &prepared.published,
+            None,
             config.is_some_and(|c| !c.minify),
         )?
     } else {
@@ -2379,20 +2460,11 @@ pub(crate) fn assemble_with_config(
             manifest_url: json_rel,
         });
 
-        let mut placed_bitmap_ids = BTreeSet::<String>::new();
-        for symbol in &effective_published.symbols {
-            for layer in &symbol.timeline.layers {
-                for key in &layer.keyframes {
-                    for el in &key.elements {
-                        if let ElementKind::Bitmap { resource_id, .. } = &el.kind {
-                            placed_bitmap_ids.insert(resource_id.clone());
-                        }
-                    }
-                }
-            }
-        }
         for res in &mut effective_published.resources {
-            if res.is_image() && placed_bitmap_ids.contains(&res.id) {
+            if res.is_image()
+                && placed_bitmap_ids.contains(&res.id)
+                && !fill_bitmap_ids.contains(&res.id)
+            {
                 res.data_base64 = std::sync::Arc::from("");
             }
         }
@@ -2546,6 +2618,17 @@ pub(crate) fn assemble_with_config(
                 }
             }
         }
+    }
+
+    if *level == SizeLevel::Full
+        && (sprite_sheet_bundle.is_some()
+            || !extra_asset_files.is_empty()
+            || !effective_external_videos.is_empty())
+    {
+        warnings.push(
+            "SizeLevel::Full is combined with externalized assets (sprite sheet, assets/ folder or external video); serve the output directory over HTTP(S) rather than moving index.html alone."
+                .to_owned(),
+        );
     }
 
     let non_default_config = config.filter(|c| **c != HtmlPublishConfig::default());

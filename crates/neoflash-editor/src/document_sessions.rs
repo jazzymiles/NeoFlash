@@ -167,6 +167,10 @@ impl Editor {
         self.graphic_drop_position = None;
         self.clear_simple_button_state();
         self.cancel_export_audio(ctx);
+        self.cancel_export_image(ctx);
+        self.cancel_import_video(ctx);
+        self.cancel_stroke_style(ctx);
+        self.cancel_font_embedding(ctx);
         self.cancel_sound_properties(ctx);
         self.cancel_layer_properties(ctx);
         self.close_symbols_popover(ctx);

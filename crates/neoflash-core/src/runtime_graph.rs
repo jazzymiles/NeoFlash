@@ -272,12 +272,14 @@ struct LinkedNamespace {
     player: Box<Player>,
     nodes: usize,
     depth: usize,
+    mounted_prefix: Option<String>,
 }
 
 #[derive(Default)]
 pub(crate) struct RuntimeGraph {
     generation: u64,
     next_id: u64,
+    retired_published_prefixes: BTreeSet<String>,
     pixels: crate::pixels::PixelArena,
     resource_pixels: HashMap<Id, PixelRef>,
     hydrated_bitmaps: HashMap<Id, crate::resource_image::DecodedImage>,
@@ -368,6 +370,7 @@ impl RuntimeGraph {
         self.events_overflowed = false;
         self.graphics_cost = 0;
         self.namespaces.clear();
+        self.retired_published_prefixes.clear();
         self.linked_authored.clear();
         self.linked_paths.clear();
     }

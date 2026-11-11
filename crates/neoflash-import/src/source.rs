@@ -120,8 +120,9 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         });
     }
     if header[..read].starts_with(b"PK\x03\x04") {
-        if file.metadata()?.len() > MAX_TOTAL {
-            return Err(ImportError::Container("archive exceeds 64 MiB".into()));
+        let archive_len = file.metadata()?.len();
+        if archive_len > 256 * 1024 * 1024 {
+            return Err(ImportError::Container("archive exceeds 256 MiB".into()));
         }
         let mut zip = zip::ZipArchive::new(File::open(path)?)
             .map_err(|e| ImportError::Container(e.to_string()))?;
@@ -130,22 +131,46 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                 "archive exceeds 10000 entries".into(),
             ));
         }
-        let mut total = 0u64;
-        let mut names = std::collections::HashSet::new();
         let mut has_canvas_fig = false;
         let mut has_xfl_or_swc = false;
-        for i in 0..zip.len().min(64) {
-            if let Ok(peek_entry) = zip.by_index(i) {
-                let n = peek_entry.name();
-                if n == "canvas.fig" || n.ends_with(".fig") {
-                    has_canvas_fig = true;
-                }
-                if n == "DOMDocument.xml" || n == "catalog.xml" {
-                    has_xfl_or_swc = true;
-                }
+        let mut peek_total = 0u64;
+        let mut peek_names = std::collections::HashSet::with_capacity(zip.len().min(4096));
+        for i in 0..zip.len() {
+            let peek_entry = zip
+                .by_index(i)
+                .map_err(|e| ImportError::Container(e.to_string()))?;
+            let n = peek_entry.name().to_owned();
+            safe_name(&n)?;
+            if !peek_names.insert(n.clone()) {
+                return Err(ImportError::Container(format!("duplicate ZIP entry: {n}")));
+            }
+            if peek_entry
+                .unix_mode()
+                .is_some_and(|mode| mode & 0o170000 == 0o120000)
+            {
+                return Err(ImportError::Container(format!("symlink ZIP entry: {n}")));
+            }
+            peek_total = peek_total
+                .checked_add(peek_entry.size())
+                .ok_or_else(|| ImportError::Container("ZIP size overflow".into()))?;
+            if n == "canvas.fig" || n.ends_with(".fig") {
+                has_canvas_fig = true;
+            }
+            if n == "DOMDocument.xml" || n == "catalog.xml" {
+                has_xfl_or_swc = true;
             }
         }
         if has_canvas_fig && !has_xfl_or_swc {
+            if zip.len() > 4096 {
+                return Err(ImportError::Container(
+                    ".fig archive exceeds 4096 entries".into(),
+                ));
+            }
+            if peek_total > 256 * 1024 * 1024 {
+                return Err(ImportError::Container(
+                    ".fig archive exceeds 256 MiB total uncompressed limit".into(),
+                ));
+            }
             return Ok(Source {
                 format: ImportFormat::Figma,
                 version: Some("fig-zip".into()),
@@ -155,6 +180,11 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
                 swf: None,
             });
         }
+        if archive_len > MAX_TOTAL {
+            return Err(ImportError::Container("archive exceeds 128 MiB".into()));
+        }
+        let mut total = 0u64;
+        let mut names = std::collections::HashSet::new();
         for i in 0..zip.len() {
             let mut entry = zip
                 .by_index(i)

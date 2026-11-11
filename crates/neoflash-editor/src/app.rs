@@ -2153,6 +2153,12 @@ impl Editor {
         let opts = neoflash_export::AepOptions {
             symbol: symbol_id.map(str::to_owned),
             jpeg_quality: self.workspace.publish.jpeg_quality,
+            base_dir: self
+                .path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(std::path::Path::to_path_buf),
             ..neoflash_export::AepOptions::default()
         };
         match neoflash_export::export_project_aep(&self.project, &aep_path, &opts) {

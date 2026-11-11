@@ -167,6 +167,8 @@ pub fn text_to_outlines_json(field_json: &str) -> Result<String, JsValue> {
 pub struct WebPlayer {
     project: Project,
     player: Player,
+    avi_streams: std::collections::HashMap<u32, (Vec<u8>, neoflash_core::AviIndexedContainer)>,
+    next_avi_stream: u32,
 }
 
 fn path(value: &str) -> Result<Vec<String>, JsValue> {
@@ -354,7 +356,12 @@ impl WebPlayer {
         player
             .set_scenes(&project, ranges)
             .map_err(|error| JsValue::from_str(&error))?;
-        Ok(Self { project, player })
+        Ok(Self {
+            project,
+            player,
+            avi_streams: std::collections::HashMap::new(),
+            next_avi_stream: 1,
+        })
     }
 
     #[wasm_bindgen]
@@ -448,6 +455,11 @@ impl WebPlayer {
         self.player.tick(&self.project);
     }
     pub fn reset(&mut self) -> Result<(), JsValue> {
+        self.project.symbols.retain(|s| !s.id.starts_with("__pub"));
+        self.project
+            .resources
+            .retain(|r| !r.id.starts_with("__pub"));
+        self.avi_streams.clear();
         self.player.reset(&self.project);
         if let Some(error) = self.player.bitmap_error() {
             return Err(display_error(error));
@@ -809,7 +821,7 @@ impl WebPlayer {
                 "Published bundle JSON exceeds 128 MiB limit",
             ));
         }
-        let child_project: Project = serde_json::from_str(child_project_json)
+        let child_project = Project::from_published_bundle_json(child_project_json)
             .map_err(|e| JsValue::from_str(&format!("Invalid published project JSON: {e}")))?;
         let mounted = self
             .player
@@ -821,6 +833,25 @@ impl WebPlayer {
             )
             .map_err(display_error)?;
         serde_json::to_string(&mounted).map_err(display_error)
+    }
+    pub fn hydrate_mounted_resource_rgba(
+        &mut self,
+        resource_id: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<(), JsValue> {
+        self.player
+            .hydrate_mounted_resource_rgba(resource_id, width, height, rgba.to_vec())
+            .map_err(display_error)
+    }
+    pub fn drain_retired_published_prefixes(&mut self) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .drain_retired_published_prefixes(&mut self.project),
+        )
+        .map_err(display_error)
     }
     pub fn loader_unload_published(
         &mut self,
@@ -839,27 +870,89 @@ impl WebPlayer {
             .map_err(display_error)?;
         serde_json::to_string(&mutation).map_err(display_error)
     }
-    pub fn avi_inspect_json(&self, bytes: &[u8]) -> Result<String, JsValue> {
-        let avi = neoflash_core::decode_avi_bytes(bytes).map_err(|e| JsValue::from_str(&e))?;
+    pub fn avi_open_stream(&mut self, bytes: &[u8]) -> Result<String, JsValue> {
+        if self.avi_streams.len() >= 32 {
+            return Err(JsValue::from_str(
+                "At most 32 indexed AVI streams may be open concurrently.",
+            ));
+        }
+        let indexed =
+            neoflash_core::index_avi_container(bytes).map_err(|e| JsValue::from_str(&e))?;
+        let info = indexed.info.clone();
+        let frame_count = indexed.frames.len();
+        let audio_mime = match info.audio_format_tag {
+            Some(1) => Some("audio/wav"),
+            Some(0x0055) => Some("audio/mpeg"),
+            _ => None,
+        };
+        let has_audio = audio_mime.is_some();
+        let handle = self.next_avi_stream;
+        self.next_avi_stream = self.next_avi_stream.wrapping_add(1).max(1);
+        self.avi_streams.insert(handle, (bytes.to_vec(), indexed));
         Ok(serde_json::json!({
-            "width": avi.info.width,
-            "height": avi.info.height,
-            "fps": avi.info.fps,
-            "duration_ms": avi.info.duration_ms(),
-            "frame_count": avi.frames.len(),
+            "handle": handle,
+            "width": info.width,
+            "height": info.height,
+            "fps": info.fps,
+            "duration_ms": info.duration_ms(),
+            "frame_count": frame_count,
+            "has_audio": has_audio,
+            "audio_mime": audio_mime,
+        })
+        .to_string())
+    }
+    pub fn avi_stream_frame_rgba(&self, handle: u32, time_ms: u32) -> Result<Vec<u8>, JsValue> {
+        let (bytes, indexed) = self
+            .avi_streams
+            .get(&handle)
+            .ok_or_else(|| JsValue::from_str("AVI stream handle is closed or invalid."))?;
+        let idx = indexed
+            .frame_index_at_ms(time_ms)
+            .ok_or_else(|| JsValue::from_str("AVI contains no decodable video frames."))?;
+        let img = indexed
+            .decode_frame(bytes, idx)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(img.rgba.to_vec())
+    }
+    pub fn avi_stream_audio_wav(&self, handle: u32) -> Result<Vec<u8>, JsValue> {
+        let (bytes, indexed) = self
+            .avi_streams
+            .get(&handle)
+            .ok_or_else(|| JsValue::from_str("AVI stream handle is closed or invalid."))?;
+        let (audio, _) = indexed
+            .extract_audio(bytes)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(audio.unwrap_or_default())
+    }
+    pub fn avi_close_stream(&mut self, handle: u32) {
+        self.avi_streams.remove(&handle);
+    }
+    pub fn avi_clear_streams(&mut self) {
+        self.avi_streams.clear();
+    }
+    pub fn avi_inspect_json(&self, bytes: &[u8]) -> Result<String, JsValue> {
+        let indexed =
+            neoflash_core::index_avi_container(bytes).map_err(|e| JsValue::from_str(&e))?;
+        Ok(serde_json::json!({
+            "width": indexed.info.width,
+            "height": indexed.info.height,
+            "fps": indexed.info.fps,
+            "duration_ms": indexed.info.duration_ms(),
+            "frame_count": indexed.frames.len(),
+            "has_audio": indexed.info.audio_format_tag.is_some(),
         })
         .to_string())
     }
     pub fn avi_frame_rgba(&self, bytes: &[u8], time_ms: u32) -> Result<Vec<u8>, JsValue> {
-        let avi = neoflash_core::decode_avi_bytes(bytes).map_err(|e| JsValue::from_str(&e))?;
-        let chosen = avi
-            .frames
-            .iter()
-            .rev()
-            .find(|(ts, _)| *ts <= time_ms)
-            .or_else(|| avi.frames.first())
+        let indexed =
+            neoflash_core::index_avi_container(bytes).map_err(|e| JsValue::from_str(&e))?;
+        let idx = indexed
+            .frame_index_at_ms(time_ms)
             .ok_or_else(|| JsValue::from_str("AVI contains no decodable video frames."))?;
-        Ok(chosen.1.rgba.to_vec())
+        let img = indexed
+            .decode_frame(bytes, idx)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(img.rgba.to_vec())
     }
     pub fn bitmap_create(
         &mut self,

@@ -78,17 +78,24 @@ impl Editor {
             );
         }
 
-        let (audio_bytes, audio_mime, ext) = if neoflash_core::is_avi_bytes(&raw_bytes)
-            && let Ok(decoded) = neoflash_core::decode_avi_bytes(&raw_bytes)
-            && let (Some(bytes), Some(mime)) = (decoded.audio_bytes, decoded.audio_mime)
-            && !bytes.is_empty()
-        {
-            let ext = if mime.contains("mpeg") || mime.contains("mp3") {
-                "mp3"
-            } else {
-                "wav"
-            };
-            (bytes, mime.to_owned(), ext)
+        let (audio_bytes, audio_mime, ext) = if neoflash_core::is_avi_bytes(&raw_bytes) {
+            let decoded = neoflash_core::decode_avi_bytes(&raw_bytes)
+                .map_err(|e| format!("Could not decode AVI container: {e}"))?;
+            match (decoded.audio_bytes, decoded.audio_mime) {
+                (Some(bytes), Some(mime)) if !bytes.is_empty() => {
+                    let ext = if mime.contains("mpeg") || mime.contains("mp3") {
+                        "mp3"
+                    } else {
+                        "wav"
+                    };
+                    (bytes, mime.to_owned(), ext)
+                }
+                _ => {
+                    return Err(
+                        "This AVI video clip does not contain an audio stream to extract.".into(),
+                    );
+                }
+            }
         } else {
             extract_wav_with_ffmpeg(&raw_bytes)?
         };
@@ -238,6 +245,7 @@ impl Editor {
         let mut next_span = span.clone();
         let w = ui.available_width();
 
+        let mut trim_dragging = false;
         c::SectionHeader::new("Video")
             .id_salt("properties-video")
             .show(ui, |ui| {
@@ -338,6 +346,14 @@ impl Editor {
                     if strip_resp.hovered() || strip_resp.dragged() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                     }
+                    let trim_draft_id = ui.id().with(("props-video-trim-draft", key_frame));
+                    if let Some(draft_span) = ui
+                        .ctx()
+                        .data(|d| d.get_temp::<TimelineVideoSpan>(trim_draft_id))
+                        && strip_resp.dragged()
+                    {
+                        next_span = draft_span;
+                    }
                     if (strip_resp.drag_started() || strip_resp.clicked())
                         && let Some(pos) = strip_resp.interact_pointer_pos()
                     {
@@ -361,8 +377,19 @@ impl Editor {
                             next_span.end_offset_ms =
                                 Some(target_ms.max(cur_in_ms.saturating_add(50)));
                         }
+                        if strip_resp.dragged() {
+                            trim_dragging = true;
+                            ui.ctx()
+                                .data_mut(|d| d.insert_temp(trim_draft_id, next_span.clone()));
+                        }
                     }
                     if strip_resp.drag_stopped() {
+                        if let Some(finished_draft) = ui
+                            .ctx()
+                            .data_mut(|d| d.remove_temp::<TimelineVideoSpan>(trim_draft_id))
+                        {
+                            next_span = finished_draft;
+                        }
                         ui.ctx().data_mut(|d| d.remove::<bool>(drag_id));
                     }
 
@@ -537,7 +564,7 @@ impl Editor {
                 });
             });
 
-        if action.is_none() && next_span != span {
+        if action.is_none() && !trim_dragging && next_span != span {
             action = Some(VideoInspectorAction::UpdateSpan(Some(next_span)));
         }
 
@@ -565,15 +592,19 @@ impl Editor {
 }
 
 fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'static str), String> {
+    struct TempDirGuard(std::path::PathBuf);
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
     let dir = std::env::temp_dir().join(format!("neoflash-vid-audio-{}", new_id("tmp")));
     std::fs::create_dir_all(&dir).map_err(|e| format!("Temporary folder failed: {e}"))?;
+    let _guard = TempDirGuard(dir.clone());
     let in_path = dir.join("input_video.bin");
     let out_path = dir.join("extracted.wav");
-    let write_res = std::fs::write(&in_path, video_bytes);
-    if let Err(err) = write_res {
-        let _ = std::fs::remove_dir_all(&dir);
-        return Err(format!("Temporary video write failed: {err}"));
-    }
+    std::fs::write(&in_path, video_bytes)
+        .map_err(|err| format!("Temporary video write failed: {err}"))?;
     let status = std::process::Command::new("ffmpeg")
         .args([
             "-y",
@@ -592,7 +623,7 @@ fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'sta
             out_path.to_str().unwrap_or_default(),
         ])
         .output();
-    let result = match status {
+    match status {
         Ok(out) if out.status.success() => {
             let wav = std::fs::read(&out_path)
                 .map_err(|e| format!("Could not read extracted WAV audio: {e}"))?;
@@ -615,7 +646,5 @@ fn extract_wav_with_ffmpeg(video_bytes: &[u8]) -> Result<(Vec<u8>, String, &'sta
             "Audio extraction for MP4/WebM requires `ffmpeg` on PATH (AVI PCM/MP3 extracts natively)."
                 .into(),
         ),
-    };
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    }
 }

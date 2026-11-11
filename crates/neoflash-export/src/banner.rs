@@ -731,11 +731,11 @@ fn render_banner_draw(
                     let _ = write!(out, "<use href=\"#{pid}\" fill=\"{}\"{xf}/>", color_hex(tc));
                 }
             } else {
+                let safe_font = html_escape(&font_family.replace('"', "'"));
                 let _ = write!(
                     out,
-                    "<text x=\"0\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" fill=\"{}\"{xf}>{}</text>",
+                    "<text x=\"0\" y=\"{}\" font-family=\"{safe_font}\" font-size=\"{}\" fill=\"{}\"{xf}>{}</text>",
                     fmt_num(*font_size, prec),
-                    html_escape(font_family),
                     fmt_num(*font_size, prec),
                     color_hex(tc),
                     html_escape(text)
@@ -763,11 +763,11 @@ fn render_banner_draw(
                     let _ = write!(out, "<use href=\"#{pid}\" fill=\"{}\"{xf}/>", color_hex(tc));
                 }
             } else {
+                let safe_font = html_escape(&format.font.replace('"', "'"));
                 let _ = write!(
                     out,
-                    "<text x=\"0\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" fill=\"{}\"{xf}>{}</text>",
+                    "<text x=\"0\" y=\"{}\" font-family=\"{safe_font}\" font-size=\"{}\" fill=\"{}\"{xf}>{}</text>",
                     fmt_num(format.size, prec),
-                    html_escape(&format.font),
                     fmt_num(format.size, prec),
                     color_hex(tc),
                     html_escape(text)
@@ -789,6 +789,19 @@ fn compile_native_banner_html_inner(
     project
         .validate()
         .map_err(|e| ExportError::InvalidProject(e.to_string()))?;
+
+    if let Some(raw_click_tag) = options.click_tag_url.as_deref().map(str::trim)
+        && !raw_click_tag.is_empty()
+    {
+        let lower = raw_click_tag.to_ascii_lowercase();
+        let valid_scheme = lower.starts_with("https://") || lower.starts_with("http://");
+        if !valid_scheme || raw_click_tag.chars().any(char::is_control) {
+            return Err(ExportError::Options(
+                "Banner clickTag URL must use http:// or https:// without control characters."
+                    .to_owned(),
+            ));
+        }
+    }
 
     let diagnostics = preflight_native_banner(project);
     let blocking: Vec<&BannerDiagnostic> = diagnostics.iter().filter(|d| d.blocking).collect();
@@ -813,13 +826,15 @@ fn compile_native_banner_html_inner(
         .map(|s| s.timeline.frame_count.max(1))
         .unwrap_or(1);
 
-    let mut element_filters: BTreeMap<String, Vec<FilterSpec>> = BTreeMap::new();
+    let mut fallback_filters: BTreeMap<String, Vec<FilterSpec>> = BTreeMap::new();
     for sym in &eval_project.symbols {
         for layer in &sym.timeline.layers {
             for kf in &layer.keyframes {
                 for el in &kf.elements {
                     if !el.filters.is_empty() {
-                        element_filters.insert(el.id.clone(), el.filters.clone());
+                        fallback_filters
+                            .entry(el.id.clone())
+                            .or_insert_with(|| el.filters.clone());
                     }
                 }
             }
@@ -835,6 +850,23 @@ fn compile_native_banner_html_inner(
     for f in 0..total_frames {
         if f > 0 {
             playback.tick(&eval_project);
+        }
+        let mut frame_element_filters = fallback_filters.clone();
+        if let Some(root_sym) = eval_project.symbol(&root_id) {
+            for layer in &root_sym.timeline.layers {
+                if let Some(kf) = layer.keyframes.iter().rfind(|k| k.frame <= f) {
+                    for el in &kf.elements {
+                        let mut combined = layer.properties.filters.clone();
+                        combined.extend(kf.filters.iter().cloned());
+                        combined.extend(el.filters.iter().cloned());
+                        if combined.is_empty() {
+                            frame_element_filters.remove(&el.id);
+                        } else {
+                            frame_element_filters.insert(el.id.clone(), combined);
+                        }
+                    }
+                }
+            }
         }
         let scene = playback.scene(&eval_project, false, true);
         let mut frame_clips: BTreeMap<String, String> = BTreeMap::new();
@@ -876,7 +908,7 @@ fn compile_native_banner_html_inner(
                 &eval_project,
                 draw,
                 options,
-                &element_filters,
+                &frame_element_filters,
                 &frame_clips,
                 &mut defs,
                 &mut frame_markup,
@@ -900,9 +932,14 @@ fn compile_native_banner_html_inner(
     let default_click_tag = options
         .click_tag_url
         .as_deref()
+        .map(str::trim)
         .unwrap_or("")
         .replace('\\', "\\\\")
-        .replace('"', "\\\"");
+        .replace('"', "\\\"")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
 
     let mut frames_svg = String::new();
     for (idx, (s, e, content)) in spans.iter().enumerate() {
@@ -939,7 +976,7 @@ fn compile_native_banner_html_inner(
     };
 
     let html = format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"ad.size\" content=\"width={w},height={h}\">\n<title>{title}</title>\n<style>html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:{bg}}}#nf-ad{{display:block;width:100%;height:100%;cursor:pointer;text-decoration:none}}svg{{display:block;width:100%;height:100%}}</style>\n<script>window.clickTag=window.clickTag||\"{default_click_tag}\";</script>\n</head>\n<body>\n<a id=\"nf-ad\" href=\"javascript:void(0)\" aria-label=\"{title}\">\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">\n<rect width=\"{w}\" height=\"{h}\" fill=\"{bg}\"/>\n{defs_block}{frames_svg}</svg>\n</a>\n<script>document.getElementById('nf-ad').addEventListener('click',function(e){{e.preventDefault();var u=window.clickTag||new URLSearchParams(location.search).get('clickTag');if(u)window.open(u,'_blank','noopener');}});{runner_js}</script>\n</body>\n</html>\n"
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"ad.size\" content=\"width={w},height={h}\">\n<title>{title}</title>\n<style>html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:{bg}}}#nf-ad{{display:block;width:100%;height:100%;cursor:pointer;text-decoration:none}}svg{{display:block;width:100%;height:100%}}</style>\n<script>window.clickTag=window.clickTag||\"{default_click_tag}\";</script>\n</head>\n<body>\n<a id=\"nf-ad\" href=\"#\" aria-label=\"{title}\">\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">\n<rect width=\"{w}\" height=\"{h}\" fill=\"{bg}\"/>\n{defs_block}{frames_svg}</svg>\n</a>\n<script>document.getElementById('nf-ad').addEventListener('click',function(e){{e.preventDefault();var u=String(window.clickTag||new URLSearchParams(location.search).get('clickTag')||'').trim();if(/^https?:\\/\\//i.test(u))window.open(u,'_blank','noopener,noreferrer');}});{runner_js}</script>\n</body>\n</html>\n"
     );
 
     Ok((html, total_frames, spans.len(), defs.count, diagnostics))
@@ -950,6 +987,19 @@ pub fn estimate_native_banner(
     project: &Project,
     options: &BannerOptions,
 ) -> Result<BannerEstimate, ExportError> {
+    if let Some(raw_click_tag) = options.click_tag_url.as_deref().map(str::trim)
+        && !raw_click_tag.is_empty()
+    {
+        let lower = raw_click_tag.to_ascii_lowercase();
+        let valid_scheme = lower.starts_with("https://") || lower.starts_with("http://");
+        if !valid_scheme || raw_click_tag.chars().any(char::is_control) {
+            return Err(ExportError::Options(
+                "Banner clickTag URL must use http:// or https:// without control characters."
+                    .to_owned(),
+            ));
+        }
+    }
+
     let diagnostics = preflight_native_banner(project);
     if diagnostics.iter().any(|d| d.blocking) {
         return Ok(BannerEstimate {

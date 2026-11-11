@@ -1838,6 +1838,31 @@ pub fn export_project_image(
         p
     });
     let mut bitmap_cache = HashMap::new();
+    let needs_raster_video_session = has_timeline_video
+        && matches!(
+            options.format,
+            ImageExportFormat::Png
+                | ImageExportFormat::Jpeg
+                | ImageExportFormat::Webp
+                | ImageExportFormat::Gif
+                | ImageExportFormat::Bmp
+                | ImageExportFormat::Pdf
+                | ImageExportFormat::Psd
+        );
+    let mut video_session = if needs_raster_video_session {
+        Some(crate::video::SequentialVideoFrameSession::new(
+            project,
+            options.symbol_id.as_deref(),
+            start_frame,
+            width,
+            height,
+            options.transparent_background,
+            options.runtime_capture,
+            None,
+        )?)
+    } else {
+        None
+    };
 
     for offset in 0..total_frames {
         let frame = start_frame + offset;
@@ -1851,30 +1876,23 @@ pub fn export_project_image(
         } else {
             evaluate_scene(&eval_proj, &target_symbol, frame, include_guides, true)
         };
-        let render_rgba = |bitmap_cache: &mut HashMap<String, _>| -> Result<Vec<u8>, ExportError> {
-            if has_timeline_video {
-                render_project_frame_rgba(
-                    project,
-                    options.symbol_id.as_deref(),
-                    frame,
-                    width,
-                    height,
-                    options.transparent_background,
-                    options.runtime_capture,
-                )
-            } else {
-                render_authored_scene_rgba(
-                    &eval_proj,
-                    &target_symbol,
-                    frame,
-                    &stepped_scene,
-                    width,
-                    height,
-                    options.transparent_background,
-                    bitmap_cache,
-                )
-            }
-        };
+        let mut render_rgba =
+            |bitmap_cache: &mut HashMap<String, _>| -> Result<Vec<u8>, ExportError> {
+                if let Some(sess) = &mut video_session {
+                    sess.render_frame(frame)
+                } else {
+                    render_authored_scene_rgba(
+                        &eval_proj,
+                        &target_symbol,
+                        frame,
+                        &stepped_scene,
+                        width,
+                        height,
+                        options.transparent_background,
+                        bitmap_cache,
+                    )
+                }
+            };
 
         let out_path = numbered_output_path(path, offset, total_frames, ext);
         let bytes = match options.format {

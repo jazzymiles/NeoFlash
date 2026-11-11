@@ -110,7 +110,8 @@ function create(options={}){
  const menus=createMenus(options,call,()=>state().showMenu);
  function reset(){if(disposed)return;menus.reset();generation++;requestGeneration=0;if(ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});fullscreen=false;core.free();core=makeCore();enabled=false;last=null;if(preview)preview.setStageLayout?.(null);if(viewport?.style)viewport.style.overflow=initialOverflow;}
  function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);doc?.removeEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
- return Object.freeze({Stage,layout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,reset,dispose});
+ function syncPassiveLayout(vw,vh){active();last=call({op:'layout',width:vw,height:vh,fullscreen:ownsFullscreen()});return last;}
+ return Object.freeze({Stage,layout,syncPassiveLayout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,reset,dispose});
 }
 const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Stage=api;
 })(globalThis);

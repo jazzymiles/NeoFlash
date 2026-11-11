@@ -1605,3 +1605,200 @@ fn focusing_a_revealed_panel_targets_its_docked_or_detached_surface() {
     );
     assert_eq!(editor.detached.focus, Some(PanelId::Color));
 }
+
+#[test]
+fn tools_undocks_from_dots_keeps_two_column_title_and_redocks_by_drag() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    ctx.set_embed_viewports(false);
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.show_panel(PanelId::Tools);
+    assert!(editor.workspace.is_panel_docked(PanelId::Tools));
+
+    let root_origin = egui::pos2(80., 60.);
+    let root_size = egui::vec2(1440., 900.);
+    let render_root = |editor: &mut Editor, events| {
+        let mut input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, root_size)),
+            events,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .inner_rect = Some(egui::Rect::from_min_size(root_origin, root_size));
+        ctx.run(input, |ctx| {
+            editor.dock_grid(ctx);
+            editor.stage(ctx);
+            editor.finalize_panel_drag(ctx);
+        })
+    };
+
+    // 1) Docked Tools: clicking `⋯` opens the panel menu, while dragging `⋯` tears Tools off cleanly.
+    let first = render_root(&mut editor, vec![]);
+    let tools_group = editor
+        .detached
+        .dock_groups
+        .iter()
+        .find(|g| g.tabs.iter().any(|(p, _)| *p == PanelId::Tools))
+        .expect("docked Tools group")
+        .clone();
+    let local_header = tools_group.header.translate(-root_origin.to_vec2());
+    let dots_pos = egui::pos2(local_header.right() - 20., local_header.center().y);
+    assert!(
+        first
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|(_, n)| n.label() == Some("Panel commands and tabs")),
+        "docked Tools header must expose the More (⋯) control"
+    );
+    // Click without drag keeps Tools docked and opens the popup menu.
+    let _ = render_root(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(dots_pos),
+            crate::tests::primary_button(dots_pos, true),
+            crate::tests::primary_button(dots_pos, false),
+        ],
+    );
+    let clicked = render_root(&mut editor, vec![]);
+    assert!(editor.workspace.is_panel_docked(PanelId::Tools));
+    assert!(
+        clicked
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|(_, n)| n.label() == Some("Detach")),
+        "clicking `⋯` without dragging must still open the panel menu"
+    );
+    // Close popup by pressing Escape, then drag `⋯` out onto the center of Stage (460, 320).
+    let _ = render_root(
+        &mut editor,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let _ = render_root(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(dots_pos),
+            crate::tests::primary_button(dots_pos, true),
+        ],
+    );
+    let _ = render_root(
+        &mut editor,
+        vec![egui::Event::PointerMoved(egui::pos2(460., 320.))],
+    );
+    let _ = render_root(
+        &mut editor,
+        vec![crate::tests::primary_button(egui::pos2(460., 320.), false)],
+    );
+    assert!(
+        !editor.workspace.is_panel_docked(PanelId::Tools),
+        "dragging `⋯` on docked Tools must detach Tools"
+    );
+
+    // 2) Detached 2-column (88 pt) Tools keeps the visible `"Tools"` text instead of replacing it
+    //    with horizontal grip dots, whereas 1-column (42 pt) uses GRIP_H without text overflow.
+    let tools_id = egui::ViewportId::from_hash_of(PanelId::Tools.viewport_key().unwrap());
+    let render_floating_tools = |editor: &mut Editor, width: f32, origin: egui::Pos2, events| {
+        let mut input = egui::RawInput {
+            viewport_id: tools_id,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, 460.),
+            )),
+            events,
+            ..Default::default()
+        };
+        input.viewports.insert(
+            tools_id,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                outer_rect: Some(egui::Rect::from_min_size(origin, egui::vec2(width, 460.))),
+                inner_rect: Some(egui::Rect::from_min_size(origin, egui::vec2(width, 460.))),
+                ..Default::default()
+            },
+        );
+        ctx.run(input, |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+                .show(ctx, |ui| {
+                    let _ = editor.native_floating_panel(
+                        ui,
+                        PanelId::Tools,
+                        &[PanelId::Tools],
+                        [crate::detached::floating_tools_width(), 160.],
+                        1.0,
+                    );
+                });
+        })
+    };
+    let two_col = render_floating_tools(
+        &mut editor,
+        neoflash_ui::metrics::tools_two_columns(),
+        egui::pos2(480., 300.),
+        vec![],
+    );
+    assert!(
+        two_col.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.job.text == "Tools"
+        )),
+        "2-column detached Tools must retain the visible 'Tools' title text"
+    );
+    let one_col = render_floating_tools(
+        &mut editor,
+        crate::detached::floating_tools_width(),
+        egui::pos2(480., 300.),
+        vec![],
+    );
+    assert!(
+        !one_col.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.job.text == "Tools"
+        )),
+        "1-column (42 pt) detached Tools uses the compact grip icon instead of clipped text"
+    );
+
+    // 3) Dragging detached Tools (even from `⋯`, and even into the top-left corner of Main)
+    //    re-docks Tools cleanly into the Left dock rail instead of Stage-anchoring it.
+    let _ = render_root(&mut editor, vec![]);
+    let float_origin = egui::pos2(480., 300.);
+    let two_col_w = neoflash_ui::metrics::tools_two_columns();
+    let float_dots = egui::pos2(two_col_w - 18., 18.);
+    let _ = render_floating_tools(
+        &mut editor,
+        two_col_w,
+        float_origin,
+        vec![
+            egui::Event::PointerMoved(float_dots),
+            crate::tests::primary_button(float_dots, true),
+            egui::Event::PointerGone,
+        ],
+    );
+    // Drop near the top-left corner of Main (x = 28, y = 18 inside the 32 pt top bar above Left rail).
+    let _ = render_root(
+        &mut editor,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(28., 18.)),
+            crate::tests::primary_button(egui::pos2(28., 18.), false),
+        ],
+    );
+    assert!(
+        editor.workspace.is_panel_docked(PanelId::Tools),
+        "dragging detached Tools back to the main window rail (including top-left corner) must dock it"
+    );
+}

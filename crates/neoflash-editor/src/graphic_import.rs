@@ -600,6 +600,30 @@ impl Editor {
             merge_import_graphic_resources(&mut candidate, &mut item)?;
             for mut helper in item.helper_symbols.drain(..) {
                 helper.folder = folder.clone();
+                if let Some(link) = helper.linkage_id.as_deref()
+                    && candidate
+                        .symbols
+                        .iter()
+                        .any(|s| s.linkage_id.as_deref() == Some(link))
+                {
+                    notices.push(format!(
+                        "Cleared duplicate linkage identifier '{link}' on imported symbol '{}'.",
+                        helper.name
+                    ));
+                    helper.linkage_id = None;
+                }
+                if let Some(cls) = helper.class_name.as_deref()
+                    && candidate
+                        .symbols
+                        .iter()
+                        .any(|s| s.class_name.as_deref() == Some(cls))
+                {
+                    notices.push(format!(
+                        "Cleared duplicate class binding '{cls}' on imported symbol '{}'.",
+                        helper.name
+                    ));
+                    helper.class_name = None;
+                }
                 let base_name = helper.name.clone();
                 let mut suffix = 2;
                 while candidate
@@ -862,10 +886,14 @@ impl Editor {
             });
             timeline.layers.len() - 1
         };
-        timeline.frame_count = timeline
-            .frame_count
-            .max(self.frame.saturating_add(min_frame_span.max(1)));
+        let needed_end = self.frame.saturating_add(min_frame_span.max(1));
+        timeline.frame_count = timeline.frame_count.max(needed_end);
         let layer = &mut timeline.layers[target_layer];
+        if let Some(end) = &mut layer.properties.end_frame
+            && *end < needed_end
+        {
+            *end = needed_end;
+        }
         let layer_id = layer.id.clone();
         if !layer.keyframes.iter().any(|key| key.frame == self.frame) {
             let mut key = layer.key_at(self.frame).cloned().unwrap_or(Keyframe {
@@ -1009,10 +1037,14 @@ impl Editor {
             timeline.layers.len() - 1
         };
         let base_frame = self.frame;
-        timeline.frame_count = timeline
-            .frame_count
-            .max(base_frame.saturating_add(seq_timeline.frame_count.max(1)));
+        let needed_end = base_frame.saturating_add(seq_timeline.frame_count.max(1));
+        timeline.frame_count = timeline.frame_count.max(needed_end);
         let layer = &mut timeline.layers[target_layer];
+        if let Some(end) = &mut layer.properties.end_frame
+            && *end < needed_end
+        {
+            *end = needed_end;
+        }
         let layer_id = layer.id.clone();
         let mut first_targets = Vec::new();
         let keyframe_count = seq_layer.keyframes.len();
@@ -1119,6 +1151,10 @@ fn merge_import_graphic_resources(
             ids.insert(unit.id, existing.id.clone());
             continue;
         }
+        let old_id = unit.id.clone();
+        if project.resources.iter().any(|old| old.id == unit.id) {
+            unit.id = new_id("res");
+        }
         let original = unit.path.clone();
         let (stem, extension) = original
             .rsplit_once('.')
@@ -1133,7 +1169,7 @@ fn merge_import_graphic_resources(
             unit.path = format!("{stem}-{suffix}{extension}");
             suffix += 1;
         }
-        ids.insert(unit.id.clone(), unit.id.clone());
+        ids.insert(old_id, unit.id.clone());
         project.resources.push(unit);
     }
     for element in &mut graphic.elements {
@@ -1146,9 +1182,11 @@ fn merge_import_graphic_resources(
     }
     if let Some(timeline) = &mut item.timeline_override {
         remap_timeline_bitmap_resources(timeline, &ids)?;
+        timeline.remap_resource_ids(&ids);
     }
     for helper in &mut item.helper_symbols {
         remap_timeline_bitmap_resources(&mut helper.timeline, &ids)?;
+        helper.timeline.remap_resource_ids(&ids);
     }
     Ok(())
 }
@@ -1358,56 +1396,27 @@ fn prepare_sequence_graphic(
 }
 
 fn freshen_imported_project_ids(imported: &mut Project, prefix: &str) {
-    let mut sym_map = HashMap::new();
+    let mut sym_map = std::collections::BTreeMap::new();
     for sym in &imported.symbols {
         sym_map.insert(sym.id.clone(), new_id(&format!("{prefix}-sym")));
     }
     if let Some(next_root) = sym_map.get(&imported.root).cloned() {
         imported.root = next_root;
     }
+    for scene in &mut imported.scenes {
+        if let Some(next_scene) = sym_map.get(scene) {
+            *scene = next_scene.clone();
+        }
+    }
     for sym in &mut imported.symbols {
         if let Some(next_id) = sym_map.get(&sym.id) {
             sym.id = next_id.clone();
         }
-        let mut layer_map = HashMap::new();
-        for layer in &sym.timeline.layers {
-            layer_map.insert(layer.id.clone(), new_id(&format!("{prefix}-layer")));
-        }
-        let mut el_map = HashMap::new();
-        for layer in &mut sym.timeline.layers {
-            if let Some(next_l) = layer_map.get(&layer.id) {
-                layer.id = next_l.clone();
-            }
-            if let Some(parent) = &mut layer.properties.parent
-                && let Some(next_p) = layer_map.get(parent)
-            {
-                *parent = next_p.clone();
-            }
-            if let Some(mask) = &mut layer.properties.mask
-                && let Some(next_m) = layer_map.get(mask)
-            {
-                *mask = next_m.clone();
-            }
-            if let Some(guide) = &mut layer.properties.motion_guide
-                && let Some(next_g) = layer_map.get(guide)
-            {
-                *guide = next_g.clone();
-            }
-            for key in &mut layer.keyframes {
-                for el in &mut key.elements {
-                    let next_el = el_map
-                        .entry(el.id.clone())
-                        .or_insert_with(|| new_id(&format!("{prefix}-el")))
-                        .clone();
-                    el.id = next_el;
-                    if let ElementKind::Instance { symbol_id, .. } = &mut el.kind
-                        && let Some(next_sym) = sym_map.get(symbol_id)
-                    {
-                        *symbol_id = next_sym.clone();
-                    }
-                }
-            }
-        }
+        sym.timeline.remap_internal_ids(
+            |kind| new_id(&format!("{prefix}-{kind}")),
+            Some(&sym_map),
+            None,
+        );
     }
 }
 
@@ -1562,10 +1571,13 @@ fn stage_window_is_front(ctx: &egui::Context, local: Pos2) -> bool {
     };
     let root = inner * ctx.zoom_factor();
     let global = (local + inner.min.to_vec2()) * ctx.zoom_factor();
-    match crate::native_screens::front_window_at(global) {
+    match crate::native_screens::front_dock_window_at(global, None, &[], false) {
         None => true,
         Some(None) => false,
-        Some(Some(front)) => root.min.distance(front.min) < 4. && root.max.distance(front.max) < 4.,
+        Some(Some(crate::native_screens::NativeDockWindow::Main(_))) => true,
+        Some(Some(crate::native_screens::NativeDockWindow::Floating { rect, .. })) => {
+            root.min.distance(rect.min) < 8. && root.max.distance(rect.max) < 8.
+        }
     }
 }
 

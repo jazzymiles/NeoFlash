@@ -1994,13 +1994,38 @@
         const rgba = kernel.presented_rgba(ctxSt.id);
         const dx = Math.round(s3dSt.x) | 0;
         const dy = Math.round(s3dSt.y) | 0;
-        if (typeof ctx2d.putImageData === 'function' && typeof ctx2d.createImageData === 'function') {
-          const imgData = ctx2d.createImageData(pw, ph);
-          imgData.data.set(rgba);
-          ctx2d.putImageData(imgData, dx, dy);
-        } else if (typeof global.ImageData === 'function' && typeof ctx2d.putImageData === 'function') {
-          const imgData = new global.ImageData(new Uint8ClampedArray(rgba), pw, ph);
-          ctx2d.putImageData(imgData, dx, dy);
+        let usedDrawImage = false;
+        if (typeof global.document?.createElement === 'function' && typeof ctx2d.drawImage === 'function') {
+          let sc = s3dSt._scratchCanvas;
+          if (!sc || sc.width !== pw || sc.height !== ph) {
+            sc = global.document.createElement('canvas');
+            if (sc) {
+              sc.width = pw;
+              sc.height = ph;
+              s3dSt._scratchCanvas = sc;
+            }
+          }
+          const sctx = sc?.getContext?.('2d');
+          if (sctx && typeof sctx.putImageData === 'function') {
+            const imgData = typeof sctx.createImageData === 'function'
+              ? (() => { const d = sctx.createImageData(pw, ph); d.data.set(rgba); return d; })()
+              : (typeof global.ImageData === 'function' ? new global.ImageData(new Uint8ClampedArray(rgba), pw, ph) : null);
+            if (imgData) {
+              sctx.putImageData(imgData, 0, 0);
+              ctx2d.drawImage(sc, dx, dy, pw, ph);
+              usedDrawImage = true;
+            }
+          }
+        }
+        if (!usedDrawImage) {
+          if (typeof ctx2d.putImageData === 'function' && typeof ctx2d.createImageData === 'function') {
+            const imgData = ctx2d.createImageData(pw, ph);
+            imgData.data.set(rgba);
+            ctx2d.putImageData(imgData, dx, dy);
+          } else if (typeof global.ImageData === 'function' && typeof ctx2d.putImageData === 'function') {
+            const imgData = new global.ImageData(new Uint8ClampedArray(rgba), pw, ph);
+            ctx2d.putImageData(imgData, dx, dy);
+          }
         }
         ctx2d.__nfStage3DPresented = {
           slotIndex: s3dSt.slotIndex,

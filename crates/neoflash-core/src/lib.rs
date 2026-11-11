@@ -90,8 +90,8 @@ pub use authoring_geometry::{
     GapCloseResult, StrokeEraseResult, close_path_gaps, erase_path_stroke,
 };
 pub use avi::{
-    AviHeaderInfo, DecodedAviMedia, build_minimal_mjpeg_avi, decode_avi_bytes, inspect_avi_header,
-    is_avi_bytes,
+    AviFrameEntry, AviHeaderInfo, AviIndexedContainer, DecodedAviMedia, build_minimal_mjpeg_avi,
+    decode_avi_bytes, index_avi_container, inspect_avi_header, is_avi_bytes, wrap_pcm_as_wav,
 };
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,

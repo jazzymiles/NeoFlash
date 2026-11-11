@@ -2382,6 +2382,10 @@ pub struct UiStudioSnapshot {
     pub label: String,
     pub document: UiStudioDocument,
     pub systems: UiStudioSystems,
+    #[serde(default)]
+    pub artboards: Vec<StudioArtboard>,
+    #[serde(default)]
+    pub active_artboard_idx: usize,
 }
 
 /// Multi-step Undo/Redo history stack for the UI Layout Studio.
@@ -2407,6 +2411,17 @@ impl UiStudioHistory {
         document: &UiStudioDocument,
         systems: &UiStudioSystems,
     ) {
+        self.push_board_snapshot(label, document, systems, &[], 0);
+    }
+
+    pub fn push_board_snapshot(
+        &mut self,
+        label: impl Into<String>,
+        document: &UiStudioDocument,
+        systems: &UiStudioSystems,
+        artboards: &[StudioArtboard],
+        active_artboard_idx: usize,
+    ) {
         let cap = if self.max_entries == 0 {
             64
         } else {
@@ -2419,6 +2434,8 @@ impl UiStudioHistory {
             label: label.into(),
             document: document.clone(),
             systems: systems.clone(),
+            artboards: artboards.to_vec(),
+            active_artboard_idx,
         });
         self.redo_stack.clear();
     }
@@ -2436,15 +2453,40 @@ impl UiStudioHistory {
         current_doc: &mut UiStudioDocument,
         current_systems: &mut UiStudioSystems,
     ) -> Option<String> {
+        let mut empty_board = Vec::new();
+        let mut active_idx = 0usize;
+        self.undo_board(
+            current_doc,
+            current_systems,
+            &mut empty_board,
+            &mut active_idx,
+        )
+    }
+
+    pub fn undo_board(
+        &mut self,
+        current_doc: &mut UiStudioDocument,
+        current_systems: &mut UiStudioSystems,
+        current_artboards: &mut Vec<StudioArtboard>,
+        current_active_idx: &mut usize,
+    ) -> Option<String> {
         let prev = self.undo_stack.pop()?;
         let label = prev.label.clone();
         self.redo_stack.push(UiStudioSnapshot {
             label: label.clone(),
             document: current_doc.clone(),
             systems: current_systems.clone(),
+            artboards: current_artboards.clone(),
+            active_artboard_idx: *current_active_idx,
         });
         *current_doc = prev.document;
         *current_systems = prev.systems;
+        if !prev.artboards.is_empty() {
+            *current_artboards = prev.artboards;
+            *current_active_idx = prev
+                .active_artboard_idx
+                .min(current_artboards.len().saturating_sub(1));
+        }
         Some(label)
     }
 
@@ -2453,15 +2495,40 @@ impl UiStudioHistory {
         current_doc: &mut UiStudioDocument,
         current_systems: &mut UiStudioSystems,
     ) -> Option<String> {
+        let mut empty_board = Vec::new();
+        let mut active_idx = 0usize;
+        self.redo_board(
+            current_doc,
+            current_systems,
+            &mut empty_board,
+            &mut active_idx,
+        )
+    }
+
+    pub fn redo_board(
+        &mut self,
+        current_doc: &mut UiStudioDocument,
+        current_systems: &mut UiStudioSystems,
+        current_artboards: &mut Vec<StudioArtboard>,
+        current_active_idx: &mut usize,
+    ) -> Option<String> {
         let next = self.redo_stack.pop()?;
         let label = next.label.clone();
         self.undo_stack.push(UiStudioSnapshot {
             label: label.clone(),
             document: current_doc.clone(),
             systems: current_systems.clone(),
+            artboards: current_artboards.clone(),
+            active_artboard_idx: *current_active_idx,
         });
         *current_doc = next.document;
         *current_systems = next.systems;
+        if !next.artboards.is_empty() {
+            *current_artboards = next.artboards;
+            *current_active_idx = next
+                .active_artboard_idx
+                .min(current_artboards.len().saturating_sub(1));
+        }
         Some(label)
     }
 }
@@ -5858,10 +5925,34 @@ pub fn import_svg_to_document(svg_xml: &str) -> Result<UiStudioDocument, String>
 }
 
 fn import_roundtrip_nf_svg(svg_xml: &str) -> Result<UiStudioDocument, String> {
-    let mut doc_name = "Imported SVG Panel".to_owned();
+    import_roundtrip_nf_svg_all(svg_xml)?
+        .into_iter()
+        .map(|(doc, _)| doc)
+        .next()
+        .ok_or_else(|| "No NF2 root node found in SVG.".to_owned())
+}
+
+fn parse_nf_svg_theme(slug: &str) -> Option<ThemeMode> {
+    match slug.trim() {
+        "dark" => Some(ThemeMode::Dark),
+        "light" => Some(ThemeMode::Light),
+        "mid-neutral-gray" => Some(ThemeMode::MidNeutralGray),
+        "dark-graphite" => Some(ThemeMode::DarkGraphite),
+        _ => None,
+    }
+}
+
+fn import_roundtrip_nf_svg_all(
+    svg_xml: &str,
+) -> Result<Vec<(UiStudioDocument, Option<ThemeMode>)>, String> {
+    let mut default_doc_name = "Imported SVG Panel".to_owned();
+    let mut default_theme: Option<ThemeMode> = None;
+    let mut current_artboard_name: Option<String> = None;
+    let mut current_artboard_theme: Option<ThemeMode> = None;
     let mut next_id = 1_u64;
     let mut stack: Vec<UiStudioNode> = Vec::new();
-    let mut root_node: Option<UiStudioNode> = None;
+    let mut artboard_wrapper_open = false;
+    let mut docs: Vec<(UiStudioDocument, Option<ThemeMode>)> = Vec::new();
 
     let mut pos = 0usize;
     while let Some(lt) = svg_xml[pos..].find('<') {
@@ -5873,10 +5964,20 @@ fn import_roundtrip_nf_svg(svg_xml: &str) -> Result<UiStudioDocument, String> {
         let tag = &svg_xml[start..=end];
         pos = end + 1;
 
-        if tag.starts_with("<svg")
-            && let Some(n) = parse_xml_attr(tag, "data-nf-doc-name")
-        {
-            doc_name = n;
+        if tag.starts_with("<svg") {
+            if let Some(n) = parse_xml_attr(tag, "data-nf-doc-name") {
+                default_doc_name = n;
+            }
+            if let Some(t) = parse_xml_attr(tag, "data-nf-theme") {
+                default_theme = parse_nf_svg_theme(&t);
+            }
+        } else if tag.starts_with("<g ") && tag.contains("data-nf-artboard=\"") {
+            current_artboard_name = parse_xml_attr(tag, "data-nf-artboard");
+            current_artboard_theme = parse_xml_attr(tag, "data-nf-theme")
+                .and_then(|t| parse_nf_svg_theme(&t))
+                .or(default_theme);
+            artboard_wrapper_open = true;
+            next_id = 1;
         } else if tag.starts_with("<g ") && tag.contains("data-nf-kind=\"") {
             let id = parse_xml_attr(tag, "id")
                 .and_then(|s| s.strip_prefix("node-").and_then(|n| n.parse::<u64>().ok()))
@@ -6003,12 +6104,30 @@ fn import_roundtrip_nf_svg(svg_xml: &str) -> Result<UiStudioDocument, String> {
             node.box_constraints.width = w_unit;
             node.box_constraints.height = h_unit;
             stack.push(node);
-        } else if tag == "</g>" && !stack.is_empty() {
-            let finished = stack.pop().unwrap();
-            if let Some(parent) = stack.last_mut() {
-                parent.children.push(finished);
-            } else if root_node.is_none() {
-                root_node = Some(finished);
+        } else if tag == "</g>" {
+            if !stack.is_empty() {
+                let finished = stack.pop().unwrap();
+                if let Some(parent) = stack.last_mut() {
+                    parent.children.push(finished);
+                } else {
+                    let name = current_artboard_name
+                        .take()
+                        .unwrap_or_else(|| default_doc_name.clone());
+                    let theme = current_artboard_theme.take().or(default_theme);
+                    docs.push((
+                        UiStudioDocument {
+                            name,
+                            root: finished,
+                            next_id: next_id.max(2),
+                        },
+                        theme,
+                    ));
+                    next_id = 1;
+                }
+            } else if artboard_wrapper_open {
+                artboard_wrapper_open = false;
+                current_artboard_name = None;
+                current_artboard_theme = None;
             }
         }
     }
@@ -6016,17 +6135,26 @@ fn import_roundtrip_nf_svg(svg_xml: &str) -> Result<UiStudioDocument, String> {
     while let Some(finished) = stack.pop() {
         if let Some(parent) = stack.last_mut() {
             parent.children.push(finished);
-        } else if root_node.is_none() {
-            root_node = Some(finished);
+        } else {
+            let name = current_artboard_name
+                .take()
+                .unwrap_or_else(|| default_doc_name.clone());
+            let theme = current_artboard_theme.take().or(default_theme);
+            docs.push((
+                UiStudioDocument {
+                    name,
+                    root: finished,
+                    next_id: next_id.max(2),
+                },
+                theme,
+            ));
         }
     }
 
-    let root = root_node.ok_or_else(|| "No NF2 root node found in SVG.".to_owned())?;
-    Ok(UiStudioDocument {
-        name: doc_name,
-        root,
-        next_id: next_id.max(2),
-    })
+    if docs.is_empty() {
+        return Err("No NF2 root node found in SVG.".to_owned());
+    }
+    Ok(docs)
 }
 
 #[derive(Clone, Debug)]
@@ -6579,6 +6707,10 @@ pub struct StudioPersistedBundle {
     pub systems: UiStudioSystems,
     #[serde(default)]
     pub artboards: Vec<StudioArtboard>,
+    #[serde(default)]
+    pub preview_theme: Option<ThemeMode>,
+    #[serde(default)]
+    pub preview_theme_locked: bool,
 }
 
 fn deserialize_studio_theme<'de, D>(deserializer: D) -> Result<ThemeMode, D::Error>
@@ -6928,16 +7060,31 @@ impl UiLayoutStudioState {
         self.status_message = format!("Loaded preset '{}'.", preset.label());
     }
 
-    /// Record an undoable snapshot before mutating `document` or `systems`.
+    /// Record an undoable snapshot before mutating `document`, `systems`, or `artboards`.
     pub fn commit_history(&mut self, action_label: impl Into<String>) {
         self.sync_active_to_artboard();
-        self.history
-            .push_snapshot(action_label, &self.document, &self.systems);
+        self.history.push_board_snapshot(
+            action_label,
+            &self.document,
+            &self.systems,
+            &self.artboards,
+            self.active_artboard_idx,
+        );
     }
 
     pub fn undo(&mut self) -> bool {
-        if let Some(lbl) = self.history.undo(&mut self.document, &mut self.systems) {
+        self.sync_active_to_artboard();
+        if let Some(lbl) = self.history.undo_board(
+            &mut self.document,
+            &mut self.systems,
+            &mut self.artboards,
+            &mut self.active_artboard_idx,
+        ) {
+            if let Some(ab) = self.artboards.get(self.active_artboard_idx) {
+                self.active_preset = ab.preset;
+            }
             self.sync_active_to_artboard();
+            self.selected_nodes = vec![self.document.root.id];
             self.status_message = format!("Undo: {lbl}");
             true
         } else {
@@ -6946,8 +7093,18 @@ impl UiLayoutStudioState {
     }
 
     pub fn redo(&mut self) -> bool {
-        if let Some(lbl) = self.history.redo(&mut self.document, &mut self.systems) {
+        self.sync_active_to_artboard();
+        if let Some(lbl) = self.history.redo_board(
+            &mut self.document,
+            &mut self.systems,
+            &mut self.artboards,
+            &mut self.active_artboard_idx,
+        ) {
+            if let Some(ab) = self.artboards.get(self.active_artboard_idx) {
+                self.active_preset = ab.preset;
+            }
             self.sync_active_to_artboard();
+            self.selected_nodes = vec![self.document.root.id];
             self.status_message = format!("Redo: {lbl}");
             true
         } else {
@@ -7002,45 +7159,58 @@ impl UiLayoutStudioState {
         Ok(path.to_path_buf())
     }
 
-    /// Parse an SVG string (either NeoFlash round-trip SVG or raw Figma/Illustrator SVG) and add it as a live editable artboard on the canvas.
+    /// Parse an SVG string (either NeoFlash round-trip SVG — single or multi-artboard — or raw Figma/Illustrator SVG) and add it as live editable artboard(s) on the canvas.
     pub fn import_svg_as_artboard(&mut self, svg_text: &str) -> Result<usize, String> {
         self.sync_active_to_artboard();
-        let doc = import_svg_to_document(svg_text)?;
-        self.commit_history(format!("Import SVG '{}'", doc.name));
-        let next_id = self
-            .artboards
-            .iter()
-            .map(|a| a.id)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
-        let w = match doc.root.box_constraints.width {
-            UiSizeUnit::Px(px) => px.clamp(160.0, 1400.0),
-            _ => 320.0,
+        let trimmed = svg_text.trim();
+        let docs = if trimmed.contains("<svg") && trimmed.contains("data-nf-kind=\"") {
+            import_roundtrip_nf_svg_all(trimmed)?
+        } else {
+            vec![(import_svg_to_document(svg_text)?, None)]
         };
-        let h = match doc.root.box_constraints.height {
-            UiSizeUnit::Px(px) => px.clamp(160.0, 1200.0),
-            _ => 460.0,
-        };
-        let count = self.artboards.len();
-        let pos = [
-            48.0 + ((count % 4) as f32) * 310.0,
-            48.0 + ((count / 4) as f32) * 460.0,
-        ];
-        let preset = StudioPanelPreset::PropertiesMovieClip;
-        self.artboards.push(StudioArtboard {
-            id: next_id,
-            preset,
-            document: doc.clone(),
-            canvas_pos: pos,
-            canvas_size: [w, h],
-            visible: true,
-            theme_override: None,
-        });
-        let new_idx = self.artboards.len() - 1;
+        let first_name = docs[0].0.name.clone();
+        self.commit_history(format!("Import SVG '{first_name}'"));
+        let mut first_new_idx = None;
+        for (doc, theme_override) in docs {
+            let next_id = self
+                .artboards
+                .iter()
+                .map(|a| a.id)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            let w = match doc.root.box_constraints.width {
+                UiSizeUnit::Px(px) => px.clamp(160.0, 1400.0),
+                _ => 320.0,
+            };
+            let h = match doc.root.box_constraints.height {
+                UiSizeUnit::Px(px) => px.clamp(160.0, 1200.0),
+                _ => 460.0,
+            };
+            let count = self.artboards.len();
+            let pos = [
+                48.0 + ((count % 4) as f32) * 310.0,
+                48.0 + ((count / 4) as f32) * 460.0,
+            ];
+            let preset = StudioPanelPreset::PropertiesMovieClip;
+            self.artboards.push(StudioArtboard {
+                id: next_id,
+                preset,
+                document: doc.clone(),
+                canvas_pos: pos,
+                canvas_size: [w, h],
+                visible: true,
+                theme_override,
+            });
+            let idx = self.artboards.len() - 1;
+            if first_new_idx.is_none() {
+                first_new_idx = Some(idx);
+            }
+        }
+        let new_idx = first_new_idx.unwrap_or(self.active_artboard_idx);
         self.active_artboard_idx = new_idx;
-        self.active_preset = preset;
-        self.document = doc;
+        self.active_preset = self.artboards[new_idx].preset;
+        self.document = self.artboards[new_idx].document.clone();
         self.selected_nodes = vec![self.document.root.id];
         self.status_message = format!(
             "Imported SVG as editable panel '{}' (#{} nodes).",
@@ -7064,6 +7234,8 @@ impl UiLayoutStudioState {
             document: self.document.clone(),
             systems: self.systems.clone(),
             artboards,
+            preview_theme: Some(self.preview_theme),
+            preview_theme_locked: self.preview_theme_locked,
         };
         let json = serde_json::to_string_pretty(&bundle)
             .map_err(|e| format!("Failed to serialize studio JSON: {e}"))?;
@@ -7080,6 +7252,10 @@ impl UiLayoutStudioState {
         self.commit_history("Load JSON overrides");
         self.document = bundle.document;
         self.systems = bundle.systems;
+        if let Some(theme) = bundle.preview_theme {
+            self.preview_theme = theme;
+            self.preview_theme_locked = bundle.preview_theme_locked;
+        }
         if !bundle.artboards.is_empty() {
             self.artboards = bundle.artboards;
             self.active_artboard_idx = self.active_artboard_idx.min(self.artboards.len() - 1);
@@ -12893,6 +13069,7 @@ mod tests {
 
         // 4-theme side-by-side comparison places Dark, Light, Mid Neutral Gray, and Dark Graphite on one board
         state.load_preset(StudioPanelPreset::FullWorkspaceShell);
+        let artboards_before_compare = state.artboards.len();
         state.open_four_theme_comparison();
         assert_eq!(state.artboards.len(), 4);
         assert_eq!(
@@ -12918,11 +13095,51 @@ mod tests {
             );
         }
 
-        // Exported SVG board preserves per-artboard theme tags
+        // Exported SVG board preserves per-artboard theme tags and round-trips all 4 artboards
         let board_svg = state.export_board_svg();
         assert!(board_svg.contains("data-nf-theme=\"dark\""));
         assert!(board_svg.contains("data-nf-theme=\"light\""));
         assert!(board_svg.contains("data-nf-theme=\"mid-neutral-gray\""));
         assert!(board_svg.contains("data-nf-theme=\"dark-graphite\""));
+
+        // Board-level Undo restores the multi-artboard board before 4-theme comparison, and Redo brings all 4 back
+        assert!(state.undo());
+        assert_eq!(state.artboards.len(), artboards_before_compare);
+        assert!(state.redo());
+        assert_eq!(state.artboards.len(), 4);
+
+        // Multi-artboard SVG round-trip imports every artboard on the board
+        let mut reimported = UiLayoutStudioState::default();
+        let base_count = reimported.artboards.len();
+        let first_idx = reimported
+            .import_svg_as_artboard(&board_svg)
+            .expect("import 4-artboard SVG board");
+        assert_eq!(first_idx, base_count);
+        assert_eq!(reimported.artboards.len(), base_count + 4);
+        assert_eq!(
+            reimported.artboards[first_idx..]
+                .iter()
+                .map(|a| a.theme_override)
+                .collect::<Vec<_>>(),
+            vec![
+                Some(ThemeMode::Dark),
+                Some(ThemeMode::Light),
+                Some(ThemeMode::MidNeutralGray),
+                Some(ThemeMode::DarkGraphite),
+            ]
+        );
+
+        // Persisted JSON bundle round-trips preview_theme and preview_theme_locked
+        state.set_preview_theme(ThemeMode::MidNeutralGray);
+        let tmp_json =
+            std::env::temp_dir().join(format!("nf-ui-studio-bundle-{}.json", std::process::id()));
+        state.save_studio_json(&tmp_json).expect("save studio json");
+        let mut reloaded = UiLayoutStudioState::default();
+        reloaded
+            .load_studio_json(&tmp_json)
+            .expect("load studio json");
+        let _ = std::fs::remove_file(&tmp_json);
+        assert_eq!(reloaded.preview_theme, ThemeMode::MidNeutralGray);
+        assert!(reloaded.preview_theme_locked);
     }
 }

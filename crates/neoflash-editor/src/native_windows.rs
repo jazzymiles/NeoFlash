@@ -17,9 +17,31 @@ mod imp {
         NSApplication, NSFloatingWindowLevel, NSWindow, NSWindowCollectionBehavior,
         NSWindowStyleMask, NSWindowTabbingMode, NSWindowTitleVisibility,
     };
-    use std::sync::atomic::{AtomicIsize, Ordering};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::{
+            Mutex, OnceLock,
+            atomic::{AtomicIsize, Ordering},
+        },
+    };
 
     static ROOT: AtomicIsize = AtomicIsize::new(0);
+    static FLOATING_TITLES: OnceLock<Mutex<HashMap<isize, String>>> = OnceLock::new();
+
+    fn floating_titles() -> &'static Mutex<HashMap<isize, String>> {
+        FLOATING_TITLES.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    pub fn root_window_number() -> isize {
+        ROOT.load(Ordering::Relaxed)
+    }
+
+    pub fn floating_window_title_for_number(number: isize) -> Option<String> {
+        floating_titles()
+            .lock()
+            .ok()
+            .and_then(|titles| titles.get(&number).cloned())
+    }
 
     /// Call once while only the main window exists (from `Editor::new`).
     pub fn install() {
@@ -42,10 +64,30 @@ mod imp {
         };
         let app = NSApplication::sharedApplication(mtm);
         let windows = app.windows();
-        let root = ROOT.load(Ordering::Relaxed);
+        let mut root = ROOT.load(Ordering::Relaxed);
+        if root <= 0
+            && let Some(candidate) = windows
+                .iter()
+                .find(|w| w.level() != NSFloatingWindowLevel)
+                .or_else(|| windows.iter().next())
+        {
+            root = candidate.windowNumber();
+            ROOT.store(root, Ordering::Relaxed);
+        }
+        let mut live_floating = HashSet::new();
         for window in windows.iter() {
-            if window.windowNumber() == root {
+            let number = window.windowNumber();
+            if number == root {
                 continue;
+            }
+            live_floating.insert(number);
+            // Removing `NSWindowStyleMask::Titled` clears `NSWindow.title()` in AppKit; preserve
+            // any non-empty viewport title first so native hit-testing can identify the window.
+            let raw_title = window.title().to_string();
+            if !raw_title.is_empty()
+                && let Ok(mut titles) = floating_titles().lock()
+            {
+                titles.insert(number, raw_title);
             }
             let mask = (window.styleMask()
                 - NSWindowStyleMask::Titled
@@ -82,14 +124,29 @@ mod imp {
                 window.setCollectionBehavior(behavior);
             }
         }
+        if let Ok(mut titles) = floating_titles().lock() {
+            titles.retain(|number, _| live_floating.contains(number));
+        }
     }
 }
 
 #[cfg(all(target_os = "macos", not(test)))]
-pub use imp::{configure_panels, install};
+pub use imp::{configure_panels, floating_window_title_for_number, install, root_window_number};
 
 #[cfg(any(not(target_os = "macos"), test))]
 pub fn install() {}
 
 #[cfg(any(not(target_os = "macos"), test))]
 pub fn configure_panels() {}
+
+#[cfg(any(not(target_os = "macos"), test))]
+#[allow(dead_code)]
+pub fn root_window_number() -> isize {
+    0
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+#[allow(dead_code)]
+pub fn floating_window_title_for_number(_number: isize) -> Option<String> {
+    None
+}

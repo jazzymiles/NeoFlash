@@ -996,6 +996,14 @@ impl Editor {
                 {
                     layer.properties.mask = None;
                 }
+                if layer
+                    .properties
+                    .linked_layer
+                    .as_ref()
+                    .is_some_and(|id| removed.contains(id))
+                {
+                    layer.properties.linked_layer = None;
+                }
             }
             if timeline.layers.is_empty() {
                 timeline
@@ -1060,6 +1068,11 @@ impl Editor {
                     .motion_guide
                     .as_ref()
                     .map(|id| mapping.get(id).cloned().unwrap_or_else(|| id.clone()));
+                layer.properties.linked_layer = layer
+                    .properties
+                    .linked_layer
+                    .as_ref()
+                    .and_then(|id| mapping.get(id).cloned());
                 for group in &mut layer.properties.groups {
                     group.id = new_id("group");
                     for member in &mut group.members {
@@ -1144,6 +1157,15 @@ impl Editor {
                     .any(|other| other.frame == key.frame && other.sound.is_some())
             {
                 self.message("Cannot merge layers with two sounds on the same frame. Keep the sounds on separate layers.");
+                return;
+            }
+            if key.video.is_some()
+                && next
+                    .keyframes
+                    .iter()
+                    .any(|other| other.frame == key.frame && other.video.is_some())
+            {
+                self.message("Cannot merge layers with two video clips on the same frame. Keep the videos on separate layers.");
                 return;
             }
         }
@@ -1233,15 +1255,31 @@ impl Editor {
                     sound: first_key
                         .and_then(|key| key.sound.clone())
                         .or_else(|| next_key.and_then(|key| key.sound.clone())),
+                    video: first_key
+                        .and_then(|key| key.video.clone())
+                        .or_else(|| next_key.and_then(|key| key.video.clone())),
                     shape_hints,
                     ..Default::default()
                 }
             })
             .collect();
+        merged.properties.linked_layer = None;
+        let removed_id = next.id.clone();
+        let merged_id = merged.id.clone();
         self.layer_change(move |project, symbol| {
             let timeline = &mut project.symbol_mut(symbol).unwrap().timeline;
             timeline.layers[index] = merged;
             timeline.layers.remove(index + 1);
+            for layer in &mut timeline.layers {
+                if layer
+                    .properties
+                    .linked_layer
+                    .as_deref()
+                    .is_some_and(|p| p == removed_id || p == merged_id)
+                {
+                    layer.properties.linked_layer = None;
+                }
+            }
         });
     }
     pub(crate) fn set_layer_role(&mut self, index: usize, role: LayerRole) {

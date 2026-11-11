@@ -45,7 +45,7 @@
     }
     function current(op){return valid(op.record)&&op.generation===generation&&op.record.operation===op;}
     function releaseBytes(op){if(op.bytes){queuedBytes-=op.bytes.length;op.bytes=null;byteLoads.delete(op);}}
-    function cancel(record){const op=record.operation;if(!op)return;record.operation=null;op.transport?.close();releaseBytes(op);}
+    function cancel(record){const op=record.operation;if(!op)return;record.operation=null;op.transport?.close();if(Array.isArray(op.extraTransports)){for(const t of op.extraTransports){try{t?.close();}catch(_){}}op.extraTransports=null;}releaseBytes(op);const onCancel=op.onCancel;op.onCancel=null;if(typeof onCancel==='function'){try{onCancel();}catch(_){}}}
     function guarded(fn){try{return fn();}catch(error){throw new CallbackFailure(error);}}
     function notify(op,event){
       if(!current(op))return false;
@@ -127,7 +127,7 @@
     Object.defineProperties(LoaderInfo,{__nfIs:{value:value=>infos.has(value)},__nfInitialize:{value:()=>unsupported('LoaderInfo native subclassing')}});
     function begin(record,url){
       cancel(record);record.url=url;record.bytesLoaded=record.bytesTotal=0;
-      const op={record,generation,transport:null,status:0};record.operation=op;return op;
+      const op={record,generation,transport:null,extraTransports:null,status:0,redirectDepth:0,seenUrls:new Set(url?[String(url)]:[]),onCancel:null};record.operation=op;return op;
     }
     function transportEvent(op,event){
       if(!current(op))return;
@@ -165,11 +165,35 @@
       }
       return null;
     }
+    function resolveRelativeBundleUrl(relUrl,baseUrl){
+      const raw=String(relUrl||'').trim();
+      if(!raw)return null;
+      if(/^(?:javascript|data|vbscript|blob):/i.test(raw))throw new TypeError('Unsupported URI scheme in published bundle reference.');
+      if(/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw))return raw;
+      if(baseUrl&&/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(String(baseUrl))){
+        try{return new URL(raw,String(baseUrl)).href;}catch(_){}
+      }
+      const clean=String(baseUrl||'').split('#')[0];
+      const qIdx=clean.indexOf('?'),pathPart=qIdx>=0?clean.slice(0,qIdx):clean;
+      const slash=pathPart.lastIndexOf('/');
+      const dir=slash>=0?pathPart.slice(0,slash+1):'';
+      const rqIdx=raw.indexOf('?'),relPath=rqIdx>=0?raw.slice(0,rqIdx):raw,relQuery=rqIdx>=0?raw.slice(rqIdx):'';
+      const combined=(raw.startsWith('/')?relPath.slice(1):dir+relPath).split('/');
+      const out=[];
+      for(const seg of combined){
+        if(!seg||seg==='.')continue;
+        if(seg==='..'){if(!out.length)throw new TypeError('Published bundle relative path cannot traverse above root.');out.pop();}
+        else out.push(seg);
+      }
+      return out.join('/')+relQuery;
+    }
     function detectBundleRedirectPath(text,currentUrl){
       const trimmed=text.trim();
       if(!trimmed||!currentUrl)return null;
-      let bundleRel=null;
+      let bundleRel=null,effectiveBase=currentUrl;
       if(/^<!doctype\s+html|^<html/i.test(trimmed)&&(/neoflash/i.test(trimmed)||/<script\b[^>]*\bsrc=["'][^"']*bundle\.js/i.test(trimmed))){
+        const baseMatch=/<base\b[^>]*\bhref=["']([^"']+)["']/i.exec(trimmed);
+        if(baseMatch){const b=resolveRelativeBundleUrl(baseMatch[1],currentUrl);if(b)effectiveBase=b;}
         const scriptMatch=/<script\b[^>]*\bsrc=["']([^"']*bundle\.js(?:\?[^"']*)?)["']/i.exec(trimmed);
         if(scriptMatch)bundleRel=scriptMatch[1];
       }else if(trimmed.startsWith('{')&&trimmed.includes('"bundle.js"')){
@@ -184,11 +208,7 @@
         }catch(_){}
       }
       if(!bundleRel)return null;
-      const clean=String(currentUrl).split('#')[0];
-      const qIdx=clean.indexOf('?'),pathPart=qIdx>=0?clean.slice(0,qIdx):clean;
-      const slash=pathPart.lastIndexOf('/');
-      const dir=slash>=0?pathPart.slice(0,slash+1):'';
-      return dir+bundleRel.replace(/^\.\//,'');
+      return resolveRelativeBundleUrl(bundleRel,effectiveBase);
     }
     function parseSvgDimensions(svgText){
       const tagMatch=/<svg\b[^>]*>/i.exec(svgText);
@@ -305,13 +325,36 @@
       finally{try{player.bitmap_dispose?.(key(bmd));}catch(_){}}
       commitPixelBytes(op,pngBytes,bytes,'image/svg+xml');
     }
+    function commitPublishedBundle(op,bundleObj,bytes){
+      if(!current(op))return;
+      const record=op.record;
+      record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);
+      if(record.as2&&!legacyNotify(op,'onLoadComplete',[record.target,op.status]))return;
+      if(!current(op))return;
+      const mounted=options.mountPublishedBundle(record,bundleObj,record.url);
+      record.publishedMounted=true;record.pixel=null;
+      record.content=mounted.contentRef?proxyForRef(mounted.contentRef):(record.as2?record.target:null);
+      record.width=mounted.width;record.height=mounted.height;record.frameRate=mounted.frameRate;
+      record.contentType='application/x-shockwave-flash';
+      if(record.content&&!record.as2)contentInfos.set(record.content,record.info);
+      guarded(()=>options.onMutation?.(mounted.events||[]));if(!current(op))return;
+      guarded(()=>options.onAfterMountPublished?.());if(!current(op))return;
+      if(record.as2)legacyNotify(op,'onLoadInit',[record.target]);
+      else if(notify(op,new events.Event('init')))notify(op,new events.Event('complete'));
+      if(current(op))record.operation=null;
+    }
     function decode(op,bytes){
       if(!current(op))return;
       try{
         const record=op.record,mime=contentType(bytes,record.as2);
         if(mime==='application/vnd.neoflash.publish-entry'){
+          if((op.redirectDepth||0)>=4)throw new RangeError('Published bundle entry exceeded the 4-redirect limit.');
           const text=utf8Decoder.decode(bytes),redirectUrl=detectBundleRedirectPath(text,record.url);
           if(!redirectUrl)throw new TypeError('Published entry HTML/manifest did not reference a NeoFlash bundle.js.');
+          if(op.seenUrls?.has(redirectUrl))throw new TypeError(`Published bundle redirect loop detected for '${redirectUrl}'.`);
+          op.redirectDepth=(op.redirectDepth||0)+1;
+          op.seenUrls?.add(redirectUrl);
+          record.url=redirectUrl;
           op.transport=net.loadBytes(new net.URLRequest(redirectUrl),{
             onEvent:event=>{try{transportEvent(op,event);}catch(error){throw error instanceof CallbackFailure?error.cause:error;}},
             onComplete:nextBytes=>decode(op,nextBytes)
@@ -322,20 +365,35 @@
           const bundleObj=parseNeoFlashBundleText(utf8Decoder.decode(bytes));
           if(!bundleObj)throw new TypeError('Malformed NeoFlash published bundle.');
           if(typeof options.mountPublishedBundle!=='function')throw new Error('Host runtime does not support dynamic NeoFlash bundle mounting.');
-          record.bytesLoaded=record.bytesTotal=bytes.length;record.rawBytes=new Uint8Array(bytes);
-          if(record.as2&&!legacyNotify(op,'onLoadComplete',[record.target,op.status]))return;
-          if(!current(op))return;
-          const mounted=options.mountPublishedBundle(record,bundleObj);
-          record.publishedMounted=true;record.pixel=null;
-          record.content=mounted.contentRef?proxyForRef(mounted.contentRef):(record.as2?record.target:null);
-          record.width=mounted.width;record.height=mounted.height;record.frameRate=mounted.frameRate;
-          record.contentType='application/x-shockwave-flash';
-          if(record.content&&!record.as2)contentInfos.set(record.content,record.info);
-          guarded(()=>options.onMutation?.(mounted.events||[]));if(!current(op))return;
-          guarded(()=>options.onAfterMountPublished?.());if(!current(op))return;
-          if(record.as2)legacyNotify(op,'onLoadInit',[record.target]);
-          else if(notify(op,new events.Event('init')))notify(op,new events.Event('complete'));
-          if(current(op))record.operation=null;
+          if(bundleObj.sprite_sheet?.image_url&&bundleObj.sprite_sheet?.manifest_url&&!bundleObj.__hydratedSpriteSheet){
+            const imgUrl=resolveRelativeBundleUrl(bundleObj.sprite_sheet.image_url,record.url);
+            const jsonUrl=resolveRelativeBundleUrl(bundleObj.sprite_sheet.manifest_url,record.url);
+            if(imgUrl&&jsonUrl){
+              let gotPng=null,gotJson=null,failedSheet=false;
+              const checkSheetDone=()=>{
+                if(!current(op)||failedSheet||!gotPng||gotJson===null)return;
+                op.extraTransports=null;
+                try{
+                  bundleObj.__hydratedSpriteSheet={pngBytes:gotPng,manifestText:gotJson};
+                  commitPublishedBundle(op,bundleObj,bytes);
+                }catch(error){
+                  if(error instanceof CallbackFailure)throw error.cause;
+                  if(current(op))failLoad(op,error instanceof Error?error.message:String(error));
+                }
+              };
+              const onSheetErr=ev=>{
+                if(ev.type!=='ioError'||failedSheet||!current(op))return;
+                failedSheet=true;
+                if(Array.isArray(op.extraTransports)){for(const t of op.extraTransports){try{t?.close();}catch(_){}}op.extraTransports=null;}
+                failLoad(op,ev.text||'Failed to load child bundle sprite sheet.');
+              };
+              const t1=net.loadBytes(new net.URLRequest(imgUrl),{onEvent:onSheetErr,onComplete:b=>{gotPng=b;checkSheetDone();}});
+              const t2=net.loadBytes(new net.URLRequest(jsonUrl),{onEvent:onSheetErr,onComplete:b=>{gotJson=utf8Decoder.decode(b);checkSheetDone();}});
+              op.extraTransports=[t1,t2];
+              return;
+            }
+          }
+          commitPublishedBundle(op,bundleObj,bytes);
           return;
         }
         if(mime==='image/svg+xml'){
@@ -508,11 +566,16 @@
       if(target&&loaders.has(target)){
         const rec=state(target);
         return new Promise((resolve,reject)=>{
-          const onComplete=()=>{rec.info.removeEventListener('complete',onComplete);rec.info.removeEventListener('ioError',onError);resolve(rec.content);};
-          const onError=ev=>{rec.info.removeEventListener('complete',onComplete);rec.info.removeEventListener('ioError',onError);reject(new Error(ev?.text||'loadPublish failed'));};
+          let settled=false;
+          const cleanup=()=>{rec.info.removeEventListener('complete',onComplete);rec.info.removeEventListener('ioError',onError);};
+          const onComplete=()=>{if(settled)return;settled=true;cleanup();resolve(rec.content);};
+          const onError=ev=>{if(settled)return;settled=true;cleanup();reject(new Error(ev?.text||'loadPublish failed'));};
           rec.info.addEventListener('complete',onComplete);
           rec.info.addEventListener('ioError',onError);
-          load(rec,new net.URLRequest(normalized));
+          try{
+            load(rec,new net.URLRequest(normalized));
+            if(rec.operation)rec.operation.onCancel=()=>{if(settled)return;settled=true;cleanup();reject(new Error('loadPublish cancelled'));};
+          }catch(err){settled=true;cleanup();reject(err);}
         });
       }
       if(target===null||target===undefined){
@@ -523,11 +586,16 @@
       }
       const mcl=new MovieClipLoader();
       return new Promise((resolve,reject)=>{
+        let settled=false;
         mcl.addListener({
-          onLoadInit:clip=>resolve(clip),
-          onLoadError:(_clip,msg)=>reject(new Error(msg||'loadPublish failed')),
+          onLoadInit:clip=>{if(settled)return;settled=true;resolve(clip);},
+          onLoadError:(_clip,msg)=>{if(settled)return;settled=true;reject(new Error(msg||'loadPublish failed'));},
         });
-        mcl.loadClip(normalized,target);
+        try{
+          const rec=targetRecord(mcl,target,true);
+          load(rec,new net.URLRequest(normalized));
+          if(rec.operation)rec.operation.onCancel=()=>{if(settled)return;settled=true;reject(new Error('loadPublish cancelled'));};
+        }catch(err){settled=true;reject(err);}
       });
     }
     function reset(){open();for(const record of records){cancel(record);if(record.publishedMounted&&typeof options.unloadPublishedBundle==='function'){try{options.unloadPublishedBundle(record,true);}catch(_){}record.publishedMounted=false;}}records.clear();targets.clear();simpleReceiver=null;rootRecord=null;generation++;hub.clear();}

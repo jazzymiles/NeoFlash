@@ -63,6 +63,9 @@ pub struct AepOptions {
     /// Frame step when sampling topology-changing shape tweens into Bezier keyframes (`>= 1`).
     #[serde(default = "default_morph_step")]
     pub shape_morph_step: u32,
+    /// Optional project base directory used to resolve external video files into `<stem>_Footage/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_dir: Option<PathBuf>,
 }
 
 const fn bool_true() -> bool {
@@ -84,8 +87,19 @@ impl Default for AepOptions {
             translate_scripts: true,
             jpeg_quality: 80,
             shape_morph_step: 1,
+            base_dir: None,
         }
     }
+}
+
+#[inline]
+fn finite_or(v: f64, fallback: f64) -> f64 {
+    if v.is_finite() { v } else { fallback }
+}
+
+#[inline]
+fn finite_pair(p: [f64; 2]) -> [f64; 2] {
+    [finite_or(p[0], 0.0), finite_or(p[1], 0.0)]
 }
 
 /// Classification of an After Effects interchange note.
@@ -437,9 +451,9 @@ pub fn path_commands_to_ae_contours(
                 }
             }
             contours.push(AeBezierContour {
-                vertices: std::mem::take(verts),
-                in_tangents: std::mem::take(ins),
-                out_tangents: std::mem::take(outs),
+                vertices: std::mem::take(verts).into_iter().map(finite_pair).collect(),
+                in_tangents: std::mem::take(ins).into_iter().map(finite_pair).collect(),
+                out_tangents: std::mem::take(outs).into_iter().map(finite_pair).collect(),
                 closed: *closed,
             });
         } else {
@@ -1224,7 +1238,13 @@ fn parse_property_assignment(stmt: &str) -> Option<(String, String, String, Stri
                     continue;
                 }
             }
-            let lhs = stmt[..idx].trim();
+            let lhs_raw = stmt[..idx].trim();
+            let lhs = lhs_raw
+                .strip_prefix("var ")
+                .or_else(|| lhs_raw.strip_prefix("let "))
+                .or_else(|| lhs_raw.strip_prefix("const "))
+                .map(str::trim)
+                .unwrap_or(lhs_raw);
             let rhs = stmt[idx + op.len()..].trim();
             if lhs.is_empty() || rhs.is_empty() {
                 return None;
@@ -1328,15 +1348,40 @@ fn is_safe_ae_js_formula(rhs: &str) -> bool {
 }
 
 fn rewrite_script_rhs_for_ae(rhs: &str) -> String {
-    rhs.replace("getTimer()", "(_t * 1000.0)")
+    let mut s = rhs
+        .replace("getTimer()", "(_t * 1000.0)")
         .replace("this._currentframe", "(_f + 1)")
-        .replace("_currentframe", "(_f + 1)")
         .replace("this.currentFrame", "(_f + 1)")
-        .replace("currentFrame", "(_f + 1)")
         .replace("Stage.width", "thisComp.width")
         .replace("Stage.height", "thisComp.height")
         .replace("stage.stageWidth", "thisComp.width")
-        .replace("stage.stageHeight", "thisComp.height")
+        .replace("stage.stageHeight", "thisComp.height");
+
+    // Identifier-boundary replacement for bare `_currentframe` / `currentFrame`
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + 16);
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_alphabetic() || chars[i] == '_' {
+            let prev_is_prop = i > 0 && chars[i - 1] == '.';
+            let start = i;
+            i += 1;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let ident: String = chars[start..i].iter().collect();
+            if !prev_is_prop && (ident == "_currentframe" || ident == "currentFrame") {
+                out.push_str("(_f + 1)");
+            } else {
+                out.push_str(&ident);
+            }
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    s = out;
+    s
 }
 
 // ============================================================================
@@ -1387,12 +1432,41 @@ pub fn export_project_aep(
         });
     }
 
-    // 1. Extract used Footage resources (`image/*`, `audio/*`, `video/*`)
-    let (footage_items, footage_files, resource_to_footage) =
-        extract_aep_footage(&working, &footage_dir, &footage_dir_name, &mut diagnostics)?;
+    // 1. Extract used Footage resources (`image/*`, `audio/*`, `video/*`, plus external video spans)
+    let (footage_items, footage_files, resource_to_footage) = extract_aep_footage(
+        &working,
+        &footage_dir,
+        &footage_dir_name,
+        options.base_dir.as_deref(),
+        &mut diagnostics,
+    )?;
 
     // 2. Build compositions (symbols + scenes + optional multi-scene master composition)
-    let fps = f64::from(working.fps.max(1));
+    let raw_fps = f64::from(working.fps.max(1));
+    let fps = raw_fps.clamp(1.0, 99.0);
+    if (fps - raw_fps).abs() > 1e-6 {
+        diagnostics.push(AepDiagnostic {
+            code: "AE_FPS_CLAMPED",
+            kind: AepDiagnosticKind::Approximated,
+            location: "Project".into(),
+            message: format!(
+                "Clamped composition frame rate from {raw_fps:.2} fps to After Effects' {fps:.2} fps limit."
+            ),
+        });
+    }
+    let stage_w = working.width.clamp(4, 30_000);
+    let stage_h = working.height.clamp(4, 30_000);
+    if stage_w != working.width.max(1) || stage_h != working.height.max(1) {
+        diagnostics.push(AepDiagnostic {
+            code: "AE_COMP_BOUNDS_CLAMPED",
+            kind: AepDiagnosticKind::Approximated,
+            location: "Project".into(),
+            message: format!(
+                "Clamped composition dimensions {}x{} into After Effects' 4..=30000 px range ({stage_w}x{stage_h}).",
+                working.width, working.height
+            ),
+        });
+    }
     let bg = color_rgb01(working.background);
 
     let scene_ids: Vec<String> = if let Some(sym_id) = &options.symbol {
@@ -1413,13 +1487,13 @@ pub fn export_project_aep(
     let mut comp_origins: BTreeMap<String, ([f64; 2], [u32; 2])> = BTreeMap::new();
     for sym in &working.symbols {
         if scene_set.contains(&sym.id) {
-            comp_origins.insert(
-                sym.id.clone(),
-                ([0.0, 0.0], [working.width.max(1), working.height.max(1)]),
-            );
+            comp_origins.insert(sym.id.clone(), ([0.0, 0.0], [stage_w, stage_h]));
         } else if reachable_symbols.contains(&sym.id) {
             let (origin, dims) = compute_symbol_precomp_bounds(&working, sym);
-            comp_origins.insert(sym.id.clone(), (origin, dims));
+            comp_origins.insert(
+                sym.id.clone(),
+                (origin, [dims[0].clamp(4, 30_000), dims[1].clamp(4, 30_000)]),
+            );
         }
     }
 
@@ -1431,7 +1505,7 @@ pub fn export_project_aep(
         if !scene_set.contains(&sym.id) && reachable_symbols.contains(&sym.id) {
             let &(origin, [cw, ch]) = comp_origins
                 .get(&sym.id)
-                .unwrap_or(&([0.0, 0.0], [working.width.max(1), working.height.max(1)]));
+                .unwrap_or(&([0.0, 0.0], [stage_w, stage_h]));
             let comp = build_ae_comp(
                 &working,
                 sym,
@@ -1465,8 +1539,8 @@ pub fn export_project_aep(
             let comp = build_ae_comp(
                 &working,
                 sym,
-                working.width.max(1),
-                working.height.max(1),
+                stage_w,
+                stage_h,
                 [0.0, 0.0],
                 fps,
                 bg,
@@ -1556,8 +1630,8 @@ pub fn export_project_aep(
                 working.name.clone()
             },
             folder: String::new(),
-            width: working.width.max(1),
-            height: working.height.max(1),
+            width: stage_w,
+            height: stage_h,
             fps,
             duration_frames: cursor.max(1),
             background: bg,
@@ -1583,8 +1657,8 @@ pub fn export_project_aep(
             working.name.clone()
         },
         fps,
-        width: working.width.max(1),
-        height: working.height.max(1),
+        width: stage_w,
+        height: stage_h,
         background: bg,
         footage: footage_items,
         compositions,
@@ -2720,7 +2794,23 @@ fn build_ae_layer_from_run(
             }
             ElementKind::Video { .. } => {
                 let vs = first.video_span.as_ref()?;
-                let ft = resource_to_footage.get(&vs.resource)?;
+                let ft_opt = resource_to_footage.get(&vs.resource).or_else(|| {
+                    vs.external_path
+                        .as_ref()
+                        .and_then(|ext| resource_to_footage.get(&format!("__ext_video__:{ext}")))
+                });
+                let Some(ft) = ft_opt else {
+                    diagnostics.push(AepDiagnostic {
+                        code: "AE_EXTERNAL_VIDEO_UNRESOLVED",
+                        kind: AepDiagnosticKind::Skipped,
+                        location: format!("symbol '{}' layer '{}'", sym.name, layer.name),
+                        message: format!(
+                            "Skipped video layer because external/embedded video '{}' could not be resolved into Footage.",
+                            vs.external_path.as_deref().unwrap_or(vs.resource.as_str())
+                        ),
+                    });
+                    return None;
+                };
                 AeLayerKind::Footage {
                     footage_id: ft.id.clone(),
                     is_audio_only: false,
@@ -3324,10 +3414,20 @@ fn push_transform_keys(
     skew_keys: &mut Vec<AeKey<f64>>,
 ) {
     // Account for custom pivot when Anchor Point is shifted by `pivot`
-    let (s, c) = t.rotation.to_radians().sin_cos();
-    let (sy, cy) = (t.rotation + t.skew).to_radians().sin_cos();
-    let px = t.x + origin[0] + c * t.scale_x * pivot[0] - sy * t.scale_y * pivot[1];
-    let py = t.y + origin[1] + s * t.scale_x * pivot[0] + cy * t.scale_y * pivot[1];
+    let rot = finite_or(t.rotation, 0.0);
+    let skew = finite_or(t.skew, 0.0);
+    let sx = finite_or(t.scale_x, 1.0);
+    let sy_scale = finite_or(t.scale_y, 1.0);
+    let (s, c) = rot.to_radians().sin_cos();
+    let (sy, cy) = (rot + skew).to_radians().sin_cos();
+    let px = finite_or(
+        finite_or(t.x, 0.0) + origin[0] + c * sx * pivot[0] - sy * sy_scale * pivot[1],
+        0.0,
+    );
+    let py = finite_or(
+        finite_or(t.y, 0.0) + origin[1] + s * sx * pivot[0] + cy * sy_scale * pivot[1],
+        0.0,
+    );
 
     pos_keys.push(AeKey {
         frame,
@@ -3336,17 +3436,23 @@ fn push_transform_keys(
     });
     scale_keys.push(AeKey {
         frame,
-        value: [t.scale_x * 100.0, t.scale_y * 100.0],
+        value: [
+            finite_or(sx * 100.0, 100.0),
+            finite_or(sy_scale * 100.0, 100.0),
+        ],
         ease,
     });
     rot_keys.push(AeKey {
         frame,
-        value: t.rotation + extra_rot_deg,
+        value: finite_or(rot + extra_rot_deg, 0.0),
         ease,
     });
-    let alpha_mul = t.color_transform.multipliers[3];
-    let alpha_off = t.color_transform.offsets[3] / 255.0;
-    let op = ((t.alpha * alpha_mul + alpha_off) * 100.0).clamp(0.0, 100.0);
+    let alpha_mul = finite_or(t.color_transform.multipliers[3], 1.0);
+    let alpha_off = finite_or(t.color_transform.offsets[3], 0.0) / 255.0;
+    let op = finite_or(
+        ((finite_or(t.alpha, 1.0) * alpha_mul + alpha_off) * 100.0).clamp(0.0, 100.0),
+        100.0,
+    );
     opacity_keys.push(AeKey {
         frame,
         value: op,
@@ -3354,7 +3460,7 @@ fn push_transform_keys(
     });
     skew_keys.push(AeKey {
         frame,
-        value: t.skew,
+        value: skew,
         ease,
     });
 }
@@ -3501,23 +3607,47 @@ fn extract_aep_footage(
     project: &Project,
     footage_dir: &Path,
     footage_dir_name: &str,
+    base_dir: Option<&Path>,
     diagnostics: &mut Vec<AepDiagnostic>,
 ) -> Result<ExtractedAepFootage, ExportError> {
     let mut items = Vec::new();
     let mut written_files = Vec::new();
     let mut map = BTreeMap::new();
-    let mut used_filenames = BTreeSet::new();
+    let mut used_filenames_lower = BTreeSet::new();
 
-    if project.resources.is_empty() {
-        return Ok((items, written_files, map));
-    }
-    fs::create_dir_all(footage_dir)?;
+    let alloc_safe_filename =
+        |raw_stem_src: &str, ext: &str, used_lower: &mut BTreeSet<String>| -> (String, String) {
+            let filtered: String = raw_stem_src
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let trimmed = filtered.trim_matches(|c| c == '_' || c == '-');
+            let safe_stem = if trimmed.is_empty() {
+                "asset".to_owned()
+            } else {
+                trimmed.to_owned()
+            };
+            let mut candidate = format!("{safe_stem}.{ext}");
+            let mut seq = 2usize;
+            while !used_lower.insert(candidate.to_ascii_lowercase()) {
+                candidate = format!("{safe_stem}_{seq}.{ext}");
+                seq += 1;
+            }
+            (safe_stem, candidate)
+        };
 
+    let mut ensured_dir = false;
     for (idx, res) in project.resources.iter().enumerate() {
         if res.data_base64.is_empty() {
             continue;
         }
-        let Ok(bytes) = STANDARD.decode(res.data_base64.as_ref()) else {
+        let Ok(mut bytes) = STANDARD.decode(res.data_base64.as_ref()) else {
             diagnostics.push(AepDiagnostic {
                 code: "AE_INVALID_RESOURCE",
                 kind: AepDiagnosticKind::Skipped,
@@ -3530,33 +3660,54 @@ fn extract_aep_footage(
             continue;
         }
 
-        let ext = extension_for_media_type(&res.media_type, &res.path);
+        let mut effective_media_type = res.media_type.clone();
+        let explicit_webp = res
+            .bitmap_export
+            .is_some_and(|s| matches!(s.compression, neoflash_core::BitmapCompression::Webp));
+        if !explicit_webp
+            && effective_media_type.eq_ignore_ascii_case("image/webp")
+            && let Ok(decoded_webp) = image::load_from_memory(&bytes)
+        {
+            let rgba = decoded_webp.to_rgba8();
+            let mut png_buf = Vec::new();
+            let enc = image::codecs::png::PngEncoder::new(&mut png_buf);
+            if image::ImageEncoder::write_image(
+                enc,
+                rgba.as_raw(),
+                rgba.width(),
+                rgba.height(),
+                image::ExtendedColorType::Rgba8,
+            )
+            .is_ok()
+            {
+                bytes = png_buf;
+                effective_media_type = "image/png".to_owned();
+                diagnostics.push(AepDiagnostic {
+                    code: "AE_WEBP_TRANSCODED_PNG",
+                    kind: AepDiagnosticKind::Approximated,
+                    location: format!("resource '{}'", res.id),
+                    message: "Transcoded WebP resource to lossless PNG footage for universal After Effects import.".into(),
+                });
+            }
+        }
+
+        let ext = extension_for_media_type(&effective_media_type, &res.path);
         let raw_stem = Path::new(&res.path)
             .file_stem()
             .and_then(|s| s.to_str())
             .filter(|s| !s.is_empty())
             .unwrap_or(&res.id);
-        let safe_stem: String = raw_stem
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let mut file_name = format!("{safe_stem}.{ext}");
-        if !used_filenames.insert(file_name.clone()) {
-            file_name = format!("{safe_stem}_{idx}.{ext}");
-            used_filenames.insert(file_name.clone());
-        }
+        let (safe_stem, file_name) = alloc_safe_filename(raw_stem, &ext, &mut used_filenames_lower);
 
+        if !ensured_dir {
+            fs::create_dir_all(footage_dir)?;
+            ensured_dir = true;
+        }
         let dest = footage_dir.join(&file_name);
         atomic_write(&dest, &bytes)?;
         written_files.push(dest);
 
-        let (w, h) = if res.media_type.starts_with("image/") {
+        let (w, h) = if effective_media_type.starts_with("image/") {
             image::load_from_memory(&bytes)
                 .ok()
                 .map(|img| (Some(img.width()), Some(img.height())))
@@ -3569,7 +3720,7 @@ fn extract_aep_footage(
             id: format!("ft_{idx}_{safe_stem}"),
             name: file_name.clone(),
             relative_path: format!("{footage_dir_name}/{file_name}"),
-            media_type: res.media_type.clone(),
+            media_type: effective_media_type,
             width: w,
             height: h,
         };
@@ -3577,29 +3728,82 @@ fn extract_aep_footage(
         items.push(ft_item);
     }
 
+    // Also stage any external timeline videos (`VideoDeploymentMode::External`) resolvable from `base_dir`.
+    if let Some(base) = base_dir {
+        let mut seen_ext = BTreeSet::new();
+        for sym in &project.symbols {
+            for layer in &sym.timeline.layers {
+                for kf in &layer.keyframes {
+                    if let Some(vs) = &kf.video
+                        && let Some(ext_rel) = &vs.external_path
+                        && neoflash_core::validate_external_video_path(ext_rel).is_ok()
+                        && seen_ext.insert(ext_rel.clone())
+                    {
+                        let src_path = base.join(ext_rel);
+                        if let Ok(bytes) = fs::read(&src_path)
+                            && !bytes.is_empty()
+                        {
+                            let ext = extension_for_media_type("", ext_rel);
+                            let raw_stem = Path::new(ext_rel)
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("video");
+                            let (safe_stem, file_name) =
+                                alloc_safe_filename(raw_stem, &ext, &mut used_filenames_lower);
+                            if !ensured_dir {
+                                fs::create_dir_all(footage_dir)?;
+                                ensured_dir = true;
+                            }
+                            let dest = footage_dir.join(&file_name);
+                            atomic_write(&dest, &bytes)?;
+                            written_files.push(dest);
+                            let idx = items.len();
+                            let ft_item = AeFootageItem {
+                                id: format!("ft_ext_{idx}_{safe_stem}"),
+                                name: file_name.clone(),
+                                relative_path: format!("{footage_dir_name}/{file_name}"),
+                                media_type: format!("video/{ext}"),
+                                width: None,
+                                height: None,
+                            };
+                            map.insert(format!("__ext_video__:{ext_rel}"), ft_item.clone());
+                            if !vs.resource.is_empty() && !map.contains_key(&vs.resource) {
+                                map.insert(vs.resource.clone(), ft_item.clone());
+                            }
+                            items.push(ft_item);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok((items, written_files, map))
 }
 
-fn extension_for_media_type<'a>(media_type: &str, fallback_path: &'a str) -> &'a str {
-    match media_type {
-        "image/png" => "png",
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        "image/bmp" => "bmp",
-        "image/tiff" => "tif",
-        "audio/wav" | "audio/x-wav" => "wav",
-        "audio/mpeg" | "audio/mp3" => "mp3",
-        "audio/ogg" => "ogg",
-        "video/mp4" => "mp4",
-        "video/quicktime" => "mov",
-        "video/webm" => "webm",
-        "video/x-msvideo" | "video/avi" => "avi",
+fn extension_for_media_type(media_type: &str, fallback_path: &str) -> String {
+    match media_type.to_ascii_lowercase().as_str() {
+        "image/png" => "png".to_owned(),
+        "image/jpeg" | "image/jpg" => "jpg".to_owned(),
+        "image/webp" => "webp".to_owned(),
+        "image/gif" => "gif".to_owned(),
+        "image/bmp" => "bmp".to_owned(),
+        "image/tiff" => "tif".to_owned(),
+        "audio/wav" | "audio/x-wav" => "wav".to_owned(),
+        "audio/mpeg" | "audio/mp3" => "mp3".to_owned(),
+        "audio/ogg" => "ogg".to_owned(),
+        "video/mp4" => "mp4".to_owned(),
+        "video/quicktime" => "mov".to_owned(),
+        "video/webm" => "webm".to_owned(),
+        "video/x-msvideo" | "video/avi" => "avi".to_owned(),
         _ => Path::new(fallback_path)
             .extension()
             .and_then(|e| e.to_str())
-            .filter(|e| !e.is_empty())
-            .unwrap_or("bin"),
+            .filter(|e| {
+                !e.is_empty() && e.len() <= 8 && e.chars().all(|c| c.is_ascii_alphanumeric())
+            })
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_else(|| "bin".to_owned()),
     }
 }
 
@@ -3607,24 +3811,52 @@ fn extension_for_media_type<'a>(media_type: &str, fallback_path: &'a str) -> &'a
 // 1. RIFX / Egg! Binary `.aep` Container Writer
 // ============================================================================
 
-fn push_riff_chunk(buf: &mut Vec<u8>, fourcc: &[u8; 4], payload: &[u8]) {
+fn sanitize_riff_marker_field(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '|' => '/',
+            '\r' | '\n' => ' ',
+            '\0' => ' ',
+            _ => c,
+        })
+        .collect()
+}
+
+fn push_riff_chunk(buf: &mut Vec<u8>, fourcc: &[u8; 4], payload: &[u8]) -> Result<(), ExportError> {
+    let len_u32 = u32::try_from(payload.len()).map_err(|_| {
+        ExportError::Options("After Effects RIFX chunk exceeds the 32-bit container limit.".into())
+    })?;
     buf.extend_from_slice(fourcc);
-    buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    buf.extend_from_slice(&len_u32.to_be_bytes());
     buf.extend_from_slice(payload);
     if payload.len() % 2 == 1 {
         buf.push(0);
     }
+    Ok(())
 }
 
-fn push_riff_list(buf: &mut Vec<u8>, form_type: &[u8; 4], children: &[u8]) {
+fn push_riff_list(
+    buf: &mut Vec<u8>,
+    form_type: &[u8; 4],
+    children: &[u8],
+) -> Result<(), ExportError> {
+    let total = children
+        .len()
+        .checked_add(4)
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| {
+            ExportError::Options(
+                "After Effects RIFX LIST exceeds the 32-bit container limit.".into(),
+            )
+        })?;
     buf.extend_from_slice(b"LIST");
-    let total = (4 + children.len()) as u32;
     buf.extend_from_slice(&total.to_be_bytes());
     buf.extend_from_slice(form_type);
     buf.extend_from_slice(children);
     if children.len() % 2 == 1 {
         buf.push(0);
     }
+    Ok(())
 }
 
 fn encode_rifx_aep_container(
@@ -3640,7 +3872,7 @@ fn encode_rifx_aep_container(
     head.extend_from_slice(&(model.compositions.len() as u32).to_be_bytes());
     head.extend_from_slice(&(model.footage.len() as u32).to_be_bytes());
     head.extend_from_slice(&8_u32.to_be_bytes()); // 8 bpc
-    push_riff_chunk(&mut egg_body, b"head", &head);
+    push_riff_chunk(&mut egg_body, b"head", &head)?;
 
     let mut fold_body = Vec::new();
     let next_id = &mut 1_u32;
@@ -3654,13 +3886,13 @@ fn encode_rifx_aep_container(
         *next_id += 1;
         idta.extend_from_slice(&ft.width.unwrap_or(0).to_be_bytes());
         idta.extend_from_slice(&ft.height.unwrap_or(0).to_be_bytes());
-        push_riff_chunk(&mut item_body, b"idta", &idta);
-        push_riff_chunk(&mut item_body, b"Utf8", ft.name.as_bytes());
+        push_riff_chunk(&mut item_body, b"idta", &idta)?;
+        push_riff_chunk(&mut item_body, b"Utf8", ft.name.as_bytes())?;
 
         let mut pin_body = Vec::new();
-        push_riff_chunk(&mut pin_body, b"Als2", ft.relative_path.as_bytes());
-        push_riff_list(&mut item_body, b"Pin ", &pin_body);
-        push_riff_list(&mut fold_body, b"Item", &item_body);
+        push_riff_chunk(&mut pin_body, b"Als2", ft.relative_path.as_bytes())?;
+        push_riff_list(&mut item_body, b"Pin ", &pin_body)?;
+        push_riff_list(&mut fold_body, b"Item", &item_body)?;
     }
 
     // Composition `Item` chunks (`Cdta` header + top-to-bottom `Layr` lists with `shap` & `expr`)
@@ -3672,8 +3904,8 @@ fn encode_rifx_aep_container(
         *next_id += 1;
         idta.extend_from_slice(&comp.width.to_be_bytes());
         idta.extend_from_slice(&comp.height.to_be_bytes());
-        push_riff_chunk(&mut item_body, b"idta", &idta);
-        push_riff_chunk(&mut item_body, b"Utf8", comp.name.as_bytes());
+        push_riff_chunk(&mut item_body, b"idta", &idta)?;
+        push_riff_chunk(&mut item_body, b"Utf8", comp.name.as_bytes())?;
 
         // `Cdta` composition metrics
         let mut cdta = Vec::with_capacity(48);
@@ -3685,15 +3917,18 @@ fn encode_rifx_aep_container(
         cdta.push((comp.background[1].clamp(0.0, 1.0) * 255.0).round() as u8);
         cdta.push((comp.background[2].clamp(0.0, 1.0) * 255.0).round() as u8);
         cdta.push(255);
-        push_riff_chunk(&mut item_body, b"Cdta", &cdta);
+        push_riff_chunk(&mut item_body, b"Cdta", &cdta)?;
 
         // Comp markers
         for m in &comp.markers {
             let payload = format!(
                 "{}|{}|{}|{}",
-                m.frame, m.duration_frames, m.label, m.comment
+                m.frame,
+                m.duration_frames,
+                sanitize_riff_marker_field(&m.label),
+                sanitize_riff_marker_field(&m.comment)
             );
-            push_riff_chunk(&mut item_body, b"mrkr", payload.as_bytes());
+            push_riff_chunk(&mut item_body, b"mrkr", payload.as_bytes())?;
         }
 
         // Layers in AE top-to-bottom order (reverse of NeoFlash bottom-to-top)
@@ -3719,11 +3954,11 @@ fn encode_rifx_aep_container(
                 flags |= 0x0010;
             }
             ldta.extend_from_slice(&flags.to_be_bytes());
-            ldta.extend_from_slice(&(layer.anchor_point[0] as f32).to_be_bytes());
-            ldta.extend_from_slice(&(layer.anchor_point[1] as f32).to_be_bytes());
-            ldta.extend_from_slice(&(layer.z_depth as f32).to_be_bytes());
-            push_riff_chunk(&mut layr_body, b"ldta", &ldta);
-            push_riff_chunk(&mut layr_body, b"Utf8", layer.name.as_bytes());
+            ldta.extend_from_slice(&(finite_or(layer.anchor_point[0], 0.0) as f32).to_be_bytes());
+            ldta.extend_from_slice(&(finite_or(layer.anchor_point[1], 0.0) as f32).to_be_bytes());
+            ldta.extend_from_slice(&(finite_or(layer.z_depth, 0.0) as f32).to_be_bytes());
+            push_riff_chunk(&mut layr_body, b"ldta", &ldta)?;
+            push_riff_chunk(&mut layr_body, b"Utf8", layer.name.as_bytes())?;
 
             // Transform keyframes (`tdgp`)
             let tdgp_json = serde_json::to_vec(&serde_json::json!({
@@ -3735,7 +3970,7 @@ fn encode_rifx_aep_container(
                 "blend": layer.blend_mode,
                 "matte": layer.track_matte,
             }))?;
-            push_riff_chunk(&mut layr_body, b"tdgp", &tdgp_json);
+            push_riff_chunk(&mut layr_body, b"tdgp", &tdgp_json)?;
 
             // Vector Bezier contours (`shap`: count + closed flag + IEEE-754 float32 vertices/in/out)
             if let AeLayerKind::Shape { groups } = &layer.kind {
@@ -3753,10 +3988,12 @@ fn encode_rifx_aep_container(
                                 let tin = c.in_tangents.get(idx).copied().unwrap_or([0.0, 0.0]);
                                 let tout = c.out_tangents.get(idx).copied().unwrap_or([0.0, 0.0]);
                                 for val in [v[0], v[1], tin[0], tin[1], tout[0], tout[1]] {
-                                    shap.extend_from_slice(&(val as f32).to_be_bytes());
+                                    shap.extend_from_slice(
+                                        &(finite_or(val, 0.0) as f32).to_be_bytes(),
+                                    );
                                 }
                             }
-                            push_riff_chunk(&mut layr_body, b"shap", &shap);
+                            push_riff_chunk(&mut layr_body, b"shap", &shap)?;
                         }
                     }
                 }
@@ -3774,34 +4011,46 @@ fn encode_rifx_aep_container(
             ] {
                 if let Some(code) = expr_opt {
                     let payload = format!("{prop_name}\0{code}");
-                    push_riff_chunk(&mut layr_body, b"expr", payload.as_bytes());
+                    push_riff_chunk(&mut layr_body, b"expr", payload.as_bytes())?;
                 }
             }
 
             for m in &layer.markers {
                 let payload = format!(
                     "{}|{}|{}|{}",
-                    m.frame, m.duration_frames, m.label, m.comment
+                    m.frame,
+                    m.duration_frames,
+                    sanitize_riff_marker_field(&m.label),
+                    sanitize_riff_marker_field(&m.comment)
                 );
-                push_riff_chunk(&mut layr_body, b"mrkr", payload.as_bytes());
+                push_riff_chunk(&mut layr_body, b"mrkr", payload.as_bytes())?;
             }
 
-            push_riff_list(&mut item_body, b"Layr", &layr_body);
+            push_riff_list(&mut item_body, b"Layr", &layr_body)?;
         }
 
-        push_riff_list(&mut fold_body, b"Item", &item_body);
+        push_riff_list(&mut fold_body, b"Item", &item_body)?;
     }
 
-    push_riff_list(&mut egg_body, b"Fold", &fold_body);
+    push_riff_list(&mut egg_body, b"Fold", &fold_body)?;
 
     // Embed full structured interchange model + ExtendScript builder inside `NEX1` & `ESCR` chunks
     let model_json = serde_json::to_vec(model)?;
-    push_riff_chunk(&mut egg_body, b"NEX1", &model_json);
-    push_riff_chunk(&mut egg_body, b"ESCR", jsx_source.as_bytes());
+    push_riff_chunk(&mut egg_body, b"NEX1", &model_json)?;
+    push_riff_chunk(&mut egg_body, b"ESCR", jsx_source.as_bytes())?;
 
+    let total_riff = egg_body
+        .len()
+        .checked_add(4)
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| {
+            ExportError::Options(
+                "After Effects RIFX container exceeds the 32-bit length limit.".into(),
+            )
+        })?;
     let mut rifx = Vec::with_capacity(12 + egg_body.len());
     rifx.extend_from_slice(b"RIFX");
-    rifx.extend_from_slice(&((4 + egg_body.len()) as u32).to_be_bytes());
+    rifx.extend_from_slice(&total_riff.to_be_bytes());
     rifx.extend_from_slice(b"Egg!");
     rifx.extend_from_slice(&egg_body);
     Ok(rifx)
@@ -3926,11 +4175,26 @@ fn render_aepx_xml(model: &AeProjectModel, rifx_bytes: &[u8]) -> String {
                                 .iter()
                                 .enumerate()
                                 .map(|(vi, v)| {
-                                    let ti = key.value.in_tangents[vi];
-                                    let to = key.value.out_tangents[vi];
+                                    let ti = key
+                                        .value
+                                        .in_tangents
+                                        .get(vi)
+                                        .copied()
+                                        .unwrap_or([0.0, 0.0]);
+                                    let to = key
+                                        .value
+                                        .out_tangents
+                                        .get(vi)
+                                        .copied()
+                                        .unwrap_or([0.0, 0.0]);
                                     format!(
                                         "{:.3},{:.3}({:.3},{:.3}|{:.3},{:.3})",
-                                        v[0], v[1], ti[0], ti[1], to[0], to[1]
+                                        finite_or(v[0], 0.0),
+                                        finite_or(v[1], 0.0),
+                                        finite_or(ti[0], 0.0),
+                                        finite_or(ti[1], 0.0),
+                                        finite_or(to[0], 0.0),
+                                        finite_or(to[1], 0.0)
                                     )
                                 })
                                 .collect();
@@ -3967,7 +4231,12 @@ fn render_aepx_xml(model: &AeProjectModel, rifx_bytes: &[u8]) -> String {
 // ============================================================================
 
 fn js_str(s: &str) -> String {
-    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+    serde_json::to_string(s)
+        .unwrap_or_else(|_| "\"\"".into())
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
 
 fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
@@ -3993,17 +4262,20 @@ fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
     js.push_str("    if (app.project.expressionEngine !== undefined) { try { app.project.expressionEngine = 'javascript-1.0'; } catch (_) {} }\n");
     js.push_str("    var scriptFile = new File($.fileName);\n");
     js.push_str("    var baseFolder = scriptFile.parent;\n");
+    js.push_str(
+        "    function hasOwn(m, k) { return Object.prototype.hasOwnProperty.call(m, k); }\n",
+    );
     js.push_str("    var folders = {};\n");
     js.push_str("    function ensureFolder(path) {\n");
     js.push_str("      if (!path) return app.project.rootFolder;\n");
-    js.push_str("      if (folders[path]) return folders[path];\n");
+    js.push_str("      if (hasOwn(folders, path)) return folders[path];\n");
     js.push_str("      var parts = path.split('/');\n");
     js.push_str("      var cur = app.project.rootFolder;\n");
     js.push_str("      var acc = '';\n");
     js.push_str("      for (var i = 0; i < parts.length; i++) {\n");
     js.push_str("        if (!parts[i]) continue;\n");
     js.push_str("        acc = acc ? (acc + '/' + parts[i]) : parts[i];\n");
-    js.push_str("        if (!folders[acc]) {\n");
+    js.push_str("        if (!hasOwn(folders, acc)) {\n");
     js.push_str("          var f = app.project.items.addFolder(parts[i]);\n");
     js.push_str("          f.parentFolder = cur;\n");
     js.push_str("          folders[acc] = f;\n");
@@ -4322,7 +4594,8 @@ fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
                 } => {
                     let _ = writeln!(
                         js,
-                        "        var subComp = compMap[{}]; if (!subComp) return; lyr = comp.layers.add(subComp);",
+                        "        var subComp = hasOwn(compMap, {}) ? compMap[{}] : null; if (!subComp) return; lyr = comp.layers.add(subComp);",
+                        js_str(comp_id),
                         js_str(comp_id)
                     );
                     if !time_remap_keys.is_empty() || layer.expressions.time_remap.is_some() {
@@ -4348,7 +4621,8 @@ fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
                 } => {
                     let _ = writeln!(
                         js,
-                        "        var ft = footageMap[{}]; if (!ft) return; if ({loop_count} > 1) {{ try {{ ft.mainSource.loop = {loop_count}; }} catch (_) {{}} }} lyr = comp.layers.add(ft);",
+                        "        var ft = hasOwn(footageMap, {}) ? footageMap[{}] : null; if (!ft) return; if ({loop_count} > 1) {{ try {{ ft.mainSource.loop = {loop_count}; }} catch (_) {{}} }} lyr = comp.layers.add(ft);",
+                        js_str(footage_id),
                         js_str(footage_id)
                     );
                     if *is_audio_only {
@@ -4655,7 +4929,7 @@ fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
             if let Some(pid) = &layer.parent_layer_id {
                 let _ = writeln!(
                     js,
-                    "      if (layerMap[{}] && layerMap[{}]) {{ try {{ layerMap[{}].parent = layerMap[{}]; }} catch (_) {{}} }}",
+                    "      if (hasOwn(layerMap, {}) && hasOwn(layerMap, {})) {{ try {{ layerMap[{}].parent = layerMap[{}]; }} catch (_) {{}} }}",
                     js_str(&layer.id),
                     js_str(pid),
                     js_str(&layer.id),
@@ -4664,12 +4938,17 @@ fn render_extendscript_jsx(model: &AeProjectModel, aep_path: &Path) -> String {
             }
         }
 
-        let _ = writeln!(js, "    }})(compMap[{}]);", js_str(&comp.id));
+        let _ = writeln!(
+            js,
+            "    }})(hasOwn(compMap, {}) ? compMap[{}] : null);",
+            js_str(&comp.id),
+            js_str(&comp.id)
+        );
     }
 
     let _ = writeln!(
         js,
-        "    if (compMap[{}]) {{ try {{ compMap[{}].openInViewer(); }} catch (_) {{}} }}",
+        "    if (hasOwn(compMap, {})) {{ try {{ compMap[{}].openInViewer(); }} catch (_) {{}} }}",
         js_str(&model.main_comp_id),
         js_str(&model.main_comp_id)
     );
@@ -4694,7 +4973,11 @@ fn format_keys_1d(keys: &[AeKey<f64>]) -> String {
         let _ = write!(
             out,
             "[{},{:.4},{:.2},{:.2},{}]",
-            k.frame, k.value, k.ease.in_influence, k.ease.out_influence, k.ease.hold
+            k.frame,
+            finite_or(k.value, 0.0),
+            finite_or(k.ease.in_influence, 16.67),
+            finite_or(k.ease.out_influence, 16.67),
+            k.ease.hold
         );
     }
     out.push(']');
@@ -4710,7 +4993,12 @@ fn format_keys_2d(keys: &[AeKey<[f64; 2]>]) -> String {
         let _ = write!(
             out,
             "[{},[{:.4},{:.4}],{:.2},{:.2},{}]",
-            k.frame, k.value[0], k.value[1], k.ease.in_influence, k.ease.out_influence, k.ease.hold
+            k.frame,
+            finite_or(k.value[0], 0.0),
+            finite_or(k.value[1], 0.0),
+            finite_or(k.ease.in_influence, 16.67),
+            finite_or(k.ease.out_influence, 16.67),
+            k.ease.hold
         );
     }
     out.push(']');
@@ -5323,6 +5611,129 @@ if (!Array.isArray(pos4) || Math.abs(pos4[0] - 100) > 1e-3 || Math.abs(pos4[1] -
             String::from_utf8_lossy(&output.stderr)
         );
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t259_export_hardening_smoothing_false_banner_clicktag_and_aep_edge_cases() {
+        // 1. `apply_bitmap_export_settings`: `allow_smoothing == false` must turn smoothing OFF even when element defaulted to `true`!
+        let mut proj = Project::blank();
+        let rgba = image::RgbaImage::from_pixel(2, 2, image::Rgba([240, 120, 40, 128]));
+        let mut png_bytes = Vec::new();
+        rgba.write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+        let mut res =
+            ResourceUnit::from_bytes("bmp_sharp", "icons/---.png", "image/png", &png_bytes)
+                .unwrap();
+        res.bitmap_export = Some(BitmapExportSettings {
+            compression: BitmapCompression::LosslessPng,
+            allow_smoothing: false,
+            ..BitmapExportSettings::default()
+        });
+        proj.resources.push(res);
+        let mut webp_bytes = Vec::new();
+        rgba.write_to(
+            &mut std::io::Cursor::new(&mut webp_bytes),
+            image::ImageFormat::WebP,
+        )
+        .unwrap();
+        proj.resources.push(
+            ResourceUnit::from_bytes("bmp_webp_raw", "icons/raw.webp", "image/webp", &webp_bytes)
+                .unwrap(),
+        );
+        proj.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "bmp_el".into(),
+                name: "constructor".into(),
+                kind: ElementKind::Bitmap {
+                    resource_id: "bmp_sharp".into(),
+                    width: 2,
+                    height: 2,
+                    smoothing: true,
+                },
+                ..Element::default()
+            });
+
+        let mut derived = proj.clone();
+        let (_, _) = crate::apply_bitmap_export_settings(&mut derived, 80);
+        let ElementKind::Bitmap { smoothing, .. } =
+            &derived.symbols[0].timeline.layers[0].keyframes[0].elements[0].kind
+        else {
+            panic!("expected bitmap");
+        };
+        assert!(
+            !*smoothing,
+            "allow_smoothing: false must turn bitmap smoothing OFF"
+        );
+
+        // 2. Banner `click_tag_url` rejects `javascript:` and escapes `</script>` in valid `https://` URLs
+        let mut banner_proj = Project::blank();
+        banner_proj.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "cta".into(),
+                kind: ElementKind::Rectangle {
+                    width: 100.0,
+                    height: 40.0,
+                    fill: [255, 80, 40, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            });
+        let dir = std::env::temp_dir().join(format!("nf_aep_t259_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let js_err = crate::export_native_banner_html(
+            &banner_proj,
+            dir.join("bad_banner.html"),
+            &crate::BannerOptions {
+                click_tag_url: Some("javascript:alert(1)".into()),
+                ..crate::BannerOptions::default()
+            },
+        );
+        assert!(js_err.is_err(), "javascript: clickTag must be rejected");
+
+        let safe_rep = crate::export_native_banner_html(
+            &banner_proj,
+            dir.join("safe_banner.html"),
+            &crate::BannerOptions {
+                click_tag_url: Some("https://example.com/?q=</script>".into()),
+                ..crate::BannerOptions::default()
+            },
+        )
+        .unwrap();
+        let safe_html = fs::read_to_string(&safe_rep.html_path).unwrap();
+        assert!(
+            !safe_html.contains("?q=</script>"),
+            "inline script literal must escape </script>"
+        );
+
+        // 3. AEP export handles WebP->PNG footage transcode, Object.prototype-colliding names (`constructor`),
+        //    `var` / identifier-boundary `_currentframe`, and pipe/newline marker sanitization.
+        proj.symbols[0].folder = "constructor/toString".into();
+        proj.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "var my_currentframe = 10;\n// pipe | comment\n".into(),
+            },
+        });
+        let report = export_project_aep(&proj, dir.join("hardened.aep"), &AepOptions::default())
+            .expect("export hardened AEP");
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "AE_WEBP_TRANSCODED_PNG"),
+            "WebP bitmap should transcode to PNG footage: {:?}",
+            report.diagnostics
+        );
+        let jsx = fs::read_to_string(report.jsx_path.unwrap()).unwrap();
+        assert!(jsx.contains("Object.prototype.hasOwnProperty.call"));
         let _ = fs::remove_dir_all(&dir);
     }
 }

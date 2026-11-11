@@ -21,6 +21,8 @@ pub struct MountedPublishResult {
     pub root_symbol_id: String,
     pub symbol_id_map: BTreeMap<String, String>,
     pub resource_id_map: BTreeMap<String, String>,
+    #[serde(default)]
+    pub resource_path_map: BTreeMap<String, String>,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -86,6 +88,9 @@ impl RuntimeGraph {
             }
             if let Some(mut namespace) = self.namespaces.remove(reference) {
                 sound_commands.extend(namespace.player.stop_and_drain_scoped_sounds(reference));
+                if let Some(prefix) = namespace.mounted_prefix {
+                    self.retired_published_prefixes.insert(prefix);
+                }
             }
             self.prefix.remove(reference);
             self.suffix.remove(reference);
@@ -489,10 +494,10 @@ impl Player {
                 Some(id)
             }
             Some(LoaderPayload::PublishedClip {
+                ref prefix,
                 ref root_symbol_id,
                 nodes,
                 depth,
-                ..
             }) => {
                 let is_playing = self.is_playing();
                 let scoped = Player::with_source_root_playing(
@@ -510,6 +515,7 @@ impl Player {
                             player: Box::new(scoped),
                             nodes,
                             depth,
+                            mounted_prefix: Some(prefix.clone()),
                         },
                     );
                     self.sync_linked(project);
@@ -535,6 +541,7 @@ impl Player {
                             player: Box::new(scoped),
                             nodes,
                             depth,
+                            mounted_prefix: Some(prefix.clone()),
                         },
                     );
                     self.graph.suffix.insert(target.clone(), vec![id.clone()]);
@@ -599,18 +606,82 @@ impl Player {
         if let Some(prefix) = old_state.and_then(|s| s.mounted_prefix) {
             self.prune_unused_published_prefix(project, &prefix);
         }
+        self.drain_retired_published_prefixes(project);
         Ok(mutation)
     }
 
-    fn prune_unused_published_prefix(&self, project: &mut Project, prefix: &str) {
+    /// Prune any `__nfpub_<seq>_` namespaces whose owning display objects were retired by
+    /// timeline navigation or `removeMovieClip` / `removeChild`.
+    pub fn drain_retired_published_prefixes(&mut self, project: &mut Project) {
+        let prefixes: Vec<String> = std::mem::take(&mut self.graph.retired_published_prefixes)
+            .into_iter()
+            .collect();
+        for prefix in prefixes {
+            self.prune_unused_published_prefix(project, &prefix);
+        }
+    }
+
+    /// Hydrate decoded RGBA pixels for an externalized/sprite-sheet child bitmap resource (`T-248`).
+    pub fn hydrate_mounted_resource_rgba(
+        &mut self,
+        resource_id: &str,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<(), BitmapError> {
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|px| px.checked_mul(4))
+            .ok_or_else(|| BitmapError("mounted bitmap dimensions overflow".into()))?;
+        if rgba.len() != expected {
+            return Err(BitmapError("mounted bitmap RGBA length mismatch".into()));
+        }
+        let image = crate::resource_image::DecodedImage {
+            width,
+            height,
+            rgba: rgba.into(),
+        };
+        let pixel_ref = self.graph.pixels.import(&image)?;
+        if let Some(old_ref) = self
+            .graph
+            .resource_pixels
+            .insert(resource_id.to_owned(), pixel_ref)
+        {
+            let _ = self.graph.pixels.release(&old_ref);
+        }
+        self.graph
+            .hydrated_bitmaps
+            .insert(resource_id.to_owned(), image);
+        Ok(())
+    }
+
+    fn prune_unused_published_prefix(&mut self, project: &mut Project, prefix: &str) {
         let still_mounted = self
             .graph
             .loaders
             .values()
-            .any(|s| s.mounted_prefix.as_deref() == Some(prefix));
+            .any(|s| s.mounted_prefix.as_deref() == Some(prefix))
+            || self
+                .graph
+                .namespaces
+                .values()
+                .any(|ns| ns.mounted_prefix.as_deref() == Some(prefix));
         if !still_mounted {
             project.symbols.retain(|s| !s.id.starts_with(prefix));
             project.resources.retain(|r| !r.id.starts_with(prefix));
+            let stale_res_ids: Vec<Id> = self
+                .graph
+                .resource_pixels
+                .keys()
+                .filter(|id| id.starts_with(prefix))
+                .cloned()
+                .collect();
+            for res_id in stale_res_ids {
+                if let Some(pixel_ref) = self.graph.resource_pixels.remove(&res_id) {
+                    let _ = self.graph.pixels.release(&pixel_ref);
+                }
+                self.graph.hydrated_bitmaps.remove(&res_id);
+            }
         }
     }
 
@@ -626,8 +697,9 @@ impl Player {
         child_project: Project,
         as2_replace: bool,
     ) -> Result<MountedPublishResult, DisplayError> {
+        self.drain_retired_published_prefixes(project);
         child_project
-            .validate()
+            .validate_published_bundle()
             .map_err(|e| error(&format!("Invalid published NeoFlash bundle: {e}")))?;
         let (flat_child, _) = crate::scenes::flatten_scenes_with_ranges(&child_project);
 
@@ -655,11 +727,15 @@ impl Player {
             .cloned()
             .ok_or_else(|| error("Published bundle is missing its root symbol"))?;
 
+        let mut resource_path_map = BTreeMap::new();
         let mut remapped_resources = Vec::with_capacity(flat_child.resources.len());
         for mut res in flat_child.resources {
             let new_id = resource_id_map[&res.id].clone();
+            let orig_path = res.path.clone();
+            let mounted_path = format!("__nfpub/{mount_seq}/{orig_path}");
+            resource_path_map.insert(orig_path, mounted_path.clone());
             res.id = new_id;
-            res.path = format!("__nfpub/{mount_seq}/{}", res.path);
+            res.path = mounted_path;
             remapped_resources.push(res);
         }
 
@@ -675,140 +751,72 @@ impl Player {
                 sym.linkage_id = Some(format!("{prefix}link_{lid}"));
             }
 
-            let mut layer_map = HashMap::new();
-            for (li, layer) in sym.timeline.layers.iter().enumerate() {
-                layer_map.insert(layer.id.clone(), format!("{prefix}s{si}_l{li}"));
-            }
-            let mut elem_map = HashMap::new();
-            let mut elem_counter = 0usize;
-            for layer in &sym.timeline.layers {
-                for kf in &layer.keyframes {
-                    for el in &kf.elements {
-                        elem_map.entry(el.id.clone()).or_insert_with(|| {
-                            let next = format!("{prefix}s{si}_e{elem_counter}");
-                            elem_counter += 1;
-                            next
-                        });
+            let mut lid_seq = 0usize;
+            let mut eid_seq = 0usize;
+            sym.timeline.remap_internal_ids(
+                |tag| {
+                    if tag == "lyr" {
+                        let next = format!("{prefix}s{si}_l{lid_seq}");
+                        lid_seq += 1;
+                        next
+                    } else {
+                        let next = format!("{prefix}s{si}_e{eid_seq}");
+                        eid_seq += 1;
+                        next
                     }
-                }
-            }
-
+                },
+                Some(&symbol_id_map),
+                Some(&resource_id_map),
+            );
             for layer in &mut sym.timeline.layers {
-                layer.id = layer_map[&layer.id].clone();
                 layer.properties.groups.clear();
-                layer.properties.parent = layer
-                    .properties
-                    .parent
-                    .as_ref()
-                    .and_then(|id| layer_map.get(id).cloned());
-                layer.properties.mask = layer
-                    .properties
-                    .mask
-                    .as_ref()
-                    .and_then(|id| layer_map.get(id).cloned());
-                layer.properties.motion_guide = layer
-                    .properties
-                    .motion_guide
-                    .as_ref()
-                    .and_then(|id| layer_map.get(id).cloned());
-
-                for kf in &mut layer.keyframes {
-                    if let Some(snd) = &mut kf.sound
-                        && let Some(rid) = resource_id_map.get(&snd.resource)
-                    {
-                        snd.resource = rid.clone();
-                    }
-                    if let Some(vid) = &mut kf.video
-                        && let Some(rid) = resource_id_map.get(&vid.resource)
-                    {
-                        vid.resource = rid.clone();
-                    }
-                    for track in &mut kf.motion_tracks {
-                        if let Some(eid) = elem_map.get(&track.element_id) {
-                            track.element_id = eid.clone();
-                        }
-                    }
-                    if let Some(mkeys) = &mut kf.motion_keys {
-                        for mk in mkeys {
-                            if let Some(eid) = elem_map.get(&mk.element_id) {
-                                mk.element_id = eid.clone();
-                            }
-                        }
-                    }
-                    for ov in &mut kf.instance_overrides {
-                        if let Some(eid) = elem_map.get(&ov.instance_id) {
-                            ov.instance_id = eid.clone();
-                        }
-                    }
-                    for bf in &mut kf.bitmap_fills {
-                        if let Some(eid) = elem_map.get(&bf.element_id) {
-                            bf.element_id = eid.clone();
-                        }
-                        if let Some(rid) = resource_id_map.get(&bf.resource_id) {
-                            bf.resource_id = rid.clone();
-                        }
-                    }
-                    for warp in &mut kf.asset_warps {
-                        if let Some(eid) = elem_map.get(&warp.element_id) {
-                            warp.element_id = eid.clone();
-                        }
-                    }
-                    for pl in &mut kf.element_parents {
-                        if let Some(eid) = elem_map.get(&pl.child_id) {
-                            pl.child_id = eid.clone();
-                        }
-                        if let Some(pid) = elem_map.get(&pl.parent_id) {
-                            pl.parent_id = pid.clone();
-                        }
-                    }
-                    for cid in &mut kf.controller_elements {
-                        if let Some(eid) = elem_map.get(cid) {
-                            *cid = eid.clone();
-                        }
-                    }
-                    for arm in &mut kf.ik_armatures {
-                        for bone in &mut arm.bones {
-                            if let Some(eid) = elem_map.get(&bone.element_id) {
-                                bone.element_id = eid.clone();
-                            }
-                        }
-                    }
-                    for app in &mut kf.appearances {
-                        if let Some(eid) = elem_map.get(&app.element_id) {
-                            app.element_id = eid.clone();
-                        }
-                    }
-                    for acc in &mut kf.extended_accessibility {
-                        if let Some(eid) = elem_map.get(&acc.element_id) {
-                            acc.element_id = eid.clone();
-                        }
-                    }
-                    for fx in &mut kf.vector_effects {
-                        if let Some(eid) = elem_map.get(&fx.element_id) {
-                            fx.element_id = eid.clone();
-                        }
-                    }
-                    for el in &mut kf.elements {
-                        if let Some(eid) = elem_map.get(&el.id) {
-                            el.id = eid.clone();
-                        }
-                        match &mut el.kind {
-                            ElementKind::Instance { symbol_id, .. } => {
-                                if let Some(sid) = symbol_id_map.get(symbol_id) {
-                                    *symbol_id = sid.clone();
-                                }
-                            }
-                            ElementKind::Bitmap { resource_id, .. } => {
-                                if let Some(rid) = resource_id_map.get(resource_id) {
-                                    *resource_id = rid.clone();
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
             }
             remapped_symbols.push(sym);
+        }
+
+        let referenced_child_bitmaps: BTreeSet<String> = remapped_symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .filter_map(|e| {
+                if let ElementKind::Bitmap { resource_id, .. } = &e.kind {
+                    Some(resource_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut imported_child_pixels: Vec<(String, PixelRef)> = Vec::new();
+        for res_id in &referenced_child_bitmaps {
+            if let Some(res) = remapped_resources.iter().find(|r| &r.id == res_id)
+                && res.is_image()
+                && !res.data_base64.is_empty()
+            {
+                let decoded = match res.decode_image() {
+                    Ok(img) => img,
+                    Err(e) => {
+                        for (_, pref) in imported_child_pixels {
+                            let _ = self.graph.pixels.release(&pref);
+                        }
+                        return Err(error(&format!("Invalid mounted bitmap resource: {e}")));
+                    }
+                };
+                match self.graph.pixels.import(&decoded) {
+                    Ok(pref) => imported_child_pixels.push((res_id.clone(), pref)),
+                    Err(e) => {
+                        for (_, pref) in imported_child_pixels {
+                            let _ = self.graph.pixels.release(&pref);
+                        }
+                        return Err(error(&e.to_string()));
+                    }
+                }
+            }
+        }
+        for (res_id, pref) in &imported_child_pixels {
+            self.graph
+                .resource_pixels
+                .insert(res_id.clone(), pref.clone());
         }
 
         let old_prefix = self
@@ -833,6 +841,10 @@ impl Player {
         let (nodes, depth) = match budget_res {
             Ok(v) => v,
             Err(err) => {
+                for (res_id, pref) in imported_child_pixels {
+                    self.graph.resource_pixels.remove(&res_id);
+                    let _ = self.graph.pixels.release(&pref);
+                }
                 project.format_version = prev_format_version;
                 project.symbols.truncate(prev_sym_len);
                 project.resources.truncate(prev_res_len);
@@ -848,6 +860,10 @@ impl Player {
                 .sum::<usize>()
             > 100_000
         {
+            for (res_id, pref) in imported_child_pixels {
+                self.graph.resource_pixels.remove(&res_id);
+                let _ = self.graph.pixels.release(&pref);
+            }
             project.format_version = prev_format_version;
             project.symbols.truncate(prev_sym_len);
             project.resources.truncate(prev_res_len);
@@ -869,6 +885,10 @@ impl Player {
         ) {
             Ok(m) => m,
             Err(err) => {
+                for (res_id, pref) in imported_child_pixels {
+                    self.graph.resource_pixels.remove(&res_id);
+                    let _ = self.graph.pixels.release(&pref);
+                }
                 project.format_version = prev_format_version;
                 project.symbols.truncate(prev_sym_len);
                 project.resources.truncate(prev_res_len);
@@ -879,6 +899,7 @@ impl Player {
         if let Some(old_p) = old_prefix {
             self.prune_unused_published_prefix(project, &old_p);
         }
+        self.drain_retired_published_prefixes(project);
 
         Ok(MountedPublishResult {
             mutation,
@@ -886,6 +907,7 @@ impl Player {
             root_symbol_id,
             symbol_id_map,
             resource_id_map,
+            resource_path_map,
             width: flat_child.width,
             height: flat_child.height,
             fps: flat_child.fps,

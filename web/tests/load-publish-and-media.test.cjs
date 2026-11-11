@@ -422,6 +422,8 @@ test('T-248: loadPublish mounts published NeoFlash bundles (bundle.js and index.
 
   const childIndexHtml = '<!doctype html><html><head><title>ChildSubApp — NeoFlash</title></head><body><script src="bundle.js"></script></body></html>';
 
+  const loopHtml = '<!doctype html><html><head><title>Loop — NeoFlash</title></head><body><script src="bundle.js"></script></body></html>';
+
   const parentProject = {
     format_version: 3,
     name: 'ParentApp',
@@ -433,6 +435,8 @@ test('T-248: loadPublish mounts published NeoFlash bundles (bundle.js and index.
     resources: [
       { id: 'p_sub_bundle', path: 'subapp/bundle.js', media_type: 'text/javascript', data_base64: Buffer.from(childBundleJs, 'utf8').toString('base64') },
       { id: 'p_sub_html', path: 'subapp/index.html', media_type: 'text/html', data_base64: Buffer.from(childIndexHtml, 'utf8').toString('base64') },
+      { id: 'p_loop_a', path: 'loop/index.html', media_type: 'text/html', data_base64: Buffer.from(loopHtml, 'utf8').toString('base64') },
+      { id: 'p_loop_b', path: 'loop/bundle.js', media_type: 'text/html', data_base64: Buffer.from('<!doctype html><html><head><title>NeoFlash</title></head><body><script src="index.html?bundle.js"></script></body></html>', 'utf8').toString('base64') },
     ],
     symbols: [
       {
@@ -544,6 +548,11 @@ test('T-248: loadPublish mounts published NeoFlash bundles (bundle.js and index.
   as3Loader.unloadAndStop(true);
   await flushTasks();
   assert.equal(as3Loader.content, null, 'AS3 Loader.content cleared after unloadAndStop');
+
+  // 3. Cancellation settles loadPublish Promise cleanly instead of hanging forever (T-259)
+  const cancelledPromise = host.loader().loadPublish('subapp/bundle.js', as3Loader);
+  host.loader().methods(as3Loader).close();
+  await assert.rejects(cancelledPromise, /cancelled/i, 'loadPublish rejects when cancelled via close()');
 
   host.disposeFamily();
   player.free();

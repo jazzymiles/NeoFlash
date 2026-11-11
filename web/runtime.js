@@ -479,6 +479,9 @@
           queueMicrotask(() => { if ((typeof failed === 'undefined' || !failed) && stageHost) stageHost.resize(wantW, wantH); });
         }
       }
+      if (as2StageHost && !as2StageHost.isActive()) {
+        try { as2StageHost.syncPassiveLayout?.(vw, vh); } catch (_) {}
+      }
       return next;
     }
     function enableHostStageLayout(pin = true) {
@@ -699,10 +702,10 @@
         if(typeof semanticLayer!=='undefined'&&semanticLayer?.update&&graphMode){
           const snap=JSON.parse(player.runtime_snapshot_json()),byRef=new Map(snap.objects.map(n=>[JSON.stringify(n.object_ref),n]));
           const semScene=snap.draws.map(item=>{const ancestry_refs=[];for(let n=byRef.get(JSON.stringify(item.owner_ref));n;n=byRef.get(JSON.stringify(n.parent_ref)))ancestry_refs.push(n.object_ref);return {...item,ancestry_refs,kind:item.kind.type==='text_field'&&textHost?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};});
-          const [w,h]=logicalSize(),sc=typeof preview==='undefined'?1:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale};
+          const [w,h]=logicalSize(),[ox,oy]=stageOrigin(),sc=typeof preview==='undefined'?1:{x:preview.view.scale,y:preview.view.scaleY||preview.view.scale};
           const rawNodes=snap.semantics.filter(node=>Boolean(semanticRoute(node,snap.objects)));
           const semNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawNodes;
-          semanticLayer.update(semNodes,semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;});
+          semanticLayer.update(semNodes,semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;},{x:ox,y:oy});
         }
         if(!inDispatch&&typeof context!=='undefined')render();
       }
@@ -877,15 +880,44 @@
           const url=/^neoflash-script-\d+\.js$/.test(unit.source_url||'')?unit.source_url:'neoflash-user-script.js';
           return new Function(...dynamicScriptBindings,'"use strict";\nreturn (function () {\n'+unit.code+'\n}).call(this);\n//# sourceURL='+url);
         };
-        const cleanupPublishedResources=record=>{
-          const clean=record?.publishedCleanup;if(!clean)return;
-          record.publishedCleanup=null;
+        const mountedByPrefix=new Map();
+        const mountedTargetUrl=new Map();
+        const releaseCleanEntry=clean=>{
+          if(!clean)return;
           netHost?.unregisterResources?.(clean.resourcePaths);
           audioHost?.unregisterResources?.(clean.resourceIds);
           if(typeof project!=='undefined'&&Array.isArray(project?.resources)&&clean.resourceIds?.length){
             const drop=new Set(clean.resourceIds);
             project.resources=project.resources.filter(r=>!drop.has(r.id));
           }
+          if(clean.targetKey)mountedTargetUrl.delete(clean.targetKey);
+        };
+        const drainRetiredPublished=()=>{
+          if(typeof player.drain_retired_published_prefixes!=='function')return;
+          let prefixes;
+          try{prefixes=JSON.parse(player.drain_retired_published_prefixes());}catch(_){prefixes=[];}
+          for(const pfx of prefixes||[]){
+            const clean=mountedByPrefix.get(pfx);
+            if(clean){mountedByPrefix.delete(pfx);releaseCleanEntry(clean);}
+          }
+        };
+        const cleanupPublishedResources=record=>{
+          const clean=record?.publishedCleanup;if(!clean)return;
+          record.publishedCleanup=null;
+          if(clean.prefix)mountedByPrefix.delete(clean.prefix);
+          releaseCleanEntry(clean);
+        };
+        const resolveChildAssetUrl=(relUrl,bundleUrl)=>{
+          const raw=String(relUrl||'').trim();
+          if(!raw||/^(?:javascript|data|vbscript|blob):/i.test(raw))return null;
+          if(/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw))return raw;
+          if(bundleUrl&&/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(String(bundleUrl))){
+            try{return new URL(raw,String(bundleUrl)).href;}catch(_){}
+          }
+          const clean=String(bundleUrl||'').split('#')[0];
+          const qIdx=clean.indexOf('?'),pathPart=qIdx>=0?clean.slice(0,qIdx):clean;
+          const slash=pathPart.lastIndexOf('/'),dir=slash>=0?pathPart.slice(0,slash+1):'';
+          return dir+raw.replace(/^\.\//,'');
         };
         loaderHost=global.NeoFlashLoader.create({
           player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,project:typeof project==='undefined'?null:project,
@@ -895,25 +927,67 @@
           inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,
           getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),
           getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},
-          mountPublishedBundle:(record,childBundle)=>{
+          mountPublishedBundle:(record,childBundle,childUrl='')=>{
             if(typeof player.loader_mount_project!=='function')throw new Error('Published bundle mounting requires the NeoFlash WASM runtime.');
+            const normUrl=String(childUrl||'').split('#')[0];
+            if(display?.nodes&&record?.ref){
+              const nodes=display.nodes(),byRef=new Map(nodes.map(n=>[JSON.stringify(n.object_ref),n]));
+              let cur=byRef.get(JSON.stringify(record.ref)),mountDepth=0;
+              while(cur){
+                const k=JSON.stringify(cur.object_ref);
+                if(mountedTargetUrl.has(k)){
+                  mountDepth++;
+                  if(mountDepth>=8)throw new RangeError('Nested published bundle mounting exceeds the 8-level depth limit.');
+                  if(normUrl&&mountedTargetUrl.get(k)===normUrl)throw new TypeError(`Recursive published bundle cycle detected for '${normUrl}'.`);
+                }
+                cur=cur.parent_ref?byRef.get(JSON.stringify(cur.parent_ref)):null;
+              }
+            }
             cleanupPublishedResources(record);
             const mounted=JSON.parse(player.loader_mount_project(JSON.stringify(record.ref),JSON.stringify(childBundle.project),Boolean(record.as2)));
+            drainRetiredPublished();
             const resMap=mounted.resource_id_map||mounted.resource_map||{};
+            const pathMap=mounted.resource_path_map||{};
             const remappedResources=[];
+            const childAssetUrls={};
+            const rawChildAssets=(childBundle.asset_urls&&typeof childBundle.asset_urls==='object')?childBundle.asset_urls:null;
             for(const res of childBundle.project?.resources||[]){
               const mapped=resMap[res.id];
               const nextId=Array.isArray(mapped)?mapped[0]:(typeof mapped==='string'?mapped:res.id);
-              const nextPath=Array.isArray(mapped)?mapped[1]:res.path;
+              const nextPath=typeof pathMap[res.id]==='string'?pathMap[res.id]:(Array.isArray(mapped)?mapped[1]:res.path);
               remappedResources.push({...res,id:nextId,path:nextPath});
+              if(rawChildAssets&&typeof rawChildAssets[res.path]==='string'){
+                const resolvedExt=resolveChildAssetUrl(rawChildAssets[res.path],normUrl);
+                if(resolvedExt)childAssetUrls[nextPath]=resolvedExt;
+              }
             }
-            const addedPaths=netHost?.registerResources?netHost.registerResources(remappedResources):[];
+            if(childBundle.__hydratedSpriteSheet&&typeof player.hydrate_sprite_sheet==='function'){
+              try{
+                const parsedSheet=JSON.parse(childBundle.__hydratedSpriteSheet.manifestText);
+                if(Array.isArray(parsedSheet?.bitmaps)){
+                  parsedSheet.bitmaps=parsedSheet.bitmaps.map(b=>{
+                    const m=b&&typeof b.id==='string'?resMap[b.id]:null;
+                    const nid=Array.isArray(m)?m[0]:(typeof m==='string'?m:b?.id);
+                    return nid?{...b,id:nid}:b;
+                  });
+                }
+                player.hydrate_sprite_sheet(childBundle.__hydratedSpriteSheet.pngBytes,JSON.stringify(parsedSheet));
+              }catch(err){
+                throw new Error(`Failed to hydrate child bundle sprite sheet: ${err instanceof Error?err.message:String(err)}`);
+              }
+            }
+            const addedPaths=netHost?.registerResources?netHost.registerResources(remappedResources,childAssetUrls):[];
             const addedIds=audioHost?.registerResources?audioHost.registerResources(remappedResources):[];
             if(typeof project!=='undefined'&&Array.isArray(project?.resources)){
               const existingIds=new Set(project.resources.map(r=>r.id));
               for(const res of remappedResources){if(!existingIds.has(res.id))project.resources.push(res);}
             }
-            record.publishedCleanup={resourcePaths:addedPaths,resourceIds:addedIds.length?addedIds:remappedResources.map(r=>r.id)};
+            const mut=mounted.mutation||mounted;
+            const contentTargetKey=JSON.stringify(mut.content_ref||record.ref);
+            if(normUrl)mountedTargetUrl.set(contentTargetKey,normUrl);
+            const cleanEntry={prefix:mounted.mounted_prefix||null,targetKey:contentTargetKey,resourcePaths:addedPaths,resourceIds:addedIds.length?addedIds:remappedResources.map(r=>r.id)};
+            if(cleanEntry.prefix)mountedByPrefix.set(cleanEntry.prefix,cleanEntry);
+            record.publishedCleanup=cleanEntry;
             for(const unit of childBundle.scripts||[]){
               const item=unit.script?unit:{...unit,language:unit.language,source:unit.source};
               const k=sourceKey(item.script||item);
@@ -921,7 +995,6 @@
                 functions.set(k,{fn:compileDynamicBundleScript(unit),location:unit.location||'published-bundle'});
               }
             }
-            const mut=mounted.mutation||mounted;
             return {
               contentRef:mut.content_ref||null,
               events:mut.events||[],
@@ -934,11 +1007,12 @@
             cleanupPublishedResources(record);
             if(typeof player.loader_unload_published!=='function')return {events:[]};
             const out=JSON.parse(player.loader_unload_published(JSON.stringify(record.ref),Boolean(record.as2),Boolean(stopDetached)));
+            drainRetiredPublished();
             drainSounds();drainVideos();
             return out;
           },
           onAfterMountPublished:()=>{attachNewInstances();drainSounds();drainVideos();dispatchScripts();},
-          onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent
+          onMutation:ev=>{drainRetiredPublished();deliverDisplayEvents(ev);},onError:netFailure,afterEvent:afterTimerEvent
         });
         legacyGlobals=Object.freeze({
           ...legacyGlobals,

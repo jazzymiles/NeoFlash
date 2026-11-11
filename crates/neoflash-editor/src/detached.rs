@@ -253,7 +253,7 @@ impl Editor {
         panel: PanelId,
         response: &egui::Response,
     ) {
-        self.panel_drag_handle_inner(ui, panel, None, None, response);
+        self.panel_drag_handle_inner(ui, panel, None, None, None, true, response);
     }
 
     pub(crate) fn panel_group_drag_handle(
@@ -263,7 +263,27 @@ impl Editor {
         group: (DockSurface, DockEdge, u32),
         response: &egui::Response,
     ) {
-        self.panel_drag_handle_inner(ui, panel, Some(group), None, response);
+        self.panel_drag_handle_inner(ui, panel, Some(group), None, None, true, response);
+    }
+
+    pub(crate) fn panel_group_drag_handle_anchored(
+        &mut self,
+        ui: &egui::Ui,
+        panel: PanelId,
+        group: (DockSurface, DockEdge, u32),
+        anchor_min: egui::Pos2,
+        override_hover: bool,
+        response: &egui::Response,
+    ) {
+        self.panel_drag_handle_inner(
+            ui,
+            panel,
+            Some(group),
+            None,
+            Some(anchor_min),
+            override_hover,
+            response,
+        );
     }
 
     fn floating_window_drag_handle(
@@ -273,15 +293,62 @@ impl Editor {
         panel: PanelId,
         response: &egui::Response,
     ) {
-        self.panel_drag_handle_inner(ui, panel, None, Some(window), response);
+        self.panel_drag_handle_inner(ui, panel, None, Some(window), None, true, response);
     }
 
+    fn floating_window_drag_handle_subtle(
+        &mut self,
+        ui: &egui::Ui,
+        window: PanelId,
+        panel: PanelId,
+        response: &egui::Response,
+    ) {
+        self.panel_drag_handle_inner(ui, panel, None, Some(window), None, false, response);
+    }
+
+    pub(crate) fn panel_drag_moved(&self) -> bool {
+        self.detached.drag.is_some_and(|drag| drag.moved)
+    }
+
+    pub(crate) fn live_dragged_floating_window_rect(
+        &self,
+        window_id: PanelId,
+        zoom: f32,
+    ) -> Option<egui::Rect> {
+        let drag = self.detached.drag?;
+        if self.dragged_whole_floating_window() != Some(window_id) {
+            return None;
+        }
+        let size = self
+            .detached
+            .dock_viewports
+            .iter()
+            .find(|target| target.surface == DockSurface::Floating(window_id))
+            .map(|target| target.inner.size())
+            .or_else(|| {
+                self.workspace
+                    .detached_geometry(window_id)
+                    .map(|g| egui::vec2(g.inner_size[0], g.inner_size[1]))
+            })
+            .unwrap_or_else(|| {
+                let s = scaled_size(crate::workspace::default_window_size(window_id), zoom);
+                egui::vec2(s[0], s[1])
+            });
+        Some(egui::Rect::from_min_size(
+            drag.pointer - drag.window_grab_offset,
+            size,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn panel_drag_handle_inner(
         &mut self,
         ui: &egui::Ui,
         panel: PanelId,
         group: Option<(DockSurface, DockEdge, u32)>,
         whole_window: Option<PanelId>,
+        anchor_min: Option<egui::Pos2>,
+        override_hover: bool,
         response: &egui::Response,
     ) {
         if !ui.is_enabled() {
@@ -345,6 +412,7 @@ impl Editor {
             })
         {
             let global = (inner.min + pos.to_vec2()) * zoom;
+            let origin = anchor_min.unwrap_or(response.rect.min);
             self.detached.drag = Some(PanelDrag {
                 panel,
                 group,
@@ -352,7 +420,7 @@ impl Editor {
                 source,
                 started: global,
                 pointer: global,
-                grab_offset: (pos - response.rect.min) * zoom,
+                grab_offset: (pos - origin) * zoom,
                 window_grab_offset: pos.to_vec2() * zoom,
                 moved: false,
                 released: false,
@@ -363,8 +431,14 @@ impl Editor {
         self.continue_panel_drag(ctx);
         if self.detached.drag.is_some_and(|drag| drag.moved) {
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if override_hover {
+            response
+                .clone()
+                .on_hover_cursor(egui::CursorIcon::Grab)
+                .on_hover_text(
+                    "Drag to an edge, group or tab in any NeoFlash window. Drop outside a dock to detach. Escape cancels.",
+                );
         }
-        response.clone().on_hover_cursor(egui::CursorIcon::Grab).on_hover_text("Drag to an edge, group or tab in any NeoFlash window. Drop outside a dock to detach. Escape cancels.");
     }
 
     /// When all visible panels of a floating window are being dragged together,
@@ -1592,12 +1666,12 @@ impl Editor {
                     egui::Stroke::new(1.0_f32, palette.border_subtle),
                 );
             }
-            let more_side = if width < 64.0 {
+            let more_side = if width < 84.0 {
                 neoflash_ui::tokens::space::S5
             } else {
                 neoflash_ui::metrics::min_hit()
             };
-            let right_pad = if width < 64.0 {
+            let right_pad = if width < 84.0 {
                 0.5 * neoflash_ui::tokens::space::S1
             } else {
                 neoflash_ui::tokens::space::S1
@@ -1623,23 +1697,58 @@ impl Editor {
                 )
             });
             if ui.is_rect_visible(grip_rect) {
-                let icon_side = neoflash_ui::metrics::ICON_UI.min(grip_rect.width());
-                let icon_rect = egui::Rect::from_center_size(
-                    grip_rect.center(),
-                    egui::vec2(icon_side, icon_side),
-                );
-                let fg = if grip_response.hovered() || grip_response.dragged() {
-                    palette.text_secondary
+                if width + 0.5 >= neoflash_ui::metrics::tools_two_columns() {
+                    // 2-column..4-column widths keep the visible "Tools" title + More (⋯) layout
+                    // matching docked Tools, avoiding extra grip dots on detach.
+                    let title_left = if width < 84.0 {
+                        rect.left() + neoflash_ui::tokens::space::S2
+                    } else {
+                        rect.left() + neoflash_ui::tokens::space::S3
+                    };
+                    let title_font = neoflash_ui::typography::font(neoflash_ui::TextStyle::Title);
+                    let title_width = ui.fonts_mut(|fonts| {
+                        fonts
+                            .layout_no_wrap(
+                                PanelId::Tools.title().into(),
+                                title_font.clone(),
+                                palette.text_primary,
+                            )
+                            .size()
+                            .x
+                    });
+                    let font = if title_left + title_width <= grip_rect.right() + 1.0 {
+                        title_font
+                    } else {
+                        neoflash_ui::typography::font(neoflash_ui::TextStyle::SmallStrong)
+                    };
+                    let text_clip = grip_rect.intersect(ui.clip_rect());
+                    ui.painter().with_clip_rect(text_clip).text(
+                        egui::pos2(title_left, grip_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        PanelId::Tools.title(),
+                        font,
+                        palette.text_primary,
+                    );
                 } else {
-                    palette.text_tertiary
-                };
-                neoflash_ui::icons::paint(
-                    ui.painter(),
-                    ui.ctx(),
-                    icon_rect,
-                    neoflash_ui::icons::i16::GRIP_H,
-                    fg,
-                );
+                    // 1-column (42 pt) cannot fit "Tools" text without truncation; show GRIP_H.
+                    let icon_side = neoflash_ui::metrics::ICON_UI.min(grip_rect.width());
+                    let icon_rect = egui::Rect::from_center_size(
+                        grip_rect.center(),
+                        egui::vec2(icon_side, icon_side),
+                    );
+                    let fg = if grip_response.hovered() || grip_response.dragged() {
+                        palette.text_secondary
+                    } else {
+                        palette.text_tertiary
+                    };
+                    neoflash_ui::icons::paint(
+                        ui.painter(),
+                        ui.ctx(),
+                        icon_rect,
+                        neoflash_ui::icons::i16::GRIP_H,
+                        fg,
+                    );
+                }
             }
             self.floating_window_drag_handle(ui, window_id, PanelId::Tools, &grip_response);
             grip_response.context_menu(|ui| {
@@ -1782,51 +1891,54 @@ impl Editor {
             header_close = header.close;
             (header.drag.rect, header.menu)
         };
-        neoflash_ui::components::popup_below(&header_menu, 240., |ui| {
-            if let Some(group) = &single_group {
-                let tabs: Vec<_> = group
-                    .tabs
-                    .iter()
-                    .copied()
-                    .filter(|panel| self.workspace.is_panel_visible(*panel))
-                    .collect();
-                if tabs.len() > 1 {
-                    ui.label(egui::RichText::new("Panels in this group").small());
-                    for panel in tabs {
-                        let mut selected = panel == group.active;
-                        if crate::ui_icons::menu_toggle(ui, &mut selected, panel.title(), "")
-                            .clicked()
-                        {
-                            self.show_panel(panel);
-                            ui.close();
+        self.floating_window_drag_handle_subtle(ui, window_id, active, &header_menu);
+        if !self.panel_drag_moved() {
+            neoflash_ui::components::popup_below(&header_menu, 240., |ui| {
+                if let Some(group) = &single_group {
+                    let tabs: Vec<_> = group
+                        .tabs
+                        .iter()
+                        .copied()
+                        .filter(|panel| self.workspace.is_panel_visible(*panel))
+                        .collect();
+                    if tabs.len() > 1 {
+                        ui.label(egui::RichText::new("Panels in this group").small());
+                        for panel in tabs {
+                            let mut selected = panel == group.active;
+                            if crate::ui_icons::menu_toggle(ui, &mut selected, panel.title(), "")
+                                .clicked()
+                            {
+                                self.show_panel(panel);
+                                ui.close();
+                            }
                         }
+                        ui.separator();
                     }
+                }
+                self.dock_header_commands(
+                    ui,
+                    active,
+                    crate::workspace::DockSurface::Floating(window_id),
+                    &clipboard_target,
+                );
+                if compact_tools_header {
                     ui.separator();
+                    let collapse_label = if collapsed {
+                        "Expand panel"
+                    } else {
+                        "Collapse panel"
+                    };
+                    if crate::ui_icons::menu_item(ui, collapse_label, "").clicked() {
+                        header_collapse = true;
+                        ui.close();
+                    }
+                    if crate::ui_icons::menu_item(ui, "Close panel", "").clicked() {
+                        header_close = true;
+                        ui.close();
+                    }
                 }
-            }
-            self.dock_header_commands(
-                ui,
-                active,
-                crate::workspace::DockSurface::Floating(window_id),
-                &clipboard_target,
-            );
-            if compact_tools_header {
-                ui.separator();
-                let collapse_label = if collapsed {
-                    "Expand panel"
-                } else {
-                    "Collapse panel"
-                };
-                if crate::ui_icons::menu_item(ui, collapse_label, "").clicked() {
-                    header_collapse = true;
-                    ui.close();
-                }
-                if crate::ui_icons::menu_item(ui, "Close panel", "").clicked() {
-                    header_close = true;
-                    ui.close();
-                }
-            }
-        });
+            });
+        }
         if header_collapse {
             let next = !collapsed;
             ui.ctx()

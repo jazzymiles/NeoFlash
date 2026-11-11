@@ -6899,3 +6899,97 @@ fn t222_t223_complete_readme_non_script_journey_and_single_level_empty_stage_exi
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn t259_montage_locked_folder_unlink_and_delete_cleanup_preserve_valid_linked_layers() {
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    let mut layer2 = editor.symbol().timeline.layers[0].clone();
+    layer2.id = new_id("lyr");
+    layer2.name = "Layer 2".into();
+    editor.symbol_mut().timeline.layers.push(layer2);
+    for layer_idx in [0, 1] {
+        editor.layer = layer_idx;
+        editor.frame = 0;
+        for _ in 0..19 {
+            editor.insert_frame();
+        }
+    }
+    let l0 = editor.symbol().timeline.layers[0].id.clone();
+    let l1 = editor.symbol().timeline.layers[1].id.clone();
+    assert!(editor.link_layers(&l0, &l1));
+    editor.project.validate().expect("linked layers valid");
+
+    // Put layer 1 inside a locked folder: unlink must refuse when either endpoint is effectively locked.
+    editor.insert_layer_folder(0);
+    let folder_idx = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.properties.role == LayerRole::Folder)
+        .unwrap();
+    let folder_id = editor.symbol().timeline.layers[folder_idx].id.clone();
+    editor.symbol_mut().timeline.layers[folder_idx].locked = true;
+    let l1_idx = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.id == l1)
+        .unwrap();
+    editor.symbol_mut().timeline.layers[l1_idx]
+        .properties
+        .parent = Some(folder_id.clone());
+
+    editor.layer = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.id == l0)
+        .unwrap();
+    assert!(
+        !editor.can_unlink_av_layers() && !editor.unlink_active_layers(),
+        "effective folder lock on linked partner must block partial unlink"
+    );
+    editor.project.validate().expect("still valid when blocked");
+
+    // Unlock folder, split untweened span at frame 8 cleanly without spurious frame-7 keyframe.
+    let folder_idx = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.id == folder_id)
+        .unwrap();
+    editor.symbol_mut().timeline.layers[folder_idx].locked = false;
+    assert!(editor.split_clip_at(vec![l0.clone()], 8));
+    let l0_after = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .find(|l| l.id == l0)
+        .unwrap();
+    let kf_frames: Vec<u32> = l0_after.keyframes.iter().map(|k| k.frame).collect();
+    assert_eq!(
+        kf_frames,
+        vec![0, 8],
+        "untweened split must not create a spurious at-1 keyframe"
+    );
+
+    // Deleting one linked layer clears the partner's linked_layer so project.validate() passes.
+    let l1_idx = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.id == l1)
+        .unwrap();
+    editor.delete_timeline_layer(l1_idx);
+    editor
+        .project
+        .validate()
+        .expect("deleting linked partner must clear dangling linked_layer");
+}

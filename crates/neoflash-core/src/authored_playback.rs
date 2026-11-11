@@ -24,6 +24,9 @@ struct RegisteredHandler {
     base_line: usize,
 }
 
+const MAX_PREVIEW_CALL_DEPTH: usize = 32;
+const MAX_PREVIEW_STEPS_PER_PASS: usize = 25_000;
+
 /// Independent MovieClips advance even when their parent has only one frame.
 /// Pausing means retaining this value without calling `tick`; recreating it after
 /// a scrub/edit starts a fresh placement lifetime. Artwork and source stay pure.
@@ -39,6 +42,8 @@ pub struct AuthoredPlayback {
     reported_diagnostics: HashSet<String>,
     vars: HashMap<(Vec<Id>, String), String>,
     registered_handlers: Vec<RegisteredHandler>,
+    call_depth: usize,
+    steps_remaining: usize,
 }
 
 impl AuthoredPlayback {
@@ -77,6 +82,8 @@ impl AuthoredPlayback {
             reported_diagnostics: HashSet::new(),
             vars: HashMap::new(),
             registered_handlers: Vec::new(),
+            call_depth: 0,
+            steps_remaining: MAX_PREVIEW_STEPS_PER_PASS,
         };
         preview.process_scripts(project);
         preview
@@ -125,6 +132,8 @@ impl AuthoredPlayback {
     }
 
     pub fn tick(&mut self, project: &Project) {
+        self.call_depth = 0;
+        self.steps_remaining = MAX_PREVIEW_STEPS_PER_PASS;
         // Button Up/Over/Down/Hit are selected authoring states, not a timeline
         // animation that should advance automatically through Hit.
         if !self.button_root {
@@ -288,6 +297,8 @@ impl AuthoredPlayback {
 
     /// Dispatch a click event on a placed element path (or empty slice for Stage/root) during live authoring preview.
     pub fn click(&mut self, project: &Project, path: &[Id]) {
+        self.call_depth = 0;
+        self.steps_remaining = MAX_PREVIEW_STEPS_PER_PASS;
         if !path.is_empty() {
             let visible_and_enabled = self
                 .player
@@ -570,8 +581,51 @@ impl AuthoredPlayback {
         base_line: usize,
         local_fns: &HashMap<String, (usize, String)>,
     ) {
+        if self.call_depth >= MAX_PREVIEW_CALL_DEPTH {
+            self.record_diagnostic(
+                origin,
+                base_line,
+                &format!("preview script call depth exceeded maximum ({MAX_PREVIEW_CALL_DEPTH})"),
+            );
+            return;
+        }
+        self.call_depth += 1;
+        self.execute_block_inner(
+            project,
+            path,
+            current_event,
+            source,
+            origin,
+            base_line,
+            local_fns,
+        );
+        self.call_depth = self.call_depth.saturating_sub(1);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_block_inner(
+        &mut self,
+        project: &Project,
+        path: &[Id],
+        current_event: &ScriptEvent,
+        source: &str,
+        origin: &str,
+        base_line: usize,
+        local_fns: &HashMap<String, (usize, String)>,
+    ) {
         for (rel_line, raw_stmt) in split_script_statements(source) {
             let line = base_line + rel_line.saturating_sub(1);
+            if self.steps_remaining == 0 {
+                self.record_diagnostic(
+                    origin,
+                    line,
+                    &format!(
+                        "preview script execution step budget ({MAX_PREVIEW_STEPS_PER_PASS}) exceeded"
+                    ),
+                );
+                return;
+            }
+            self.steps_remaining -= 1;
             let stmt = strip_comments_and_trim(raw_stmt);
             let stmt = stmt.trim();
             if stmt.is_empty() || stmt == ";" || stmt == "\"use strict\"" || stmt == "'use strict'"
@@ -1673,9 +1727,10 @@ fn unescape_string_literal(s: &str) -> String {
     out
 }
 
-/// Strip leading and trailing `//` and `/* ... */` comments outside strings.
+/// Strip `//` and `/* ... */` comments outside string literals (`'...'`, `"..."`, `` `...` ``)
+/// while preserving arbitrary UTF-8 codepoints verbatim (`T-259`).
 fn strip_comments_and_trim(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+    let mut out = Vec::with_capacity(s.len());
     let bytes = s.as_bytes();
     let mut i = 0;
     let mut in_single = false;
@@ -1684,9 +1739,9 @@ fn strip_comments_and_trim(s: &str) -> String {
     while i < bytes.len() {
         let b = bytes[i];
         if in_single {
-            out.push(b as char);
+            out.push(b);
             if b == b'\\' && i + 1 < bytes.len() {
-                out.push(bytes[i + 1] as char);
+                out.push(bytes[i + 1]);
                 i += 2;
                 continue;
             }
@@ -1697,9 +1752,9 @@ fn strip_comments_and_trim(s: &str) -> String {
             continue;
         }
         if in_double {
-            out.push(b as char);
+            out.push(b);
             if b == b'\\' && i + 1 < bytes.len() {
-                out.push(bytes[i + 1] as char);
+                out.push(bytes[i + 1]);
                 i += 2;
                 continue;
             }
@@ -1710,9 +1765,9 @@ fn strip_comments_and_trim(s: &str) -> String {
             continue;
         }
         if in_backtick {
-            out.push(b as char);
+            out.push(b);
             if b == b'\\' && i + 1 < bytes.len() {
-                out.push(bytes[i + 1] as char);
+                out.push(bytes[i + 1]);
                 i += 2;
                 continue;
             }
@@ -1734,7 +1789,7 @@ fn strip_comments_and_trim(s: &str) -> String {
                 i += 2;
                 while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                     if bytes[i] == b'\n' {
-                        out.push('\n');
+                        out.push(b'\n');
                     }
                     i += 1;
                 }
@@ -1748,36 +1803,13 @@ fn strip_comments_and_trim(s: &str) -> String {
             b'`' => in_backtick = true,
             _ => {}
         }
-        out.push(b as char);
+        out.push(b);
         i += 1;
     }
-    // Preserve full UTF-8 safely if non-ASCII was inside literals
-    if !s.is_ascii() {
-        return strip_leading_and_trailing_comments_utf8(s).to_owned();
-    }
-    out.trim().to_owned()
-}
-
-fn strip_leading_and_trailing_comments_utf8(mut s: &str) -> &str {
-    loop {
-        s = s.trim_start();
-        if let Some(rest) = s.strip_prefix("//") {
-            if let Some(idx) = rest.find('\n') {
-                s = &rest[idx + 1..];
-            } else {
-                return "";
-            }
-        } else if let Some(rest) = s.strip_prefix("/*") {
-            if let Some(idx) = rest.find("*/") {
-                s = &rest[idx + 2..];
-            } else {
-                return "";
-            }
-        } else {
-            break;
-        }
-    }
-    s.trim()
+    String::from_utf8(out)
+        .unwrap_or_else(|_| s.to_owned())
+        .trim()
+        .to_owned()
 }
 
 /// Brace-, paren-, bracket-, string- and comment-aware top-level statement splitter.
@@ -1910,7 +1942,7 @@ fn split_script_statements(source: &str) -> Vec<(usize, &str)> {
                 if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
                     // Check if followed by `else` (after optional whitespace/comments) or `;`
                     let after = &source[i + 1..];
-                    let after_trimmed = strip_leading_and_trailing_comments_utf8(after);
+                    let after_trimmed = strip_comments_and_trim(after);
                     if !after_trimmed.starts_with("else")
                         && !after_trimmed.starts_with(';')
                         && !after_trimmed.starts_with(')')
@@ -1934,7 +1966,7 @@ fn split_script_statements(source: &str) -> Vec<(usize, &str)> {
             }
             b'\n' => {
                 if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 && saw_token_in_seg {
-                    let after = strip_leading_and_trailing_comments_utf8(&source[i + 1..]);
+                    let after = strip_comments_and_trim(&source[i + 1..]);
                     if !after.starts_with("else") && !after.starts_with('{') {
                         let seg = source[start..i].trim();
                         if !seg.is_empty() {

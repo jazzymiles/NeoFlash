@@ -122,12 +122,21 @@
       }
       collectFrames();repaint();changed();
     }
-    function audio(r){if(!r.media)return;r.media.muted=!unlocked||muted||r.timelineMuted===true||r.volume===0||r.receiveState?.audio===false;r.media.volume=r.volume;}
+    function hasAvi(r){return Boolean(r&&(r.aviHandle||r.aviBytes));}
+    function audio(r){
+      const shouldMute=!unlocked||muted||r.timelineMuted===true||r.volume===0||r.receiveState?.audio===false;
+      if(r.media){r.media.muted=shouldMute;r.media.volume=r.volume;}
+      if(r.aviAudio){r.aviAudio.muted=shouldMute;r.aviAudio.volume=r.volume;}
+    }
     function stopMedia(r,retain){
       const frozen=retain?freeze(r):null;
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;
+      if(r.aviLoad){try{r.aviLoad.close();}catch(_){}r.aviLoad=null;}
       if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}
-      r.aviBytes=null;
+      if(r.aviHandle&&typeof player.avi_close_stream==='function'){try{player.avi_close_stream(r.aviHandle);}catch(_){}}
+      r.aviHandle=0;r.aviBytes=null;
+      if(r.aviAudio){try{r.aviAudio.pause();r.aviAudio.muted=true;r.aviAudio.removeAttribute('src');r.aviAudio.load?.();}catch(_){}r.aviAudio=null;}
+      if(r.aviAudioUrl){try{(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.aviAudioUrl);}catch(_){}r.aviAudioUrl=null;}
       if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
       if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
       r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
@@ -136,9 +145,12 @@
       return Boolean(bytes&&bytes.length>=12&&bytes[0]===0x52&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x46&&bytes[8]===0x41&&bytes[9]===0x56&&bytes[10]===0x49&&bytes[11]===0x20);
     }
     function renderAviAt(r,seconds){
-      if(!r.aviBytes||typeof player.avi_frame_rgba!=='function')return;
+      if(!hasAvi(r))return;
       const ms=Math.max(0,Math.round(seconds*1000));
-      const rgba=native('avi_frame_rgba',r.aviBytes,ms);
+      let rgba;
+      if(r.aviHandle&&typeof player.avi_stream_frame_rgba==='function')rgba=native('avi_stream_frame_rgba',r.aviHandle,ms);
+      else if(r.aviBytes&&typeof player.avi_frame_rgba==='function')rgba=native('avi_frame_rgba',r.aviBytes,ms);
+      else return;
       const w=r.width,h=r.height;
       if(!r.appendFrame||r.appendFrame.width!==w||r.appendFrame.height!==h)r.appendFrame=frame(w,h);
       const ctx=r.appendFrame.canvas.getContext('2d');
@@ -152,21 +164,24 @@
       r.appendFrame.id=++serial;r.serial=r.appendFrame.id;repaint();
     }
     function startAviPlayback(r){
-      if(!r.aviBytes||!r.wanted||(!unlocked&&!r.timelineOwned))return;
+      if(!hasAvi(r)||!r.wanted||(!unlocked&&!r.timelineOwned))return;
       if(r.aviTimer)return;
       r.playing=true;
+      audio(r);
+      if(r.aviAudio&&!r.aviAudio.muted){try{if(Math.abs((Number(r.aviAudio.currentTime)||0)-r.time)>0.08)r.aviAudio.currentTime=r.time;Promise.resolve(r.aviAudio.play()).catch(()=>{});}catch(_){}}
       if(!r.started){r.started=true;emit(r,'NetStream.Play.Start');}
       else if(r.pauseRequested){r.pauseRequested=false;emit(r,'NetStream.Unpause.Notify');}
       observeController(r,'playing');changed();
       const fps=Math.max(1,r.aviFps||24),stepSec=1/fps,seq=r.sequence;
       r.aviTimer=setInterval(()=>{
-        if(disposed||r.generation!==generation||r.sequence!==seq||!r.wanted||!r.aviBytes){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}return;}
+        if(disposed||r.generation!==generation||r.sequence!==seq||!r.wanted||!hasAvi(r)){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}return;}
         let next=r.time+stepSec;
         if(r.duration>0&&next>=r.duration){
-          if(r.timelineLoop){next=next%r.duration;}
+          if(r.timelineLoop){next=next%r.duration;if(r.aviAudio){try{r.aviAudio.currentTime=next;}catch(_){}}}
           else{
             r.time=r.duration;renderAviAt(r,r.time);
             clearInterval(r.aviTimer);r.aviTimer=null;r.wanted=false;r.playing=false;
+            if(r.aviAudio){try{r.aviAudio.pause();}catch(_){}}
             if(emit(r,'NetStream.Play.Stop')&&r.legacy&&typeof r.receiver?.onPlayStatus==='function'){
               Reflect.apply(r.receiver.onPlayStatus,r.receiver,[{code:'NetStream.Play.Complete',level:'status'}]);after(generation);
             }
@@ -178,10 +193,36 @@
     }
     function mountAviBytes(r,bytes,seq){
       if(disposed||r.generation!==generation||r.sequence!==seq)return;
-      if(typeof player.avi_inspect_json!=='function')throw new TypeError('AVI runtime decoding requires the NeoFlash WASM video module.');
-      const info=JSON.parse(native('avi_inspect_json',bytes));
-      if(info.width<1||info.height<1||info.width>1920||info.height>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');
-      r.aviBytes=bytes;r.aviFps=Number(info.fps)||24;
+      let info;
+      if(typeof player.avi_open_stream==='function'){
+        info=JSON.parse(native('avi_open_stream',bytes));
+        if(info.width<1||info.height<1||info.width>1920||info.height>1080){
+          try{player.avi_close_stream?.(info.handle);}catch(_){}
+          throw new RangeError('Video decoder dimensions must be within 1920×1080.');
+        }
+        r.aviHandle=info.handle;r.aviBytes=null;
+        if(info.has_audio&&typeof player.avi_stream_audio_wav==='function'&&typeof global.document?.createElement==='function'&&typeof global.URL?.createObjectURL==='function'){
+          try{
+            const wav=native('avi_stream_audio_wav',r.aviHandle);
+            if(wav&&wav.length>16){
+              const el=global.document.createElement('audio');
+              if(el){
+                const blob=new Blob([wav],{type:info.audio_mime||'audio/wav'});
+                r.aviAudioUrl=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);
+                el.muted=true;el.preload='auto';el.loop=Boolean(r.timelineLoop);el.src=r.aviAudioUrl;
+                r.aviAudio=el;audio(r);
+              }
+            }
+          }catch(_){}
+        }
+      }else if(typeof player.avi_inspect_json==='function'){
+        info=JSON.parse(native('avi_inspect_json',bytes));
+        if(info.width<1||info.height<1||info.width>1920||info.height>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');
+        r.aviBytes=bytes;r.aviHandle=0;
+      }else{
+        throw new TypeError('AVI runtime decoding requires the NeoFlash WASM video module.');
+      }
+      r.aviFps=Number(info.fps)||24;
       r.width=info.width;r.height=info.height;r.duration=Math.max(0,(Number(info.duration_ms)||0)/1000);
       r.metadata=true;r.encodedBytes=bytes.length;
       renderAviAt(r,0);
@@ -189,11 +230,16 @@
       const client=r.timelineOwned?null:(r.legacy?r.receiver:r.client),fn=client?.onMetaData;
       if(typeof fn==='function')Reflect.apply(fn,client,[{width:r.width,height:r.height,duration:r.duration,framerate:r.aviFps}]);
       if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);r.time=at;renderAviAt(r,at);}
-      if(!r.timelineOwned||r.wanted)startAviPlayback(r);
+      if((!r.timelineOwned||r.timelineEventMode)&&r.wanted)startAviPlayback(r);
+      else if(r.timelineOwned&&r.wanted){r.playing=true;audio(r);if(r.aviAudio&&!r.aviAudio.muted){try{r.aviAudio.currentTime=r.time;Promise.resolve(r.aviAudio.play()).catch(()=>{});}catch(_){}}}
       after(generation);changed();
     }
     function playNative(r){
-      if(r.aviBytes){startAviPlayback(r);return;}
+      if(hasAvi(r)){
+        if(!r.timelineOwned||r.timelineEventMode)startAviPlayback(r);
+        else{r.playing=true;audio(r);if(r.aviAudio&&!r.aviAudio.muted&&r.aviAudio.paused){try{r.aviAudio.currentTime=r.time;Promise.resolve(r.aviAudio.play()).catch(()=>{});}catch(_){}}}
+        return;
+      }
       // Authored timeline video may advance visually before activation because `audio()` keeps
       // its HTMLVideoElement browser-muted. An actual gesture later unmutes only spans whose
       // authored `muted` flag is false. Script-created NetStreams retain the gesture gate.
@@ -252,9 +298,9 @@
         if(isAviResource){
           later(r,()=>mountAviBytes(r,source.bytes,seq));
         }else if(typeof net.loadBytes==='function'&&typeof net.URLRequest==='function'){
-          net.loadBytes(new net.URLRequest(resolvedUrl),{
-            onEvent:ev=>{if(ev.type==='ioError'&&r.sequence===seq){r.wanted=false;r.playing=false;emit(r,'NetStream.Play.StreamNotFound','error',{description:ev.text||'AVI load failed'});changed();}},
-            onComplete:bytes=>{try{mountAviBytes(r,bytes,seq);}catch(err){if(r.sequence===seq){r.wanted=false;r.playing=false;emit(r,'NetStream.Play.FileStructureInvalid','error',{description:String(err?.message||err)});changed();}}}
+          r.aviLoad=net.loadBytes(new net.URLRequest(resolvedUrl),{
+            onEvent:ev=>{if(ev.type==='ioError'&&r.sequence===seq){r.aviLoad=null;r.wanted=false;r.playing=false;emit(r,'NetStream.Play.StreamNotFound','error',{description:ev.text||'AVI load failed'});changed();}},
+            onComplete:bytes=>{r.aviLoad=null;try{mountAviBytes(r,bytes,seq);}catch(err){if(r.sequence===seq){r.wanted=false;r.playing=false;emit(r,'NetStream.Play.FileStructureInvalid','error',{description:String(err?.message||err)});changed();}}}
           });
         }
         changed();
@@ -296,9 +342,9 @@
       if(source?.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=resolvedUrl;
       r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}if(!r.timelineOwned)playNative(r);changed();
     }
-    function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;if(wasPlaying)later(r,()=>{if(r.aviBytes&&!r.wanted)emit(r,'NetStream.Pause.Notify');});changed();return;}media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
+    function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;if(r.aviAudio){try{r.aviAudio.pause();}catch(_){}}if(r.aviTimer||hasAvi(r)){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}if(wasPlaying)later(r,()=>{if(hasAvi(r)&&!r.wanted)emit(r,'NetStream.Pause.Notify');});changed();return;}media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
     function resume(r){r.wanted=true;if(gesture()){unlocked=true;muted=false;}playNative(r);changed();}
-    function seek(r,value){number(value,'NetStream.seek',0,86400*365);if(r.aviBytes){if(!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');r.time=value;renderAviAt(r,value);later(r,()=>emit(r,'NetStream.Seek.Notify'));return;}if(!r.media&&!r.wanted)throw new Error('NetStream.seek requires a loaded stream.');if(!r.media||!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');if(r.legacy){streamPolicy(r,{op:'buffer_wait'});r.playing=false;r.media.pause();}r.media.currentTime=value;}
+    function seek(r,value){number(value,'NetStream.seek',0,86400*365);if(hasAvi(r)){if(!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');r.time=value;if(r.aviAudio){try{r.aviAudio.currentTime=value;}catch(_){}}renderAviAt(r,value);later(r,()=>emit(r,'NetStream.Seek.Notify'));return;}if(!r.media&&!r.wanted)throw new Error('NetStream.seek requires a loaded stream.');if(!r.media||!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');if(r.legacy){streamPolicy(r,{op:'buffer_wait'});r.playing=false;r.media.pause();}r.media.currentTime=value;}
     class NetConnection extends events.EventDispatcher{
       constructor(){super();open();const record={receiver:this,generation,sequence:0,local:false,legacy:false};connections.set(this,record);connectionRecords.add(record);Object.assign(this,hub.methods(this));this.client=this;if(new.target===NetConnection)Object.seal(this);}
       connect(command){const r=state(this,connections);if(command!==null)unsupported('NetConnection remote connections');r.local=true;r.sequence++;later(r,()=>emit(r,'NetConnection.Connect.Success'));}
@@ -492,7 +538,7 @@
       streamRecords.add(record);attachRecord(target,record);load(record,sourceSpec.url_or_path,sourceSpec);record.timelineMuted=Boolean(command.muted);record.timelineLoop=Boolean(command.loop_video);if(record.media)record.media.loop=Boolean(command.loop_video);audio(record);
       const ctl={record,targetKey,resource:command.resource,mode:sourceSpec.mode,sourceKey:`${sourceSpec.mode}:${sourceSpec.url_or_path}`};timelineControllers.set(command.channel,ctl);return ctl;
     }
-    function timelineSeek(record,milliseconds,loop,force=false){let seconds=Math.max(0,Number(milliseconds)||0)/1000;record.timelineLoop=Boolean(loop);if(record.metadata&&record.duration>0)seconds=loop?seconds%record.duration:Math.min(seconds,record.duration);if(record.aviBytes){const close=record.playing&&Math.abs(record.time-seconds)<=0.08;if(!close||force){record.time=seconds;renderAviAt(record,seconds);}return;}if(!record.media){record.pendingSeek=seconds;record.time=seconds;return;}const current=Number(record.media.currentTime)||0,close=record.playing&&Math.abs(current-seconds)<=0.08;if(record.metadata&&(!close||force))seek(record,seconds);else if(!record.metadata)record.pendingSeek=seconds;record.time=close&&!force?current:seconds;}
+    function timelineSeek(record,milliseconds,loop,force=false){let seconds=Math.max(0,Number(milliseconds)||0)/1000;record.timelineLoop=Boolean(loop);if(record.aviAudio)record.aviAudio.loop=Boolean(loop);if(record.metadata&&record.duration>0)seconds=loop?seconds%record.duration:Math.min(seconds,record.duration);if(hasAvi(record)){const close=record.playing&&Math.abs(record.time-seconds)<=0.08;if(!close||force){record.time=seconds;if(record.aviAudio&&Math.abs((Number(record.aviAudio.currentTime)||0)-seconds)>0.12){try{record.aviAudio.currentTime=seconds;}catch(_){}}renderAviAt(record,seconds);}return;}if(!record.media){record.pendingSeek=seconds;record.time=seconds;return;}const current=Number(record.media.currentTime)||0,close=record.playing&&Math.abs(current-seconds)<=0.08;if(record.metadata&&(!close||force))seek(record,seconds);else if(!record.metadata)record.pendingSeek=seconds;record.time=close&&!force?current:seconds;}
     function timeline(commands){
       open();if(!Array.isArray(commands))throw new TypeError('Timeline video commands require an Array.');
       for(const command of commands){
@@ -501,7 +547,7 @@
           let ctl=timelineControllers.get(command.channel);const target=timelineTarget(command.target_path),targetKey=referenceOf(target)?.key;
           const nextSpec=command.source&&typeof command.source==='object'?`${command.source.mode}:${command.source.url_or_path}`:null;
           if(!ctl||ctl.resource!==command.resource||ctl.targetKey!==targetKey||(nextSpec&&ctl.sourceKey&&ctl.sourceKey!==nextSpec)){if(ctl)retireTimeline(command.channel,false);ctl=timelineRecord(command);}
-          const r=ctl.record;r.timelineMuted=Boolean(command.muted);r.timelineLoop=Boolean(command.loop_video);if(r.media)r.media.loop=Boolean(command.loop_video);audio(r);
+          const r=ctl.record;r.timelineEventMode=command.op==='start_event';r.timelineMuted=Boolean(command.muted);r.timelineLoop=Boolean(command.loop_video);if(r.media)r.media.loop=Boolean(command.loop_video);audio(r);
           timelineSeek(r,command.op==='start_event'?command.start_offset_ms:command.target_time_ms,command.loop_video,command.op==='start_event'||!command.playing);
           if(command.op==='start_event'||command.playing){r.wanted=true;playNative(r);}else pause(r);
         }else if(command.op==='stop_channel')retireTimeline(command.channel,true);

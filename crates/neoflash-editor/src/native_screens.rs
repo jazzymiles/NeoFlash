@@ -27,21 +27,44 @@ pub fn pointer_state() -> Option<(eframe::egui::Pos2, bool)> {
     None
 }
 
+/// Identity and content rectangle of the frontmost NeoFlash window under a desktop point.
+#[cfg_attr(test, allow(dead_code))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum NativeDockWindow {
+    Main(eframe::egui::Rect),
+    Floating {
+        rect: eframe::egui::Rect,
+        title: Option<String>,
+    },
+}
+
+impl NativeDockWindow {
+    #[allow(dead_code)]
+    pub fn rect(&self) -> eframe::egui::Rect {
+        match self {
+            Self::Main(rect) | Self::Floating { rect, .. } => *rect,
+        }
+    }
+}
+
 /// Frontmost native content rectangle under a desktop point. `None` means the
 /// platform cannot answer; `Some(None)` means desktop or another application.
 /// This prevents a drop from going through a floating window into the root.
+#[allow(dead_code)]
 pub fn front_window_at(position: eframe::egui::Pos2) -> Option<Option<eframe::egui::Rect>> {
-    front_window_at_excluding(position, None, None)
+    front_dock_window_at(position, None, &[], false).map(|window| window.map(|found| found.rect()))
 }
 
-/// Like [`front_window_at`], but skips a floating panel window that is currently being dragged
-/// in its entirety so the receiving window underneath it can accept dock drops.
+/// Like [`front_window_at`], but distinguishes the root NeoFlash window from floating panels and
+/// skips a floating panel window that is currently being dragged in its entirety so the receiving
+/// window underneath it can accept dock drops.
 #[cfg(all(target_os = "macos", not(test)))]
-pub fn front_window_at_excluding(
+pub fn front_dock_window_at(
     position: eframe::egui::Pos2,
     excluded_title: Option<&str>,
-    excluded_rect: Option<eframe::egui::Rect>,
-) -> Option<Option<eframe::egui::Rect>> {
+    excluded_rects: &[eframe::egui::Rect],
+    exclude_all_floating: bool,
+) -> Option<Option<NativeDockWindow>> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSEvent, NSScreen, NSWindow};
     let main_thread = MainThreadMarker::new()?;
@@ -52,6 +75,7 @@ pub fn front_window_at_excluding(
     cocoa_point.x = f64::from(position.x);
     cocoa_point.y = primary_top - f64::from(position.y);
     let app = NSApplication::sharedApplication(main_thread);
+    let root_number = crate::native_windows::root_window_number();
     let mut below = 0;
     for _ in 0..32 {
         let number = NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(
@@ -81,25 +105,34 @@ pub fn front_window_at_excluding(
             eframe::egui::pos2(area.origin[0], area.origin[1]),
             eframe::egui::vec2(area.size[0], area.size[1]),
         );
-        if excluded_title.is_some_and(|title| window.title().to_string() == title)
-            || excluded_rect.is_some_and(|ex| {
-                rect.min.distance(ex.min) < 12. && rect.max.distance(ex.max) < 12.
+        if root_number > 0 && number == root_number {
+            return Some(Some(NativeDockWindow::Main(rect)));
+        }
+        let title = crate::native_windows::floating_window_title_for_number(number).or_else(|| {
+            let raw = window.title().to_string();
+            (!raw.is_empty()).then_some(raw)
+        });
+        if exclude_all_floating
+            || excluded_title.is_some_and(|ex| title.as_deref() == Some(ex))
+            || excluded_rects.iter().any(|ex| {
+                rect.min.distance(ex.min) < 28. && (rect.width() - ex.width()).abs() < 28.
             })
         {
             below = number;
             continue;
         }
-        return Some(Some(rect));
+        return Some(Some(NativeDockWindow::Floating { rect, title }));
     }
     Some(None)
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
-pub fn front_window_at_excluding(
+pub fn front_dock_window_at(
     _position: eframe::egui::Pos2,
     _excluded_title: Option<&str>,
-    _excluded_rect: Option<eframe::egui::Rect>,
-) -> Option<Option<eframe::egui::Rect>> {
+    _excluded_rects: &[eframe::egui::Rect],
+    _exclude_all_floating: bool,
+) -> Option<Option<NativeDockWindow>> {
     None
 }
 

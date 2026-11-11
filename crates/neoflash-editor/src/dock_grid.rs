@@ -819,22 +819,40 @@ impl Editor {
                     },
                 );
             });
+        let menu_side = 28.;
+        let menu_rect = egui::Rect::from_center_size(
+            egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
+            egui::vec2(menu_side, menu_side.min(header.height())),
+        );
         let blank_start = target
             .tabs
             .last()
             .map_or(tabs_rect.left(), |(_, r)| r.right() / zoom - inner.left());
-        let blank =
-            egui::Rect::from_min_max(egui::pos2(blank_start, tabs_rect.top()), tabs_rect.max);
-        if blank.width() > 6. {
-            let response = header_ui.interact(
+        let blank = egui::Rect::from_min_max(
+            egui::pos2(blank_start, header.top()),
+            egui::pos2(menu_rect.left().max(blank_start), header.bottom()),
+        );
+        if blank.width() > 0.5 {
+            let mut blank_ui = parent.new_child(
+                egui::UiBuilder::new()
+                    .id(header_id("dock-header-blank"))
+                    .max_rect(blank),
+            );
+            blank_ui.set_clip_rect(parent.clip_rect().intersect(blank));
+            if self.has_modal_dialog() {
+                blank_ui.disable_semantic();
+            }
+            let response = blank_ui.interact(
                 blank,
-                header_ui.id().with("header-grab"),
+                blank_ui.id().with("header-grab"),
                 egui::Sense::click_and_drag(),
             );
-            self.panel_group_drag_handle(
-                &header_ui,
+            self.panel_group_drag_handle_anchored(
+                &blank_ui,
                 group.active,
                 (surface, edge, group.id),
+                header.min,
+                true,
                 &response,
             );
             response.context_menu(|ui| {
@@ -884,11 +902,6 @@ impl Editor {
         response
             .on_hover_text("Drag panel group")
             .context_menu(|ui| self.dock_header_menu(ui, group.active, surface, &clipboard_target));
-        let menu_side = 28.;
-        let menu_rect = egui::Rect::from_center_size(
-            egui::pos2(header.right() - 6. - menu_side / 2., header.center().y),
-            egui::vec2(menu_side, menu_side.min(header.height())),
-        );
         let mut menu_ui = parent.new_child(
             egui::UiBuilder::new()
                 .id(header_id("dock-group-menu"))
@@ -905,24 +918,34 @@ impl Editor {
             )
             .side(menu_side),
         );
-        neoflash_ui::components::popup_below(&more, 240., |ui| {
-            crate::ui_icons::menu_contents(ui, 240., |ui| {
-                if group.tabs.len() > 1 {
-                    neoflash_ui::components::menu_section(ui, "Panels in this group");
-                    for panel in &group.tabs {
-                        let mut active = group.active == *panel;
-                        if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
-                            .clicked()
-                        {
-                            self.show_panel(*panel);
-                            ui.close();
+        self.panel_group_drag_handle_anchored(
+            &menu_ui,
+            group.active,
+            (surface, edge, group.id),
+            header.min,
+            false,
+            &more,
+        );
+        if !self.panel_drag_moved() {
+            neoflash_ui::components::popup_below(&more, 240., |ui| {
+                crate::ui_icons::menu_contents(ui, 240., |ui| {
+                    if group.tabs.len() > 1 {
+                        neoflash_ui::components::menu_section(ui, "Panels in this group");
+                        for panel in &group.tabs {
+                            let mut active = group.active == *panel;
+                            if crate::ui_icons::menu_toggle(ui, &mut active, panel.title(), "")
+                                .clicked()
+                            {
+                                self.show_panel(*panel);
+                                ui.close();
+                            }
                         }
+                        ui.separator();
                     }
-                    ui.separator();
-                }
-                self.dock_header_commands(ui, group.active, surface, &clipboard_target)
-            })
-        });
+                    self.dock_header_commands(ui, group.active, surface, &clipboard_target)
+                })
+            });
+        }
         parent.painter().hline(
             header.x_range(),
             header.bottom() - 0.5,
@@ -1330,13 +1353,40 @@ impl Editor {
         let excluded_window = self.dragged_whole_floating_window();
         let excluded_title =
             excluded_window.and_then(|window_id| self.floating_window_title(window_id));
-        let excluded_rect = excluded_window.and_then(|window_id| {
-            self.detached
+        let zoom = self
+            .detached
+            .dock_viewports
+            .first()
+            .map_or(1.0, |v| v.zoom.max(0.5));
+        let mut excluded_rects = Vec::with_capacity(3);
+        if let Some(window_id) = excluded_window {
+            if let Some(viewport_rect) = self
+                .detached
                 .dock_viewports
                 .iter()
                 .find(|target| target.surface == DockSurface::Floating(window_id))
                 .map(|target| target.inner)
+            {
+                excluded_rects.push(viewport_rect);
+            }
+            if let Some(saved) = self.workspace.detached_geometry(window_id) {
+                excluded_rects.push(egui::Rect::from_min_size(
+                    egui::pos2(saved.outer_position[0], saved.outer_position[1]),
+                    egui::vec2(saved.inner_size[0], saved.inner_size[1]),
+                ));
+            }
+            if let Some(live) = self.live_dragged_floating_window_rect(window_id, zoom) {
+                excluded_rects.push(live);
+            }
+        }
+        let other_visible_floating = self.workspace.floating.iter().any(|window| {
+            Some(window.id) != excluded_window
+                && window
+                    .panels()
+                    .iter()
+                    .any(|panel| self.workspace.is_panel_visible(*panel))
         });
+        let exclude_all_floating = excluded_window.is_some() && !other_visible_floating;
         let candidates: Vec<_> =
             self.detached
                 .dock_viewports
@@ -1358,23 +1408,28 @@ impl Editor {
                         }
                 })
                 .collect();
-        match crate::native_screens::front_window_at_excluding(
+        match crate::native_screens::front_dock_window_at(
             pointer,
             excluded_title.as_deref(),
-            excluded_rect,
+            &excluded_rects,
+            exclude_all_floating,
         ) {
-            Some(Some(native)) => candidates
+            Some(Some(crate::native_screens::NativeDockWindow::Main(_))) => candidates
                 .into_iter()
-                .filter(|target| {
-                    target.inner.min.distance(native.min) < 6.
-                        && target.inner.max.distance(native.max) < 6.
-                })
-                .max_by_key(|target| {
-                    (
-                        target.order,
-                        u8::from(matches!(target.surface, DockSurface::Floating(_))),
-                    )
-                }),
+                .find(|target| target.surface == DockSurface::Main),
+            Some(Some(crate::native_screens::NativeDockWindow::Floating { rect, title })) => {
+                candidates
+                    .into_iter()
+                    .filter(|target| match target.surface {
+                        DockSurface::Main => false,
+                        DockSurface::Floating(id) => {
+                            (title.is_some() && self.floating_window_title(id) == title)
+                                || (target.inner.min.distance(rect.min) < 16.
+                                    && (target.inner.width() - rect.width()).abs() < 16.)
+                        }
+                    })
+                    .max_by_key(|target| target.order)
+            }
             Some(None) => None,
             None => candidates.into_iter().max_by_key(|target| {
                 (
@@ -1405,9 +1460,31 @@ impl Editor {
                 order: 0,
             })
         })?;
-        if !view.content.contains(pointer) {
+        let pointer = if view.content.contains(pointer) {
+            pointer
+        } else if view.surface == DockSurface::Main && view.inner.contains(pointer) {
+            let side_band = (view.content.width() * 0.095)
+                .clamp(72. * view.zoom, 132. * view.zoom)
+                .min(view.content.width() * 0.30);
+            if pointer.y < view.content.top()
+                && (pointer.x <= view.content.left() + side_band
+                    || pointer.x >= view.content.right() - side_band)
+            {
+                egui::pos2(
+                    pointer.x.clamp(view.content.left(), view.content.right()),
+                    (view.content.top() + 96. * view.zoom).min(view.content.center().y),
+                )
+            } else if pointer.y > view.content.bottom() {
+                egui::pos2(
+                    pointer.x.clamp(view.content.left(), view.content.right()),
+                    (view.content.bottom() - 1.).max(view.content.top()),
+                )
+            } else {
+                return None;
+            }
+        } else {
             return None;
-        }
+        };
         let groups: Vec<_> = self
             .detached
             .dock_groups

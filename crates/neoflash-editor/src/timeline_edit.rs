@@ -366,7 +366,7 @@ impl Editor {
                 && timeline.layers.iter().any(|p| {
                     &p.id == partner_id
                         && p.properties.role != LayerRole::Folder
-                        && !p.locked
+                        && !neoflash_core::layer_effectively_locked(timeline, p)
                         && neoflash_core::layer_effectively_visible(timeline, p)
                 })
             {
@@ -376,7 +376,7 @@ impl Editor {
                 if partner.properties.linked_layer.as_deref() == Some(current.as_str())
                     && !out.contains(&partner.id)
                     && partner.properties.role != LayerRole::Folder
-                    && !partner.locked
+                    && !neoflash_core::layer_effectively_locked(timeline, partner)
                     && neoflash_core::layer_effectively_visible(timeline, partner)
                 {
                     out.push(partner.id.clone());
@@ -397,7 +397,7 @@ impl Editor {
                 timeline.layers.iter().any(|l| {
                     &l.id == id
                         && l.properties.role != LayerRole::Folder
-                        && !l.locked
+                        && !neoflash_core::layer_effectively_locked(timeline, l)
                         && neoflash_core::layer_effectively_visible(timeline, l)
                 })
             })
@@ -507,16 +507,16 @@ impl Editor {
         let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
             return false;
         };
-        let has_a = symbol
-            .timeline
-            .layers
-            .iter()
-            .any(|l| l.id == a && l.properties.role != LayerRole::Folder && !l.locked);
-        let has_b = symbol
-            .timeline
-            .layers
-            .iter()
-            .any(|l| l.id == b && l.properties.role != LayerRole::Folder && !l.locked);
+        let has_a = symbol.timeline.layers.iter().any(|l| {
+            l.id == a
+                && l.properties.role != LayerRole::Folder
+                && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
+        });
+        let has_b = symbol.timeline.layers.iter().any(|l| {
+            l.id == b
+                && l.properties.role != LayerRole::Folder
+                && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
+        });
         if !has_a || !has_b {
             return false;
         }
@@ -566,13 +566,21 @@ impl Editor {
                 .map(|l| vec![l.id.clone()])
                 .unwrap_or_default()
         });
+        let unlocked = |id: &str| {
+            timeline
+                .layers
+                .iter()
+                .find(|l| l.id == id)
+                .is_none_or(|l| !neoflash_core::layer_effectively_locked(timeline, l))
+        };
         timeline.layers.iter().any(|l| {
-            !l.locked
-                && ((targets.contains(&l.id) && l.properties.linked_layer.is_some())
+            !neoflash_core::layer_effectively_locked(timeline, l)
+                && ((targets.contains(&l.id)
+                    && l.properties.linked_layer.as_deref().is_some_and(unlocked))
                     || l.properties
                         .linked_layer
                         .as_ref()
-                        .is_some_and(|p| targets.contains(p)))
+                        .is_some_and(|p| targets.contains(p) && unlocked(p)))
         })
     }
 
@@ -602,19 +610,22 @@ impl Editor {
         let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
             return false;
         };
+        let locked_ids: std::collections::HashSet<String> = symbol
+            .timeline
+            .layers
+            .iter()
+            .filter(|l| neoflash_core::layer_effectively_locked(&symbol.timeline, l))
+            .map(|l| l.id.clone())
+            .collect();
         let mut changed = false;
         for layer in &mut symbol.timeline.layers {
-            if layer.locked {
+            if locked_ids.contains(&layer.id) {
                 continue;
             }
-            let should_clear = (targets.contains(&layer.id)
-                && layer.properties.linked_layer.is_some())
-                || layer
-                    .properties
-                    .linked_layer
-                    .as_ref()
-                    .is_some_and(|partner| targets.contains(partner));
-            if should_clear {
+            if let Some(partner) = layer.properties.linked_layer.as_deref()
+                && !locked_ids.contains(partner)
+                && (targets.contains(&layer.id) || targets.iter().any(|t| t == partner))
+            {
                 layer.properties.linked_layer = None;
                 changed = true;
             }

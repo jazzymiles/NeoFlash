@@ -112,7 +112,11 @@ pub(crate) fn format_timecode_seconds(seconds: f64) -> String {
 }
 
 pub(crate) fn probe_mp4_duration_ms(bytes: &[u8]) -> Option<u32> {
-    fn scan_boxes(buf: &[u8]) -> Option<u32> {
+    const MAX_MP4_BOX_DEPTH: usize = 8;
+    fn scan_boxes(buf: &[u8], depth: usize) -> Option<u32> {
+        if depth > MAX_MP4_BOX_DEPTH {
+            return None;
+        }
         let mut pos = 0usize;
         while pos + 8 <= buf.len() {
             let size32 = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
@@ -130,19 +134,22 @@ pub(crate) fn probe_mp4_duration_ms(bytes: &[u8]) -> Option<u32> {
                     buf[pos + 13],
                     buf[pos + 14],
                     buf[pos + 15],
-                ]) as usize;
+                ]);
+                let Ok(size64) = usize::try_from(size64) else {
+                    break;
+                };
                 (16usize, size64)
             } else if size32 == 0 {
                 (8usize, buf.len() - pos)
             } else {
                 (8usize, size32 as usize)
             };
-            if box_len < header_len || pos + box_len > buf.len() {
+            if box_len < header_len || box_len > buf.len() - pos {
                 break;
             }
             let payload = &buf[pos + header_len..pos + box_len];
             if box_type == b"moov"
-                && let Some(ms) = scan_boxes(payload)
+                && let Some(ms) = scan_boxes(payload, depth + 1)
             {
                 return Some(ms);
             } else if box_type == b"mvhd" && payload.len() >= 20 {
@@ -179,7 +186,7 @@ pub(crate) fn probe_mp4_duration_ms(bytes: &[u8]) -> Option<u32> {
         }
         None
     }
-    scan_boxes(bytes)
+    scan_boxes(bytes, 0)
 }
 
 pub(crate) fn probe_video_bytes_duration_ms(bytes: &[u8]) -> Option<u32> {
@@ -509,18 +516,26 @@ impl Editor {
             candidate.fps = draft.source_fps.clamp(1, 120);
         }
         let fps = candidate.fps.max(1);
-        let needed_frames = frame + ((duration_sec * f64::from(fps)).ceil() as u32).max(1);
+        let needed_frames =
+            frame.saturating_add(((duration_sec * f64::from(fps)).ceil() as u32).max(1));
         let symbol = candidate
             .symbol_mut(&symbol_id)
             .ok_or_else(|| "Active symbol not found.".to_string())?;
         if draft.expand_timeline && symbol.timeline.frame_count < needed_frames {
             symbol.timeline.frame_count = needed_frames;
         }
+        let max_tl_frames = symbol.timeline.frame_count;
         let layer = symbol
             .timeline
             .layers
             .get_mut(layer_idx)
             .ok_or_else(|| "Selected layer was not found.".to_string())?;
+        if draft.expand_timeline
+            && let Some(end) = &mut layer.properties.end_frame
+            && *end < needed_frames.min(max_tl_frames)
+        {
+            *end = needed_frames.min(max_tl_frames);
+        }
         if !layer.keyframes.iter().any(|key| key.frame == frame) {
             let previous_elements = layer
                 .key_at(frame)
@@ -538,6 +553,9 @@ impl Editor {
             .iter_mut()
             .find(|key| key.frame == frame)
             .ok_or_else(|| "Could not create the destination video keyframe.".to_string())?;
+        // A motion-span property keyframe (◆) cannot carry a timeline video span; convert it to an
+        // ordinary keyframe so validation and motion normalization stay consistent.
+        key.keyed_properties = None;
         key.video = Some(video_span);
         if draft.place_on_stage {
             let center = placement.unwrap_or([240.0, 180.0]);
