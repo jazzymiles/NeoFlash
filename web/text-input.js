@@ -136,7 +136,8 @@
       if(!box)throw new TypeError('Native text editing requires a nonempty text box. Set width and height.');
       const w=box.width??box.right-box.left,h=box.height??box.bottom-box.top;
       const rect=options.canvas?.getBoundingClientRect?.(),sx=rect?rect.width/width:1,sy=rect?rect.height/height:1;
-      Object.assign(record.root.style,{width:width+'px',height:height+'px',transform:`scale(${sx},${sy})`});
+      const [ox,oy]=options.getOrigin?options.getOrigin():[0,0];
+      Object.assign(record.root.style,{width:width+'px',height:height+'px',transform:(ox||oy)?`translate(${ox*sx}px,${oy*sy}px) scale(${sx},${sy})`:`scale(${sx},${sy})`});
       const c=field.format.color,pad=field.box?2:0,padL=field.box?(field.padding_left??pad):0,padR=field.box?(field.padding_right??pad):0,padT=field.box?(field.padding_top??pad):0,padB=field.box?(field.padding_bottom??pad):0,lineH=field.format.size*1.2+(field.format.leading||0),view=field.as2_viewport,hasChrome=Boolean(view&&(view.background||view.border));
       const boxH=hasChrome?h:(field.multiline?Math.max(h,lineH+padT+padB):Math.min(Math.max(h,lineH+padT+padB),lineH+padT+padB));
       const dec=[field.format.underline?'underline':'',field.strikethrough?'line-through':''].filter(Boolean).join(' ')||'none';

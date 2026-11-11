@@ -250,7 +250,7 @@
       }
       return bounded;
     }
-    function draw(context,snapshot,{width=context.canvas.width,height=context.canvas.height,semantic=true}={}) {
+    function draw(context,snapshot,{minX=0,minY=0,width=context.canvas.width,height=context.canvas.height,semantic=true}={}) {
       const scene=snapshot.draws;
       clippings.beginFrame();
       const clips=global.NeoFlashPaths.clipTable(snapshot?.clips||[],snapshot?.filter_groups||[]),objects=snapshot?(snapshot.objects?.__byKey||new Map((snapshot.objects||[]).map(node=>[JSON.stringify(node.object_ref),node]))):null;
@@ -276,7 +276,7 @@
         // Filter effects are not new interaction geometry. Read the original
         // fully clipped source only for semantic ancestors, even on cache hits.
         for(const item of scene)if(item.filter_id&&item.clip_ids?.length&&semanticCoverage(item)){
-          const area=bounded(item),visible=area&&{left:Math.max(0,area.left),top:Math.max(0,area.top),right:Math.min(width,area.right),bottom:Math.min(height,area.bottom)};
+          const area=bounded(item),visible=area&&{left:Math.max(minX,area.left),top:Math.max(minY,area.top),right:Math.min(width,area.right),bottom:Math.min(height,area.bottom)};
           const result=filterHost.renderer.coverage(visible,target=>clippings.draw(target,item,clips,paths,canvas=>paintItem(canvas,item),{bounds:visible,readBounds:true,bitmaps:bitmapHost?.cache}));
           clippedBounds.set(item,result||null);
         }
@@ -408,7 +408,74 @@
     let timerRenderGeneration=0, capturePainter=null,inputPaths=null;
     let legacyCursorVisible = true, pointerOverContent = false;
     let runtimeFrameRate = typeof project === 'undefined' ? 24 : project.fps;
-    function logicalSize(){return [typeof preview==='undefined'?typeof project==='undefined'?800:project.width:preview.view.logicalWidth||project.width,typeof preview==='undefined'?typeof project==='undefined'?600:project.height:preview.view.logicalHeight||project.height];}
+    const hostPlayerConfig = typeof bundle !== 'undefined' && bundle?.player_config ? bundle.player_config : {};
+    const initialFlashScaleMode = hostPlayerConfig.scale_mode === 'no_scale' ? 'noScale'
+      : hostPlayerConfig.scale_mode === 'exact_fit' ? 'exactFit'
+      : hostPlayerConfig.scale_mode === 'fill_crop' ? 'noBorder'
+      : 'showAll';
+    const alignCodeMap = { center: '', top: 'T', bottom: 'B', left: 'L', right: 'R', top_left: 'TL', top_right: 'TR', bottom_left: 'BL', bottom_right: 'BR' };
+    const initialFlashAlign = Object.hasOwn(alignCodeMap, hostPlayerConfig.stage_align || '') ? alignCodeMap[hostPlayerConfig.stage_align] : '';
+    const allowFullscreen = hostPlayerConfig.allow_fullscreen !== false;
+    const initialViewportOverflow = typeof viewport !== 'undefined' ? viewport?.style?.overflow : undefined;
+    let hostStageLayoutPinned = false;
+    function ownsViewportFullscreen() {
+      const docRef = typeof document === 'undefined' ? global.document : document;
+      const fsEl = docRef?.fullscreenElement || docRef?.webkitFullscreenElement || null;
+      return Boolean(typeof viewport !== 'undefined' && viewport && fsEl === viewport);
+    }
+    function shouldAutoEnableStageLayout() {
+      const chromeCfg = hostPlayerConfig.chrome || {};
+      const clean = chromeCfg.clean === true || (chromeCfg.show_fps === false && chromeCfg.show_dimensions === false && chromeCfg.show_controls === false && chromeCfg.show_load_summary === false && chromeCfg.show_trace === false);
+      return Boolean(clean || hostPlayerConfig.template === 'fullscreen' || (hostPlayerConfig.stage_align && hostPlayerConfig.stage_align !== 'center') || (hostPlayerConfig.scale_mode && hostPlayerConfig.scale_mode !== 'fit_keep_ratio'));
+    }
+    function computeHostStageLayout(vw, vh) {
+      const docW = typeof project === 'undefined' ? 800 : project.width;
+      const docH = typeof project === 'undefined' ? 600 : project.height;
+      const mode = stageHost?.stage?.scaleMode || initialFlashScaleMode;
+      const align = stageHost?.stage?.align ?? initialFlashAlign;
+      const fsRect = stageHost?.fullScreenSourceRect?.() || null;
+      const isFs = ownsViewportFullscreen() || Boolean(stageHost?.stage?.displayState && stageHost.stage.displayState !== 'normal');
+      const next = global.NeoFlashStage.computeStageLayout(docW, docH, vw, vh, {
+        scaleMode: mode,
+        align,
+        fullscreen: isFs,
+        fullScreenSourceRect: fsRect,
+      });
+      if (stageHost) {
+        const wantW = fsRect && isFs ? docW : next.logicalWidth;
+        const wantH = fsRect && isFs ? docH : next.logicalHeight;
+        if (stageHost.stage.stageWidth !== wantW || stageHost.stage.stageHeight !== wantH) {
+          queueMicrotask(() => { if ((typeof failed === 'undefined' || !failed) && stageHost) stageHost.resize(wantW, wantH); });
+        }
+      }
+      return next;
+    }
+    function enableHostStageLayout(pin = true) {
+      if (pin) hostStageLayoutPinned = true;
+      if (as2StageHost?.isActive?.()) return;
+      if (typeof preview !== 'undefined' && preview) {
+        if (typeof viewport !== 'undefined' && viewport?.style) viewport.style.overflow = 'hidden';
+        preview.setStageLayout(computeHostStageLayout);
+      }
+    }
+    function syncInitialStageLayout() {
+      hostStageLayoutPinned = shouldAutoEnableStageLayout();
+      if (hostStageLayoutPinned || ownsViewportFullscreen()) enableHostStageLayout(hostStageLayoutPinned);
+      else if (!as2StageHost?.isActive?.() && typeof preview !== 'undefined' && preview) {
+        preview.setStageLayout(null);
+        if (typeof viewport !== 'undefined' && viewport?.style) viewport.style.overflow = initialViewportOverflow;
+      }
+    }
+    function logicalSize(){return [typeof preview==='undefined'||!preview?.view?typeof project==='undefined'?800:project.width:preview.view.logicalWidth||project.width,typeof preview==='undefined'||!preview?.view?typeof project==='undefined'?600:project.height:preview.view.logicalHeight||project.height];}
+    function stageOrigin(){return [typeof preview==='undefined'||!preview?.view?0:preview.view.originX||0,typeof preview==='undefined'||!preview?.view?0:preview.view.originY||0];}
+    function stagePointFromEvent(event){
+      if(typeof canvas==='undefined'||!canvas)return null;
+      const r=canvas.getBoundingClientRect();
+      if(!(r.width>0&&r.height>0))return null;
+      const [width,height]=logicalSize(),[ox,oy]=stageOrigin();
+      const vx=(event.clientX-r.left)*width/r.width,vy=(event.clientY-r.top)*height/r.height;
+      return {x:vx-ox,y:vy-oy,inside:vx>=0&&vy>=0&&vx<=width&&vy<=height};
+    }
     function updateCursor() {
       if(typeof canvas==='undefined')return;
       const as3Mouse=stageHost?.mouseState?.();
@@ -515,6 +582,7 @@
           localPoint:local,globalPoint:(target,x,y)=>{const p=(target===stageHost?.stage||frameLabelType?.__nfIs(target))?{x,y}:display.convert(target,{x,y},true);return[p.x,p.y];}});
         const initialStageColor=typeof project!=='undefined'&&Array.isArray(project.background)?(((project.background[0]&255)<<16)|((project.background[1]&255)<<8)|(project.background[2]&255))>>>0:0xffffff;
         stageHost=global.NeoFlashStage.create({events:eventHub,FullScreenEvent:eventFamilies.FullScreenEvent,TouchEvent:eventFamilies.TouchEvent,IMEEvent:eventFamilies.IMEEvent,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,
+          scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen?undefined:false,allowsFullScreenInteractive:allowFullscreen?undefined:false,
           color:initialStageColor,viewport:typeof viewport==='undefined'?null:viewport,screen:global.screen,devicePixelRatio:global.devicePixelRatio,
           stageContainer:display.stageContainer,getStageContentSize:()=>display.stageContainer.contentSize(),
           getStage3Ds:()=>fte3dHost?.getStage3Ds()||[],getStageVideos:()=>as3MediaEventsHost?as3MediaEventsHost.getStageVideos():(fte3dHost?.getStageVideos()||[]),getSoftKeyboardRect:()=>fte3dHost?fte3dHost.getSoftKeyboardRect():new geometryHost.Rectangle(0,0,0,0),
@@ -523,10 +591,14 @@
           canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
           onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},onMouseChanged:updateCursor,
+          onScaleModeChanged:()=>{enableHostStageLayout(true);if(typeof context!=='undefined')render();},
+          onAlignChanged:()=>{enableHostStageLayout(true);if(typeof context!=='undefined')render();},
+          onFullScreenSourceRectChanged:()=>{if(ownsViewportFullscreen()||(stageHost?.stage?.displayState&&stageHost.stage.displayState!=='normal')){enableHostStageLayout(false);if(typeof context!=='undefined')render();}},
+          onDisplayStateChanged:state=>{if(state!=='normal')enableHostStageLayout(false);else if(!hostStageLayoutPinned)syncInitialStageLayout();else if(typeof preview!=='undefined'&&preview)preview.resize();if(typeof context!=='undefined')render();},
           onColorChanged:()=>{if(typeof context!=='undefined')render();},onInvalidate:requestTimerRender,
           onFocusChanged:(next,previous)=>{fte3dHost?.handleFocusChange?.(next,previous);return textInputHost?.focusChanged(next,previous);},ownsTextInput:node=>textInputHost?.owns(node),canFocus:value=>{if(textInputHost&&!textInputHost.canFocus(value))return false;assertUnfilteredEditing(value);return true;},
-          hitTest:event=>{if(typeof canvas==='undefined')return null;const rect=canvas.getBoundingClientRect(),[width,height]=logicalSize(),x=(event.clientX-rect.left)*width/rect.width,y=(event.clientY-rect.top)*height/rect.height;return x>=0&&y>=0&&x<=width&&y<=height?display.pick(x,y):null;},
-          coordinates:event=>{if(typeof canvas==='undefined')return null;const r=canvas.getBoundingClientRect(),[width,height]=logicalSize();return[(event.clientX-r.left)*width/r.width,(event.clientY-r.top)*height/r.height];},
+          hitTest:event=>{const p=stagePointFromEvent(event);return p&&p.inside?display.pick(p.x,p.y):null;},
+          coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:null;},
           isInputEnabled:()=>typeof failed==='undefined'||(!failed&&!preview.panMode&&!preview.suppressClick),
           onLegacyInput:(type,target,event)=>display.pointer(type,target,event),
           afterInput:()=>{dispatchScripts();if(typeof context!=='undefined')render();},onError:inputFailure});
@@ -535,7 +607,7 @@
             keyTarget:typeof global.addEventListener==='function'?global:null,
             alive:listener=>!references.has(listener)||display.alive(listener),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
-          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);if(typeof canvas!=='undefined'&&canvas&&display?.pickDetails){const r=canvas.getBoundingClientRect(),[w,h]=logicalSize(),x=(event.clientX-r.left)*w/r.width,y=(event.clientY-r.top)*h/r.height;if(x>=0&&y>=0&&x<=w&&y<=h)return display.pickDetails(x,y)?.target||proxyFor([]);}return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
+          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
@@ -734,7 +806,7 @@
         printNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);},
         printAsBitmapNum(level,boundingBox){legacyPrint(this,level,boundingBox,true);}});
       if(global.NeoFlashTextInput&&textHost&&stageHost&&typeof player.object_text_input==='function'){
-        textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,player,text:textHost,display,events:{...global.NeoFlashEvents,...eventFamilies},hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
+        textInputHost=global.NeoFlashTextInput.create({getSize:logicalSize,getOrigin:stageOrigin,player,text:textHost,display,events:{...global.NeoFlashEvents,...eventFamilies},hub:eventHub,stage:stageHost,referenceOf:target=>references.get(target),proxyForRef,onLegacyTab:event=>display.as2Tab?.(event)||false,beforeLegacyTextEvent:(target,name)=>{if(name==='onChanged')as2ObjectHost?.textChanged(target);},onLegacyTextEvent:(target,name,args)=>as2TextHost?.textEvent(references.get(target).key,name,args),
           canvas:typeof canvas==='undefined'?null:canvas,surface:typeof document==='undefined'?null:document.getElementById('stage-surface'),document:typeof document==='undefined'?null:document,project:typeof project==='undefined'?null:project,
           onError:inputFailure,afterInput:afterTimerEvent,onClick:(target,event)=>{target=display.resolveInput(target);if(!target)return;stageHost.handlePointer('click',event,target);if(display.alive(target)){player.object_click(references.get(target).key);dispatchScripts(target);if(typeof context!=='undefined')render();}}});
         legacyGlobals=Object.freeze({...legacyGlobals,Selection:Object.freeze({...textInputHost.Selection,setFocus:value=>{const target=typeof value==='string'?(value?display.resolveTarget(value,proxyFor([])):null):value;if(!display.as2CanFocus?.(target))return false;return textInputHost.Selection.setFocus(target);}})});
@@ -812,7 +884,7 @@
             else proxyFor([])?.gotoAndStop?.(target+1);
           }
         };
-        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:typeof document==='undefined'?null:document,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{if(typeof canvas==='undefined')return [Number(event?.clientX)||0,Number(event?.clientY)||0];const r=canvas.getBoundingClientRect(),[w,h]=logicalSize();return[(event.clientX-r.left)*w/r.width,(event.clientY-r.top)*h/r.height];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
+        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:typeof document==='undefined'?null:document,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:[Number(event?.clientX)||0,Number(event?.clientY)||0];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){
@@ -1064,6 +1136,7 @@
       as2PrintHost?.reset();as2BoxingHost?.reset();as2StageHost?.reset();as2ConnectionsHost?.reset();as2DepthManagerHost?.reset();as2TransitionsHost?.reset();as2MediaHost?.reset();as2ServicesHost?.reset();as2FilesHost?.reset();as2NetworkHost?.reset();as2LocaleHost?.reset();as2TextHost?.reset();as2BindingHost?.reset();as2DataHost?.reset();as2ObjectHost?.reset();
       as3MediaEventsHost?.reset();fte3dHost?.reset();as3NetSysHost?.reset();airHost?.reset();externalHost?.reset();textInputHost?.reset();storageHost?.reset();amfHost?.reset?.();loaderHost?.reset();xmlHost?.reset();videoHost?.reset();as2CaptureHost?.reset();audioHost?.reset();netHost?.reset();stopTimers();binaryHost?.reset();bitmapHost?.reset();textHost?.reset();
       proxies.clear(); attachedClasses.clear(); boundTextVariables.clear(); registeredClasses.clear(); executedInitClips.clear(); clipFrameLabels.clear(); callFrameDepth = 0; if(legacyGlobals?.__nfCallStack)legacyGlobals.__nfCallStack.length=0; display?.clear();eventHub?.clear();stageHost?.reset();legacyHost?.reset();as2PlatformHost?.reset();for(const key of Object.keys(legacyGlobals?._global||{}))delete legacyGlobals._global[key];lastTrace = '';lastTraceLocation = '';
+      syncInitialStageLayout();
       soundsPreloaded=false;
       player.reset();
       initializeProgram();
@@ -1605,9 +1678,9 @@
     function font(kind) { return `${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`; }
     function bitmapMatrix(item){
       if(item.kind.type!=='bitmap_pixels')return item.transform;
-      const [width,height]=logicalSize(),sx=canvas.width/width,sy=canvas.height/height,[a,b,c,d,e,f]=item.transform;
-      const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,e*sx,f*sy],item.kind.pixel_snapping);
-      return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx,m[5]/sy];
+      const [width,height]=logicalSize(),[ox,oy]=stageOrigin(),sx=canvas.width/width,sy=canvas.height/height,[a,b,c,d,e,f]=item.transform;
+      const m=bitmapHost.cache.transform([a*sx,b*sy,c*sx,d*sy,(e+ox)*sx,(f+oy)*sy],item.kind.pixel_snapping);
+      return [m[0]/sx,m[1]/sy,m[2]/sx,m[3]/sy,m[4]/sx-ox,m[5]/sy-oy];
     }
     let measuredFps = 0;
     let lastTickNow = null;
@@ -1625,26 +1698,31 @@
       assertUnfilteredEditing(stageHost?.stage.focus);
       if(snapshot)textInputHost?.update(snapshot);
       const [width,height]=logicalSize();
+      const [originX,originY]=stageOrigin();
+      const sx=canvas.width/width,sy=canvas.height/height;
       if(typeof player.as2_settings_command==='function'&&display){
         const quality=display.as2GlobalPropRef('_quality').get();
         context.imageSmoothingEnabled=quality!=='LOW';
         if('imageSmoothingQuality' in context)context.imageSmoothingQuality=quality==='BEST'?'high':quality==='MEDIUM'?'low':'medium';
       }
-      context.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
+      context.setTransform(sx, 0, 0, sy, 0, 0);
       context.clearRect(0, 0, width, height);
       const stageRgb=stageHost?.stage?.color;
       context.fillStyle = Number.isInteger(stageRgb)&&stageHost?.colorAssigned?.() ? color([(stageRgb>>>16)&255,(stageRgb>>>8)&255,stageRgb&255,255]) : color(project.background);
       context.fillRect(0, 0, width, height);
+      if (originX !== 0 || originY !== 0) {
+        context.setTransform(sx, 0, 0, sy, originX * sx, originY * sy);
+      }
       as3MediaEventsHost?.paintStageVideos?.(context, width, height);
       fte3dHost?.paintStage3Ds?.(context);
       bitmapHost?.cache.beginFrame();
       const painter=createScenePainter({global,paths,gradients,clippings,bitmapHost,textHost,filterHost,videoHost,context,matrix:bitmapMatrix,hidden:ref=>Boolean(textInputHost?.hidden(ref))});
-      const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{width,height});
+      const {clippedBounds,objects}=painter.draw(context,snapshot||{draws:scene,objects:[],semantics:[],clips:[],filter_groups:[]},{minX:-originX,minY:-originY,width:width-originX,height:height-originY});
       const focusBounds=display?.as2FocusBounds?.();if(focusBounds){context.save();context.strokeStyle='#ffcc00';context.lineWidth=2;context.strokeRect(focusBounds.x,focusBounds.y,focusBounds.width,focusBounds.height);context.restore();}
       const rawSemNodes=snapshot?(snapshot.semantics.length?snapshot.semantics.filter(node=>Boolean(semanticRoute(node,snapshot.objects))):[]):JSON.parse(player.accessibility_json());
       const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
       const semanticScene=enrichedSemNodes.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
-      const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; });
+      const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; }, {x:originX,y:originY});
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;
@@ -1666,11 +1744,11 @@
       if(snapshot&&typeof videoHost!=='undefined'&&videoHost)snapshot=videoHost.prepareSnapshot(snapshot);
       scene = snapshot?snapshot.draws:JSON.parse(player.scene_json());
       const clips=snapshot?.clips?.length?global.NeoFlashPaths.clipTable(snapshot.clips):new Map();
-      const rect = canvas.getBoundingClientRect();
-      const [width,height]=logicalSize();
-      const x = (event.clientX - rect.left) * width / rect.width;
-      const y = (event.clientY - rect.top) * height / rect.height;
-      if(typeof display!=='undefined'&&display?.pickDetails){const result=x>=0&&y>=0&&x<=width&&y<=height?display.pickDetails(x,y):null;return details?result:result?references.get(result.target).objectRef:null;}
+      const pt = stagePointFromEvent(event);
+      if (!pt) return null;
+      const { x, y, inside } = pt;
+      if(typeof display!=='undefined'&&display?.pickDetails){const result=inside?display.pickDetails(x,y):null;return details?result:result?references.get(result.target).objectRef:null;}
+      if (!inside) return null;
       for (let index = scene.length - 1; index >= 0; index--) {
         const item = scene[index];
         if (item.alpha <= 0) continue;
@@ -1735,7 +1813,14 @@
     global.addEventListener('resize', () => { resize(); render(); });
     document.addEventListener('visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
     const zoomSelect = document.getElementById('zoom');
-    zoomSelect?.addEventListener('change', event => preview.setMode(event.target.value));
+    zoomSelect?.addEventListener('change', event => {
+      hostStageLayoutPinned = false;
+      if (!as2StageHost?.isActive?.()) {
+        preview.setStageLayout(null);
+        if (viewport?.style) viewport.style.overflow = initialViewportOverflow;
+      }
+      preview.setMode(event.target.value);
+    });
     if (playerConfig.scale_mode) {
       const initialMode = playerConfig.scale_mode === 'no_scale' ? '1'
         : playerConfig.scale_mode === 'exact_fit' ? 'stretch'
@@ -1746,6 +1831,35 @@
     }
     const panButton = document.getElementById('pan');
     panButton?.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
+    const fullscreenToggle = document.getElementById('fullscreen-toggle');
+    if (fullscreenToggle) {
+      if (!allowFullscreen) fullscreenToggle.hidden = true;
+      const syncFullscreenToggle = () => {
+        const active = ownsViewportFullscreen();
+        fullscreenToggle.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+        fullscreenToggle.setAttribute('aria-pressed', String(active));
+        if (active) enableHostStageLayout(false);
+        else if (!as2StageHost?.isActive?.()) syncInitialStageLayout();
+        resize();
+        render();
+      };
+      fullscreenToggle.addEventListener('click', () => {
+        if (failed || !allowFullscreen) return;
+        try {
+          if (ownsViewportFullscreen()) {
+            const exitFn = document.exitFullscreen || document.webkitExitFullscreen;
+            if (typeof exitFn === 'function') Promise.resolve(exitFn.call(document)).catch(fail);
+          } else {
+            const reqFn = viewport?.requestFullscreen || viewport?.webkitRequestFullscreen;
+            if (typeof reqFn !== 'function') throw new Error('Fullscreen is unavailable in this browser context.');
+            enableHostStageLayout(false);
+            Promise.resolve(reqFn.call(viewport)).catch(fail);
+          }
+        } catch (error) { fail(error); }
+      });
+      document.addEventListener?.('fullscreenchange', syncFullscreenToggle);
+      document.addEventListener?.('webkitfullscreenchange', syncFullscreenToggle);
+    }
     const footerElement = document.querySelector?.('footer');
     const nameElement = document.getElementById('name');
     const transportElement = document.querySelector?.('.transport');
@@ -1815,6 +1929,7 @@
     if (playerConfig.autoplay === false) {
       player.set_playing(false);
     }
+    syncInitialStageLayout();
     resize();
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.

@@ -3873,6 +3873,7 @@ const fn browser_theme_label(theme: Theme) -> &'static str {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
     render_browser_help_html_for_route(initial_theme, None, None, None)
 }

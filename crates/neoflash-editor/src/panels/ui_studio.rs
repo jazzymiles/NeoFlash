@@ -5225,28 +5225,36 @@ pub fn export_all_artboards_to_svg(state: &UiLayoutStudioState, theme: ThemeMode
         if !ab.visible {
             continue;
         }
+        let ab_theme = ab.theme_override.unwrap_or(theme);
+        let ab_theme_slug = match ab_theme {
+            ThemeMode::Dark => "dark",
+            ThemeMode::Light => "light",
+            ThemeMode::MidNeutralGray => "mid-neutral-gray",
+            ThemeMode::DarkGraphite => "dark-graphite",
+        };
         let origin = egui::pos2(ab.canvas_pos[0], ab.canvas_pos[1]);
         let avail = egui::vec2(ab.canvas_size[0].max(80.0), ab.canvas_size[1].max(80.0));
         let computed = compute_studio_layout(&ab.document, &state.systems, origin, avail);
         writeln!(
             svg,
-            r#"  <g id="artboard-{}" data-nf-artboard="{}" transform="translate(0, 0)">"#,
+            r#"  <g id="artboard-{}" data-nf-artboard="{}" data-nf-theme="{}" transform="translate(0, 0)">"#,
             ab.id,
-            xml_escape(&ab.document.name)
+            xml_escape(&ab.document.name),
+            ab_theme_slug
         )
         .unwrap();
         emit_node_svg(
             &ab.document.root,
             &state.systems,
             &computed,
-            theme,
+            ab_theme,
             Pos2::ZERO,
             2,
             &mut svg,
         );
         if ab.preset.is_timeline_surface() || ab.preset.is_full_shell() {
             let tl_rect = Rect::from_min_size(origin, avail);
-            emit_timeline_geometry_svg(&mut svg, tl_rect, &state.systems, theme, 2);
+            emit_timeline_geometry_svg(&mut svg, tl_rect, &state.systems, ab_theme, 2);
         }
         writeln!(svg, "  </g>").unwrap();
     }
@@ -6487,6 +6495,9 @@ pub struct StudioArtboard {
     /// Artboard width & height on the canvas (user can drag-resize width/height live to test % vs px!).
     pub canvas_size: [f32; 2],
     pub visible: bool,
+    /// Optional per-artboard NF2 theme override (used by 4-theme side-by-side comparison).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_override: Option<ThemeMode>,
 }
 
 impl StudioArtboard {
@@ -6555,6 +6566,7 @@ impl StudioArtboard {
                 canvas_pos,
                 canvas_size,
                 visible: true,
+                theme_override: None,
             })
             .collect()
     }
@@ -6623,11 +6635,16 @@ pub struct UiLayoutStudioState {
         deserialize_with = "deserialize_studio_theme"
     )]
     pub preview_theme: ThemeMode,
+    /// When true, `preview_theme` was explicitly chosen inside UI Studio and is not overwritten by host frames.
+    #[serde(default)]
+    pub preview_theme_locked: bool,
     pub status_message: String,
     #[serde(skip)]
     pub history: UiStudioHistory,
     #[serde(skip)]
     pub drag_source_node: Option<UiNodeId>,
+    #[serde(skip)]
+    last_host_theme: Option<ThemeMode>,
 }
 
 fn default_canvas_zoom() -> f32 {
@@ -6661,10 +6678,12 @@ impl Default for UiLayoutStudioState {
             show_dimension_badges: true,
             preview_canvas_width: 820.0,
             preview_theme: ThemeMode::Dark,
+            preview_theme_locked: false,
             status_message: "Multi-Panel Artboard Canvas ready — drag headers to move, drag bottom-right grips to resize (% vs px), or Import/Export SVG."
                 .to_owned(),
             history: UiStudioHistory::new(64),
             drag_source_node: None,
+            last_host_theme: None,
         }
     }
 }
@@ -6718,6 +6737,7 @@ impl UiLayoutStudioState {
             canvas_pos: pos,
             canvas_size: size,
             visible: true,
+            theme_override: None,
         });
         let new_idx = self.artboards.len() - 1;
         self.active_artboard_idx = new_idx;
@@ -6797,6 +6817,66 @@ impl UiLayoutStudioState {
         self.selected_nodes = vec![self.document.root.id];
         self.status_message =
             "Opened all 6 core NeoFlash panels + Timeline on the artboard canvas.".to_owned();
+    }
+
+    /// Explicitly switch the studio preview theme (`Dark`, `Light`, `Mid Neutral Gray`, `Dark Graphite`).
+    pub fn set_preview_theme(&mut self, theme: ThemeMode) {
+        self.preview_theme = theme;
+        self.preview_theme_locked = true;
+        self.status_message = format!("Switched UI Studio preview theme to '{}'.", theme.label());
+    }
+
+    /// Open a 4-artboard side-by-side comparison of the active preset across all 4 NF2 themes
+    /// (`Dark`, `Light`, `Mid Neutral Gray`, and `Dark Graphite`).
+    pub fn open_four_theme_comparison(&mut self) {
+        self.sync_active_to_artboard();
+        self.commit_history("Compare 4 Themes");
+        let preset = self.active_preset;
+        let base_doc = self.document.clone();
+        let default_size = StudioArtboard::default_size_for(preset);
+        let is_wide_surface = preset.is_full_shell() || preset.is_timeline_surface();
+        let size = if is_wide_surface {
+            [default_size[0].min(660.0), default_size[1].min(440.0)]
+        } else {
+            default_size
+        };
+        let gap_x = 24.0_f32;
+        let gap_y = 40.0_f32;
+        let mut artboards = Vec::with_capacity(ThemeMode::ALL.len());
+        for (i, theme) in ThemeMode::ALL.into_iter().enumerate() {
+            let mut doc = base_doc.clone();
+            doc.name = format!("{} — {}", preset.label(), theme.label());
+            let pos = if is_wide_surface {
+                let col = (i % 2) as f32;
+                let row = (i / 2) as f32;
+                [
+                    24.0 + col * (size[0] + gap_x),
+                    28.0 + row * (size[1] + gap_y),
+                ]
+            } else {
+                [24.0 + (i as f32) * (size[0] + gap_x), 28.0]
+            };
+            artboards.push(StudioArtboard {
+                id: (i as u32) + 1,
+                preset,
+                document: doc,
+                canvas_pos: pos,
+                canvas_size: size,
+                visible: true,
+                theme_override: Some(theme),
+            });
+        }
+        self.artboards = artboards;
+        self.active_artboard_idx = 0;
+        self.document = self.artboards[0].document.clone();
+        self.solo_active_artboard = false;
+        self.canvas_pan = [0.0, 0.0];
+        self.canvas_zoom = 1.0;
+        self.selected_nodes = vec![self.document.root.id];
+        self.status_message = format!(
+            "Comparing '{}' across all 4 NF2 themes (Dark, Light, Mid Neutral Gray, Dark Graphite).",
+            preset.label()
+        );
     }
 
     /// Auto-arrange all visible artboards into a non-overlapping multi-row grid on the canvas.
@@ -6955,6 +7035,7 @@ impl UiLayoutStudioState {
             canvas_pos: pos,
             canvas_size: [w, h],
             visible: true,
+            theme_override: None,
         });
         let new_idx = self.artboards.len() - 1;
         self.active_artboard_idx = new_idx;
@@ -7130,7 +7211,13 @@ pub fn ui_layout_studio_window_ui(ctx: &egui::Context, state: &mut UiLayoutStudi
 /// Embeddable panel/body UI for the Interactive Visual UI & System Layout Studio.
 pub fn ui_layout_studio_panel_ui(ui: &mut Ui, state: &mut UiLayoutStudioState) {
     let nf = neoflash_ui::palette(ui.ctx());
-    state.preview_theme = ThemeMode::current(ui.ctx());
+    let host_theme = ThemeMode::current(ui.ctx());
+    if state.last_host_theme != Some(host_theme) {
+        state.last_host_theme = Some(host_theme);
+        if !state.preview_theme_locked {
+            state.preview_theme = host_theme;
+        }
+    }
     ui.spacing_mut().item_spacing = egui::vec2(space::S2, space::S2);
     state.sync_active_to_artboard();
 
@@ -7302,6 +7389,46 @@ fn render_studio_top_toolbar(ui: &mut Ui, state: &mut UiLayoutStudioState) {
         }
         if ui.add(c::Button::new("Auto-Arrange")).clicked() {
             state.auto_arrange_artboards();
+        }
+
+        c::divider(ui, true);
+
+        // Explicit 4-Theme Switcher (`Dark`, `Light`, `Mid Neutral Gray`, `Dark Graphite`) + 4-Theme Comparison
+        let mut preview_theme = state.preview_theme;
+        let theme_options: [(ThemeMode, &str); 4] = [
+            (ThemeMode::Dark, "Theme: Dark"),
+            (ThemeMode::Light, "Theme: Light"),
+            (ThemeMode::MidNeutralGray, "Theme: Mid Neutral Gray"),
+            (ThemeMode::DarkGraphite, "Theme: Dark Graphite"),
+        ];
+        if c::Select::options(
+            ui,
+            "studio-top-theme-select",
+            &mut preview_theme,
+            &theme_options,
+            192.0,
+        ) {
+            state.set_preview_theme(preview_theme);
+        }
+        if ui
+            .add(c::Button::new("Compare 4 Themes").icon(i16::GRID))
+            .clicked()
+        {
+            state.open_four_theme_comparison();
+        }
+        let mut top_density = state.systems.density.active_profile;
+        if c::Select::options(
+            ui,
+            "studio-top-density-select",
+            &mut top_density,
+            &[
+                (StudioDensityProfile::Comfortable, "Density: Comfortable"),
+                (StudioDensityProfile::Compact, "Density: Compact"),
+                (StudioDensityProfile::ClassicFlash, "Density: Classic Flash"),
+            ],
+            166.0,
+        ) {
+            state.systems.density.active_profile = top_density;
         }
 
         // Undo / Redo
@@ -8044,7 +8171,7 @@ fn render_live_canvas_column(
     });
 
     let canvas_h = (height - 40.0).max(240.0);
-    let theme = ThemeMode::current(ui.ctx());
+    let theme = state.preview_theme;
     let artboard_shadow = theme.nf2().palette().overlay;
     let stage_bg = state
         .systems
@@ -8196,12 +8323,22 @@ fn render_live_canvas_column(
                             3.5,
                             dot_c,
                         );
-                        let title_txt = format!(
-                            "{}  ({:.0}×{:.0}px)",
-                            ab_snapshot.document.name,
-                            ab_snapshot.canvas_size[0],
-                            ab_snapshot.canvas_size[1]
-                        );
+                        let title_txt = if let Some(ab_theme) = ab_snapshot.theme_override {
+                            format!(
+                                "{}  [{}]  ({:.0}×{:.0}px)",
+                                ab_snapshot.document.name,
+                                ab_theme.label(),
+                                ab_snapshot.canvas_size[0],
+                                ab_snapshot.canvas_size[1]
+                            )
+                        } else {
+                            format!(
+                                "{}  ({:.0}×{:.0}px)",
+                                ab_snapshot.document.name,
+                                ab_snapshot.canvas_size[0],
+                                ab_snapshot.canvas_size[1]
+                            )
+                        };
                         ui.painter().text(
                             egui::pos2(hdr_rect.left() + 16.0, hdr_rect.center().y),
                             egui::Align2::LEFT_CENTER,
@@ -8327,38 +8464,48 @@ fn render_live_canvas_column(
                             ab_rect.size(),
                         );
 
-                        if ab_snapshot.preset.is_full_shell() {
-                            paint_full_workspace_shell_canvas(
-                                ui,
-                                state,
-                                ab_rect,
-                                &mut computed,
-                                theme,
-                            );
-                        } else if ab_snapshot.preset.is_timeline_surface() {
-                            paint_timeline_studio_canvas(
-                                ui,
-                                state,
-                                ab_rect,
-                                &mut computed,
-                                theme,
-                            );
-                        } else if is_active {
-                            paint_node_wysiwyg(
-                                ui,
-                                &mut state.document.root,
-                                &state.systems,
-                                &computed,
-                                theme,
-                            );
-                        } else if let Some(ab_mut) = state.artboards.get_mut(idx) {
-                            paint_node_wysiwyg(
-                                ui,
-                                &mut ab_mut.document.root,
-                                &state.systems,
-                                &computed,
-                                theme,
-                            );
+                        let ab_theme = ab_snapshot.theme_override.unwrap_or(theme);
+                        let saved_ctx_theme = ThemeMode::current(ui.ctx());
+                        if ab_theme != saved_ctx_theme {
+                            ab_theme.apply(ui.ctx());
+                        }
+                        ui.push_id(("studio-artboard", ab_snapshot.id), |ui| {
+                            if ab_snapshot.preset.is_full_shell() {
+                                paint_full_workspace_shell_canvas(
+                                    ui,
+                                    state,
+                                    ab_rect,
+                                    &mut computed,
+                                    ab_theme,
+                                );
+                            } else if ab_snapshot.preset.is_timeline_surface() {
+                                paint_timeline_studio_canvas(
+                                    ui,
+                                    state,
+                                    ab_rect,
+                                    &mut computed,
+                                    ab_theme,
+                                );
+                            } else if is_active {
+                                paint_node_wysiwyg(
+                                    ui,
+                                    &mut state.document.root,
+                                    &state.systems,
+                                    &computed,
+                                    ab_theme,
+                                );
+                            } else if let Some(ab_mut) = state.artboards.get_mut(idx) {
+                                paint_node_wysiwyg(
+                                    ui,
+                                    &mut ab_mut.document.root,
+                                    &state.systems,
+                                    &computed,
+                                    ab_theme,
+                                );
+                            }
+                        });
+                        if ab_theme != saved_ctx_theme {
+                            saved_ctx_theme.apply(ui.ctx());
                         }
 
                         // Active artboard highlight frame + pointer hit-testing across all artboards
@@ -8369,7 +8516,7 @@ fn render_live_canvas_column(
                                 Stroke::new(1.5_f32, nf.accent_default.gamma_multiply(0.85)),
                                 StrokeKind::Outside,
                             );
-                            paint_canvas_overlays(ui, state, &computed, theme);
+                            paint_canvas_overlays(ui, state, &computed, ab_theme);
                         }
 
                         // Pointer click inside `ab_rect` selects this artboard and hit-tests its nodes
@@ -8524,7 +8671,7 @@ fn paint_full_workspace_shell_canvas(
     computed.order.clear();
     register_hit_box(computed, &state.systems, 1, shell_rect);
 
-    let nf = neoflash_ui::palette(ui.ctx());
+    let nf = theme.nf2().palette();
     let bg_app = state
         .systems
         .palette_overrides
@@ -9185,13 +9332,8 @@ fn paint_timeline_studio_canvas(
             Rect::from_center_size(egui::pos2(act_x + 12.0, act_cy), egui::vec2(24.0, 24.0));
         if b_rect.right() < action_bar_rect.right() - 260.0 {
             if active {
-                ui.painter().rect_filled(
-                    b_rect,
-                    4.0,
-                    neoflash_ui::palette(ui.ctx())
-                        .accent_default
-                        .gamma_multiply(0.24),
-                );
+                ui.painter()
+                    .rect_filled(b_rect, 4.0, palette.accent_default.gamma_multiply(0.24));
             }
             icons::paint(
                 ui.painter(),
@@ -9842,7 +9984,7 @@ fn paint_node_wysiwyg(
         return;
     };
     let rect = box_info.rect;
-    let nf = neoflash_ui::palette(ui.ctx());
+    let nf = theme.nf2().palette();
 
     // Optional custom background or panel surface
     let bg_fill = node
@@ -11732,7 +11874,22 @@ fn render_systems_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _w
                 });
         }
         SystemsSubTab::PaletteTokens => {
-            let theme = ThemeMode::current(ui.ctx());
+            let mut theme = state.preview_theme;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = space::S1;
+                for candidate in ThemeMode::ALL {
+                    let btn = if candidate == theme {
+                        c::Button::primary(candidate.label())
+                    } else {
+                        c::Button::new(candidate.label())
+                    };
+                    if ui.add(btn).clicked() {
+                        theme = candidate;
+                        state.set_preview_theme(candidate);
+                    }
+                }
+            });
+            ui.add_space(space::S1);
             let heading = match theme {
                 ThemeMode::Dark => "DARK PALETTE TOKEN OVERRIDES",
                 ThemeMode::Light => "LIGHT PALETTE TOKEN OVERRIDES",
@@ -11759,13 +11916,43 @@ fn render_systems_inspector_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, _w
                                 rich(role.label(), TextStyle::MonoSmall).color(nf.text_secondary),
                             );
                             let resp = c::ColorField::new(&mut col, role.label())
-                                .width(124.0)
+                                .width(112.0)
                                 .show(ui);
                             if resp.response.changed() {
                                 state
                                     .systems
                                     .palette_overrides
                                     .set_color_override(theme, role, col);
+                            }
+                            // 4-theme swatch strip (Dark · Light · Mid Neutral Gray · Dark Graphite)
+                            for swatch_theme in ThemeMode::ALL {
+                                let sw_col = state
+                                    .systems
+                                    .palette_overrides
+                                    .resolve_color(swatch_theme, role);
+                                let (sw_rect, sw_resp) =
+                                    ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::click());
+                                ui.painter().rect_filled(sw_rect, 2.0, sw_col);
+                                ui.painter().rect_stroke(
+                                    sw_rect,
+                                    2.0,
+                                    Stroke::new(
+                                        if swatch_theme == theme {
+                                            1.2_f32
+                                        } else {
+                                            0.6_f32
+                                        },
+                                        if swatch_theme == theme {
+                                            nf.accent_default
+                                        } else {
+                                            nf.border_subtle
+                                        },
+                                    ),
+                                    StrokeKind::Inside,
+                                );
+                                if sw_resp.on_hover_text(swatch_theme.label()).clicked() {
+                                    state.set_preview_theme(swatch_theme);
+                                }
                             }
                             if state.systems.palette_overrides.has_override(theme, role)
                                 && ui.add(c::Button::ghost("Reset")).clicked()
@@ -11860,6 +12047,7 @@ fn render_code_export_tab(ui: &mut Ui, state: &mut UiLayoutStudioState, width: f
 pub struct StandaloneUiStudioApp {
     pub state: UiLayoutStudioState,
     pub theme: ThemeMode,
+    frame_index: u64,
 }
 
 impl StandaloneUiStudioApp {
@@ -11868,18 +12056,31 @@ impl StandaloneUiStudioApp {
         neoflash_ui::typography::add_fonts(&mut defs);
         cc.egui_ctx.set_fonts(defs);
         crate::theme::initialize_editor_style(&cc.egui_ctx);
-        let theme = crate::shell::screenshot_theme().unwrap_or_default();
-        theme.apply(&cc.egui_ctx);
+        let forced_theme = crate::shell::screenshot_theme();
+        let mut theme = forced_theme.unwrap_or_default();
         let mut state = UiLayoutStudioState {
             open: true,
             preview_theme: theme,
+            preview_theme_locked: forced_theme.is_some(),
             ..Default::default()
         };
         let json_path = Path::new(DEFAULT_STUDIO_JSON_PATH);
-        if json_path.exists() {
-            let _ = state.load_studio_json(json_path);
+        if json_path.exists()
+            && std::env::var_os("NEOFLASH_SCREENSHOT").is_none()
+            && state.load_studio_json(json_path).is_ok()
+        {
+            theme = state.preview_theme;
+            state.preview_theme_locked = true;
         }
-        Self { state, theme }
+        if std::env::var_os("NEOFLASH_STUDIO_COMPARE_THEMES").is_some() {
+            state.open_four_theme_comparison();
+        }
+        theme.apply(&cc.egui_ctx);
+        Self {
+            state,
+            theme,
+            frame_index: 0,
+        }
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
@@ -11964,6 +12165,7 @@ impl StandaloneUiStudioApp {
 
 impl eframe::App for StandaloneUiStudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.frame_index = self.frame_index.saturating_add(1);
         self.handle_shortcuts(ctx);
         let nf = neoflash_ui::palette(ctx);
         egui::CentralPanel::default()
@@ -11982,21 +12184,46 @@ impl eframe::App for StandaloneUiStudioApp {
                         .color(nf.text_primary),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let theme_label = format!("Theme: {}", self.theme.label());
-                        if ui.add(c::Button::new(&theme_label)).clicked() {
-                            let index = ThemeMode::ALL
-                                .iter()
-                                .position(|theme| *theme == self.theme)
-                                .unwrap_or(0);
-                            self.theme = ThemeMode::ALL[(index + 1) % ThemeMode::ALL.len()];
-                            self.state.preview_theme = self.theme;
+                        ui.spacing_mut().item_spacing.x = space::S1;
+                        let mut selected_theme = self.theme;
+                        if c::Select::options(
+                            ui,
+                            "standalone-studio-theme-select",
+                            &mut selected_theme,
+                            &[
+                                (ThemeMode::Dark, "Dark"),
+                                (ThemeMode::Light, "Light"),
+                                (ThemeMode::MidNeutralGray, "Mid Neutral Gray"),
+                                (ThemeMode::DarkGraphite, "Dark Graphite"),
+                            ],
+                            176.0,
+                        ) {
+                            self.theme = selected_theme;
+                            self.state.set_preview_theme(selected_theme);
                             self.theme.apply(ctx);
+                        }
+                        for quick_theme in ThemeMode::ALL.into_iter().rev() {
+                            let btn = if self.theme == quick_theme {
+                                c::Button::primary(quick_theme.label())
+                            } else {
+                                c::Button::new(quick_theme.label())
+                            };
+                            if ui.add(btn).clicked() {
+                                self.theme = quick_theme;
+                                self.state.set_preview_theme(quick_theme);
+                                self.theme.apply(ctx);
+                            }
                         }
                     });
                 });
                 ui.add_space(space::S1);
                 ui_layout_studio_panel_ui(ui, &mut self.state);
+                if self.state.preview_theme != self.theme {
+                    self.theme = self.state.preview_theme;
+                    self.theme.apply(ctx);
+                }
             });
+        crate::shell::capture(ctx, self.frame_index);
     }
 }
 
@@ -12379,11 +12606,20 @@ mod tests {
 
     #[test]
     fn studio_window_and_all_presets_render_in_all_four_themes() {
+        fn shape_has_rect_fill(shape: &egui::Shape, color: Color32) -> bool {
+            match shape {
+                egui::Shape::Rect(rect) => rect.fill == color,
+                egui::Shape::Vec(shapes) => {
+                    shapes.iter().any(|child| shape_has_rect_fill(child, color))
+                }
+                _ => false,
+            }
+        }
         fn has_rect_fill(output: &egui::FullOutput, color: Color32) -> bool {
             output
                 .shapes
                 .iter()
-                .any(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == color))
+                .any(|shape| shape_has_rect_fill(&shape.shape, color))
         }
 
         let ctx = egui::Context::default();
@@ -12593,5 +12829,100 @@ mod tests {
         assert!(board_svg.contains("<svg xmlns=\"http://www.w3.org/2000/svg\""));
         assert!(board_svg.contains("Properties — Movie Clip"));
         assert!(board_svg.contains("Align &amp; Transform"));
+    }
+
+    #[test]
+    fn four_theme_switching_locks_preview_theme_and_side_by_side_comparison_renders_all_four_palettes()
+     {
+        fn shape_has_rect_fill(shape: &egui::Shape, color: Color32) -> bool {
+            match shape {
+                egui::Shape::Rect(rect) => rect.fill == color,
+                egui::Shape::Vec(shapes) => {
+                    shapes.iter().any(|child| shape_has_rect_fill(child, color))
+                }
+                _ => false,
+            }
+        }
+        fn has_rect_fill(output: &egui::FullOutput, color: Color32) -> bool {
+            output
+                .shapes
+                .iter()
+                .any(|shape| shape_has_rect_fill(&shape.shape, color))
+        }
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        neoflash_ui::theme::install(&ctx, ThemeMode::Dark.nf2());
+
+        let mut state = UiLayoutStudioState {
+            open: true,
+            ..Default::default()
+        };
+        let make_input = |t: f64| egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+            time: Some(t),
+            ..Default::default()
+        };
+        // Warm up egui::Area sizing pass & Surface::Dialog fade-in animation
+        let _ = ctx.run(make_input(0.0), |ctx| {
+            ui_layout_studio_window_ui(ctx, &mut state);
+        });
+        let _ = ctx.run(make_input(1.0), |ctx| {
+            ui_layout_studio_window_ui(ctx, &mut state);
+        });
+
+        // Explicit selection of Mid Neutral Gray and Dark Graphite must survive host Dark frames!
+        for (i, chosen) in [ThemeMode::MidNeutralGray, ThemeMode::DarkGraphite]
+            .into_iter()
+            .enumerate()
+        {
+            state.set_preview_theme(chosen);
+            let out = ctx.run(make_input(2.0 + i as f64), |ctx| {
+                ui_layout_studio_window_ui(ctx, &mut state);
+            });
+            assert_eq!(state.preview_theme, chosen);
+            assert!(
+                has_rect_fill(&out, chosen.nf2().palette().bg_app),
+                "Expected Studio canvas to paint {chosen:?} bg_app even while host ctx is Dark"
+            );
+            assert!(
+                has_rect_fill(&out, chosen.nf2().palette().bg_panel),
+                "Expected Studio panel artboard to paint {chosen:?} bg_panel"
+            );
+        }
+
+        // 4-theme side-by-side comparison places Dark, Light, Mid Neutral Gray, and Dark Graphite on one board
+        state.load_preset(StudioPanelPreset::FullWorkspaceShell);
+        state.open_four_theme_comparison();
+        assert_eq!(state.artboards.len(), 4);
+        assert_eq!(
+            state
+                .artboards
+                .iter()
+                .map(|a| a.theme_override)
+                .collect::<Vec<_>>(),
+            vec![
+                Some(ThemeMode::Dark),
+                Some(ThemeMode::Light),
+                Some(ThemeMode::MidNeutralGray),
+                Some(ThemeMode::DarkGraphite),
+            ]
+        );
+        let out = ctx.run(make_input(10.0), |ctx| {
+            ui_layout_studio_window_ui(ctx, &mut state);
+        });
+        for theme in ThemeMode::ALL {
+            assert!(
+                has_rect_fill(&out, theme.nf2().palette().bg_canvas),
+                "Side-by-side 4-theme comparison must paint {theme:?} bg_canvas"
+            );
+        }
+
+        // Exported SVG board preserves per-artboard theme tags
+        let board_svg = state.export_board_svg();
+        assert!(board_svg.contains("data-nf-theme=\"dark\""));
+        assert!(board_svg.contains("data-nf-theme=\"light\""));
+        assert!(board_svg.contains("data-nf-theme=\"mid-neutral-gray\""));
+        assert!(board_svg.contains("data-nf-theme=\"dark-graphite\""));
     }
 }

@@ -112,12 +112,14 @@
     return bounds && Object.values(bounds).every(Number.isFinite) ? bounds : null;
   }
   const referenceKey=reference=>'ref:'+JSON.stringify(reference);
-  function sceneBoundsByPath(scene, width, height, measureText) {
+  function sceneBoundsByPath(scene, width, height, measureText, origin = null) {
+    const ox = Number(origin?.x) || 0, oy = Number(origin?.y) || 0;
+    const minX = -ox, minY = -oy, maxX = width - ox, maxY = height - oy;
     const result=new Map();
     for (const item of scene) {
       const child=itemBounds(item,measureText);
       if (!child) continue;
-      const clipped={left:Math.max(0,child.left),top:Math.max(0,child.top),right:Math.min(width,child.right),bottom:Math.min(height,child.bottom)};
+      const clipped={left:Math.max(minX,child.left),top:Math.max(minY,child.top),right:Math.min(maxX,child.right),bottom:Math.min(maxY,child.bottom)};
       if (!(clipped.right>clipped.left && clipped.bottom>clipped.top)) continue;
       // Stable object references distinguish identical relative paths in linked
       // symbol namespaces; ancestry comes from the authoritative runtime graph.
@@ -138,10 +140,11 @@
 
   class SemanticLayer {
     constructor(container, onActivate) { this.container=container; this.onActivate=onActivate; this.records=new Map(); this.nextId=1; this.restoringFocus=false; }
-    update(nodes, scene, project, scale, measureText) {
+    update(nodes, scene, project, scale, measureText, origin = null) {
       const scaleX=typeof scale==='object'?scale.x:scale,scaleY=typeof scale==='object'?scale.y:scale;
+      const originX=Number(origin?.x)||0,originY=Number(origin?.y)||0;
       const doc=this.container.ownerDocument, previouslyFocused=doc.activeElement, wanted=[];
-      const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText);
+      const boundsByPath=sceneBoundsByPath(scene,project.width,project.height,measureText,origin);
       const forceSimplePaths=[], forceSimpleRefs=new Set();
       for (const node of nodes) {
         const meta=node&&node.accessibility;
@@ -200,7 +203,7 @@
         if (metadata.noAutoLabeling || metadata.no_auto_labeling) element.setAttribute('data-no-auto-labeling','true');
         else if (element.getAttribute('data-no-auto-labeling')) element.removeAttribute('data-no-auto-labeling');
         if (metadata.role==='button') element.disabled=Boolean(metadata.disabled);
-        Object.assign(element.style,{left:bounds.left*scaleX+'px',top:bounds.top*scaleY+'px',width:(bounds.right-bounds.left)*scaleX+'px',height:(bounds.bottom-bounds.top)*scaleY+'px'});
+        Object.assign(element.style,{left:(bounds.left+originX)*scaleX+'px',top:(bounds.top+originY)*scaleY+'px',width:(bounds.right-bounds.left)*scaleX+'px',height:(bounds.bottom-bounds.top)*scaleY+'px'});
         wanted.push(record);
       }
       const retained=new Set(wanted);

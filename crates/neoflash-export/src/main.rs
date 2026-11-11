@@ -1,8 +1,8 @@
 use neoflash_core::Project;
 use neoflash_export::{
     AtlasFormat, AtlasOptions, AudioExportOptions, AudioExportPolicy, AudioFormat,
-    FontExportPolicy, HtmlPublishConfig, LottieOptions, PublishOptions, SizeLevel, SvgOptions,
-    VideoFormat, VideoOptions,
+    FontExportPolicy, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, LottieOptions,
+    PublishOptions, SizeLevel, SvgOptions, VideoFormat, VideoOptions,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -26,6 +26,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut audio_format = None;
     let mut lottie_symbol = None;
     let mut lottie_pretty = false;
+    let mut scale_mode: Option<HtmlScaleMode> = None;
+    let mut stage_align: Option<HtmlStageAlign> = None;
+    let mut allow_fullscreen: Option<bool> = None;
     let mut output = PathBuf::from("dist/html5");
     let mut runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
     while let Some(arg) = args.next() {
@@ -94,6 +97,35 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     args.next().ok_or("--shared-runtime requires a directory")?,
                 ))
             }
+            "--scale-mode" => {
+                let raw = args.next().ok_or("--scale-mode requires a mode")?;
+                scale_mode = Some(match raw.to_ascii_lowercase().as_str() {
+                    "fit" | "fit_keep_ratio" | "showall" | "show_all" => {
+                        HtmlScaleMode::FitKeepRatio
+                    }
+                    "no-scale" | "no_scale" | "noscale" | "100%" => HtmlScaleMode::NoScale,
+                    "exact-fit" | "exact_fit" | "exactfit" | "stretch" => HtmlScaleMode::ExactFit,
+                    "fill-crop" | "fill_crop" | "noborder" | "no_border" => HtmlScaleMode::FillCrop,
+                    other => return Err(format!("Unsupported --scale-mode: {other}").into()),
+                });
+            }
+            "--stage-align" => {
+                let raw = args.next().ok_or("--stage-align requires an alignment")?;
+                stage_align = Some(match raw.to_ascii_uppercase().as_str() {
+                    "" | "C" | "CENTER" => HtmlStageAlign::Center,
+                    "T" | "TOP" => HtmlStageAlign::Top,
+                    "B" | "BOTTOM" => HtmlStageAlign::Bottom,
+                    "L" | "LEFT" => HtmlStageAlign::Left,
+                    "R" | "RIGHT" => HtmlStageAlign::Right,
+                    "TL" | "LT" | "TOP_LEFT" | "TOP-LEFT" => HtmlStageAlign::TopLeft,
+                    "TR" | "RT" | "TOP_RIGHT" | "TOP-RIGHT" => HtmlStageAlign::TopRight,
+                    "BL" | "LB" | "BOTTOM_LEFT" | "BOTTOM-LEFT" => HtmlStageAlign::BottomLeft,
+                    "BR" | "RB" | "BOTTOM_RIGHT" | "BOTTOM-RIGHT" => HtmlStageAlign::BottomRight,
+                    other => return Err(format!("Unsupported --stage-align: {other}").into()),
+                });
+            }
+            "--no-fullscreen" => allow_fullscreen = Some(false),
+            "--allow-fullscreen" => allow_fullscreen = Some(true),
             "--help" | "-h" => {
                 println!(
                     "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
@@ -292,14 +324,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         size: SizeLevel::parse(&level, runtime_url.as_deref())?,
         audio: AudioExportPolicy::Original,
     };
-    let index = if clean {
-        neoflash_export::export_project_with_config(
-            &project,
-            &output,
-            &runtime,
-            &options,
-            &HtmlPublishConfig::clean_publish_default(),
-        )?
+    let has_custom_html_cfg =
+        clean || scale_mode.is_some() || stage_align.is_some() || allow_fullscreen.is_some();
+    let index = if has_custom_html_cfg {
+        let mut cfg = if clean {
+            HtmlPublishConfig::clean_publish_default()
+        } else {
+            HtmlPublishConfig::default()
+        };
+        if let Some(sm) = scale_mode {
+            cfg.scale_mode = sm;
+        }
+        if let Some(sa) = stage_align {
+            cfg.stage_align = sa;
+        }
+        if let Some(fs_ok) = allow_fullscreen {
+            cfg.allow_fullscreen = fs_ok;
+        }
+        neoflash_export::export_project_with_config(&project, &output, &runtime, &options, &cfg)?
     } else {
         neoflash_export::export_project_with_options(&project, &output, &runtime, &options)?
     };

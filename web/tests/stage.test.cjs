@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Events = require('../events.js');
-const { create, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
+const { create, computeStageLayout, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
   Keyboard, KeyLocation, KeyboardType, MouseCursor, MouseCursorData } = require('../stage.js');
 
 // A real EventTarget drives the adapter's installed native listeners; no direct callback invocation.
@@ -472,4 +472,51 @@ test('plain interactive clicks never draw focus-rect chrome while keyboard focus
   stage.focus = btn;
   const explicitBounds = host.display().as2FocusBounds();
   assert.ok(explicitBounds && explicitBounds.width > 0 && explicitBounds.height > 0, 'explicit focusRect=true shows focus bounds on programmatic focus');
+});
+
+test('computeStageLayout matches Rust ScriptAS2Stage across all 4 scaleModes, all 9 Stage.align anchors, and fullScreenSourceRect (T-245)', async () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const { resolve } = require('node:path');
+  const root = resolve(__dirname, '../..');
+  const context = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
+  vm.runInContext(fs.readFileSync(resolve(root, 'target/web-runtime/neoflash_web.js'), 'utf8'), context);
+  context.wasmBytes = fs.readFileSync(resolve(root, 'target/web-runtime/neoflash_web_bg.wasm'));
+  const wasm = await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)', context);
+
+  const modes = ['showAll', 'noScale', 'exactFit', 'noBorder'];
+  const aligns = ['', 'T', 'B', 'L', 'R', 'TL', 'TR', 'BL', 'BR'];
+  const core = new wasm.ScriptAS2Stage(800, 600);
+  try {
+    for (const mode of modes) {
+      core.command(JSON.stringify({ op: 'set', name: 'scaleMode', value: mode }));
+      for (const align of aligns) {
+        core.command(JSON.stringify({ op: 'set', name: 'align', value: align }));
+        const rust = JSON.parse(core.command(JSON.stringify({ op: 'layout', width: 1280, height: 900, fullscreen: false })));
+        const js = computeStageLayout(800, 600, 1280, 900, { scaleMode: mode, align, fullscreen: false });
+        for (const key of ['scale', 'scaleY', 'stageWidth', 'stageHeight', 'left', 'top', 'originX', 'originY', 'spaceWidth', 'spaceHeight', 'logicalWidth', 'logicalHeight']) {
+          assert.ok(Math.abs(js[key] - rust[key]) < 1e-9, `mode=${mode} align='${align}' key=${key}: js=${js[key]} rust=${rust[key]}`);
+        }
+      }
+    }
+
+    // Verify noScale originX/originY explicitly for Center, TopLeft, and BottomRight
+    const centerNoScale = computeStageLayout(800, 600, 1200, 800, { scaleMode: 'noScale', align: '' });
+    assert.deepEqual([centerNoScale.originX, centerNoScale.originY, centerNoScale.logicalWidth, centerNoScale.logicalHeight], [200, 100, 1200, 800]);
+    const tlNoScale = computeStageLayout(800, 600, 1200, 800, { scaleMode: 'noScale', align: 'TL' });
+    assert.deepEqual([tlNoScale.originX, tlNoScale.originY], [0, 0]);
+    const brNoScale = computeStageLayout(800, 600, 1200, 800, { scaleMode: 'noScale', align: 'BR' });
+    assert.deepEqual([brNoScale.originX, brNoScale.originY], [400, 200]);
+
+    // Verify fullScreenSourceRect parity when fullscreen=true
+    const rect = { x: 100, y: 50, width: 400, height: 300 };
+    core.command(JSON.stringify({ op: 'set', name: 'fullScreenSourceRect', value: rect }));
+    const rustFs = JSON.parse(core.command(JSON.stringify({ op: 'layout', width: 1600, height: 900, fullscreen: true })));
+    const jsFs = computeStageLayout(800, 600, 1600, 900, { scaleMode: 'showAll', align: 'TL', fullscreen: true, fullScreenSourceRect: rect });
+    for (const key of ['scale', 'scaleY', 'stageWidth', 'stageHeight', 'left', 'top', 'originX', 'originY', 'logicalWidth', 'logicalHeight']) {
+      assert.ok(Math.abs(jsFs[key] - rustFs[key]) < 1e-9, `fullscreen sourceRect key=${key}: js=${jsFs[key]} rust=${rustFs[key]}`);
+    }
+  } finally {
+    core.free();
+  }
 });

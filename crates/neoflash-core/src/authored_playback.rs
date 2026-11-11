@@ -759,20 +759,18 @@ impl AuthoredPlayback {
                 }
             }
             // 0e. Callback assignment: `[receiver.]onRelease = function(...) { ... }` or `= null`
-            if let Some(handled) =
-                self.try_register_assigned_callback(project, path, stmt, origin, line, local_fns)
+            if self
+                .try_register_assigned_callback(project, path, stmt, origin, line, local_fns)
+                .unwrap_or(false)
             {
-                if handled {
-                    continue;
-                }
+                continue;
             }
             // 0f. `addEventListener(...)` / `removeEventListener(...)`
-            if let Some(handled) =
-                self.try_register_event_listener(project, path, stmt, origin, line, local_fns)
+            if self
+                .try_register_event_listener(project, path, stmt, origin, line, local_fns)
+                .unwrap_or(false)
             {
-                if handled {
-                    continue;
-                }
+                continue;
             }
             // 1. Variable declaration: var/let/const name[:Type] [= expr]
             if let Some(rest) = stmt
@@ -916,10 +914,9 @@ impl AuthoredPlayback {
             } else if let Some((call_head, call_args)) = parse_qualified_call(stmt) {
                 if let Some(r) = call_head.strip_suffix(".addEventListener") {
                     (r.trim(), false, call_args)
-                } else if let Some(r) = call_head.strip_suffix(".removeEventListener") {
-                    (r.trim(), true, call_args)
                 } else {
-                    return None;
+                    let r = call_head.strip_suffix(".removeEventListener")?;
+                    (r.trim(), true, call_args)
                 }
             } else {
                 return None;
@@ -2053,21 +2050,20 @@ fn parse_if_statement(stmt: &str) -> Option<(&str, &str, Option<&str>)> {
         if tail.is_empty() {
             return Some((cond, then_body, None));
         }
-        if let Some(else_rest) = tail.strip_prefix("else") {
-            if !else_rest
+        if let Some(else_rest) = tail.strip_prefix("else")
+            && !else_rest
                 .chars()
                 .next()
                 .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            let else_trimmed = else_rest.trim();
+            if else_trimmed.starts_with('{')
+                && let Some(end_b) = find_matching_delim(else_trimmed, b'{', b'}')
+                && end_b + 1 == else_trimmed.len()
             {
-                let else_trimmed = else_rest.trim();
-                if else_trimmed.starts_with('{')
-                    && let Some(end_b) = find_matching_delim(else_trimmed, b'{', b'}')
-                    && end_b + 1 == else_trimmed.len()
-                {
-                    return Some((cond, then_body, Some(&else_trimmed[1..end_b])));
-                }
-                return Some((cond, then_body, Some(else_trimmed)));
+                return Some((cond, then_body, Some(&else_trimmed[1..end_b])));
             }
+            return Some((cond, then_body, Some(else_trimmed)));
         }
         None
     } else {

@@ -147,6 +147,87 @@ impl HtmlScaleMode {
             Self::FillCrop => "Scale: Fill, crop",
         }
     }
+
+    pub const fn as_flash_scale_mode(self) -> &'static str {
+        match self {
+            Self::FitKeepRatio => "showAll",
+            Self::NoScale => "noScale",
+            Self::ExactFit => "exactFit",
+            Self::FillCrop => "noBorder",
+        }
+    }
+}
+
+/// Stage anchor alignment in the HTML5 wrapper (`Publish settings` / `Stage.align`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HtmlStageAlign {
+    #[default]
+    Center,
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl HtmlStageAlign {
+    pub const ALL: [Self; 9] = [
+        Self::Center,
+        Self::TopLeft,
+        Self::Top,
+        Self::TopRight,
+        Self::Left,
+        Self::Right,
+        Self::BottomLeft,
+        Self::Bottom,
+        Self::BottomRight,
+    ];
+
+    pub const fn as_flash_code(self) -> &'static str {
+        match self {
+            Self::Center => "",
+            Self::Top => "T",
+            Self::Bottom => "B",
+            Self::Left => "L",
+            Self::Right => "R",
+            Self::TopLeft => "TL",
+            Self::TopRight => "TR",
+            Self::BottomLeft => "BL",
+            Self::BottomRight => "BR",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Center => "Center",
+            Self::Top => "Top (T)",
+            Self::Bottom => "Bottom (B)",
+            Self::Left => "Left (L)",
+            Self::Right => "Right (R)",
+            Self::TopLeft => "Top-left (TL)",
+            Self::TopRight => "Top-right (TR)",
+            Self::BottomLeft => "Bottom-left (BL)",
+            Self::BottomRight => "Bottom-right (BR)",
+        }
+    }
+
+    pub const fn publish_select_label(self) -> &'static str {
+        match self {
+            Self::Center => "Align: Center",
+            Self::Top => "Align: Top (T)",
+            Self::Bottom => "Align: Bottom (B)",
+            Self::Left => "Align: Left (L)",
+            Self::Right => "Align: Right (R)",
+            Self::TopLeft => "Align: Top-left (TL)",
+            Self::TopRight => "Align: Top-right (TR)",
+            Self::BottomLeft => "Align: Bottom-left (BL)",
+            Self::BottomRight => "Align: Bottom-right (BR)",
+        }
+    }
 }
 
 /// Hardware acceleration hint for HTML5 rendering (`Preferences ▸ Publish`).
@@ -258,6 +339,10 @@ pub struct HtmlPublishConfig {
     pub template: HtmlTemplate,
     #[serde(default)]
     pub scale_mode: HtmlScaleMode,
+    #[serde(default)]
+    pub stage_align: HtmlStageAlign,
+    #[serde(default = "default_true")]
+    pub allow_fullscreen: bool,
     #[serde(default = "default_true")]
     pub loop_timeline: bool,
     #[serde(default = "default_true")]
@@ -289,6 +374,8 @@ impl Default for HtmlPublishConfig {
             assets_folder: false,
             template: HtmlTemplate::Responsive,
             scale_mode: HtmlScaleMode::FitKeepRatio,
+            stage_align: HtmlStageAlign::Center,
+            allow_fullscreen: true,
             loop_timeline: true,
             autoplay: true,
             preloader: true,

@@ -217,17 +217,34 @@ impl StageState {
                 } else {
                     (self.width, self.height)
                 };
-                let (sx, sy, ox, oy) = if let Some(rect) = source {
+                let (sx, sy, ox, oy, origin_x, origin_y) = if let Some(rect) = source {
                     let s = (vw / rect.width).min(vh / rect.height);
                     (
                         s,
                         s,
                         (vw - rect.width * s) / 2.0 - rect.x * s,
                         (vh - rect.height * s) / 2.0 - rect.y * s,
+                        0.0,
+                        0.0,
                     )
+                } else if self.mode == "noScale" {
+                    let origin_x = if self.align.contains('L') {
+                        0.0
+                    } else if self.align.contains('R') {
+                        vw - self.width
+                    } else {
+                        (vw - self.width) / 2.0
+                    };
+                    let origin_y = if self.align.contains('T') {
+                        0.0
+                    } else if self.align.contains('B') {
+                        vh - self.height
+                    } else {
+                        (vh - self.height) / 2.0
+                    };
+                    (1.0, 1.0, 0.0, 0.0, origin_x, origin_y)
                 } else {
                     let (sx, sy) = match self.mode.as_str() {
-                        "noScale" => (1.0, 1.0),
                         "exactFit" => (vw / w, vh / h),
                         "noBorder" => {
                             let s = (vw / w).max(vh / h);
@@ -252,10 +269,10 @@ impl StageState {
                     } else {
                         (vh - h * sy) / 2.0
                     };
-                    (sx, sy, ox, oy)
+                    (sx, sy, ox, oy, 0.0, 0.0)
                 };
                 Ok(
-                    json!({"scale":sx,"scaleY":sy,"stageWidth":w*sx,"stageHeight":h*sy,"left":ox,"top":oy,"spaceWidth":vw,"spaceHeight":vh,"logicalWidth":w,"logicalHeight":h}),
+                    json!({"scale":sx,"scaleY":sy,"stageWidth":w*sx,"stageHeight":h*sy,"left":ox,"top":oy,"originX":origin_x,"originY":origin_y,"spaceWidth":vw,"spaceHeight":vh,"logicalWidth":w,"logicalHeight":h}),
                 )
             }
             _ => Err("Unknown AS2 Stage request".into()),
@@ -294,6 +311,29 @@ mod tests {
             .unwrap();
         assert_eq!(view["logicalWidth"], 1200.0);
         assert_eq!(view["stageHeight"], 700.0);
+        assert_eq!(view["originX"], 0.0);
+        assert_eq!(view["originY"], 0.0);
+        for (align, expected_ox, expected_oy) in [
+            ("", 200.0, 50.0),
+            ("T", 200.0, 0.0),
+            ("B", 200.0, 100.0),
+            ("L", 0.0, 50.0),
+            ("R", 400.0, 50.0),
+            ("TL", 0.0, 0.0),
+            ("TR", 400.0, 0.0),
+            ("BL", 0.0, 100.0),
+            ("BR", 400.0, 100.0),
+        ] {
+            s.command(&json!({"op":"set","name":"align","value":align}).to_string())
+                .unwrap();
+            let v = s
+                .command(r#"{"op":"layout","width":1200,"height":700}"#)
+                .unwrap();
+            assert_eq!(v["originX"], expected_ox, "noScale align={align} originX");
+            assert_eq!(v["originY"], expected_oy, "noScale align={align} originY");
+        }
+        s.command(r#"{"op":"set","name":"align","value":"lt"}"#)
+            .unwrap();
         s.command(r#"{"op":"set","name":"fullScreenSourceRect","value":{"x":100,"y":100,"width":400,"height":300}}"#).unwrap();
         let view = s
             .command(r#"{"op":"layout","width":1200,"height":900,"fullscreen":true}"#)

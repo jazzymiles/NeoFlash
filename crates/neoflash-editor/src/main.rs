@@ -129,6 +129,8 @@ fn main() -> eframe::Result {
                     .with_inner_size(fixed.unwrap_or([1480.0, 920.0]))
                     .with_min_inner_size([1024.0, 680.0]),
                 persist_window: fixed.is_none(),
+                persistence_path: std::env::var_os("NEOFLASH_SCREENSHOT")
+                    .map(|path| std::path::PathBuf::from(path).with_extension("state.ron")),
                 ..Default::default()
             },
             Box::new(|cc| Ok(Box::new(panels::ui_studio::StandaloneUiStudioApp::new(cc)))),

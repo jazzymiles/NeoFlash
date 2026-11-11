@@ -70,24 +70,34 @@ function create(options={}){
  const{wasm,legacy,geometry,preview,viewport,canvas}=options;
  if(!wasm?.ScriptAS2Stage||!legacy?.Stage||!geometry?.Rectangle)throw new Error('AS2 Stage requires the Rust layout, legacy listeners and geometry services.');
  const width=options.width,height=options.height,doc=options.document||global.document;
- let core=new wasm.ScriptAS2Stage(width,height),disposed=false,generation=1,enabled=false,last=null,fullscreen=false,requestGeneration=0;
+ function makeCore(){
+  const next=new wasm.ScriptAS2Stage(width,height);
+  if(options.scaleMode)next.command(JSON.stringify({op:'set',name:'scaleMode',value:options.scaleMode}));
+  if(options.align)next.command(JSON.stringify({op:'set',name:'align',value:options.align}));
+  return next;
+ }
+ let core=makeCore(),disposed=false,generation=1,enabled=false,last=null,fullscreen=false,requestGeneration=0;
  const initialOverflow=viewport?.style?.overflow;
  function active(){if(disposed)throw new Error('AS2 Stage belongs to a disposed publication.');}
  function call(value){active();try{return JSON.parse(core.command(JSON.stringify(value)));}catch(error){throw new Error(String(error));}}
  function state(){return call({op:'get'});}
  function report(error){if(options.onError)options.onError(error);else throw error;}
- function ownsFullscreen(){return Boolean(viewport&&doc?.fullscreenElement===viewport);}
+ function docFsElement(){return doc?.fullscreenElement||doc?.webkitFullscreenElement||null;}
+ function ownsFullscreen(){return Boolean(viewport&&docFsElement()===viewport);}
+ function reqFs(){return viewport?.requestFullscreen?viewport.requestFullscreen():viewport?.webkitRequestFullscreen?viewport.webkitRequestFullscreen():undefined;}
+ function exitFs(){return doc?.exitFullscreen?doc.exitFullscreen():doc?.webkitExitFullscreen?doc.webkitExitFullscreen():undefined;}
+ function fsEnabled(){return options.allowsFullScreen!==false&&Boolean((viewport?.requestFullscreen||viewport?.webkitRequestFullscreen)&&(doc?(doc.fullscreenEnabled??doc.webkitFullscreenEnabled)!==false:false));}
  function later(callback){const current=generation;queueMicrotask(()=>{if(!disposed&&generation===current)try{callback();}catch(error){report(error);}});}
  function layout(vw,vh){const result=call({op:'layout',width:vw,height:vh,fullscreen:ownsFullscreen()});const previous=last;last=result;if(previous&&(previous.logicalWidth!==result.logicalWidth||previous.logicalHeight!==result.logicalHeight)&&state().scaleMode==='noScale')later(()=>{legacy.broadcastStage('onResize',[]);options.afterEvent?.();});return result;}
  function activate(){enabled=true;if(preview&&viewport){viewport.style.overflow='hidden';preview.setStageLayout(layout);}else layout(legacy.Stage.width||width,legacy.Stage.height||height);options.afterEvent?.();}
  function change(name,value){if(name==='fullScreenSourceRect'){if(value!==null&&!geometry.Rectangle.__nfIs(value))throw new TypeError('Stage.fullScreenSourceRect requires Rectangle or null.');if(value!==null)value={x:value.x,y:value.y,width:value.width,height:value.height};}const result=call({op:'set',name,value});if(name!=='showMenu')activate();return result;}
- function fullScreenChanged(){if(disposed)return;const next=ownsFullscreen();if(next&&requestGeneration!==generation){Promise.resolve(doc.exitFullscreen()).catch(()=>{});return;}if(next===fullscreen)return;fullscreen=next;if(enabled)preview.resize();legacy.broadcastStage('onFullScreen',[next]);options.afterEvent?.();}
+ function fullScreenChanged(){if(disposed)return;const next=ownsFullscreen();if(next&&requestGeneration!==generation&&requestGeneration!==0){Promise.resolve(exitFs()).catch(()=>{});return;}if(next===fullscreen)return;fullscreen=next;if(enabled)preview.resize();legacy.broadcastStage('onFullScreen',[next]);options.afterEvent?.();}
  function display(value){active();if(!['normal','fullScreen'].includes(value))throw new TypeError('Stage.displayState requires normal or fullScreen.');if(value==='fullScreen'){
-  if(ownsFullscreen())return;if(!viewport?.requestFullscreen||!doc?.fullscreenEnabled)throw new Error('This browser does not permit the Fullscreen API for this publication.');
+  if(ownsFullscreen())return;if(!fsEnabled())throw new Error('This browser does not permit the Fullscreen API for this publication.');
   if(global.navigator?.userActivation&&!global.navigator.userActivation.isActive)throw new Error('Stage fullScreen requires a real user click or keyboard action.');activate();
  }else if(!ownsFullscreen())return;
- const born=generation;requestGeneration=born;let promise;try{promise=value==='fullScreen'?viewport.requestFullscreen():doc.exitFullscreen();}catch(error){throw new Error('Fullscreen request failed: '+String(error));}
- Promise.resolve(promise).then(()=>{if((disposed||born!==generation)&&ownsFullscreen())Promise.resolve(doc.exitFullscreen()).catch(()=>{});},error=>{if(!disposed&&born===generation)report(new Error('Fullscreen request was rejected: '+String(error)));});
+ const born=generation;requestGeneration=born;let promise;try{promise=value==='fullScreen'?reqFs():exitFs();}catch(error){throw new Error('Fullscreen request failed: '+String(error));}
+ Promise.resolve(promise).then(()=>{if((disposed||born!==generation)&&ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});},error=>{if(!disposed&&born===generation)report(new Error('Fullscreen request was rejected: '+String(error)));});
  }
  function screenSize(name){active();const value=Number((options.screen||global.screen)?.[name]);if(!Number.isFinite(value)||value<=0)throw new Error('Browser monitor dimensions are unavailable.');return value;}
  function menu(event){if(!disposed&&!state().showMenu)event.preventDefault();}
@@ -96,11 +106,11 @@ function create(options={}){
  Object.defineProperty(Stage,'wmodeGPU',{enumerable:true,get(){return Boolean(state().wmodeGPU);},set(){throw new TypeError('Stage.wmodeGPU is read-only.');}});
  Object.freeze(Stage);
  const onFullscreen=()=>{try{fullScreenChanged();}catch(error){report(error);}};
- doc?.addEventListener?.('fullscreenchange',onFullscreen);canvas?.addEventListener?.('contextmenu',menu);
+ doc?.addEventListener?.('fullscreenchange',onFullscreen);doc?.addEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.addEventListener?.('contextmenu',menu);
  const menus=createMenus(options,call,()=>state().showMenu);
- function reset(){if(disposed)return;menus.reset();generation++;if(ownsFullscreen())Promise.resolve(doc.exitFullscreen()).catch(()=>{});fullscreen=false;core.free();core=new wasm.ScriptAS2Stage(width,height);enabled=false;last=null;if(preview)preview.setStageLayout(null);if(viewport?.style)viewport.style.overflow=initialOverflow;}
- function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
- return Object.freeze({Stage,layout,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,reset,dispose});
+ function reset(){if(disposed)return;menus.reset();generation++;requestGeneration=0;if(ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});fullscreen=false;core.free();core=makeCore();enabled=false;last=null;if(preview)preview.setStageLayout(null);if(viewport?.style)viewport.style.overflow=initialOverflow;}
+ function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);doc?.removeEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
+ return Object.freeze({Stage,layout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,reset,dispose});
 }
 const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Stage=api;
 })(globalThis);

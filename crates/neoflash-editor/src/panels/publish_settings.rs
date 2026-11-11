@@ -8,8 +8,8 @@ use crate::{
 };
 use eframe::egui::{self, Ui};
 use neoflash_export::{
-    AudioExportPolicy, FontExportPolicy, HtmlScaleMode, HtmlTemplate, SizeEstimate, SizeLevel,
-    VideoAudioBitrate, VideoCodec, VideoFormat, VideoOptions, VideoStopMode,
+    AudioExportPolicy, FontExportPolicy, HtmlScaleMode, HtmlStageAlign, HtmlTemplate, SizeEstimate,
+    SizeLevel, VideoAudioBitrate, VideoCodec, VideoFormat, VideoOptions, VideoStopMode,
 };
 use neoflash_ui::{
     components as c,
@@ -382,16 +382,17 @@ impl Editor {
                                             self.publish_controller.cancel();
                                             estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
                                         }
-                                        ui.horizontal(|ui| {
+                                        ui.horizontal_wrapped(|ui| {
                                             ui.add(c::Checkbox::new(&mut draft.settings.loop_timeline, "Loop"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.autoplay, "Autoplay"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.preloader, "Preloader"));
+                                            ui.add(c::Checkbox::new(&mut draft.settings.allow_fullscreen, "Fullscreen"));
                                             ui.add(c::Checkbox::new(&mut draft.settings.source_maps, "Source maps"));
                                             c::Select::new(
                                                 ui.id().with("publish-settings-scale"),
                                                 draft.settings.scale_mode.publish_select_label(),
                                             )
-                                            .width(200.0)
+                                            .width(196.0)
                                             .show(ui, |ui| {
                                                 for mode in HtmlScaleMode::ALL {
                                                     let lbl = mode.publish_select_label();
@@ -403,6 +404,27 @@ impl Editor {
                                                         .clicked()
                                                     {
                                                         draft.settings.scale_mode = mode;
+                                                        draft.error = None;
+                                                        ui.close();
+                                                    }
+                                                }
+                                            });
+                                            c::Select::new(
+                                                ui.id().with("publish-settings-stage-align"),
+                                                draft.settings.stage_align.publish_select_label(),
+                                            )
+                                            .width(176.0)
+                                            .show(ui, |ui| {
+                                                for align in HtmlStageAlign::ALL {
+                                                    let lbl = align.publish_select_label();
+                                                    if ui
+                                                        .add(
+                                                            c::MenuItem::new(lbl)
+                                                                .checked(draft.settings.stage_align == align),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        draft.settings.stage_align = align;
                                                         draft.error = None;
                                                         ui.close();
                                                     }

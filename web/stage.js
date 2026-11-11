@@ -359,6 +359,83 @@
   const ALIGN_MODES = Object.freeze({ '': '', T: 'T', B: 'B', L: 'L', R: 'R', TL: 'TL', TR: 'TR', BL: 'BL', BR: 'BR', LT: 'TL', RT: 'TR', LB: 'BL', RB: 'BR' });
   const QUALITY_MODES = Object.freeze({ low: 'LOW', medium: 'MEDIUM', high: 'HIGH', best: 'BEST', '8x8': '8X8', '8x8linear': '8X8LINEAR', '16x16': '16X16', '16x16linear': '16X16LINEAR' });
   const DISPLAY_STATES = new Set(['normal', 'fullScreen', 'fullScreenInteractive']);
+  function normalizeAlign(value) {
+    const key = String(value ?? '').toUpperCase();
+    return Object.hasOwn(ALIGN_MODES, key) ? ALIGN_MODES[key] : '';
+  }
+  function computeStageLayout(docWidth, docHeight, viewportWidth, viewportHeight, settings = {}) {
+    const vw = Math.max(1, Number(viewportWidth) || docWidth || 1);
+    const vh = Math.max(1, Number(viewportHeight) || docHeight || 1);
+    const w0 = Math.max(1, Number(docWidth) || 1);
+    const h0 = Math.max(1, Number(docHeight) || 1);
+    const mode = SCALE_MODES.has(settings.scaleMode) ? settings.scaleMode : 'showAll';
+    const align = normalizeAlign(settings.align);
+    const fsRect = settings.fullscreen && settings.fullScreenSourceRect && settings.fullScreenSourceRect.width > 0 && settings.fullScreenSourceRect.height > 0
+      ? settings.fullScreenSourceRect
+      : null;
+    if (fsRect) {
+      const s = Math.min(vw / fsRect.width, vh / fsRect.height);
+      return {
+        scale: s,
+        scaleY: s,
+        stageWidth: w0 * s,
+        stageHeight: h0 * s,
+        left: (vw - fsRect.width * s) / 2 - fsRect.x * s,
+        top: (vh - fsRect.height * s) / 2 - fsRect.y * s,
+        originX: 0,
+        originY: 0,
+        spaceWidth: vw,
+        spaceHeight: vh,
+        logicalWidth: w0,
+        logicalHeight: h0,
+      };
+    }
+    if (mode === 'noScale') {
+      const originX = align.includes('L') ? 0 : align.includes('R') ? vw - w0 : (vw - w0) / 2;
+      const originY = align.includes('T') ? 0 : align.includes('B') ? vh - h0 : (vh - h0) / 2;
+      return {
+        scale: 1,
+        scaleY: 1,
+        stageWidth: vw,
+        stageHeight: vh,
+        left: 0,
+        top: 0,
+        originX,
+        originY,
+        spaceWidth: vw,
+        spaceHeight: vh,
+        logicalWidth: vw,
+        logicalHeight: vh,
+      };
+    }
+    let sx, sy;
+    if (mode === 'exactFit') {
+      sx = vw / w0;
+      sy = vh / h0;
+    } else if (mode === 'noBorder') {
+      sx = sy = Math.max(vw / w0, vh / h0);
+    } else {
+      sx = sy = Math.min(vw / w0, vh / h0);
+    }
+    const stageWidth = w0 * sx;
+    const stageHeight = h0 * sy;
+    const left = align.includes('L') ? 0 : align.includes('R') ? vw - stageWidth : (vw - stageWidth) / 2;
+    const top = align.includes('T') ? 0 : align.includes('B') ? vh - stageHeight : (vh - stageHeight) / 2;
+    return {
+      scale: sx,
+      scaleY: sy,
+      stageWidth,
+      stageHeight,
+      left,
+      top,
+      originX: 0,
+      originY: 0,
+      spaceWidth: vw,
+      spaceHeight: vh,
+      logicalWidth: w0,
+      logicalHeight: h0,
+    };
+  }
   function stageRgbValue(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) throw new TypeError('Stage.color must be a finite integer.');
@@ -377,11 +454,13 @@
     const alive = options.alive || (() => true);
     let width = size(options.width, 'stageWidth'), height = size(options.height, 'stageHeight');
     let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null, focusReason = null;
-    let scaleMode = 'showAll', align = '', quality = 'HIGH', displayState = 'normal', colorCorrection = 'default';
+    const initialScaleMode = SCALE_MODES.has(options.scaleMode) ? options.scaleMode : 'showAll';
+    const initialAlign = normalizeAlign(options.align);
+    let scaleMode = initialScaleMode, align = initialAlign, quality = 'HIGH', displayState = 'normal', colorCorrection = 'default';
     let fullScreenSourceRect = null, mouseLock = false;
     let stageColor = stageRgbValue(options.color ?? 0xffffff), colorAssigned = false;
     let mouseChildren = true, tabChildren = true, doubleClickEnabled = false, showDefaultContextMenu = true, stageFocusRect = true, invalidated = false;
-    const initial = { width, height, frameRate, color: stageColor };
+    const initial = { width, height, frameRate, color: stageColor, scaleMode: initialScaleMode, align: initialAlign };
     const fallbackChildren = Array.isArray(options.initialChildren) ? options.initialChildren.slice() : [];
     const keyboardState = { capsLock: Boolean(options.capsLock), numLock: Boolean(options.numLock),
       hasVirtualKeyboard: Boolean(options.hasVirtualKeyboard), physicalKeyboardType: options.physicalKeyboardType || KeyboardType.ALPHANUMERIC,
@@ -488,11 +567,29 @@
       },
     };
     const container = () => options.stageContainer || defaultStageContainer;
+    function docFullscreenElement() {
+      const d = doc();
+      return d?.fullscreenElement || d?.webkitFullscreenElement || null;
+    }
+    function requestViewportFullscreen() {
+      const vp = options.viewport;
+      if (vp?.requestFullscreen) return vp.requestFullscreen();
+      if (vp?.webkitRequestFullscreen) return vp.webkitRequestFullscreen();
+      return undefined;
+    }
+    function exitDocFullscreen() {
+      const d = doc();
+      if (d?.exitFullscreen) return d.exitFullscreen();
+      if (d?.webkitExitFullscreen) return d.webkitExitFullscreen();
+      return undefined;
+    }
     function allowsFs(interactive) {
       const explicit = interactive ? (options.allowsFullScreenInteractive ?? options.allowsFullScreen) : options.allowsFullScreen;
       if (explicit !== undefined) return Boolean(explicit);
       const d = doc();
-      return Boolean((options.requestFullscreen || options.viewport?.requestFullscreen) && (d ? d.fullscreenEnabled !== false : Boolean(options.requestFullscreen)));
+      const hasRequest = Boolean(options.requestFullscreen || options.viewport?.requestFullscreen || options.viewport?.webkitRequestFullscreen);
+      const enabledFlag = d ? (d.fullscreenEnabled ?? d.webkitFullscreenEnabled) !== false : Boolean(options.requestFullscreen);
+      return Boolean(hasRequest && enabledFlag);
     }
     Object.defineProperties(stage, {
       stageWidth: { enumerable: true, get: () => (displayState !== 'normal' && fullScreenSourceRect && fullScreenSourceRect.width > 0) ? fullScreenSourceRect.width : width },
@@ -532,7 +629,8 @@
               const wasInteractive = displayState === 'fullScreenInteractive';
               displayState = 'normal'; mouseLock = false;
               if (options.exitFullscreen) options.exitFullscreen();
-              else if (doc()?.fullscreenElement) doc().exitFullscreen?.();
+              else if (docFullscreenElement()) exitDocFullscreen();
+              options.onDisplayStateChanged?.(displayState);
               emitFullScreen(false, wasInteractive);
             }
             return;
@@ -545,10 +643,11 @@
           } else {
             const activation = global.navigator?.userActivation;
             if (activation && !activation.isActive) throw securityError('Stage.displayState fullscreen requires an active user gesture.');
-            options.viewport?.requestFullscreen?.();
+            requestViewportFullscreen();
           }
           const changed = displayState !== next;
           displayState = next;
+          options.onDisplayStateChanged?.(displayState);
           if (changed) emitFullScreen(true, next === 'fullScreenInteractive');
         } },
       color: { enumerable: true, get: () => stageColor,
@@ -563,9 +662,10 @@
       fullScreenSourceRect: { enumerable: true,
         get: () => fullScreenSourceRect ? makeRectangle(fullScreenSourceRect.x, fullScreenSourceRect.y, fullScreenSourceRect.width, fullScreenSourceRect.height) : null,
         set(value) {
-          if (value === null) { fullScreenSourceRect = null; return; }
+          if (value === null) { fullScreenSourceRect = null; options.onFullScreenSourceRectChanged?.(null); return; }
           if (!isRectangle(value)) throw new TypeError('Stage.fullScreenSourceRect requires a Rectangle or null.');
           fullScreenSourceRect = { x: Number(value.x), y: Number(value.y), width: Number(value.width), height: Number(value.height) };
+          options.onFullScreenSourceRectChanged?.(fullScreenSourceRect);
         } },
       mouseLock: { enumerable: true, get: () => mouseLock,
         set(value) {
@@ -986,16 +1086,23 @@
       listen(outside,'blur',()=>{if(cancelPointer())options.afterInput?.();});
       listen(options.canvas, 'wheel', event => handlePointer('wheel', event), { passive: false });
       listen(options.canvas, 'contextmenu', event => { if (!showDefaultContextMenu) event.preventDefault?.(); });
-      if (doc()) listen(doc(), 'fullscreenchange', () => {
-        if (!doc()?.fullscreenElement && displayState !== 'normal') {
-          const wasInteractive = displayState === 'fullScreenInteractive';
-          displayState = 'normal'; mouseLock = false;
-          emitFullScreen(false, wasInteractive);
-        } else if (doc()?.fullscreenElement && displayState === 'normal') {
-          displayState = 'fullScreen';
-          emitFullScreen(true, false);
-        }
-      });
+      if (doc()) {
+        const onFsChange = () => {
+          const fsEl = docFullscreenElement();
+          if (!fsEl && displayState !== 'normal') {
+            const wasInteractive = displayState === 'fullScreenInteractive';
+            displayState = 'normal'; mouseLock = false;
+            options.onDisplayStateChanged?.(displayState);
+            emitFullScreen(false, wasInteractive);
+          } else if (fsEl && (!options.viewport || fsEl === options.viewport) && displayState === 'normal') {
+            displayState = 'fullScreen';
+            options.onDisplayStateChanged?.(displayState);
+            emitFullScreen(true, false);
+          }
+        };
+        listen(doc(), 'fullscreenchange', onFsChange);
+        listen(doc(), 'webkitfullscreenchange', onFsChange);
+      }
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));
       for (const type of ['keydown', 'keyup']) listen(options.keyboardTarget || options.canvas, type, event => handleKey(type, event));
@@ -1024,7 +1131,7 @@
       return true;
     }
     function resetState() {
-      scaleMode = 'showAll'; align = ''; quality = 'HIGH'; displayState = 'normal'; colorCorrection = 'default';
+      scaleMode = initial.scaleMode; align = initial.align; quality = 'HIGH'; displayState = 'normal'; colorCorrection = 'default';
       fullScreenSourceRect = null; mouseLock = false;
       stageColor = initial.color; colorAssigned = false;
       mouseChildren = true; tabChildren = true; doubleClickEnabled = false; showDefaultContextMenu = true; stageFocusRect = true; invalidated = false;
@@ -1047,6 +1154,7 @@
     }
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
       focusReason: () => (focus && alive(focus) ? focusReason : null),
+      fullScreenSourceRect: () => (fullScreenSourceRect ? { ...fullScreenSourceRect } : null),
       colorAssigned: () => colorAssigned, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       tick(targets = [], onConstructed = null) {
         if (typeof targets === 'function') {
@@ -1071,7 +1179,7 @@
       },
     });
   }
-  const api = Object.freeze({ create, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
+  const api = Object.freeze({ create, computeStageLayout, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
     Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, MouseCursorData,
     AccessibilityProperties, ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenu, ContextMenuItem,
     createKeyboard, createMouse, setStageAdapters });

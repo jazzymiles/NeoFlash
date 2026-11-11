@@ -2353,6 +2353,12 @@ pub struct PublishPrefs {
     /// Stage scaling mode in HTML5 output (`FitKeepRatio`, `NoScale`, `ExactFit`, `FillCrop`).
     #[serde(default)]
     pub scale_mode: neoflash_export::HtmlScaleMode,
+    /// Stage anchor alignment in HTML5 output (`Center`, `TopLeft`, `BottomRight`, etc.).
+    #[serde(default)]
+    pub stage_align: neoflash_export::HtmlStageAlign,
+    /// Allow browser Fullscreen API (`Stage.displayState` / Fullscreen button) in HTML5 output.
+    #[serde(default = "default_true")]
+    pub allow_fullscreen: bool,
     /// Hardware acceleration hint in `Preferences ▸ Publish`.
     #[serde(default)]
     pub acceleration: neoflash_export::HtmlAcceleration,
@@ -2414,6 +2420,8 @@ impl Default for PublishPrefs {
             svg_file: None,
             template: neoflash_export::HtmlTemplate::Responsive,
             scale_mode: neoflash_export::HtmlScaleMode::FitKeepRatio,
+            stage_align: neoflash_export::HtmlStageAlign::Center,
+            allow_fullscreen: true,
             acceleration: neoflash_export::HtmlAcceleration::GpuWebGl,
             loop_timeline: true,
             autoplay: true,
@@ -2525,6 +2533,8 @@ impl PublishPrefs {
             assets_folder: self.assets_folder,
             template: self.template,
             scale_mode: self.scale_mode,
+            stage_align: self.stage_align,
+            allow_fullscreen: self.allow_fullscreen,
             loop_timeline: self.loop_timeline,
             autoplay: self.autoplay,
             preloader: self.preloader,
@@ -2547,6 +2557,8 @@ impl PublishPrefs {
             assets_folder: false,
             template: neoflash_export::HtmlTemplate::Responsive,
             scale_mode: self.scale_mode,
+            stage_align: self.stage_align,
+            allow_fullscreen: self.allow_fullscreen,
             loop_timeline: self.loop_timeline,
             autoplay: true,
             preloader: true,

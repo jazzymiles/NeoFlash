@@ -21,8 +21,9 @@ pub use legacy_fla::*;
 pub use lottie::*;
 pub use profiles::*;
 pub use publish::{
-    HtmlAcceleration, HtmlPublishConfig, HtmlScaleMode, HtmlTemplate, PlayerChromeConfig,
-    PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len, validate_runtime_url,
+    HtmlAcceleration, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, HtmlTemplate,
+    PlayerChromeConfig, PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len,
+    validate_runtime_url,
 };
 pub use svg::*;
 pub use swf::*;
@@ -2416,6 +2417,11 @@ fn html_document_with_config(
     } else {
         ""
     };
+    let fullscreen_attr = if config.is_some_and(|c| !c.allow_fullscreen) {
+        " hidden"
+    } else {
+        ""
+    };
     let display_name = if let Some(cfg) = config {
         if cfg.chrome.show_dimensions && !clean {
             format!("{title} · {width}×{height}")
@@ -2432,7 +2438,9 @@ fn html_document_with_config(
         HtmlTemplate::Responsive => "",
         HtmlTemplate::FixedStage => "\n    #stage-surface { border: 1px solid #ffffff1a; }",
         HtmlTemplate::Centered => "\n    #stage-surface { border-radius: 6px; overflow: hidden; }",
-        HtmlTemplate::Fullscreen => "\n    #stage-surface { box-shadow: none; }",
+        HtmlTemplate::Fullscreen => {
+            "\n    body { background: #000; }\n    #stage-surface { box-shadow: none; }"
+        }
     };
     let clean_css = if config.is_some() {
         "\n    body[data-clean=\"true\"] { grid-template-rows: minmax(0,1fr); }\n    body[data-clean=\"true\"] > footer { display: none !important; }"
@@ -2451,6 +2459,7 @@ fn html_document_with_config(
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}{clean_css}{template_css}
     #viewport {{ position: relative; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }}
+    #viewport:fullscreen, #viewport:-webkit-full-screen {{ background: #000; width: 100vw; height: 100vh; overflow: hidden; }}
     #stage-space {{ position: relative; }}
     #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}
     canvas {{ display: block; width: 100%; height: 100%; outline: none; }}
@@ -2481,7 +2490,7 @@ fn html_document_with_config(
 {script_tags}</head>
 <body{body_attr}>
   <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
-  <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
+  <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="fullscreen-toggle" type="button" aria-pressed="false" title="Toggle fullscreen stage"{fullscreen_attr}>Fullscreen</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
   <div id="loading" role="status"{loading_attr}>Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>
 </html>
@@ -3616,6 +3625,8 @@ mod tests {
             },
             template: HtmlTemplate::Centered,
             scale_mode: HtmlScaleMode::NoScale,
+            stage_align: HtmlStageAlign::BottomRight,
+            allow_fullscreen: true,
             acceleration: HtmlAcceleration::GpuWebGl,
             loop_timeline: false,
             autoplay: false,
@@ -3634,6 +3645,7 @@ mod tests {
         assert!(!html_hud.contains("<body data-clean=\"true\">"));
         assert!(html_hud.contains("border-radius: 6px; overflow: hidden;"));
         assert!(html_hud.contains("Ideas in motion · 960×600"));
+        assert!(html_hud.contains("id=\"fullscreen-toggle\""));
         assert!(html_hud.contains("<span id=\"status\" hidden></span>"));
         assert!(
             html_hud.contains("<div class=\"transport\" aria-label=\"Preview controls\" hidden>")
@@ -3645,6 +3657,8 @@ mod tests {
         assert!(html_hud.contains("id=\"loading\" role=\"status\" hidden style=\"display:none\""));
 
         let bundle_hud_raw = fs::read_to_string(out_hud.join("bundle.js")).unwrap();
+        assert!(bundle_hud_raw.contains("\"stage_align\": \"bottom_right\""));
+        assert!(bundle_hud_raw.contains("\"allow_fullscreen\": true"));
         assert!(bundle_hud_raw.ends_with(";\n"));
         assert!(
             bundle_hud_raw.lines().count() > 20,
