@@ -114,13 +114,68 @@ const EYEDROPPER: ToolSpec = spec(
     "Eyedropper (I)",
 );
 const ERASER: ToolSpec = spec(Tool::Eraser, Icon::Eraser, "Eraser", "E", "Eraser (E)");
+const RAZOR: ToolSpec = spec(Tool::Razor, Icon::Razor, "Razor", "C", "Razor (C)");
+const DECO: ToolSpec = spec(Tool::Deco, Icon::Deco, "Deco", "U", "Deco (U)");
+const SPRAY_BRUSH: ToolSpec = spec(
+    Tool::SprayBrush,
+    Icon::SprayBrush,
+    "Spray Brush",
+    "⇧B",
+    "Spray Brush (⇧B)",
+);
+const BONE: ToolSpec = spec(Tool::Bone, Icon::Bone, "Bone", "X", "Bone (X)");
+const BIND: ToolSpec = spec(Tool::Bind, Icon::Bind, "Bind", "⇧X", "Bind (⇧X)");
+const ASSET_WARP: ToolSpec = spec(
+    Tool::AssetWarp,
+    Icon::Puppet,
+    "Asset Warp",
+    "⇧W",
+    "Asset Warp (⇧W)",
+);
+const TRANSLATE_3D: ToolSpec = spec(
+    Tool::Translate3D,
+    Icon::Translate3D,
+    "3D Translation",
+    "G",
+    "3D Translation (G)",
+);
+const ROTATE_3D: ToolSpec = spec(
+    Tool::Rotate3D,
+    Icon::Rotate3D,
+    "3D Rotation",
+    "W",
+    "3D Rotation (W)",
+);
 const HAND: ToolSpec = spec(Tool::Hand, Icon::Hand, "Hand", "H", "Hand (H / hold Space)");
 const ZOOM: ToolSpec = spec(Tool::Zoom, Icon::ZoomIn, "Zoom", "Z", "Zoom (Z / M)");
 
-/// 2 Columns grid, classic Flash order.
+/// 2 Columns grid, classic Flash order plus Razor and advanced Stage tools.
 const GRID: &[ToolSpec] = &[
-    SELECT, SUBSELECT, LINE, LASSO, PEN, TEXT, OVAL, RECTANGLE, POLYSTAR, PENCIL, BRUSH, TRANSFORM,
-    GRADIENT, INK, BUCKET, EYEDROPPER, ERASER,
+    SELECT,
+    SUBSELECT,
+    LINE,
+    LASSO,
+    PEN,
+    TEXT,
+    OVAL,
+    RECTANGLE,
+    POLYSTAR,
+    PENCIL,
+    BRUSH,
+    TRANSFORM,
+    GRADIENT,
+    INK,
+    BUCKET,
+    EYEDROPPER,
+    ERASER,
+    RAZOR,
+    DECO,
+    SPRAY_BRUSH,
+    BONE,
+    BIND,
+    ASSET_WARP,
+    TRANSLATE_3D,
+    ROTATE_3D,
 ];
 const VIEW: &[ToolSpec] = &[HAND, ZOOM];
 
@@ -353,7 +408,7 @@ impl Editor {
                                             item = item.shortcut(&key);
                                         }
                                         if ui.add(item).clicked() {
-                                            if spec.tool != Tool::Select {
+                                            if !spec.tool.preserves_selection_on_rail_click() {
                                                 self.clear_selection();
                                             }
                                             self.set_tool(spec.tool);
@@ -478,7 +533,7 @@ impl Editor {
     fn single_tool_button(&mut self, ui: &mut egui::Ui, spec: ToolSpec) {
         let response = self.tool_button(ui, spec, self.tool == spec.tool, false);
         if response.clicked() {
-            if spec.tool != Tool::Select {
+            if !spec.tool.preserves_selection_on_rail_click() {
                 self.clear_selection();
             }
             self.set_tool(spec.tool);
@@ -503,7 +558,7 @@ impl Editor {
                 nf::ToolButton::corner_hit(response.rect).contains(position)
             });
         if response.clicked() && !mark_clicked {
-            if shown.tool != Tool::Select {
+            if !shown.tool.preserves_selection_on_rail_click() {
                 self.clear_selection();
             }
             self.set_tool(shown.tool);
@@ -541,7 +596,7 @@ impl Editor {
         });
         if let Some(i) = chosen {
             remember_group_tool(&ctx, index, group, group[i].tool);
-            if group[i].tool != Tool::Select {
+            if !group[i].tool.preserves_selection_on_rail_click() {
                 self.clear_selection();
             }
             self.set_tool(group[i].tool);
@@ -1418,7 +1473,15 @@ impl Editor {
             | Tool::Text
             | Tool::Ink
             | Tool::Eyedropper
-            | Tool::Hand => {}
+            | Tool::Hand
+            | Tool::Razor
+            | Tool::Deco
+            | Tool::SprayBrush
+            | Tool::Bone
+            | Tool::Bind
+            | Tool::AssetWarp
+            | Tool::Translate3D
+            | Tool::Rotate3D => {}
         }
     }
 }
@@ -1445,7 +1508,7 @@ impl RailEntry<'_> {
 fn rail_entries(groups: &[Vec<ToolSpec>], default_layout: bool) -> Vec<RailEntry<'_>> {
     let mut entries = Vec::new();
     for (index, group) in groups.iter().enumerate() {
-        if default_layout && [3, 7, 10].contains(&index) {
+        if default_layout && [3, 7, 11].contains(&index) {
             entries.push(RailEntry::Divider);
         }
         entries.push(RailEntry::Group(index, group));

@@ -39,7 +39,7 @@ impl Default for ToolPreferences {
 }
 /// The approved Customize rail contains fourteen slots (R-038 outline).
 pub const TOOL_SLOT_COUNT: usize = 14;
-pub const TOOL_NAMES: [&str; 19] = [
+pub const TOOL_NAMES: [&str; 27] = [
     "Selection",
     "Subselection",
     "Free Transform",
@@ -57,6 +57,14 @@ pub const TOOL_NAMES: [&str; 19] = [
     "Ink Bottle",
     "Eyedropper",
     "Eraser",
+    "Razor",
+    "Deco",
+    "Spray Brush",
+    "Bone",
+    "Bind",
+    "Asset Warp",
+    "3D Translation",
+    "3D Rotation",
     "Hand",
     "Zoom",
 ];
@@ -72,6 +80,7 @@ pub fn default_slots() -> Vec<Vec<String>> {
         vec!["Paint Bucket", "Ink Bottle"],
         vec!["Eyedropper"],
         vec!["Eraser"],
+        vec!["Razor"],
         vec!["Hand", "Zoom"],
     ]
     .into_iter()

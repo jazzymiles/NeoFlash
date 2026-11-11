@@ -492,6 +492,7 @@ impl Editor {
             if blank {
                 key.elements.clear();
                 key.tween = None;
+                key.video = None;
             }
             return;
         }
@@ -543,6 +544,32 @@ impl Editor {
         key.label.clear();
         // A frame sound belongs to the keyframe it was attached to; copying it would play twice.
         key.sound = None;
+        let prev_video = layer
+            .key_at(frame)
+            .and_then(|prev| prev.video.clone().map(|span| (prev.frame, span)));
+        key.video = if blank {
+            None
+        } else if let Some((prev_frame, span)) = prev_video {
+            match span.sync {
+                neoflash_core::VideoSyncMode::Stream => {
+                    if let Ok((left, right)) =
+                        neoflash_core::split_video_span_at(&span, prev_frame, frame, fps.max(1.0))
+                    {
+                        if let Some(prev_key) =
+                            layer.keyframes.iter_mut().find(|k| k.frame == prev_frame)
+                        {
+                            prev_key.video = Some(left);
+                        }
+                        Some(right)
+                    } else {
+                        None
+                    }
+                }
+                neoflash_core::VideoSyncMode::Event | neoflash_core::VideoSyncMode::Stop => None,
+            }
+        } else {
+            None
+        };
         layer.keyframes.push(key);
         layer.keyframes.sort_by_key(|key| key.frame);
     }

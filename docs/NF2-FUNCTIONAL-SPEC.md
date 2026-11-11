@@ -79,7 +79,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | PR-06 | Properties — Movie clip: Swap…, Parameters tab | Properties | partial (Library + Stage Swap done; R-012) | editor / yes | P2 |
 | PR-07 | Properties — Graphic thumbnail strip | Properties | done (`panels/live_planned.rs` + `authoring_symbols.rs`) | editor | P3 |
 | PR-08 | Properties — Sound (frame) | Properties | partial | yes | P3 |
-| PR-09 | Properties — Video playback & cue points | Properties | partial (`TimelineVideoSpan` HTML5 playback works; Properties/cue-points UI remains) | yes | P3 |
+| PR-09 | Properties — Video playback & cue points | Properties | partial (`panels/properties_video.rs`; resource/sync/loop/mute, interactive In/Out trim, Split at playhead, Link/Unlink, Extract audio and cue-point authoring/retiming work; native Progressive/skin/Swap remain) | yes | P3 |
 | PR-10 | Properties — Motion tween | Properties | done | yes | P2 |
 | PR-11 | Frame easing: overshoot values, Flash acceleration field | Properties | done | UI-only | P1 |
 | CO-01 | Color panel fill type: Linear / Radial gradient | Color | done | yes (small) | P2 |
@@ -656,15 +656,19 @@ their own layout.
 - Data: `FrameSound { resource, sync, loops, loop_forever, effect, envelope }` (TL-07, DL-09, format 7).
   Acceptance: Event sound plays once per keyframe hit; Stop stops it; Stream follows playhead.
 
-**PR-09 · Properties — Video** — partial (embedded authored HTML5 playback works; Properties/cue-points UI remains)
-- Missing: tabs Properties / Cue points; preview with transport; instance name + Swap…; file info; Deployment
-  Embedded / External / Progressive; Autoplay; Loop; Muted; Skin; Scale Fit / Fill / None; Volume; cue points table
-  (name, time, Event / Navigation) add/remove; Edit in timeline.
+**PR-09 · Properties — Video** — partial (`panels/properties_video.rs`)
+- Working: contextual `Properties ▸ Video` section edits the active `TimelineVideoSpan`'s Library `video/*` resource,
+  `Sync` (`Stream` synchronous frame-locked vs `Event` asynchronous / `Stop`), `Loop` and `Mute`, interactive `SpanType::Video`
+  trim handles + numeric `In` / `Out` (`ms`) fields, `Split at playhead` (`TimelineEdit::SplitClip`, tightening the left
+  segment's out-point, advancing the right segment's in-point, partitioning cue points, and rejecting `Event`/`Stop`
+  mid-span splits atomically), `Linked track` pairing (`LayerProperties.linked_layer`, format 12) with `Link`/`Unlink`,
+  `Extract audio` (demuxing embedded AVI audio or transcoding via `ffmpeg` onto a linked `audio/*` layer in one Undo
+  step), and `VideoCuePoint` authoring (`Event` / `Navigation`), removal and proportional retiming.
+- Missing: instance `Swap…`, player `Skin`, `Scale Fit / Fill / None`, per-clip `Volume` and native Progressive streaming.
 - Data: `ElementKind::Video { width, height }` plus `TimelineVideoSpan`; the Rust `Player` schedules authored
   Stream/Event/Stop commands through WASM to `web/video.js`, while scripted NetStream remains available.
-  **NEW UI** source resource, deployment, playback flags, cue points.
-- Acceptance: embedded authored video plays in HTML5 without script. A bounded AS3 `cuePoint` event remains future
-  acceptance with the cue-points UI.
+- Acceptance: embedded authored video plays in HTML5 and native Stage preview without script; `Stream` tracks follow the
+  playhead synchronously while `Event` tracks continue asynchronously across halted timelines.
 
 **PR-10 · Properties — Motion tween** — done (`panels/motion_tween.rs`)
 - Done: replaces the frame Tween section while the playhead is inside a motion tween and exactly one member of that
@@ -970,15 +974,17 @@ Screenshot aids: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` and
 - Done: 640 pt modal dialog with format tabs `WAV · MP3 · OGG · AAC`; `Source` selector (`Timeline mix (all sound layers)`, individual sound layers `Layer: <name>`, or Library audio resources `Resource: <name>`) and `Range` selector (`Range: whole movie`, `Range: current scene`, `Range: frames A–B`); `Format` selectors (`8` / `11.025` / `22.05` / `44.1` / `48 kHz`, WAV bit depth `8-bit` / `16-bit` / `24-bit` / `32-bit float`, `Stereo` / `Mono`, compressed CBR bit rate `64`–`320 kbps CBR`); `Processing` controls (`Normalize to −1 dB`, `Fade out 0.0..=30.0 s` stepper, `Trim silence`); and live footer summary (`<source> · <duration> s · ~ <size>`).
 
 **DL-07 · Import video** — partial (`panels/import_video.rs`, `File ▸ Import ▸ Import video…`):
-- Working: the 720 pt modal dialog and live floating panel choose a real local MP4/WebM/Ogg resource, validate its
-  container/codec diagnostics, set the timeline video span, optionally place a video element, extend the timeline and
-  match the document FPS in one `"Import video"` Undo step. Identical media is reused and colliding resource paths are
-  made unique. Read, format or project-validation failures leave both the draft and document unchanged. Embedded
-  authored spans publish and play automatically in HTML5. External spans stage a package-relative asset and
-  Progressive spans retain a validated HTTP(S) URL; mixed deployment of one resource is deterministic. Native
-  Stage playback and offline export decode Embedded and local External spans through the shared streaming pipe, with
-  format-12 authored out-points honored. Decoded CPU frames are currently retained, so bounded on-demand long-video
-  decoding, native Progressive playback and the Properties/cue-point surface in PR-09 remain incomplete. Local
+- Working: the 720 pt modal dialog and live floating panel choose a real local MP4/WebM/Ogg/AVI resource, probe
+  container duration (`mvhd` / RIFF AVI headers), provide interactive `SpanType::Video` In/Out trim handles synchronized
+  with `MM:SS.FF` timecode fields, validate its container/codec diagnostics, set the timeline video span
+  (`start_offset_ms` and format-12 `end_offset_ms`), optionally place a video element, extend the timeline and match
+  the document FPS in one `"Import video"` Undo step. Identical media is reused and colliding resource paths are made
+  unique. Read, format or project-validation failures leave both the draft and document unchanged. Embedded authored
+  spans publish and play automatically in HTML5 (AVI transcodes to H.264 MP4 during publish). External spans stage a
+  package-relative asset and Progressive spans retain a validated HTTP(S) URL; mixed deployment of one resource is
+  deterministic. Native Stage playback and offline export decode Embedded and local External spans through the shared
+  streaming pipe, with format-12 authored out-points and PR-09 montage/cue-point editing honored. Decoded CPU frames are
+  currently retained, so bounded on-demand long-video decoding and native Progressive playback remain incomplete. Local
   External authoring keeps source bytes in the portable document so a later offline publish can stage them.
 
 **DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows

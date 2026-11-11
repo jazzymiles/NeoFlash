@@ -1308,4 +1308,81 @@ impl Editor {
                 }
             });
     }
+
+    /// Contextual Asset Warp / Puppet Pin inspector section (`T-226`).
+    pub(crate) fn asset_warp_inspector_section_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        element_id: Option<&str>,
+    ) {
+        let p = neoflash_ui::palette(ui.ctx());
+        let editable = self.layer_editable();
+        let pin_count = element_id
+            .and_then(|eid| {
+                self.symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)
+                    .and_then(|l| l.key_at(self.frame))
+                    .and_then(|k| k.asset_warp(eid))
+                    .map(|rig| rig.pins.len())
+            })
+            .unwrap_or(0);
+        let mut do_reset = false;
+        let mut do_bake = false;
+        nf::SectionHeader::new("Asset warp")
+            .id_salt("asset-warp-inspector")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = space::S2;
+                let msg = if !editable {
+                    "Unlock and show the active layer before placing or dragging warp pins."
+                } else if element_id.is_none() {
+                    "Select a vector shape or symbol instance on Stage, then click inside it to place warp pins."
+                } else {
+                    "Click inside the selected element on Stage to add pins, drag pins to deform, or Option-click a pin to remove."
+                };
+                ui.label(rich(msg, TextStyle::Small).color(p.text_secondary));
+                if let Some(_eid) = element_id {
+                    ui.label(
+                        rich(
+                            format!(
+                                "{pin_count} active pin{}",
+                                if pin_count == 1 { "" } else { "s" }
+                            ),
+                            TextStyle::Small,
+                        )
+                        .color(p.text_secondary),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = space::S2;
+                        if ui
+                            .add_enabled(
+                                editable && pin_count > 0,
+                                nf::Button::ghost("Reset warp"),
+                            )
+                            .clicked()
+                        {
+                            do_reset = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                editable && pin_count > 0,
+                                nf::Button::ghost("Bake warp"),
+                            )
+                            .clicked()
+                        {
+                            do_bake = true;
+                        }
+                    });
+                }
+            });
+        if let Some(eid) = element_id {
+            if do_reset {
+                let _ = self.reset_element_asset_warp(eid);
+            } else if do_bake {
+                let _ = self.bake_element_asset_warp(eid);
+            }
+        }
+    }
 }

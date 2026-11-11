@@ -72,6 +72,11 @@ pub enum TimelineEdit {
     /// timeline of the same instance (or the same symbol) on the keyframe before it, so the
     /// nested animation stays in step across keyframe splits and tweens.
     SyncSymbols { range: FrameRange },
+    /// Non-destructive montage / Razor split at `at`: splits an active `Stream` video or `Stream`
+    /// sound span (advancing the right segment's source in-point), rejects `Event`/`Stop` media
+    /// mid-span splits atomically, and inserts a pose-preserving Keyframe (with Graphic symbol
+    /// frame synchronization) on standard authoring spans.
+    SplitClip { layers: Vec<Id>, at: u32 },
 }
 fn layer_indices(timeline: &Timeline, ids: &[Id]) -> Result<Vec<usize>, String> {
     if ids.is_empty() {
@@ -134,8 +139,149 @@ fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32, fps: f64) -> Keyf
     key.elements = sample_layer_in_at_fps(timeline, layer, frame, fps);
     if let Some(original) = layer.keyframes.iter().find(|key| key.frame == frame) {
         key.label = original.label.clone();
+        key.video = original.video.clone();
     }
     key
+}
+
+/// Convert a timeline frame delta into rounded source media milliseconds at `fps`.
+pub fn frame_delta_ms(delta_frames: u32, fps: f64) -> u32 {
+    let safe_fps = if fps.is_finite() && fps > 0.0 {
+        fps
+    } else {
+        24.0
+    };
+    ((f64::from(delta_frames) * 1000.0) / safe_fps)
+        .round()
+        .clamp(0.0, f64::from(u32::MAX)) as u32
+}
+
+/// Split an authored `TimelineVideoSpan` starting at `span_start` into `(left, right)` at
+/// `cut_frame` (`cut_frame > span_start`). Rejects `Event` and `Stop` sync modes atomically
+/// because asynchronous video playback has no deterministic frame-locked split point.
+pub fn split_video_span_at(
+    span: &TimelineVideoSpan,
+    span_start: u32,
+    cut_frame: u32,
+    fps: f64,
+) -> Result<(TimelineVideoSpan, TimelineVideoSpan), String> {
+    if cut_frame <= span_start {
+        return Err("Video split point must be strictly after the clip start frame.".into());
+    }
+    if span.sync != VideoSyncMode::Stream {
+        return Err(
+            "Cannot split an Event or Stop video span mid-clip because its playback is not frame-locked. Switch Sync to Stream before splitting, or edit at keyframe boundaries."
+                .into(),
+        );
+    }
+    let delta_ms = frame_delta_ms(cut_frame - span_start, fps);
+    let raw_right_in = span.start_offset_ms.saturating_add(delta_ms);
+    let mut left = span.clone();
+    let mut right = span.clone();
+    if let Some(end_ms) = span.end_offset_ms {
+        let win = end_ms.saturating_sub(span.start_offset_ms).max(1);
+        if span.loop_video {
+            right.start_offset_ms = span.start_offset_ms.saturating_add(delta_ms % win);
+        } else if raw_right_in >= end_ms {
+            right.start_offset_ms = end_ms.saturating_sub(1);
+        } else {
+            right.start_offset_ms = raw_right_in;
+        }
+        right.end_offset_ms = Some(end_ms.max(right.start_offset_ms.saturating_add(1)));
+    } else {
+        right.start_offset_ms = raw_right_in;
+    }
+    if !span.loop_video {
+        let boundary_ms = right.start_offset_ms;
+        left.end_offset_ms = Some(boundary_ms.max(left.start_offset_ms.saturating_add(1)));
+        left.cue_points.retain(|cp| cp.time_ms < boundary_ms);
+        right.cue_points.retain(|cp| cp.time_ms >= boundary_ms);
+    }
+    Ok((left, right))
+}
+
+/// Split a `SoundSync::Stream` `FrameSound` at `cut_frame` into `(left, right)`, tightening
+/// `left.out_point` and advancing `right.in_point` for non-looping stream clips.
+pub fn split_stream_sound_at(
+    sound: &FrameSound,
+    span_start: u32,
+    cut_frame: u32,
+    fps: f64,
+) -> (FrameSound, FrameSound) {
+    let safe_fps = if fps.is_finite() && fps > 0.0 {
+        fps
+    } else {
+        24.0
+    };
+    let delta_sec = f64::from(cut_frame.saturating_sub(span_start)) / safe_fps;
+    let base_in = sound.in_point.unwrap_or(0.0).max(0.0);
+    let raw_in = (base_in + delta_sec).clamp(0.0, FrameSound::MAX_SOUND_TRIM_SECONDS);
+    let mut left = sound.clone();
+    let mut right = sound.clone();
+    let is_looping = sound.loop_forever || sound.loops > 1;
+    let next_in = if let Some(outp) = sound.out_point {
+        let win = (outp - base_in).max(1e-3);
+        if is_looping {
+            (base_in + (delta_sec % win)).min((outp - 1e-3).max(0.0))
+        } else if raw_in >= outp {
+            (outp - 1e-3).max(0.0)
+        } else {
+            raw_in
+        }
+    } else {
+        raw_in
+    };
+    if !is_looping {
+        let left_out = next_in.max((base_in + 1e-3).min(FrameSound::MAX_SOUND_TRIM_SECONDS));
+        left.out_point = Some(left_out);
+    }
+    right.in_point = Some(next_in);
+    if let Some(outp) = right.out_point
+        && outp <= next_in
+    {
+        right.out_point = Some((next_in + 1e-3).min(FrameSound::MAX_SOUND_TRIM_SECONDS));
+    }
+    (left, right)
+}
+
+type VideoLayerCut = (Option<(u32, TimelineVideoSpan)>, Option<TimelineVideoSpan>);
+
+/// Inspect `original` for an active `Keyframe.video` span at `cut_frame`.
+/// Returns `(Some((span_start_frame, left_video)), Some(right_video))` when `cut_frame` splits the
+/// interior of a video span, `(None, Some(exact_video))` when `cut_frame` lands on the video
+/// keyframe's start, or `(None, None)` when no video span covers `cut_frame`.
+fn video_cut_on_layer(
+    original: &Layer,
+    effective_end: u32,
+    cut_frame: u32,
+    fps: f64,
+) -> Result<VideoLayerCut, String> {
+    if cut_frame >= effective_end {
+        return Ok((None, None));
+    }
+    let Some(start_pos) = original
+        .keyframes
+        .iter()
+        .rposition(|k| k.frame <= cut_frame && k.keyed_properties.is_none())
+    else {
+        return Ok((None, None));
+    };
+    let start_key = &original.keyframes[start_pos];
+    let span_end = original.keyframes[start_pos + 1..]
+        .iter()
+        .find(|k| k.keyed_properties.is_none())
+        .map_or(effective_end, |k| k.frame);
+    if cut_frame >= span_end {
+        return Ok((None, None));
+    }
+    let Some(video) = &start_key.video else {
+        return Ok((None, None));
+    };
+    if cut_frame == start_key.frame {
+        return Ok((None, Some(video.clone())));
+    }
+    let (left, right) = split_video_span_at(video, start_key.frame, cut_frame, fps)?;
+    Ok((Some((start_key.frame, left)), Some(right)))
 }
 fn lerp_f64(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
@@ -867,6 +1013,11 @@ pub fn copy_frames(
         let mut layer = timeline.layers[index].clone();
         let effective_end = exposure(&layer, timeline.frame_count);
         layer.properties.end_frame = Some(effective_end);
+        let original = layer.clone();
+        let (_, head_video) = video_cut_on_layer(&original, effective_end, range.start, fps)?;
+        if end < effective_end {
+            let _ = video_cut_on_layer(&original, effective_end, end, fps)?;
+        }
         bake_touched(timeline, &mut layer, range.start, end, &mut budget, fps)?;
         split(timeline, &mut layer, range.start, fps);
         let keyframes = layer
@@ -874,6 +1025,18 @@ pub fn copy_frames(
             .into_iter()
             .filter(|key| key.frame >= range.start && key.frame < end)
             .map(|mut key| {
+                if key.frame == range.start {
+                    if head_video.is_some() {
+                        key.video = head_video.clone();
+                    }
+                } else if let Some(orig_key) = original
+                    .keyframes
+                    .iter()
+                    .find(|k| k.frame == key.frame && k.keyed_properties.is_none())
+                    && orig_key.video.is_some()
+                {
+                    key.video = orig_key.video.clone();
+                }
                 key.frame -= range.start;
                 key.tween = None;
                 key
@@ -915,8 +1078,28 @@ fn clear_rows(
     let end = range_end(timeline, range)?;
     for index in layer_indices(timeline, &range.layers)? {
         let mut layer = timeline.layers[index].clone();
+        let effective_end = layer.properties.end_frame.unwrap_or(0);
+        let original = layer.clone();
+        let (left_split, _) = video_cut_on_layer(&original, effective_end, range.start, fps)?;
+        let (_, tail_video) = video_cut_on_layer(&original, effective_end, end, fps)?;
         isolate_range(timeline, &mut layer, range.start, end, budget, fps)?;
         split(timeline, &mut layer, end, fps);
+        if let Some((left_frame, left_video)) = left_split
+            && let Some(left_key) = layer
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == left_frame && k.keyed_properties.is_none())
+        {
+            left_key.video = Some(left_video);
+        }
+        if let Some(right_video) = tail_video
+            && let Some(right_key) = layer
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == end && k.keyed_properties.is_none())
+        {
+            right_key.video = Some(right_video);
+        }
         layer
             .keyframes
             .retain(|key| key.frame < range.start || key.frame >= end);
@@ -1017,8 +1200,27 @@ fn paste_rows(
         }
         let mut layer = timeline.layers[index].clone();
         let old_end = layer.properties.end_frame.unwrap_or(0);
+        let original = layer.clone();
+        let (left_split, _) = video_cut_on_layer(&original, old_end, at, fps)?;
+        let (_, tail_video) = video_cut_on_layer(&original, old_end, end, fps)?;
         isolate_range(timeline, &mut layer, at, end, budget, fps)?;
         split(timeline, &mut layer, end, fps);
+        if let Some((left_frame, left_video)) = left_split
+            && let Some(left_key) = layer
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == left_frame && k.keyed_properties.is_none())
+        {
+            left_key.video = Some(left_video);
+        }
+        if let Some(right_video) = tail_video
+            && let Some(right_key) = layer
+                .keyframes
+                .iter_mut()
+                .find(|k| k.frame == end && k.keyed_properties.is_none())
+        {
+            right_key.video = Some(right_video);
+        }
         layer
             .keyframes
             .retain(|key| key.frame < at || key.frame >= end);
@@ -1403,9 +1605,9 @@ pub fn convert_layer_to_keyframes_stepped(
 pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> Result<(), String> {
     let mut candidate = project.clone();
     let fps = f64::from(candidate.fps);
-    // Graphic symbols and their frame counts (Synchronise symbols only).
+    // Graphic symbols and their frame counts (Synchronise symbols and Razor / SplitClip).
     let graphics: HashMap<Id, u32> = match &edit {
-        TimelineEdit::SyncSymbols { .. } => candidate
+        TimelineEdit::SyncSymbols { .. } | TimelineEdit::SplitClip { .. } => candidate
             .symbols
             .iter()
             .filter(|s| s.kind == SymbolKind::Graphic)
@@ -1443,7 +1645,10 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
             for index in layer_indices(timeline, &range.layers)? {
                 let mut layer = timeline.layers[index].clone();
                 let old_end = layer.properties.end_frame.unwrap_or(0);
-                if layer.keyframes.iter().any(has_object_motion_path) {
+                let original = layer.clone();
+                let (left_split, _) = video_cut_on_layer(&original, old_end, range.start, fps)?;
+                let (end_mid_split, tail_video) = video_cut_on_layer(&original, old_end, end, fps)?;
+                if layer.keyframes.iter().any(has_object_motion_path) || end_mid_split.is_some() {
                     isolate_range(timeline, &mut layer, range.start, end, &mut budget, fps)?;
                     split(timeline, &mut layer, end, fps);
                 } else if end < old_end
@@ -1460,6 +1665,23 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         layer.keyframes[pos].elements = sampled;
                     }
                     layer.keyframes[pos].frame = end;
+                }
+                if let Some((left_frame, left_video)) = left_split
+                    && let Some(left_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == left_frame && k.keyed_properties.is_none())
+                {
+                    left_key.video = Some(left_video);
+                }
+                if end_mid_split.is_some()
+                    && let Some(right_video) = tail_video
+                    && let Some(right_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == end && k.keyed_properties.is_none())
+                {
+                    right_key.video = Some(right_video);
                 }
                 layer
                     .keyframes
@@ -1728,6 +1950,16 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     continue;
                 }
                 let original = layer.clone();
+                let (left_split, _) = video_cut_on_layer(&original, new_end, range.start, fps)?;
+                let (_, tail_video) = video_cut_on_layer(&original, new_end, last, fps)?;
+                let mut per_frame_videos: HashMap<u32, TimelineVideoSpan> = HashMap::new();
+                if !to_blank {
+                    for frame in range.start..last {
+                        if let (_, Some(v)) = video_cut_on_layer(&original, new_end, frame, fps)? {
+                            per_frame_videos.insert(frame, v);
+                        }
+                    }
+                }
                 let before_isolate = budget;
                 isolate_range(timeline, &mut layer, range.start, last, &mut budget, fps)?;
                 let isolate_charged = budget - before_isolate;
@@ -1740,6 +1972,22 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                     return Err("This edit would create more than 100000 frame/object records. Select a shorter range.".into());
                 }
                 split(timeline, &mut layer, last, fps);
+                if let Some((left_frame, left_video)) = left_split
+                    && let Some(left_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == left_frame && k.keyed_properties.is_none())
+                {
+                    left_key.video = Some(left_video);
+                }
+                if let Some(right_video) = tail_video
+                    && let Some(right_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == last && k.keyed_properties.is_none())
+                {
+                    right_key.video = Some(right_video);
+                }
                 layer
                     .keyframes
                     .retain(|key| key.frame < range.start || key.frame >= last);
@@ -1751,7 +1999,11 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         }
                         key
                     } else {
-                        sampled_key(timeline, &original, frame, fps)
+                        let mut key = sampled_key(timeline, &original, frame, fps);
+                        if let Some(v) = per_frame_videos.remove(&frame) {
+                            key.video = Some(v);
+                        }
+                        key
                     }
                 }));
                 layer.keyframes.sort_by_key(|key| key.frame);
@@ -1782,6 +2034,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 let mut layer = timeline.layers[index].clone();
                 let old_end = layer.properties.end_frame.unwrap_or(0);
                 if end_frame < old_end {
+                    let _ = video_cut_on_layer(&layer, old_end, end_frame, fps)?;
                     isolate_range(timeline, &mut layer, end_frame, old_end, &mut budget, fps)?;
                 }
                 layer.keyframes.retain(|key| key.frame < end_frame);
@@ -1790,6 +2043,106 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                 }
                 layer.properties.end_frame = Some(end_frame);
                 timeline.layers[index] = layer;
+            }
+        }
+        TimelineEdit::SplitClip { layers, at } => {
+            if at == 0 || at >= MAX_FRAME {
+                return Err("Place the playhead or Razor inside an active span to split.".into());
+            }
+            let indices = layer_indices(timeline, &layers)?;
+            let mut split_count = 0usize;
+            for index in indices {
+                let mut layer = timeline.layers[index].clone();
+                let layer_end = layer.properties.end_frame.unwrap_or(0);
+                if at >= layer_end {
+                    continue;
+                }
+                if layer
+                    .keyframes
+                    .iter()
+                    .any(|k| k.frame == at && k.keyed_properties.is_none())
+                {
+                    continue;
+                }
+                let Some(start_pos) = layer
+                    .keyframes
+                    .iter()
+                    .rposition(|k| k.frame < at && k.keyed_properties.is_none())
+                else {
+                    continue;
+                };
+                let span_start = layer.keyframes[start_pos].frame;
+                let span_end = layer.keyframes[start_pos + 1..]
+                    .iter()
+                    .find(|k| k.keyed_properties.is_none())
+                    .map_or(layer_end, |k| k.frame);
+                if at >= span_end {
+                    continue;
+                }
+                let video_split = if let Some(video) = &layer.keyframes[start_pos].video {
+                    Some(split_video_span_at(video, span_start, at, fps)?)
+                } else {
+                    None
+                };
+                let sound_split = if let Some(sound) = &layer.keyframes[start_pos].sound {
+                    if sound.sync == SoundSync::Stream {
+                        Some(split_stream_sound_at(sound, span_start, at, fps))
+                    } else if layer.keyframes[start_pos].elements.is_empty()
+                        && video_split.is_none()
+                    {
+                        return Err(
+                            "Cannot split an Event, Start, or Stop sound span mid-clip because asynchronous sound is not frame-locked. Switch Sync to Stream to split audio at a frame."
+                                .into(),
+                        );
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                isolate_range(timeline, &mut layer, at, at, &mut budget, fps)?;
+                split(timeline, &mut layer, at, fps);
+                if let Some((left_video, right_video)) = video_split {
+                    if let Some(left_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == span_start && k.keyed_properties.is_none())
+                    {
+                        left_key.video = Some(left_video);
+                    }
+                    if let Some(right_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == at && k.keyed_properties.is_none())
+                    {
+                        right_key.video = Some(right_video);
+                    }
+                }
+                if let Some((left_sound, right_sound)) = sound_split {
+                    if let Some(left_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == span_start && k.keyed_properties.is_none())
+                    {
+                        left_key.sound = Some(left_sound);
+                    }
+                    if let Some(right_key) = layer
+                        .keyframes
+                        .iter_mut()
+                        .find(|k| k.frame == at && k.keyed_properties.is_none())
+                    {
+                        right_key.sound = Some(right_sound);
+                    }
+                }
+                let _ = sync_symbols(&mut layer, at, at, &graphics, None);
+                timeline.layers[index] = layer;
+                split_count += 1;
+            }
+            if split_count == 0 {
+                return Err(
+                    "Place the playhead or Razor inside an active span (between keyframes) to split."
+                        .into(),
+                );
             }
         }
     }
@@ -2329,5 +2682,191 @@ mod tests {
         assert_eq!(kfs[1].tween, Some(Easing::EaseInOut));
         assert_eq!(kfs[4].tween, None);
         p_threes.validate().unwrap();
+    }
+
+    #[test]
+    fn video_and_sound_montage_splits_advance_in_points_preserve_metadata_and_reject_event_splits()
+    {
+        let mut p = Project::blank();
+        p.fps = 20; // 50 ms per frame for exact integer verification
+        p.format_version = 12;
+        let root_id = p.root.clone();
+        p.resources.push(
+            ResourceUnit::from_bytes(
+                "vid_1",
+                "video/clip.mp4",
+                "video/mp4",
+                b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41",
+            )
+            .unwrap(),
+        );
+        p.resources.push(
+            ResourceUnit::from_bytes(
+                "aud_1",
+                "audio/bed.wav",
+                "audio/wav",
+                b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00",
+            )
+            .unwrap(),
+        );
+
+        let video_layer_id = p.symbols[0].timeline.layers[0].id.clone();
+        p.symbols[0].timeline.frame_count = 40;
+        p.symbols[0].timeline.layers[0].properties.end_frame = Some(40);
+        p.symbols[0].timeline.layers[0].keyframes[0] = Keyframe {
+            frame: 0,
+            elements: vec![Element {
+                id: "vid_el".into(),
+                name: "clip.mp4".into(),
+                kind: ElementKind::Video {
+                    width: 320.0,
+                    height: 180.0,
+                },
+                ..Element::default()
+            }],
+            video: Some(TimelineVideoSpan {
+                resource: "vid_1".into(),
+                sync: VideoSyncMode::Stream,
+                start_offset_ms: 200,
+                end_offset_ms: Some(3000),
+                loop_video: false,
+                muted: true,
+                cue_points: vec![
+                    VideoCuePoint {
+                        name: "intro".into(),
+                        time_ms: 350,
+                        kind: VideoCuePointKind::Navigation,
+                        parameters: vec![],
+                    },
+                    VideoCuePoint {
+                        name: "beat".into(),
+                        time_ms: 900,
+                        kind: VideoCuePointKind::Event,
+                        parameters: vec![("tag".into(), "drop".into())],
+                    },
+                ],
+                deployment: VideoDeploymentMode::Embedded,
+                external_path: None,
+                stream_url: None,
+            }),
+            ..Keyframe::default()
+        };
+
+        let mut audio_sound = FrameSound::new("aud_1");
+        audio_sound.sync = SoundSync::Stream;
+        audio_sound.in_point = Some(0.2);
+        audio_sound.out_point = Some(3.0);
+        let audio_layer_id: Id = "aud_layer".into();
+        p.symbols[0].timeline.layers.push(Layer {
+            id: audio_layer_id.clone(),
+            name: "Audio".into(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                sound: Some(audio_sound),
+                ..Keyframe::default()
+            }],
+            properties: LayerProperties {
+                end_frame: Some(40),
+                linked_layer: Some(video_layer_id.clone()),
+                ..LayerProperties::default()
+            },
+        });
+        p.symbols[0].timeline.layers[0].properties.linked_layer = Some(audio_layer_id.clone());
+        p.validate().unwrap();
+
+        // 1. Atomic SplitClip at frame 10 (500 ms after start -> 200 + 500 = 700 ms).
+        edit_frames(
+            &mut p,
+            &root_id,
+            TimelineEdit::SplitClip {
+                layers: vec![video_layer_id.clone(), audio_layer_id.clone()],
+                at: 10,
+            },
+        )
+        .unwrap();
+        let vkfs = &p.symbols[0].timeline.layers[0].keyframes;
+        assert_eq!(vkfs.len(), 2);
+        let left_v = vkfs[0].video.as_ref().unwrap();
+        let right_v = vkfs[1].video.as_ref().unwrap();
+        assert_eq!(left_v.start_offset_ms, 200);
+        assert_eq!(left_v.end_offset_ms, Some(700));
+        assert!(left_v.muted);
+        assert_eq!(left_v.cue_points.len(), 1);
+        assert_eq!(left_v.cue_points[0].name, "intro");
+        assert_eq!(right_v.start_offset_ms, 700);
+        assert_eq!(right_v.end_offset_ms, Some(3000));
+        assert!(right_v.muted);
+        assert_eq!(right_v.cue_points.len(), 1);
+        assert_eq!(right_v.cue_points[0].name, "beat");
+
+        let akfs = &p.symbols[0].timeline.layers[1].keyframes;
+        assert_eq!(akfs.len(), 2);
+        let left_s = akfs[0].sound.as_ref().unwrap();
+        let right_s = akfs[1].sound.as_ref().unwrap();
+        assert!((left_s.out_point.unwrap() - 0.7).abs() < 1e-6);
+        assert!((right_s.in_point.unwrap() - 0.7).abs() < 1e-6);
+
+        // 2. Ripple Delete of frames 10..15 advances the second segment's in-point from 700 -> 950 ms.
+        edit_frames(
+            &mut p,
+            &root_id,
+            TimelineEdit::Delete {
+                range: FrameRange {
+                    layers: vec![video_layer_id.clone()],
+                    start: 10,
+                    end: 14,
+                },
+                include_scripts: false,
+            },
+        )
+        .unwrap();
+        let vkfs = &p.symbols[0].timeline.layers[0].keyframes;
+        assert_eq!(vkfs[1].frame, 10);
+        assert_eq!(vkfs[1].video.as_ref().unwrap().start_offset_ms, 950);
+
+        // 3. Copy & Move preserve Keyframe.video metadata.
+        let copied = copy_frames(
+            &p,
+            &root_id,
+            &FrameRange {
+                layers: vec![video_layer_id.clone()],
+                start: 10,
+                end: 19,
+            },
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            copied.layers[0].keyframes[0]
+                .video
+                .as_ref()
+                .unwrap()
+                .start_offset_ms,
+            950
+        );
+
+        // 4. Event / Stop video mid-span split or partial delete rejects atomically without mutating p.
+        p.symbols[0].timeline.layers[0].keyframes[1]
+            .video
+            .as_mut()
+            .unwrap()
+            .sync = VideoSyncMode::Event;
+        let snapshot = p.clone();
+        let err = edit_frames(
+            &mut p,
+            &root_id,
+            TimelineEdit::SplitClip {
+                layers: vec![video_layer_id.clone(), audio_layer_id.clone()],
+                at: 18,
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("Event or Stop"));
+        assert_eq!(
+            p, snapshot,
+            "failed Event split must leave both linked layers untouched"
+        );
     }
 }

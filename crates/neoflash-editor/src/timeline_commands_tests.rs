@@ -6133,3 +6133,769 @@ fn t204_swf_runtime_display_list_projects_onto_stage_across_seek_step_restart_an
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn t253_t217_premiere_workspace_razor_linked_montage_trim_extract_audio_and_sync_async_preview() {
+    use crate::commands::{CommandId, queue_command};
+    use crate::panels::function_search::function_search_results;
+    use crate::panels::import_video::update_import_video_draft;
+    use crate::workspace::{FramePreview, WorkspaceTemplate};
+    use image::{ImageFormat, Rgb, RgbImage};
+    use neoflash_core::timeline_video::{VideoCuePoint, VideoCuePointKind, VideoSyncMode};
+    use std::io::Cursor;
+
+    let ctx = egui::Context::default();
+    let mut proj = Project::blank();
+    proj.fps = 10; // 1 frame = 100 ms
+    let mut editor = Editor::from_project(&ctx, proj);
+
+    // 1. Premiere workspace template docks montage panels and activates Layer frame previews.
+    editor.workspace.apply_template(WorkspaceTemplate::Premiere);
+    assert_eq!(editor.workspace.timeline.preview, FramePreview::Layer);
+    assert!(
+        function_search_results("razor").contains(&CommandId::ToolRazor),
+        "Razor tool must be reachable from F1 Function Search"
+    );
+    assert!(
+        function_search_results("split clip").contains(&CommandId::ModifyTimelineSplitClip),
+        "Split clip at playhead must be reachable from F1 Function Search"
+    );
+    assert!(
+        function_search_results("link video").contains(&CommandId::ModifyTimelineLinkTracks),
+        "Link video & audio must be reachable from F1 Function Search"
+    );
+
+    // 2. Build a 6-frame (600 ms @ 10 fps) MJPEG + 16-bit PCM WAV AVI and import with explicit trim [100..500 ms].
+    let dir = std::env::temp_dir().join(format!("nf-t253-montage-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let mut jpegs = Vec::new();
+    for idx in 0..6u8 {
+        let mut img = RgbImage::new(16, 16);
+        for px in img.pixels_mut() {
+            *px = Rgb([idx * 40, 120, 220]);
+        }
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Jpeg)
+            .unwrap();
+        jpegs.push(buf);
+    }
+    let pcm_samples: Vec<i16> = (0..4_800)
+        .map(|i| (((i as f64 * 0.08).sin()) * 12_000.0) as i16)
+        .collect();
+    let avi_bytes =
+        neoflash_core::build_minimal_mjpeg_avi(16, 16, 10, &jpegs, Some((&pcm_samples, 8_000)));
+    let avi_path = dir.join("montage_clip.avi");
+    std::fs::write(&avi_path, &avi_bytes).unwrap();
+
+    editor.open_import_video(&ctx);
+    update_import_video_draft(&ctx, |draft| {
+        draft.file_path = avi_path.display().to_string();
+        draft.in_time = "00:00.10".to_owned();
+        draft.out_time = "00:00.50".to_owned();
+        draft.deployment = 0; // Embedded -> Stream
+    });
+    let vid_res_id = editor
+        .confirm_import_video(&ctx)
+        .expect("import trimmed AVI succeeds");
+    editor
+        .project
+        .validate()
+        .expect("valid after trimmed import");
+
+    let (_, imported_span) = editor.frame_video().expect("video span on frame 0");
+    assert_eq!(imported_span.resource, vid_res_id);
+    assert_eq!(imported_span.sync, VideoSyncMode::Stream);
+    assert_eq!(imported_span.start_offset_ms, 100);
+    assert_eq!(imported_span.end_offset_ms, Some(500));
+    assert!(!imported_span.muted);
+
+    // 3. Extract embedded audio into a linked audio layer in one Undo step.
+    let audio_res_id = editor
+        .extract_active_video_audio_track()
+        .expect("extract AVI audio into linked track");
+    assert_eq!(editor.history.undo_label(), Some("Extract video audio"));
+    editor
+        .project
+        .validate()
+        .expect("valid after audio extraction");
+    assert_eq!(editor.project.format_version, 12);
+
+    let video_layer_idx = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.keyframes.iter().any(|k| k.video.is_some()))
+        .unwrap();
+    let audio_layer_idx = editor
+        .symbol()
+        .timeline
+        .layers
+        .iter()
+        .position(|l| l.keyframes.iter().any(|k| k.sound.is_some()))
+        .unwrap();
+    let video_layer_id = editor.symbol().timeline.layers[video_layer_idx].id.clone();
+    let audio_layer_id = editor.symbol().timeline.layers[audio_layer_idx].id.clone();
+    assert_eq!(
+        editor.symbol().timeline.layers[video_layer_idx]
+            .properties
+            .linked_layer
+            .as_deref(),
+        Some(audio_layer_id.as_str())
+    );
+    assert_eq!(
+        editor.symbol().timeline.layers[audio_layer_idx]
+            .properties
+            .linked_layer
+            .as_deref(),
+        Some(video_layer_id.as_str())
+    );
+    let extracted_sound = editor.symbol().timeline.layers[audio_layer_idx].keyframes[0]
+        .sound
+        .as_ref()
+        .unwrap();
+    assert_eq!(extracted_sound.resource, audio_res_id);
+    assert_eq!(extracted_sound.sync, neoflash_core::SoundSync::Stream);
+    assert_eq!(extracted_sound.in_point, Some(0.1));
+    assert_eq!(extracted_sound.out_point, Some(0.5));
+
+    // Add two cue points on the video span and render Properties ▸ Video cleanly.
+    editor.layer = video_layer_idx;
+    editor.frame = 0;
+    let (_, mut with_cues) = editor.frame_video().unwrap();
+    assert!(
+        with_cues.muted,
+        "extracting audio mutes video span to prevent double audio"
+    );
+    with_cues.cue_points = vec![
+        VideoCuePoint {
+            name: "cue_early".into(),
+            time_ms: 150,
+            kind: VideoCuePointKind::Event,
+            parameters: vec![],
+        },
+        VideoCuePoint {
+            name: "cue_late".into(),
+            time_ms: 350,
+            kind: VideoCuePointKind::Event,
+            parameters: vec![],
+        },
+    ];
+    assert!(editor.set_keyframe_video_span(Some(with_cues)));
+
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.frame_video_section(ui);
+            });
+        },
+    );
+
+    // 4. Activate Razor tool (C) via palette command and split at frame 2 (200 ms elapsed -> 300 ms source boundary).
+    queue_command(&ctx, CommandId::ToolRazor);
+    editor.shortcuts(&ctx);
+    assert_eq!(editor.tool, crate::app::Tool::Razor);
+
+    editor.layer = video_layer_idx;
+    editor.frame = 2;
+    editor.clear_timeline_frame_selection();
+    let undo_before_split = editor.history.undo_len();
+    assert!(editor.split_clip_at_playhead());
+    assert_eq!(
+        editor.history.undo_len(),
+        undo_before_split + 1,
+        "linked Razor split must commit as one Undo step"
+    );
+    editor
+        .project
+        .validate()
+        .expect("valid after linked Razor split");
+
+    let v_layer = &editor.symbol().timeline.layers[video_layer_idx];
+    let left_v = v_layer
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 0)
+        .unwrap()
+        .video
+        .as_ref()
+        .unwrap();
+    let right_v = v_layer
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 2)
+        .unwrap()
+        .video
+        .as_ref()
+        .unwrap();
+    assert_eq!(left_v.start_offset_ms, 100);
+    assert_eq!(left_v.end_offset_ms, Some(300));
+    assert_eq!(left_v.cue_points.len(), 1);
+    assert_eq!(left_v.cue_points[0].name, "cue_early");
+    assert_eq!(right_v.start_offset_ms, 300);
+    assert_eq!(right_v.end_offset_ms, Some(500));
+    assert_eq!(right_v.cue_points.len(), 1);
+    assert_eq!(right_v.cue_points[0].name, "cue_late");
+
+    let a_layer = &editor.symbol().timeline.layers[audio_layer_idx];
+    let left_s = a_layer
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 0)
+        .unwrap()
+        .sound
+        .as_ref()
+        .unwrap();
+    let right_s = a_layer
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 2)
+        .unwrap()
+        .sound
+        .as_ref()
+        .unwrap();
+    assert!((left_s.in_point.unwrap() - 0.1).abs() < 1e-6);
+    assert!((left_s.out_point.unwrap() - 0.3).abs() < 1e-6);
+    assert!((right_s.in_point.unwrap() - 0.3).abs() < 1e-6);
+    assert!((right_s.out_point.unwrap() - 0.5).abs() < 1e-6);
+
+    // 5. Unlink tracks -> splitting video at frame 3 leaves unlinked audio untouched.
+    assert!(editor.can_unlink_av_layers());
+    assert!(editor.unlink_active_layers());
+    assert!(!editor.can_unlink_av_layers());
+    assert!(editor.can_link_av_layers());
+
+    editor.layer = video_layer_idx;
+    editor.frame = 3;
+    editor.clear_timeline_frame_selection();
+    assert!(editor.split_clip_at_playhead());
+    assert!(
+        editor.symbol().timeline.layers[video_layer_idx]
+            .keyframes
+            .iter()
+            .any(|k| k.frame == 3),
+        "video layer split at frame 3"
+    );
+    assert!(
+        !editor.symbol().timeline.layers[audio_layer_idx]
+            .keyframes
+            .iter()
+            .any(|k| k.frame == 3),
+        "unlinked audio layer must not split when video is cut independently"
+    );
+
+    // Relink and verify ripple insert shifts both linked tracks together.
+    assert!(editor.link_layers(&video_layer_id, &audio_layer_id));
+    editor.layer = video_layer_idx;
+    editor.frame = 0;
+    editor.clear_timeline_frame_selection();
+    editor.insert_frame();
+    assert!(
+        editor.symbol().timeline.layers[video_layer_idx]
+            .keyframes
+            .iter()
+            .any(|k| k.frame == 3)
+            && editor.symbol().timeline.layers[audio_layer_idx]
+                .keyframes
+                .iter()
+                .any(|k| k.frame == 3),
+        "ripple insert on linked video track must also shift linked audio track"
+    );
+    editor
+        .project
+        .validate()
+        .expect("valid after linked ripple insert");
+
+    // 6. Save/reopen round-trip preserves format-12 linked_layer + trimmed video/audio spans.
+    let saved_json = editor.project.to_json().expect("serialize montage project");
+    let reopened = Project::from_json(&saved_json).expect("reopen montage project");
+    reopened
+        .validate()
+        .expect("reopened montage project validates");
+    assert_eq!(reopened, editor.project);
+
+    // 7. Event-mode video mid-span Razor cut rejects atomically without mutating document.
+    editor.layer = video_layer_idx;
+    editor.frame = 0;
+    let (_, mut ev_span) = editor.frame_video().unwrap();
+    ev_span.sync = VideoSyncMode::Event;
+    assert!(editor.set_keyframe_video_span(Some(ev_span)));
+    let before_event_cut = editor.project.clone();
+    editor.frame = 1;
+    editor.clear_timeline_frame_selection();
+    assert!(
+        !editor.split_clip_at_playhead(),
+        "Event-mode video mid-span split must reject atomically"
+    );
+    assert_eq!(editor.project, before_event_cut);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn t226_advanced_stage_tools_f1_shortcuts_contextual_properties_and_live_gestures() {
+    use crate::commands::{CommandId, queue_command};
+    use crate::panels::function_search::function_search_results;
+    use neoflash_core::{
+        AssetWarpRig, Element, ElementKind, Keyframe, Layer, LayerProperties, Symbol, SymbolKind,
+        Transform, WarpPin, WarpPinKind,
+    };
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let child_sym_id = "leaf_mc".to_owned();
+    project.symbols.push(Symbol {
+        id: child_sym_id.clone(),
+        name: "leaf_mc".into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        timeline: neoflash_core::Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "leaf-l1".into(),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "leaf-dot".into(),
+                        name: String::new(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Ellipse {
+                            width: 12.0,
+                            height: 6.0,
+                            fill: [40, 200, 90, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    let mut editor = Editor::from_project(&ctx, project);
+
+    // 1. Verify F1 Function Search and palette/shortcut activation for every advanced Stage tool.
+    for (query, cmd, expected_tool) in [
+        ("deco", CommandId::ToolDeco, crate::app::Tool::Deco),
+        (
+            "spray brush",
+            CommandId::ToolSprayBrush,
+            crate::app::Tool::SprayBrush,
+        ),
+        ("bone", CommandId::ToolBone, crate::app::Tool::Bone),
+        ("bind", CommandId::ToolBind, crate::app::Tool::Bind),
+        (
+            "asset warp",
+            CommandId::ToolAssetWarp,
+            crate::app::Tool::AssetWarp,
+        ),
+        (
+            "3d translation",
+            CommandId::ToolTranslate3D,
+            crate::app::Tool::Translate3D,
+        ),
+        (
+            "3d rotation",
+            CommandId::ToolRotate3D,
+            crate::app::Tool::Rotate3D,
+        ),
+    ] {
+        let hits = function_search_results(query);
+        assert!(
+            hits.contains(&cmd),
+            "F1 search for '{query}' must return {cmd:?} (got {hits:?})"
+        );
+        queue_command(&ctx, cmd);
+        editor.shortcuts(&ctx);
+        assert_eq!(editor.tool, expected_tool);
+
+        // Render contextual Properties without selection -> zero panic, zero unintended mutation.
+        let before = editor.project.clone();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 800.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.properties(ui, ctx);
+                });
+            },
+        );
+        assert_eq!(
+            editor.project, before,
+            "rendering contextual Properties for {expected_tool:?} must not mutate document"
+        );
+    }
+
+    // 2. Deco tool Stage gesture + 1 Undo.
+    editor.set_tool(crate::app::Tool::Deco);
+    let before_deco = editor.project.clone();
+    let deco_ids = editor.apply_stage_deco_local_gesture(&[[60.0, 60.0], [140.0, 100.0]]);
+    assert!(!deco_ids.is_empty());
+    editor.project.validate().expect("valid after Deco gesture");
+    editor.undo();
+    assert_eq!(editor.project, before_deco);
+
+    // 3. Spray Brush Stage gesture (synced with leaf_mc via Properties) + 1 Undo.
+    editor.set_tool(crate::app::Tool::SprayBrush);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.properties(ui, ctx);
+            });
+        },
+    );
+    let before_spray = editor.project.clone();
+    let spray_ids =
+        editor.apply_stage_spray_local_gesture(&[[50.0, 50.0], [110.0, 70.0], [170.0, 90.0]]);
+    assert!(!spray_ids.is_empty());
+    editor
+        .project
+        .validate()
+        .expect("valid after Spray Brush gesture");
+    editor.undo();
+    assert_eq!(editor.project, before_spray);
+
+    // 4. Asset Warp + 3D Translation/Rotation inspectors with selected elements + 1 Undo.
+    {
+        let root = editor.symbol_mut();
+        root.timeline.layers[0].keyframes[0].elements.push(Element {
+            id: "warp-shape".into(),
+            name: String::new(),
+            transform: Transform {
+                x: 80.0,
+                y: 80.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Rectangle {
+                width: 120.0,
+                height: 60.0,
+                fill: [240, 120, 40, 255],
+                stroke: [0, 0, 0, 255],
+                stroke_width: 2.0,
+            },
+            ..Element::default()
+        });
+        root.timeline.layers[0].keyframes[0].elements.push(Element {
+            id: "mc-inst".into(),
+            name: "hero_mc".into(),
+            transform: Transform {
+                x: 220.0,
+                y: 150.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: child_sym_id,
+                playback: neoflash_core::InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+    }
+    editor.select_single_id("warp-shape".into());
+    editor.set_tool(crate::app::Tool::AssetWarp);
+    let rig = AssetWarpRig {
+        element_id: "warp-shape".into(),
+        pins: vec![
+            WarpPin {
+                id: "p1".into(),
+                kind: WarpPinKind::Fixed,
+                rest_pos: [10.0, 30.0],
+                pos: [10.0, 30.0],
+                rotation: 0.0,
+                stiffness: 1.0,
+            },
+            WarpPin {
+                id: "p2".into(),
+                kind: WarpPinKind::Open,
+                rest_pos: [110.0, 30.0],
+                pos: [115.0, 48.0],
+                rotation: 0.0,
+                stiffness: 1.0,
+            },
+        ],
+        envelop_subdivisions: 2,
+    };
+    assert!(editor.set_element_asset_warp(rig));
+    editor.project.validate().expect("valid after asset warp");
+
+    editor.select_single_id("mc-inst".into());
+    editor.set_tool(crate::app::Tool::Rotate3D);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.properties(ui, ctx);
+            });
+        },
+    );
+    editor.project.validate().expect("valid after 3D inspector");
+}
+
+#[test]
+fn t222_t223_complete_readme_non_script_journey_and_single_level_empty_stage_exit() {
+    use neoflash_core::{
+        Easing, Element, ElementKind, InstancePlayback, Keyframe, Layer, LayerProperties, Symbol,
+        SymbolKind, Transform, TweenKind,
+    };
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.name = "README Journey".into();
+    let inner_id = "inner_sym".to_owned();
+    let outer_id = "outer_sym".to_owned();
+    project.symbols.push(Symbol {
+        id: inner_id.clone(),
+        name: "InnerBadge".into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        timeline: neoflash_core::Timeline {
+            frame_count: 12,
+            layers: vec![Layer {
+                id: "in-l1".into(),
+                name: "Badge".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "in-rect".into(),
+                        name: String::new(),
+                        transform: Transform {
+                            x: 10.0,
+                            y: 10.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Rectangle {
+                            width: 40.0,
+                            height: 40.0,
+                            fill: [64, 156, 255, 255],
+                            stroke: [255, 255, 255, 255],
+                            stroke_width: 2.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    project.symbols.push(Symbol {
+        id: outer_id.clone(),
+        name: "OuterCard".into(),
+        kind: SymbolKind::MovieClip,
+        folder: String::new(),
+        timeline: neoflash_core::Timeline {
+            frame_count: 12,
+            layers: vec![Layer {
+                id: "out-l1".into(),
+                name: "Nested".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "inner-inst".into(),
+                        name: "badge".into(),
+                        transform: Transform {
+                            x: 20.0,
+                            y: 20.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: inner_id.clone(),
+                            playback: InstancePlayback::Loop,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        class_name: None,
+        linkage_id: None,
+    });
+    {
+        let root_id = project.root.clone();
+        let root = project.symbol_mut(&root_id).unwrap();
+        root.timeline.frame_count = 24;
+        root.timeline.layers[0].keyframes[0].elements.push(Element {
+            id: "outer-inst".into(),
+            name: "card".into(),
+            transform: Transform {
+                x: 100.0,
+                y: 80.0,
+                ..Transform::default()
+            },
+            kind: ElementKind::Instance {
+                symbol_id: outer_id.clone(),
+                playback: InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+        root.timeline.layers[0].keyframes[0].tween = Some(Easing::EaseInOut);
+        root.timeline.layers[0].keyframes[0].tween_kind = TweenKind::Classic;
+        root.timeline.layers[0].keyframes.push(Keyframe {
+            frame: 12,
+            elements: vec![Element {
+                id: "outer-inst".into(),
+                name: "card".into(),
+                transform: Transform {
+                    x: 260.0,
+                    y: 140.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: outer_id.clone(),
+                    playback: InstancePlayback::Loop,
+                },
+                ..Element::default()
+            }],
+            ..Keyframe::default()
+        });
+    }
+
+    let mut editor = Editor::from_project(&ctx, project);
+    let scene0 = editor.current_scene().to_owned();
+    editor.new_scene();
+    editor.switch_scene(&scene0);
+    assert_eq!(editor.project.scenes.len(), 2);
+
+    // Enter two nested Edit-in-Place levels: Scene 1 -> OuterCard -> InnerBadge (depth == 3).
+    editor.select_single_id("outer-inst".into());
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 2);
+    assert_eq!(editor.symbol_id(), outer_id);
+
+    editor.select_single_id("inner-inst".into());
+    assert!(editor.enter_selected_symbol_in_place());
+    assert_eq!(editor.edit_depth(), 3);
+    assert_eq!(editor.symbol_id(), inner_id);
+
+    // Simulate a clean empty-Stage double-click under Tool::Select -> MUST exit exactly ONE level
+    // (InnerBadge -> OuterCard, depth 3 -> 2), never jump straight to root!
+    editor.set_tool(crate::app::Tool::Select);
+    let empty_pos = egui::pos2(780.0, 560.0);
+    let _ = crate::tests::stage_input_frame(&mut editor, &ctx, 1.0, vec![]);
+    let run_stage_click = |editor: &mut Editor, time: f64, pos: egui::Pos2, pressed: bool| {
+        let events = if pressed {
+            vec![
+                egui::Event::PointerMoved(pos),
+                crate::tests::primary_button(pos, true),
+            ]
+        } else {
+            vec![crate::tests::primary_button(pos, false)]
+        };
+        let _ = crate::tests::stage_input_frame(editor, &ctx, time, events);
+    };
+    run_stage_click(&mut editor, 1.05, empty_pos, true);
+    run_stage_click(&mut editor, 1.08, empty_pos, false);
+    assert_eq!(
+        editor.edit_depth(),
+        3,
+        "single empty click stays in InnerBadge"
+    );
+
+    run_stage_click(&mut editor, 1.20, empty_pos, true);
+    run_stage_click(&mut editor, 1.23, empty_pos, false);
+    assert_eq!(
+        editor.edit_depth(),
+        2,
+        "double-clicking empty Stage must exit one level to OuterCard, never jump straight to root"
+    );
+    assert_eq!(editor.symbol_id(), outer_id);
+
+    // Second empty-Stage double-click exits OuterCard -> Scene 1 (depth 2 -> 1).
+    run_stage_click(&mut editor, 2.00, empty_pos, true);
+    run_stage_click(&mut editor, 2.03, empty_pos, false);
+    run_stage_click(&mut editor, 2.15, empty_pos, true);
+    run_stage_click(&mut editor, 2.18, empty_pos, false);
+    assert_eq!(editor.edit_depth(), 1);
+
+    // Save/reopen + verify HTML5, Native Banner, SVG and After Effects exports succeed cleanly.
+    editor.project.upgrade_format_for_features();
+    editor
+        .project
+        .validate()
+        .expect("valid README journey project");
+    let json = editor.project.to_json().unwrap();
+    let reopened = Project::from_json(&json).unwrap();
+    assert_eq!(reopened, editor.project);
+
+    let dir = std::env::temp_dir().join(format!("nf-t222-journey-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let web_runtime =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
+    neoflash_export::export_project(&reopened, &dir.join("html5"), &web_runtime)
+        .expect("HTML5 export");
+    let banner = neoflash_export::banner::export_native_banner_html(
+        &reopened,
+        dir.join("banner.html"),
+        &neoflash_export::banner::BannerOptions::default(),
+    )
+    .expect("zero-WASM native HTML5 banner export");
+    assert!(banner.raw_bytes > 100);
+    let svg = neoflash_export::svg::export_project_svg(
+        &reopened,
+        dir.join("frame6.svg"),
+        &neoflash_export::svg::SvgOptions {
+            frame: 6,
+            ..Default::default()
+        },
+    )
+    .expect("SVG frame 6");
+    assert_eq!(svg.frame_count, 1);
+    let aep = neoflash_export::aep::export_project_aep(
+        &reopened,
+        dir.join("journey.aep"),
+        &neoflash_export::aep::AepOptions::default(),
+    )
+    .expect("After Effects export");
+    assert!(aep.aep_path.exists());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

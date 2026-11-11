@@ -31,6 +31,7 @@ pub(crate) enum Icon {
     SprayBrush,
     Translate3D,
     Rotate3D,
+    Razor,
     ZoomIn,
     ZoomOut,
     Fit,
@@ -122,6 +123,30 @@ const TOOL_3D_ROTATE_16: neoflash_ui::Icon = neoflash_ui::Icon {
 </svg>"##,
 };
 
+const TOOL_RAZOR_16: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 16,
+    name: "tool-razor-16",
+    svg: r##"<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.5 5.5H13.5L11.5 11.5H2.5V5.5Z" stroke="#9AA3B6" stroke-width="1" stroke-linejoin="round"/>
+<line x1="2.5" y1="7.5" x2="12.8" y2="7.5" stroke="#9AA3B6" stroke-width="1"/>
+<circle cx="6.5" cy="9.5" r="1" fill="#9AA3B6"/>
+<line x1="8.5" y1="2.5" x2="8.5" y2="4" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round"/>
+<line x1="8.5" y1="13" x2="8.5" y2="14.5" stroke="#9AA3B6" stroke-width="1" stroke-linecap="round"/>
+</svg>"##,
+};
+
+const TOOL_RAZOR_20: neoflash_ui::Icon = neoflash_ui::Icon {
+    size: 20,
+    name: "tool-razor",
+    svg: r##"<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M3 6.75H17L14.5 14.25H3V6.75Z" stroke="#9AA3B6" stroke-width="1.5" stroke-linejoin="round"/>
+<line x1="3" y1="9.25" x2="16.1" y2="9.25" stroke="#9AA3B6" stroke-width="1.5"/>
+<circle cx="8" cy="11.75" r="1.25" fill="#9AA3B6"/>
+<line x1="10.5" y1="2.75" x2="10.5" y2="4.75" stroke="#9AA3B6" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="10.5" y1="16.25" x2="10.5" y2="18.25" stroke="#9AA3B6" stroke-width="1.5" stroke-linecap="round"/>
+</svg>"##,
+};
+
 const GRADIENT_TRANSFORM_16: neoflash_ui::Icon = neoflash_ui::Icon {
     size: 16,
     name: "gradient-transform",
@@ -192,6 +217,7 @@ impl Icon {
             Self::SprayBrush => pick(TOOL_SPRAY_16, i20::TOOL_SPRAY),
             Self::Translate3D => pick(TOOL_3D_TRANSLATE_16, i20::TOOL_3D_TRANSLATE),
             Self::Rotate3D => pick(TOOL_3D_ROTATE_16, i20::TOOL_3D_ROTATE),
+            Self::Razor => pick(TOOL_RAZOR_16, TOOL_RAZOR_20),
             Self::ZoomIn => pick(i16::ZOOMIN, i20::TOOL_ZOOM),
             Self::ZoomOut => pick(i16::ZOOMOUT, i20::ZOOMOUT),
             Self::Fit => pick(i16::FIT, i20::FIT),
@@ -1449,6 +1475,7 @@ mod tests {
             Icon::SprayBrush,
             Icon::Translate3D,
             Icon::Rotate3D,
+            Icon::Razor,
             Icon::ZoomIn,
             Icon::ZoomOut,
             Icon::Fit,

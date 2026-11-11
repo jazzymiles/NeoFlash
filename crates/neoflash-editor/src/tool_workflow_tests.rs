@@ -285,14 +285,15 @@ fn customize_tools_drafts_persist_globally_without_document_or_layout_changes() 
     assert_eq!(editor.tool, Tool::Brush);
     let mut dirty = ToolPreferences {
         slots: vec![
-            vec!["Brush".into(), "Deco".into()],
+            vec!["Brush".into(), "UnknownTool".into()],
             vec!["Brush".into()],
+            vec!["Razor".into(), "Deco".into()],
             vec![],
         ],
         ..Default::default()
     };
     dirty.sanitize();
-    assert_eq!(dirty.slots, vec![vec!["Brush"]]);
+    assert_eq!(dirty.slots, vec![vec!["Brush"], vec!["Razor", "Deco"]]);
     ctx.enable_accesskit();
     editor.open_customize_tools(&ctx);
     assert!(editor.customize_tools_open(&ctx));

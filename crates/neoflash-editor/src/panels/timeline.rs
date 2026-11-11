@@ -478,6 +478,29 @@ impl Editor {
                                         }
                                         crate::ui_icons::menu_contents(ui, 280., |ui| {
                                             neoflash_ui::components::menu_separator(ui);
+                                            if crate::ui_icons::menu_item_enabled(
+                                                ui,
+                                                self.can_link_av_layers(),
+                                                "Link video & audio",
+                                                "",
+                                            )
+                                            .clicked()
+                                            {
+                                                self.link_selected_or_adjacent_av_layers();
+                                                ui.close();
+                                            }
+                                            if crate::ui_icons::menu_item_enabled(
+                                                ui,
+                                                self.can_unlink_av_layers(),
+                                                "Unlink video & audio",
+                                                "",
+                                            )
+                                            .clicked()
+                                            {
+                                                self.unlink_active_layers();
+                                                ui.close();
+                                            }
+                                            neoflash_ui::components::menu_separator(ui);
                                             if crate::ui_icons::menu_item(ui, "Delete empty layers", "").clicked() {
                                                 self.delete_empty_layers();
                                                 ui.close();
@@ -1389,6 +1412,39 @@ impl Editor {
         .clicked()
         {
             self.distribute_selection_to_keyframes();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            editable && self.frame > 0,
+            "Split clip at playhead",
+            &self.sc(C::ModifyTimelineSplitClip),
+        )
+        .clicked()
+        {
+            self.split_clip_at_playhead();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            self.can_link_av_layers(),
+            "Link video & audio",
+            &self.sc(C::ModifyTimelineLinkTracks),
+        )
+        .clicked()
+        {
+            self.link_selected_or_adjacent_av_layers();
+            ui.close();
+        }
+        if menu_item_enabled(
+            ui,
+            self.can_unlink_av_layers(),
+            "Unlink video & audio",
+            &self.sc(C::ModifyTimelineUnlinkTracks),
+        )
+        .clicked()
+        {
+            self.unlink_active_layers();
             ui.close();
         }
         nf::menu_separator(ui);

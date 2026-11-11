@@ -107,6 +107,127 @@ impl Editor {
                     self.pencil_tool_contents(ui);
                     return;
                 }
+                Tool::Deco => {
+                    if !self.layer_editable() {
+                        hint(
+                            ui,
+                            "Select an unlocked, visible layer before painting procedural Deco patterns on Stage.",
+                        );
+                    }
+                    self.live_deco_tool(ui);
+                    return;
+                }
+                Tool::SprayBrush => {
+                    if !self.layer_editable() {
+                        hint(
+                            ui,
+                            "Select an unlocked, visible layer before spraying symbols or dots on Stage.",
+                        );
+                    }
+                    self.live_spray_brush(ui);
+                    return;
+                }
+                Tool::Bone | Tool::Bind => {
+                    if !self.layer_editable() {
+                        hint(
+                            ui,
+                            "Select an unlocked, visible layer before connecting IK bones or binding shape vertices.",
+                        );
+                    } else if self.tool == Tool::Bind {
+                        hint(
+                            ui,
+                            "Click a vector shape on Stage to select vertices and bind them to the active IK bone.",
+                        );
+                    }
+                    self.live_bone_properties(ui);
+                    self.bone_inspector_section_ui(ui);
+                    return;
+                }
+                Tool::AssetWarp => {
+                    ui.add(TypeHeader {
+                        icon: crate::ui_icons::Icon::Puppet.nf2(true),
+                        title: "Asset warp",
+                        subtitle: "Mesh pin deformation",
+                    });
+                    self.asset_warp_inspector_section_ui(ui, None);
+                    return;
+                }
+                Tool::Translate3D | Tool::Rotate3D => {
+                    let (icon, title, subtitle) = if self.tool == Tool::Translate3D {
+                        (
+                            crate::ui_icons::Icon::Translate3D.nf2(true),
+                            "3D Translation",
+                            "Translate MovieClip instances in X, Y, Z",
+                        )
+                    } else {
+                        (
+                            crate::ui_icons::Icon::Rotate3D.nf2(true),
+                            "3D Rotation",
+                            "Rotate MovieClip instances around X, Y, Z",
+                        )
+                    };
+                    ui.add(TypeHeader {
+                        icon,
+                        title,
+                        subtitle,
+                    });
+                    inspector_section(ui, "3D selection", |ui| {
+                        hint(
+                            ui,
+                            "Select a MovieClip instance on an unlocked, visible layer to transform it in 3D space.",
+                        );
+                    });
+                    return;
+                }
+                Tool::Razor => {
+                    ui.add(TypeHeader {
+                        icon: crate::ui_icons::Icon::Razor.nf2(true),
+                        title: "Razor",
+                        subtitle: "Non-destructive Timeline clip & span cutter",
+                    });
+                    let editable = self.layer_editable();
+                    let can_split = editable && self.frame > 0;
+                    let can_link = self.can_link_av_layers();
+                    let can_unlink = self.can_unlink_av_layers();
+                    let mut do_split = false;
+                    let mut do_link = false;
+                    let mut do_unlink = false;
+                    inspector_section(ui, "Montage & split", |ui| {
+                        hint(
+                            ui,
+                            "Click Stream video or audio spans in the Timeline to cut and advance source offsets; click Graphic, Button, or MovieClip spans to insert a keyframe.",
+                        );
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = space::S2;
+                            if ui
+                                .add_enabled(can_split, nf::Button::new("Split at playhead"))
+                                .clicked()
+                            {
+                                do_split = true;
+                            }
+                            if ui
+                                .add_enabled(can_link, nf::Button::ghost("Link A/V"))
+                                .clicked()
+                            {
+                                do_link = true;
+                            }
+                            if ui
+                                .add_enabled(can_unlink, nf::Button::ghost("Unlink"))
+                                .clicked()
+                            {
+                                do_unlink = true;
+                            }
+                        });
+                    });
+                    if do_split {
+                        self.split_clip_at_playhead();
+                    } else if do_link {
+                        self.link_selected_or_adjacent_av_layers();
+                    } else if do_unlink {
+                        self.unlink_active_layers();
+                    }
+                    return;
+                }
                 _ => {}
             }
             inspector_section(ui, "Tool options", |ui| self.authoring_tool_options(ui));
@@ -839,6 +960,32 @@ impl Editor {
                 } else if is_text_box {
                     self.display_and_filters_sections_ui(ui, "props-text", false, false);
                 }
+                let is_video_element = matches!(original.kind, ElementKind::Video { .. });
+                if is_video_element {
+                    self.frame_video_section(ui);
+                }
+                let pose_3d = self.element_3d_state(&original.id);
+                let has_3d_pose = pose_3d.translate_3d.iter().any(|v| v.abs() > 1e-6)
+                    || pose_3d.rotate_3d.iter().any(|v| v.abs() > 1e-6);
+                if matches!(self.tool, Tool::Translate3D | Tool::Rotate3D)
+                    || (is_instance && has_3d_pose)
+                {
+                    self.movie_clip_3d_and_bone_inspector_ui(ui);
+                }
+                if matches!(self.tool, Tool::Bone | Tool::Bind) {
+                    self.live_bone_properties(ui);
+                    self.bone_inspector_section_ui(ui);
+                }
+                let has_warp_rig = self
+                    .symbol()
+                    .timeline
+                    .layers
+                    .get(self.layer)
+                    .and_then(|l| l.key_at(self.frame))
+                    .is_some_and(|k| k.asset_warp(&original.id).is_some());
+                if self.tool == Tool::AssetWarp || has_warp_rig {
+                    self.asset_warp_inspector_section_ui(ui, Some(&original.id));
+                }
                 if edit_symbol { self.enter_selected_symbol_in_place(); }
             } else {
                 let mut document = self.project.clone();
@@ -996,6 +1143,7 @@ impl Editor {
                         if ui.add(frame_act_btn).clicked() { self.open_frame_actions(); }
                     });
                     self.frame_sound_section(ui);
+                    self.frame_video_section(ui);
                 } else {
                     let min = timeline.layers.iter().flat_map(|l| &l.keyframes).map(|k| k.frame+1).chain(timeline.scripts.iter().map(|s|s.frame+1)).chain(timeline.layers.iter().filter_map(|l|l.properties.end_frame)).max().unwrap_or(1);
                     inspector_section(ui, "Playback", |ui| {

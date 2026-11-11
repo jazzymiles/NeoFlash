@@ -708,6 +708,9 @@ pub enum CommandId {
     ModifyTimelineClearKeyframe,
     ModifyTimelineConvertToKeyframes,
     ModifyTimelineConvertToBlankKeyframes,
+    ModifyTimelineSplitClip,
+    ModifyTimelineLinkTracks,
+    ModifyTimelineUnlinkTracks,
     ModifyFreeTransform,
     ModifyDistort,
     ModifyEnvelope,
@@ -784,6 +787,14 @@ pub enum CommandId {
     ToolInk,
     ToolEyedropper,
     ToolEraser,
+    ToolRazor,
+    ToolDeco,
+    ToolSprayBrush,
+    ToolBone,
+    ToolBind,
+    ToolAssetWarp,
+    ToolTranslate3D,
+    ToolRotate3D,
     ToolHand,
     ToolZoom,
     ToolObjectDrawing,
@@ -923,6 +934,15 @@ const S_TOOL_E: &[Shortcut] = &[Shortcut::none(Key::E)];
 const S_TOOL_H: &[Shortcut] = &[Shortcut::none(Key::H)];
 const S_TOOL_ZM: &[Shortcut] = &[Shortcut::none(Key::Z), Shortcut::none(Key::M)];
 const S_TOOL_J: &[Shortcut] = &[Shortcut::none(Key::J)];
+const S_TOOL_C: &[Shortcut] = &[Shortcut::none(Key::C)];
+const S_TOOL_U: &[Shortcut] = &[Shortcut::none(Key::U)];
+const S_TOOL_SHIFT_B: &[Shortcut] = &[Shortcut::shift(Key::B)];
+const S_TOOL_X: &[Shortcut] = &[Shortcut::none(Key::X)];
+const S_TOOL_SHIFT_X: &[Shortcut] = &[Shortcut::shift(Key::X)];
+const S_TOOL_SHIFT_W: &[Shortcut] = &[Shortcut::shift(Key::W)];
+const S_TOOL_G: &[Shortcut] = &[Shortcut::none(Key::G)];
+const S_TOOL_W: &[Shortcut] = &[Shortcut::none(Key::W)];
+const S_SHIFT_CMD_K: &[Shortcut] = &[Shortcut::shift_cmd(Key::K)];
 
 impl CommandId {
     pub const ALL: &'static [Self] = &[
@@ -998,6 +1018,9 @@ impl CommandId {
         Self::ModifyTimelineClearKeyframe,
         Self::ModifyTimelineConvertToKeyframes,
         Self::ModifyTimelineConvertToBlankKeyframes,
+        Self::ModifyTimelineSplitClip,
+        Self::ModifyTimelineLinkTracks,
+        Self::ModifyTimelineUnlinkTracks,
         Self::ModifyFreeTransform,
         Self::ModifyDistort,
         Self::ModifyEnvelope,
@@ -1071,6 +1094,14 @@ impl CommandId {
         Self::ToolInk,
         Self::ToolEyedropper,
         Self::ToolEraser,
+        Self::ToolRazor,
+        Self::ToolDeco,
+        Self::ToolSprayBrush,
+        Self::ToolBone,
+        Self::ToolBind,
+        Self::ToolAssetWarp,
+        Self::ToolTranslate3D,
+        Self::ToolRotate3D,
         Self::ToolHand,
         Self::ToolZoom,
         Self::ToolObjectDrawing,
@@ -1654,6 +1685,30 @@ impl CommandId {
                 category: C::Modify,
                 title: "Modify ▸ Timeline ▸ Convert to blank keyframes",
                 keywords: "",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::ModifyTimelineSplitClip => CommandMeta {
+                id: "modify.timeline.split_clip",
+                category: C::Modify,
+                title: "Modify ▸ Timeline ▸ Split clip at playhead",
+                keywords: "razor cut blade video audio montage",
+                defaults: S_SHIFT_CMD_K,
+                allow_when_typing: false,
+            },
+            Self::ModifyTimelineLinkTracks => CommandMeta {
+                id: "modify.timeline.link_tracks",
+                category: C::Modify,
+                title: "Modify ▸ Timeline ▸ Link video & audio",
+                keywords: "montage sync premiere",
+                defaults: &[],
+                allow_when_typing: false,
+            },
+            Self::ModifyTimelineUnlinkTracks => CommandMeta {
+                id: "modify.timeline.unlink_tracks",
+                category: C::Modify,
+                title: "Modify ▸ Timeline ▸ Unlink video & audio",
+                keywords: "montage async j-cut l-cut premiere",
                 defaults: &[],
                 allow_when_typing: false,
             },
@@ -2241,6 +2296,70 @@ impl CommandId {
                 defaults: S_TOOL_E,
                 allow_when_typing: false,
             },
+            Self::ToolRazor => CommandMeta {
+                id: "tool.razor",
+                category: C::Tools,
+                title: "Tools ▸ Razor",
+                keywords: "blade cut split clip montage premiere",
+                defaults: S_TOOL_C,
+                allow_when_typing: false,
+            },
+            Self::ToolDeco => CommandMeta {
+                id: "tool.deco",
+                category: C::Tools,
+                title: "Tools ▸ Deco",
+                keywords: "vine symmetry flower lightning procedural pattern",
+                defaults: S_TOOL_U,
+                allow_when_typing: false,
+            },
+            Self::ToolSprayBrush => CommandMeta {
+                id: "tool.spray_brush",
+                category: C::Tools,
+                title: "Tools ▸ Spray Brush",
+                keywords: "scatter symbol particles dots",
+                defaults: S_TOOL_SHIFT_B,
+                allow_when_typing: false,
+            },
+            Self::ToolBone => CommandMeta {
+                id: "tool.bone",
+                category: C::Tools,
+                title: "Tools ▸ Bone",
+                keywords: "ik inverse kinematics armature rig joint",
+                defaults: S_TOOL_X,
+                allow_when_typing: false,
+            },
+            Self::ToolBind => CommandMeta {
+                id: "tool.bind",
+                category: C::Tools,
+                title: "Tools ▸ Bind",
+                keywords: "ik skin vertex weights bone",
+                defaults: S_TOOL_SHIFT_X,
+                allow_when_typing: false,
+            },
+            Self::ToolAssetWarp => CommandMeta {
+                id: "tool.asset_warp",
+                category: C::Tools,
+                title: "Tools ▸ Asset Warp",
+                keywords: "puppet pin mesh deform warp",
+                defaults: S_TOOL_SHIFT_W,
+                allow_when_typing: false,
+            },
+            Self::ToolTranslate3D => CommandMeta {
+                id: "tool.translate_3d",
+                category: C::Tools,
+                title: "Tools ▸ 3D Translation",
+                keywords: "3d z depth perspective move",
+                defaults: S_TOOL_G,
+                allow_when_typing: false,
+            },
+            Self::ToolRotate3D => CommandMeta {
+                id: "tool.rotate_3d",
+                category: C::Tools,
+                title: "Tools ▸ 3D Rotation",
+                keywords: "3d rotate perspective vanishing point",
+                defaults: S_TOOL_W,
+                allow_when_typing: false,
+            },
             Self::ToolHand => CommandMeta {
                 id: "tool.hand",
                 category: C::Tools,
@@ -2363,6 +2482,14 @@ impl CommandId {
             Tool::Ink => Self::ToolInk,
             Tool::Eyedropper => Self::ToolEyedropper,
             Tool::Eraser => Self::ToolEraser,
+            Tool::Razor => Self::ToolRazor,
+            Tool::Deco => Self::ToolDeco,
+            Tool::SprayBrush => Self::ToolSprayBrush,
+            Tool::Bone => Self::ToolBone,
+            Tool::Bind => Self::ToolBind,
+            Tool::AssetWarp => Self::ToolAssetWarp,
+            Tool::Translate3D => Self::ToolTranslate3D,
+            Tool::Rotate3D => Self::ToolRotate3D,
             Tool::Hand => Self::ToolHand,
             Tool::Zoom => Self::ToolZoom,
         }

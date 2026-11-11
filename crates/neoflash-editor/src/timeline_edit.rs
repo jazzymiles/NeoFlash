@@ -349,9 +349,296 @@ impl Editor {
         }
     }
 
-    pub(crate) fn clear_frame_range(&mut self, remove: bool) {
+    pub(crate) fn expand_with_linked_layers(&self, layers: &[String]) -> Vec<String> {
+        let timeline = &self.symbol().timeline;
+        let mut out: Vec<String> = Vec::with_capacity(layers.len() + 2);
+        for id in layers {
+            if !out.contains(id) {
+                out.push(id.clone());
+            }
+        }
+        let mut idx = 0;
+        while idx < out.len() {
+            let current = out[idx].clone();
+            if let Some(layer) = timeline.layers.iter().find(|l| l.id == current)
+                && let Some(partner_id) = &layer.properties.linked_layer
+                && !out.contains(partner_id)
+                && timeline.layers.iter().any(|p| {
+                    &p.id == partner_id
+                        && p.properties.role != LayerRole::Folder
+                        && !p.locked
+                        && neoflash_core::layer_effectively_visible(timeline, p)
+                })
+            {
+                out.push(partner_id.clone());
+            }
+            for partner in &timeline.layers {
+                if partner.properties.linked_layer.as_deref() == Some(current.as_str())
+                    && !out.contains(&partner.id)
+                    && partner.properties.role != LayerRole::Folder
+                    && !partner.locked
+                    && neoflash_core::layer_effectively_visible(timeline, partner)
+                {
+                    out.push(partner.id.clone());
+                }
+            }
+            idx += 1;
+        }
+        out
+    }
+
+    pub fn split_clip_at(&mut self, layers: Vec<String>, at: u32) -> bool {
+        self.finish_edits();
+        let timeline = &self.symbol().timeline;
+        let expanded: Vec<String> = self
+            .expand_with_linked_layers(&layers)
+            .into_iter()
+            .filter(|id| {
+                timeline.layers.iter().any(|l| {
+                    &l.id == id
+                        && l.properties.role != LayerRole::Folder
+                        && !l.locked
+                        && neoflash_core::layer_effectively_visible(timeline, l)
+                })
+            })
+            .collect();
+        if expanded.is_empty() {
+            self.message("Select an unlocked, visible layer before splitting a clip.");
+            return false;
+        }
+        if self.apply_frame_edit(TimelineEdit::SplitClip {
+            layers: expanded.clone(),
+            at,
+        }) {
+            self.frame = at;
+            self.select_frame_range(FrameRange {
+                layers: expanded,
+                start: at,
+                end: at,
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn split_clip_at_playhead(&mut self) -> bool {
+        let layers = if self.timeline_edit.focused {
+            self.frame_range().map(|r| r.layers)
+        } else {
+            None
+        }
+        .unwrap_or_else(|| vec![self.symbol().timeline.layers[self.layer].id.clone()]);
+        self.split_clip_at(layers, self.frame)
+    }
+
+    fn resolve_av_link_pair(&self) -> Option<(String, String)> {
+        let timeline = &self.symbol().timeline;
         if let Some(range) = self.frame_range() {
+            let non_folder: Vec<String> = range
+                .layers
+                .into_iter()
+                .filter(|id| {
+                    timeline
+                        .layers
+                        .iter()
+                        .any(|l| &l.id == id && l.properties.role != LayerRole::Folder && !l.locked)
+                })
+                .collect();
+            if non_folder.len() >= 2 {
+                return Some((non_folder[0].clone(), non_folder[1].clone()));
+            }
+        }
+        let active = timeline.layers.get(self.layer)?;
+        if active.properties.role == LayerRole::Folder || active.locked {
+            return None;
+        }
+        let active_has_video = active.keyframes.iter().any(|k| k.video.is_some());
+        let active_has_sound = active.keyframes.iter().any(|k| k.sound.is_some());
+        let candidates: Vec<&Layer> = timeline
+            .layers
+            .iter()
+            .filter(|l| {
+                l.id != active.id
+                    && l.properties.role != LayerRole::Folder
+                    && !l.locked
+                    && l.properties.linked_layer.as_deref() != Some(active.id.as_str())
+            })
+            .collect();
+        if active_has_video
+            && let Some(audio) = candidates
+                .iter()
+                .find(|l| l.keyframes.iter().any(|k| k.sound.is_some()))
+        {
+            return Some((active.id.clone(), audio.id.clone()));
+        }
+        if active_has_sound
+            && let Some(video) = candidates
+                .iter()
+                .find(|l| l.keyframes.iter().any(|k| k.video.is_some()))
+        {
+            return Some((active.id.clone(), video.id.clone()));
+        }
+        candidates
+            .into_iter()
+            .find(|l| l.properties.linked_layer.is_none())
+            .map(|partner| (active.id.clone(), partner.id.clone()))
+    }
+
+    pub fn can_link_av_layers(&self) -> bool {
+        self.resolve_av_link_pair().is_some_and(|(a, b)| {
+            let timeline = &self.symbol().timeline;
+            timeline
+                .layers
+                .iter()
+                .find(|l| l.id == a)
+                .and_then(|l| l.properties.linked_layer.as_deref())
+                != Some(b.as_str())
+        })
+    }
+
+    pub fn link_layers(&mut self, a: &str, b: &str) -> bool {
+        if a == b {
+            return false;
+        }
+        self.finish_edits();
+        let symbol_id = self.symbol_id().to_owned();
+        let mut candidate = self.project.clone();
+        let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
+            return false;
+        };
+        let has_a = symbol
+            .timeline
+            .layers
+            .iter()
+            .any(|l| l.id == a && l.properties.role != LayerRole::Folder && !l.locked);
+        let has_b = symbol
+            .timeline
+            .layers
+            .iter()
+            .any(|l| l.id == b && l.properties.role != LayerRole::Folder && !l.locked);
+        if !has_a || !has_b {
+            return false;
+        }
+        for layer in &mut symbol.timeline.layers {
+            if layer.id != a
+                && layer.id != b
+                && matches!(layer.properties.linked_layer.as_deref(), Some(target) if target == a || target == b)
+            {
+                layer.properties.linked_layer = None;
+            }
+        }
+        for layer in &mut symbol.timeline.layers {
+            if layer.id == a {
+                layer.properties.linked_layer = Some(b.to_owned());
+            } else if layer.id == b {
+                layer.properties.linked_layer = Some(a.to_owned());
+            }
+        }
+        candidate.upgrade_format_for_features();
+        if let Err(err) = candidate.validate() {
+            self.message(format!("Cannot link layers: {err}"));
+            return false;
+        }
+        if candidate == self.project {
+            return false;
+        }
+        self.transact_named("Link video & audio", |editor| {
+            editor.project = candidate;
+        });
+        true
+    }
+
+    pub fn link_selected_or_adjacent_av_layers(&mut self) -> bool {
+        let Some((a, b)) = self.resolve_av_link_pair() else {
+            self.message("Select two unlocked layers (or a video and audio track) to link.");
+            return false;
+        };
+        self.link_layers(&a, &b)
+    }
+
+    pub fn can_unlink_av_layers(&self) -> bool {
+        let timeline = &self.symbol().timeline;
+        let targets: Vec<String> = self.frame_range().map(|r| r.layers).unwrap_or_else(|| {
+            timeline
+                .layers
+                .get(self.layer)
+                .map(|l| vec![l.id.clone()])
+                .unwrap_or_default()
+        });
+        timeline.layers.iter().any(|l| {
+            !l.locked
+                && ((targets.contains(&l.id) && l.properties.linked_layer.is_some())
+                    || l.properties
+                        .linked_layer
+                        .as_ref()
+                        .is_some_and(|p| targets.contains(p)))
+        })
+    }
+
+    pub fn unlink_layer(&mut self, layer_id: &str) -> bool {
+        self.unlink_layers_by_ids(&[layer_id.to_owned()])
+    }
+
+    pub fn unlink_active_layers(&mut self) -> bool {
+        let targets = self.frame_range().map(|r| r.layers).unwrap_or_else(|| {
+            self.symbol()
+                .timeline
+                .layers
+                .get(self.layer)
+                .map(|l| vec![l.id.clone()])
+                .unwrap_or_default()
+        });
+        self.unlink_layers_by_ids(&targets)
+    }
+
+    fn unlink_layers_by_ids(&mut self, targets: &[String]) -> bool {
+        if targets.is_empty() {
+            return false;
+        }
+        self.finish_edits();
+        let symbol_id = self.symbol_id().to_owned();
+        let mut candidate = self.project.clone();
+        let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
+            return false;
+        };
+        let mut changed = false;
+        for layer in &mut symbol.timeline.layers {
+            if layer.locked {
+                continue;
+            }
+            let should_clear = (targets.contains(&layer.id)
+                && layer.properties.linked_layer.is_some())
+                || layer
+                    .properties
+                    .linked_layer
+                    .as_ref()
+                    .is_some_and(|partner| targets.contains(partner));
+            if should_clear {
+                layer.properties.linked_layer = None;
+                changed = true;
+            }
+        }
+        if !changed {
+            return false;
+        }
+        candidate.upgrade_format_for_features();
+        if let Err(err) = candidate.validate() {
+            self.message(format!("Cannot unlink layers: {err}"));
+            return false;
+        }
+        self.transact_named("Unlink video & audio", |editor| {
+            editor.project = candidate;
+        });
+        true
+    }
+
+    pub(crate) fn clear_frame_range(&mut self, remove: bool) {
+        if let Some(mut range) = self.frame_range() {
             let include_scripts = self.timeline_edit.include_scripts;
+            if remove {
+                range.layers = self.expand_with_linked_layers(&range.layers);
+            }
             self.apply_frame_edit(if remove {
                 TimelineEdit::Delete {
                     range,
@@ -367,7 +654,8 @@ impl Editor {
     }
 
     pub(crate) fn insert_frame_range(&mut self) {
-        if let Some(range) = self.frame_range() {
+        if let Some(mut range) = self.frame_range() {
+            range.layers = self.expand_with_linked_layers(&range.layers);
             let count = self.symbol().timeline.frame_count;
             let extends_beyond_end = range.layers.iter().all(|id| {
                 self.symbol()
@@ -405,12 +693,13 @@ impl Editor {
     }
 
     pub(crate) fn set_layer_duration(&mut self, end_frame: u32) -> bool {
-        let layers = if self.timeline_edit.focused {
+        let base_layers = if self.timeline_edit.focused {
             self.frame_range().map(|r| r.layers)
         } else {
             None
         }
         .unwrap_or_else(|| vec![self.symbol().timeline.layers[self.layer].id.clone()]);
+        let layers = self.expand_with_linked_layers(&base_layers);
         self.apply_frame_edit(TimelineEdit::SetEnd { layers, end_frame })
     }
 
@@ -604,6 +893,10 @@ impl Editor {
             }
             (down, up)
         });
+        if self.tool == crate::app::Tool::Razor && !blocked && ui.is_enabled() && response.hovered()
+        {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
         if let Some((pos, modifiers)) = pressed.filter(|(pos, _)| {
             !blocked
                 && ui.is_enabled()
@@ -650,6 +943,12 @@ impl Editor {
                 self.timeline_edit.gesture = Some(Gesture::End { layer, end });
             } else if let Some((frame, row)) = hit {
                 let layer_id = self.symbol().timeline.layers[rows[row]].id.clone();
+                if self.tool == crate::app::Tool::Razor && !modifiers.shift && !modifiers.command {
+                    self.frame = frame;
+                    self.layer = rows[row];
+                    self.split_clip_at(vec![layer_id], frame);
+                    return;
+                }
                 let span_mode = self.workspace.timeline_prefs.span_selection && !modifiers.command;
                 let existing = (!modifiers.command)
                     .then(|| {
@@ -860,25 +1159,34 @@ impl Editor {
                     if row != target_row || frame != target_frame {
                         let delta = target_frame as i64 - frame as i64;
                         let start = (range.start as i64 + delta).max(0) as u32;
-                        let first = rows
-                            .iter()
-                            .position(|i| {
-                                Some(&self.symbol().timeline.layers[*i].id) == range.layers.first()
-                            })
-                            .unwrap_or(row);
-                        let destination =
-                            (first as isize + target_row as isize - row as isize).max(0) as usize;
-                        let layers: Vec<_> = rows
-                            .iter()
-                            .skip(destination)
-                            .map(|&i| &self.symbol().timeline.layers[i])
-                            .filter(|l| l.properties.role != LayerRole::Folder)
-                            .take(range.layers.len())
-                            .map(|l| l.id.clone())
-                            .collect();
-                        let end = start + range.end - range.start;
+                        let (move_range, layers) = if row == target_row {
+                            let expanded = self.expand_with_linked_layers(&range.layers);
+                            let mut expanded_range = range;
+                            expanded_range.layers = expanded.clone();
+                            (expanded_range, expanded)
+                        } else {
+                            let first = rows
+                                .iter()
+                                .position(|i| {
+                                    Some(&self.symbol().timeline.layers[*i].id)
+                                        == range.layers.first()
+                                })
+                                .unwrap_or(row);
+                            let destination = (first as isize + target_row as isize - row as isize)
+                                .max(0) as usize;
+                            let dst_layers: Vec<_> = rows
+                                .iter()
+                                .skip(destination)
+                                .map(|&i| &self.symbol().timeline.layers[i])
+                                .filter(|l| l.properties.role != LayerRole::Folder)
+                                .take(range.layers.len())
+                                .map(|l| l.id.clone())
+                                .collect();
+                            (range, dst_layers)
+                        };
+                        let end = start + move_range.end - move_range.start;
                         if self.apply_frame_edit(TimelineEdit::Move {
-                            range,
+                            range: move_range,
                             layers: layers.clone(),
                             at: start,
                             copy: modifiers.alt,
@@ -902,8 +1210,9 @@ impl Editor {
                     }
                 }
                 Some(Gesture::End { layer, end }) => {
+                    let layers = self.expand_with_linked_layers(&[layer]);
                     self.apply_frame_edit(TimelineEdit::SetEnd {
-                        layers: vec![layer],
+                        layers,
                         end_frame: end,
                     });
                 }

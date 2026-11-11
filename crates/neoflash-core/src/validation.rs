@@ -160,7 +160,8 @@ fn validate_with_options(
     if project.uses_format_12() && project.format_version < 12 {
         add(
             "format_version".into(),
-            "timeline-video out-point trims require document version 12".into(),
+            "timeline-video out-point trims and linked montage layers require document version 12"
+                .into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -650,6 +651,36 @@ fn validate_with_options(
             }
             if let Err(err) = crate::validate_filters(&layer.properties.filters) {
                 add(format!("{lp}.properties.filters"), err.to_string());
+            }
+            if let Some(linked_id) = &layer.properties.linked_layer {
+                if layer.properties.role == LayerRole::Folder {
+                    add(
+                        format!("{lp}.properties.linked_layer"),
+                        "folder layers cannot be linked as montage tracks".into(),
+                    );
+                } else if linked_id == &layer.id {
+                    add(
+                        format!("{lp}.properties.linked_layer"),
+                        "a layer cannot be linked to itself".into(),
+                    );
+                } else {
+                    match symbol
+                        .timeline
+                        .layers
+                        .iter()
+                        .find(|other| &other.id == linked_id)
+                    {
+                        Some(other) if other.properties.role != LayerRole::Folder => {}
+                        Some(_) => add(
+                            format!("{lp}.properties.linked_layer"),
+                            "linked_layer cannot reference a folder layer".into(),
+                        ),
+                        None => add(
+                            format!("{lp}.properties.linked_layer"),
+                            format!("linked_layer '{linked_id}' does not exist in timeline"),
+                        ),
+                    }
+                }
             }
             let mut keys = HashSet::new();
             for (ki, key) in layer.keyframes.iter().enumerate() {

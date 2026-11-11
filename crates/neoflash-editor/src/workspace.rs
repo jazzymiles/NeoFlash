@@ -3176,16 +3176,19 @@ pub enum WorkspaceTemplate {
     Designer,
     /// Scripting: tall Actions editor with Output, timeline as a tab.
     Developer,
+    /// Non-linear video & audio montage: tall preview Timeline, media Library/Project bin and Inspector.
+    Premiere,
     /// Small screens: one-column tools, one inspector group, compact bottom dock.
     Essentials,
 }
 
 impl WorkspaceTemplate {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Classic,
         Self::Animator,
         Self::Designer,
         Self::Developer,
+        Self::Premiere,
         Self::Essentials,
     ];
 
@@ -3195,6 +3198,7 @@ impl WorkspaceTemplate {
             Self::Animator => "Animator",
             Self::Designer => "Designer",
             Self::Developer => "Developer",
+            Self::Premiere => "Premiere",
             Self::Essentials => "Essentials",
         }
     }
@@ -3207,6 +3211,9 @@ impl WorkspaceTemplate {
             Self::Animator => "Tall timeline for keyframing, Transform beside Properties.",
             Self::Designer => "Properties, Color, Align and Transform open; shorter timeline.",
             Self::Developer => "Tall Actions editor with Output; Timeline as a tab.",
+            Self::Premiere => {
+                "Non-linear video and audio montage with linked tracks, Razor cuts and filmstrip preview."
+            }
             Self::Essentials => "One-column tools and a compact dock for small screens.",
         }
     }
@@ -3373,6 +3380,56 @@ impl WorkspaceTemplate {
                     next_group: 6,
                 };
                 (dock, BottomTab::Actions)
+            }
+            Self::Premiere => {
+                visible.project = true;
+                visible.scene = true;
+                let dock = DockLayout {
+                    top: area(crate::theme::timeline_h(), vec![]),
+                    bottom: area(
+                        480.,
+                        vec![group(
+                            2,
+                            vec![
+                                Timeline,
+                                Output,
+                                Actions,
+                                Accessibility,
+                                MotionEditor,
+                                CompilerErrors,
+                            ],
+                            1.,
+                        )],
+                    ),
+                    left: tools(two_columns),
+                    right: area(
+                        inspector,
+                        vec![
+                            group(
+                                5,
+                                vec![
+                                    Properties,
+                                    Filters,
+                                    Transform,
+                                    Align,
+                                    Color,
+                                    Swatches,
+                                    Info,
+                                    Ease,
+                                    History,
+                                    Scene,
+                                    CodeSnippets,
+                                    MovieExplorer,
+                                    Brushes,
+                                ],
+                                0.5,
+                            ),
+                            group(4, vec![Library, Project], 0.5),
+                        ],
+                    ),
+                    next_group: 6,
+                };
+                (dock, BottomTab::Properties)
             }
             Self::Essentials => {
                 let dock = DockLayout {
@@ -3771,6 +3828,9 @@ impl WorkspacePrefs {
             template,
             ..Self::default()
         };
+        if template == WorkspaceTemplate::Premiere {
+            self.timeline.preview = FramePreview::Layer;
+        }
         self.sanitize();
     }
     pub fn placement(&self, panel: PanelId) -> PanelPlacement {

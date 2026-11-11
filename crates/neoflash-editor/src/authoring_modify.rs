@@ -2599,6 +2599,39 @@ impl Editor {
                         self.sync_symbols();
                         ui.close();
                     }
+                    if menu_item_enabled(
+                        ui,
+                        editable && self.frame > 0,
+                        "Split clip at playhead",
+                        &self.sc(C::ModifyTimelineSplitClip),
+                    )
+                    .clicked()
+                    {
+                        self.split_clip_at_playhead();
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        self.can_link_av_layers(),
+                        "Link video & audio",
+                        &self.sc(C::ModifyTimelineLinkTracks),
+                    )
+                    .clicked()
+                    {
+                        self.link_selected_or_adjacent_av_layers();
+                        ui.close();
+                    }
+                    if menu_item_enabled(
+                        ui,
+                        self.can_unlink_av_layers(),
+                        "Unlink video & audio",
+                        &self.sc(C::ModifyTimelineUnlinkTracks),
+                    )
+                    .clicked()
+                    {
+                        self.unlink_active_layers();
+                        ui.close();
+                    }
                     neoflash_ui::components::menu_separator(ui);
                     if menu_item_enabled(
                         ui,

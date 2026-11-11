@@ -92,7 +92,7 @@ pub(crate) fn set_inline_import_video_draft(ctx: &egui::Context, draft: ImportVi
     ctx.data_mut(|data| data.insert_temp(inline_draft_id(), draft));
 }
 
-fn parse_timecode_seconds(raw: &str) -> Option<f64> {
+pub(crate) fn parse_timecode_seconds(raw: &str) -> Option<f64> {
     let trimmed = raw.trim();
     if let Some((mins, secs)) = trimmed.split_once(':') {
         let m: f64 = mins.trim().parse().ok()?;
@@ -102,6 +102,107 @@ fn parse_timecode_seconds(raw: &str) -> Option<f64> {
         }
     }
     trimmed.parse::<f64>().ok().filter(|v| *v >= 0.0)
+}
+
+pub(crate) fn format_timecode_seconds(seconds: f64) -> String {
+    let clamped = seconds.max(0.0);
+    let mins = (clamped / 60.0).floor() as u32;
+    let rem = clamped - f64::from(mins) * 60.0;
+    format!("{mins:02}:{rem:05.2}")
+}
+
+pub(crate) fn probe_mp4_duration_ms(bytes: &[u8]) -> Option<u32> {
+    fn scan_boxes(buf: &[u8]) -> Option<u32> {
+        let mut pos = 0usize;
+        while pos + 8 <= buf.len() {
+            let size32 = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
+            let box_type = &buf[pos + 4..pos + 8];
+            let (header_len, box_len) = if size32 == 1 {
+                if pos + 16 > buf.len() {
+                    break;
+                }
+                let size64 = u64::from_be_bytes([
+                    buf[pos + 8],
+                    buf[pos + 9],
+                    buf[pos + 10],
+                    buf[pos + 11],
+                    buf[pos + 12],
+                    buf[pos + 13],
+                    buf[pos + 14],
+                    buf[pos + 15],
+                ]) as usize;
+                (16usize, size64)
+            } else if size32 == 0 {
+                (8usize, buf.len() - pos)
+            } else {
+                (8usize, size32 as usize)
+            };
+            if box_len < header_len || pos + box_len > buf.len() {
+                break;
+            }
+            let payload = &buf[pos + header_len..pos + box_len];
+            if box_type == b"moov"
+                && let Some(ms) = scan_boxes(payload)
+            {
+                return Some(ms);
+            } else if box_type == b"mvhd" && payload.len() >= 20 {
+                let version = payload[0];
+                if version == 0 && payload.len() >= 20 {
+                    let timescale =
+                        u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]);
+                    let duration =
+                        u32::from_be_bytes([payload[16], payload[17], payload[18], payload[19]]);
+                    if timescale > 0 && duration > 0 {
+                        let ms = (u64::from(duration) * 1000) / u64::from(timescale);
+                        return Some(ms.min(u64::from(u32::MAX)) as u32);
+                    }
+                } else if version == 1 && payload.len() >= 32 {
+                    let timescale =
+                        u32::from_be_bytes([payload[20], payload[21], payload[22], payload[23]]);
+                    let duration = u64::from_be_bytes([
+                        payload[24],
+                        payload[25],
+                        payload[26],
+                        payload[27],
+                        payload[28],
+                        payload[29],
+                        payload[30],
+                        payload[31],
+                    ]);
+                    if timescale > 0 && duration > 0 {
+                        let ms = (duration.saturating_mul(1000)) / u64::from(timescale);
+                        return Some(ms.min(u64::from(u32::MAX)) as u32);
+                    }
+                }
+            }
+            pos += box_len;
+        }
+        None
+    }
+    scan_boxes(bytes)
+}
+
+pub(crate) fn probe_video_bytes_duration_ms(bytes: &[u8]) -> Option<u32> {
+    if neoflash_core::is_avi_bytes(bytes) {
+        return neoflash_core::inspect_avi_header(bytes)
+            .ok()
+            .map(|info| info.duration_ms())
+            .filter(|ms| *ms > 0);
+    }
+    probe_mp4_duration_ms(bytes)
+}
+
+fn probe_video_duration_seconds(raw_path: &str, deployment: usize) -> Option<f64> {
+    if deployment == 2 || raw_path.trim().is_empty() {
+        return None;
+    }
+    let path = expand_import_path(raw_path);
+    let meta = std::fs::metadata(&path).ok()?;
+    if meta.len() == 0 || meta.len() > neoflash_core::MAX_RESOURCE_BYTES as u64 {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    probe_video_bytes_duration_ms(&bytes).map(|ms| f64::from(ms) / 1000.0)
 }
 
 fn expand_import_path(raw: &str) -> PathBuf {
@@ -198,17 +299,30 @@ impl Editor {
             return Err("Select an unlocked, visible layer before importing video.".into());
         }
 
-        let in_sec = parse_timecode_seconds(&draft.in_time).unwrap_or(0.0);
-        let out_sec = parse_timecode_seconds(&draft.out_time)
-            .unwrap_or(4.0)
-            .max(in_sec + 0.1);
-        let duration_sec = (out_sec - in_sec).clamp(0.1, 600.0);
-        let start_offset_ms = (in_sec * 1000.0).round().max(0.0) as u32;
-
         let raw_input = draft.file_path.trim();
         if raw_input.is_empty() {
             return Err("Choose a video file or URL to import.".into());
         }
+
+        let probed_duration_sec = probe_video_duration_seconds(raw_input, draft.deployment);
+        let default_out_sec = probed_duration_sec.unwrap_or(4.0).max(0.1);
+        let in_sec = parse_timecode_seconds(&draft.in_time).unwrap_or(0.0);
+        let raw_out_sec = if draft.out_time.trim() == "00:04.00" {
+            probed_duration_sec.unwrap_or(4.0)
+        } else {
+            parse_timecode_seconds(&draft.out_time).unwrap_or(default_out_sec)
+        };
+        let out_sec = raw_out_sec.max(in_sec + 0.1);
+        let duration_sec = (out_sec - in_sec).clamp(0.1, 600.0);
+        let start_offset_ms = (in_sec * 1000.0).round().max(0.0) as u32;
+        let explicit_trim = start_offset_ms > 0
+            || draft.out_time.trim() != "00:04.00"
+            || probed_duration_sec.is_some_and(|src| out_sec + 0.005 < src);
+        let end_offset_ms = explicit_trim.then(|| {
+            (out_sec * 1000.0)
+                .round()
+                .max(f64::from(start_offset_ms + 1)) as u32
+        });
 
         let mut candidate = self.project.clone();
         let (res_id, rel_path, file_name, resource, video_span) = if draft.deployment == 2 {
@@ -253,7 +367,7 @@ impl Editor {
                 external_path: None,
                 stream_url: Some(raw_input.to_owned()),
                 start_offset_ms,
-                end_offset_ms: None,
+                end_offset_ms,
                 loop_video: false,
                 muted: !draft.include_audio,
                 cue_points: Vec::new(),
@@ -376,7 +490,7 @@ impl Editor {
                 external_path,
                 stream_url: None,
                 start_offset_ms,
-                end_offset_ms: None,
+                end_offset_ms,
                 loop_video: false,
                 muted: !draft.include_audio,
                 cue_points: Vec::new(),
@@ -471,9 +585,79 @@ impl Editor {
             ui.vertical(|ui| {
                 ui.set_width(300.0);
                 preview_box(ui, 300.0, 169.0, "Video preview");
-                let (span, _) =
-                    ui.allocate_exact_size(egui::vec2(300.0, 27.0), egui::Sense::hover());
-                tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Video, true);
+                let strip_max_sec =
+                    probe_video_duration_seconds(&draft.file_path, draft.deployment)
+                        .unwrap_or_else(|| {
+                            parse_timecode_seconds(&draft.out_time)
+                                .unwrap_or(4.0)
+                                .max(4.0)
+                        })
+                        .max(0.2);
+                let cur_in = parse_timecode_seconds(&draft.in_time)
+                    .unwrap_or(0.0)
+                    .clamp(0.0, (strip_max_sec - 0.1).max(0.0));
+                let cur_out = parse_timecode_seconds(&draft.out_time)
+                    .unwrap_or(strip_max_sec)
+                    .clamp((cur_in + 0.1).min(strip_max_sec), strip_max_sec);
+                let (span, strip_resp) =
+                    ui.allocate_exact_size(egui::vec2(300.0, 27.0), egui::Sense::click_and_drag());
+                tl::paint_span(ui.painter(), ui.ctx(), span, tl::SpanType::Video, false);
+                let in_frac = (cur_in / strip_max_sec).clamp(0.0, 1.0) as f32;
+                let out_frac = (cur_out / strip_max_sec).clamp(f64::from(in_frac), 1.0) as f32;
+                let x_in = egui::lerp(span.left()..=span.right(), in_frac);
+                let x_out = egui::lerp(span.left()..=span.right(), out_frac).max(x_in + 4.0);
+                let active_span = egui::Rect::from_min_max(
+                    egui::pos2(x_in, span.top()),
+                    egui::pos2(x_out.min(span.right()), span.bottom()),
+                );
+                tl::paint_span(
+                    ui.painter(),
+                    ui.ctx(),
+                    active_span,
+                    tl::SpanType::Video,
+                    true,
+                );
+                let pal = neoflash_ui::palette(ui.ctx());
+                for hx in [x_in, x_out.min(span.right())] {
+                    let hrect = egui::Rect::from_center_size(
+                        egui::pos2(
+                            hx.clamp(span.left() + 2.0, span.right() - 2.0),
+                            span.center().y,
+                        ),
+                        egui::vec2(4.0, span.height() - 4.0),
+                    );
+                    ui.painter().rect_filled(hrect, 1.5, pal.accent_default);
+                }
+                let trim_drag_id = ui.id().with("import-video-trim-drag");
+                if strip_resp.hovered() || strip_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                }
+                if (strip_resp.drag_started() || strip_resp.clicked())
+                    && let Some(pos) = strip_resp.interact_pointer_pos()
+                {
+                    let pick_in = (pos.x - x_in).abs() <= (pos.x - x_out).abs();
+                    ui.ctx().data_mut(|d| d.insert_temp(trim_drag_id, pick_in));
+                }
+                if (strip_resp.dragged() || strip_resp.clicked())
+                    && let Some(pos) = strip_resp.interact_pointer_pos()
+                {
+                    let pick_in = ui
+                        .ctx()
+                        .data(|d| d.get_temp::<bool>(trim_drag_id))
+                        .unwrap_or(true);
+                    let frac = ((pos.x - span.left()) / span.width().max(1.0)).clamp(0.0, 1.0);
+                    let sec = f64::from(frac) * strip_max_sec;
+                    if pick_in {
+                        let next_in = sec.clamp(0.0, (cur_out - 0.1).max(0.0));
+                        draft.in_time = format_timecode_seconds(next_in);
+                    } else {
+                        let next_out = sec.clamp((cur_in + 0.1).min(strip_max_sec), strip_max_sec);
+                        draft.out_time = format_timecode_seconds(next_out);
+                    }
+                }
+                if strip_resp.drag_stopped() {
+                    ui.ctx().data_mut(|d| d.remove::<bool>(trim_drag_id));
+                }
                 ui.horizontal(|ui| {
                     ui.add(
                         c::TextField::new(&mut draft.in_time, "In")

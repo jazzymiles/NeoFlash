@@ -1288,9 +1288,17 @@ impl Editor {
         scene: &[DrawItem],
         response: &egui::Response,
     ) {
+        let raw_clean_click = ui.input(|input| {
+            input.pointer.primary_clicked()
+                && !input.pointer.is_decidedly_dragging()
+                && input
+                    .pointer
+                    .interact_pos()
+                    .is_some_and(|pos| response.rect.contains(pos))
+        });
         if self.edit_depth() <= 1
             || self.stage_view.guide_pointer
-            || !response.clicked()
+            || (!response.clicked() && !raw_clean_click)
             || self.object_gesture.is_some()
             || self.authoring_tools.is_drawing()
             || self.shape_draft.is_some()
@@ -1299,9 +1307,20 @@ impl Editor {
         {
             return;
         }
-        let Some(pos) = response.interact_pointer_pos() else {
+        let Some(pos) = response
+            .interact_pointer_pos()
+            .or_else(|| ui.input(|input| input.pointer.interact_pos()))
+        else {
             return;
         };
+        if !response.rect.contains(pos)
+            || ui
+                .ctx()
+                .layer_id_at(pos)
+                .is_some_and(|layer| layer != response.layer_id)
+        {
+            return;
+        }
         if self
             .pick_placement(
                 scene,

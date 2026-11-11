@@ -32,6 +32,29 @@ pub enum Tool {
     Zoom,
     Gradient,
     PolyStar,
+    Razor,
+    Deco,
+    SprayBrush,
+    Bone,
+    Bind,
+    AssetWarp,
+    Translate3D,
+    Rotate3D,
+}
+
+impl Tool {
+    pub const fn preserves_selection_on_rail_click(self) -> bool {
+        matches!(
+            self,
+            Self::Select
+                | Self::Bone
+                | Self::Bind
+                | Self::AssetWarp
+                | Self::Translate3D
+                | Self::Rotate3D
+                | Self::Razor
+        )
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BottomTab {
@@ -367,11 +390,12 @@ impl Editor {
                 "select" => Some(Tool::Select),
                 "brush" => Some(Tool::Brush),
                 "pencil" => Some(Tool::Pencil),
+                "razor" => Some(Tool::Razor),
                 _ => None,
             };
             if let Some(tool) = tool {
                 s.set_tool(tool);
-                if !matches!(tool, Tool::Brush | Tool::Pencil) {
+                if !matches!(tool, Tool::Brush | Tool::Pencil | Tool::Razor) {
                     s.select_all();
                 }
             }
@@ -2659,11 +2683,28 @@ impl Editor {
                 Tool::Hand,
                 Tool::Zoom,
                 Tool::Gradient,
+                Tool::Razor,
+                Tool::Deco,
+                Tool::SprayBrush,
+                Tool::Bone,
+                Tool::Bind,
+                Tool::AssetWarp,
+                Tool::Translate3D,
+                Tool::Rotate3D,
             ] {
                 if self.take_command_shortcut(ctx, C::for_tool(tool)) {
                     if !matches!(
                         tool,
-                        Tool::Select | Tool::Subselect | Tool::Transform | Tool::Gradient
+                        Tool::Select
+                            | Tool::Subselect
+                            | Tool::Transform
+                            | Tool::Gradient
+                            | Tool::Bone
+                            | Tool::Bind
+                            | Tool::AssetWarp
+                            | Tool::Translate3D
+                            | Tool::Rotate3D
+                            | Tool::Razor
                     ) {
                         self.clear_selection();
                     }
@@ -2905,6 +2946,18 @@ impl Editor {
         {
             self.convert_to_keyframes(true);
         }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineSplitClip) && self.layer_editable() {
+            self.split_clip_at_playhead();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineLinkTracks) && self.can_link_av_layers()
+        {
+            self.link_selected_or_adjacent_av_layers();
+        }
+        if self.take_command_shortcut(ctx, C::ModifyTimelineUnlinkTracks)
+            && self.can_unlink_av_layers()
+        {
+            self.unlink_active_layers();
+        }
         if self.take_command_shortcut(ctx, C::ModifyFreeTransform) && !self.selection.is_empty() {
             self.set_free_transform_mode(crate::authoring_tools::FreeTransformMode::FreeTransform);
         }
@@ -3045,11 +3098,12 @@ impl Editor {
         let count = self.symbol().timeline.frame_count;
         let layer = &self.symbol().timeline.layers[self.layer];
         let layer_id = layer.id.clone();
+        let layers = self.expand_with_linked_layers(&[layer_id]);
         let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
         if self.frame >= layer_end {
             let target = self.frame;
             if self.apply_frame_edit(TimelineEdit::SetEnd {
-                layers: vec![layer_id],
+                layers,
                 end_frame: target.saturating_add(1),
             }) {
                 self.frame = target;
@@ -3057,7 +3111,7 @@ impl Editor {
             return;
         }
         self.apply_frame_edit(TimelineEdit::Insert {
-            layers: vec![layer_id],
+            layers,
             at: (self.frame + 1).min(count),
             count: 1,
             include_scripts: self.timeline_edit.include_scripts,

@@ -1692,6 +1692,22 @@ impl Editor {
             self.authoring_tools.primitive_drawn_selection = false;
         }
         self.tool = tool;
+        if self.selection.is_empty()
+            && !matches!(tool, Tool::Select | Tool::Razor | Tool::Hand | Tool::Zoom)
+        {
+            self.timeline_edit.focused = false;
+        }
+        let sticky = match tool {
+            Tool::Deco => crate::stage::properties_tool::StageStickyToolMode::Deco,
+            Tool::SprayBrush => crate::stage::properties_tool::StageStickyToolMode::SprayBrush,
+            Tool::Bone => crate::stage::properties_tool::StageStickyToolMode::Bone,
+            Tool::Bind => crate::stage::properties_tool::StageStickyToolMode::Bind,
+            Tool::AssetWarp => crate::stage::properties_tool::StageStickyToolMode::PuppetWarp,
+            Tool::Translate3D => crate::stage::properties_tool::StageStickyToolMode::Translate3D,
+            Tool::Rotate3D => crate::stage::properties_tool::StageStickyToolMode::Rotate3D,
+            _ => crate::stage::properties_tool::StageStickyToolMode::None,
+        };
+        self.set_stage_sticky_tool_mode(sticky);
     }
     fn find_nearest_open_endpoint(&self, pt: Pos2, tol: f32) -> Option<OpenEndpointMatch> {
         let layer = self.symbol().timeline.layers.get(self.layer)?;

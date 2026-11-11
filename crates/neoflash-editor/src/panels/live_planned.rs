@@ -1308,7 +1308,7 @@ impl Editor {
         created
     }
 
-    fn live_deco_tool(&mut self, ui: &mut Ui) {
+    pub(crate) fn live_deco_tool(&mut self, ui: &mut Ui) {
         let nf = neoflash_ui::palette(ui.ctx());
         let id = egui::Id::new("nf2-deco-tool-draft");
         let mut draft = ui
@@ -1417,6 +1417,16 @@ impl Editor {
             ));
         });
 
+        self.set_stage_deco_options(crate::stage::deco_spray::StageDecoOptions {
+            effect_index: draft.effect,
+            branch_angle_deg: draft.branch_angle,
+            scale_pct: draft.scale_pct,
+            segment_px: draft.segment_px,
+            step_frames: draft.step_frames.round().clamp(1.0, 30.0) as u32,
+            animate_pattern: draft.animate_pattern,
+            primary_color: self.fill,
+            secondary_color: self.stroke,
+        });
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
         if edit_default_shape {
             self.message(
@@ -1526,7 +1536,7 @@ impl Editor {
         count
     }
 
-    fn live_spray_brush(&mut self, ui: &mut Ui) {
+    pub(crate) fn live_spray_brush(&mut self, ui: &mut Ui) {
         let id = egui::Id::new("nf2-spray-brush-draft");
         let mut draft = ui
             .ctx()
@@ -1628,6 +1638,56 @@ impl Editor {
         });
 
         let symbol_name = draft.symbol_name.clone();
+        let resolved_spray_symbol = if draft.use_dots {
+            None
+        } else {
+            let requested = symbol_name.trim();
+            self.project
+                .symbols
+                .iter()
+                .find(|symbol| {
+                    symbol.id != self.project.root
+                        && !self.project.is_scene(&symbol.id)
+                        && !requested.is_empty()
+                        && (symbol.name.eq_ignore_ascii_case(requested)
+                            || symbol.id.eq_ignore_ascii_case(requested))
+                })
+                .map(|s| s.id.clone())
+                .or_else(|| {
+                    self.library_selected.as_ref().and_then(|sel| {
+                        self.project
+                            .symbols
+                            .iter()
+                            .find(|s| {
+                                &s.id == sel
+                                    && s.id != self.project.root
+                                    && !self.project.is_scene(&s.id)
+                            })
+                            .map(|s| s.id.clone())
+                    })
+                })
+        };
+        if !draft.use_dots && resolved_spray_symbol.is_none() {
+            caption(
+                ui,
+                "Select a Library symbol or enable 'Use default shape (dots)' before painting on Stage.",
+            );
+        }
+        let prev_seed = self.stage_spray_options().seed;
+        self.set_stage_spray_options(crate::stage::deco_spray::StageSprayOptions {
+            symbol_id: resolved_spray_symbol,
+            use_dots: draft.use_dots,
+            fill: self.fill,
+            scale_w_pct: draft.scale_w,
+            scale_h_pct: draft.scale_h,
+            random_scaling: draft.random_scaling,
+            rotate_symbol: draft.rotate_symbol,
+            random_rotation: draft.random_rotation,
+            brush_width: draft.brush_w,
+            brush_height: draft.brush_h,
+            brush_angle_deg: draft.brush_angle,
+            seed: prev_seed,
+        });
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
         if edit_symbol {
             let requested = symbol_name.trim();
@@ -1654,7 +1714,7 @@ impl Editor {
         }
     }
 
-    fn live_bone_properties(&mut self, ui: &mut Ui) {
+    pub(crate) fn live_bone_properties(&mut self, ui: &mut Ui) {
         let id = egui::Id::new("nf2-bone-properties-draft");
         let mut draft = ui
             .ctx()

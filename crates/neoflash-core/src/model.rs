@@ -304,6 +304,10 @@ pub struct LayerProperties {
     /// format 11). Element-level filters remain a format-7 feature.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<crate::FilterSpec>,
+    /// Optional symmetric link to a partner layer (e.g. linked Video + Audio montage tracks,
+    /// format 12). Linked layers split, trim, move and ripple-edit together until unlinked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_layer: Option<Id>,
 }
 
 impl Symbol {
@@ -382,6 +386,13 @@ impl Project {
                 .filter(|l| l.properties.role == LayerRole::Guide)
                 .map(|l| l.id.clone())
                 .collect();
+            let linkable: std::collections::HashSet<Id> = symbol
+                .timeline
+                .layers
+                .iter()
+                .filter(|l| l.properties.role != LayerRole::Folder)
+                .map(|l| l.id.clone())
+                .collect();
             for layer in &mut symbol.timeline.layers {
                 if layer.properties.role != LayerRole::Normal
                     || layer
@@ -391,6 +402,15 @@ impl Project {
                         .is_some_and(|id| !guides.contains(id))
                 {
                     layer.properties.motion_guide = None;
+                }
+                if layer.properties.role == LayerRole::Folder
+                    || layer
+                        .properties
+                        .linked_layer
+                        .as_ref()
+                        .is_some_and(|id| id == &layer.id || !linkable.contains(id))
+                {
+                    layer.properties.linked_layer = None;
                 }
             }
         }
@@ -421,20 +441,22 @@ impl Project {
         }
     }
 
-    /// Timeline-video out-point trims (format 12).
+    /// Timeline-video out-point trims and linked montage layers (format 12).
     ///
-    /// The field is optional so documents without an authored out-point remain readable by the
-    /// format-9/11 video implementations. A document that stores one must advertise the newer
-    /// format so an older writer cannot silently discard the trim on save.
+    /// The fields are optional so documents without an authored out-point or linked montage track
+    /// remain readable by format-9/11 implementations. A document that stores either feature must
+    /// advertise the newer format so an older writer cannot silently discard it on save.
     pub fn uses_format_12(&self) -> bool {
         self.symbols
             .iter()
             .flat_map(|symbol| &symbol.timeline.layers)
-            .flat_map(|layer| &layer.keyframes)
-            .any(|key| {
-                key.video
-                    .as_ref()
-                    .is_some_and(|video| video.end_offset_ms.is_some())
+            .any(|layer| {
+                layer.properties.linked_layer.is_some()
+                    || layer.keyframes.iter().any(|key| {
+                        key.video
+                            .as_ref()
+                            .is_some_and(|video| video.end_offset_ms.is_some())
+                    })
             })
     }
 
