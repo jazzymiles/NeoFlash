@@ -228,6 +228,17 @@ pub(crate) const JS_TS_API_ENTRIES: &[JsTsApiEntry] = &[
     },
     JsTsApiEntry {
         category: "NeoFlash Context & Timeline",
+        name: "NeoFlash.loadPublish",
+        signature: "NeoFlash.loadPublish(url: string, target?: MovieClip | DisplayObjectContainer): Promise<DisplayObject>",
+        provenance: "NeoFlash binding",
+        availability: "HTML5 & desktop runtime child-publish loader",
+        summary: "Dynamically loads and mounts another published NeoFlash HTML5 bundle (`index.html`, `bundle.js`, or directory URL) into a target container with isolated timeline/script execution.",
+        insertion: "NeoFlash.loadPublish(\"subapp/bundle.js\", this);",
+        ts_only: false,
+        kind: JsTsEntryKind::Function,
+    },
+    JsTsApiEntry {
+        category: "NeoFlash Context & Timeline",
         name: "getChildByName",
         signature: "this.getChildByName(name: string): DisplayObject | null",
         provenance: "NeoFlash binding",
@@ -1211,6 +1222,16 @@ pub(crate) fn chapter_as2_core_classes(
                 "lv.load(url), lv.sendAndLoad(url, target, method), lv.onLoad(ok); SharedObject.getLocal(\"save\")",
                 "LoadVars parses URL-encoded key/value pairs; SharedObject.data persists structured local state via flush().",
             ),
+            (
+                "Stage (Scale, Align & Fullscreen)",
+                "Stage.scaleMode (\"showAll\"|\"noScale\"|\"exactFit\"|\"noBorder\"), Stage.align (\"\"|\"T\"|\"B\"|\"L\"|\"R\"|\"TL\"|\"TR\"|\"BL\"|\"BR\"), Stage.displayState, Stage.addListener(obj)",
+                "Supports all 9 anchor alignments, High-DPI Canvas scaling with exact inverse pointer hit-testing (`_xmouse`, `_ymouse`), `onResize`, and fullscreen toggle when `Allow fullscreen` is enabled.",
+            ),
+            (
+                "loadMovie & MovieClipLoader",
+                "mc.loadMovie(url), mcl.loadClip(url, target), onLoadInit(mc) — SWF, MP4, AVI, MP3, WAV, SVG, WebP, GIF, BMP, TIFF & `loadPublish`",
+                "Loads vector/raster/audio/AVI/SWF assets and mounts published NeoFlash HTML5 child bundles (`index.html`, `bundle.js`, or folder URL) directly into `target`.",
+            ),
         ],
     );
 
@@ -1992,6 +2013,16 @@ pub(crate) fn chapter_as3_graphics_filters_sound(
                 "XML (E4X) & JSON",
                 "new XML(str), xml.item.(@id == \"hero\"), xml..node, JSON.parse(str), JSON.stringify(obj)",
                 "E4X (`..` descendant axis, `@` attribute axis, predicate filters `.(@price < 50)`) queries XML trees natively.",
+            ),
+            (
+                "Stage & Fullscreen (AS3)",
+                "StageScaleMode (SHOW_ALL, NO_SCALE, EXACT_FIT, NO_BORDER), StageAlign (TOP, BOTTOM, LEFT, RIGHT, TOP_LEFT, ...), StageDisplayState.FULL_SCREEN",
+                "High-DPI Canvas layout keeps `stage.mouseX`/`mouseY` and hit-testing aligned across all 9 anchor origins and fullscreen transitions.",
+            ),
+            (
+                "Loader (`loadPublish` & Media) + AE Expressions",
+                "new Loader(), contentLoaderInfo.addEventListener(Event.COMPLETE, fn), load(new URLRequest(url))",
+                "Loads `SWF`, `MP4`, `AVI`, `MP3`, `WAV`, `SVG`, `WebP`, `GIF`, `BMP`, `TIFF`, and published NeoFlash HTML5 child bundles (`loadPublish`); `enterFrame`/frame drivers also compile to After Effects JS Expressions on `.aep` export.",
             ),
         ],
     );

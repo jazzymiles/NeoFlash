@@ -1,0 +1,462 @@
+{
+  "format_version": 5,
+  "name": "AS3 01 · Math & Geometry",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "sat_sym",
+      "name": "OrbitalProbeAS3",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "sat_l",
+            "name": "Probe",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "sat_core",
+                    "name": "",
+                    "transform": {
+                      "x": -14.0,
+                      "y": -14.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 28.0,
+                      "height": 28.0,
+                      "fill": [
+                        129,
+                        140,
+                        248,
+                        255
+                      ],
+                      "stroke": [
+                        238,
+                        242,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "sat_wing",
+                    "name": "",
+                    "transform": {
+                      "x": -26.0,
+                      "y": -3.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 52.0,
+                      "height": 6.0,
+                      "fill": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3_01_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        129,
+                        140,
+                        248,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS3 SUITE · 01 / MATH & GEOMETRY",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        129,
+                        140,
+                        248,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · Point, Rectangle, Matrix & ColorTransform",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed flash.geom algebra, Matrix point transforms, Rectangle unions/intersections & ENTER_FRAME orbit.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_01_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "dial_ring",
+                    "name": "",
+                    "transform": {
+                      "x": 540.0,
+                      "y": 210.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 240.0,
+                      "height": 240.0,
+                      "fill": [
+                        17,
+                        28,
+                        52,
+                        255
+                      ],
+                      "stroke": [
+                        129,
+                        140,
+                        248,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "orbiter_inst",
+                    "name": "orbiter",
+                    "transform": {
+                      "x": 660.0,
+                      "y": 330.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "sat_sym",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "import flash.events.Event;\nimport flash.geom.Point;\nimport flash.geom.Rectangle;\nimport flash.geom.Matrix;\nimport flash.geom.ColorTransform;\n\nstop();\n\nvar pA:Point = new Point(0, 0);\nvar pB:Point = new Point(30, 40);\nvar dist:int = int(Math.round(Point.distance(pA, pB)));\nvar mid:Point = Point.interpolate(pA, pB, 0.5);\n\nvar r1:Rectangle = new Rectangle(10, 10, 100, 80);\nvar r2:Rectangle = new Rectangle(60, 40, 100, 80);\nvar overlap:Rectangle = r1.intersection(r2);\n\nvar mat:Matrix = new Matrix();\nmat.scale(2, 2);\nmat.translate(15, -5);\nvar mapped:Point = mat.transformPoint(new Point(10, 20));\n\nvar ct:ColorTransform = new ColorTransform(1, 1, 1, 1, 12, 24, 36, 0);\nvar ok:Boolean = (dist == 50 && mid.x == 15 && mid.y == 20 && overlap.width == 50 && overlap.height == 50 && mapped.x == 35 && mapped.y == 35 && ct.blueOffset == 36);\n\nthis.statusText.text = ok ? \"PASS · Distance=50 | Overlap=50x50 | Matrix=(35,35)\" : \"FAIL · Geometry mismatch\";\nthis.detailText.text = \"Midpoint=(\" + mid.x + \", \" + mid.y + \") | ColorTransform blueOffset=\" + ct.blueOffset;\nif (ok) {\n  trace(\"[PASS] as3/01-math-geometry dist=\" + dist + \" overlap=\" + overlap.width + \"x\" + overlap.height);\n}\n\nvar angleDeg:Number = 0;\nvar probe:Object = this.orbiter;\nfunction onTick(event:Event):void {\n  angleDeg = (angleDeg + 6) % 360;\n  var rad:Number = angleDeg * Math.PI / 180;\n  probe.x = 660 + Math.cos(rad) * 96;\n  probe.y = 330 + Math.sin(rad) * 96;\n  probe.rotation = angleDeg;\n}\naddEventListener(Event.ENTER_FRAME, onTick);\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,325 @@
+{
+  "format_version": 5,
+  "name": "AS3 06 · Dynamic, Input & HTML Text",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3_06_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS3 SUITE · 06 / DYNAMIC, INPUT & HTML TEXT",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · TextField, TextFieldType.INPUT, TextFormat & htmlText",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Creates styled dynamic & editable TextFields on the display list with HTML markup and formatting.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_06_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "import flash.text.TextField;\nimport flash.text.TextFieldType;\nimport flash.text.TextFormat;\n\nstop();\n\nvar richField:TextField = new TextField();\nrichField.x = 64;\nrichField.y = 255;\nrichField.width = 420;\nrichField.height = 180;\nrichField.multiline = true;\nrichField.wordWrap = true;\nrichField.border = true;\nrichField.borderColor = 0x34D399;\nrichField.background = true;\nrichField.backgroundColor = 0x0F172A;\nrichField.htmlText = \"<b>NeoFlash Observatory</b><br/><font color='#818CF8'>Eclipse Crossing 00:00</font> · <u>Gate A</u>\";\naddChild(richField);\n\nvar inputField:TextField = new TextField();\ninputField.x = 520;\ninputField.y = 255;\ninputField.width = 360;\ninputField.height = 44;\ninputField.type = TextFieldType.INPUT;\ninputField.border = true;\ninputField.borderColor = 0x818CF8;\ninputField.background = true;\ninputField.backgroundColor = 0x1E293B;\nvar fmt:TextFormat = new TextFormat(\"Arial\", 18, 0xF8FAFC, true);\ninputField.defaultTextFormat = fmt;\ninputField.text = \"Pass #AS3-900\";\ninputField.setTextFormat(fmt);\naddChild(inputField);\n\nvar plain:String = richField.text;\nvar ok:Boolean = (plain.indexOf(\"NeoFlash Observatory\") >= 0 && plain.indexOf(\"Gate A\") >= 0 && inputField.type == TextFieldType.INPUT && inputField.text == \"Pass #AS3-900\");\nthis.statusText.text = ok ? \"PASS · htmlText parsed & TextFieldType.INPUT ready\" : \"FAIL · AS3 TextField verification\";\nthis.detailText.text = \"Extracted plain text length=\" + plain.length + \" | Input value=\" + inputField.text;\nif (ok) {\n  trace(\"[PASS] as3/06-dynamic-input-html-text input=\" + inputField.text);\n}\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

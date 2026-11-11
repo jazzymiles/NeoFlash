@@ -1,0 +1,506 @@
+{
+  "format_version": 5,
+  "name": "AS3 08 · Neon Defender Mini-Game",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "paddle_sym",
+      "name": "NeonDefenderPaddle",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "pad_l",
+            "name": "Paddle",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "pad_rect",
+                    "name": "",
+                    "transform": {
+                      "x": -54.0,
+                      "y": -9.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 108.0,
+                      "height": 18.0,
+                      "fill": [
+                        129,
+                        140,
+                        248,
+                        255
+                      ],
+                      "stroke": [
+                        224,
+                        231,
+                        255,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "orb_sym",
+      "name": "PhotonOrb",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "orb_l",
+            "name": "Orb",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "orb_circle",
+                    "name": "",
+                    "transform": {
+                      "x": -12.0,
+                      "y": -12.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 24.0,
+                      "height": 24.0,
+                      "fill": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ],
+                      "stroke": [
+                        209,
+                        250,
+                        229,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3_08_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS3 SUITE · 08 / NEON DEFENDER MINI-GAME",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · Playable Arcade Loop (Arrows / A-D / Auto-Pilot)",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed ENTER_FRAME loop, KeyboardEvent controls, Sprite starfield, collision scoring & R-key restart.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_08_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "arena_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 242.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 832.0,
+                      "height": 250.0,
+                      "fill": [
+                        9,
+                        14,
+                        28,
+                        255
+                      ],
+                      "stroke": [
+                        129,
+                        140,
+                        248,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "paddle_inst",
+                    "name": "paddle",
+                    "transform": {
+                      "x": 480.0,
+                      "y": 464.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "paddle_sym",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "orb_inst",
+                    "name": "orb",
+                    "transform": {
+                      "x": 480.0,
+                      "y": 396.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "orb_sym",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "import flash.display.MovieClip;\nimport flash.display.Sprite;\nimport flash.events.Event;\nimport flash.events.KeyboardEvent;\nimport flash.ui.Keyboard;\n\nstop();\n\nvar arenaLeft:Number = 120;\nvar arenaRight:Number = 840;\nvar paddleY:Number = 464;\nvar score:int = 0;\nvar manualControl:Boolean = false;\nvar moveDir:int = 0;\nvar orbVx:Number = 5;\nvar orbVy:Number = 16;\nvar passTraced:Boolean = false;\n\nvar stars:Sprite = new Sprite();\nvar sIdx:int = 0;\nwhile (sIdx < 18) {\n  var sx:Number = 90 + ((sIdx * 97) % 780);\n  var sy:Number = 258 + ((sIdx * 53) % 180);\n  stars.graphics.beginFill(0xA5B4FC, 0.65);\n  stars.graphics.drawRect(sx, sy, 3, 3);\n  stars.graphics.endFill();\n  sIdx = sIdx + 1;\n}\naddChild(stars);\n\nvar paddleClip:MovieClip = this.paddle as MovieClip;\nvar orbClip:MovieClip = this.orb as MovieClip;\nvar owner:Object = this;\n\nfunction refreshHud():void {\n  owner.statusText.text = \"SCORE: \" + score + \" · \" + (manualControl ? \"MANUAL PILOT\" : \"AUTO-PILOT DEMO (Press Left/Right)\");\n  owner.detailText.text = \"Paddle X=\" + Math.round(paddleClip.x) + \" | Orb=(\" + Math.round(orbClip.x) + \", \" + Math.round(orbClip.y) + \")\";\n}\n\nfunction onKeyDown(event:KeyboardEvent):void {\n  var code:uint = event.keyCode;\n  if (code == Keyboard.LEFT || code == 65) {\n    manualControl = true;\n    moveDir = -1;\n  } else if (code == Keyboard.RIGHT || code == 68) {\n    manualControl = true;\n    moveDir = 1;\n  } else if (code == 82) {\n    score = 0;\n    manualControl = false;\n    orbClip.x = 480;\n    orbClip.y = 396;\n    refreshHud();\n  }\n}\n\nfunction onKeyUp(event:KeyboardEvent):void {\n  moveDir = 0;\n}\n\nif (stage != null) {\n  stage.focus = this;\n  stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);\n  stage.addEventListener(KeyboardEvent.KEY_UP, onKeyUp);\n}\n\naddEventListener(Event.ENTER_FRAME, function(e:Event):void {\n  orbClip.x = orbClip.x + orbVx;\n  orbClip.y = orbClip.y + orbVy;\n  if (orbClip.x < arenaLeft || orbClip.x > arenaRight) {\n    orbVx = -orbVx;\n  }\n  if (!manualControl) {\n    paddleClip.x = paddleClip.x + (orbClip.x - paddleClip.x) * 0.45;\n  } else {\n    paddleClip.x = Math.max(arenaLeft, Math.min(arenaRight, paddleClip.x + moveDir * 14));\n  }\n  if (orbClip.y >= paddleY - 18) {\n    if (Math.abs(orbClip.x - paddleClip.x) <= 64) {\n      score = score + 100;\n      if (!passTraced) {\n        passTraced = true;\n        trace(\"[PASS] as3/08-interactive-arcade-miniapp score=\" + score);\n      }\n    }\n    orbClip.y = 268;\n    orbVx = (score % 200 == 0) ? 6 : -6;\n  }\n  refreshHud();\n});\n\nrefreshHud();\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

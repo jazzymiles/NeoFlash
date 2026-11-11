@@ -1,0 +1,516 @@
+{
+  "format_version": 5,
+  "name": "AS2 03 · MovieClips & Nested Timelines",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "pod_sym",
+      "name": "SignalPod",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 8,
+        "layers": [
+          {
+            "id": "pod_l",
+            "name": "PodStates",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "pod_idle_bg",
+                    "name": "",
+                    "transform": {
+                      "x": -48.0,
+                      "y": -32.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 96.0,
+                      "height": 64.0,
+                      "fill": [
+                        30,
+                        41,
+                        59,
+                        255
+                      ],
+                      "stroke": [
+                        250,
+                        204,
+                        21,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pod_idle_led",
+                    "name": "",
+                    "transform": {
+                      "x": -10.0,
+                      "y": -10.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 20.0,
+                      "height": 20.0,
+                      "fill": [
+                        250,
+                        204,
+                        21,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "idle"
+              },
+              {
+                "frame": 4,
+                "elements": [
+                  {
+                    "id": "pod_act_bg",
+                    "name": "",
+                    "transform": {
+                      "x": -48.0,
+                      "y": -32.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 96.0,
+                      "height": 64.0,
+                      "fill": [
+                        20,
+                        83,
+                        45,
+                        255
+                      ],
+                      "stroke": [
+                        74,
+                        222,
+                        128,
+                        255
+                      ],
+                      "stroke_width": 2.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "pod_act_led",
+                    "name": "",
+                    "transform": {
+                      "x": -12.0,
+                      "y": -12.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 24.0,
+                      "height": 24.0,
+                      "fill": [
+                        74,
+                        222,
+                        128,
+                        255
+                      ],
+                      "stroke": [
+                        240,
+                        253,
+                        244,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": "active"
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\n"
+            }
+          },
+          {
+            "frame": 4,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\n"
+            }
+          }
+        ]
+      },
+      "linkage_id": "SignalPod"
+    },
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as2_03_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        250,
+                        204,
+                        21,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS2 SUITE · 03 / MOVIECLIPS & NESTED TIMELINES",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        250,
+                        204,
+                        21,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 2 · attachMovie, Frame Labels & Depth Management",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Independent nested MovieClip state machines, Library linkage instantiation & dynamic vector wires.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_03_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "stage_pod_inst",
+                    "name": "stagePod",
+                    "transform": {
+                      "x": 220.0,
+                      "y": 350.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "pod_sym",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "stop();\n\nthis.stagePod.gotoAndStop(\"idle\");\nvar attached:MovieClip = this.attachMovie(\"SignalPod\", \"attachedPod\", 12);\nattached._x = 520;\nattached._y = 350;\nattached.gotoAndStop(\"active\");\n\nvar wire:MovieClip = this.createEmptyMovieClip(\"wireOverlay\", 5);\nwire.lineStyle(3, 0x38BDF8, 100);\nwire.moveTo(268, 350);\nwire.lineTo(472, 350);\n\nvar ok:Boolean = (this.stagePod._currentframe == 1 && attached != undefined && attached._currentframe == 5 && attached._totalframes == 8);\nthis.statusText.text = ok ? \"PASS · stagePod=frame 1 (idle) | attachedPod=frame 5 (active)\" : \"FAIL · Nested timeline state\";\nthis.detailText.text = \"Library linkage 'SignalPod' attached at depth \" + attached.getDepth() + \" of \" + attached._totalframes + \" frames\";\nif (ok) {\n  trace(\"[PASS] as2/03-movieclips-nested-timelines stage=\" + this.stagePod._currentframe + \" attached=\" + attached._currentframe);\n}\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

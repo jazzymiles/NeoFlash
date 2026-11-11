@@ -1,0 +1,252 @@
+{
+  "format_version": 1,
+  "name": "AS2 00 · Published Child Module",
+  "width": 320,
+  "height": 180,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "spinner_sym",
+      "name": "OrbitalSpinner",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "spin_l",
+            "name": "BadgeArt",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "spin_ring",
+                    "name": "",
+                    "transform": {
+                      "x": -22.0,
+                      "y": -22.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "ellipse",
+                      "width": 44.0,
+                      "height": 44.0,
+                      "fill": [
+                        14,
+                        165,
+                        233,
+                        255
+                      ],
+                      "stroke": [
+                        186,
+                        230,
+                        253,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "spin_spoke",
+                    "name": "",
+                    "transform": {
+                      "x": -4.0,
+                      "y": -18.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 8.0,
+                      "height": 36.0,
+                      "fill": [
+                        250,
+                        204,
+                        21,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    },
+    {
+      "id": "scene",
+      "name": "ChildModuleAS2",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 12,
+        "layers": [
+          {
+            "id": "bg_l",
+            "name": "Card",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "card_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 4.0,
+                      "y": 4.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 312.0,
+                      "height": 172.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        255
+                      ],
+                      "stroke": [
+                        56,
+                        189,
+                        248,
+                        255
+                      ],
+                      "stroke_width": 2.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "hdr_txt",
+                    "name": "badgeLabel",
+                    "transform": {
+                      "x": 18.0,
+                      "y": 20.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "CHILD MODULE · AS2",
+                      "font_family": "Arial",
+                      "font_size": 16.0,
+                      "color": [
+                        226,
+                        232,
+                        240,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          },
+          {
+            "id": "anim_l",
+            "name": "SpinnerTween",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "spinner_inst",
+                    "name": "spinner",
+                    "transform": {
+                      "x": 64.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "spinner_sym",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": "ease_in_out",
+                "label": ""
+              },
+              {
+                "frame": 11,
+                "elements": [
+                  {
+                    "id": "spinner_inst",
+                    "name": "spinner",
+                    "transform": {
+                      "x": 248.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 180.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "spinner_sym",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "this.badgeLabel.text = \"MODULE LIVE · AS2\";\ntrace(\"[PASS] as2/00-child-module ready\");\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

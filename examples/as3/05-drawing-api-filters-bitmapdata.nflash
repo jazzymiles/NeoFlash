@@ -1,0 +1,325 @@
+{
+  "format_version": 5,
+  "name": "AS3 05 · Graphics API, Filters & BitmapData",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3_05_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        167,
+                        139,
+                        250,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS3 SUITE · 05 / GRAPHICS API, FILTERS & BITMAPDATA",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        167,
+                        139,
+                        250,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · Sprite.graphics, Glow/DropShadow & Bitmap/BitmapData",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Typed GradientType.LINEAR vector drawing, filter arrays & ARGB BitmapData rendered via flash.display.Bitmap.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_05_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script3",
+              "source": "import flash.display.Bitmap;\nimport flash.display.BitmapData;\nimport flash.display.GradientType;\nimport flash.display.Sprite;\nimport flash.filters.DropShadowFilter;\nimport flash.filters.GlowFilter;\nimport flash.geom.Matrix;\nimport flash.geom.Rectangle;\n\nstop();\n\nvar art:Sprite = new Sprite();\nart.x = 90;\nart.y = 260;\nvar gradMat:Matrix = new Matrix();\ngradMat.createGradientBox(260, 180, 0, 0, 0);\nart.graphics.lineStyle(2.5, 0xE9D5FF, 1.0);\nart.graphics.beginGradientFill(GradientType.LINEAR, [0x4F46E5, 0x06B6D4], [1.0, 1.0], [0, 255], gradMat);\nart.graphics.moveTo(0, 24);\nart.graphics.curveTo(130, -24, 260, 24);\nart.graphics.lineTo(260, 176);\nart.graphics.curveTo(130, 212, 0, 176);\nart.graphics.lineTo(0, 24);\nart.graphics.endFill();\n\nvar glow:GlowFilter = new GlowFilter(0x38BDF8, 0.9, 14, 14, 2, 1, false, false);\nvar shadow:DropShadowFilter = new DropShadowFilter(6, 45, 0x020617, 0.75, 10, 10, 1, 1, false, false, false);\nart.filters = [glow, shadow];\naddChild(art);\n\nvar bmd:BitmapData = new BitmapData(64, 64, true, 0xFF0F172A);\nbmd.fillRect(new Rectangle(8, 8, 48, 48), 0xFF34D399);\nbmd.setPixel32(16, 16, 0xFFFFD464);\nvar sampled:uint = bmd.getPixel(16, 16);\n\nvar bmp:Bitmap = new Bitmap(bmd);\nbmp.x = 460;\nbmp.y = 265;\nbmp.scaleX = 2.5;\nbmp.scaleY = 2.5;\naddChild(bmp);\n\nvar ok:Boolean = (sampled == 0xFFD464 && art.filters.length == 2);\nthis.statusText.text = ok ? \"PASS · Sprite.graphics + 2 filters + Bitmap 0xFFD464\" : \"FAIL · AS3 Graphics/BitmapData\";\nthis.detailText.text = \"Filter stack count=\" + art.filters.length + \" | Sampled pixel RGB=0x\" + sampled.toString(16);\nif (ok) {\n  trace(\"[PASS] as3/05-drawing-api-filters-bitmapdata pixel=0x\" + sampled.toString(16) + \" filters=\" + art.filters.length);\n}\n"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

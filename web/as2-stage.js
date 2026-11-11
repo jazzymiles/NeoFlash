@@ -89,7 +89,7 @@ function create(options={}){
  function fsEnabled(){return options.allowsFullScreen!==false&&Boolean((viewport?.requestFullscreen||viewport?.webkitRequestFullscreen)&&(doc?(doc.fullscreenEnabled??doc.webkitFullscreenEnabled)!==false:false));}
  function later(callback){const current=generation;queueMicrotask(()=>{if(!disposed&&generation===current)try{callback();}catch(error){report(error);}});}
  function layout(vw,vh){const result=call({op:'layout',width:vw,height:vh,fullscreen:ownsFullscreen()});const previous=last;last=result;if(previous&&(previous.logicalWidth!==result.logicalWidth||previous.logicalHeight!==result.logicalHeight)&&state().scaleMode==='noScale')later(()=>{legacy.broadcastStage('onResize',[]);options.afterEvent?.();});return result;}
- function activate(){enabled=true;if(preview&&viewport){viewport.style.overflow='hidden';preview.setStageLayout(layout);}else layout(legacy.Stage.width||width,legacy.Stage.height||height);options.afterEvent?.();}
+ function activate(){enabled=true;if(preview&&viewport){viewport.style.overflow='hidden';preview.setStageLayout?.(layout);}else layout(legacy.Stage.width||width,legacy.Stage.height||height);options.afterEvent?.();}
  function change(name,value){if(name==='fullScreenSourceRect'){if(value!==null&&!geometry.Rectangle.__nfIs(value))throw new TypeError('Stage.fullScreenSourceRect requires Rectangle or null.');if(value!==null)value={x:value.x,y:value.y,width:value.width,height:value.height};}const result=call({op:'set',name,value});if(name!=='showMenu')activate();return result;}
  function fullScreenChanged(){if(disposed)return;const next=ownsFullscreen();if(next&&requestGeneration!==generation&&requestGeneration!==0){Promise.resolve(exitFs()).catch(()=>{});return;}if(next===fullscreen)return;fullscreen=next;if(enabled)preview.resize();legacy.broadcastStage('onFullScreen',[next]);options.afterEvent?.();}
  function display(value){active();if(!['normal','fullScreen'].includes(value))throw new TypeError('Stage.displayState requires normal or fullScreen.');if(value==='fullScreen'){
@@ -108,7 +108,7 @@ function create(options={}){
  const onFullscreen=()=>{try{fullScreenChanged();}catch(error){report(error);}};
  doc?.addEventListener?.('fullscreenchange',onFullscreen);doc?.addEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.addEventListener?.('contextmenu',menu);
  const menus=createMenus(options,call,()=>state().showMenu);
- function reset(){if(disposed)return;menus.reset();generation++;requestGeneration=0;if(ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});fullscreen=false;core.free();core=makeCore();enabled=false;last=null;if(preview)preview.setStageLayout(null);if(viewport?.style)viewport.style.overflow=initialOverflow;}
+ function reset(){if(disposed)return;menus.reset();generation++;requestGeneration=0;if(ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});fullscreen=false;core.free();core=makeCore();enabled=false;last=null;if(preview)preview.setStageLayout?.(null);if(viewport?.style)viewport.style.overflow=initialOverflow;}
  function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);doc?.removeEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
  return Object.freeze({Stage,layout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,reset,dispose});
 }

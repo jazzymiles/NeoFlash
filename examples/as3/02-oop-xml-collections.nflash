@@ -1,0 +1,394 @@
+{
+  "format_version": 5,
+  "name": "AS3 02 · OOP, XML & Collections",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as3_02_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS3 SUITE · 02 / PACKAGES, XML, BYTEARRAY & SHAREDOBJECT",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 3 · Typed OOP Inheritance, XML, ByteArray & Storage",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Document class app.Main, package model.* overrides, XML E4X/DOM, ByteArray UTF & SharedObject.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as3_02_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card_xml",
+                    "name": "",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 256.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 848.0,
+                      "height": 220.0,
+                      "fill": [
+                        20,
+                        32,
+                        54,
+                        255
+                      ],
+                      "stroke": [
+                        52,
+                        211,
+                        153,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "payload_txt",
+                    "name": "payloadText",
+                    "transform": {
+                      "x": 76.0,
+                      "y": 280.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting AS3 document class...",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [
+                        226,
+                        232,
+                        240,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": []
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "src_inst",
+      "path": "model/Instrument.as",
+      "language": "action_script3",
+      "source": "package model {\n  public class Instrument {\n    protected var baseGain:int = 10;\n    public function Instrument() {}\n    public function sample(step:int):int { return baseGain + step; }\n  }\n}\n"
+    },
+    {
+      "id": "src_probe",
+      "path": "model/TelemetryProbe.as",
+      "language": "action_script3",
+      "source": "package model {\n  public class TelemetryProbe extends Instrument {\n    public function TelemetryProbe() { super(); }\n    public override function sample(step:int):int { return super.sample(step) * 2; }\n  }\n}\n"
+    },
+    {
+      "id": "src_main",
+      "path": "app/Main.as",
+      "language": "action_script3",
+      "source": "package app {\n  import flash.display.MovieClip;\n  import flash.net.SharedObject;\n  import flash.utils.ByteArray;\n  import model.*;\n\n  public dynamic class Main extends MovieClip {\n    public function Main() {\n      super();\n      stop();\n\n      var probe:TelemetryProbe = new TelemetryProbe();\n      var reading:int = probe.sample(5);\n\n      var tags:Array = [\"zeta\", \"alpha\", \"omega\"];\n      tags.sort();\n      var sortedCsv:String = tags.join(\",\");\n\n      var xmlDoc:XML = new XML(\"<station name='Observatory'><sensor id='S1'>42</sensor></station>\");\n      var stationName:String = String(xmlDoc.@name);\n\n      var bytes:ByteArray = new ByteArray();\n      bytes.writeUTFBytes(\"NEOFLASH\");\n      bytes.position = 0;\n      var decoded:String = bytes.readUTFBytes(8);\n\n      var rx:RegExp = /^NEO[A-Z]+$/;\n      var rxOk:Boolean = rx.test(decoded);\n\n      var stamp:Number = Date.UTC(2026, 10, 11, 0, 0, 0);\n      var store:SharedObject = SharedObject.getLocal(\"nf_as3_suite_02\");\n      store.data.reading = reading;\n      store.flush();\n\n      var ok:Boolean = (reading == 30 && sortedCsv == \"alpha,omega,zeta\" && stationName == \"Observatory\" && decoded == \"NEOFLASH\" && rxOk && stamp > 0 && store.data.reading == 30);\n      this.statusText.text = ok ? \"PASS · Override=30 | XML=\" + stationName + \" | ByteArray=\" + decoded : \"FAIL · AS3 OOP/XML/ByteArray\";\n      this.detailText.text = \"Sorted=\" + sortedCsv + \" | RegExp=\" + rxOk + \" | SharedObject reading=\" + store.data.reading;\n      this.payloadText.text = \"Document class: app.Main extends MovieClip\\nOverride: model.TelemetryProbe.sample(5) => \" + reading + \"\\nByteArray UTF-8 round-trip: \" + decoded + \" (\" + bytes.length + \" bytes)\";\n      if (ok) {\n        trace(\"[PASS] as3/02-oop-xml-collections reading=\" + reading + \" bytes=\" + decoded);\n      }\n    }\n  }\n}\n"
+    }
+  ],
+  "document_class": "app.Main"
+}

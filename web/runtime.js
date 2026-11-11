@@ -375,8 +375,8 @@
       player.hydrate_sprite_sheet(new Uint8Array(sheetPngBuf), sheetManifestText);
     }
     const canvas = document.getElementById('stage');
-    const accelMode = playerConfig.acceleration || canvas.getAttribute('data-acceleration') || '';
-    if (accelMode && canvas.dataset) canvas.dataset.acceleration = accelMode;
+    const accelMode = playerConfig.acceleration || canvas?.getAttribute?.('data-acceleration') || canvas?.dataset?.acceleration || '';
+    if (accelMode && canvas?.dataset) canvas.dataset.acceleration = accelMode;
     const contextAttrs = accelMode === 'gpu_web_gl'
       ? { alpha: false, desynchronized: true }
       : accelMode === 'software'
@@ -486,14 +486,14 @@
       if (as2StageHost?.isActive?.()) return;
       if (typeof preview !== 'undefined' && preview) {
         if (typeof viewport !== 'undefined' && viewport?.style) viewport.style.overflow = 'hidden';
-        preview.setStageLayout(computeHostStageLayout);
+        preview.setStageLayout?.(computeHostStageLayout);
       }
     }
     function syncInitialStageLayout() {
       hostStageLayoutPinned = shouldAutoEnableStageLayout();
       if (hostStageLayoutPinned || ownsViewportFullscreen()) enableHostStageLayout(hostStageLayoutPinned);
       else if (!as2StageHost?.isActive?.() && typeof preview !== 'undefined' && preview) {
-        preview.setStageLayout(null);
+        preview.setStageLayout?.(null);
         if (typeof viewport !== 'undefined' && viewport?.style) viewport.style.overflow = initialViewportOverflow;
       }
     }
@@ -1923,7 +1923,7 @@
     zoomSelect?.addEventListener('change', event => {
       hostStageLayoutPinned = false;
       if (!as2StageHost?.isActive?.()) {
-        preview.setStageLayout(null);
+        preview.setStageLayout?.(null);
         if (viewport?.style) viewport.style.overflow = initialViewportOverflow;
       }
       preview.setMode(event.target.value);

@@ -831,8 +831,38 @@ fn finder_video_drop_imports_at_the_pointer_keeps_the_pen_and_undoes_once() {
     assert_eq!(editor.project, before);
     assert_eq!(editor.tool, Tool::Pen);
 
-    let unsupported = temp.join("legacy.avi");
-    std::fs::write(&unsupported, b"RIFF\x00\x00\x00\x00AVI ").unwrap();
+    let valid_avi = temp.join("clip.avi");
+    let mut jpeg_frame = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        16,
+        12,
+        image::Rgb([32, 160, 240]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut jpeg_frame),
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
+    let avi_bytes = neoflash_core::build_minimal_mjpeg_avi(16, 12, 12, &[jpeg_frame], None);
+    std::fs::write(&valid_avi, avi_bytes).unwrap();
+    editor
+        .import_video_path_at(&ctx, &valid_avi, [120.0, 80.0])
+        .expect("a valid RIFF AVI imports cleanly onto Stage");
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
+    assert_eq!(editor.tool, Tool::Pen);
+
+    let broken_avi = temp.join("broken.avi");
+    std::fs::write(&broken_avi, b"RIFF\x00\x00\x00\x00AVI ").unwrap();
+    let avi_err = editor
+        .import_video_path_at(&ctx, &broken_avi, [120.0, 80.0])
+        .expect_err("a truncated RIFF AVI header must fail before mutation");
+    assert!(avi_err.contains("invalid AVI header"), "{avi_err}");
+    assert_eq!(editor.project, before);
+
+    let unsupported = temp.join("legacy.mkv");
+    std::fs::write(&unsupported, b"\x1A\x45\xDF\xA3").unwrap();
     let raw = egui::RawInput {
         screen_rect: Some(area),
         events: vec![egui::Event::PointerMoved(screen)],

@@ -189,7 +189,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
         title: "1. Workspace & Stage",
         subtitle: "Stage, Pasteboard, Rulers, Guides, Grid & Snapping priority",
         icon: i16::DESKTOP,
-        keywords: "workspace stage pasteboard rulers guides grid snapping zoom hand pan focus mode units",
+        keywords: "workspace stage pasteboard rulers guides grid snapping zoom hand pan focus mode units premiere theme density mid neutral gray dark graphite ui studio",
         tags: &["Authoring", "Stage"],
         related: &[1, 2, 6],
     },
@@ -243,7 +243,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
         title: "7. Timeline, Layers & Masks",
         subtitle: "Keyframes, Span selection, Layer roles, Masking, Onion Skin & Scenes",
         icon: i16::FILM,
-        keywords: "timeline frame keyframe blank span layer normal guide guided mask masked folder solo outline onion skin edit multiple frames scene",
+        keywords: "timeline frame keyframe blank span layer normal guide guided mask masked folder solo outline onion skin edit multiple frames scene razor split clip link unlink montage",
         tags: &["Authoring", "Timeline", "Animation"],
         related: &[5, 7, 10, 13],
     },
@@ -270,7 +270,7 @@ pub(crate) const HELP_CHAPTERS: [HelpChapterMeta; 19] = [
         title: "10. Scripting, Import & Publish",
         subtitle: "AS2/AS3/JS/TS, Code Snippets, Debugger, FLA/SWF/PSD Import & HTML5/Atlas",
         icon: i16::CODE,
-        keywords: "actionscript as2 as3 javascript typescript actions code snippets debugger profiler import fla xfl swf psd ai svg trace bitmap publish html5 wasm sprite sheet lottie shortcuts",
+        keywords: "actionscript as2 as3 javascript typescript actions code snippets debugger profiler import fla xfl swf psd ai svg figma avi webp bmp tiff trace bitmap publish html5 wasm banner sequence aep after effects expressions loadpublish sprite sheet atlas lottie shortcuts",
         tags: &[
             "Authoring",
             "Export",
@@ -409,6 +409,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "The Hand and Zoom tools, Focus Mode, Fit Stage and percentage controls change only the view and never mutate authored geometry.",
         "Ruler guides can be dragged from either ruler, moved on the Pasteboard, locked, hidden or removed by dropping them back on a ruler.",
         "Object, pixel, grid, guide and alignment snapping can be combined; visible snap rings identify the winning target.",
+        "Switch between Animator, Classic, Designer, Developer, Small Screen and Premiere montage workspaces, four NF2 themes (Dark, Light, Mid Neutral Gray, Dark Graphite) and three densities (Comfortable, Compact, Classic Flash).",
     ],
     &[
         "Merge Drawing lets fills and strokes cut, join and reshape each other; Object Drawing keeps every stroke or fill isolated until Break Apart.",
@@ -445,6 +446,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Normal, Guide, Guided, Mask, Masked and Folder layers retain their role when reordered or nested.",
         "Onion Skin and Edit Multiple Frames expose neighbouring poses without making authored evaluation stateful.",
         "Scenes are authored separately but play and publish as one ordered main timeline.",
+        "Razor (C) and Modify > Timeline > Split Clip split Stream audio and non-looping video with exact In/Out trim windows, advance Graphic first frames, place keyframes on symbol/shape spans, and preserve reciprocal Link / Unlink Video & Audio tracks.",
     ],
     &[
         "Motion Tween stores keyed X, Y, Scale, Rotation, Skew, Alpha and Colour tracks; the Motion Editor adjusts curves and easing.",
@@ -457,12 +459,13 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "Static, Dynamic and Input text support embedded fonts, paragraph and character controls, multi-column flow and authored links.",
         "Frame sounds use Event, Start, Stop or Stream synchronization, looping and editable stereo envelopes.",
         "Video and audio resources remain document resources; scrubbing is silent unless audible scrubbing is explicitly enabled.",
+        "Properties > Video configures Stream/Event/Stop sync, interactive In/Out trim handles, Mute, cue points and one-step Extract audio onto a linked sound track for MP4, WebM and RIFF AVI clips.",
     ],
     &[
-        "Frame and object scripts may use ActionScript 2, ActionScript 3, JavaScript or TypeScript, with Actions, Code Snippets, compiler diagnostics and debugger panels.",
-        "Import accepts legacy FLA, XFL, SWF, PSD/PSB, AI, SVG, PDF, media, swatches and image sequences with explicit diagnostics for approximations.",
-        "Publish targets include HTML5 plus WebAssembly, sprite sheets, animated SVG, Lottie, audio and video.",
-        "Core shortcuts include F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions and Shift-F12 for Publish.",
+        "Frame and object scripts may use ActionScript 2, ActionScript 3, JavaScript or TypeScript, with Actions, Code Snippets, Live ActionScript stage preview, compiler diagnostics and debugger panels.",
+        "Import accepts legacy FLA, XFL, SWF, layered Figma (.fig / .figma.json), PSD/PSB, AI, SVG, PDF, WAV/MP3/OGG/FLAC, MP4/WebM/AVI, WebP/GIF/BMP/TIFF and numbered image sequences with located diagnostics.",
+        "Publish and export targets include HTML5 plus WebAssembly (with 9-anchor Stage.align, Fullscreen and per-bitmap WebP/JPEG/PNG settings), zero-WASM Web Banner Native, 5-format Texture Atlases, AI/SVG/PNG/JPEG/WebP/GIF/BMP frame sequences, SWF, Lottie, audio/video and Adobe After Effects (.aep / .aepx / .jsx) with AE JavaScript Expressions.",
+        "Core shortcuts include C for Razor, F5/F6/F7 for Timeline frames, F8 for Convert to Symbol, Command-B for Break Apart, F9 for Actions, Option-Shift-Command-A for After Effects export and Shift-F12 for Publish.",
     ],
     &[
         "ActionScript 1.0 and 2.0 execute on the AVM1 timeline and target-path hierarchy (_level0, _root, _parent, this) with 1-based frame indexing.",
@@ -475,6 +478,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "TextField and TextFormat control dynamic and input typography, wordWrap, multiline, embedFonts, scroll/maxscroll, and HTML/StyleSheet formatting.",
         "Sound manages event and streaming audio per timeline target with attachSound, loadSound, start(offset, loops), setVolume(0..100), and setPan(-100..100).",
         "Flash 8 flash.display.BitmapData, flash.geom (Matrix, Point, Rectangle, ColorTransform), LoadVars, XML, and SharedObject.getLocal complete the AS2 standard library.",
+        "Stage.scaleMode, 9-anchor Stage.align and Stage.displayState coordinate responsive HTML5 canvas layout, while loadMovie and MovieClipLoader dynamically mount published NeoFlash bundles (loadPublish) alongside SWF, MP3, WAV, MP4, AVI, SVG, WebP, GIF, BMP and TIFF assets.",
     ],
     &[
         "ActionScript 3.0 (AVM2) introduces package namespaces, sealed classes, strict runtime types (int, uint, Number, Vector.<T>, Dictionary), and E4X XML.",
@@ -487,6 +491,7 @@ pub(crate) const HELP_BROWSER_TOPICS: [&[&str]; 19] = [
         "event.target identifies the originating leaf dispatcher, whereas event.currentTarget identifies the DisplayObject whose listener is currently executing.",
         "Each frame tick runs a deterministic 6-step sequence: ENTER_FRAME -> child construction -> FRAME_CONSTRUCTED -> timeline frame scripts -> EXIT_FRAME -> RENDER.",
         "MouseEvent, KeyboardEvent (attached to stage), FocusEvent, and flash.utils.Timer provide structured input and timing callbacks.",
+        "stage.scaleMode, 9-anchor stage.align and StageDisplayState.FULL_SCREEN drive high-DPI HTML5 Stage layout with exact inverse pointer hit-testing, while flash.display.Loader mounts published NeoFlash bundles (loadPublish) and SWF/SVG/AVI/WebP/BMP/TIFF media.",
     ],
     &[
         "flash.display.Graphics renders strokes, solid/gradient/bitmap fills, quadratic curveTo, cubicCurveTo, drawRoundRect, drawPath, and UV-mapped drawTriangles.",
@@ -1552,6 +1557,19 @@ fn chapter_workspace_and_stage(ui: &mut Ui, _state: &mut HelpManualState) {
             "Focus Mode (Tab): Press Tab (when not editing text) to hide all docked panels and maximize the Stage canvas; press Tab again to restore your workspace layout.",
         ],
     );
+    mode_card(
+        ui,
+        Some(i16::DESKTOP),
+        "Workspaces (Including Premiere Montage), 4 NF2 Themes & 3 Density Profiles",
+        "Layout & Theme",
+        BadgeType::Accent,
+        "Window ▸ Workspaces",
+        &[
+            "Workspace Presets: Switch between Animator, Classic, Designer, Developer, Small Screen, and Premiere (non-linear video/audio montage with Layer frame previews, Properties + Scene, Library + Project, and Timeline + Output + Actions).",
+            "4 Interface Themes & UI Studio: Choose Dark, Light, Mid Neutral Gray, or Dark Graphite under Window ▸ Appearance, and inspect all four side by side in NeoFlash UI Studio (Compare 4 Themes).",
+            "3 Density Profiles: Comfortable, Compact, and Classic Flash scale top-bar, toolbar, and Timeline row metrics proportionally without clipping.",
+        ],
+    );
 }
 
 // ── Chapter 2: Drawing Modes & Objects ──
@@ -2566,6 +2584,19 @@ fn chapter_timeline_layers_and_masks(ui: &mut Ui, _state: &mut HelpManualState) 
             "Scenes (Window ▸ Panels ▸ Scene): Author separate scenes on independent timelines while the runtime and HTML5 exporter seamlessly flatten them in play order.",
         ],
     );
+    mode_card(
+        ui,
+        Some(i16::KEYFRAME_ADD),
+        "Razor Tool (C), Split Clip & Linked Video/Audio Montage",
+        "Montage",
+        BadgeType::Accent,
+        "C / Split Clip",
+        &[
+            "Razor Tool (C) & Split Clip at Playhead (Modify ▸ Timeline ▸ Split Clip at Playhead): Splits Video and Stream Audio spans cleanly—tightening the left clip's Out point, advancing the right clip's In point, and partitioning cue points—while inserting a keyframe (advancing Graphic first_frame) on standard Graphic, Button, MovieClip, and Shape spans.",
+            "Link / Unlink Video & Audio: Modify ▸ Timeline ▸ Link Video & Audio pairs reciprocal video and audio tracks so Split Clip and ripple Insert, Delete, Move, and SetEnd edits stay frame-locked until unlinked.",
+            "Premiere Workspace (Window ▸ Workspaces ▸ Premiere): Switches to layer-strip previews with Properties + Scene above Library + Project and a wide Timeline + Output + Actions dock for non-linear montage.",
+        ],
+    );
 }
 
 // ── Chapter 8: Tweens, Motion & IK ──
@@ -2850,6 +2881,19 @@ fn chapter_filters_text_and_audio(ui: &mut Ui, _state: &mut HelpManualState) {
             "Edit Envelope: Up to 8 volume control points per stereo channel with presets (Fade In, Fade Out, Fade Left to Right, etc.) and In/Out trim bars.",
         ],
     );
+    mode_card(
+        ui,
+        Some(i16::SOUND),
+        "Timeline Video Sync, Trim, Cue Points & Audio Extraction (Properties ▸ Video)",
+        "Video Engine",
+        BadgeType::Accent,
+        "Properties ▸ Video",
+        &[
+            "Video Sync Modes (Stream, Event, Stop), Loop & Mute: Stream locks MP4/WebM/AVI playback to the Timeline frame clock; Event triggers independent playback on keyframe entry; Stop halts active playback.",
+            "Interactive In/Out Trim & Cue Points: Drag `SpanType::Video` trim handles or set millisecond offsets directly, split clips at the playhead, and author timed cue points that advance cleanly across clip splits.",
+            "Extract Audio to Linked Track: Demuxes embedded PCM/MP3 audio from AVI containers or invokes `ffmpeg` to place a synchronized `audio/*` Stream track linked to the video layer in a single Undo step.",
+        ],
+    );
 }
 
 // ── Chapter 10: Scripting, Import & Publish ──
@@ -2861,7 +2905,7 @@ fn chapter_scripting_import_and_publish(
 ) {
     paragraph(
         ui,
-        "NeoFlash supports four scripting languages in the same authoring environment—ActionScript 2.0, ActionScript 3.0, JavaScript, and TypeScript—and publishes self-contained HTML5 + WebAssembly bundles, texture atlases, SVG, Lottie, and video.",
+        "NeoFlash supports four scripting languages in the same authoring environment—ActionScript 2.0, ActionScript 3.0, JavaScript, and TypeScript—and publishes self-contained HTML5 + WebAssembly bundles, zero-WASM native HTML5 banners, Adobe After Effects (.aep/.jsx) compositions, 5-format texture atlases, vector/raster frame sequences, SVG, Lottie, SWF, and video.",
     );
 
     section_overline(ui, "Scripting, Debugging & Code Snippets");
@@ -2909,23 +2953,23 @@ fn chapter_scripting_import_and_publish(
     mode_card(
         ui,
         Some(i16::PUBLISH),
-        "Legacy FLA / XFL / SWF / PSD / AI / SVG Import & Export Targets",
+        "Figma / Legacy FLA / XFL / SWF / AVI Import & Multi-Target Publishing",
         "Interchange",
         BadgeType::Accent,
-        "⌘R / ⇧F12",
+        "⌘R / ⇧F12 / ⌥⇧⌘A",
         &[
-            "Comprehensive Import (⌘R / ⌘O): Opens binary `.fla` (Flash 3–CS4), uncompressed/zipped `.xfl`/`.fla` (CS5–Animate), compiled `.swf` (FWS, Deflate CWS, LZMA ZWS), layered Photoshop `.psd`/`.psb`, `.ai`/`.svg`/`.pdf` vectors, `.act`/`.clr` swatch tables, audio (`.wav`/`.mp3`/`.ogg`/`.flac`), video (`.mp4`/`.webm`), and numbered image sequences.",
-            "HTML5 + WASM Publishing (⇧F12): Generates a zero-plugin browser bundle (`index.html`, `player.js`, `audio.js`, `neoflash_web_bg.wasm`, `project.json`) with full vector, filter, blend, sound, and script fidelity.",
-            "Sprite Sheet Generator, SVG, Lottie & Video: Export packed texture atlases (`Shelf` / `MaxRects` with `Starling XML`, `CreateJS`, or `JSON-Array` metadata, trim & frame deduplication), animated SVG, Lottie JSON (⌥⇧⌘L), WAV audio (⌥⇧⌘A), and MP4/WebM/GIF sequences (⌥⇧⌘V).",
+            "Comprehensive Import (⌘R / ⌘O): Opens Figma `.fig` (Kiwi) & `.figma.json` layered compositions, binary `.fla` (Flash 3–CS4), `.xfl`/`.fla` (CS5–Animate), `.swf` (FWS/CWS/ZWS), layered `.psd`/`.psb`, `.ai`/`.svg`/`.pdf` vectors, rasters (`.png`/`.jpg`/`.webp`/`.gif`/`.bmp`/`.tiff`), audio (`.wav`/`.mp3`/`.ogg`/`.flac`), video (`.mp4`/`.webm`/`.avi`), and numbered sequences.",
+            "HTML5 + WASM, Zero-WASM Native Banner & Stage Parity (⇧F12): Publishes full HTML5 + WASM bundles (`Stage.scaleMode`, 9-anchor `Stage.align`, `Allow fullscreen`, `loadPublish` child bundles, SHA-256 deduplicated `Assets folder`, per-bitmap `WebP`/`JPEG`/`PNG` Library compression, and packed `sprite_sheet.png`) or zero-WASM `Web Banner · Native` bundles (`<50 KB` gzipped). Reference projects live in `examples/as2/` and `examples/as3/`.",
+            "After Effects (.aep/.jsx), 5-Format Atlases & Frame Sequences: Export Adobe After Effects `.aep`/`.aepx` + ExtendScript `.jsx` + `<stem>_Footage/` preserving Bézier `ShapeLayer`s, pre-comps, Track Mattes, native AE Effects, editable `TextLayer`s, and compiled AE JS Expressions (`⌥⇧⌘A`); 5-format Texture Atlases (`Starling XML`, `JSON-Hash`, `JSON-Array`, `CreateJS`, `PixiJS`); `.ai`/`.svg`/`.png`/`.jpg`/`.webp`/`.gif`/`.bmp` frame sequences (`Authored`, `Live Scripted`, `Animation + Script Overlay`); Lottie JSON; SWF; and MP4/WebM/GIF video (`⌥⇧⌘V`).",
         ],
     );
 
     section_overline(ui, "Essential Keyboard Shortcuts Quick Reference");
     sub_bullet(
         ui,
-        "Selection / Subselection / Free Transform / Gradient Transform",
-        Some("V / A / Q / F"),
-        "Primary selection, node editing, bounding-box/envelope transform, and gradient/bitmap matrix handles.",
+        "Selection / Subselection / Free Transform / Gradient Transform / Razor",
+        Some("V / A / Q / F / C"),
+        "Primary selection, node editing, bounding-box/envelope transform, gradient matrix handles, and timeline clip/keyframe splitting.",
     );
     sub_bullet(
         ui,

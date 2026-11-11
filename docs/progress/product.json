@@ -2526,7 +2526,14 @@
         "crates/neoflash-editor/src/debugger_browser_tests.rs",
         "crates/neoflash-editor/src/panels/debugger.rs",
         "crates/neoflash-editor/src/sources_diagnostics.rs",
-        "crates/neoflash-editor/src/sources_diagnostics_tests.rs"
+        "crates/neoflash-editor/src/sources_diagnostics_tests.rs",
+        "examples/README.md",
+        "examples/as2/07-sound-video-loadpublish.nflash",
+        "examples/as2/08-interactive-arcade-miniapp.nflash",
+        "examples/as3/07-sound-video-loadpublish.nflash",
+        "examples/as3/08-interactive-arcade-miniapp.nflash",
+        "examples/midnight-express-5.nflash",
+        "crates/neoflash-export/tests/packet7_examples_and_express5.rs"
       ]
     },
     {

@@ -1,0 +1,395 @@
+{
+  "format_version": 5,
+  "name": "AS2 02 · OOP, XML & Collections",
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "background": [
+    11,
+    17,
+    32,
+    255
+  ],
+  "root": "scene",
+  "symbols": [
+    {
+      "id": "scene",
+      "name": "Main",
+      "kind": "movie_clip",
+      "timeline": {
+        "frame_count": 1,
+        "layers": [
+          {
+            "id": "main_l",
+            "name": "Dashboard",
+            "visible": true,
+            "locked": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "elements": [
+                  {
+                    "id": "as2_02_bg",
+                    "name": "",
+                    "transform": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "gradient_path",
+                      "commands": [
+                        {
+                          "op": "move_to",
+                          "x": 0.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 0.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 960.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "line_to",
+                          "x": 0.0,
+                          "y": 540.0
+                        },
+                        {
+                          "op": "close"
+                        }
+                      ],
+                      "fill_rule": "nonzero",
+                      "fill": [
+                        11,
+                        17,
+                        32,
+                        255
+                      ],
+                      "stroke": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "fill_gradient": {
+                        "kind": "linear",
+                        "matrix": [
+                          0.0,
+                          0.32958984375,
+                          -0.5859375,
+                          0.0,
+                          480.0,
+                          270.0
+                        ],
+                        "stops": [
+                          {
+                            "ratio": 0,
+                            "color": [
+                              11,
+                              17,
+                              32,
+                              255
+                            ]
+                          },
+                          {
+                            "ratio": 255,
+                            "color": [
+                              20,
+                              30,
+                              52,
+                              255
+                            ]
+                          }
+                        ],
+                        "focal_point_ratio": 0.0
+                      },
+                      "stroke_gradient": null,
+                      "stroke_width": 0.0
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_header_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 24.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 108.0,
+                      "fill": [
+                        22,
+                        33,
+                        56,
+                        235
+                      ],
+                      "stroke": [
+                        74,
+                        222,
+                        128,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_stage_card",
+                    "name": "",
+                    "transform": {
+                      "x": 36.0,
+                      "y": 150.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 888.0,
+                      "height": 362.0,
+                      "fill": [
+                        15,
+                        23,
+                        42,
+                        240
+                      ],
+                      "stroke": [
+                        51,
+                        65,
+                        85,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_eyebrow",
+                    "name": "eyebrow",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 38.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "NEOFLASH AS2 SUITE · 02 / OOP, XML & SHAREDOBJECT",
+                      "font_family": "Arial",
+                      "font_size": 12.0,
+                      "color": [
+                        74,
+                        222,
+                        128,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_title",
+                    "name": "title",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 60.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "ActionScript 2 · Class Packages, Inheritance, XML & Local Storage",
+                      "font_family": "Arial",
+                      "font_size": 26.0,
+                      "color": [
+                        241,
+                        245,
+                        249,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_subtitle",
+                    "name": "subtitle",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 96.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "External SourceUnit classes (model.*), Array sorting, XML DOM parsing, Date.UTC & SharedObject.",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        148,
+                        163,
+                        184,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_status",
+                    "name": "statusText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 170.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "INITIALIZING...",
+                      "font_family": "Arial",
+                      "font_size": 18.0,
+                      "color": [
+                        125,
+                        211,
+                        252,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "as2_02_detail",
+                    "name": "detailText",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 204.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "",
+                      "font_family": "Arial",
+                      "font_size": 14.0,
+                      "color": [
+                        203,
+                        213,
+                        225,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "card_xml",
+                    "name": "",
+                    "transform": {
+                      "x": 56.0,
+                      "y": 256.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "rectangle",
+                      "width": 848.0,
+                      "height": 220.0,
+                      "fill": [
+                        20,
+                        32,
+                        54,
+                        255
+                      ],
+                      "stroke": [
+                        74,
+                        222,
+                        128,
+                        255
+                      ],
+                      "stroke_width": 1.5
+                    },
+                    "scripts": []
+                  },
+                  {
+                    "id": "payload_txt",
+                    "name": "payloadText",
+                    "transform": {
+                      "x": 76.0,
+                      "y": 280.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "text",
+                      "text": "Awaiting telemetry...",
+                      "font_family": "Arial",
+                      "font_size": 15.0,
+                      "color": [
+                        226,
+                        232,
+                        240,
+                        255
+                      ]
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              }
+            ]
+          }
+        ],
+        "scripts": [
+          {
+            "frame": 0,
+            "script": {
+              "language": "action_script2",
+              "source": "import model.*;\n\nstop();\n\nvar probe:TelemetryProbe = new TelemetryProbe();\nvar reading:Number = probe.sample(4);\n\nvar channels:Array = [\"gamma\", \"alpha\", \"beta\"];\nchannels.sort();\nvar sortedCsv:String = channels.join(\",\");\n\nvar doc:XML = new XML(\"<station name='Observatory'><sensor id='S1' gain='42'/><sensor id='S2' gain='58'/></station>\");\nvar rootNode:XMLNode = doc.firstChild;\nvar stationName:String = rootNode.attributes.name;\nvar firstSensorId:String = rootNode.firstChild.attributes.id;\n\nvar stamp:Number = Date.UTC(2026, 10, 11, 0, 0, 0);\nvar store:SharedObject = SharedObject.getLocal(\"nf_as2_suite_02\");\nstore.data.lastReading = reading;\nstore.data.station = stationName;\nstore.flush();\n\nvar ok:Boolean = (reading == 30 && sortedCsv == \"alpha,beta,gamma\" && stationName == \"Observatory\" && firstSensorId == \"S1\" && stamp > 0 && store.data.lastReading == 30);\nthis.statusText.text = ok ? \"PASS · TelemetryProbe=30 | XML=\" + stationName + \"/\" + firstSensorId : \"FAIL · OOP/XML check\";\nthis.detailText.text = \"Sorted channels: \" + sortedCsv + \" | SharedObject lastReading=\" + store.data.lastReading;\nthis.payloadText.text = \"Class inheritance: model.TelemetryProbe extends model.Instrument\\nXML root: <station name='\" + stationName + \"'> first sensor=\" + firstSensorId + \"\\nUTC timestamp: \" + stamp;\nif (ok) {\n  trace(\"[PASS] as2/02-oop-xml-collections reading=\" + reading + \" sensor=\" + firstSensorId);\n}\n"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "src_inst",
+      "path": "model/Instrument.as",
+      "language": "action_script2",
+      "source": "class model.Instrument {\n  private var baseGain:Number = 10;\n  public function Instrument() {}\n  public function readBase():Number { return baseGain; }\n}\n"
+    },
+    {
+      "id": "src_probe",
+      "path": "model/TelemetryProbe.as",
+      "language": "action_script2",
+      "source": "import model.*;\nclass model.TelemetryProbe extends Instrument {\n  private var stepFactor:Number = 5;\n  public function TelemetryProbe() { super(); }\n  public function sample(steps:Number):Number { return readBase() + steps * stepFactor; }\n}\n"
+    }
+  ]
+}
