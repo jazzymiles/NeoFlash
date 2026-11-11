@@ -116,15 +116,17 @@ pub enum BitmapCompression {
     #[default]
     PhotoJpeg,
     LosslessPng,
+    Webp,
 }
 
 impl BitmapCompression {
-    pub const ALL: [Self; 2] = [Self::PhotoJpeg, Self::LosslessPng];
+    pub const ALL: [Self; 3] = [Self::PhotoJpeg, Self::LosslessPng, Self::Webp];
 
     pub const fn label(self) -> &'static str {
         match self {
             Self::PhotoJpeg => "Photo (JPEG)",
             Self::LosslessPng => "Lossless (PNG/GIF)",
+            Self::Webp => "WebP (Lossless)",
         }
     }
 }
@@ -168,6 +170,15 @@ impl BitmapExportSettings {
     pub const fn lossless_default() -> Self {
         Self {
             compression: BitmapCompression::LosslessPng,
+            use_imported_jpeg_data: true,
+            jpeg_quality: 80,
+            allow_smoothing: false,
+        }
+    }
+
+    pub const fn webp_default() -> Self {
+        Self {
+            compression: BitmapCompression::Webp,
             use_imported_jpeg_data: true,
             jpeg_quality: 80,
             allow_smoothing: false,

@@ -65,6 +65,7 @@
     const schedule=options.schedule||(callback=>global.queueMicrotask(callback));
     const fetchTransport=options.fetch||(typeof global.fetch==='function'?global.fetch.bind(global):null);
     const baseURL=options.baseURL||global.location?.href||null;
+    const assetUrls=options.assetUrls||null;
     const requests=new WeakSet(),headers=new WeakSet(),variables=new WeakSet(),loaders=new WeakMap(),legacy=new WeakMap();
     const active=new Set(),resources=new Map(),resourceCache=new Map();
     let generation=1,disposed=false,activeBytes=0;
@@ -289,7 +290,14 @@
     function mediaSource(value){
       open();const source=text(value,'Media URL');if(!source||source.length>8192)throw new RangeError('Media URL must contain 1 through 8192 characters.');
       const resource=resourceFor(source);
-      if(resource)return {kind:'resource',bytes:decodeResource(resource).slice(),mediaType:resource.media_type,length:resource.byteLength};
+      if(resource){
+        const extRel=assetUrls?.[resource.path];
+        if(resource.byteLength===0&&extRel){
+          let url=null;try{url=new URL(extRel,baseURL||undefined);}catch(_){url=null;}
+          return {kind:'http',url:url?url.href:extRel,mediaType:resource.media_type};
+        }
+        return {kind:'resource',bytes:decodeResource(resource).slice(),mediaType:resource.media_type,length:resource.byteLength};
+      }
       let url;try{url=new URL(source,baseURL||undefined);}catch(_){throw new TypeError('Media is not bundled and no HTTP(S) base URL is available.');}
       if(!['http:','https:'].includes(url.protocol))throw new TypeError('Media loading supports bundled resources and browser HTTP(S), not filesystem/RTMP URLs.');
       if(url.username||url.password)throw new TypeError('Credentials embedded in media URLs are unsupported.');
@@ -299,7 +307,8 @@
     }
     async function read(operation,request){
       const resource=resourceFor(request.url),record=operation.record;
-      if(resource){
+      const extRel=(resource&&resource.byteLength===0)?assetUrls?.[resource.path]:null;
+      if(resource&&!extRel){
         if(request.method!=='GET')throw new TypeError('Bundled resources are immutable and support GET only; POST requires an HTTP(S) endpoint.');
         const bytes=decodeResource(resource);retained(operation,bytes.length);record.total=bytes.length;
         if(!operation.legacy&&!notify(operation,new events.Event('open')))return null;
@@ -307,7 +316,8 @@
         if(!operation.legacy&&!notify(operation,new ProgressEvent('progress',false,false,bytes.length,bytes.length)))return null;
         return bytes;
       }
-      let url;try{url=new URL(request.url,baseURL||undefined);}catch(_){throw new TypeError(`Resource '${request.url}' is not bundled and no HTTP(S) base URL is available.`);}
+      const targetUrl=extRel||request.url;
+      let url;try{url=new URL(targetUrl,baseURL||undefined);}catch(_){throw new TypeError(`Resource '${request.url}' is not bundled and no HTTP(S) base URL is available.`);}
       if(!['http:','https:'].includes(url.protocol))throw new TypeError(`Resource '${request.url}' is not bundled. Only browser HTTP(S) loading is supported; filesystem URLs are unavailable.`);
       if(url.username||url.password)throw new TypeError('Credentials embedded in request URLs are unsupported; use an explicit permitted request header.');
       if(!fetchTransport)throw new Error('This browser does not provide fetch.');

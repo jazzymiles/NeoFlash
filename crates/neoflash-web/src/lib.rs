@@ -323,8 +323,21 @@ impl WebPlayer {
     /// published bundle that is already flattened passes its scene ranges.
     #[wasm_bindgen(constructor)]
     pub fn new(json: &str, scenes: Option<String>) -> Result<WebPlayer, JsValue> {
-        let authored =
-            Project::from_json(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
+        Self::construct(Project::from_json(json), scenes)
+    }
+
+    /// Construct a `WebPlayer` from a published HTML5 bundle whose Stage bitmaps may be packed
+    /// into an external `sprite_sheet.png` + `sprite_sheet.json` hydrated via [`Self::hydrate_sprite_sheet`].
+    #[wasm_bindgen]
+    pub fn new_published(json: &str, scenes: Option<String>) -> Result<WebPlayer, JsValue> {
+        Self::construct(Project::from_published_bundle_json(json), scenes)
+    }
+
+    fn construct(
+        authored: Result<Project, neoflash_core::ProjectError>,
+        scenes: Option<String>,
+    ) -> Result<WebPlayer, JsValue> {
+        let authored = authored.map_err(|error| JsValue::from_str(&error.to_string()))?;
         let (project, mut ranges) = neoflash_core::flatten_scenes_with_ranges(&authored);
         if ranges.is_empty()
             && let Some(scenes) = scenes
@@ -342,6 +355,18 @@ impl WebPlayer {
             .set_scenes(&project, ranges)
             .map_err(|error| JsValue::from_str(&error))?;
         Ok(Self { project, player })
+    }
+
+    #[wasm_bindgen]
+    pub fn hydrate_sprite_sheet(
+        &mut self,
+        sheet_png_bytes: &[u8],
+        manifest_json: &str,
+    ) -> Result<u32, JsValue> {
+        self.player
+            .hydrate_sprite_sheet(sheet_png_bytes, manifest_json)
+            .map(|count| count as u32)
+            .map_err(display_error)
     }
 
     pub fn amf_encode(&self, format: u8, graph_json: &str) -> Result<Vec<u8>, JsValue> {

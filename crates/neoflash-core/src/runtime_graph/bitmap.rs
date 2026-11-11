@@ -29,11 +29,31 @@ impl RuntimeGraph {
         }
         let mut total = 0usize;
         for id in referenced {
-            let result = project
-                .resources
-                .iter()
-                .find(|resource| resource.id == id)
-                .ok_or_else(|| BitmapError("missing image resource".into()))
+            let Some(resource) = project.resources.iter().find(|resource| resource.id == id) else {
+                self.bitmap_error = Some(BitmapError("missing image resource".into()));
+                return;
+            };
+            if resource.data_base64.is_empty() && resource.is_image() {
+                if let Some(hydrated) = self.hydrated_bitmaps.get(id).cloned() {
+                    total += hydrated.width as usize * hydrated.height as usize * 4;
+                    if total > MAX_BITMAP_BYTES {
+                        self.bitmap_error =
+                            Some(BitmapError("authored image buffers exceed 128 MiB".into()));
+                        return;
+                    }
+                    match self.pixels.import(&hydrated) {
+                        Ok(reference) => {
+                            self.resource_pixels.insert(id.into(), reference);
+                        }
+                        Err(error) => {
+                            self.bitmap_error = Some(error);
+                            return;
+                        }
+                    }
+                }
+                continue;
+            }
+            let result = Ok(resource)
                 .and_then(|resource| {
                     let (w, h) = resource
                         .image_dimensions()
@@ -60,6 +80,73 @@ impl RuntimeGraph {
                 }
             }
         }
+    }
+
+    pub(crate) fn hydrate_sprite_sheet(
+        &mut self,
+        sheet_png_bytes: &[u8],
+        manifest_json: &str,
+    ) -> Result<usize, BitmapError> {
+        if manifest_json.len() > 4 * 1024 * 1024 {
+            return Err(BitmapError("sprite sheet manifest exceeds 4 MiB".into()));
+        }
+        let sheet = crate::resource_image::decode_encoded_image(sheet_png_bytes)
+            .map_err(|e| BitmapError(format!("sprite sheet decode: {e}")))?;
+        let parsed: serde_json::Value = serde_json::from_str(manifest_json)
+            .map_err(|e| BitmapError(format!("sprite sheet manifest JSON: {e}")))?;
+        let Some(bitmaps) = parsed.get("bitmaps").and_then(|v| v.as_array()) else {
+            return Ok(0);
+        };
+        if bitmaps.len() > 256 {
+            return Err(BitmapError(
+                "sprite sheet bitmaps exceed the 256 buffer budget".into(),
+            ));
+        }
+        let mut hydrated_count = 0usize;
+        for entry in bitmaps {
+            let Some(id) = entry.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(frame) = entry.get("frame") else {
+                continue;
+            };
+            let x = frame.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let y = frame.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let w = frame.get("w").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let h = frame.get("h").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            if w == 0
+                || h == 0
+                || x.saturating_add(w) > sheet.width
+                || y.saturating_add(h) > sheet.height
+            {
+                return Err(BitmapError(format!(
+                    "sprite sheet frame for '{id}' ({x},{y},{w}x{h}) exceeds sheet {}x{}",
+                    sheet.width, sheet.height
+                )));
+            }
+            let row_bytes = (w as usize) * 4;
+            let sheet_stride = (sheet.width as usize) * 4;
+            let mut cropped = vec![0u8; row_bytes * (h as usize)];
+            for row in 0..(h as usize) {
+                let src_start = (y as usize + row) * sheet_stride + (x as usize) * 4;
+                let dst_start = row * row_bytes;
+                cropped[dst_start..dst_start + row_bytes]
+                    .copy_from_slice(&sheet.rgba[src_start..src_start + row_bytes]);
+            }
+            let decoded = crate::resource_image::DecodedImage {
+                width: w,
+                height: h,
+                rgba: cropped.into(),
+            };
+            self.hydrated_bitmaps.insert(id.to_owned(), decoded.clone());
+            if !self.resource_pixels.contains_key(id) {
+                self.pixels.reserve_import(w, h)?;
+                let pixel_ref = self.pixels.import(&decoded)?;
+                self.resource_pixels.insert(id.to_owned(), pixel_ref);
+            }
+            hydrated_count += 1;
+        }
+        Ok(hydrated_count)
     }
     pub(super) fn bitmap_state(
         &self,
@@ -169,6 +256,14 @@ impl Player {
     ) -> Result<serde_json::Value, BitmapError> {
         self.graph.pixels.as2_command(command)
     }
+    pub fn hydrate_sprite_sheet(
+        &mut self,
+        sheet_png_bytes: &[u8],
+        manifest_json: &str,
+    ) -> Result<usize, BitmapError> {
+        self.graph
+            .hydrate_sprite_sheet(sheet_png_bytes, manifest_json)
+    }
     pub fn as2_bitmap_load(
         &mut self,
         project: &Project,
@@ -182,6 +277,14 @@ impl Player {
         let Some(resource) = resolve_as2_bitmap_resource(project, id) else {
             return Ok(None);
         };
+        if resource.data_base64.is_empty()
+            && let Some(hydrated) = self.graph.hydrated_bitmaps.get(&resource.id).cloned()
+        {
+            self.graph
+                .pixels
+                .reserve_import(hydrated.width, hydrated.height)?;
+            return self.graph.pixels.import(&hydrated).map(Some);
+        }
         let (width, height) = resource
             .image_dimensions()
             .map_err(|e| BitmapError(e.to_string()))?;

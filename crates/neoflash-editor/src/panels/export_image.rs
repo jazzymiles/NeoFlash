@@ -65,11 +65,47 @@ pub(crate) fn set_inline_export_image_draft(ctx: &egui::Context, draft: ExportIm
 }
 
 impl Editor {
+    fn default_export_image_options(&self) -> ImageExportOptions {
+        let symbol_id = self.symbol_id().to_owned();
+        let total_frames = self.symbol().timeline.frame_count.max(1);
+        if let Some(mut saved) = self.workspace.export_image_options.clone() {
+            match &mut saved.range {
+                ImageExportRange::CurrentFrame(frame) => {
+                    *frame = self.frame;
+                    saved.symbol_id = Some(symbol_id);
+                }
+                ImageExportRange::WholeMovie => {
+                    saved.symbol_id = None;
+                }
+                ImageExportRange::CurrentScene { scene_id } => {
+                    *scene_id = symbol_id.clone();
+                    saved.symbol_id = Some(symbol_id);
+                }
+                ImageExportRange::Frames { start, end } => {
+                    let max_f = total_frames.saturating_sub(1);
+                    *start = (*start).min(max_f);
+                    *end = (*end).clamp(*start, max_f);
+                    saved.symbol_id = Some(symbol_id);
+                }
+            }
+            if saved.constrain_proportions && saved.scale.is_finite() && saved.scale > 0.0 {
+                saved.width = ((self.project.width.max(1) as f32 * saved.scale).round() as u32)
+                    .clamp(1, 8192);
+                saved.height = ((self.project.height.max(1) as f32 * saved.scale).round() as u32)
+                    .clamp(1, 8192);
+            }
+            saved
+        } else {
+            let mut options = ImageExportOptions::for_project(&self.project, self.frame);
+            options.symbol_id = Some(symbol_id);
+            options
+        }
+    }
+
     /// Open the `Export image` modal dialog (`DL-04`).
     pub(crate) fn open_export_image(&mut self, ctx: &egui::Context) {
         self.finish_edits();
-        let mut options = ImageExportOptions::for_project(&self.project, self.frame);
-        options.symbol_id = Some(self.symbol_id().to_owned());
+        let options = self.default_export_image_options();
         let draft = ExportImageDraft { options };
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));
     }
@@ -90,13 +126,12 @@ impl Editor {
         let draft = ctx
             .data(|d| d.get_temp::<ExportImageDraft>(draft_id()))
             .or_else(|| ctx.data(|d| d.get_temp::<ExportImageDraft>(inline_draft_id())))
-            .unwrap_or_else(|| {
-                let mut options = ImageExportOptions::for_project(&self.project, self.frame);
-                options.symbol_id = Some(self.symbol_id().to_owned());
-                ExportImageDraft { options }
+            .unwrap_or_else(|| ExportImageDraft {
+                options: self.default_export_image_options(),
             });
         let report =
             export_project_image(&self.project, path, &draft.options).map_err(|e| e.to_string())?;
+        self.workspace.export_image_options = Some(draft.options.clone());
         ctx.data_mut(|data| {
             data.remove::<ExportImageDraft>(draft_id());
             data.remove::<ExportImageDraft>(inline_draft_id());
@@ -122,7 +157,9 @@ impl Editor {
     ) -> (bool, bool) {
         let mut close_cancel = false;
         let mut do_export = false;
-        if let Some(ext_fmt) = external_format.as_deref() {
+        if let Some(ext_fmt) = external_format.as_deref()
+            && draft.options.format.index() != *ext_fmt
+        {
             draft.options.format = ImageExportFormat::from_index(*ext_fmt);
         }
 
@@ -541,9 +578,69 @@ impl Editor {
                             &mut draft.options.ai_text_as_outlines,
                             "Convert text to outlines",
                         ));
+                        ui.add(c::Checkbox::new(
+                            &mut draft.options.runtime_capture,
+                            "Render nested movie clip animation and scripts",
+                        ));
                     }
-                    ImageExportFormat::Png | ImageExportFormat::Pdf => {
-                        caption(ui, "No format-specific options in the reference design.");
+                    ImageExportFormat::Png
+                    | ImageExportFormat::Jpeg
+                    | ImageExportFormat::Webp
+                    | ImageExportFormat::Gif
+                    | ImageExportFormat::Bmp => {
+                        group(ui, "Raster options");
+                        ui.horizontal(|ui| {
+                            let fmt_lbl = format!("Format: {}", draft.options.format.label());
+                            c::Select::new(ui.id().with("raster-subformat"), &fmt_lbl)
+                                .width(180.0)
+                                .show(ui, |ui| {
+                                    for sub in [
+                                        ImageExportFormat::Png,
+                                        ImageExportFormat::Jpeg,
+                                        ImageExportFormat::Webp,
+                                        ImageExportFormat::Gif,
+                                        ImageExportFormat::Bmp,
+                                    ] {
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new(&format!(
+                                                    "Format: {}",
+                                                    sub.label()
+                                                ))
+                                                .checked(draft.options.format == sub),
+                                            )
+                                            .clicked()
+                                        {
+                                            draft.options.format = sub;
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            if draft.options.format == ImageExportFormat::Jpeg {
+                                let mut q = f64::from(draft.options.jpeg_quality.clamp(1, 100));
+                                if ui
+                                    .add(
+                                        c::Slider::new(&mut q, 1.0..=100.0, "JPEG quality")
+                                            .step(1.0)
+                                            .width(150.0),
+                                    )
+                                    .changed()
+                                {
+                                    draft.options.jpeg_quality = q.round().clamp(1.0, 100.0) as u8;
+                                }
+                                caption(ui, &format!("{} %", draft.options.jpeg_quality));
+                            }
+                        });
+                        ui.add(c::Checkbox::new(
+                            &mut draft.options.runtime_capture,
+                            "Render nested movie clip animation and scripts",
+                        ));
+                    }
+                    ImageExportFormat::Pdf => {
+                        ui.add(c::Checkbox::new(
+                            &mut draft.options.runtime_capture,
+                            "Render nested movie clip animation and scripts",
+                        ));
                     }
                 }
             });
@@ -567,10 +664,8 @@ impl Editor {
         let ctx = ui.ctx().clone();
         let mut draft = ctx
             .data(|d| d.get_temp::<ExportImageDraft>(inline_draft_id()))
-            .unwrap_or_else(|| {
-                let mut options = ImageExportOptions::for_project(&self.project, self.frame);
-                options.symbol_id = Some(self.symbol_id().to_owned());
-                ExportImageDraft { options }
+            .unwrap_or_else(|| ExportImageDraft {
+                options: self.default_export_image_options(),
             });
         let (close_cancel, do_export) = self.export_image_body(ui, &mut draft, Some(export_format));
         ctx.data_mut(|d| d.insert_temp(inline_draft_id(), draft.clone()));

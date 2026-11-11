@@ -46,6 +46,19 @@ impl Project {
     }
 
     pub fn from_json(json: &str) -> Result<Self, ProjectError> {
+        Self::parse_and_validate_json(json, false)
+    }
+
+    /// Parse a published HTML5 bundle's project JSON, permitting Stage bitmap resources whose
+    /// inline `data_base64` was packed into an external sprite sheet (`hydrate_sprite_sheet`).
+    pub fn from_published_bundle_json(json: &str) -> Result<Self, ProjectError> {
+        Self::parse_and_validate_json(json, true)
+    }
+
+    fn parse_and_validate_json(
+        json: &str,
+        allow_external_sprite_sheet: bool,
+    ) -> Result<Self, ProjectError> {
         if json.len() > MAX_PROJECT_JSON_BYTES {
             return Err(ProjectError::Invalid(
                 "document exceeds the 128 MiB encoded JSON limit".into(),
@@ -68,12 +81,30 @@ impl Project {
         if project.uses_format_11() && project.format_version < 11 {
             project.format_version = 11;
         }
-        project.validate()?;
-        Ok(project)
+        let issues = validate_with_options(&project, allow_external_sprite_sheet);
+        if issues.is_empty() {
+            crate::model::reserve_ids(&project);
+            Ok(project)
+        } else {
+            Err(ProjectError::Invalid(
+                issues
+                    .into_iter()
+                    .map(|i| format!("{}: {}", i.path, i.message))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ))
+        }
     }
 }
 
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
+    validate_with_options(project, false)
+}
+
+fn validate_with_options(
+    project: &Project,
+    allow_external_sprite_sheet: bool,
+) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
     if !matches!(project.format_version, 1..=12) {
@@ -1309,7 +1340,9 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                             }
                             match project.resources.iter().find(|r| r.id == video.resource) {
                                 Some(resource) if resource.is_video() => {
-                                    if resource.data_base64.is_empty() {
+                                    if resource.data_base64.is_empty()
+                                        && !allow_external_sprite_sheet
+                                    {
                                         add(
                                             format!("{kp}.video.resource"),
                                             format!(
@@ -1733,6 +1766,17 @@ pub fn validate(project: &Project) -> Vec<ValidationIssue> {
                                 image_count += 1;
                                 if image_count > 256 {return Err("authored bitmaps exceed the 256 buffer record budget".into())}
                                 let resource=project.resources.iter().take(MAX_RESOURCES).find(|r|r.id==*resource_id).ok_or_else(||"missing bitmap resource".to_owned())?;
+                                if allow_external_sprite_sheet && resource.is_image() && resource.data_base64.is_empty() {
+                                    if *width == 0 || *height == 0 || *width > MAX_BITMAP_DIMENSION || *height > MAX_BITMAP_DIMENSION {
+                                        return Err("image dimensions must be in 1..=4096".into());
+                                    }
+                                    let bytes = (*width as usize) * (*height as usize) * 4;
+                                    if image_bytes + bytes > MAX_BITMAP_BYTES {
+                                        return Err("authored image buffers exceed the 128 MiB runtime pixel budget".into());
+                                    }
+                                    image_bytes += bytes;
+                                    return Ok((*width, *height));
+                                }
                                 let (w,h)=resource.image_dimensions().map_err(|e|e.to_string())?;
                                 let bytes=w as usize*h as usize*4;
                                 if image_bytes+bytes>MAX_BITMAP_BYTES {return Err("authored image buffers exceed the 128 MiB runtime pixel budget".into())}

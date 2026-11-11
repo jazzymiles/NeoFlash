@@ -326,6 +326,32 @@ impl PlayerChromeConfig {
     }
 }
 
+/// Policy for publishing frame-by-frame bitmap sequence layers (`T-218` / `T-255`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SequencePublishPolicy {
+    /// Preserve frame-by-frame bitmap keyframes as authored.
+    #[default]
+    KeepFrames,
+    /// Pack sequence bitmaps into the HTML5 sprite sheet automatically.
+    PackAtlas,
+    /// Transcode contiguous frame-by-frame bitmap spans into an embedded H.264 MP4 timeline video
+    /// when `ffmpeg` is available (falls back to sprite-sheet packing with a diagnostic warning).
+    TranscodeVideo,
+}
+
+impl SequencePublishPolicy {
+    pub const ALL: [Self; 3] = [Self::KeepFrames, Self::PackAtlas, Self::TranscodeVideo];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::KeepFrames => "Keep individual frames",
+            Self::PackAtlas => "Pack into sprite sheet",
+            Self::TranscodeVideo => "Transcode to MP4 video",
+        }
+    }
+}
+
 /// Extended HTML5 wrapper, playback, asset, script, and chrome configuration for
 /// [`crate::export_project_with_config`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -355,6 +381,8 @@ pub struct HtmlPublishConfig {
     pub jpeg_quality: u8,
     #[serde(default)]
     pub sprite_sheets: bool,
+    #[serde(default)]
+    pub sequence_policy: SequencePublishPolicy,
     #[serde(default = "default_true")]
     pub strict_mode: bool,
     #[serde(default = "default_true")]
@@ -382,6 +410,7 @@ impl Default for HtmlPublishConfig {
             source_maps: false,
             jpeg_quality: 80,
             sprite_sheets: false,
+            sequence_policy: SequencePublishPolicy::KeepFrames,
             strict_mode: true,
             include_trace: true,
             minify: true,

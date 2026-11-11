@@ -1636,6 +1636,48 @@ impl Editor {
         settings: &crate::workspace::PublishPrefs,
     ) -> bool {
         self.finish_edits();
+        if settings.profile == crate::workspace::PublishProfilePreset::WebBannerNative {
+            if let Err(err) = std::fs::create_dir_all(output) {
+                self.message(format!("Banner publish failed: {err}"));
+                self.show_panel(PanelId::Output);
+                return false;
+            }
+            let out_html = output.join("index.html");
+            let banner_opts = neoflash_export::BannerOptions {
+                max_gzip_bytes: Some(settings.banner_max_gzip_kb as usize * 1024),
+                max_raw_bytes: Some(settings.banner_max_gzip_kb as usize * 4096),
+                loop_timeline: settings.loop_timeline,
+                autoplay: settings.autoplay,
+                jpeg_quality: settings.jpeg_quality,
+                ..neoflash_export::BannerOptions::default()
+            };
+            return match neoflash_export::export_native_banner_html(
+                &self.project,
+                &out_html,
+                &banner_opts,
+            ) {
+                Ok(report) => {
+                    self.message(format!(
+                        "Native HTML5 Banner exported: {} ({} B, {} B gzip)",
+                        report.html_path.display(),
+                        report.raw_bytes,
+                        report.gzip_bytes
+                    ));
+                    for diag in report.diagnostics {
+                        self.message(format!(
+                            "[{}] {}: {}",
+                            diag.code, diag.location, diag.message
+                        ));
+                    }
+                    true
+                }
+                Err(e) => {
+                    self.message(format!("Banner publish failed: {e}"));
+                    self.show_panel(PanelId::Output);
+                    false
+                }
+            };
+        }
         let warnings = neoflash_export::export_warnings(&self.project);
         let options = match settings.export_options(&self.project) {
             Ok(options) => options,
@@ -1751,7 +1793,12 @@ impl Editor {
             let is_meta_file = target_dir
                 .extension()
                 .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("xml"));
+                .is_some_and(|e| {
+                    e.eq_ignore_ascii_case("json")
+                        || e.eq_ignore_ascii_case("xml")
+                        || e.eq_ignore_ascii_case("css")
+                });
+            let default_ext = settings.atlas_format.extension();
             let meta_path = if is_meta_file {
                 if let Some(parent) = target_dir.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -1759,14 +1806,21 @@ impl Editor {
                 target_dir
             } else {
                 let _ = std::fs::create_dir_all(&target_dir);
-                target_dir.join("spritesheet.json")
+                target_dir.join(format!("spritesheet.{default_ext}"))
             };
-            let opts = neoflash_export::AtlasOptions::default();
+            let opts = neoflash_export::AtlasOptions {
+                format: settings.atlas_format,
+                image_format: settings.atlas_image_format,
+                jpeg_quality: settings.jpeg_quality,
+                extrude: settings.atlas_extrude,
+                ..neoflash_export::AtlasOptions::default()
+            };
             match neoflash_export::export_project_atlas(&self.project, &meta_path, &opts) {
                 Ok(report) => {
                     self.message(format!(
-                        "Sprite sheet exported: {}",
-                        report.image_path.display()
+                        "Sprite sheet exported: {} ({} page(s))",
+                        report.image_path.display(),
+                        report.page_paths.len().max(1)
                     ));
                     true
                 }
@@ -1778,12 +1832,12 @@ impl Editor {
             }
         } else {
             let _ = std::fs::create_dir_all(&target_dir);
-            let opts = neoflash_export::ImageExportOptions {
-                format: neoflash_export::ImageExportFormat::Png,
-                range: neoflash_export::ImageExportRange::WholeMovie,
-                ..neoflash_export::ImageExportOptions::default()
-            };
-            let out_file = target_dir.join("frame.png");
+            let mut opts = neoflash_export::ImageExportOptions::for_project(&self.project, 0);
+            opts.format = settings.image_sequence_format;
+            opts.jpeg_quality = settings.jpeg_quality;
+            opts.range = neoflash_export::ImageExportRange::WholeMovie;
+            opts.symbol_id = None;
+            let out_file = target_dir.join(format!("frame.{}", opts.format.extension()));
             match neoflash_export::export_project_image(&self.project, &out_file, &opts) {
                 Ok(report) => {
                     let shown = report
@@ -2030,6 +2084,80 @@ impl Editor {
     }
     pub fn export_lottie_dialog(&mut self, symbol_id: Option<&str>) {
         self.open_export_lottie(symbol_id);
+    }
+
+    /// Export a packed Texture Atlas (`JSON-Hash`, `JSON-Array`, `Starling XML`, `EaselJS`, `CSS`) (`T-250`).
+    pub fn export_texture_atlas_dialog(&mut self, dest: Option<PathBuf>) -> bool {
+        if !self.has_document() {
+            return false;
+        }
+        self.finish_edits();
+        let fmt = self.workspace.publish.atlas_format;
+        let default_ext = fmt.extension();
+        let clean_stem: String = self
+            .project
+            .name
+            .trim()
+            .chars()
+            .map(|c| {
+                if matches!(c, '/' | '\\' | ':' | '\0') {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let stem = if clean_stem.is_empty() {
+            "spritesheet"
+        } else {
+            clean_stem.as_str()
+        };
+        let default_name = format!("{stem}.{default_ext}");
+        let meta_path = if let Some(path) = dest {
+            path
+        } else if let Some(file) = rfd::FileDialog::new()
+            .set_title("Export Texture Atlas")
+            .add_filter("Atlas Metadata", &["json", "xml", "css"])
+            .set_file_name(&default_name)
+            .save_file()
+        {
+            file
+        } else {
+            return false;
+        };
+        let inferred_fmt = match meta_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("xml") => neoflash_export::AtlasFormat::StarlingXml,
+            Some("css") => neoflash_export::AtlasFormat::Css,
+            _ => fmt,
+        };
+        let opts = neoflash_export::AtlasOptions {
+            format: inferred_fmt,
+            image_format: self.workspace.publish.atlas_image_format,
+            jpeg_quality: self.workspace.publish.jpeg_quality,
+            extrude: self.workspace.publish.atlas_extrude,
+            ..neoflash_export::AtlasOptions::default()
+        };
+        match neoflash_export::export_project_atlas(&self.project, &meta_path, &opts) {
+            Ok(report) => {
+                self.message(format!(
+                    "Texture atlas exported: {} ({} frame(s), {} page(s))",
+                    report.image_path.display(),
+                    report.frame_count,
+                    report.page_paths.len().max(1)
+                ));
+                true
+            }
+            Err(e) => {
+                self.message(format!("Texture atlas export failed: {e}"));
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
     }
 
     /// Export the active project to a standalone Flash Movie (`.swf`) via `publish_swf_to_path` (`T-192`).

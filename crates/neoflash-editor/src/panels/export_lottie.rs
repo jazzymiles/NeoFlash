@@ -461,10 +461,48 @@ fn format_bytes(bytes: usize) -> String {
 }
 
 impl Editor {
+    fn persist_lottie_export_options(&mut self, options: &LottieOptions) {
+        if options.symbol.is_none() {
+            let mut saved = options.clone();
+            saved.symbol = None;
+            saved.scene = None;
+            saved.frame_range = None;
+            self.workspace.export_lottie_options = Some(saved);
+        }
+    }
+
     /// Open the `Export Lottie` modal dialog (`R-043`).
     pub fn open_export_lottie(&mut self, symbol_id: Option<&str>) {
         self.finish_edits();
-        self.export_lottie = Some(ExportLottieDraft::for_project(&self.project, symbol_id));
+        let mut draft = ExportLottieDraft::for_project(&self.project, symbol_id);
+        if symbol_id.is_none()
+            && let Some(saved) = &self.workspace.export_lottie_options
+        {
+            draft.options.format = saved.format;
+            draft.options.include_background = saved.include_background;
+            draft.options.include_hidden_layers = saved.include_hidden_layers;
+            draft.options.include_markers = saved.include_markers;
+            draft.options.movie_clip_mode = saved.movie_clip_mode;
+            draft.options.text_mode = saved.text_mode;
+            draft.options.image_mode = saved.image_mode;
+            draft.options.pretty = saved.pretty;
+            draft.options.precision = saved.precision;
+            draft.options.player = saved.player;
+            draft.options.html_preview = saved.html_preview;
+            draft.options.image_format = saved.image_format;
+            if let Some(idx) = SCALE_PRESETS
+                .iter()
+                .position(|(s, _)| (*s - saved.scale).abs() < 0.01)
+            {
+                draft.scale_idx = idx;
+            }
+            if let Some(idx) = FPS_PRESETS.iter().position(|p| *p == saved.fps) {
+                draft.fps_idx = idx;
+            }
+            draft.dirty = true;
+            draft.refresh_estimate(&self.project);
+        }
+        self.export_lottie = Some(draft);
     }
 
     fn finish_lottie_export(
@@ -586,6 +624,9 @@ impl Editor {
                     draft.blocking_error = Some(err);
                 }
                 LottieTaskOutcome::Export { path, result } => {
+                    if result.is_ok() {
+                        self.persist_lottie_export_options(&draft.options);
+                    }
                     let _ = self.finish_lottie_export(&path, result);
                     self.export_lottie = None;
                     return;
@@ -1252,6 +1293,7 @@ impl Editor {
         } else if do_export {
             draft.sync_options(&self.project);
             if let Some(path) = self.choose_export_lottie_path(&draft) {
+                self.persist_lottie_export_options(&draft.options);
                 let immediate = draft.worker.lock().ok().and_then(|mut w| {
                     w.spawn_export(self.project.clone(), path, draft.options.clone())
                 });

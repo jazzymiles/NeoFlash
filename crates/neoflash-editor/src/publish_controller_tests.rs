@@ -336,3 +336,62 @@ fn pending_edits_replacement_cancel_and_runtime_changes_discard_old_results() {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+#[test]
+fn export_image_and_native_banner_publish_persist_confirmed_settings_and_discard_cancel() {
+    let fixture = Fixture::new();
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+
+    // 1. Open Export image, customize format/quality/scale, confirm export -> saved in workspace
+    editor.open_export_image(&ctx);
+    crate::panels::export_image::update_export_image_draft(&ctx, |draft| {
+        draft.options.format = neoflash_export::ImageExportFormat::Webp;
+        draft.options.jpeg_quality = 77;
+        draft.options.scale = 2.0;
+        draft.options.width = u32::from(editor.project.width) * 2;
+        draft.options.height = u32::from(editor.project.height) * 2;
+    });
+    let out_webp = fixture.0.join("still.webp");
+    editor
+        .confirm_export_image_to_path(&ctx, &out_webp)
+        .expect("confirm export image");
+    assert!(out_webp.is_file());
+
+    // Reopen Export image -> must restore WebP, 2.0x scale, and 77 quality
+    editor.open_export_image(&ctx);
+    let reopened = crate::panels::export_image::export_image_draft(&ctx).expect("reopened draft");
+    assert_eq!(
+        reopened.options.format,
+        neoflash_export::ImageExportFormat::Webp
+    );
+    assert_eq!(reopened.options.jpeg_quality, 77);
+    assert!((reopened.options.scale - 2.0).abs() < 1e-4);
+
+    // Edit draft and Cancel -> unconfirmed edits must be discarded on next open
+    crate::panels::export_image::update_export_image_draft(&ctx, |draft| {
+        draft.options.format = neoflash_export::ImageExportFormat::Bmp;
+        draft.options.jpeg_quality = 15;
+    });
+    editor.cancel_export_image(&ctx);
+    editor.open_export_image(&ctx);
+    let after_cancel =
+        crate::panels::export_image::export_image_draft(&ctx).expect("draft after cancel");
+    assert_eq!(
+        after_cancel.options.format,
+        neoflash_export::ImageExportFormat::Webp,
+        "cancelled Export image edits must not overwrite confirmed settings"
+    );
+    assert_eq!(after_cancel.options.jpeg_quality, 77);
+    editor.cancel_export_image(&ctx);
+
+    // 2. Web Banner · Native publish writes single zero-WASM index.html
+    let banner_dir = fixture.0.join("banner-out");
+    let mut banner_settings = editor.workspace.publish.clone();
+    banner_settings.profile = crate::workspace::PublishProfilePreset::WebBannerNative;
+    banner_settings.banner_max_gzip_kb = 150;
+    assert!(editor.publish_html5_with_settings(&banner_dir, &fixture.runtime(), &banner_settings));
+    let html = std::fs::read_to_string(banner_dir.join("index.html")).unwrap();
+    assert!(html.contains("window.clickTag"));
+    assert!(!banner_dir.join("neoflash_web.js").exists());
+}

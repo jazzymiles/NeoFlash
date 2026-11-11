@@ -565,9 +565,8 @@
       let entry=buffers.get(id);if(entry)return entry;
       entry={buffer:null,error:null};buffers.set(id,entry);
       const epoch=generation,path=resourcePaths.get(id);
-      try{
-        if(!path)throw new Error(`Timeline sound resource ${id} is not embedded in this publication. Re-export the project.`);
-        const bytes=net.mediaSource(path).bytes,ctx=ensureContext(),profile=formats.inspect(bytes,ctx.sampleRate);
+      const decodeBytes=(bytes)=>{
+        const ctx=ensureContext(),profile=formats.inspect(bytes,ctx.sampleRate);
         if(!Number.isSafeInteger(profile.decodedBytes)||profile.decodedBytes<1||profile.decodedBytes>maxDecodedBytes-decodedBytes)throw new RangeError('Decoded audio would exceed the publication PCM budget.');
         decodedBytes+=profile.decodedBytes;
         Promise.resolve(ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength))).then(buffer=>{
@@ -575,6 +574,19 @@
           if(!buffer||!Number.isFinite(buffer.duration)||buffer.duration<=0)throw new RangeError('Timeline sound decoded to no audio.');
           entry.buffer=buffer;flushVoices();changed();
         }).catch(error=>{if(disposed||epoch!==generation)return;entry.error=error;dropVoices(id);report(error);});
+      };
+      try{
+        if(!path)throw new Error(`Timeline sound resource ${id} is not embedded in this publication. Re-export the project.`);
+        const src=net.mediaSource(path);
+        if(src.kind==='http'&&src.url){
+          if(typeof global.fetch!=='function')throw new Error('Externalized timeline audio requires browser fetch.');
+          global.fetch(src.url).then(resp=>{if(!resp.ok)throw new Error(`Timeline audio HTTP ${resp.status}`);return resp.arrayBuffer();}).then(buf=>{
+            if(disposed||epoch!==generation)return;
+            decodeBytes(new Uint8Array(buf));
+          }).catch(error=>{if(disposed||epoch!==generation)return;entry.error=error;dropVoices(id);report(error);});
+        }else{
+          decodeBytes(src.bytes);
+        }
       }catch(error){entry.error=error;report(error);}
       return entry;
     }

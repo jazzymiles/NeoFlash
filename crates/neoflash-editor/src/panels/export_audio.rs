@@ -106,9 +106,20 @@ impl Editor {
     ) {
         self.finish_edits();
         self.timeline_audio.stop_audition();
-        let mut options = AudioExportOptions::default();
+        let mut options = self
+            .workspace
+            .export_audio_options
+            .clone()
+            .unwrap_or_default();
         if let Some(src) = initial_source {
             options.source = src;
+        } else if let AudioExportSource::Layer(ref lid) = options.source
+            && !self
+                .sound_layers_in_active_symbol()
+                .iter()
+                .any(|(id, _)| id == lid)
+        {
+            options.source = AudioExportSource::TimelineMix;
         }
         let mut draft = ExportAudioDraft {
             options,
@@ -135,6 +146,7 @@ impl Editor {
         };
         let report =
             export_project_audio(&self.project, path, &draft.options).map_err(|e| e.to_string())?;
+        self.workspace.export_audio_options = Some(draft.options.clone());
         ctx.data_mut(|d| d.remove::<ExportAudioDraft>(draft_id()));
         self.message(format!(
             "Exported {} audio to {} ({}, {}).",

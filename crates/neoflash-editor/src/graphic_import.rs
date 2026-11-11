@@ -485,15 +485,32 @@ impl Editor {
         let mut items = Vec::with_capacity(graphic_paths.len());
         let sequence_request =
             graphic_paths.len() >= 2 || (graphic_paths.len() == 1 && graphic_paths[0].is_dir());
+        let seq_opts = self.workspace.sequence_import_options.clone();
         let imported_sequence = if sequence_request {
-            neoflash_import::import_numbered_image_sequence_paths(&graphic_paths, false)
-                .map_err(|error| format!("Image sequence import failed: {error}"))?
+            neoflash_import::import_numbered_image_sequence_paths_with_options(
+                &graphic_paths,
+                false,
+                &seq_opts,
+            )
+            .map_err(|error| format!("Image sequence import failed: {error}"))?
         } else {
             None
         };
 
         if let Some(imported_sequence) = imported_sequence {
-            let seq_item = prepare_sequence_graphic(imported_sequence, &mut remaining)?;
+            if place_on_stage
+                && seq_opts.placement
+                    == neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer
+            {
+                return self.place_sequence_keyframes_on_active_layer(
+                    imported_sequence,
+                    parsed_swatches,
+                    point,
+                    &mut remaining,
+                );
+            }
+            let seq_item =
+                prepare_sequence_graphic(imported_sequence, seq_opts.placement, &mut remaining)?;
             items.push(seq_item);
         } else {
             for path in &graphic_paths {
@@ -902,6 +919,143 @@ impl Editor {
         ));
         Ok(())
     }
+
+    fn place_sequence_keyframes_on_active_layer(
+        &mut self,
+        imported: neoflash_import::ImportedNumberedImageSequence,
+        swatches: Vec<GlobalSwatch>,
+        point: Option<[f64; 2]>,
+        remaining: &mut usize,
+    ) -> Result<(), String> {
+        let mut seq_item = prepare_sequence_graphic(
+            imported,
+            neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer,
+            remaining,
+        )?;
+        self.finish_edits();
+        self.set_playing(false);
+        let mut candidate = self.project.clone();
+        candidate.format_version = candidate.format_version.max(3);
+        if !swatches.is_empty() {
+            Self::merge_swatches_into_project(&mut candidate, &swatches);
+        }
+        merge_import_graphic_resources(&mut candidate, &mut seq_item)?;
+
+        let seq_timeline = seq_item
+            .timeline_override
+            .take()
+            .ok_or_else(|| "Image sequence import produced no timeline.".to_owned())?;
+        let seq_layer = seq_timeline
+            .layers
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Image sequence import produced no frames.".to_owned())?;
+        let width = seq_item.graphic.width.max(1.0);
+        let height = seq_item.graphic.height.max(1.0);
+        let scale = (candidate.width as f64 * 0.8 / width)
+            .min(candidate.height as f64 * 0.8 / height)
+            .min(1.0);
+        let half = [width * scale / 2.0, height * scale / 2.0];
+        let page_min = if self.edit_context_is_isolated() {
+            [
+                -(candidate.width as f64) / 2.0,
+                -(candidate.height as f64) / 2.0,
+            ]
+        } else {
+            [0.0, 0.0]
+        };
+        let exact_position = point.is_some() || self.editing_in_place();
+        let requested = point.unwrap_or_else(|| self.paste_center());
+        let center = if exact_position {
+            requested
+        } else {
+            [
+                requested[0].clamp(
+                    page_min[0] + half[0],
+                    page_min[0] + candidate.width as f64 - half[0],
+                ),
+                requested[1].clamp(
+                    page_min[1] + half[1],
+                    page_min[1] + candidate.height as f64 - half[1],
+                ),
+            ]
+        };
+        let offset_x = center[0] - half[0];
+        let offset_y = center[1] - half[1];
+
+        let symbol_id = self.symbol_id().to_owned();
+        let timeline = &mut candidate
+            .symbol_mut(&symbol_id)
+            .ok_or("The current symbol was removed.")?
+            .timeline;
+        let use_current = timeline.layers.get(self.layer).is_some_and(|layer| {
+            layer.properties.role == LayerRole::Normal
+                && layer.properties.mask.is_none()
+                && layer_effective_outline_color(timeline, layer).is_none()
+                && layer_effectively_visible(timeline, layer)
+                && !layer_effectively_locked(timeline, layer)
+        });
+        let target_layer = if use_current {
+            self.layer
+        } else {
+            timeline.layers.push(Layer {
+                id: new_id("layer"),
+                name: seq_item.graphic.name.clone(),
+                visible: true,
+                locked: false,
+                properties: Default::default(),
+                keyframes: vec![],
+            });
+            timeline.layers.len() - 1
+        };
+        let base_frame = self.frame;
+        timeline.frame_count = timeline
+            .frame_count
+            .max(base_frame.saturating_add(seq_timeline.frame_count.max(1)));
+        let layer = &mut timeline.layers[target_layer];
+        let layer_id = layer.id.clone();
+        let mut first_targets = Vec::new();
+        let keyframe_count = seq_layer.keyframes.len();
+        for (idx, mut kf) in seq_layer.keyframes.into_iter().enumerate() {
+            let dest_frame = base_frame.saturating_add(kf.frame);
+            kf.frame = dest_frame;
+            for el in &mut kf.elements {
+                el.id = new_id("object");
+                el.transform.x = offset_x + el.transform.x * scale;
+                el.transform.y = offset_y + el.transform.y * scale;
+                el.transform.scale_x *= scale;
+                el.transform.scale_y *= scale;
+                if idx == 0 {
+                    first_targets.push(SelectionTarget {
+                        layer: layer_id.clone(),
+                        element: el.id.clone(),
+                    });
+                }
+            }
+            if let Some(existing) = layer.keyframes.iter_mut().find(|k| k.frame == dest_frame) {
+                existing.elements.extend(kf.elements);
+            } else {
+                layer.keyframes.push(kf);
+            }
+        }
+        layer.keyframes.sort_by_key(|k| k.frame);
+        candidate.upgrade_format_for_features();
+        candidate.validate().map_err(|e| e.to_string())?;
+        let notice = seq_item.graphic.notice.take();
+        self.transact_named("Import Image Sequence", |editor| {
+            editor.project = candidate;
+            editor.layer = target_layer;
+            editor.selection = Selection {
+                symbol: symbol_id,
+                targets: first_targets,
+            };
+        });
+        let suffix = notice.map(|n| format!(" {n}")).unwrap_or_default();
+        self.message(format!(
+            "Placed {keyframe_count} sequence keyframe(s) on timeline.{suffix}"
+        ));
+        Ok(())
+    }
 }
 
 pub(crate) fn merge_graphic_resources(
@@ -1145,6 +1299,7 @@ fn prepare_fxg_graphic(path: &std::path::Path) -> Result<PreparedImportGraphic, 
 
 fn prepare_sequence_graphic(
     imported: neoflash_import::ImportedNumberedImageSequence,
+    placement: neoflash_import::ImageSequencePlacement,
     remaining: &mut usize,
 ) -> Result<PreparedImportGraphic, String> {
     let neoflash_import::ImportedNumberedImageSequence {
@@ -1153,6 +1308,7 @@ fn prepare_sequence_graphic(
         detection: _,
         paths: _,
     } = imported;
+    freshen_imported_project_ids(&mut project, "seq");
     let resource_bytes = project
         .resources
         .iter()
@@ -1167,12 +1323,23 @@ fn prepare_sequence_graphic(
     let seq_name = project.name.clone();
     let (w, h) = (project.width, project.height);
     let root_id = project.root.clone();
-    let root_symbol = project
+    let source_symbol = project
         .symbols
         .iter()
-        .find(|s| s.id == root_id)
+        .find(|s| s.id != root_id)
+        .or_else(|| project.symbols.iter().find(|s| s.id == root_id))
         .cloned()
-        .ok_or_else(|| "Image sequence import produced no root symbol".to_owned())?;
+        .ok_or_else(|| "Image sequence import produced no sequence symbol".to_owned())?;
+    let (symbol_kind, playback) = match placement {
+        neoflash_import::ImageSequencePlacement::ConvertToMovieClip => {
+            (SymbolKind::MovieClip, InstancePlayback::Independent)
+        }
+        neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol
+        | neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer
+        | neoflash_import::ImageSequencePlacement::SeparateLayers => {
+            (SymbolKind::Graphic, InstancePlayback::Loop)
+        }
+    };
 
     Ok(PreparedImportGraphic {
         graphic: PreparedGraphic {
@@ -1183,9 +1350,9 @@ fn prepare_sequence_graphic(
             resources: std::mem::take(&mut project.resources),
             notice: format_import_diagnostics(&report),
         },
-        timeline_override: Some(root_symbol.timeline),
-        symbol_kind: SymbolKind::Graphic,
-        playback: InstancePlayback::Loop,
+        timeline_override: Some(source_symbol.timeline),
+        symbol_kind,
+        playback,
         helper_symbols: Vec::new(),
     })
 }

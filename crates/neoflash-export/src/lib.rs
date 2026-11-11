@@ -2,6 +2,7 @@
 
 pub mod atlas;
 pub mod audio;
+pub mod banner;
 pub mod fla_preflight;
 pub mod fonts;
 pub mod image_export;
@@ -14,6 +15,7 @@ pub mod swf;
 pub mod video;
 pub use atlas::*;
 pub use audio::*;
+pub use banner::*;
 pub use fla_preflight::*;
 pub use fonts::*;
 pub use image_export::*;
@@ -22,8 +24,8 @@ pub use lottie::*;
 pub use profiles::*;
 pub use publish::{
     HtmlAcceleration, HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, HtmlTemplate,
-    PlayerChromeConfig, PublishOptions, SizeEstimate, SizeLevel, SizePart, gzip_len,
-    validate_runtime_url,
+    PlayerChromeConfig, PublishOptions, SequencePublishPolicy, SizeEstimate, SizeLevel, SizePart,
+    gzip_len, validate_runtime_url,
 };
 pub use svg::*;
 pub use swf::*;
@@ -327,6 +329,12 @@ pub(crate) fn static_runtime_js_bytes() -> usize {
             .sum::<usize>()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct SpriteSheetBundle {
+    pub image_url: String,
+    pub manifest_url: String,
+}
+
 #[derive(Serialize)]
 struct Bundle<'a> {
     /// Single main timeline: authored scenes are concatenated before publishing.
@@ -350,6 +358,10 @@ struct Bundle<'a> {
     player_config: Option<&'a HtmlPublishConfig>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     video_manifest: &'a Vec<neoflash_core::VideoManifestEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sprite_sheet: Option<SpriteSheetBundle>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    asset_urls: std::collections::BTreeMap<String, String>,
     publish: PublishInfo,
     warnings: Vec<String>,
     load_summary: LoadSummary,
@@ -1129,6 +1141,8 @@ pub fn export_desktop_app(
 ) -> Result<PathBuf, ExportError> {
     let mut app_config = config.clone();
     app_config.include_html = true;
+    app_config.sprite_sheets = false;
+    app_config.assets_folder = false;
     app_config.chrome = PlayerChromeConfig::clean_publish();
     let safe_name: String = project
         .name
@@ -1403,6 +1417,7 @@ pub(crate) struct Prepared {
     pub(crate) fonts: FontBundle,
     pub(crate) external_videos: Vec<neoflash_core::ExternalVideoAsset>,
     pub(crate) video_manifest: Vec<neoflash_core::VideoManifestEntry>,
+    pub(crate) sequence_pack_atlas: bool,
     pub(crate) warnings: Vec<String>,
     pub(crate) bindings: String,
     pub(crate) wasm: Vec<u8>,
@@ -1433,6 +1448,8 @@ fn reserved_publish_path(path: &str) -> bool {
         "bundle.js.map",
         "sprite_sheet.png",
         "sprite_sheet.json",
+        "assets/sprite_sheet.png",
+        "assets/sprite_sheet.json",
         "README.txt",
         "index.html",
     ];
@@ -1539,16 +1556,25 @@ pub(crate) fn prepare_with_config(
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
     let avi_warnings = transcode_avi_resources_for_html5(&mut published);
+    let mut seq_warnings = Vec::new();
+    let mut sequence_pack_atlas = false;
+    if let Some(cfg) = config {
+        let (pack_atlas, warnings) =
+            apply_sequence_publish_policy(&mut published, cfg.sequence_policy);
+        sequence_pack_atlas = pack_atlas;
+        seq_warnings = warnings;
+    }
     let video_manifest = neoflash_core::video_manifest_entries(&published);
     let external_videos = neoflash_core::strip_non_embedded_video_bytes(&mut published);
     let fonts = apply_font_policy(&mut published, font_policy);
     apply_audio_policy(&mut published, audio_policy)?;
-    if let Some(cfg) = config {
-        apply_bitmap_jpeg_quality(&mut published, cfg.jpeg_quality);
-    }
+    let default_jpeg_q = config.map(|c| c.jpeg_quality).unwrap_or(80);
+    let (_, bitmap_warnings) = apply_bitmap_export_settings(&mut published, default_jpeg_q);
     let runtime_id = shared_runtime_id(&bindings, &wasm);
     let mut warnings = export_warnings(project);
     warnings.extend(avi_warnings);
+    warnings.extend(seq_warnings);
+    warnings.extend(bitmap_warnings);
     if font_policy == FontExportPolicy::Subset
         && fonts.subset_stats.iter().any(|stats| !stats.subset_applied)
     {
@@ -1565,6 +1591,7 @@ pub(crate) fn prepare_with_config(
         fonts,
         external_videos,
         video_manifest,
+        sequence_pack_atlas,
         warnings,
         bindings,
         wasm,
@@ -1681,50 +1708,505 @@ fn transcode_avi_resources_for_html5(project: &mut Project) -> Vec<String> {
     warnings
 }
 
-fn apply_bitmap_jpeg_quality(project: &mut Project, default_quality: u8) {
+/// Pure-Rust FIPS 180-4 SHA-256 digest for content-addressed asset caching and deduplication.
+#[must_use]
+pub fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut padded = Vec::with_capacity(data.len() + 72);
+    padded.extend_from_slice(data);
+    padded.push(0x80);
+    while (padded.len() % 64) != 56 {
+        padded.push(0);
+    }
+    padded.extend_from_slice(&bit_len.to_be_bytes());
+    for chunk in padded.as_chunks::<64>().0 {
+        let mut w = [0u32; 64];
+        for (i, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(*word);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+    let mut out = [0u8; 32];
+    for (i, word) in h.iter().enumerate() {
+        out[i * 4..(i + 1) * 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+/// Lowercase 64-character hex string for [`sha256_bytes`].
+#[must_use]
+pub fn sha256_hex(data: &[u8]) -> String {
+    let digest = sha256_bytes(data);
+    let mut s = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{byte:02x}");
+    }
+    s
+}
+
+/// Summary of bitmap re-encoding, content-hash cache reuse, and deduplication during publish.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BitmapPublishStats {
+    pub inspected: usize,
+    pub reencoded: usize,
+    pub cache_hits: usize,
+    pub deduplicated: usize,
+    pub saved_bytes: isize,
+}
+
+type BitmapCacheKey = ([u8; 32], u8, u8);
+type BitmapCacheVal = (String, std::sync::Arc<str>, usize);
+
+static BITMAP_ENCODE_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<BitmapCacheKey, BitmapCacheVal>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Applies personal Library [`neoflash_core::BitmapExportSettings`] (`Photo JPEG` custom or
+/// document-default quality, `Lossless PNG`, `WebP`, and `Allow smoothing`) and global publish
+/// JPEG quality on a derived publish copy, reusing cached re-encodes by SHA-256 content digest
+/// and sharing `Arc<str>` payloads across identical bitmaps (`T-251`).
+pub fn apply_bitmap_export_settings(
+    project: &mut Project,
+    default_quality: u8,
+) -> (BitmapPublishStats, Vec<String>) {
     let quality = default_quality.clamp(1, 100);
+    let mut stats = BitmapPublishStats::default();
+    let mut warnings = Vec::new();
+    let mut smoothing_overrides: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
+    let mut seen_outputs: std::collections::HashMap<[u8; 32], std::sync::Arc<str>> =
+        std::collections::HashMap::new();
+
     for resource in &mut project.resources {
         if !resource.media_type.starts_with("image/") {
             continue;
         }
-        let target_q = match resource.bitmap_export {
-            Some(settings) => {
-                if settings.compression != neoflash_core::BitmapCompression::PhotoJpeg {
-                    continue;
+        stats.inspected += 1;
+        if let Some(settings) = resource.bitmap_export {
+            smoothing_overrides.insert(resource.id.clone(), settings.allow_smoothing);
+        }
+        let target: Option<(u8, u8)> = match resource.bitmap_export {
+            Some(settings) => match settings.compression {
+                neoflash_core::BitmapCompression::PhotoJpeg => {
+                    if !settings.use_imported_jpeg_data {
+                        Some((1, settings.jpeg_quality.clamp(1, 100)))
+                    } else if quality != 80 || resource.media_type != "image/jpeg" {
+                        Some((1, quality))
+                    } else {
+                        None
+                    }
                 }
-                if !settings.use_imported_jpeg_data {
-                    Some(settings.jpeg_quality.clamp(1, 100))
-                } else if quality != 80 {
-                    Some(quality)
+                neoflash_core::BitmapCompression::LosslessPng => {
+                    (resource.media_type != "image/png").then_some((2, 100))
+                }
+                neoflash_core::BitmapCompression::Webp => {
+                    (resource.media_type != "image/webp").then_some((3, 100))
+                }
+            },
+            None => {
+                if quality != 80 && resource.media_type == "image/jpeg" {
+                    Some((1, quality))
+                } else if matches!(
+                    resource.media_type.as_str(),
+                    "image/bmp" | "image/x-bmp" | "image/tiff"
+                ) {
+                    Some((2, 100))
                 } else {
                     None
                 }
             }
-            None => (quality != 80 && resource.media_type == "image/jpeg").then_some(quality),
         };
-        let Some(target_q) = target_q else {
+
+        let Ok(raw) = STANDARD.decode(resource.data_base64.as_ref()) else {
             continue;
         };
-        if let Ok(raw) = STANDARD.decode(resource.data_base64.as_ref())
-            && let Ok(img) = image::load_from_memory(&raw)
-        {
-            let rgb = img.to_rgb8();
-            let mut out = Vec::new();
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, target_q);
-            if encoder
-                .encode(
-                    rgb.as_raw(),
-                    rgb.width(),
-                    rgb.height(),
-                    image::ExtendedColorType::Rgb8,
-                )
-                .is_ok()
-                && out.len() <= neoflash_core::MAX_RESOURCE_BYTES
-            {
-                resource.media_type = "image/jpeg".to_owned();
-                resource.data_base64 = STANDARD.encode(&out).into();
+        if raw.is_empty() {
+            continue;
+        }
+        let raw_len = raw.len();
+
+        let Some((mode_tag, target_q)) = target else {
+            let digest = sha256_bytes(&raw);
+            if let Some(shared_arc) = seen_outputs.get(&digest) {
+                resource.data_base64 = shared_arc.clone();
+                stats.deduplicated += 1;
+            } else {
+                seen_outputs.insert(digest, resource.data_base64.clone());
             }
+            continue;
+        };
+
+        let src_digest = sha256_bytes(&raw);
+        let cache_key: BitmapCacheKey = (src_digest, mode_tag, target_q);
+        if mode_tag == 1
+            && let Ok(img) = image::load_from_memory(&raw)
+            && img.to_rgba8().pixels().any(|px| px[3] < 255)
+        {
+            warnings.push(format!(
+                "Bitmap '{}' has translucent alpha pixels; Photo JPEG flattens alpha onto opaque RGB (switch its Library Bitmap Properties to Lossless PNG or WebP to preserve transparency).",
+                resource.path
+            ));
+        }
+
+        if let Some((cached_mime, cached_b64, out_len)) = BITMAP_ENCODE_CACHE
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(&cache_key).cloned())
+        {
+            stats.cache_hits += 1;
+            stats.saved_bytes += raw_len as isize - out_len as isize;
+            let out_digest = sha256_bytes(cached_b64.as_bytes());
+            if let Some(shared) = seen_outputs.get(&out_digest) {
+                resource.data_base64 = shared.clone();
+                stats.deduplicated += 1;
+            } else {
+                seen_outputs.insert(out_digest, cached_b64.clone());
+                resource.data_base64 = cached_b64;
+            }
+            resource.media_type = cached_mime;
+            continue;
+        }
+
+        let Ok(img) = image::load_from_memory(&raw) else {
+            continue;
+        };
+        let mut out = Vec::new();
+        let out_mime = match mode_tag {
+            1 => {
+                let rgb = img.to_rgb8();
+                let mut encoder =
+                    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, target_q);
+                if encoder
+                    .encode(
+                        rgb.as_raw(),
+                        rgb.width(),
+                        rgb.height(),
+                        image::ExtendedColorType::Rgb8,
+                    )
+                    .is_err()
+                {
+                    continue;
+                }
+                "image/jpeg"
+            }
+            2 => {
+                let rgba = img.to_rgba8();
+                let encoder = image::codecs::png::PngEncoder::new(&mut out);
+                if image::ImageEncoder::write_image(
+                    encoder,
+                    rgba.as_raw(),
+                    rgba.width(),
+                    rgba.height(),
+                    image::ExtendedColorType::Rgba8,
+                )
+                .is_err()
+                {
+                    continue;
+                }
+                "image/png"
+            }
+            3 => {
+                let rgba = img.to_rgba8();
+                let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+                if encoder
+                    .encode(
+                        rgba.as_raw(),
+                        rgba.width(),
+                        rgba.height(),
+                        image::ExtendedColorType::Rgba8,
+                    )
+                    .is_err()
+                {
+                    continue;
+                }
+                "image/webp"
+            }
+            _ => continue,
+        };
+        if out.len() <= neoflash_core::MAX_RESOURCE_BYTES {
+            let b64_arc: std::sync::Arc<str> = STANDARD.encode(&out).into();
+            let out_len = out.len();
+            stats.reencoded += 1;
+            stats.saved_bytes += raw_len as isize - out_len as isize;
+            if let Ok(mut guard) = BITMAP_ENCODE_CACHE.lock() {
+                if guard.len() >= 512 {
+                    guard.clear();
+                }
+                guard.insert(cache_key, (out_mime.to_owned(), b64_arc.clone(), out_len));
+            }
+            let out_digest = sha256_bytes(b64_arc.as_bytes());
+            if let Some(shared) = seen_outputs.get(&out_digest) {
+                resource.data_base64 = shared.clone();
+                stats.deduplicated += 1;
+            } else {
+                seen_outputs.insert(out_digest, b64_arc.clone());
+                resource.data_base64 = b64_arc;
+            }
+            resource.media_type = out_mime.to_owned();
+        }
+    }
+
+    if !smoothing_overrides.is_empty() {
+        for symbol in &mut project.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    for el in &mut key.elements {
+                        if let ElementKind::Bitmap {
+                            resource_id,
+                            smoothing,
+                            ..
+                        } = &mut el.kind
+                            && let Some(&allow) = smoothing_overrides.get(resource_id)
+                        {
+                            *smoothing |= allow;
+                        }
+                    }
+                    for bf in &mut key.bitmap_fills {
+                        if let Some(&allow) = smoothing_overrides.get(&bf.resource_id) {
+                            bf.smoothing |= allow;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (stats, warnings)
+}
+
+fn apply_sequence_publish_policy(
+    project: &mut Project,
+    policy: SequencePublishPolicy,
+) -> (bool, Vec<String>) {
+    match policy {
+        SequencePublishPolicy::KeepFrames => (false, Vec::new()),
+        SequencePublishPolicy::PackAtlas => (true, Vec::new()),
+        SequencePublishPolicy::TranscodeVideo => {
+            let mut warnings = Vec::new();
+            let Some(ffmpeg_bin) = video::detect_ffmpeg() else {
+                warnings.push(
+                    "Image sequence policy 'Transcode video' requested, but ffmpeg was not found; falling back to 'Pack atlas'."
+                        .to_owned(),
+                );
+                return (true, warnings);
+            };
+            let fps = project.fps.max(1);
+            let mut transcoded_any = false;
+            let mut next_seq_idx = 0usize;
+            for sym_idx in 0..project.symbols.len() {
+                for layer_idx in 0..project.symbols[sym_idx].timeline.layers.len() {
+                    let is_seq_layer = {
+                        let layer = &project.symbols[sym_idx].timeline.layers[layer_idx];
+                        layer.keyframes.len() >= 3
+                            && layer.keyframes.iter().enumerate().all(|(idx, kf)| {
+                                kf.frame == idx as u32
+                                    && kf.video.is_none()
+                                    && kf.sound.is_none()
+                                    && kf.tween.is_none()
+                                    && kf.elements.len() == 1
+                                    && matches!(kf.elements[0].kind, ElementKind::Bitmap { .. })
+                            })
+                    };
+                    if !is_seq_layer {
+                        continue;
+                    }
+                    let frame_ids: Vec<(String, u32, u32, [f64; 2])> =
+                        project.symbols[sym_idx].timeline.layers[layer_idx]
+                            .keyframes
+                            .iter()
+                            .filter_map(|kf| {
+                                let el = kf.elements.first()?;
+                                if let ElementKind::Bitmap {
+                                    resource_id,
+                                    width,
+                                    height,
+                                    ..
+                                } = &el.kind
+                                {
+                                    Some((
+                                        resource_id.clone(),
+                                        *width,
+                                        *height,
+                                        [el.transform.x, el.transform.y],
+                                    ))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                    if frame_ids.len() < 3 {
+                        continue;
+                    }
+                    let (_, first_w, first_h, first_pos) = frame_ids[0];
+                    if frame_ids
+                        .iter()
+                        .any(|(_, w, h, _)| *w != first_w || *h != first_h)
+                    {
+                        continue;
+                    }
+                    let nonce = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
+                    let temp_dir = std::env::temp_dir().join(format!(
+                        "neoflash-seq-video-{}-{nonce}-{next_seq_idx}",
+                        std::process::id()
+                    ));
+                    next_seq_idx += 1;
+                    if fs::create_dir_all(&temp_dir).is_err() {
+                        continue;
+                    }
+                    let mut wrote_all = true;
+                    for (idx, (res_id, _, _, _)) in frame_ids.iter().enumerate() {
+                        let Some(res) = project.resources.iter().find(|r| r.id == *res_id) else {
+                            wrote_all = false;
+                            break;
+                        };
+                        let Ok(img) = res.decode_image() else {
+                            wrote_all = false;
+                            break;
+                        };
+                        let Some(rgba) =
+                            image::RgbaImage::from_raw(img.width, img.height, img.rgba.to_vec())
+                        else {
+                            wrote_all = false;
+                            break;
+                        };
+                        if rgba
+                            .save(temp_dir.join(format!("frame_{idx:05}.png")))
+                            .is_err()
+                        {
+                            wrote_all = false;
+                            break;
+                        }
+                    }
+                    let out_mp4 = temp_dir.join("seq.mp4");
+                    let mp4_bytes = if wrote_all {
+                        std::process::Command::new(&ffmpeg_bin)
+                            .args([
+                                "-y",
+                                "-hide_banner",
+                                "-loglevel",
+                                "error",
+                                "-framerate",
+                                &fps.to_string(),
+                                "-i",
+                            ])
+                            .arg(temp_dir.join("frame_%05d.png"))
+                            .args([
+                                "-vf",
+                                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                                "-c:v",
+                                "libx264",
+                                "-pix_fmt",
+                                "yuv420p",
+                                "-movflags",
+                                "+faststart",
+                            ])
+                            .arg(&out_mp4)
+                            .status()
+                            .ok()
+                            .filter(|s| s.success())
+                            .and_then(|_| fs::read(&out_mp4).ok())
+                    } else {
+                        None
+                    };
+                    let _ = fs::remove_dir_all(&temp_dir);
+                    let Some(mp4_bytes) = mp4_bytes else {
+                        warnings.push(format!(
+                            "Sequence layer '{}' could not be transcoded to MP4; falling back to 'Pack atlas'.",
+                            project.symbols[sym_idx].timeline.layers[layer_idx].name
+                        ));
+                        return (true, warnings);
+                    };
+                    if mp4_bytes.is_empty() || mp4_bytes.len() > neoflash_core::MAX_RESOURCE_BYTES {
+                        continue;
+                    }
+                    let vid_res_id = format!("__seq_video_{next_seq_idx}");
+                    let vid_res_path = format!("video/seq_{next_seq_idx}.mp4");
+                    let Ok(vid_unit) = neoflash_core::ResourceUnit::from_bytes(
+                        &vid_res_id,
+                        &vid_res_path,
+                        "video/mp4",
+                        &mp4_bytes,
+                    ) else {
+                        continue;
+                    };
+                    project.resources.push(vid_unit);
+                    project.format_version = project.format_version.max(10);
+                    let layer = &mut project.symbols[sym_idx].timeline.layers[layer_idx];
+                    let mut kf0 = layer.keyframes[0].clone();
+                    kf0.frame = 0;
+                    let mut vid_el = kf0.elements[0].clone();
+                    vid_el.transform.x = first_pos[0];
+                    vid_el.transform.y = first_pos[1];
+                    vid_el.kind = ElementKind::Video {
+                        width: f64::from(first_w),
+                        height: f64::from(first_h),
+                    };
+                    kf0.elements = vec![vid_el];
+                    kf0.video = Some(neoflash_core::TimelineVideoSpan::embedded(&vid_res_id));
+                    layer.keyframes = vec![kf0];
+                    transcoded_any = true;
+                }
+            }
+            if !transcoded_any {
+                return (true, warnings);
+            }
+            (false, warnings)
         }
     }
 }
@@ -1857,9 +2339,216 @@ pub(crate) fn assemble_with_config(
             .map(|map| map.runtime_locations())
             .unwrap_or_default(),
     });
+    let assets_folder = config.is_some_and(|c| c.assets_folder);
+    let effective_sprite_sheets =
+        config.is_some_and(|c| c.sprite_sheets) || prepared.sequence_pack_atlas;
+    let packed_sprite_sheet = if effective_sprite_sheets {
+        atlas::pack_project_bitmap_resources_sprite_sheet(
+            &prepared.published,
+            config.is_some_and(|c| !c.minify),
+        )?
+    } else {
+        None
+    };
+
+    let mut effective_published = prepared.published.clone();
+    let mut effective_video_manifest = prepared.video_manifest.clone();
+    let mut asset_urls: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    let mut extra_asset_files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut sprite_sheet_bundle: Option<SpriteSheetBundle> = None;
+
+    if let Some((png_bytes, sheet_manifest)) = packed_sprite_sheet {
+        let (img_rel, json_rel) = if assets_folder {
+            (
+                "assets/sprite_sheet.png".to_owned(),
+                "assets/sprite_sheet.json".to_owned(),
+            )
+        } else {
+            (
+                "sprite_sheet.png".to_owned(),
+                "sprite_sheet.json".to_owned(),
+            )
+        };
+        extra_asset_files.push((img_rel.clone(), png_bytes));
+        extra_asset_files.push((json_rel.clone(), sheet_manifest.into_bytes()));
+        sprite_sheet_bundle = Some(SpriteSheetBundle {
+            image_url: img_rel,
+            manifest_url: json_rel,
+        });
+
+        let mut placed_bitmap_ids = BTreeSet::<String>::new();
+        for symbol in &effective_published.symbols {
+            for layer in &symbol.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        if let ElementKind::Bitmap { resource_id, .. } = &el.kind {
+                            placed_bitmap_ids.insert(resource_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for res in &mut effective_published.resources {
+            if res.is_image() && placed_bitmap_ids.contains(&res.id) {
+                res.data_base64 = std::sync::Arc::from("");
+            }
+        }
+    }
+
+    let mut effective_external_videos = prepared.external_videos.clone();
+    if assets_folder {
+        let mut ext_relocations: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for ext_vid in &mut effective_external_videos {
+            neoflash_core::validate_external_video_path(&ext_vid.relative_path)
+                .map_err(ExportError::Options)?;
+            if reserved_publish_path(&ext_vid.relative_path) {
+                return Err(ExportError::Options(format!(
+                    "external video path '{}' collides with a generated package file",
+                    ext_vid.relative_path
+                )));
+            }
+            if !ext_vid
+                .relative_path
+                .to_ascii_lowercase()
+                .starts_with("assets/")
+            {
+                let next = format!("assets/{}", ext_vid.relative_path);
+                ext_relocations.insert(ext_vid.relative_path.clone(), next.clone());
+                ext_vid.relative_path = next;
+            }
+        }
+        if !ext_relocations.is_empty() {
+            for entry in &mut effective_video_manifest {
+                if let Some(next) = ext_relocations.get(&entry.source.url_or_path) {
+                    entry.source.url_or_path = next.clone();
+                }
+            }
+            for symbol in &mut effective_published.symbols {
+                for layer in &mut symbol.timeline.layers {
+                    for key in &mut layer.keyframes {
+                        if let Some(video) = &mut key.video
+                            && let Some(ext) = &mut video.external_path
+                            && let Some(next) = ext_relocations.get(ext)
+                        {
+                            *ext = next.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut written_digests: std::collections::HashMap<[u8; 32], String> =
+            std::collections::HashMap::new();
+        let mut used_asset_names: BTreeSet<String> = extra_asset_files
+            .iter()
+            .map(|(n, _)| n.to_ascii_lowercase())
+            .chain(
+                effective_external_videos
+                    .iter()
+                    .map(|v| v.relative_path.to_ascii_lowercase()),
+            )
+            .collect();
+        let mut extracted_video_paths: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        for res in &mut effective_published.resources {
+            let is_audio = res.media_type.starts_with("audio/");
+            let is_video = res.is_video();
+            if (!is_audio && !is_video) || res.data_base64.is_empty() {
+                continue;
+            }
+            let Ok(raw) = res.decoded_bytes() else {
+                continue;
+            };
+            if raw.is_empty() {
+                continue;
+            }
+            let digest = sha256_bytes(&raw);
+            let rel_path = if let Some(existing) = written_digests.get(&digest) {
+                existing.clone()
+            } else {
+                let hash8 = &sha256_hex(&raw)[..8];
+                let file_part = res.path.rsplit('/').next().unwrap_or(res.id.as_str());
+                let (raw_stem, raw_ext) = file_part.rsplit_once('.').unwrap_or((file_part, ""));
+                let safe_stem: String = raw_stem
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                let stem = if safe_stem.is_empty() {
+                    "media"
+                } else {
+                    safe_stem.as_str()
+                };
+                let ext =
+                    if !raw_ext.is_empty() && raw_ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+                        raw_ext.to_ascii_lowercase()
+                    } else if res.media_type.contains("mpeg") || res.media_type.contains("mp3") {
+                        "mp3".to_owned()
+                    } else if res.media_type.contains("wav") {
+                        "wav".to_owned()
+                    } else if res.media_type.contains("ogg") {
+                        "ogg".to_owned()
+                    } else if res.media_type.contains("webm") {
+                        "webm".to_owned()
+                    } else {
+                        "mp4".to_owned()
+                    };
+                let mut candidate = format!("assets/{stem}-{hash8}.{ext}");
+                let mut seq = 2usize;
+                while used_asset_names.contains(&candidate.to_ascii_lowercase()) {
+                    candidate = format!("assets/{stem}-{hash8}-{seq}.{ext}");
+                    seq += 1;
+                }
+                used_asset_names.insert(candidate.to_ascii_lowercase());
+                extra_asset_files.push((candidate.clone(), raw));
+                written_digests.insert(digest, candidate.clone());
+                candidate
+            };
+            asset_urls.insert(res.path.clone(), rel_path.clone());
+            if is_video {
+                extracted_video_paths.insert(res.id.clone(), rel_path);
+            }
+            res.data_base64 = std::sync::Arc::from("");
+        }
+
+        if !extracted_video_paths.is_empty() {
+            effective_published.format_version = effective_published.format_version.max(10);
+            for symbol in &mut effective_published.symbols {
+                for layer in &mut symbol.timeline.layers {
+                    for key in &mut layer.keyframes {
+                        if let Some(video) = &mut key.video
+                            && video.deployment == neoflash_core::VideoDeploymentMode::Embedded
+                            && let Some(rel) = extracted_video_paths.get(&video.resource)
+                        {
+                            video.deployment = neoflash_core::VideoDeploymentMode::External;
+                            video.external_path = Some(rel.clone());
+                        }
+                    }
+                }
+            }
+            for entry in &mut effective_video_manifest {
+                if let Some(rel) = extracted_video_paths.get(&entry.resource_id) {
+                    entry.embedded_in_bundle = false;
+                    entry.requires_external_file = true;
+                    entry.bundled_byte_len = 0;
+                    entry.source.mode = neoflash_core::VideoDeploymentMode::External;
+                    entry.source.url_or_path = rel.clone();
+                }
+            }
+        }
+    }
+
     let non_default_config = config.filter(|c| **c != HtmlPublishConfig::default());
     let bundle = Bundle {
-        project: &prepared.published,
+        project: &effective_published,
         scenes: prepared.scenes.clone(),
         scripts: effective_scripts.iter().collect(),
         program,
@@ -1871,7 +2560,9 @@ pub(crate) fn assemble_with_config(
         },
         runtime_id: shared_url.as_ref().map(|_| prepared.runtime_id.clone()),
         player_config: non_default_config,
-        video_manifest: &prepared.video_manifest,
+        video_manifest: &effective_video_manifest,
+        sprite_sheet: sprite_sheet_bundle,
+        asset_urls,
         publish: PublishInfo {
             level: level.name(),
             omitted_modules: omitted_titles.clone(),
@@ -1961,18 +2652,9 @@ pub(crate) fn assemble_with_config(
         };
         files.push(("bundle.js.map".into(), map_json.into_bytes()));
     }
-    if config.is_some_and(|c| c.sprite_sheets)
-        && let Some((png_bytes, sheet_manifest)) =
-            atlas::pack_project_bitmap_resources_sprite_sheet(
-                &prepared.published,
-                config.is_some_and(|c| !c.minify),
-            )?
-    {
-        files.push(("sprite_sheet.png".into(), png_bytes));
-        files.push(("sprite_sheet.json".into(), sheet_manifest.into_bytes()));
-    }
+    files.extend(extra_asset_files);
     let mut external_paths = Vec::<String>::new();
-    for ext_vid in &prepared.external_videos {
+    for ext_vid in &effective_external_videos {
         neoflash_core::validate_external_video_path(&ext_vid.relative_path)
             .map_err(ExportError::Options)?;
         if reserved_publish_path(&ext_vid.relative_path) {
@@ -2006,13 +2688,12 @@ pub(crate) fn assemble_with_config(
     }
     validate_package_file_names(&files)?;
 
-    let resources: String = prepared
-        .published
+    let resources: String = effective_published
         .resources
         .iter()
         .map(|resource| resource.data_base64.as_ref())
         .collect();
-    let project_json = serde_json::to_string(&prepared.published)?;
+    let project_json = serde_json::to_string(&effective_published)?;
     let content_bytes = project_json.len().saturating_sub(resources.len());
     let script_text: String = ships_program
         .then_some(effective_program_code.as_str())
@@ -2336,6 +3017,22 @@ fn measure(
         },
     ];
     parts.extend(package.embedded.iter().cloned());
+    let is_external_resource =
+        |n: &str| n.starts_with("assets/") || n == "sprite_sheet.png" || n == "sprite_sheet.json";
+    let ext_res_bytes: usize = package
+        .files
+        .iter()
+        .filter(|(n, _)| is_external_resource(n))
+        .map(|(_, b)| b.len())
+        .sum();
+    if ext_res_bytes > 0 {
+        let ext_res_gzip = file_gzip(&is_external_resource);
+        parts.push(SizePart {
+            kind: "resources",
+            bytes: ext_res_bytes,
+            gzip_bytes: ext_res_gzip,
+        });
+    }
     let counted: usize = parts.iter().map(|part| part.bytes).sum();
     let counted_gzip: usize = parts.iter().map(|part| part.gzip_bytes).sum();
     parts.push(SizePart {
@@ -2430,6 +3127,7 @@ pub(crate) fn write_package(
             let _ = fs::remove_file(output_dir.join(stale));
         }
     }
+    let _ = fs::remove_dir(output_dir.join("assets"));
     Ok(output_dir.join(&last.0))
 }
 
@@ -2533,6 +3231,12 @@ fn html_document_with_config(
     } else {
         ""
     };
+    let canvas_accel_attr = match config.map(|c| c.acceleration) {
+        Some(HtmlAcceleration::GpuWebGl) => " data-acceleration=\"gpu_web_gl\"",
+        Some(HtmlAcceleration::Canvas2d) => " data-acceleration=\"canvas2d\"",
+        Some(HtmlAcceleration::Software) => " data-acceleration=\"software\"",
+        None => "",
+    };
     let display_name = if let Some(cfg) = config {
         if cfg.chrome.show_dimensions && !clean {
             format!("{title} · {width}×{height}")
@@ -2600,7 +3304,7 @@ fn html_document_with_config(
   </style>
 {script_tags}</head>
 <body{body_attr}>
-  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage" aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
+  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage"{canvas_accel_attr} aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
   <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="fullscreen-toggle" type="button" aria-pressed="false" title="Toggle fullscreen stage"{fullscreen_attr}>Fullscreen</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
   <div id="loading" role="status"{loading_attr}>Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>
@@ -3750,6 +4454,7 @@ mod tests {
             strict_mode: true,
             assets_folder: false,
             include_html: true,
+            sequence_policy: SequencePublishPolicy::KeepFrames,
         };
         export_project_with_config(&project, &out_hud, &rt, &options, &hud_cfg).unwrap();
         let html_hud = fs::read_to_string(out_hud.join("index.html")).unwrap();

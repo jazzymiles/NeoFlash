@@ -280,6 +280,7 @@ pub(crate) struct RuntimeGraph {
     next_id: u64,
     pixels: crate::pixels::PixelArena,
     resource_pixels: HashMap<Id, PixelRef>,
+    hydrated_bitmaps: HashMap<Id, crate::resource_image::DecodedImage>,
     bitmap_states: HashMap<ObjectRef, bitmap::BitmapState>,
     bitmap_error: Option<BitmapError>,
     text_states: HashMap<ObjectRef, TextFieldState>,

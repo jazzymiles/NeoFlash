@@ -350,10 +350,41 @@
       }
     }
     const project = bundle.project;
+    const bundleAssetUrls = bundle.asset_urls || null;
+    const needsPublishedValidator = Boolean(bundle.sprite_sheet || (bundleAssetUrls && Object.keys(bundleAssetUrls).length > 0));
     // Published bundles carry a flattened main timeline plus its scene ranges.
-    const player = new NeoFlashWasm.WebPlayer(JSON.stringify(project), bundle.scenes ? JSON.stringify(bundle.scenes) : undefined);
+    const scenesJson = bundle.scenes ? JSON.stringify(bundle.scenes) : undefined;
+    const player = (needsPublishedValidator && typeof NeoFlashWasm.WebPlayer.new_published === 'function')
+      ? NeoFlashWasm.WebPlayer.new_published(JSON.stringify(project), scenesJson)
+      : new NeoFlashWasm.WebPlayer(JSON.stringify(project), scenesJson);
+    if (bundle.sprite_sheet && typeof player.hydrate_sprite_sheet === 'function') {
+      if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.sprite_sheet.image_url || '')) {
+        throw new Error('This export packs bitmaps into external sprite sheets, which browsers block over file://. Serve the folder over HTTP(S), or disable Sprite sheets in Publish settings for direct file opening.');
+      }
+      const [sheetImgResp, sheetMetaResp] = await Promise.all([
+        global.fetch(bundle.sprite_sheet.image_url),
+        global.fetch(bundle.sprite_sheet.manifest_url),
+      ]);
+      if (!sheetImgResp.ok || !sheetMetaResp.ok) {
+        throw new Error(`Failed to load published sprite sheet (${bundle.sprite_sheet.image_url}: ${sheetImgResp.status}, ${bundle.sprite_sheet.manifest_url}: ${sheetMetaResp.status}).`);
+      }
+      const [sheetPngBuf, sheetManifestText] = await Promise.all([
+        sheetImgResp.arrayBuffer(),
+        sheetMetaResp.text(),
+      ]);
+      player.hydrate_sprite_sheet(new Uint8Array(sheetPngBuf), sheetManifestText);
+    }
     const canvas = document.getElementById('stage');
-    const context = canvas.getContext('2d');
+    const accelMode = playerConfig.acceleration || canvas.getAttribute('data-acceleration') || '';
+    if (accelMode && canvas.dataset) canvas.dataset.acceleration = accelMode;
+    const contextAttrs = accelMode === 'gpu_web_gl'
+      ? { alpha: false, desynchronized: true }
+      : accelMode === 'software'
+        ? { alpha: false, willReadFrequently: true }
+        : accelMode === 'canvas2d'
+          ? { alpha: false }
+          : undefined;
+    const context = (contextAttrs ? canvas.getContext('2d', contextAttrs) : null) || canvas.getContext('2d');
     if (!context) throw new Error('This browser does not provide Canvas 2D.');
     if (!global.NeoFlashPaths) throw new Error('The vector path runtime is missing. Re-export this project.');
     const paths = new global.NeoFlashPaths.PathCache();
@@ -830,7 +861,7 @@
         legacyGlobals=Object.freeze({...legacyGlobals,ExternalInterface:externalHost.LegacyExternalInterface});
       }
       if(global.NeoFlashNet&&binaryHost&&global.NeoFlashEvents){
-        netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
+        netHost=global.NeoFlashNet.create({events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],assetUrls:typeof bundleAssetUrls==='undefined'?null:bundleAssetUrls,onError:netFailure,onAfterDispatch:afterTimerEvent,navigate:prepared=>{if(!externalHost)throw new Error('Browser navigation adapter is unavailable. Re-export this publication.');externalHost.navigate(prepared);},legacyVariables:legacyNavigationVariables});
         legacyGlobals=Object.freeze({...legacyGlobals,LoadVars:netHost.LoadVars,getURL:function(url,target,method){const ctx=legacyContext(this);if(typeof url==='string'&&/^asfunction:/i.test(url)){invokeAsfunction(ctx.base,url.slice(11));return;}const owner=ctx.raw!==null&&typeof ctx.raw==='object'?ctx.raw:proxyFor([]);return netHost.getURL(owner,url,target,method);}});
       }
       if(global.NeoFlashAS2Network&&netHost){

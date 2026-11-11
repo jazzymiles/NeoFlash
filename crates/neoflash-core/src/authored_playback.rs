@@ -128,13 +128,16 @@ impl AuthoredPlayback {
         // Button Up/Over/Down/Hit are selected authoring states, not a timeline
         // animation that should advance automatically through Hit.
         if !self.button_root {
-            if !self.looping {
+            if !self.looping && !self.script_halted_root {
                 let total_frames = project
                     .symbol(&self.symbol)
                     .map_or(1, |s| s.timeline.frame_count.max(1));
                 if self.frame() + 1 >= total_frames {
                     self.player.set_playing(false);
                     self.process_scripts(project);
+                    if self.live_scripts {
+                        self.run_registered_enter_frame(project);
+                    }
                     return;
                 }
             }

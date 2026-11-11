@@ -77,6 +77,7 @@ pub(crate) struct PreferencesDraft {
     pub(crate) text_prefs: TextPrefs,
     pub(crate) clipboard_prefs: ClipboardPrefs,
     pub(crate) publish: PublishPrefs,
+    pub(crate) sequence_import_options: neoflash_import::ImageSequenceImportOptions,
     pub(crate) shortcuts: ShortcutPrefs,
     /// Stage view settings edited by Drawing ▸ Snap to pixels (`StageView::prefs`, one state).
     pub(crate) pixels_snap: bool,
@@ -111,6 +112,7 @@ impl PreferencesDraft {
             text_prefs: prefs.text_prefs.clone(),
             clipboard_prefs: prefs.clipboard_prefs.clone(),
             publish: prefs.publish.clone(),
+            sequence_import_options: prefs.sequence_import_options.clone(),
             shortcuts: prefs.shortcuts.clone(),
             pixels_snap,
         }
@@ -139,7 +141,10 @@ impl PreferencesDraft {
                 self.pixels_snap = false;
             }
             PAGE_SHORTCUTS => self.shortcuts = defaults.shortcuts,
-            PAGE_PUBLISH => self.publish = defaults.publish,
+            PAGE_PUBLISH => {
+                self.publish = defaults.publish;
+                self.sequence_import_options = defaults.sequence_import_options;
+            }
             PAGE_TIMELINE => {
                 let t = TimelineView::default();
                 self.timeline.preview = t.preview;
@@ -252,6 +257,7 @@ impl Editor {
         w.text_prefs = draft.text_prefs.clone();
         w.clipboard_prefs = draft.clipboard_prefs.clone();
         w.publish = draft.publish.clone();
+        w.sequence_import_options = draft.sequence_import_options.clone();
         w.shortcuts = draft.shortcuts.clone();
         // Snap to pixels is the one stage view setting: change it now and in the saved view defaults.
         w.view_defaults
@@ -1846,6 +1852,85 @@ fn prefs_publish(ui: &mut Ui, draft: &mut PreferencesDraft) {
                 }
             }
         });
+    });
+    row(ui, "Sequences", |ui| {
+        c::Select::new(
+            ui.id().with("prefs-publish-seq-policy"),
+            draft.publish.sequence_policy.label(),
+        )
+        .width(180.0)
+        .show(ui, |ui| {
+            for policy in neoflash_export::SequencePublishPolicy::ALL {
+                if ui
+                    .add(
+                        c::MenuItem::new(policy.label())
+                            .checked(draft.publish.sequence_policy == policy),
+                    )
+                    .clicked()
+                {
+                    draft.publish.sequence_policy = policy;
+                    ui.close();
+                }
+            }
+        });
+        let placement_lbl = match draft.sequence_import_options.placement {
+            neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer => {
+                "Import: Keyframes on layer"
+            }
+            neoflash_import::ImageSequencePlacement::SeparateLayers => "Import: Separate layers",
+            neoflash_import::ImageSequencePlacement::ConvertToMovieClip => {
+                "Import: MovieClip symbol"
+            }
+            neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol => {
+                "Import: Graphic symbol"
+            }
+        };
+        c::Select::new(ui.id().with("prefs-seq-import-placement"), placement_lbl)
+            .width(190.0)
+            .show(ui, |ui| {
+                for (val, lbl) in [
+                    (
+                        neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol,
+                        "Import: Graphic symbol",
+                    ),
+                    (
+                        neoflash_import::ImageSequencePlacement::ConvertToMovieClip,
+                        "Import: MovieClip symbol",
+                    ),
+                    (
+                        neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer,
+                        "Import: Keyframes on layer",
+                    ),
+                    (
+                        neoflash_import::ImageSequencePlacement::SeparateLayers,
+                        "Import: Separate layers",
+                    ),
+                ] {
+                    if ui
+                        .add(
+                            c::MenuItem::new(lbl)
+                                .checked(draft.sequence_import_options.placement == val),
+                        )
+                        .clicked()
+                    {
+                        draft.sequence_import_options.placement = val;
+                        ui.close();
+                    }
+                }
+            });
+        let mut step = f64::from(draft.sequence_import_options.frame_step.clamp(1, 60));
+        if ui
+            .add(
+                c::Field::new(&mut step, "Step")
+                    .prefix("Step")
+                    .decimals(0)
+                    .range(1.0..=60.0)
+                    .width(84.0),
+            )
+            .changed()
+        {
+            draft.sequence_import_options.frame_step = step.round().clamp(1.0, 60.0) as u32;
+        }
     });
     section(ui, "Scripts");
     ui.horizontal(|ui| {

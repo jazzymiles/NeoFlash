@@ -2,8 +2,8 @@
 //! PNG, SVG, PSD (layered Photoshop v1), AI (Illustrator vector), and PDF 1.4.
 
 use crate::{
-    ExportError, SvgOptions, atomic_write, render_frame_svg, render_project_frame_rgba,
-    video_scene_ranges,
+    ExportError, SvgOptions, atomic_write, render_authored_scene_rgba, render_project_frame_rgba,
+    render_scene_svg, video_scene_ranges,
 };
 use image::{ImageFormat, RgbaImage};
 use neoflash_core::{
@@ -25,7 +25,7 @@ const MAX_AI_RANGE_STAGING_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_AI_RANGE_STAGING_FILES: usize = 10_000;
 static AI_RANGE_TRANSACTION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// Output format selected in `Dialog / Export image` (`DL-04`).
+/// Output format selected in `Dialog / Export image` (`DL-04`) or `Publish settings` sequence export (`T-255`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageExportFormat {
@@ -35,10 +35,39 @@ pub enum ImageExportFormat {
     Psd,
     Ai,
     Pdf,
+    Jpeg,
+    Webp,
+    Gif,
+    Bmp,
 }
 
 impl ImageExportFormat {
+    /// The five locked `DL-04` dialog tabs (`PNG`, `SVG`, `PSD`, `AI`, `PDF`).
     pub const ALL: [Self; 5] = [Self::Png, Self::Svg, Self::Psd, Self::Ai, Self::Pdf];
+
+    /// Multi-format sequence formats (`PNG`, `JPEG`, `WebP`, `GIF`, `BMP`, `SVG`, `AI`) (`T-255`).
+    pub const SEQUENCE_FORMATS: [Self; 7] = [
+        Self::Png,
+        Self::Jpeg,
+        Self::Webp,
+        Self::Gif,
+        Self::Bmp,
+        Self::Svg,
+        Self::Ai,
+    ];
+
+    /// Every supported still and sequence image format.
+    pub const ALL_FORMATS: [Self; 9] = [
+        Self::Png,
+        Self::Svg,
+        Self::Psd,
+        Self::Ai,
+        Self::Pdf,
+        Self::Jpeg,
+        Self::Webp,
+        Self::Gif,
+        Self::Bmp,
+    ];
 
     pub const fn index(self) -> usize {
         match self {
@@ -47,6 +76,7 @@ impl ImageExportFormat {
             Self::Psd => 2,
             Self::Ai => 3,
             Self::Pdf => 4,
+            Self::Jpeg | Self::Webp | Self::Gif | Self::Bmp => 0,
         }
     }
 
@@ -67,6 +97,10 @@ impl ImageExportFormat {
             Self::Psd => "PSD",
             Self::Ai => "AI",
             Self::Pdf => "PDF",
+            Self::Jpeg => "JPEG",
+            Self::Webp => "WebP",
+            Self::Gif => "GIF",
+            Self::Bmp => "BMP",
         }
     }
 
@@ -77,6 +111,10 @@ impl ImageExportFormat {
             Self::Psd => "psd",
             Self::Ai => "ai",
             Self::Pdf => "pdf",
+            Self::Jpeg => "jpg",
+            Self::Webp => "webp",
+            Self::Gif => "gif",
+            Self::Bmp => "bmp",
         }
     }
 
@@ -87,8 +125,26 @@ impl ImageExportFormat {
             Self::Psd => "Export PSD",
             Self::Ai => "Export AI",
             Self::Pdf => "Export PDF",
+            Self::Jpeg => "Export JPEG",
+            Self::Webp => "Export WebP",
+            Self::Gif => "Export GIF",
+            Self::Bmp => "Export BMP",
         }
     }
+}
+
+fn project_has_dynamic_motion(project: &Project) -> bool {
+    !project.sources.is_empty()
+        || project.symbols.iter().any(|s| {
+            !s.timeline.scripts.is_empty()
+                || (s.id != project.root && s.timeline.frame_count > 1)
+                || s.timeline
+                    .layers
+                    .iter()
+                    .flat_map(|l| &l.keyframes)
+                    .flat_map(|k| &k.elements)
+                    .any(|e| !e.scripts.is_empty())
+        })
 }
 
 /// Frame range for `Dialog / Export image`.
@@ -148,15 +204,28 @@ impl ImageExportRange {
                 (0, last)
             }
             Self::Frames { start, end } => {
-                let s = (*start).min(last);
-                let e = (*end).min(last).max(s);
+                let max_last = if last == 0 && project_has_dynamic_motion(project) {
+                    9_999
+                } else {
+                    last
+                };
+                let s = (*start).min(max_last);
+                let e = (*end).min(max_last).max(s);
                 (s, e)
             }
         }
     }
 }
 
-/// Full configuration for `Dialog / Export image` (`DL-04`).
+const fn default_image_jpeg_quality() -> u8 {
+    90
+}
+
+const fn default_image_runtime_capture() -> bool {
+    true
+}
+
+/// Full configuration for `Dialog / Export image` (`DL-04`) and sequence export (`T-255`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageExportOptions {
     pub format: ImageExportFormat,
@@ -167,6 +236,10 @@ pub struct ImageExportOptions {
     pub constrain_proportions: bool,
     pub scale: f32,
     pub transparent_background: bool,
+    #[serde(default = "default_image_jpeg_quality")]
+    pub jpeg_quality: u8,
+    #[serde(default = "default_image_runtime_capture")]
+    pub runtime_capture: bool,
     // SVG options
     pub svg_embed_images: bool,
     pub svg_text_as_outlines: bool,
@@ -200,6 +273,8 @@ impl Default for ImageExportOptions {
             constrain_proportions: true,
             scale: 1.0,
             transparent_background: false,
+            jpeg_quality: default_image_jpeg_quality(),
+            runtime_capture: true,
             svg_embed_images: true,
             svg_text_as_outlines: true,
             svg_minify: true,
@@ -296,7 +371,11 @@ pub fn estimate_image_export_summary(project: &Project, options: &ImageExportOpt
         .unwrap_or(1);
 
     let approx_bytes = match options.format {
-        ImageExportFormat::Png => (w as usize * h as usize / 3).max(1024) * frames,
+        ImageExportFormat::Png | ImageExportFormat::Webp | ImageExportFormat::Gif => {
+            (w as usize * h as usize / 3).max(1024) * frames
+        }
+        ImageExportFormat::Jpeg => (w as usize * h as usize / 5).max(1024) * frames,
+        ImageExportFormat::Bmp => (w as usize * h as usize * 4 + 54).max(1024) * frames,
         ImageExportFormat::Svg => (paths * 380 + 1024) * frames,
         ImageExportFormat::Psd => {
             let layer_mult = if options.psd_keep_layers {
@@ -323,7 +402,12 @@ pub fn estimate_image_export_summary(project: &Project, options: &ImageExportOpt
         ImageExportFormat::Psd | ImageExportFormat::Ai => {
             format!("{size_str} · {layers} layers")
         }
-        ImageExportFormat::Png | ImageExportFormat::Pdf => {
+        ImageExportFormat::Png
+        | ImageExportFormat::Pdf
+        | ImageExportFormat::Jpeg
+        | ImageExportFormat::Webp
+        | ImageExportFormat::Gif
+        | ImageExportFormat::Bmp => {
             if frames > 1 {
                 format!("{size_str} · {frames} frames")
             } else {
@@ -626,6 +710,59 @@ fn encode_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, Exp
     let mut cursor = Cursor::new(Vec::new());
     img.write_to(&mut cursor, ImageFormat::Png)
         .map_err(|e| ExportError::InvalidProject(format!("PNG encode failed: {e}")))?;
+    Ok(cursor.into_inner())
+}
+
+fn encode_jpeg_bytes(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    bg: Color,
+) -> Result<Vec<u8>, ExportError> {
+    let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
+    for px in rgba.as_chunks::<4>().0 {
+        let a = u16::from(px[3]);
+        let inv = 255 - a;
+        rgb.push(((u16::from(px[0]) * a + u16::from(bg[0]) * inv + 127) / 255) as u8);
+        rgb.push(((u16::from(px[1]) * a + u16::from(bg[1]) * inv + 127) / 255) as u8);
+        rgb.push(((u16::from(px[2]) * a + u16::from(bg[2]) * inv + 127) / 255) as u8);
+    }
+    let mut out = Vec::new();
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100));
+    encoder
+        .encode(&rgb, width, height, image::ExtendedColorType::Rgb8)
+        .map_err(|e| ExportError::InvalidProject(format!("JPEG encode failed: {e}")))?;
+    Ok(out)
+}
+
+fn encode_webp_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
+    let mut out = Vec::new();
+    let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+    encoder
+        .encode(rgba, width, height, image::ExtendedColorType::Rgba8)
+        .map_err(|e| ExportError::InvalidProject(format!("WebP encode failed: {e}")))?;
+    Ok(out)
+}
+
+fn encode_gif_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
+    let img = RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
+        ExportError::InvalidProject(format!("Invalid GIF RGBA buffer {width}x{height}"))
+    })?;
+    let mut cursor = Cursor::new(Vec::new());
+    img.write_to(&mut cursor, ImageFormat::Gif)
+        .map_err(|e| ExportError::InvalidProject(format!("GIF encode failed: {e}")))?;
+    Ok(cursor.into_inner())
+}
+
+fn encode_bmp_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
+    let img = RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
+        ExportError::InvalidProject(format!("Invalid BMP RGBA buffer {width}x{height}"))
+    })?;
+    let mut cursor = Cursor::new(Vec::new());
+    img.write_to(&mut cursor, ImageFormat::Bmp)
+        .map_err(|e| ExportError::InvalidProject(format!("BMP encode failed: {e}")))?;
     Ok(cursor.into_inner())
 }
 
@@ -1411,6 +1548,7 @@ fn ps_raster_fallback(
     Ok(out.into_bytes())
 }
 
+#[allow(dead_code)]
 fn build_ai_bytes(
     project: &Project,
     frame: u32,
@@ -1442,6 +1580,29 @@ fn build_ai_bytes(
         options.svg_include_hidden_guides,
         true,
     );
+    build_ai_bytes_with_scene(
+        &eval_project,
+        &project.name,
+        target,
+        frame,
+        &scene,
+        width,
+        height,
+        options,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_ai_bytes_with_scene(
+    eval_project: &Project,
+    project_name: &str,
+    target: &str,
+    frame: u32,
+    scene: &AuthoredScene,
+    width: u32,
+    height: u32,
+    options: &ImageExportOptions,
+) -> Result<(Vec<u8>, usize, usize), ExportError> {
     let layer_count = eval_project
         .symbol(target)
         .map(|symbol| symbol.timeline.layers.len().max(1))
@@ -1459,18 +1620,18 @@ fn build_ai_bytes(
          %%EndComments\n\
          %%Page: 1 1\n",
         ps_comment(&options.ai_version),
-        ps_comment(&project.name),
+        ps_comment(project_name),
         width,
         height,
         width,
         height,
     );
-    if !ps_scene_supported(&eval_project, &scene, options) {
+    if !ps_scene_supported(eval_project, scene, options) {
         let bytes = ps_raster_fallback(
-            &eval_project,
+            eval_project,
             target,
             frame,
-            &scene,
+            scene,
             width,
             height,
             options.transparent_background,
@@ -1533,23 +1694,7 @@ fn build_ai_bytes(
     Ok((content.into_bytes(), layer_count, path_count))
 }
 
-fn build_pdf_bytes(
-    project: &Project,
-    symbol_id: Option<&str>,
-    frame: u32,
-    width: u32,
-    height: u32,
-    transparent_bg: bool,
-) -> Result<Vec<u8>, ExportError> {
-    let rgba = render_project_frame_rgba(
-        project,
-        symbol_id,
-        frame,
-        width,
-        height,
-        transparent_bg,
-        false,
-    )?;
+fn build_pdf_bytes_from_rgba(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
     let mut rgb = Vec::with_capacity((width * height * 3) as usize);
     for px in rgba.as_chunks::<4>().0 {
         let a = u16::from(px[3]);
@@ -1652,33 +1797,114 @@ pub fn export_project_image(
         None
     };
 
+    let mut eval_proj = project.clone();
+    let include_guides = matches!(
+        options.format,
+        ImageExportFormat::Svg | ImageExportFormat::Ai
+    ) && options.svg_include_hidden_guides;
+    if include_guides {
+        for sym in &mut eval_proj.symbols {
+            for layer in &mut sym.timeline.layers {
+                if layer.properties.role == LayerRole::Guide {
+                    layer.visible = true;
+                }
+            }
+        }
+    }
+    if options.symbol_id.is_none() && !eval_proj.scenes.is_empty() {
+        eval_proj = flatten_scenes_with_ranges(&eval_proj).0;
+    }
+    let target_symbol = options
+        .symbol_id
+        .clone()
+        .unwrap_or_else(|| eval_proj.root.clone());
+    let has_timeline_video = eval_proj
+        .symbols
+        .iter()
+        .flat_map(|s| &s.timeline.layers)
+        .flat_map(|l| &l.keyframes)
+        .any(|k| {
+            k.video.is_some()
+                || k.elements
+                    .iter()
+                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+        });
+    let mut playback = options.runtime_capture.then(|| {
+        let mut p =
+            neoflash_core::AuthoredPlayback::with_live_scripts(&eval_proj, &target_symbol, 0, true);
+        for _ in 0..start_frame {
+            p.tick(&eval_proj);
+        }
+        p
+    });
+    let mut bitmap_cache = HashMap::new();
+
     for offset in 0..total_frames {
         let frame = start_frame + offset;
-        let out_path = numbered_output_path(path, offset, total_frames, ext);
-        let bytes = match options.format {
-            ImageExportFormat::Png => {
-                let rgba = render_project_frame_rgba(
+        if offset > 0
+            && let Some(p) = &mut playback
+        {
+            p.tick(&eval_proj);
+        }
+        let stepped_scene = if let Some(p) = &playback {
+            p.scene(&eval_proj, include_guides, true)
+        } else {
+            evaluate_scene(&eval_proj, &target_symbol, frame, include_guides, true)
+        };
+        let render_rgba = |bitmap_cache: &mut HashMap<String, _>| -> Result<Vec<u8>, ExportError> {
+            if has_timeline_video {
+                render_project_frame_rgba(
                     project,
                     options.symbol_id.as_deref(),
                     frame,
                     width,
                     height,
                     options.transparent_background,
-                    false,
-                )?;
+                    options.runtime_capture,
+                )
+            } else {
+                render_authored_scene_rgba(
+                    &eval_proj,
+                    &target_symbol,
+                    frame,
+                    &stepped_scene,
+                    width,
+                    height,
+                    options.transparent_background,
+                    bitmap_cache,
+                )
+            }
+        };
+
+        let out_path = numbered_output_path(path, offset, total_frames, ext);
+        let bytes = match options.format {
+            ImageExportFormat::Png => {
+                let rgba = render_rgba(&mut bitmap_cache)?;
                 encode_png_bytes(&rgba, width, height)?
             }
+            ImageExportFormat::Jpeg => {
+                let rgba = render_rgba(&mut bitmap_cache)?;
+                encode_jpeg_bytes(
+                    &rgba,
+                    width,
+                    height,
+                    options.jpeg_quality,
+                    eval_proj.background,
+                )?
+            }
+            ImageExportFormat::Webp => {
+                let rgba = render_rgba(&mut bitmap_cache)?;
+                encode_webp_bytes(&rgba, width, height)?
+            }
+            ImageExportFormat::Gif => {
+                let rgba = render_rgba(&mut bitmap_cache)?;
+                encode_gif_bytes(&rgba, width, height)?
+            }
+            ImageExportFormat::Bmp => {
+                let rgba = render_rgba(&mut bitmap_cache)?;
+                encode_bmp_bytes(&rgba, width, height)?
+            }
             ImageExportFormat::Svg => {
-                let mut eval_proj = project.clone();
-                if options.svg_include_hidden_guides {
-                    for sym in &mut eval_proj.symbols {
-                        for layer in &mut sym.timeline.layers {
-                            if layer.properties.role == LayerRole::Guide {
-                                layer.visible = true;
-                            }
-                        }
-                    }
-                }
                 let svg_opts = SvgOptions {
                     symbol_id: options.symbol_id.clone(),
                     frame,
@@ -1690,7 +1916,8 @@ pub fn export_project_image(
                     text_as_outlines: options.svg_text_as_outlines,
                     precision: options.svg_precision.clamp(1, 6),
                 };
-                let (mut markup, elems, _) = render_frame_svg(&eval_proj, &svg_opts)?;
+                let (mut markup, elems, _) =
+                    render_scene_svg(&eval_proj, &stepped_scene, &svg_opts)?;
                 path_count += elems;
                 let prefix = safe_svg_id_prefix(&options.svg_id_prefix);
                 if prefix != "nf-" {
@@ -1720,19 +1947,24 @@ pub fn export_project_image(
                 psd
             }
             ImageExportFormat::Ai => {
-                let (ai, layers, paths) = build_ai_bytes(project, frame, width, height, options)?;
+                let (ai, layers, paths) = build_ai_bytes_with_scene(
+                    &eval_proj,
+                    &project.name,
+                    &target_symbol,
+                    frame,
+                    &stepped_scene,
+                    width,
+                    height,
+                    options,
+                )?;
                 layer_count = layers;
                 path_count += paths;
                 ai
             }
-            ImageExportFormat::Pdf => build_pdf_bytes(
-                project,
-                options.symbol_id.as_deref(),
-                frame,
-                width,
-                height,
-                options.transparent_background,
-            )?,
+            ImageExportFormat::Pdf => {
+                let rgba = render_rgba(&mut bitmap_cache)?;
+                build_pdf_bytes_from_rgba(&rgba, width, height)?
+            }
         };
         total_bytes += bytes.len();
         if let Some(transaction) = &mut ai_range_transaction {
@@ -1839,6 +2071,10 @@ mod tests {
                     assert!(bytes.starts_with(b"%PDF-1.4"));
                     assert!(bytes.ends_with(b"%%EOF\n"));
                 }
+                ImageExportFormat::Jpeg => assert!(bytes.starts_with(&[0xFF, 0xD8, 0xFF])),
+                ImageExportFormat::Webp => assert!(bytes.starts_with(b"RIFF")),
+                ImageExportFormat::Gif => assert!(bytes.starts_with(b"GIF8")),
+                ImageExportFormat::Bmp => assert!(bytes.starts_with(b"BM")),
             }
         }
         let _ = fs::remove_dir_all(&dir);

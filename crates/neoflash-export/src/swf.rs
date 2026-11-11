@@ -400,14 +400,17 @@ pub fn preflight_swf_publish(
             );
             continue;
         };
-        if !resource.media_type.eq_ignore_ascii_case("image/png") {
+        let lossless_override = resource
+            .bitmap_export
+            .is_some_and(|s| s.compression == neoflash_core::BitmapCompression::LosslessPng);
+        if !resource.media_type.eq_ignore_ascii_case("image/png") && !lossless_override {
             report.push(
                 "swf_bitmap_codec_unsupported",
                 FlaCompatibilityCategory::MediaAndSound,
                 FlaCompatibilityStatus::Blocking,
                 location,
                 format!(
-                    "Placed bitmap '{}' uses {}; this SWF writer currently embeds only PNG resources. Convert it to PNG before publishing.",
+                    "Placed bitmap '{}' uses {}; this SWF writer currently embeds only PNG resources. Convert it to PNG or set its Library Bitmap Properties to Lossless PNG before publishing.",
                     resource.path, resource.media_type
                 ),
             );
@@ -6239,7 +6242,12 @@ impl<'a> SwfDictionaryCompiler<'a> {
             let Ok(raw) = res.decoded_bytes() else {
                 continue;
             };
-            if used_bitmaps.contains(&res.id) && res.media_type.eq_ignore_ascii_case("image/png") {
+            if used_bitmaps.contains(&res.id)
+                && (res.media_type.eq_ignore_ascii_case("image/png")
+                    || res.bitmap_export.is_some_and(|s| {
+                        s.compression == neoflash_core::BitmapCompression::LosslessPng
+                    }))
+            {
                 let bid = self.alloc_char_id();
                 if let Some((payload, _, _)) = build_define_bits_lossless2_payload(bid, &raw) {
                     self.root_tags.write_tag(36, &payload);

@@ -787,7 +787,12 @@ impl crate::app::Editor {
 
         if do_import
             && let Some(path) = rfd::FileDialog::new()
-                .add_filter("Image", &["png", "jpg", "jpeg", "gif", "webp", "svg"])
+                .add_filter(
+                    "Image",
+                    &[
+                        "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "svg",
+                    ],
+                )
                 .pick_file()
         {
             match crate::resources::read_resource(&path, neoflash_core::MAX_RESOURCE_BYTES) {

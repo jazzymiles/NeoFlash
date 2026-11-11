@@ -523,10 +523,52 @@ fn paint_video_preview_box(
 }
 
 impl Editor {
+    fn persist_video_export_options(&mut self, options: &VideoOptions) {
+        if options.symbol.is_none() {
+            let mut saved = options.clone();
+            saved.base_dir = None;
+            saved.symbol = None;
+            saved.scene = None;
+            self.workspace.export_video_options = Some(saved);
+        }
+    }
+
     /// Open the `Export video` modal dialog (`DL-05` / `W3.3`).
     pub fn open_export_video(&mut self, symbol_id: Option<&str>) {
         self.finish_edits();
         let mut draft = ExportVideoDraft::for_project(&self.project, self.frame, symbol_id);
+        if symbol_id.is_none()
+            && let Some(saved) = &self.workspace.export_video_options
+        {
+            draft.options.format = saved.format;
+            draft.options.codec = saved.codec;
+            draft.options.quality = saved.quality;
+            draft.options.transparent_bg = saved.transparent_bg;
+            draft.options.include_audio = saved.include_audio;
+            draft.options.audio_bitrate = saved.audio_bitrate;
+            draft.options.runtime_capture = saved.runtime_capture;
+            draft.options.constrain_proportions = saved.constrain_proportions;
+            draft.options.stop_mode = saved.stop_mode;
+            if let VideoStopMode::AfterSeconds(secs) = saved.stop_mode {
+                draft.stop_after_secs = secs;
+            }
+            if let Some(idx) = SCALE_PRESETS
+                .iter()
+                .position(|(s, _)| (*s - saved.scale).abs() < 0.01)
+            {
+                draft.scale_idx = idx;
+            }
+            if let Some(idx) = FPS_PRESETS.iter().position(|preset| match preset {
+                None => saved.fps <= 0.0,
+                Some(v) => (*v as f32 - saved.fps).abs() < 0.01,
+            }) {
+                draft.fps_idx = idx;
+            }
+            if !saved.constrain_proportions && saved.width >= 2 && saved.height >= 2 {
+                draft.width = f64::from(saved.width);
+                draft.height = f64::from(saved.height);
+            }
+        }
         draft.options.base_dir = self
             .tracked_disk_path()
             .and_then(Path::parent)
@@ -633,6 +675,9 @@ impl Editor {
         };
 
         if let Some((path, res)) = draft.worker.lock().ok().and_then(|mut w| w.poll(ctx)) {
+            if res.is_ok() {
+                self.persist_video_export_options(&draft.options);
+            }
             let _ = self.finish_video_export(&path, res);
             self.export_video = None;
             return;
@@ -1184,6 +1229,7 @@ impl Editor {
         if do_export {
             draft.sync_and_refresh(&self.project, self.frame);
             if let Some(path) = self.choose_export_video_path(&draft) {
+                self.persist_video_export_options(&draft.options);
                 let immediate = draft.worker.lock().ok().and_then(|mut w| {
                     w.spawn_export(self.project.clone(), path, draft.options.clone())
                 });

@@ -1829,8 +1829,8 @@
       "category": "web",
       "title": "Self-contained HTML5 publishing",
       "status": "partial",
-      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options` / `export_project_with_config`): Full embeds everything in `bundle.js`, Balanced ships WebAssembly as a streamed file with a `NeoFlashWasmBase64` fallback in `neoflash_web.js` for direct `file://` execution, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach (while retaining direct `file://` execution via `NeoFlashWasmBase64`), and Shared loads a runtime folder published once (`--shared-runtime`). `--size-estimate` / `estimate_publish_sizes` and `estimate_publish_options_cancellable_with_config` measure every level and `HtmlPublishConfig` option on disk and with gzip. `Publish` (`--clean`) outputs a clean stage without the technical preview bar by default, whereas `Test Movie` and `Test Scene` use the configurable preview HUD (`Preferences ▸ Publish ▸ Preview & publish`: `Technical bar` vs `Clean stage`, `Clean publish output`, and individual `FPS & frames`, `Stage size (W×H)`, `Playback controls`, `Weight & size report` and `Trace & diagnostics` toggles). `Publish settings` (`⇧F12`) and `Preferences ▸ Publish` persist their draft across `OK` and `Publish` (with `HTML5` enabled by default and an empty-target guard that opens `Publish settings` instead of a no-op folder picker), support all five export target routes, HTML wrapper/templates, scale mode (`showAll`, `noScale`, `exactFit`, `noBorder`), nine-anchor `Stage.align` (`\"\"`, `T`, `B`, `L`, `R`, `TL`, `TR`, `BL`, `BR`), `Allow fullscreen` (`#fullscreen-toggle` + `Stage.displayState` with Safari `webkit*` fallback, `FullScreenEvent` / `onResize`, high-DPI Canvas backing store and exact inverse viewport pointer/accessibility/input overlays), loop/autoplay/preloader, strict executable project wrapping with a rebased Source Map v3, JPEG re-encoding, trace inclusion and compact or readable bundle data. Selecting font subset performs real TrueType glyph/table subsetting and conservatively keeps the complete browser-loadable face when preservation requires it. Publish can also emit a packed PNG plus manifest companion atlas. Projects, scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and `Export Lottie`, and to `MP4`, `WebM`, `MOV`, `GIF` and `PNG sequence` via `--video` and `Export video`.",
-      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Remote cross-origin Shared WASM hosting requires CORS headers. Compact cannot see class names built dynamically at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. The HTML Assets folder and Acceleration values do not yet select a different packaging/rendering path. The packed atlas is a companion artifact; published playback still uses the original resources. Minify intentionally compacts bundle data and preserves executable JavaScript, so runtime-module minification remains separate. Source maps cover compiled project code, not every generated host wrapper. Desktop app export is a launch bundle/script around the HTML player, not a native renderer. Lottie export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit structured `LottieNote` diagnostics (`Missing`/`Approximated`/`NotExported`).",
+      "scope": "Project export includes local JavaScript, a Canvas host and embedded WASM bytes, without Flash Player or a CDN, plus an optional human-readable publish size report (`--size-report`, `format_size_report`) breaking down per-scene, per-frame, symbol, font, resource, script and WASM byte sizes. Four size levels trade portability for weight (`--size-level`, `export_project_with_options` / `export_project_with_config`): Full embeds everything in `bundle.js`, Balanced ships WebAssembly as a streamed file with a `NeoFlashWasmBase64` fallback in `neoflash_web.js` for direct `file://` execution, Compact also leaves out ActionScript families the project never names and strips the WebAssembly code only they reach (while retaining direct `file://` execution via `NeoFlashWasmBase64`), and Shared loads a runtime folder published once (`--shared-runtime`), while `Web Banner · Native` (`--banner`) compiles eligible script-free projects into a single zero-WASM `.html` file with `<defs>` deduplication, hold-frame compaction, `window.clickTag`, located preflight diagnostics and hard raw/gzip byte budgets. `--size-estimate` / `estimate_publish_sizes` and `estimate_publish_options_cancellable_with_config` measure every level and `HtmlPublishConfig` option on disk and with gzip. `Publish` (`--clean`) outputs a clean stage without the technical preview bar by default, whereas `Test Movie` and `Test Scene` use the configurable preview HUD (`Preferences ▸ Publish ▸ Preview & publish`: `Technical bar` vs `Clean stage`, `Clean publish output`, and individual `FPS & frames`, `Stage size (W×H)`, `Playback controls`, `Weight & size report` and `Trace & diagnostics` toggles). `Publish settings` (`⇧F12`), `Preferences ▸ Publish` and all export dialogs (`Export image`, `Export video`, `Export audio`, `Export Lottie`) persist confirmed options across `OK`/`Export`/`Publish` while discarding unconfirmed edits on `Cancel`, support all target routes, HTML wrapper/templates, scale mode (`showAll`, `noScale`, `exactFit`, `noBorder`), nine-anchor `Stage.align` (`\"\"`, `T`, `B`, `L`, `R`, `TL`, `TR`, `BL`, `BR`), `Allow fullscreen` (`#fullscreen-toggle` + `Stage.displayState` with Safari `webkit*` fallback, `FullScreenEvent` / `onResize`, high-DPI Canvas backing store and exact inverse viewport pointer/accessibility/input overlays), loop/autoplay/preloader, strict executable project wrapping with a rebased Source Map v3, per-bitmap Library `Bitmap Properties…` (`Photo JPEG`, `Lossless PNG`, `WebP`, `Allow smoothing`) with SHA-256 content-hashed deduplication and re-encode caching, `Assets folder` relocation (`assets/` + `bundle.assetUrls`), `Acceleration` Canvas/WebGL context hints (`data-acceleration`), runtime sprite-sheet packing and WASM hydration (`--pack-sprite-sheet` + `WebPlayer.hydrate_sprite_sheet`), sequence publish policy (`Keep image frames`, `Pack atlas`, `Transcode video`), trace inclusion and compact or readable bundle data. Selecting font subset performs real TrueType glyph/table subsetting and conservatively keeps the complete browser-loadable face when preservation requires it. Standalone and publish Texture Atlas export (`File ▸ Export ▸ Export Texture Atlas…`, `--atlas`) outputs `JSON-Hash`, `JSON-Array`, `Starling XML`, `EaselJS` and `CSS` sprite sheets in `PNG`, `WebP` or `JPEG` with POT sizing, border extrude bleed, transparent-border trim and multi-page packing. `Export image` writes single frames (`PNG`, `JPEG`, `WebP`, `GIF`, `BMP`, `SVG`, `PSD`, `.ai`, `PDF`) and numbered frame sequences (`PNG`, `JPEG`, `WebP`, `GIF`, `BMP`, `SVG`, `.ai`) for both authored and live scripted timelines. Projects, scenes and Library symbols also export to self-contained Bodymovin v5.7.14 Lottie JSON or dotLottie (`.lottie` ZIP) via `--lottie` and `Export Lottie`, and to `MP4`, `WebM`, `MOV`, `GIF` and `PNG sequence` via `--video` and `Export video` (including live scripted `runtime_capture`).",
+      "limitations": "This guarantee applies to the currently supported model; missing capabilities are listed separately. Remote cross-origin Shared WASM hosting requires CORS headers. Compact cannot see class names built dynamically at run time. Shared URL validation is offline; the browser checks build identity. Per-part gzip is approximate attribution. `Web Banner · Native` refuses scripts, sound/video and unsupported blend/filter constructs with located diagnostics rather than silently dropping them. Minify intentionally compacts bundle data and preserves executable JavaScript, so runtime-module minification remains separate. Source maps cover compiled project code, not every generated host wrapper. Desktop app export is a launch bundle/script around the HTML player, not a native renderer. Lottie export is a pure vector/animation format: scripts, audio, video, display filters and Flash-only blend modes (`Subtract`, `Invert`, `Alpha`, `Erase`) emit structured `LottieNote` diagnostics (`Missing`/`Approximated`/`NotExported`).",
       "items": [
         {
           "id": "self-contained",
@@ -1899,7 +1899,7 @@
         },
         {
           "id": "svg-atlas-export",
-          "title": "Export frames as SVG (--svg) and animations as sprite sheets or texture atlases (--atlas / --sprite-sheet) in JSON Array, Starling XML or CreateJS/EaselJS format",
+          "title": "Export frames as SVG (--svg) and animations/bitmaps as Texture Atlases (File ▸ Export ▸ Export Texture Atlas…, --atlas) in JSON-Hash, JSON-Array, Starling XML, EaselJS or CSS format with PNG/WebP/JPEG, POT, extrude, trim and multi-page packing",
           "status": "working"
         },
         {
@@ -1914,7 +1914,7 @@
         },
         {
           "id": "image-export-dialog",
-          "title": "Export image dialog (PNG, SVG, layered PSD, EPS-compatible AI with raster fallback, and raster-backed PDF)",
+          "title": "Export image dialog for single frames (PNG, JPEG, WebP, GIF, BMP, SVG, layered PSD, EPS-compatible AI and PDF) and manual/scripted frame sequences (.ai, .svg, .png, .jpg, .webp, .gif, .bmp)",
           "status": "working"
         },
         {
@@ -1924,13 +1924,31 @@
         },
         {
           "id": "publish-settings-all-targets-and-clean-preview",
-          "title": "Publish settings and Preferences ▸ Publish: five target routes, profile presets, Clean publish vs configurable Preview HUD, and direct file:// Compact/Balanced execution; advanced HTML transforms remain partial",
-          "status": "partial"
+          "title": "Publish settings, Preferences ▸ Publish and export dialogs: persistent target routes, profile presets, Clean publish vs Preview HUD, runtime sprite-sheet hydration, assets-folder relocation, acceleration hints and file:// Compact/Balanced execution",
+          "status": "working"
+        },
+        {
+          "id": "native-html5-banner",
+          "title": "Compile eligible projects into a zero-WASM single-file HTML5 banner (--banner / Web Banner · Native) with clickTag and hard raw/gzip byte budget",
+          "status": "working"
+        },
+        {
+          "id": "per-bitmap-publish-optimization",
+          "title": "Per-bitmap Library compression (Photo JPEG, Lossless PNG, WebP), smoothing and SHA-256 content-hashed export deduplication/cache",
+          "status": "working"
+        },
+        {
+          "id": "sequence-publish-policy",
+          "title": "Numbered image-sequence placement options and publish-time sequence policy (Keep image frames, Pack atlas, Transcode video)",
+          "status": "working"
         }
       ],
       "evidence": [
         "crates/neoflash-export/src/lib.rs",
+        "crates/neoflash-export/src/banner.rs",
+        "crates/neoflash-export/src/atlas.rs",
         "crates/neoflash-export/src/image_export.rs",
+        "crates/neoflash-export/tests/packet4_export_capabilities.rs",
         "crates/neoflash-editor/src/panels/export_image.rs",
         "crates/neoflash-export/src/profiles.rs",
         "crates/neoflash-export/tests/games_script_export.rs",

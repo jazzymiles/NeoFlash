@@ -560,6 +560,10 @@ impl Editor {
                         self.export_lottie_dialog(None);
                         ui.close();
                     }
+                    if menu_item(ui, "Export Texture Atlas…", "").clicked() {
+                        self.export_texture_atlas_dialog(None);
+                        ui.close();
+                    }
                     if menu_item(ui, "Export Flash Movie (.swf)…", "").clicked() {
                         self.export_swf_dialog(None);
                         ui.close();

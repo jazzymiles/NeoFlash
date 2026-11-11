@@ -1808,12 +1808,17 @@ pub fn render_project_frame_rgba_with_base_dir(
     let prepared = prepare_timeline(project, &opts)?;
     let mut video_cache =
         preflight_and_decode_timeline_videos(&prepared.eval_project, &prepared.root_id, base_dir)?;
-    let target_frame = frame % prepared.authored_span.max(1);
+    let target_frame = if runtime_capture {
+        frame
+    } else {
+        frame % prepared.authored_span.max(1)
+    };
     let fps = opts.resolved_fps(&prepared.eval_project);
     let dt_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
 
     let (scene, placements) = if runtime_capture {
-        let mut playback = AuthoredPlayback::new(&prepared.eval_project, &prepared.root_id, 0);
+        let mut playback =
+            AuthoredPlayback::with_live_scripts(&prepared.eval_project, &prepared.root_id, 0, true);
         let mut tracker = TimelineVideoTracker::new();
         tracker.step_with_commands(playback.drain_video_commands(), 0);
         for _ in 0..target_frame {
@@ -2936,7 +2941,12 @@ where
         preflight_and_decode_timeline_videos(&prepared.eval_project, &prepared.root_id, base_dir)?;
 
     let dt_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
-    let mut playback = AuthoredPlayback::new(&prepared.eval_project, &prepared.root_id, 0);
+    let mut playback = AuthoredPlayback::with_live_scripts(
+        &prepared.eval_project,
+        &prepared.root_id,
+        0,
+        options.runtime_capture,
+    );
     let mut video_tracker = TimelineVideoTracker::new();
     if prepared.start_frame > 0 {
         let _ = playback.drain_sound_commands();
@@ -2953,7 +2963,7 @@ where
     let mut bitmap_cache = HashMap::new();
     let mut rendered_frames: Vec<Vec<u8>> = Vec::with_capacity(prepared.frame_count as usize);
     let mut sound_events: Vec<(u32, Vec<SoundCommand>)> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = playback.drain_diagnostics();
 
     for idx in 0..prepared.frame_count {
         if idx == 0 {
@@ -2962,7 +2972,12 @@ where
             }
         } else if idx % prepared.authored_span == 0 && prepared.start_frame > 0 {
             // Re-seek to start_frame when looping a sub-range under StopMode::AfterSeconds.
-            playback = AuthoredPlayback::new(&prepared.eval_project, &prepared.root_id, 0);
+            playback = AuthoredPlayback::with_live_scripts(
+                &prepared.eval_project,
+                &prepared.root_id,
+                0,
+                options.runtime_capture,
+            );
             video_tracker.clear();
             let _ = playback.drain_sound_commands();
             video_tracker.step_with_commands(playback.drain_video_commands(), 0);
@@ -2977,6 +2992,7 @@ where
             playback.tick(&prepared.eval_project);
             video_tracker.step_with_commands(playback.drain_video_commands(), dt_ms);
         }
+        warnings.extend(playback.drain_diagnostics());
         let cmds = playback.drain_sound_commands();
         if !cmds.is_empty() {
             sound_events.push((idx, cmds));

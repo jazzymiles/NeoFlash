@@ -56,7 +56,37 @@ fn grow_bitmap_sheet_dimension(value: u32) -> Option<u32> {
     )
 }
 
-/// Metadata schema emitted alongside the packed PNG sprite sheet.
+/// Image encoding used for packed texture-atlas pages (`T-250`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AtlasImageFormat {
+    #[default]
+    Png,
+    Webp,
+    Jpeg,
+}
+
+impl AtlasImageFormat {
+    pub const ALL: [Self; 3] = [Self::Png, Self::Webp, Self::Jpeg];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Png => "PNG (RGBA)",
+            Self::Webp => "WebP (Lossless RGBA)",
+            Self::Jpeg => "JPEG (RGB)",
+        }
+    }
+
+    pub const fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Webp => "webp",
+            Self::Jpeg => "jpg",
+        }
+    }
+}
+
+/// Metadata schema emitted alongside the packed sprite sheet (`T-110`, `T-250`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AtlasFormat {
@@ -64,28 +94,47 @@ pub enum AtlasFormat {
     JsonHash,
     JsonArray,
     StarlingXml,
+    EaselJs,
+    Css,
 }
 
 impl AtlasFormat {
-    pub const ALL: [Self; 3] = [Self::JsonHash, Self::JsonArray, Self::StarlingXml];
+    pub const ALL: [Self; 5] = [
+        Self::JsonHash,
+        Self::JsonArray,
+        Self::StarlingXml,
+        Self::EaselJs,
+        Self::Css,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::JsonHash => "JSON Hash (PixiJS / Phaser)",
             Self::JsonArray => "JSON Array (TexturePacker)",
             Self::StarlingXml => "Starling / Sparrow XML",
+            Self::EaselJs => "EaselJS / CreateJS JSON",
+            Self::Css => "CSS Sprite Sheet",
         }
     }
 
     pub fn extension(self) -> &'static str {
         match self {
-            Self::JsonHash | Self::JsonArray => "json",
+            Self::JsonHash | Self::JsonArray | Self::EaselJs => "json",
             Self::StarlingXml => "xml",
+            Self::Css => "css",
         }
     }
 }
 
-/// Configuration for sprite-sheet / texture-atlas generation (`T-110`).
+const fn default_atlas_jpeg_quality() -> u8 {
+    90
+}
+
+const fn default_atlas_true() -> bool {
+    true
+}
+
+/// Configuration for sprite-sheet / texture-atlas generation (`T-110`, `T-250`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AtlasOptions {
     /// Target symbol ID; `None` exports the flattened main timeline (or `project.root`).
@@ -106,6 +155,9 @@ pub struct AtlasOptions {
     pub border_padding: u32,
     /// Spacing between adjacent sprites in pixels (default `2`).
     pub shape_padding: u32,
+    /// Duplicate edge border pixels (`0..=16`) around each sprite to prevent GPU UV bleed.
+    #[serde(default)]
+    pub extrude: u32,
     /// Strip transparent borders and record offsets in `sprite_source_size`.
     pub trim: bool,
     /// Share atlas rectangles for bit-identical frames.
@@ -116,6 +168,21 @@ pub struct AtlasOptions {
     pub transparent_background: bool,
     /// Metadata output format.
     pub format: AtlasFormat,
+    /// Sheet image format (`PNG`, `WebP`, or `JPEG`).
+    #[serde(default)]
+    pub image_format: AtlasImageFormat,
+    /// JPEG quality (`1..=100`) when `image_format == AtlasImageFormat::Jpeg`.
+    #[serde(default = "default_atlas_jpeg_quality")]
+    pub jpeg_quality: u8,
+    /// Step live scripts and independent child MovieClips during frame capture.
+    #[serde(default = "default_atlas_true")]
+    pub runtime_capture: bool,
+    /// Also include all `image/*` Library bitmap resources as named sprites in the atlas.
+    #[serde(default)]
+    pub pack_library_bitmaps: bool,
+    /// Automatically spill into additional atlas pages when sprites overflow `max_width × max_height`.
+    #[serde(default = "default_atlas_true")]
+    pub multi_page: bool,
 }
 
 impl Default for AtlasOptions {
@@ -130,11 +197,17 @@ impl Default for AtlasOptions {
             max_height: 4096,
             border_padding: 2,
             shape_padding: 2,
+            extrude: 0,
             trim: true,
             deduplicate: true,
             power_of_two: false,
             transparent_background: true,
             format: AtlasFormat::JsonHash,
+            image_format: AtlasImageFormat::Png,
+            jpeg_quality: 90,
+            runtime_capture: true,
+            pack_library_bitmaps: false,
+            multi_page: true,
         }
     }
 }
@@ -163,6 +236,23 @@ pub struct AtlasFrameEntry {
     pub sprite_source_size: AtlasRect,
     #[serde(rename = "sourceSize")]
     pub source_size: AtlasSize,
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub page: usize,
+}
+
+fn is_zero_usize(v: &usize) -> bool {
+    *v == 0
+}
+
+/// One packed texture page inside a multi-page or single-page atlas (`T-250`).
+#[derive(Clone, Debug)]
+pub struct RenderedAtlasPage {
+    pub page_index: usize,
+    pub image_filename: String,
+    pub image_bytes: Vec<u8>,
+    pub sheet_width: u32,
+    pub sheet_height: u32,
+    pub frames: Vec<AtlasFrameEntry>,
 }
 
 /// In-memory result of rendering and packing a sprite sheet.
@@ -174,6 +264,7 @@ pub struct RenderedAtlas {
     pub sheet_height: u32,
     pub frames: Vec<AtlasFrameEntry>,
     pub unique_sprites: usize,
+    pub pages: Vec<RenderedAtlasPage>,
 }
 
 /// Disk export summary for `export_project_atlas`.
@@ -185,6 +276,8 @@ pub struct AtlasExportReport {
     pub sheet_height: u32,
     pub frame_count: usize,
     pub unique_sprites: usize,
+    #[serde(default)]
+    pub page_paths: Vec<PathBuf>,
 }
 
 struct TrimmedFrame {
@@ -401,16 +494,95 @@ impl MaxRectsBin {
     }
 }
 
+fn encode_atlas_sheet_bytes(
+    sheet: &RgbaImage,
+    format: AtlasImageFormat,
+    jpeg_quality: u8,
+    bg: [u8; 4],
+) -> Result<Vec<u8>, ExportError> {
+    match format {
+        AtlasImageFormat::Png => {
+            let mut png_bytes = Vec::new();
+            sheet
+                .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
+                .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+            Ok(png_bytes)
+        }
+        AtlasImageFormat::Webp => {
+            let mut out = Vec::new();
+            let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+            encoder
+                .encode(
+                    sheet.as_raw(),
+                    sheet.width(),
+                    sheet.height(),
+                    image::ExtendedColorType::Rgba8,
+                )
+                .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+            Ok(out)
+        }
+        AtlasImageFormat::Jpeg => {
+            let w = sheet.width();
+            let h = sheet.height();
+            let mut rgb = Vec::with_capacity((w as usize) * (h as usize) * 3);
+            for px in sheet.as_raw().as_chunks::<4>().0 {
+                let a = u16::from(px[3]);
+                let inv = 255 - a;
+                rgb.push(((u16::from(px[0]) * a + u16::from(bg[0]) * inv + 127) / 255) as u8);
+                rgb.push(((u16::from(px[1]) * a + u16::from(bg[1]) * inv + 127) / 255) as u8);
+                rgb.push(((u16::from(px[2]) * a + u16::from(bg[2]) * inv + 127) / 255) as u8);
+            }
+            let mut out = Vec::new();
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+                &mut out,
+                jpeg_quality.clamp(1, 100),
+            );
+            encoder
+                .encode(&rgb, w, h, image::ExtendedColorType::Rgb8)
+                .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
+            Ok(out)
+        }
+    }
+}
+
+fn page_image_filename(base_filename: &str, page_index: usize) -> String {
+    if page_index == 0 {
+        return base_filename.to_owned();
+    }
+    if let Some((stem, ext)) = base_filename.rsplit_once('.') {
+        format!("{stem}_{}.{ext}", page_index + 1)
+    } else {
+        format!("{base_filename}_{}", page_index + 1)
+    }
+}
+
 fn format_metadata(
     format: AtlasFormat,
     image_filename: &str,
     sheet_w: u32,
     sheet_h: u32,
     entries: &[AtlasFrameEntry],
+    pages: &[RenderedAtlasPage],
+    animation_prefix: &str,
 ) -> String {
+    let textures_json = (pages.len() > 1).then(|| {
+        pages
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "image": p.image_filename,
+                    "format": "RGBA8888",
+                    "size": { "w": p.sheet_width, "h": p.sheet_height },
+                    "scale": "1",
+                    "frames": p.frames,
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+
     match format {
         AtlasFormat::JsonArray => {
-            let root = serde_json::json!({
+            let mut root = serde_json::json!({
                 "frames": entries,
                 "meta": {
                     "app": "NeoFlash",
@@ -421,23 +593,31 @@ fn format_metadata(
                     "scale": "1"
                 }
             });
+            if let Some(textures) = textures_json
+                && let Some(obj) = root.as_object_mut()
+            {
+                obj.insert("textures".into(), serde_json::json!(textures));
+            }
             serde_json::to_string_pretty(&root).unwrap_or_default()
         }
         AtlasFormat::JsonHash => {
             let mut map = serde_json::Map::new();
             for entry in entries {
-                map.insert(
-                    entry.filename.clone(),
-                    serde_json::json!({
-                        "frame": entry.frame,
-                        "rotated": entry.rotated,
-                        "trimmed": entry.trimmed,
-                        "spriteSourceSize": entry.sprite_source_size,
-                        "sourceSize": entry.source_size,
-                    }),
-                );
+                let mut item = serde_json::json!({
+                    "frame": entry.frame,
+                    "rotated": entry.rotated,
+                    "trimmed": entry.trimmed,
+                    "spriteSourceSize": entry.sprite_source_size,
+                    "sourceSize": entry.source_size,
+                });
+                if pages.len() > 1
+                    && let Some(obj) = item.as_object_mut()
+                {
+                    obj.insert("page".into(), serde_json::json!(entry.page));
+                }
+                map.insert(entry.filename.clone(), item);
             }
-            let root = serde_json::json!({
+            let mut root = serde_json::json!({
                 "frames": map,
                 "meta": {
                     "app": "NeoFlash",
@@ -448,6 +628,11 @@ fn format_metadata(
                     "scale": "1"
                 }
             });
+            if let Some(textures) = textures_json
+                && let Some(obj) = root.as_object_mut()
+            {
+                obj.insert("textures".into(), serde_json::json!(textures));
+            }
             serde_json::to_string_pretty(&root).unwrap_or_default()
         }
         AtlasFormat::StarlingXml => {
@@ -458,10 +643,15 @@ fn format_metadata(
                 "<TextureAtlas imagePath=\"{image_filename}\" width=\"{sheet_w}\" height=\"{sheet_h}\">"
             );
             for e in entries {
+                let page_attr = if pages.len() > 1 {
+                    format!(" page=\"{}\"", e.page)
+                } else {
+                    String::new()
+                };
                 if e.trimmed {
                     let _ = writeln!(
                         xml,
-                        "  <SubTexture name=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" frameX=\"-{}\" frameY=\"-{}\" frameWidth=\"{}\" frameHeight=\"{}\"/>",
+                        "  <SubTexture name=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" frameX=\"-{}\" frameY=\"-{}\" frameWidth=\"{}\" frameHeight=\"{}\"{page_attr}/>",
                         e.filename,
                         e.frame.x,
                         e.frame.y,
@@ -475,13 +665,81 @@ fn format_metadata(
                 } else {
                     let _ = writeln!(
                         xml,
-                        "  <SubTexture name=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>",
+                        "  <SubTexture name=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"{page_attr}/>",
                         e.filename, e.frame.x, e.frame.y, e.frame.w, e.frame.h,
                     );
                 }
             }
             let _ = writeln!(xml, "</TextureAtlas>");
             xml
+        }
+        AtlasFormat::EaselJs => {
+            let images: Vec<&str> = if pages.is_empty() {
+                vec![image_filename]
+            } else {
+                pages.iter().map(|p| p.image_filename.as_str()).collect()
+            };
+            let frames: Vec<serde_json::Value> = entries
+                .iter()
+                .map(|e| {
+                    let reg_x = -(e.sprite_source_size.x as i64);
+                    let reg_y = -(e.sprite_source_size.y as i64);
+                    serde_json::json!([
+                        e.frame.x, e.frame.y, e.frame.w, e.frame.h, e.page, reg_x, reg_y
+                    ])
+                })
+                .collect();
+            let mut animations = serde_json::Map::new();
+            if !entries.is_empty() {
+                animations.insert(
+                    animation_prefix.to_owned(),
+                    serde_json::json!([0, entries.len().saturating_sub(1)]),
+                );
+            }
+            let root = serde_json::json!({
+                "images": images,
+                "frames": frames,
+                "animations": animations,
+                "meta": {
+                    "app": "NeoFlash",
+                    "version": "1.0"
+                }
+            });
+            serde_json::to_string_pretty(&root).unwrap_or_default()
+        }
+        AtlasFormat::Css => {
+            let mut css = String::new();
+            let _ = writeln!(css, "/* Generated by NeoFlash Texture Atlas Exporter */");
+            let _ = writeln!(
+                css,
+                ".nf-sprite {{ display: inline-block; background-image: url('{image_filename}'); background-repeat: no-repeat; }}"
+            );
+            for e in entries {
+                let safe_cls: String = e
+                    .filename
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                            c
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let page_bg = if e.page > 0
+                    && let Some(p) = pages.get(e.page)
+                {
+                    format!(" background-image: url('{}');", p.image_filename)
+                } else {
+                    String::new()
+                };
+                let _ = writeln!(
+                    css,
+                    ".nf-sprite-{safe_cls} {{ width: {}px; height: {}px; background-position: -{}px -{}px;{page_bg} }}",
+                    e.frame.w, e.frame.h, e.frame.x, e.frame.y
+                );
+            }
+            css
         }
     }
 }
@@ -509,21 +767,46 @@ pub fn render_project_atlas(
         .ok_or_else(|| ExportError::Io(std::io::Error::other("target symbol not found")))?;
     let total_frames = symbol.timeline.frame_count.max(1);
     let start_f = options.start_frame.min(total_frames - 1);
-    let end_f = options
-        .end_frame
-        .unwrap_or(total_frames - 1)
-        .min(total_frames - 1)
-        .max(start_f);
+    let end_f = options.end_frame.unwrap_or(total_frames - 1).max(start_f);
+    let clamped_end_f =
+        if total_frames == 1 && options.end_frame.is_some() && options.runtime_capture {
+            end_f.min(9_999)
+        } else {
+            end_f.min(total_frames - 1).max(start_f)
+        };
 
     let fw = options.frame_width.unwrap_or(eval_project.width).max(1);
     let fh = options.frame_height.unwrap_or(eval_project.height).max(1);
     let prefix = symbol.name.replace(' ', "_");
+    let extrude = options.extrude.min(16);
 
     let mut bitmap_cache = HashMap::new();
-    let mut trimmed_frames = Vec::with_capacity((end_f - start_f + 1) as usize);
+    let mut trimmed_frames = Vec::with_capacity((clamped_end_f - start_f + 1) as usize);
 
-    for f in start_f..=end_f {
-        let scene = evaluate_scene(&eval_project, target_symbol_id, f, false, true);
+    let mut playback = options.runtime_capture.then(|| {
+        let mut p = neoflash_core::AuthoredPlayback::with_live_scripts(
+            &eval_project,
+            target_symbol_id,
+            0,
+            true,
+        );
+        for _ in 0..start_f {
+            p.tick(&eval_project);
+        }
+        p
+    });
+
+    for f in start_f..=clamped_end_f {
+        if f > start_f
+            && let Some(p) = &mut playback
+        {
+            p.tick(&eval_project);
+        }
+        let scene = if let Some(p) = &playback {
+            p.scene(&eval_project, false, true)
+        } else {
+            evaluate_scene(&eval_project, target_symbol_id, f, false, true)
+        };
         let rgba = render_authored_scene_rgba(
             &eval_project,
             target_symbol_id,
@@ -546,6 +829,29 @@ pub fn render_project_atlas(
             trimmed,
             pixels,
         });
+    }
+
+    if options.pack_library_bitmaps {
+        for res in &eval_project.resources {
+            if !res.is_image() {
+                continue;
+            }
+            if let Ok(decoded) = res.decode_image() {
+                let (tx, ty, tw, th, trimmed, pixels) =
+                    trim_rgba(&decoded.rgba, decoded.width, decoded.height, options.trim);
+                trimmed_frames.push(TrimmedFrame {
+                    name: res.path.clone(),
+                    source_w: decoded.width,
+                    source_h: decoded.height,
+                    trim_x: tx,
+                    trim_y: ty,
+                    trim_w: tw,
+                    trim_h: th,
+                    trimmed,
+                    pixels,
+                });
+            }
+        }
     }
 
     // Deduplicate identical sprite buffers if enabled.
@@ -578,64 +884,99 @@ pub fn render_project_atlas(
             .then_with(|| a.cmp(&b))
     });
 
-    let max_w = options.max_width.max(fw + options.border_padding * 2);
-    let max_h = options.max_height.max(fh + options.border_padding * 2);
-    let mut bin = MaxRectsBin::new(max_w, max_h, options.border_padding);
-    let mut placed_map: HashMap<usize, AtlasRect> = HashMap::with_capacity(pack_order.len());
-    let mut used_w = 1u32;
-    let mut used_h = 1u32;
+    let max_sprite_w = pack_order
+        .iter()
+        .map(|&u| trimmed_frames[u].trim_w + extrude * 2)
+        .max()
+        .unwrap_or(fw);
+    let max_sprite_h = pack_order
+        .iter()
+        .map(|&u| trimmed_frames[u].trim_h + extrude * 2)
+        .max()
+        .unwrap_or(fh);
+    let max_w = options
+        .max_width
+        .max(max_sprite_w + options.border_padding * 2);
+    let max_h = options
+        .max_height
+        .max(max_sprite_h + options.border_padding * 2);
+
+    struct BinPage {
+        bin: MaxRectsBin,
+        used_w: u32,
+        used_h: u32,
+        sprites: Vec<(usize, AtlasRect)>,
+    }
+
+    let mut bin_pages: Vec<BinPage> = vec![BinPage {
+        bin: MaxRectsBin::new(max_w, max_h, options.border_padding),
+        used_w: 1,
+        used_h: 1,
+        sprites: Vec::new(),
+    }];
+    let mut placed_map: HashMap<usize, (usize, AtlasRect)> =
+        HashMap::with_capacity(pack_order.len());
 
     for u_idx in pack_order {
         let tf = &trimmed_frames[u_idx];
-        let rect = bin
-            .insert(tf.trim_w, tf.trim_h, options.shape_padding)
-            .ok_or_else(|| {
-                ExportError::Io(std::io::Error::other(
-                    "sprites exceed maximum atlas dimensions",
-                ))
-            })?;
-        used_w = used_w.max(rect.x + rect.w + options.border_padding);
-        used_h = used_h.max(rect.y + rect.h + options.border_padding);
-        placed_map.insert(u_idx, rect);
-    }
-
-    let sheet_w = if options.power_of_two {
-        used_w.next_power_of_two()
-    } else {
-        used_w
-    };
-    let sheet_h = if options.power_of_two {
-        used_h.next_power_of_two()
-    } else {
-        used_h
-    };
-
-    let mut sheet = RgbaImage::new(sheet_w, sheet_h);
-    for (&u_idx, rect) in &placed_map {
-        let tf = &trimmed_frames[u_idx];
-        for row in 0..tf.trim_h {
-            for col in 0..tf.trim_w {
-                let p_idx = ((row * tf.trim_w + col) * 4) as usize;
-                let px = [
-                    tf.pixels[p_idx],
-                    tf.pixels[p_idx + 1],
-                    tf.pixels[p_idx + 2],
-                    tf.pixels[p_idx + 3],
-                ];
-                sheet.put_pixel(rect.x + col, rect.y + row, image::Rgba(px));
+        let req_w = tf.trim_w + extrude * 2;
+        let req_h = tf.trim_h + extrude * 2;
+        let mut placed = None;
+        for (p_idx, page) in bin_pages.iter_mut().enumerate() {
+            if let Some(outer_rect) = page.bin.insert(req_w, req_h, options.shape_padding) {
+                page.used_w = page
+                    .used_w
+                    .max(outer_rect.x + outer_rect.w + options.border_padding);
+                page.used_h = page
+                    .used_h
+                    .max(outer_rect.y + outer_rect.h + options.border_padding);
+                let inner_rect = AtlasRect {
+                    x: outer_rect.x + extrude,
+                    y: outer_rect.y + extrude,
+                    w: tf.trim_w,
+                    h: tf.trim_h,
+                };
+                page.sprites.push((u_idx, inner_rect));
+                placed = Some((p_idx, inner_rect));
+                break;
             }
         }
+        if placed.is_none() {
+            if !options.multi_page {
+                return Err(ExportError::Io(std::io::Error::other(
+                    "sprites exceed maximum atlas dimensions",
+                )));
+            }
+            let p_idx = bin_pages.len();
+            let mut new_bin = MaxRectsBin::new(max_w, max_h, options.border_padding);
+            let outer_rect = new_bin
+                .insert(req_w, req_h, options.shape_padding)
+                .ok_or_else(|| {
+                    ExportError::Io(std::io::Error::other(
+                        "sprites exceed maximum atlas dimensions",
+                    ))
+                })?;
+            let inner_rect = AtlasRect {
+                x: outer_rect.x + extrude,
+                y: outer_rect.y + extrude,
+                w: tf.trim_w,
+                h: tf.trim_h,
+            };
+            bin_pages.push(BinPage {
+                bin: new_bin,
+                used_w: (outer_rect.x + outer_rect.w + options.border_padding).max(1),
+                used_h: (outer_rect.y + outer_rect.h + options.border_padding).max(1),
+                sprites: vec![(u_idx, inner_rect)],
+            });
+            placed = Some((p_idx, inner_rect));
+        }
+        placed_map.insert(u_idx, placed.expect("sprite placed"));
     }
-
-    let mut png_bytes = Vec::new();
-    sheet
-        .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
-        .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
 
     let mut entries = Vec::with_capacity(trimmed_frames.len());
     for (idx, tf) in trimmed_frames.iter().enumerate() {
         let u_idx = frame_to_unique[idx];
-        let frame_rect = placed_map[&u_idx];
+        let (page_idx, frame_rect) = placed_map[&u_idx];
         entries.push(AtlasFrameEntry {
             filename: tf.name.clone(),
             frame: frame_rect,
@@ -651,41 +992,127 @@ pub fn render_project_atlas(
                 w: tf.source_w,
                 h: tf.source_h,
             },
+            page: page_idx,
         });
     }
 
-    let metadata_text = format_metadata(options.format, image_filename, sheet_w, sheet_h, &entries);
+    let mut pages = Vec::with_capacity(bin_pages.len());
+    for (p_idx, page) in bin_pages.iter().enumerate() {
+        let sheet_w = if options.power_of_two {
+            page.used_w.next_power_of_two()
+        } else {
+            page.used_w
+        };
+        let sheet_h = if options.power_of_two {
+            page.used_h.next_power_of_two()
+        } else {
+            page.used_h
+        };
+        let mut sheet = RgbaImage::new(sheet_w, sheet_h);
+        for &(u_idx, rect) in &page.sprites {
+            let tf = &trimmed_frames[u_idx];
+            let sample_px = |sx: i32, sy: i32| -> image::Rgba<u8> {
+                let cx = sx.clamp(0, tf.trim_w.saturating_sub(1) as i32) as u32;
+                let cy = sy.clamp(0, tf.trim_h.saturating_sub(1) as i32) as u32;
+                let p_idx = ((cy * tf.trim_w + cx) * 4) as usize;
+                image::Rgba([
+                    tf.pixels[p_idx],
+                    tf.pixels[p_idx + 1],
+                    tf.pixels[p_idx + 2],
+                    tf.pixels[p_idx + 3],
+                ])
+            };
+            let ext_i = extrude as i32;
+            for dy in -ext_i..(tf.trim_h as i32 + ext_i) {
+                for dx in -ext_i..(tf.trim_w as i32 + ext_i) {
+                    let px = (rect.x as i32 + dx) as u32;
+                    let py = (rect.y as i32 + dy) as u32;
+                    if px < sheet_w && py < sheet_h {
+                        sheet.put_pixel(px, py, sample_px(dx, dy));
+                    }
+                }
+            }
+        }
+        let image_bytes = encode_atlas_sheet_bytes(
+            &sheet,
+            options.image_format,
+            options.jpeg_quality,
+            eval_project.background,
+        )?;
+        let page_frames: Vec<AtlasFrameEntry> = entries
+            .iter()
+            .filter(|e| e.page == p_idx)
+            .cloned()
+            .collect();
+        pages.push(RenderedAtlasPage {
+            page_index: p_idx,
+            image_filename: page_image_filename(image_filename, p_idx),
+            image_bytes,
+            sheet_width: sheet_w,
+            sheet_height: sheet_h,
+            frames: page_frames,
+        });
+    }
+
+    let first_w = pages.first().map_or(1, |p| p.sheet_width);
+    let first_h = pages.first().map_or(1, |p| p.sheet_height);
+    let first_bytes = pages
+        .first()
+        .map(|p| p.image_bytes.clone())
+        .unwrap_or_default();
+    let metadata_text = format_metadata(
+        options.format,
+        image_filename,
+        first_w,
+        first_h,
+        &entries,
+        &pages,
+        &prefix,
+    );
 
     Ok(RenderedAtlas {
-        png_bytes,
+        png_bytes: first_bytes,
         metadata_text,
-        sheet_width: sheet_w,
-        sheet_height: sheet_h,
+        sheet_width: first_w,
+        sheet_height: first_h,
         frames: entries,
         unique_sprites: unique_indices.len(),
+        pages,
     })
 }
 
-/// Export a sprite-sheet PNG and its metadata file (`.json` or `.xml`) to disk.
+/// Export a sprite-sheet image (`.png`/`.webp`/`.jpg`) and its metadata file (`.json`/`.xml`/`.css`) to disk.
 pub fn export_project_atlas(
     project: &Project,
     metadata_output_path: impl AsRef<Path>,
     options: &AtlasOptions,
 ) -> Result<AtlasExportReport, ExportError> {
     let metadata_path = metadata_output_path.as_ref().to_path_buf();
-    if let Some(parent) = metadata_path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    let image_path = metadata_path.with_extension("png");
+    let parent = metadata_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+
+    let img_ext = options.image_format.extension();
+    let image_path = metadata_path.with_extension(img_ext);
+    let default_name = format!("spritesheet.{img_ext}");
     let image_filename = image_path
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("spritesheet.png");
+        .unwrap_or(&default_name);
 
     let rendered = render_project_atlas(project, image_filename, options)?;
-    atomic_write(&image_path, &rendered.png_bytes)?;
+    let mut page_paths = Vec::with_capacity(rendered.pages.len());
+    for page in &rendered.pages {
+        let p_path = if page.page_index == 0 {
+            image_path.clone()
+        } else {
+            parent.join(&page.image_filename)
+        };
+        atomic_write(&p_path, &page.image_bytes)?;
+        page_paths.push(p_path);
+    }
     atomic_write(&metadata_path, rendered.metadata_text.as_bytes())?;
 
     Ok(AtlasExportReport {
@@ -695,6 +1122,7 @@ pub fn export_project_atlas(
         sheet_height: rendered.sheet_height,
         frame_count: rendered.frames.len(),
         unique_sprites: rendered.unique_sprites,
+        page_paths,
     })
 }
 

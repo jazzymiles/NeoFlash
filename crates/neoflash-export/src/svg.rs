@@ -356,7 +356,15 @@ pub fn render_frame_svg(
         options.include_guides,
         true,
     );
+    render_scene_svg(&eval_project, &scene, options)
+}
 
+/// Render an already-evaluated [`AuthoredScene`] (including live script/playback state) to SVG.
+pub fn render_scene_svg(
+    eval_project: &Project,
+    scene: &AuthoredScene,
+    options: &SvgOptions,
+) -> Result<(String, usize, usize), ExportError> {
     let stage_w = eval_project.width.max(1);
     let stage_h = eval_project.height.max(1);
     let out_w = options.width.unwrap_or(stage_w).max(1);
@@ -426,7 +434,7 @@ pub fn render_frame_svg(
     for draw in &scene.draws {
         element_count += 1;
         render_draw_svg(
-            &eval_project,
+            eval_project,
             draw,
             options,
             prec,
@@ -835,22 +843,73 @@ pub fn export_project_svg(
     let mut total_defs = 0usize;
 
     if end_frame == options.frame {
-        let (svg, elems, defs) = render_frame_svg(project, options)?;
+        let (svg, elems, defs) = if options.frame > 0 {
+            project
+                .validate()
+                .map_err(|e| ExportError::InvalidProject(e.to_string()))?;
+            let eval_project = if options.symbol_id.is_none() && !project.scenes.is_empty() {
+                flatten_scenes_with_ranges(project).0
+            } else {
+                project.clone()
+            };
+            let target_symbol = options
+                .symbol_id
+                .as_deref()
+                .unwrap_or(eval_project.root.as_str());
+            let mut playback = neoflash_core::AuthoredPlayback::with_live_scripts(
+                &eval_project,
+                target_symbol,
+                0,
+                true,
+            );
+            for _ in 0..options.frame {
+                playback.tick(&eval_project);
+            }
+            let scene = playback.scene(&eval_project, options.include_guides, true);
+            render_scene_svg(&eval_project, &scene, options)?
+        } else {
+            render_frame_svg(project, options)?
+        };
         atomic_write(output_path, svg.as_bytes())?;
         files.push(output_path.to_path_buf());
         total_elements += elems;
         total_defs += defs;
     } else {
+        project
+            .validate()
+            .map_err(|e| ExportError::InvalidProject(e.to_string()))?;
+        let eval_project = if options.symbol_id.is_none() && !project.scenes.is_empty() {
+            flatten_scenes_with_ranges(project).0
+        } else {
+            project.clone()
+        };
+        let target_symbol = options
+            .symbol_id
+            .as_deref()
+            .unwrap_or(eval_project.root.as_str());
+        let mut playback = neoflash_core::AuthoredPlayback::with_live_scripts(
+            &eval_project,
+            target_symbol,
+            0,
+            true,
+        );
+        for _ in 0..options.frame {
+            playback.tick(&eval_project);
+        }
         let stem = output_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("frame");
         let dir = output_path.parent().unwrap_or_else(|| Path::new("."));
         for f in options.frame..=end_frame {
+            if f > options.frame {
+                playback.tick(&eval_project);
+            }
+            let scene = playback.scene(&eval_project, options.include_guides, true);
             let mut frame_opts = options.clone();
             frame_opts.frame = f;
             frame_opts.end_frame = None;
-            let (svg, elems, defs) = render_frame_svg(project, &frame_opts)?;
+            let (svg, elems, defs) = render_scene_svg(&eval_project, &scene, &frame_opts)?;
             let file_path = dir.join(format!("{stem}_{:04}.svg", f + 1));
             atomic_write(&file_path, svg.as_bytes())?;
             files.push(file_path);

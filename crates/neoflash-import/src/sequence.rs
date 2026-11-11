@@ -32,6 +32,9 @@ pub enum ImageSequencePlacement {
     /// Create a `SymbolKind::Graphic` symbol containing the frame-by-frame sequence and place a
     /// synchronized `InstancePlayback::Loop` instance on the target timeline.
     ConvertToGraphicSymbol,
+    /// Create a `SymbolKind::MovieClip` symbol containing the frame-by-frame sequence and place an
+    /// independent `InstancePlayback::Independent` instance on the target timeline.
+    ConvertToMovieClip,
 }
 
 /// Options controlling numbered image sequence import (`T-115`).
@@ -95,7 +98,7 @@ pub struct NumberedSequenceDetection {
 fn is_supported_image_ext(ext: &str) -> bool {
     matches!(
         ext.to_ascii_lowercase().as_str(),
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
     )
 }
 
@@ -227,12 +230,7 @@ pub struct ImportedNumberedImageSequence {
 fn is_sequence_image_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
-            )
-        })
+        .is_some_and(is_supported_image_ext)
 }
 
 fn push_sequence_candidate(
@@ -366,10 +364,9 @@ pub fn resolve_numbered_image_sequence_paths<P: AsRef<Path>>(
 
 fn imported_sequence_dimensions(project: &Project) -> Option<(u32, u32)> {
     project
-        .symbol(&project.root)?
-        .timeline
-        .layers
+        .symbols
         .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
         .flat_map(|layer| &layer.keyframes)
         .flat_map(|keyframe| &keyframe.elements)
         .find_map(|element| match &element.kind {
@@ -385,6 +382,20 @@ fn imported_sequence_dimensions(project: &Project) -> Option<(u32, u32)> {
 pub fn import_numbered_image_sequence_paths<P: AsRef<Path>>(
     inputs: &[P],
     expand_single_seed: bool,
+) -> Result<Option<ImportedNumberedImageSequence>, ImportError> {
+    let default_options = ImageSequenceImportOptions {
+        center_on_stage: false,
+        ..ImageSequenceImportOptions::default()
+    };
+    import_numbered_image_sequence_paths_with_options(inputs, expand_single_seed, &default_options)
+}
+
+/// Resolve and import a numbered image sequence with explicit [`ImageSequenceImportOptions`]
+/// (`placement`, `frame_step`, `detect_gaps`, `fill_gaps_with_holds`, `center_on_stage`, `smoothing`).
+pub fn import_numbered_image_sequence_paths_with_options<P: AsRef<Path>>(
+    inputs: &[P],
+    expand_single_seed: bool,
+    base_options: &ImageSequenceImportOptions,
 ) -> Result<Option<ImportedNumberedImageSequence>, ImportError> {
     let Some((paths, detection)) =
         resolve_numbered_image_sequence_paths(inputs, expand_single_seed)?
@@ -410,11 +421,15 @@ pub fn import_numbered_image_sequence_paths<P: AsRef<Path>>(
     if let Some(root) = project.symbols.first_mut() {
         root.timeline.frame_count = 1;
     }
-    let options = ImageSequenceImportOptions {
-        layer_name: Some(name),
-        center_on_stage: false,
-        ..ImageSequenceImportOptions::default()
-    };
+    let mut options = base_options.clone();
+    if options.layer_name.is_none() {
+        options.layer_name = Some(name);
+    }
+    // Establish Stage dimensions from the first decoded frame before applying `center_on_stage`
+    // if requested: import at `(0,0)` first, resize Stage to match bitmap dimensions, and when
+    // `center_on_stage` is true with an explicit pre-sized Stage, centering is preserved.
+    let want_center = options.center_on_stage;
+    options.center_on_stage = false;
     let mut report = import_image_sequence(&mut project, &paths, &options)?;
     let unreadable_frames: Vec<String> = report
         .diagnostics
@@ -433,6 +448,27 @@ pub fn import_numbered_image_sequence_paths<P: AsRef<Path>>(
     if let Some((width, height)) = imported_sequence_dimensions(&project) {
         project.width = width.max(1);
         project.height = height.max(1);
+        if want_center {
+            let stage_w = f64::from(project.width);
+            let stage_h = f64::from(project.height);
+            for symbol in &mut project.symbols {
+                for layer in &mut symbol.timeline.layers {
+                    for kf in &mut layer.keyframes {
+                        for el in &mut kf.elements {
+                            if let ElementKind::Bitmap {
+                                width: bw,
+                                height: bh,
+                                ..
+                            } = &el.kind
+                            {
+                                el.transform.x = ((stage_w - f64::from(*bw)) * 0.5).round();
+                                el.transform.y = ((stage_h - f64::from(*bh)) * 0.5).round();
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     project.validate().map_err(|error| {
         ImportError::Container(format!(
@@ -788,7 +824,8 @@ fn import_image_sequence_bytes_inner(
 
         match options.placement {
             ImageSequencePlacement::KeyframesOnSingleLayer
-            | ImageSequencePlacement::ConvertToGraphicSymbol => {
+            | ImageSequencePlacement::ConvertToGraphicSymbol
+            | ImageSequencePlacement::ConvertToMovieClip => {
                 keyframes.push(Keyframe {
                     frame: frame_number,
                     elements: vec![element],
@@ -863,13 +900,19 @@ fn import_image_sequence_bytes_inner(
                 }
             }
         }
-        ImageSequencePlacement::ConvertToGraphicSymbol => {
+        ImageSequencePlacement::ConvertToGraphicSymbol
+        | ImageSequencePlacement::ConvertToMovieClip => {
+            let is_mc = options.placement == ImageSequencePlacement::ConvertToMovieClip;
             let sym_id = new_id("symbol");
             let sym = Symbol {
                 id: sym_id.clone(),
                 name: target_name.clone(),
                 folder: String::new(),
-                kind: SymbolKind::Graphic,
+                kind: if is_mc {
+                    SymbolKind::MovieClip
+                } else {
+                    SymbolKind::Graphic
+                },
                 timeline: Timeline {
                     frame_count: max_frame_end,
                     layers: vec![Layer {
@@ -896,7 +939,11 @@ fn import_image_sequence_bytes_inner(
                 transform: Transform::default(),
                 kind: ElementKind::Instance {
                     symbol_id: sym_id,
-                    playback: InstancePlayback::Loop,
+                    playback: if is_mc {
+                        InstancePlayback::Independent
+                    } else {
+                        InstancePlayback::Loop
+                    },
                 },
                 ..Element::default()
             };

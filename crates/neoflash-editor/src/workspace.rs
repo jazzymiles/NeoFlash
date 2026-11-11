@@ -1777,6 +1777,21 @@ pub struct WorkspacePrefs {
     /// The active saved preset was deleted/replaced; retain its live layout without claiming a built-in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsaved_layout: bool,
+    /// Last confirmed `Export image…` options (`DL-04`); Cancel leaves this unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_image_options: Option<neoflash_export::ImageExportOptions>,
+    /// Last confirmed `Export video…` options (`DL-05`); Cancel leaves this unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_video_options: Option<neoflash_export::VideoOptions>,
+    /// Last confirmed `Export audio…` options (`DL-06`); Cancel leaves this unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_audio_options: Option<neoflash_export::AudioExportOptions>,
+    /// Last confirmed `Export Lottie…` options (`R-043`); Cancel leaves this unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_lottie_options: Option<neoflash_export::LottieOptions>,
+    /// Authoring placement and frame step for numbered image-sequence imports (`T-218`).
+    #[serde(default = "default_sequence_import_options")]
+    pub sequence_import_options: neoflash_import::ImageSequenceImportOptions,
 }
 
 /// Layout-only state: excludes document data, history, clipboard and general preferences.
@@ -2254,15 +2269,17 @@ pub enum PublishProfilePreset {
     Default,
     WebCompact,
     WebBalanced,
+    WebBannerNative,
     HighQuality,
     DebugPreview,
 }
 
 impl PublishProfilePreset {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Default,
         Self::WebCompact,
         Self::WebBalanced,
+        Self::WebBannerNative,
         Self::HighQuality,
         Self::DebugPreview,
     ];
@@ -2273,6 +2290,7 @@ impl PublishProfilePreset {
             Self::Default => "Default",
             Self::WebCompact => "Web Compact",
             Self::WebBalanced => "Web Balanced",
+            Self::WebBannerNative => "Web Banner · Native",
             Self::HighQuality => "High Quality",
             Self::DebugPreview => "Preview / Debug",
         }
@@ -2283,6 +2301,7 @@ impl PublishProfilePreset {
             Self::Default => "Profile: Default",
             Self::WebCompact => "Profile: Web Compact",
             Self::WebBalanced => "Profile: Web Balanced",
+            Self::WebBannerNative => "Profile: Web Banner · Native",
             Self::HighQuality => "Profile: High Quality",
             Self::DebugPreview => "Profile: Preview / Debug",
         }
@@ -2291,6 +2310,18 @@ impl PublishProfilePreset {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_banner_max_gzip_kb() -> u32 {
+    150
+}
+
+fn default_sequence_import_options() -> neoflash_import::ImageSequenceImportOptions {
+    neoflash_import::ImageSequenceImportOptions {
+        placement: neoflash_import::ImageSequencePlacement::ConvertToGraphicSymbol,
+        frame_step: 1,
+        ..neoflash_import::ImageSequenceImportOptions::default()
+    }
 }
 
 /// Preferences ▸ Publish: defaults for File ▸ Publish.
@@ -2341,6 +2372,18 @@ pub struct PublishPrefs {
     /// When `true`, `Image sequence / sprite sheet` exports a packed PNG + JSON sprite sheet instead of a frame sequence.
     #[serde(default)]
     pub image_sequence_sprite_sheet: bool,
+    /// Frame-sequence export format in `Publish settings ▸ Image sequence / sprite sheet` (`T-255`).
+    #[serde(default)]
+    pub image_sequence_format: neoflash_export::ImageExportFormat,
+    /// Sprite-sheet metadata format in `Publish settings ▸ Image sequence / sprite sheet` (`T-250`).
+    #[serde(default)]
+    pub atlas_format: neoflash_export::AtlasFormat,
+    /// Sprite-sheet raster image format (`PNG`, `WebP`, `JPEG`) (`T-250`).
+    #[serde(default)]
+    pub atlas_image_format: neoflash_export::AtlasImageFormat,
+    /// Border-bleed extrusion in pixels (`0..=8`) for sprite-sheet packing (`T-250`).
+    #[serde(default)]
+    pub atlas_extrude: u32,
     /// Whether `SVG animation` is enabled in `Publish settings ▸ Targets` (`DL-03`).
     #[serde(default)]
     pub svg_enabled: bool,
@@ -2374,6 +2417,12 @@ pub struct PublishPrefs {
     /// Generate a bitmap sprite sheet manifest during HTML5 publish.
     #[serde(default)]
     pub sprite_sheets: bool,
+    /// Publish-time image-sequence optimization policy (`KeepFrames`, `PackAtlas`, `TranscodeVideo`) (`T-218`).
+    #[serde(default)]
+    pub sequence_policy: neoflash_export::SequencePublishPolicy,
+    /// Maximum gzip byte budget (in KiB) for the no-WASM `Web Banner · Native` profile (`T-216`).
+    #[serde(default = "default_banner_max_gzip_kb")]
+    pub banner_max_gzip_kb: u32,
     /// Include `trace()` output in published HTML5 packages.
     #[serde(default)]
     pub include_trace: bool,
@@ -2416,6 +2465,10 @@ impl Default for PublishPrefs {
             image_sequence_enabled: false,
             image_sequence_folder: None,
             image_sequence_sprite_sheet: false,
+            image_sequence_format: neoflash_export::ImageExportFormat::Png,
+            atlas_format: neoflash_export::AtlasFormat::JsonHash,
+            atlas_image_format: neoflash_export::AtlasImageFormat::Png,
+            atlas_extrude: 0,
             svg_enabled: false,
             svg_file: None,
             template: neoflash_export::HtmlTemplate::Responsive,
@@ -2427,6 +2480,8 @@ impl Default for PublishPrefs {
             autoplay: true,
             preloader: true,
             sprite_sheets: false,
+            sequence_policy: neoflash_export::SequencePublishPolicy::KeepFrames,
+            banner_max_gzip_kb: default_banner_max_gzip_kb(),
             include_trace: false,
             minify: true,
             publish_clean: true,
@@ -2495,6 +2550,18 @@ impl PublishPrefs {
                 self.minify = true;
                 self.publish_clean = true;
             }
+            PublishProfilePreset::WebBannerNative => {
+                self.options.size = neoflash_export::SizeLevel::Compact;
+                self.options.fonts = neoflash_export::FontExportPolicy::Subset;
+                self.options.audio = neoflash_export::AudioExportPolicy::Mp3_128;
+                self.html_wrapper = true;
+                self.source_maps = false;
+                self.jpeg_quality = 75;
+                self.include_trace = false;
+                self.minify = true;
+                self.publish_clean = true;
+                self.html5_enabled = true;
+            }
             PublishProfilePreset::HighQuality => {
                 self.options.size = neoflash_export::SizeLevel::Full;
                 self.options.fonts = neoflash_export::FontExportPolicy::Embed;
@@ -2541,6 +2608,7 @@ impl PublishPrefs {
             source_maps: self.source_maps,
             jpeg_quality: self.jpeg_quality.clamp(1, 100),
             sprite_sheets: self.sprite_sheets,
+            sequence_policy: self.sequence_policy,
             strict_mode: self.strict,
             include_trace: self.include_trace,
             minify: self.minify,
@@ -2565,6 +2633,7 @@ impl PublishPrefs {
             source_maps: true,
             jpeg_quality: self.jpeg_quality.clamp(1, 100),
             sprite_sheets: false,
+            sequence_policy: neoflash_export::SequencePublishPolicy::KeepFrames,
             strict_mode: self.strict,
             include_trace: true,
             minify: true,
@@ -2761,6 +2830,32 @@ impl WorkspacePrefs {
             p.enable_target(p.default_target);
         }
         p.jpeg_quality = p.jpeg_quality.clamp(1, 100);
+        p.atlas_extrude = p.atlas_extrude.min(8);
+        p.banner_max_gzip_kb = p.banner_max_gzip_kb.clamp(10, 5000);
+        if !neoflash_export::ImageExportFormat::SEQUENCE_FORMATS.contains(&p.image_sequence_format)
+        {
+            p.image_sequence_format = neoflash_export::ImageExportFormat::Png;
+        }
+        self.sequence_import_options.frame_step =
+            self.sequence_import_options.frame_step.clamp(1, 60);
+        if let Some(img) = &mut self.export_image_options {
+            img.jpeg_quality = img.jpeg_quality.clamp(1, 100);
+            img.width = img.width.clamp(1, 16_384);
+            img.height = img.height.clamp(1, 16_384);
+        }
+        if let Some(vid) = &mut self.export_video_options {
+            vid.quality = vid.quality.clamp(1, 100);
+            if !vid.scale.is_finite() || vid.scale <= 0.0 {
+                vid.scale = 1.0;
+            } else {
+                vid.scale = vid.scale.clamp(0.1, 8.0);
+            }
+            if !vid.fps.is_finite() || vid.fps < 0.0 {
+                vid.fps = 0.0;
+            } else if vid.fps > 120.0 {
+                vid.fps = 120.0;
+            }
+        }
         p.output_folder = p
             .output_folder
             .take()
@@ -2930,6 +3025,11 @@ impl Default for WorkspacePrefs {
             named_presets: std::collections::BTreeMap::new(),
             active_named_preset: None,
             unsaved_layout: false,
+            export_image_options: None,
+            export_video_options: None,
+            export_audio_options: None,
+            export_lottie_options: None,
+            sequence_import_options: default_sequence_import_options(),
         }
     }
 }
