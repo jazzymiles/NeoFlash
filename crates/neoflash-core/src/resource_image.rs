@@ -70,9 +70,16 @@ pub(crate) fn encoded_image_dimensions(bytes: &[u8]) -> Result<(u32, u32), Resou
     }
     let format =
         image::guess_format(bytes).map_err(|e| ResourceError(format!("image format: {e}")))?;
-    if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg) {
+    if !matches!(
+        format,
+        ImageFormat::Png
+            | ImageFormat::Jpeg
+            | ImageFormat::WebP
+            | ImageFormat::Bmp
+            | ImageFormat::Tiff
+    ) {
         return Err(ResourceError(
-            "only PNG, JPEG, and GIF images are supported".into(),
+            "only PNG, JPEG, GIF, WebP, BMP, and TIFF images are supported".into(),
         ));
     }
     let (w, h) = ImageReader::with_format(Cursor::new(bytes), format)
@@ -469,5 +476,28 @@ mod tests {
         project
             .validate()
             .expect("Project::validate accepts image/gif bitmap resource");
+    }
+
+    #[test]
+    fn resource_unit_webp_bmp_and_tiff_decode_and_validate() {
+        let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([20, 140, 240, 255]));
+        for (ext, mime, fmt) in [
+            ("webp", "image/webp", ImageFormat::WebP),
+            ("bmp", "image/bmp", ImageFormat::Bmp),
+            ("tiff", "image/tiff", ImageFormat::Tiff),
+        ] {
+            let mut encoded = Vec::new();
+            img.write_to(&mut Cursor::new(&mut encoded), fmt).unwrap();
+            let unit = ResourceUnit::from_bytes(
+                format!("res_{ext}"),
+                format!("assets/sample.{ext}"),
+                mime,
+                &encoded,
+            )
+            .unwrap();
+            assert_eq!(unit.image_dimensions().unwrap(), (4, 3));
+            let decoded = unit.decode_image().unwrap();
+            assert_eq!((decoded.width, decoded.height), (4, 3));
+        }
     }
 }

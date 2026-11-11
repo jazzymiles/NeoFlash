@@ -773,6 +773,69 @@ impl WebPlayer {
         )
         .map_err(display_error)
     }
+    pub fn loader_mount_project(
+        &mut self,
+        target: &str,
+        child_project_json: &str,
+        as2_replace: bool,
+    ) -> Result<String, JsValue> {
+        if child_project_json.len() > neoflash_core::MAX_PROJECT_JSON_BYTES {
+            return Err(JsValue::from_str(
+                "Published bundle JSON exceeds 128 MiB limit",
+            ));
+        }
+        let child_project: Project = serde_json::from_str(child_project_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid published project JSON: {e}")))?;
+        let mounted = self
+            .player
+            .loader_mount_project(
+                &mut self.project,
+                &object_ref(target)?,
+                child_project,
+                as2_replace,
+            )
+            .map_err(display_error)?;
+        serde_json::to_string(&mounted).map_err(display_error)
+    }
+    pub fn loader_unload_published(
+        &mut self,
+        target: &str,
+        as2_replace: bool,
+        stop_detached: bool,
+    ) -> Result<String, JsValue> {
+        let mutation = self
+            .player
+            .loader_unload_published(
+                &mut self.project,
+                &object_ref(target)?,
+                as2_replace,
+                stop_detached,
+            )
+            .map_err(display_error)?;
+        serde_json::to_string(&mutation).map_err(display_error)
+    }
+    pub fn avi_inspect_json(&self, bytes: &[u8]) -> Result<String, JsValue> {
+        let avi = neoflash_core::decode_avi_bytes(bytes).map_err(|e| JsValue::from_str(&e))?;
+        Ok(serde_json::json!({
+            "width": avi.info.width,
+            "height": avi.info.height,
+            "fps": avi.info.fps,
+            "duration_ms": avi.info.duration_ms(),
+            "frame_count": avi.frames.len(),
+        })
+        .to_string())
+    }
+    pub fn avi_frame_rgba(&self, bytes: &[u8], time_ms: u32) -> Result<Vec<u8>, JsValue> {
+        let avi = neoflash_core::decode_avi_bytes(bytes).map_err(|e| JsValue::from_str(&e))?;
+        let chosen = avi
+            .frames
+            .iter()
+            .rev()
+            .find(|(ts, _)| *ts <= time_ms)
+            .or_else(|| avi.frames.first())
+            .ok_or_else(|| JsValue::from_str("AVI contains no decodable video frames."))?;
+        Ok(chosen.1.rgba.to_vec())
+    }
     pub fn bitmap_create(
         &mut self,
         width: u32,

@@ -1786,15 +1786,42 @@ pub fn inspect_video_resource(
     let is_mp4 = bytes.len() >= 12 && &bytes[4..8] == b"ftyp";
     let is_webm = bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]);
     let is_ogg = bytes.starts_with(b"OggS");
+    let is_avi = crate::avi::is_avi_bytes(bytes);
 
-    if !is_mp4 && !is_webm && !is_ogg {
+    if !is_mp4 && !is_webm && !is_ogg && !is_avi {
         diagnostics.push(VideoCodecDiagnostic {
             code: "video-unknown-container",
             message: format!(
-                "Video '{name}' is missing a valid MP4 (ftyp), WebM (EBML) or Ogg (OggS) container header."
+                "Video '{name}' is missing a valid MP4 (ftyp), WebM (EBML), Ogg (OggS) or AVI (RIFF AVI) container header."
             ),
             is_error: true,
         });
+        return diagnostics;
+    }
+
+    if is_avi {
+        match crate::avi::inspect_avi_header(bytes) {
+            Ok(info) => {
+                diagnostics.push(VideoCodecDiagnostic {
+                    code: "video-avi-transcode-on-publish",
+                    message: format!(
+                        "Video '{name}' is an AVI container ({}x{}, {:.2} fps, codec '{}'); native preview decodes it and HTML5 publish transcodes/demuxes it for browser playback.",
+                        info.width,
+                        info.height,
+                        info.fps,
+                        info.video_fourcc_label()
+                    ),
+                    is_error: false,
+                });
+            }
+            Err(err) => {
+                diagnostics.push(VideoCodecDiagnostic {
+                    code: "video-invalid-avi",
+                    message: format!("Video '{name}' has invalid AVI header: {err}"),
+                    is_error: true,
+                });
+            }
+        }
         return diagnostics;
     }
 

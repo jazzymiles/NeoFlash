@@ -4,7 +4,7 @@ use super::*;
 const MAX_LINKED_NODES: usize = 100_000;
 const SCRIPT_LIMIT: usize = 4096;
 
-fn symbol_budget(
+pub(super) fn symbol_budget(
     project: &Project,
     id: &str,
     seen: &mut BTreeSet<Id>,

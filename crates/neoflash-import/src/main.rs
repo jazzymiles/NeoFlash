@@ -1,9 +1,9 @@
 use neoflash_core::{GlobalSwatch, Project};
 use neoflash_import::{
-    Diagnostic, ImportError, ImportFormat, ImportReport, PsdImportOptions, Severity, Statistics,
-    VectorImportOptions, import_act_palette, import_ase_palette, import_clr_palette,
-    import_fxg_str, import_numbered_image_sequence_paths, import_pdf_ai_with_options,
-    import_psd_path,
+    Diagnostic, FigmaImportOptions, ImportError, ImportFormat, ImportReport, PsdImportOptions,
+    Severity, Statistics, VectorImportOptions, import_act_palette, import_ase_palette,
+    import_clr_palette, import_figma_path, import_fxg_str, import_numbered_image_sequence_paths,
+    import_pdf_ai_with_options, import_psd_path,
 };
 use std::{
     env,
@@ -120,8 +120,21 @@ fn import_or_inspect_paths(
         return Ok((Some(project), report));
     }
 
+    if path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with(".figma.json")
+    {
+        let (project, report) = import_figma_path(path, &FigmaImportOptions::default())?;
+        return Ok((Some(project), report));
+    }
+
     if let Some(ext) = ext_lower(path) {
         match ext.as_str() {
+            "fig" | "figma" => {
+                let (project, report) = import_figma_path(path, &FigmaImportOptions::default())?;
+                return Ok((Some(project), report));
+            }
             "psd" | "psb" => {
                 let (project, report) = import_psd_path(path, &PsdImportOptions::default())?;
                 return Ok((Some(project), report));

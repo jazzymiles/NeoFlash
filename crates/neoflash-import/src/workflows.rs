@@ -1,6 +1,7 @@
 //! Unified re-exports and unit tests for numbered image sequences, layered PSD/PSB files,
 //! and high-fidelity SVG/PDF/AI vector import workflows (`T-115`).
 
+pub use crate::figma::*;
 pub use crate::psd::*;
 pub use crate::sequence::*;
 pub use crate::vector_fidelity::*;

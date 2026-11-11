@@ -75,6 +75,18 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
     {
         return read_directory_source(path.parent().unwrap_or_else(|| Path::new(".")));
     }
+    if read >= 8
+        && (header[..read].starts_with(b"fig-kiwi") || header[..read].starts_with(b"fig-jam."))
+    {
+        return Ok(Source {
+            format: ImportFormat::Figma,
+            version: Some(String::from_utf8_lossy(&header[..8]).into_owned()),
+            files,
+            binary_files,
+            binary: None,
+            swf: None,
+        });
+    }
     if read >= 8 && matches!(&header[..3], b"FWS" | b"CWS" | b"ZWS") {
         let swf = crate::swf::read_container(path, &header[..read])?;
         return Ok(Source {
@@ -120,6 +132,29 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
         }
         let mut total = 0u64;
         let mut names = std::collections::HashSet::new();
+        let mut has_canvas_fig = false;
+        let mut has_xfl_or_swc = false;
+        for i in 0..zip.len().min(64) {
+            if let Ok(peek_entry) = zip.by_index(i) {
+                let n = peek_entry.name();
+                if n == "canvas.fig" || n.ends_with(".fig") {
+                    has_canvas_fig = true;
+                }
+                if n == "DOMDocument.xml" || n == "catalog.xml" {
+                    has_xfl_or_swc = true;
+                }
+            }
+        }
+        if has_canvas_fig && !has_xfl_or_swc {
+            return Ok(Source {
+                format: ImportFormat::Figma,
+                version: Some("fig-zip".into()),
+                files,
+                binary_files,
+                binary: None,
+                swf: None,
+            });
+        }
         for i in 0..zip.len() {
             let mut entry = zip
                 .by_index(i)
@@ -199,6 +234,36 @@ pub(crate) fn read(path: &Path) -> Result<Source, ImportError> {
             binary: None,
             swf: None,
         });
+    }
+    let path_lower = path.to_string_lossy().to_ascii_lowercase();
+    if path_lower.ends_with(".figma.json")
+        || path_lower.ends_with(".fig")
+        || path_lower.ends_with(".figma")
+    {
+        return Ok(Source {
+            format: ImportFormat::Figma,
+            version: Some("figma-json".into()),
+            files,
+            binary_files,
+            binary: None,
+            swf: None,
+        });
+    }
+    if header[..read].contains(&b'{') {
+        let mut probe = Vec::with_capacity(4096);
+        if let Ok(pf) = File::open(path)
+            && pf.take(4096).read_to_end(&mut probe).is_ok()
+            && crate::figma::is_figma_bytes(&probe)
+        {
+            return Ok(Source {
+                format: ImportFormat::Figma,
+                version: Some("figma-json".into()),
+                files,
+                binary_files,
+                binary: None,
+                swf: None,
+            });
+        }
     }
     Ok(Source {
         format: ImportFormat::Unknown,

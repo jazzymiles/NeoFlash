@@ -1069,14 +1069,17 @@ impl Editor {
             Pending::Open | Pending::Import => {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter(
-                        "NeoFlash or Flash project",
-                        &["nflash", "json", "fla", "xfl", "xml", "swf", "swc"],
+                        "NeoFlash, Flash or Figma project",
+                        &[
+                            "nflash", "json", "fla", "xfl", "xml", "swf", "swc", "fig", "figma",
+                        ],
                     )
                     .add_filter("NeoFlash project", &["nflash", "json"])
                     .add_filter(
                         "Flash source or movie",
                         &["fla", "xfl", "xml", "swf", "swc"],
                     )
+                    .add_filter("Figma design", &["fig", "figma"])
                     .pick_file()
                 {
                     self.open_path(path, ctx)
@@ -1093,12 +1096,19 @@ impl Editor {
             return true;
         }
         if path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|name| name.to_ascii_lowercase().ends_with(".figma.json"))
+        {
+            return true;
+        }
+        if path
             .extension()
             .and_then(|s| s.to_str())
             .is_some_and(|ext| {
                 matches!(
                     ext.to_ascii_lowercase().as_str(),
-                    "fla" | "xfl" | "swf" | "xml"
+                    "fla" | "xfl" | "swf" | "xml" | "fig" | "figma"
                 )
             })
         {
@@ -1111,7 +1121,10 @@ impl Editor {
         {
             return matches!(&magic[..3], b"FWS" | b"CWS" | b"ZWS")
                 || magic.starts_with(b"PK\x03\x04")
-                || (n >= 8 && magic == [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+                || (n >= 8
+                    && (magic == [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]
+                        || &magic == b"fig-kiwi"
+                        || &magic == b"fig-jam."));
         }
         false
     }
@@ -1256,6 +1269,7 @@ impl Editor {
                                 }
                                 neoflash_import::ImportFormat::XflArchive
                                 | neoflash_import::ImportFormat::XflDirectory => "XFL document",
+                                neoflash_import::ImportFormat::Figma => "Figma composition",
                                 neoflash_import::ImportFormat::Unknown => "Flash document",
                             };
                             messages.push(format!(

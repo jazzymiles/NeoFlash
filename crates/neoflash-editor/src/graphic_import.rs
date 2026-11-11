@@ -14,7 +14,7 @@ fn is_supported_video_path(path: &std::path::Path) -> bool {
         .is_some_and(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "mp4" | "m4v" | "mov" | "webm" | "ogv"
+                "mp4" | "m4v" | "mov" | "webm" | "ogv" | "avi"
             )
         })
 }
@@ -25,7 +25,7 @@ fn is_known_unsupported_video_path(path: &std::path::Path) -> bool {
         .is_some_and(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "avi" | "flv" | "mkv" | "wmv"
+                "flv" | "mkv" | "wmv"
             )
         })
 }
@@ -60,9 +60,18 @@ impl From<PreparedGraphic> for PreparedImportGraphic {
 }
 
 const IMPORT_GRAPHICS_EXTENSIONS: &[&str] = &[
-    "svg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "psd", "psb", "pdf", "ai", "fxg", "act",
-    "clr", "ase",
+    "svg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "psd", "psb", "fig", "figma",
+    "json", "swf", "pdf", "ai", "fxg", "act", "clr", "ase",
 ];
+
+fn is_figma_graphic_path(path: &std::path::Path, ext: &str) -> bool {
+    if matches!(ext, "fig" | "figma") {
+        return true;
+    }
+    path.file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".figma.json"))
+}
 
 fn path_ext_lower(path: &std::path::Path) -> String {
     path.extension()
@@ -198,7 +207,7 @@ impl Editor {
             .any(|path| is_known_unsupported_video_path(path))
         {
             self.message(
-                "Video import supports H.264 MP4/M4V/MOV, VP9 WebM and Ogg video. Transcode this file, then drop it again.",
+                "Video import supports H.264 MP4/M4V/MOV, VP9 WebM, Ogg and AVI video. Transcode this file, then drop it again.",
             );
             return;
         }
@@ -489,19 +498,24 @@ impl Editor {
         } else {
             for path in &graphic_paths {
                 let ext = path_ext_lower(path);
-                let item = match ext.as_str() {
-                    "psd" | "psb" => prepare_psd_graphic(path, &mut remaining)?,
-                    "pdf" | "ai" => prepare_pdf_ai_graphic(path)?,
-                    "fxg" => prepare_fxg_graphic(path)?,
-                    _ => {
-                        let unit = crate::resources::read_resource(path, remaining)?;
-                        remaining = remaining.saturating_sub(unit.byte_len());
-                        let name = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("Graphic")
-                            .to_owned();
-                        PreparedImportGraphic::from(prepare_graphic(unit, name)?)
+                let item = if is_figma_graphic_path(path, &ext) {
+                    prepare_figma_graphic(path, &mut remaining)?
+                } else {
+                    match ext.as_str() {
+                        "psd" | "psb" => prepare_psd_graphic(path, &mut remaining)?,
+                        "swf" => prepare_swf_graphic(path, &mut remaining)?,
+                        "pdf" | "ai" => prepare_pdf_ai_graphic(path)?,
+                        "fxg" => prepare_fxg_graphic(path)?,
+                        _ => {
+                            let unit = crate::resources::read_resource(path, remaining)?;
+                            remaining = remaining.saturating_sub(unit.byte_len());
+                            let name = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("Graphic")
+                                .to_owned();
+                            PreparedImportGraphic::from(prepare_graphic(unit, name)?)
+                        }
                     }
                 };
                 items.push(item);
@@ -913,6 +927,16 @@ fn remap_timeline_bitmap_resources(
 ) -> Result<(), String> {
     for layer in &mut timeline.layers {
         for key in &mut layer.keyframes {
+            if let Some(sound) = &mut key.sound
+                && let Some(next_id) = ids.get(&sound.resource)
+            {
+                sound.resource = next_id.clone();
+            }
+            if let Some(video) = &mut key.video
+                && let Some(next_id) = ids.get(&video.resource)
+            {
+                video.resource = next_id.clone();
+            }
             for element in &mut key.elements {
                 if let ElementKind::Bitmap { resource_id, .. } = &mut element.kind {
                     *resource_id = ids
@@ -1166,10 +1190,171 @@ fn prepare_sequence_graphic(
     })
 }
 
+fn freshen_imported_project_ids(imported: &mut Project, prefix: &str) {
+    let mut sym_map = HashMap::new();
+    for sym in &imported.symbols {
+        sym_map.insert(sym.id.clone(), new_id(&format!("{prefix}-sym")));
+    }
+    if let Some(next_root) = sym_map.get(&imported.root).cloned() {
+        imported.root = next_root;
+    }
+    for sym in &mut imported.symbols {
+        if let Some(next_id) = sym_map.get(&sym.id) {
+            sym.id = next_id.clone();
+        }
+        let mut layer_map = HashMap::new();
+        for layer in &sym.timeline.layers {
+            layer_map.insert(layer.id.clone(), new_id(&format!("{prefix}-layer")));
+        }
+        let mut el_map = HashMap::new();
+        for layer in &mut sym.timeline.layers {
+            if let Some(next_l) = layer_map.get(&layer.id) {
+                layer.id = next_l.clone();
+            }
+            if let Some(parent) = &mut layer.properties.parent
+                && let Some(next_p) = layer_map.get(parent)
+            {
+                *parent = next_p.clone();
+            }
+            if let Some(mask) = &mut layer.properties.mask
+                && let Some(next_m) = layer_map.get(mask)
+            {
+                *mask = next_m.clone();
+            }
+            if let Some(guide) = &mut layer.properties.motion_guide
+                && let Some(next_g) = layer_map.get(guide)
+            {
+                *guide = next_g.clone();
+            }
+            for key in &mut layer.keyframes {
+                for el in &mut key.elements {
+                    let next_el = el_map
+                        .entry(el.id.clone())
+                        .or_insert_with(|| new_id(&format!("{prefix}-el")))
+                        .clone();
+                    el.id = next_el;
+                    if let ElementKind::Instance { symbol_id, .. } = &mut el.kind
+                        && let Some(next_sym) = sym_map.get(symbol_id)
+                    {
+                        *symbol_id = next_sym.clone();
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn prepare_figma_graphic(
+    path: &std::path::Path,
+    remaining: &mut usize,
+) -> Result<PreparedImportGraphic, String> {
+    let display = path.display().to_string();
+    let meta = std::fs::metadata(path).map_err(|e| format!("{display}: {e}"))?;
+    let len = usize::try_from(meta.len()).unwrap_or(usize::MAX);
+    if len > *remaining {
+        return Err(format!(
+            "{display}: file size exceeds remaining import budget."
+        ));
+    }
+    *remaining = remaining.saturating_sub(len);
+    let (mut imported, report) =
+        neoflash_import::import_figma_path(path, &neoflash_import::FigmaImportOptions::default())
+            .map_err(|e| format!("{display} [figma-import]: {e}"))?;
+    freshen_imported_project_ids(&mut imported, "fig");
+    let root_id = imported.root.clone();
+    let root_symbol = imported
+        .symbols
+        .iter()
+        .find(|s| s.id == root_id)
+        .cloned()
+        .ok_or_else(|| format!("{display}: Figma import produced no root symbol"))?;
+    let helper_symbols: Vec<Symbol> = imported
+        .symbols
+        .into_iter()
+        .filter(|s| s.id != root_id)
+        .collect();
+    let raw_stem = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .and_then(|n| {
+            n.strip_suffix(".figma.json")
+                .or_else(|| n.strip_suffix(".FIGMA.JSON"))
+        })
+        .or_else(|| path.file_stem().and_then(|s| s.to_str()))
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("Figma");
+    Ok(PreparedImportGraphic {
+        graphic: PreparedGraphic {
+            name: raw_stem.to_owned(),
+            width: (imported.width as f64).max(1.0),
+            height: (imported.height as f64).max(1.0),
+            elements: Vec::new(),
+            resources: std::mem::take(&mut imported.resources),
+            notice: format_import_diagnostics(&report),
+        },
+        timeline_override: Some(root_symbol.timeline),
+        symbol_kind: SymbolKind::MovieClip,
+        playback: InstancePlayback::SingleFrame(0),
+        helper_symbols,
+    })
+}
+
+fn prepare_swf_graphic(
+    path: &std::path::Path,
+    remaining: &mut usize,
+) -> Result<PreparedImportGraphic, String> {
+    let display = path.display().to_string();
+    let meta = std::fs::metadata(path).map_err(|e| format!("{display}: {e}"))?;
+    let len = usize::try_from(meta.len()).unwrap_or(usize::MAX);
+    if len > *remaining {
+        return Err(format!(
+            "{display}: file size exceeds remaining import budget."
+        ));
+    }
+    *remaining = remaining.saturating_sub(len);
+    let report =
+        neoflash_import::inspect(path).map_err(|e| format!("{display} [swf-inspect]: {e}"))?;
+    let mut imported = neoflash_import::import_project(path)
+        .map_err(|e| format!("{display} [swf-import]: {e}"))?;
+    freshen_imported_project_ids(&mut imported, "swf");
+    let root_id = imported.root.clone();
+    let root_symbol = imported
+        .symbols
+        .iter()
+        .find(|s| s.id == root_id)
+        .cloned()
+        .ok_or_else(|| format!("{display}: SWF import produced no root symbol"))?;
+    let helper_symbols: Vec<Symbol> = imported
+        .symbols
+        .into_iter()
+        .filter(|s| s.id != root_id)
+        .collect();
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("SWF")
+        .to_owned();
+    Ok(PreparedImportGraphic {
+        graphic: PreparedGraphic {
+            name,
+            width: (imported.width as f64).max(1.0),
+            height: (imported.height as f64).max(1.0),
+            elements: Vec::new(),
+            resources: std::mem::take(&mut imported.resources),
+            notice: format_import_diagnostics(&report),
+        },
+        timeline_override: Some(root_symbol.timeline),
+        symbol_kind: SymbolKind::MovieClip,
+        playback: InstancePlayback::Independent,
+        helper_symbols,
+    })
+}
+
 fn prepare_graphic(unit: ResourceUnit, name: String) -> Result<PreparedGraphic, String> {
     let mut graphic = match unit.media_type.as_str() {
         "image/svg+xml" => crate::svg_graphics::prepare_svg(unit)?,
-        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/bmp" => {
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/bmp" | "image/tiff" => {
             let image = unit.decode_image().map_err(|e| e.to_string())?;
             PreparedGraphic {
                 name: name.clone(),
@@ -1195,7 +1380,7 @@ fn prepare_graphic(unit: ResourceUnit, name: String) -> Result<PreparedGraphic, 
         }
         _ => {
             return Err(format!(
-                "{}: use SVG, PNG or JPEG for Stage graphics.",
+                "{}: use SVG, PNG, JPEG, WebP, GIF, BMP or TIFF for Stage graphics.",
                 name
             ));
         }
@@ -1807,6 +1992,211 @@ mod tests {
         assert_eq!(editor.selection, selection_before);
         assert_eq!(editor.dirty(), dirty_before);
         assert!(!editor.history.can_undo());
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn figma_swf_tiff_and_avi_imports_preserve_layers_undo_and_export() {
+        let temp = std::env::temp_dir().join(format!(
+            "neoflash-editor-t247-t249-{}-{}",
+            std::process::id(),
+            new_id("test")
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // 1. Author a layered `.figma.json` file with background rectangle, vector path, and text
+        let figma_path = temp.join("HeroBanner.figma.json");
+        std::fs::write(
+            &figma_path,
+            r#"{
+              "name": "HeroBanner",
+              "document": {
+                "id": "0:0",
+                "type": "DOCUMENT",
+                "children": [{
+                  "id": "0:1",
+                  "name": "Page 1",
+                  "type": "CANVAS",
+                  "children": [{
+                    "id": "1:1",
+                    "name": "HeroBanner",
+                    "type": "FRAME",
+                    "absoluteBoundingBox": { "x": 0, "y": 0, "width": 320, "height": 180 },
+                    "fills": [{ "type": "SOLID", "color": { "r": 0.1, "g": 0.12, "b": 0.2, "a": 1.0 } }],
+                    "children": [
+                      {
+                        "id": "1:2",
+                        "name": "AccentBar",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": { "x": 16, "y": 16, "width": 120, "height": 32 },
+                        "fills": [{ "type": "SOLID", "color": { "r": 0.95, "g": 0.45, "b": 0.15, "a": 1.0 } }]
+                      },
+                      {
+                        "id": "1:3",
+                        "name": "TitleText",
+                        "type": "TEXT",
+                        "characters": "NEOFLASH FIGMA",
+                        "absoluteBoundingBox": { "x": 16, "y": 64, "width": 240, "height": 40 },
+                        "style": { "fontFamily": "Inter", "fontSize": 20 },
+                        "fills": [{ "type": "SOLID", "color": { "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0 } }]
+                      }
+                    ]
+                  }]
+                }]
+              }
+            }"#,
+        )
+        .unwrap();
+
+        // 2. Build a valid minimal SWF and TIFF + BMP + WebP rasters + MJPEG AVI video
+        let mut swf_proj = Project::blank();
+        swf_proj.name = "MiniClip".into();
+        swf_proj.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: new_id("rect"),
+                name: "Box".into(),
+                kind: ElementKind::Rectangle {
+                    width: 48.0,
+                    height: 36.0,
+                    fill: [40, 190, 140, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            });
+        let (swf_bytes, _) = neoflash_export::publish_swf_bytes(
+            &swf_proj,
+            &neoflash_export::SwfPublishOptions::default(),
+        )
+        .expect("compile minimal SWF fixture");
+        let swf_path = temp.join("MiniClip.swf");
+        std::fs::write(&swf_path, &swf_bytes).unwrap();
+
+        let rgba_img = image::RgbaImage::from_pixel(12, 8, image::Rgba([220, 80, 120, 255]));
+        let tiff_path = temp.join("Poster.tiff");
+        {
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(rgba_img.clone())
+                .write_to(&mut cursor, image::ImageFormat::Tiff)
+                .unwrap();
+            std::fs::write(&tiff_path, cursor.into_inner()).unwrap();
+        }
+        let bmp_path = temp.join("Badge.bmp");
+        {
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(rgba_img.clone())
+                .write_to(&mut cursor, image::ImageFormat::Bmp)
+                .unwrap();
+            std::fs::write(&bmp_path, cursor.into_inner()).unwrap();
+        }
+        let webp_path = temp.join("Sticker.webp");
+        {
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(rgba_img)
+                .write_to(&mut cursor, image::ImageFormat::WebP)
+                .unwrap();
+            std::fs::write(&webp_path, cursor.into_inner()).unwrap();
+        }
+
+        let jpeg_frames: Vec<Vec<u8>> = [[240, 60, 60], [60, 220, 120], [60, 120, 240]]
+            .into_iter()
+            .map(|rgb| {
+                let frame = image::RgbImage::from_pixel(24, 16, image::Rgb(rgb));
+                let mut cur = std::io::Cursor::new(Vec::new());
+                image::DynamicImage::ImageRgb8(frame)
+                    .write_to(&mut cur, image::ImageFormat::Jpeg)
+                    .unwrap();
+                cur.into_inner()
+            })
+            .collect();
+        let avi_bytes = neoflash_core::avi::build_minimal_mjpeg_avi(24, 16, 12, &jpeg_frames, None);
+        let avi_path = temp.join("Teaser.avi");
+        std::fs::write(&avi_path, &avi_bytes).unwrap();
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.history.clear();
+        let initial = editor.project.clone();
+
+        // Import Figma + TIFF + BMP + WebP + SWF #1 in one transaction
+        editor
+            .import_graphics_paths(
+                &[
+                    figma_path.clone(),
+                    tiff_path.clone(),
+                    bmp_path.clone(),
+                    webp_path.clone(),
+                    swf_path.clone(),
+                ],
+                Some([200.0, 150.0]),
+            )
+            .expect("import Figma, TIFF, BMP, WebP, and SWF #1");
+
+        // Import the exact same SWF a second time to verify zero symbol/layer/element ID collisions
+        editor
+            .import_graphics_paths(std::slice::from_ref(&swf_path), Some([260.0, 180.0]))
+            .expect("second SWF import succeeds without ID collisions");
+
+        let hero_sym = editor
+            .project
+            .symbols
+            .iter()
+            .find(|s| s.name == "HeroBanner")
+            .expect("HeroBanner MovieClip created");
+        assert!(
+            hero_sym.timeline.layers.len() >= 2,
+            "Figma frame decomposed into separate timeline layers"
+        );
+
+        // Import AVI video onto the timeline
+        let _vid_id = editor
+            .import_video_path_at(&ctx, &avi_path, [160.0, 120.0])
+            .expect("import AVI video onto Stage");
+        editor
+            .project
+            .validate()
+            .expect("project with Figma, repeated SWF, TIFF/BMP/WebP, and AVI validates");
+
+        // Verify pure-Rust offline video decoder handles the imported AVI bytes
+        let decoded_avi = neoflash_export::video::decode_video_stream_bytes(
+            "Teaser.avi",
+            "video/x-msvideo",
+            &avi_bytes,
+        )
+        .expect("pure-Rust AVI offline video decode");
+        assert_eq!(decoded_avi.width, 24);
+        assert_eq!(decoded_avi.height, 16);
+        assert_eq!(decoded_avi.frames.len(), 3);
+
+        // Save/reopen roundtrip + HTML5 export
+        let json = editor.project.to_json().expect("serialize project");
+        let reopened = Project::from_json(&json).expect("deserialize project");
+        reopened.validate().expect("reopened project validates");
+
+        let runtime_dir = temp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        std::fs::write(
+            runtime_dir.join("neoflash_web.js"),
+            "globalThis.NeoFlashWasm = {};",
+        )
+        .unwrap();
+        std::fs::write(
+            runtime_dir.join("neoflash_web_bg.wasm"),
+            b"\0asm\x01\x00\x00\x00",
+        )
+        .unwrap();
+        let html_out = temp.join("html5-out");
+        let index_path = neoflash_export::export_project(&reopened, &html_out, &runtime_dir)
+            .expect("HTML5 export succeeds with Figma + AVI + TIFF/BMP/WebP + SWF");
+        assert!(index_path.exists());
+
+        // Three Undos restore exact initial project state
+        editor.undo();
+        editor.undo();
+        editor.undo();
+        assert_eq!(editor.project, initial);
 
         let _ = std::fs::remove_dir_all(&temp);
     }

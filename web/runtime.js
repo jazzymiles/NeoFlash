@@ -840,8 +840,84 @@
       if(global.NeoFlashAS2Files&&netHost&&binaryHost&&broadcasterHost)as2FilesHost=global.NeoFlashAS2Files.create({wasm,net:netHost,binary:binaryHost,AsBroadcaster:broadcasterHost.AsBroadcaster,afterEvent:afterTimerEvent,onError:netFailure});
       if(global.NeoFlashAS2Locale&&netHost)as2LocaleHost=global.NeoFlashAS2Locale.create(wasm,{URLLoader:netHost.URLLoader,URLRequest:netHost.URLRequest,language:()=>as2PlatformHost.System.capabilities.language,afterEvent:afterTimerEvent,fields:{isText:value=>references.has(value)&&display.alive(value)&&display.descriptor(value).owner==='text'&&!as2TextHost.as2Ref(references.get(value).key,'html').get(),alive:value=>display.alive(value),write:(value,next)=>{if(as2TextHost.as2Ref(references.get(value).key,'html').get())throw new Error('Locale automatic replacement currently requires plain text.');textHost.update(references.get(value).key,{text:next});as2ObjectHost?.textChanged(value);}}});
       if(global.NeoFlashLoader&&netHost&&binaryHost&&global.NeoFlashEvents){
-        loaderHost=global.NeoFlashLoader.create({player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,project:typeof project==='undefined'?null:project,legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),getRoot:()=>proxyFor([]),getBuiltin:qname=> {try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent});
-        legacyGlobals=Object.freeze({...legacyGlobals,MovieClipLoader:loaderHost.MovieClipLoader});
+        const dynamicScriptBindings=['event','_root','_parent','trace','play','stop','gotoAndPlay','gotoAndStop','nextFrame','prevFrame','__nfAs2Method','__nfAs2Value','__nfProgram','__nfDisplay','__nfLegacy','__nfXML'];
+        const compileDynamicBundleScript=unit=>{
+          if(typeof scriptFunction==='function')return scriptFunction(unit,dynamicScriptBindings);
+          const url=/^neoflash-script-\d+\.js$/.test(unit.source_url||'')?unit.source_url:'neoflash-user-script.js';
+          return new Function(...dynamicScriptBindings,'"use strict";\nreturn (function () {\n'+unit.code+'\n}).call(this);\n//# sourceURL='+url);
+        };
+        const cleanupPublishedResources=record=>{
+          const clean=record?.publishedCleanup;if(!clean)return;
+          record.publishedCleanup=null;
+          netHost?.unregisterResources?.(clean.resourcePaths);
+          audioHost?.unregisterResources?.(clean.resourceIds);
+          if(typeof project!=='undefined'&&Array.isArray(project?.resources)&&clean.resourceIds?.length){
+            const drop=new Set(clean.resourceIds);
+            project.resources=project.resources.filter(r=>!drop.has(r.id));
+          }
+        };
+        loaderHost=global.NeoFlashLoader.create({
+          player,events:global.NeoFlashEvents,net:netHost,binary:binaryHost,project:typeof project==='undefined'?null:project,
+          legacyVariables:legacyNavigationVariables,display,proxyForRef,referenceOf:target=>references.get(target),
+          getRoot:()=>proxyFor([]),
+          getBuiltin:qname=>{try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},
+          inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,
+          getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),
+          getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},
+          mountPublishedBundle:(record,childBundle)=>{
+            if(typeof player.loader_mount_project!=='function')throw new Error('Published bundle mounting requires the NeoFlash WASM runtime.');
+            cleanupPublishedResources(record);
+            const mounted=JSON.parse(player.loader_mount_project(JSON.stringify(record.ref),JSON.stringify(childBundle.project),Boolean(record.as2)));
+            const resMap=mounted.resource_id_map||mounted.resource_map||{};
+            const remappedResources=[];
+            for(const res of childBundle.project?.resources||[]){
+              const mapped=resMap[res.id];
+              const nextId=Array.isArray(mapped)?mapped[0]:(typeof mapped==='string'?mapped:res.id);
+              const nextPath=Array.isArray(mapped)?mapped[1]:res.path;
+              remappedResources.push({...res,id:nextId,path:nextPath});
+            }
+            const addedPaths=netHost?.registerResources?netHost.registerResources(remappedResources):[];
+            const addedIds=audioHost?.registerResources?audioHost.registerResources(remappedResources):[];
+            if(typeof project!=='undefined'&&Array.isArray(project?.resources)){
+              const existingIds=new Set(project.resources.map(r=>r.id));
+              for(const res of remappedResources){if(!existingIds.has(res.id))project.resources.push(res);}
+            }
+            record.publishedCleanup={resourcePaths:addedPaths,resourceIds:addedIds.length?addedIds:remappedResources.map(r=>r.id)};
+            for(const unit of childBundle.scripts||[]){
+              const item=unit.script?unit:{...unit,language:unit.language,source:unit.source};
+              const k=sourceKey(item.script||item);
+              if(!functions.has(k)){
+                functions.set(k,{fn:compileDynamicBundleScript(unit),location:unit.location||'published-bundle'});
+              }
+            }
+            const mut=mounted.mutation||mounted;
+            return {
+              contentRef:mut.content_ref||null,
+              events:mut.events||[],
+              width:Number(mounted.width||childBundle.project?.width)||550,
+              height:Number(mounted.height||childBundle.project?.height)||400,
+              frameRate:Number(mounted.fps||childBundle.project?.fps)||runtimeFrameRate,
+            };
+          },
+          unloadPublishedBundle:(record,stopDetached=false)=>{
+            cleanupPublishedResources(record);
+            if(typeof player.loader_unload_published!=='function')return {events:[]};
+            const out=JSON.parse(player.loader_unload_published(JSON.stringify(record.ref),Boolean(record.as2),Boolean(stopDetached)));
+            drainSounds();drainVideos();
+            return out;
+          },
+          onAfterMountPublished:()=>{attachNewInstances();drainSounds();drainVideos();dispatchScripts();},
+          onMutation:deliverDisplayEvents,onError:netFailure,afterEvent:afterTimerEvent
+        });
+        legacyGlobals=Object.freeze({
+          ...legacyGlobals,
+          MovieClipLoader:loaderHost.MovieClipLoader,
+          loadPublish:function(url,target){
+            const ctx=legacyContext(this);
+            const dest=target===undefined||target===null?(ctx.raw!==null&&typeof ctx.raw==='object'?ctx.raw:proxyFor([])):target;
+            return loaderHost.loadPublish(url,dest);
+          }
+        });
       }
       if(global.NeoFlashAudio&&netHost&&binaryHost&&global.NeoFlashEvents){
         audioHost=global.NeoFlashAudio.create({player,wasm,events:{...global.NeoFlashEvents,...eventFamilies},net:netHost,binary:binaryHost,resources:typeof project==='undefined'?[]:project.resources||[],resolveSoundTarget:value=>{if(value===undefined||value===null)return null;const resolved=typeof value==='string'?(value===''?proxyFor([]):display.resolveTarget(value,proxyFor([]))):value;if(!resolved||!references.has(resolved)||!display.alive(resolved)||display.descriptor(resolved).owner!=='movie_clip')throw new TypeError('AS2 Sound target must be undefined, null, or a live MovieClip.');return resolved;},onStopAll:stopTimelineSounds,onError:audioFailure,afterEvent:afterTimerEvent,onState:updateAudioStatus});
@@ -1969,7 +2045,7 @@
       global.requestAnimationFrame(animate);
     }
     global.requestAnimationFrame(animate);
-    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, pause: () => { player.set_playing(false); resetMeasuredFps(); drainSounds();drainVideos(); }, resume: () => {resetMeasuredFps();player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
+    global.NeoFlashPlayer = Object.freeze({ get root() { return proxyFor([]); }, get measuredFps() { return measuredFps; }, get targetFps() { return runtimeFrameRate; }, loadPublish: (url, target = null) => { if (!loaderHost?.loadPublish) throw new Error('Loader host is unavailable in this publication.'); return loaderHost.loadPublish(url, target); }, pause: () => { player.set_playing(false); resetMeasuredFps(); drainSounds();drainVideos(); }, resume: () => {resetMeasuredFps();player.set_playing(true);drainVideos();}, restart: () => document.getElementById('restart').click() });
   }
   boot().catch(fail);
 })(globalThis);

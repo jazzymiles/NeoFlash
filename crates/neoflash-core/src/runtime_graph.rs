@@ -22,7 +22,7 @@ mod input;
 pub use input::DisplayInputState;
 mod linked;
 mod loader;
-pub use loader::LoaderMutation;
+pub use loader::{LoaderMutation, MountedPublishResult};
 mod text;
 mod video;
 pub use video::VideoState;
@@ -428,8 +428,9 @@ impl RuntimeGraph {
             let reference = self.authored[&p.path].reference.clone();
             self.sync_authored_render(&reference, p.blend_mode, p.cache_as_bitmap, &p.filters);
         }
-        self.prefix
-            .retain(|reference, _| !self.paths.contains_key(reference));
+        self.prefix.retain(|reference, _| {
+            !self.paths.contains_key(reference) || self.namespaces.contains_key(reference)
+        });
         for p in placements {
             if !p.path.is_empty() {
                 let parent = &self.authored[&p.path[..p.path.len() - 1]].reference;
@@ -791,20 +792,35 @@ impl Player {
         {
             let (mut display, authored_path, namespace_ref, source_path, graphics) =
                 if let Some(node) = authored.get(&reference) {
-                    let namespace = self
-                        .graph
-                        .linked_paths
-                        .get(&reference)
-                        .map(|address| address.namespace.clone());
+                    let linked = linked_roots.get(&reference);
+                    let namespace = if linked.is_some() {
+                        Some(reference.clone())
+                    } else {
+                        self.graph
+                            .linked_paths
+                            .get(&reference)
+                            .map(|address| address.namespace.clone())
+                    };
+                    let mut merged = node.clone();
+                    if let Some(source) = linked {
+                        merged.frame = source.frame;
+                        merged.total_frames = source.total_frames;
+                        merged.symbol_id = source.symbol_id.clone();
+                        merged.independent = source.owner == "movie_clip";
+                    }
                     (
-                        node.clone(),
-                        if namespace.is_none() {
-                            Some(node.path.clone())
-                        } else {
+                        merged,
+                        if self.graph.linked_paths.contains_key(&reference) {
                             None
+                        } else {
+                            Some(node.path.clone())
                         },
                         namespace,
-                        Some(node.path.clone()),
+                        if linked.is_some() {
+                            Some(vec![])
+                        } else {
+                            Some(node.path.clone())
+                        },
                         vec![],
                     )
                 } else if let Some(node) = self.graph.dynamic.get(&reference) {

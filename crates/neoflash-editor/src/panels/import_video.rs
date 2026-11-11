@@ -307,12 +307,16 @@ impl Editor {
                 "video/webm"
             } else if raw_bytes.starts_with(b"OggS") {
                 "video/ogg"
+            } else if neoflash_core::is_avi_bytes(&raw_bytes) {
+                "video/x-msvideo"
             } else if raw_bytes.len() >= 12 && &raw_bytes[4..8] == b"ftyp" {
                 "video/mp4"
             } else if ext == "webm" {
                 "video/webm"
             } else if ext == "ogv" || ext == "ogg" {
                 "video/ogg"
+            } else if ext == "avi" {
+                "video/x-msvideo"
             } else {
                 "video/mp4"
             };
@@ -496,7 +500,7 @@ impl Editor {
                     if ui.add(c::Button::new("Browse…")).clicked()
                         && let Some(picked) = rfd::FileDialog::new()
                             .set_title("Import video")
-                            .add_filter("Video", &["mp4", "webm", "mov", "m4v"])
+                            .add_filter("Video", &["mp4", "webm", "mov", "m4v", "avi", "ogv"])
                             .pick_file()
                     {
                         draft.file_path = picked.display().to_string();

@@ -1,4 +1,5 @@
 //! Strict, read-only legacy inspection and deliberately bounded XFL conversion.
+pub mod figma;
 mod legacy;
 pub mod legacy_interchange;
 pub mod psd;
@@ -11,6 +12,7 @@ pub mod workflows;
 mod xfl;
 mod xfl_export;
 
+pub use figma::*;
 pub use legacy::contents::*;
 pub use legacy::contours::*;
 pub use legacy::geometry::*;
@@ -50,6 +52,7 @@ pub enum ImportFormat {
     LegacyBinaryFla,
     Swf,
     Swc,
+    Figma,
     Unknown,
 }
 
@@ -196,6 +199,21 @@ fn analyze(path: &Path) -> Result<(ImportReport, Option<Project>), ImportError> 
         ImportFormat::Swc => {
             let location = path.display().to_string();
             swc::convert(&source.files, &source.binary_files, &location, &mut report)
+        }
+        ImportFormat::Figma => {
+            match figma::import_figma_path(path, &figma::FigmaImportOptions::default()) {
+                Ok((proj, fig_report)) => {
+                    return Ok((fig_report, Some(proj)));
+                }
+                Err(err) => {
+                    report.error(
+                        "figma_import_failed",
+                        path.display().to_string(),
+                        err.to_string(),
+                    );
+                    None
+                }
+            }
         }
         ImportFormat::Unknown => {
             report.error(

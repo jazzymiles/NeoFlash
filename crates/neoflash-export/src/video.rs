@@ -1448,6 +1448,30 @@ pub fn decode_video_stream_bytes(
     if let Some(nfvf_res) = try_decode_nfvf_box(bytes) {
         return nfvf_res.map_err(|e| format!("Video '{name}' failed decoding: {e}"));
     }
+    if neoflash_core::is_avi_bytes(bytes)
+        && let Ok(avi) = neoflash_core::decode_avi_bytes(bytes)
+    {
+        let fps = (avi.info.fps as f32).max(1.0);
+        let default_dur_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
+        let total = avi.frames.len();
+        let mut frames = Vec::with_capacity(total);
+        for (idx, (timestamp_ms, image)) in avi.frames.into_iter().enumerate() {
+            let duration_ms = default_dur_ms;
+            let _ = idx;
+            frames.push(DecodedVideoFrame {
+                timestamp_ms,
+                duration_ms,
+                image,
+            });
+        }
+        return Ok(DecodedVideoStream {
+            width: avi.info.width,
+            height: avi.info.height,
+            fps,
+            duration_ms: avi.info.duration_ms(),
+            frames,
+        });
+    }
     decode_video_stream_with_ffmpeg(name, mime, bytes)
 }
 

@@ -547,6 +547,19 @@
     // their timeline position on Enable audio; Event/Start sounds of that period are skipped.
     const resourcePaths=new Map((options.resources||[]).map(resource=>[resource.id,resource.path]));
     const buffers=new Map(),voices=new Set(),now=options.now||(()=>(global.performance?.now?.()??Date.now())/1000);
+    function registerResources(list){
+      open();const ids=[];
+      for(const resource of list||[]){
+        if(resource&&typeof resource.id==='string'&&typeof resource.path==='string'){
+          resourcePaths.set(resource.id,resource.path);ids.push(resource.id);
+        }
+      }
+      return ids;
+    }
+    function unregisterResources(ids){
+      if(disposed)return;
+      for(const id of ids||[]){dropVoices(id);resourcePaths.delete(id);buffers.delete(id);}
+    }
     let blockedEvents=0;
     function timelineBuffer(id){
       let entry=buffers.get(id);if(entry)return entry;
@@ -648,7 +661,7 @@
       try{old?.close()?.catch(()=>{});}catch(_){}changed();
     }
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
+    return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,registerResources,unregisterResources,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;
 })(globalThis);

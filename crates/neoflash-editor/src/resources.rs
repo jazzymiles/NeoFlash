@@ -541,7 +541,16 @@ impl Editor {
 }
 
 fn is_placeable_image(media_type: &str) -> bool {
-    matches!(media_type, "image/png" | "image/jpeg" | "image/svg+xml")
+    matches!(
+        media_type,
+        "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp"
+            | "image/bmp"
+            | "image/tiff"
+            | "image/svg+xml"
+    )
 }
 
 /// Type icon of a resource row: bitmap, sound, font, script / text, other.
@@ -601,12 +610,16 @@ fn media_type(path: &Path) -> &'static str {
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
         "svg" => "image/svg+xml",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
-        "mp4" => "video/mp4",
+        "mp4" | "m4v" | "mov" => "video/mp4",
         "webm" => "video/webm",
+        "ogv" => "video/ogg",
+        "avi" => "video/x-msvideo",
         "woff" => "font/woff",
         "woff2" => "font/woff2",
         "ttf" => "font/ttf",

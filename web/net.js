@@ -76,6 +76,25 @@
       if(resources.has(resource.path))throw new TypeError('Duplicate portable resource path.');
       resources.set(resource.path,{...resource,byteLength:length});resourceBytes+=length;
     }
+    function registerResources(list){
+      open();const added=[];
+      for(const resource of list||[]){
+        if(!resource||typeof resource.path!=='string'||!resource.path)continue;
+        if(resources.has(resource.path))continue;
+        const encoded=text(resource.data_base64||'','Resource base64'),length=encoded?encoded.length/4*3-(encoded.endsWith('==')?2:encoded.endsWith('=')?1:0):0;
+        if(!Number.isInteger(length)||length<0||length>MAX_BYTES||resourceBytes+length>MAX_ACTIVE_BYTES)throw new RangeError('Portable resources exceed their 16 MiB each / 64 MiB total limit.');
+        if(resources.size>=1024)throw new RangeError('A publication supports at most 1024 portable resources.');
+        resources.set(resource.path,{...resource,byteLength:length});resourceBytes+=length;added.push(resource.path);
+      }
+      return added;
+    }
+    function unregisterResources(paths){
+      if(disposed)return;
+      for(const path of paths||[]){
+        const existing=resources.get(path);
+        if(existing){resourceBytes=Math.max(0,resourceBytes-(existing.byteLength||0));resources.delete(path);resourceCache.delete(path);}
+      }
+    }
     const hub=events.create({weakTargets:true,alive:target=>!disposed&&loaders.get(target)?.generation===generation});
     function open(){if(disposed)throw new Error('This data-loading service has been disposed.');}
     function state(receiver,table=loaders){open();const record=table.get(receiver);if(!record)throw new TypeError('Expected a loader from this publication.');if(record.generation!==generation)throw new Error('This loader belongs to a previous publication session.');return record;}
@@ -419,7 +438,7 @@
     noBase(LoadVars,'LoadVars',value=>legacy.has(value));
     function reset(){open();for(const operation of [...active])cancel(operation.record);generation++;hub.clear();resourceCache.clear();}
     function dispose(){if(disposed)return;reset();disposed=true;}
-    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,legacyRequestHeaders,loadBytes,mediaSource,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
+    return Object.freeze({URLRequest,URLRequestHeader,URLRequestMethod,URLVariables,URLLoader,URLLoaderDataFormat,ProgressEvent,IOErrorEvent,HTTPStatusEvent,LoadVars,legacyRequestHeaders,loadBytes,mediaSource,registerResources,unregisterResources,prepareNavigation,navigateToURL,sendToURL,getURL,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashNet=api;
 })(globalThis);

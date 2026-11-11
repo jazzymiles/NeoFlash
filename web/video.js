@@ -126,11 +126,74 @@
     function stopMedia(r,retain){
       const frozen=retain?freeze(r):null;
       r.sequence++;r.wanted=false;r.playing=false;r.pendingSeek=null;
+      if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}
+      r.aviBytes=null;
       if(r.media){for(const[type,fn]of r.listeners)r.media.removeEventListener(type,fn);if(r.frameCallback!==null)r.media.cancelVideoFrameCallback?.(r.frameCallback);r.media.pause();r.media.muted=true;r.media.removeAttribute('src');r.media.load();}
       if(r.objectURL)(options.revokeObjectURL||global.URL.revokeObjectURL.bind(global.URL))(r.objectURL);
       r.media=null;r.objectURL=null;r.listeners=[];r.frameCallback=null;r.metadata=false;r.frozen=frozen;r.appendFrame=null;r.suppressedFrame=null;if(r.receivePolicy)streamPolicy(r,{op:"reset"});r.time=0;r.lastTime=null;collectFrames();changed();
     }
+    function isAviContainer(bytes){
+      return Boolean(bytes&&bytes.length>=12&&bytes[0]===0x52&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x46&&bytes[8]===0x41&&bytes[9]===0x56&&bytes[10]===0x49&&bytes[11]===0x20);
+    }
+    function renderAviAt(r,seconds){
+      if(!r.aviBytes||typeof player.avi_frame_rgba!=='function')return;
+      const ms=Math.max(0,Math.round(seconds*1000));
+      const rgba=native('avi_frame_rgba',r.aviBytes,ms);
+      const w=r.width,h=r.height;
+      if(!r.appendFrame||r.appendFrame.width!==w||r.appendFrame.height!==h)r.appendFrame=frame(w,h);
+      const ctx=r.appendFrame.canvas.getContext('2d');
+      if(ctx){
+        if(typeof ctx.putImageData==='function'&&typeof global.ImageData==='function'){
+          ctx.putImageData(new global.ImageData(new Uint8ClampedArray(rgba),w,h),0,0);
+        }else if(typeof ctx.createImageData==='function'&&typeof ctx.putImageData==='function'){
+          const img=ctx.createImageData(w,h);img.data.set(rgba);ctx.putImageData(img,0,0);
+        }
+      }
+      r.appendFrame.id=++serial;r.serial=r.appendFrame.id;repaint();
+    }
+    function startAviPlayback(r){
+      if(!r.aviBytes||!r.wanted||(!unlocked&&!r.timelineOwned))return;
+      if(r.aviTimer)return;
+      r.playing=true;
+      if(!r.started){r.started=true;emit(r,'NetStream.Play.Start');}
+      else if(r.pauseRequested){r.pauseRequested=false;emit(r,'NetStream.Unpause.Notify');}
+      observeController(r,'playing');changed();
+      const fps=Math.max(1,r.aviFps||24),stepSec=1/fps,seq=r.sequence;
+      r.aviTimer=setInterval(()=>{
+        if(disposed||r.generation!==generation||r.sequence!==seq||!r.wanted||!r.aviBytes){if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;}return;}
+        let next=r.time+stepSec;
+        if(r.duration>0&&next>=r.duration){
+          if(r.timelineLoop){next=next%r.duration;}
+          else{
+            r.time=r.duration;renderAviAt(r,r.time);
+            clearInterval(r.aviTimer);r.aviTimer=null;r.wanted=false;r.playing=false;
+            if(emit(r,'NetStream.Play.Stop')&&r.legacy&&typeof r.receiver?.onPlayStatus==='function'){
+              Reflect.apply(r.receiver.onPlayStatus,r.receiver,[{code:'NetStream.Play.Complete',level:'status'}]);after(generation);
+            }
+            observeController(r,'ended');changed();return;
+          }
+        }
+        r.time=next;renderAviAt(r,r.time);observeController(r,'time');
+      },Math.max(16,Math.round(1000/fps)));
+    }
+    function mountAviBytes(r,bytes,seq){
+      if(disposed||r.generation!==generation||r.sequence!==seq)return;
+      if(typeof player.avi_inspect_json!=='function')throw new TypeError('AVI runtime decoding requires the NeoFlash WASM video module.');
+      const info=JSON.parse(native('avi_inspect_json',bytes));
+      if(info.width<1||info.height<1||info.width>1920||info.height>1080)throw new RangeError('Video decoder dimensions must be within 1920×1080.');
+      r.aviBytes=bytes;r.aviFps=Number(info.fps)||24;
+      r.width=info.width;r.height=info.height;r.duration=Math.max(0,(Number(info.duration_ms)||0)/1000);
+      r.metadata=true;r.encodedBytes=bytes.length;
+      renderAviAt(r,0);
+      observeController(r,'metadata');observeController(r,'ready');
+      const client=r.timelineOwned?null:(r.legacy?r.receiver:r.client),fn=client?.onMetaData;
+      if(typeof fn==='function')Reflect.apply(fn,client,[{width:r.width,height:r.height,duration:r.duration,framerate:r.aviFps}]);
+      if(r.pendingSeek!==null){let at=r.pendingSeek;r.pendingSeek=null;if(r.timelineOwned&&r.duration>0)at=r.timelineLoop?at%r.duration:Math.min(at,r.duration);r.time=at;renderAviAt(r,at);}
+      if(!r.timelineOwned||r.wanted)startAviPlayback(r);
+      after(generation);changed();
+    }
     function playNative(r){
+      if(r.aviBytes){startAviPlayback(r);return;}
       // Authored timeline video may advance visually before activation because `audio()` keeps
       // its HTMLVideoElement browser-muted. An actual gesture later unmutes only spans whose
       // authored `muted` flag is false. Script-created NetStreams retain the gesture gate.
@@ -160,26 +223,43 @@
       if(typeof url!=='string'||!url)throw new TypeError('NetStream.play requires a media URL string.');
       if(!r.connection.local)throw new Error('Call NetConnection.connect(null) before playing local video.');
       if(/\.(?:flv|f4v|swf|gif)(?:[?#]|$)/i.test(url))throw new TypeError('This browser profile supports native MP4/WebM media, not FLV/F4V/SWF/GIF decoding.');
+      const allowedVideoMimes=['video/mp4','video/webm','video/ogg','video/x-msvideo','video/avi'];
       let resolvedUrl=url,source=null,mediaType=sourceSpec?.mime_type||'video/mp4';
       if(mode==='external'){
         const relPath=validateExternalPath(sourceSpec?.url_or_path||url);
         resolvedUrl=resolveExternalUrl(relPath);
-        if(sourceSpec?.mime_type&&!['video/mp4','video/webm','video/ogg'].includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`External video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
+        if(sourceSpec?.mime_type&&!allowedVideoMimes.includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`External video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
         r.deploymentMode='external';
         r.sourceSpec={mode:'external',url_or_path:relPath,resolvedUrl,mime_type:mediaType};
       }else if(mode==='progressive'){
         resolvedUrl=validateProgressiveUrl(sourceSpec?.url_or_path||url);
-        if(sourceSpec?.mime_type&&!['video/mp4','video/webm','video/ogg'].includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`Progressive video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
+        if(sourceSpec?.mime_type&&!allowedVideoMimes.includes(String(sourceSpec.mime_type).toLowerCase()))throw new TypeError(`Progressive video MIME type ${sourceSpec.mime_type} is unsupported; use a native browser video format.`);
         r.deploymentMode='progressive';
         r.sourceSpec={mode:'progressive',url_or_path:resolvedUrl,resolvedUrl,mime_type:mediaType};
       }else{
         source=net.mediaSource(url);
-        if(source.kind==='resource'&&!['video/mp4','video/webm','video/ogg'].includes(source.mediaType))throw new TypeError(`Bundled video MIME type ${source.mediaType} is unsupported; use a native browser video format.`);
+        if(source.kind==='resource'&&!allowedVideoMimes.includes(String(source.mediaType||'').toLowerCase()))throw new TypeError(`Bundled video MIME type ${source.mediaType} is unsupported; use a native browser video format.`);
         if(source.kind!=='resource')resolvedUrl=source.url;
         r.deploymentMode=source.kind==='resource'?'embedded':'progressive';
         r.sourceSpec={mode:r.deploymentMode,url_or_path:url,resolvedUrl:source.kind==='resource'?url:source.url,mime_type:source.mediaType||mediaType};
       }
       stopMedia(r,false);used=true;errorText='';r.wanted=true;r.encodedBytes=source?.kind==='resource'?source.length:null;r.url=resolvedUrl;
+      const isAviResource=source?.kind==='resource'&&(isAviContainer(source.bytes)||['video/x-msvideo','video/avi'].includes(String(source.mediaType||'').toLowerCase()));
+      const isAviRemote=source?.kind!=='resource'&&(/\.avi(?:[?#]|$)/i.test(resolvedUrl)||['video/x-msvideo','video/avi'].includes(String(r.sourceSpec?.mime_type||'').toLowerCase()));
+      if(isAviResource||isAviRemote){
+        const seq=r.sequence;r.started=false;r.width=r.height=0;r.duration=0;
+        if(gesture()){unlocked=true;muted=false;}
+        if(isAviResource){
+          later(r,()=>mountAviBytes(r,source.bytes,seq));
+        }else if(typeof net.loadBytes==='function'&&typeof net.URLRequest==='function'){
+          net.loadBytes(new net.URLRequest(resolvedUrl),{
+            onEvent:ev=>{if(ev.type==='ioError'&&r.sequence===seq){r.wanted=false;r.playing=false;emit(r,'NetStream.Play.StreamNotFound','error',{description:ev.text||'AVI load failed'});changed();}},
+            onComplete:bytes=>{try{mountAviBytes(r,bytes,seq);}catch(err){if(r.sequence===seq){r.wanted=false;r.playing=false;emit(r,'NetStream.Play.FileStructureInvalid','error',{description:String(err?.message||err)});changed();}}}
+          });
+        }
+        changed();
+        return;
+      }
       const media=options.createVideo?options.createVideo():global.document?.createElement('video');if(!media)throw new Error('HTMLVideoElement is unavailable in this environment.');
       r.media=media;media.muted=true;media.volume=0;media.crossOrigin=options.crossOrigin!==undefined?options.crossOrigin:'anonymous';media.preload='auto';media.playsInline=true;media.loop=false;
       const sequence=r.sequence;
@@ -216,9 +296,9 @@
       if(source?.kind==='resource'){const blob=new Blob([source.bytes],{type:source.mediaType});r.objectURL=(options.createObjectURL||global.URL.createObjectURL.bind(global.URL))(blob);media.src=r.objectURL;}else media.src=resolvedUrl;
       r.started=false;r.width=r.height=0;r.duration=0;media.load();if(gesture()){unlocked=true;muted=false;}if(!r.timelineOwned)playNative(r);changed();
     }
-    function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
+    function pause(r){const media=r.media,wasPlaying=r.wanted||r.playing;r.wanted=false;r.pauseRequested=true;r.playing=false;if(r.aviTimer){clearInterval(r.aviTimer);r.aviTimer=null;if(wasPlaying)later(r,()=>{if(r.aviBytes&&!r.wanted)emit(r,'NetStream.Pause.Notify');});changed();return;}media?.pause();if(media&&wasPlaying)later(r,()=>{if(r.media===media&&!r.wanted&&media.paused)emit(r,'NetStream.Pause.Notify');});changed();}
     function resume(r){r.wanted=true;if(gesture()){unlocked=true;muted=false;}playNative(r);changed();}
-    function seek(r,value){number(value,'NetStream.seek',0,86400*365);if(!r.media)throw new Error('NetStream.seek requires a loaded stream.');if(!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');if(r.legacy){streamPolicy(r,{op:'buffer_wait'});r.playing=false;r.media.pause();}r.media.currentTime=value;}
+    function seek(r,value){number(value,'NetStream.seek',0,86400*365);if(r.aviBytes){if(!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');r.time=value;renderAviAt(r,value);later(r,()=>emit(r,'NetStream.Seek.Notify'));return;}if(!r.media&&!r.wanted)throw new Error('NetStream.seek requires a loaded stream.');if(!r.media||!r.metadata){r.pendingSeek=value;return;}if(value>r.duration)throw new RangeError('NetStream.seek is beyond the finite media duration.');if(r.legacy){streamPolicy(r,{op:'buffer_wait'});r.playing=false;r.media.pause();}r.media.currentTime=value;}
     class NetConnection extends events.EventDispatcher{
       constructor(){super();open();const record={receiver:this,generation,sequence:0,local:false,legacy:false};connections.set(this,record);connectionRecords.add(record);Object.assign(this,hub.methods(this));this.client=this;if(new.target===NetConnection)Object.seal(this);}
       connect(command){const r=state(this,connections);if(command!==null)unsupported('NetConnection remote connections');r.local=true;r.sequence++;later(r,()=>emit(r,'NetConnection.Connect.Success'));}
@@ -412,7 +492,7 @@
       streamRecords.add(record);attachRecord(target,record);load(record,sourceSpec.url_or_path,sourceSpec);record.timelineMuted=Boolean(command.muted);record.timelineLoop=Boolean(command.loop_video);if(record.media)record.media.loop=Boolean(command.loop_video);audio(record);
       const ctl={record,targetKey,resource:command.resource,mode:sourceSpec.mode,sourceKey:`${sourceSpec.mode}:${sourceSpec.url_or_path}`};timelineControllers.set(command.channel,ctl);return ctl;
     }
-    function timelineSeek(record,milliseconds,loop,force=false){let seconds=Math.max(0,Number(milliseconds)||0)/1000;record.timelineLoop=Boolean(loop);if(record.metadata&&record.duration>0)seconds=loop?seconds%record.duration:Math.min(seconds,record.duration);if(!record.media)throw new Error('Timeline video decoder was retired before seek.');const current=Number(record.media.currentTime)||0,close=record.playing&&Math.abs(current-seconds)<=0.08;if(record.metadata&&(!close||force))seek(record,seconds);else if(!record.metadata)record.pendingSeek=seconds;record.time=close&&!force?current:seconds;}
+    function timelineSeek(record,milliseconds,loop,force=false){let seconds=Math.max(0,Number(milliseconds)||0)/1000;record.timelineLoop=Boolean(loop);if(record.metadata&&record.duration>0)seconds=loop?seconds%record.duration:Math.min(seconds,record.duration);if(record.aviBytes){const close=record.playing&&Math.abs(record.time-seconds)<=0.08;if(!close||force){record.time=seconds;renderAviAt(record,seconds);}return;}if(!record.media){record.pendingSeek=seconds;record.time=seconds;return;}const current=Number(record.media.currentTime)||0,close=record.playing&&Math.abs(current-seconds)<=0.08;if(record.metadata&&(!close||force))seek(record,seconds);else if(!record.metadata)record.pendingSeek=seconds;record.time=close&&!force?current:seconds;}
     function timeline(commands){
       open();if(!Array.isArray(commands))throw new TypeError('Timeline video commands require an Array.');
       for(const command of commands){

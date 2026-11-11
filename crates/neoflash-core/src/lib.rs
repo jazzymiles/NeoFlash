@@ -43,6 +43,7 @@ pub mod as_timers;
 mod authored_layers;
 mod authored_playback;
 mod authoring_geometry;
+pub mod avi;
 pub mod bitmap_trace;
 mod clipboard;
 mod demo;
@@ -87,6 +88,10 @@ pub use authored_layers::{
 pub use authored_playback::AuthoredPlayback;
 pub use authoring_geometry::{
     GapCloseResult, StrokeEraseResult, close_path_gaps, erase_path_stroke,
+};
+pub use avi::{
+    AviHeaderInfo, DecodedAviMedia, build_minimal_mjpeg_avi, decode_avi_bytes, inspect_avi_header,
+    is_avi_bytes,
 };
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
@@ -165,9 +170,10 @@ pub use runtime::{
 pub use runtime_graph::{
     AlphaClipComponent, As2AccProps, As2AccUpdateEntry, ClipComponent, ColorTransform,
     DisplayError, DisplayEvent, DisplayInputState, DisplayMutation, DynamicKind, LoaderMutation,
-    MAX_DYNAMIC_OBJECTS, MaskResourceBitmap, MutationResult, ObjectRef, RuntimeAccessibleNode,
-    RuntimeAlphaMask, RuntimeClip, RuntimeDrawItem, RuntimeDrawKind, RuntimeFilterGroup,
-    RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect, StageMutation, VideoState,
+    MAX_DYNAMIC_OBJECTS, MaskResourceBitmap, MountedPublishResult, MutationResult, ObjectRef,
+    RuntimeAccessibleNode, RuntimeAlphaMask, RuntimeClip, RuntimeDrawItem, RuntimeDrawKind,
+    RuntimeFilterGroup, RuntimeObject, RuntimeScriptDispatch, RuntimeSnapshot, ScrollRect,
+    StageMutation, VideoState,
 };
 pub use runtime_graphics::{
     BitmapFillSpec, BitmapPaint, GradientKind, GradientPaint, GradientSpec, GradientSpread,

@@ -6,6 +6,7 @@ use super::*;
 pub(super) struct LoaderState {
     pub(super) content: Option<ObjectRef>,
     as2: bool,
+    pub(super) mounted_prefix: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LoaderMutation {
@@ -13,9 +14,22 @@ pub struct LoaderMutation {
     pub events: Vec<DisplayEvent>,
     pub retired_refs: Vec<ObjectRef>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MountedPublishResult {
+    pub mutation: LoaderMutation,
+    pub prefix: String,
+    pub root_symbol_id: String,
+    pub symbol_id_map: BTreeMap<String, String>,
+    pub resource_id_map: BTreeMap<String, String>,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+}
 impl RuntimeGraph {
     pub(super) fn loaded_as2(&self, reference: &ObjectRef) -> bool {
-        self.loaders.get(reference).is_some_and(|state| state.as2)
+        self.loaders
+            .get(reference)
+            .is_some_and(|state| state.as2 && !self.namespaces.contains_key(reference))
     }
     pub(super) fn loaded_as2_smoothing(&self, reference: &ObjectRef) -> bool {
         let Some(parent) = self
@@ -51,10 +65,10 @@ impl RuntimeGraph {
             .dynamic
             .get(parent)
             .is_some_and(|n| n.kind == DynamicKind::Loader)
-            || self.loaders.values().any(|s| {
+            || self.loaders.iter().any(|(loader_ref, s)| {
                 s.content
                     .as_ref()
-                    .is_some_and(|id| id == first || Some(id) == second)
+                    .is_some_and(|id| id != loader_ref && (id == first || Some(id) == second))
             })
         {
             return Err(error(
@@ -364,6 +378,11 @@ impl Player {
         if as2_replace {
             let retired_sound_commands = self.graph.retire_objects(&retired);
             self.sound.extend(retired_sound_commands);
+            if let Some(mut namespace) = self.graph.namespaces.remove(target) {
+                self.sound
+                    .extend(namespace.player.stop_and_drain_scoped_sounds(target));
+                self.sync_linked(project);
+            }
             if let Some(node) = self.graph.dynamic.get_mut(target) {
                 self.graph.graphics_cost -= node.graphics.cost();
                 node.graphics = GraphicsState::default();
@@ -392,8 +411,11 @@ impl Player {
             self.graph.suffix.remove(target);
             self.graph.child_order.remove(target);
         }
+        self.runtime_scripts.retain(|item| {
+            !retired.contains(&item.target_ref) && (!as2_replace || &item.target_ref != target)
+        });
         let content = match payload {
-            Some(LoaderPayload::Bitmap(pixel_ref)) => {
+            Some(LoaderPayload::Bitmap(ref pixel_ref)) => {
                 let id = self.graph.allocate();
                 self.graph.dynamic.insert(
                     id.clone(),
@@ -410,7 +432,7 @@ impl Player {
                 self.graph.bitmap_states.insert(
                     id.clone(),
                     bitmap::BitmapState {
-                        pixel_ref: Some(pixel_ref),
+                        pixel_ref: Some(pixel_ref.clone()),
                         smoothing: false,
                         pixel_snapping: PixelSnapping::Auto,
                     },
@@ -466,22 +488,407 @@ impl Player {
                 }
                 Some(id)
             }
+            Some(LoaderPayload::PublishedClip {
+                ref root_symbol_id,
+                nodes,
+                depth,
+                ..
+            }) => {
+                let is_playing = self.is_playing();
+                let scoped = Player::with_source_root_playing(
+                    project,
+                    Some(root_symbol_id.clone()),
+                    is_playing,
+                );
+                if as2_replace {
+                    if let Some(node) = self.graph.dynamic.get_mut(target) {
+                        node.playing = is_playing;
+                    }
+                    self.graph.namespaces.insert(
+                        target.clone(),
+                        LinkedNamespace {
+                            player: Box::new(scoped),
+                            nodes,
+                            depth,
+                        },
+                    );
+                    self.sync_linked(project);
+                    self.collect_linked_scripts(target);
+                    Some(target.clone())
+                } else {
+                    let id = self.graph.allocate();
+                    self.graph.dynamic.insert(
+                        id.clone(),
+                        DynamicObject {
+                            kind: DynamicKind::MovieClip,
+                            parent: Some(target.clone()),
+                            transform: Transform::default(),
+                            visible: true,
+                            name: "content".into(),
+                            playing: self.is_playing(),
+                            graphics: GraphicsState::default(),
+                        },
+                    );
+                    self.graph.namespaces.insert(
+                        id.clone(),
+                        LinkedNamespace {
+                            player: Box::new(scoped),
+                            nodes,
+                            depth,
+                        },
+                    );
+                    self.graph.suffix.insert(target.clone(), vec![id.clone()]);
+                    events.push(DisplayEvent {
+                        kind: "added".into(),
+                        target_ref: id.clone(),
+                        route: self.graph.route(&id),
+                    });
+                    if attached {
+                        events.push(DisplayEvent {
+                            kind: "added_to_stage".into(),
+                            target_ref: id.clone(),
+                            route: self.graph.route(&id),
+                        });
+                    }
+                    self.sync_linked(project);
+                    self.collect_linked_scripts(&id);
+                    Some(id)
+                }
+            }
             None => None,
+        };
+        let mounted_prefix = match payload {
+            Some(LoaderPayload::PublishedClip { prefix, .. }) => Some(prefix),
+            _ => None,
         };
         self.graph.loaders.insert(
             target.clone(),
             LoaderState {
                 content: content.clone(),
                 as2: as2_replace,
+                mounted_prefix,
             },
         );
-        self.runtime_scripts.retain(|item| {
-            !retired.contains(&item.target_ref) && (!as2_replace || &item.target_ref != target)
-        });
         Ok(LoaderMutation {
             content_ref: content,
             events,
             retired_refs: retired.into_iter().collect(),
+        })
+    }
+
+    /// Unload a loader target (`unloadMovie`, `MovieClipLoader.unloadClip`, `Loader.unload`,
+    /// `Loader.unloadAndStop`), stopping any mounted published namespace and pruning its isolated
+    /// symbols and resources from `project` (`T-248`).
+    pub fn loader_unload_published(
+        &mut self,
+        project: &mut Project,
+        target: &ObjectRef,
+        as2_replace: bool,
+        stop_detached: bool,
+    ) -> Result<LoaderMutation, DisplayError> {
+        let old_state = self.graph.loaders.get(target).cloned();
+        if stop_detached
+            && !as2_replace
+            && let Some(content_id) = old_state.as_ref().and_then(|s| s.content.as_ref())
+        {
+            let subtree: BTreeSet<_> = self.graph.subtree(content_id).into_iter().collect();
+            let stopped_sounds = self.graph.retire_objects(&subtree);
+            self.sound.extend(stopped_sounds);
+        }
+        let mutation = self.loader_replace_with_payload(project, target, None, as2_replace)?;
+        if let Some(prefix) = old_state.and_then(|s| s.mounted_prefix) {
+            self.prune_unused_published_prefix(project, &prefix);
+        }
+        Ok(mutation)
+    }
+
+    fn prune_unused_published_prefix(&self, project: &mut Project, prefix: &str) {
+        let still_mounted = self
+            .graph
+            .loaders
+            .values()
+            .any(|s| s.mounted_prefix.as_deref() == Some(prefix));
+        if !still_mounted {
+            project.symbols.retain(|s| !s.id.starts_with(prefix));
+            project.resources.retain(|r| !r.id.starts_with(prefix));
+        }
+    }
+
+    /// Dynamically mount another published NeoFlash `Project` inside `target` (`T-248` `loadPublish`).
+    ///
+    /// Flattens multi-scene child projects, allocates an isolated `__nfpub_<seq>_` namespace prefix,
+    /// remaps all symbol/resource/layer/element IDs without mutating child instance `name`s, appends
+    /// the isolated closure to `project`, and starts a nested `LinkedNamespace` timeline.
+    pub fn loader_mount_project(
+        &mut self,
+        project: &mut Project,
+        target: &ObjectRef,
+        child_project: Project,
+        as2_replace: bool,
+    ) -> Result<MountedPublishResult, DisplayError> {
+        child_project
+            .validate()
+            .map_err(|e| error(&format!("Invalid published NeoFlash bundle: {e}")))?;
+        let (flat_child, _) = crate::scenes::flatten_scenes_with_ranges(&child_project);
+
+        let mount_seq = self.graph.next_id;
+        self.graph.next_id += 1;
+        let prefix = format!("__nfpub_{mount_seq}_");
+
+        let mut symbol_id_map = BTreeMap::new();
+        for (i, sym) in flat_child.symbols.iter().enumerate() {
+            symbol_id_map.insert(sym.id.clone(), format!("{prefix}s{i}"));
+        }
+        let mut resource_id_map = BTreeMap::new();
+        for (i, res) in flat_child.resources.iter().enumerate() {
+            resource_id_map.insert(res.id.clone(), format!("{prefix}r{i}"));
+        }
+
+        if project.resources.len() + flat_child.resources.len() > crate::MAX_RESOURCES {
+            return Err(error(
+                "Mounting published bundle would exceed 1024 project resources",
+            ));
+        }
+
+        let root_symbol_id = symbol_id_map
+            .get(&flat_child.root)
+            .cloned()
+            .ok_or_else(|| error("Published bundle is missing its root symbol"))?;
+
+        let mut remapped_resources = Vec::with_capacity(flat_child.resources.len());
+        for mut res in flat_child.resources {
+            let new_id = resource_id_map[&res.id].clone();
+            res.id = new_id;
+            res.path = format!("__nfpub/{mount_seq}/{}", res.path);
+            remapped_resources.push(res);
+        }
+
+        let mut remapped_symbols = Vec::with_capacity(flat_child.symbols.len());
+        for (si, mut sym) in flat_child.symbols.into_iter().enumerate() {
+            let is_child_root = sym.id == flat_child.root;
+            sym.id = symbol_id_map[&sym.id].clone();
+            if is_child_root {
+                sym.kind = SymbolKind::MovieClip;
+                sym.linkage_id = Some(format!("{prefix}root"));
+                sym.class_name = None;
+            } else if let Some(lid) = &sym.linkage_id {
+                sym.linkage_id = Some(format!("{prefix}link_{lid}"));
+            }
+
+            let mut layer_map = HashMap::new();
+            for (li, layer) in sym.timeline.layers.iter().enumerate() {
+                layer_map.insert(layer.id.clone(), format!("{prefix}s{si}_l{li}"));
+            }
+            let mut elem_map = HashMap::new();
+            let mut elem_counter = 0usize;
+            for layer in &sym.timeline.layers {
+                for kf in &layer.keyframes {
+                    for el in &kf.elements {
+                        elem_map.entry(el.id.clone()).or_insert_with(|| {
+                            let next = format!("{prefix}s{si}_e{elem_counter}");
+                            elem_counter += 1;
+                            next
+                        });
+                    }
+                }
+            }
+
+            for layer in &mut sym.timeline.layers {
+                layer.id = layer_map[&layer.id].clone();
+                layer.properties.groups.clear();
+                layer.properties.parent = layer
+                    .properties
+                    .parent
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+                layer.properties.mask = layer
+                    .properties
+                    .mask
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+                layer.properties.motion_guide = layer
+                    .properties
+                    .motion_guide
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+
+                for kf in &mut layer.keyframes {
+                    if let Some(snd) = &mut kf.sound
+                        && let Some(rid) = resource_id_map.get(&snd.resource)
+                    {
+                        snd.resource = rid.clone();
+                    }
+                    if let Some(vid) = &mut kf.video
+                        && let Some(rid) = resource_id_map.get(&vid.resource)
+                    {
+                        vid.resource = rid.clone();
+                    }
+                    for track in &mut kf.motion_tracks {
+                        if let Some(eid) = elem_map.get(&track.element_id) {
+                            track.element_id = eid.clone();
+                        }
+                    }
+                    if let Some(mkeys) = &mut kf.motion_keys {
+                        for mk in mkeys {
+                            if let Some(eid) = elem_map.get(&mk.element_id) {
+                                mk.element_id = eid.clone();
+                            }
+                        }
+                    }
+                    for ov in &mut kf.instance_overrides {
+                        if let Some(eid) = elem_map.get(&ov.instance_id) {
+                            ov.instance_id = eid.clone();
+                        }
+                    }
+                    for bf in &mut kf.bitmap_fills {
+                        if let Some(eid) = elem_map.get(&bf.element_id) {
+                            bf.element_id = eid.clone();
+                        }
+                        if let Some(rid) = resource_id_map.get(&bf.resource_id) {
+                            bf.resource_id = rid.clone();
+                        }
+                    }
+                    for warp in &mut kf.asset_warps {
+                        if let Some(eid) = elem_map.get(&warp.element_id) {
+                            warp.element_id = eid.clone();
+                        }
+                    }
+                    for pl in &mut kf.element_parents {
+                        if let Some(eid) = elem_map.get(&pl.child_id) {
+                            pl.child_id = eid.clone();
+                        }
+                        if let Some(pid) = elem_map.get(&pl.parent_id) {
+                            pl.parent_id = pid.clone();
+                        }
+                    }
+                    for cid in &mut kf.controller_elements {
+                        if let Some(eid) = elem_map.get(cid) {
+                            *cid = eid.clone();
+                        }
+                    }
+                    for arm in &mut kf.ik_armatures {
+                        for bone in &mut arm.bones {
+                            if let Some(eid) = elem_map.get(&bone.element_id) {
+                                bone.element_id = eid.clone();
+                            }
+                        }
+                    }
+                    for app in &mut kf.appearances {
+                        if let Some(eid) = elem_map.get(&app.element_id) {
+                            app.element_id = eid.clone();
+                        }
+                    }
+                    for acc in &mut kf.extended_accessibility {
+                        if let Some(eid) = elem_map.get(&acc.element_id) {
+                            acc.element_id = eid.clone();
+                        }
+                    }
+                    for fx in &mut kf.vector_effects {
+                        if let Some(eid) = elem_map.get(&fx.element_id) {
+                            fx.element_id = eid.clone();
+                        }
+                    }
+                    for el in &mut kf.elements {
+                        if let Some(eid) = elem_map.get(&el.id) {
+                            el.id = eid.clone();
+                        }
+                        match &mut el.kind {
+                            ElementKind::Instance { symbol_id, .. } => {
+                                if let Some(sid) = symbol_id_map.get(symbol_id) {
+                                    *symbol_id = sid.clone();
+                                }
+                            }
+                            ElementKind::Bitmap { resource_id, .. } => {
+                                if let Some(rid) = resource_id_map.get(resource_id) {
+                                    *resource_id = rid.clone();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            remapped_symbols.push(sym);
+        }
+
+        let old_prefix = self
+            .graph
+            .loaders
+            .get(target)
+            .and_then(|s| s.mounted_prefix.clone());
+
+        let prev_format_version = project.format_version;
+        let prev_sym_len = project.symbols.len();
+        let prev_res_len = project.resources.len();
+        project.format_version = project.format_version.max(flat_child.format_version).max(2);
+        project.symbols.extend(remapped_symbols);
+        project.resources.extend(remapped_resources);
+
+        let budget_res = super::linked::symbol_budget(
+            project,
+            &root_symbol_id,
+            &mut BTreeSet::new(),
+            &mut HashMap::new(),
+        );
+        let (nodes, depth) = match budget_res {
+            Ok(v) => v,
+            Err(err) => {
+                project.format_version = prev_format_version;
+                project.symbols.truncate(prev_sym_len);
+                project.resources.truncate(prev_res_len);
+                return Err(err);
+            }
+        };
+        if nodes
+            + self
+                .graph
+                .namespaces
+                .values()
+                .map(|ns| ns.nodes)
+                .sum::<usize>()
+            > 100_000
+        {
+            project.format_version = prev_format_version;
+            project.symbols.truncate(prev_sym_len);
+            project.resources.truncate(prev_res_len);
+            return Err(error(
+                "Mounted published timelines exceed 100000 reserved objects",
+            ));
+        }
+
+        let mutation = match self.loader_replace_with_payload(
+            project,
+            target,
+            Some(LoaderPayload::PublishedClip {
+                prefix: prefix.clone(),
+                root_symbol_id: root_symbol_id.clone(),
+                nodes,
+                depth,
+            }),
+            as2_replace,
+        ) {
+            Ok(m) => m,
+            Err(err) => {
+                project.format_version = prev_format_version;
+                project.symbols.truncate(prev_sym_len);
+                project.resources.truncate(prev_res_len);
+                return Err(err);
+            }
+        };
+
+        if let Some(old_p) = old_prefix {
+            self.prune_unused_published_prefix(project, &old_p);
+        }
+
+        Ok(MountedPublishResult {
+            mutation,
+            prefix,
+            root_symbol_id,
+            symbol_id_map,
+            resource_id_map,
+            width: flat_child.width,
+            height: flat_child.height,
+            fps: flat_child.fps,
         })
     }
 }
@@ -493,6 +900,12 @@ enum LoaderPayload {
         width: u32,
         height: u32,
         bg_color: Option<u32>,
+    },
+    PublishedClip {
+        prefix: String,
+        root_symbol_id: String,
+        nodes: usize,
+        depth: usize,
     },
 }
 
@@ -637,5 +1050,61 @@ mod tests {
         let stops = stream_stop_channels(&player.drain_sound_commands());
         assert_eq!(stops, starts);
         assert!(!player.object_alive(&outer));
+    }
+
+    #[test]
+    fn loader_mount_project_isolates_ids_steps_timeline_and_prunes_on_unload() {
+        let mut host_project = Project::blank();
+        let initial_syms = host_project.symbols.len();
+        let initial_res = host_project.resources.len();
+
+        let child_project = linked_stream_project();
+        let mut player = Player::new(&host_project);
+        let holder = player.create_display(DynamicKind::MovieClip).unwrap();
+
+        let mounted = player
+            .loader_mount_project(&mut host_project, &holder, child_project, true)
+            .expect("mount published child project");
+        assert!(mounted.prefix.starts_with("__nfpub_"));
+        assert!(host_project.symbols.len() > initial_syms);
+        assert!(host_project.resources.len() > initial_res);
+        host_project
+            .validate()
+            .expect("merged host project validates cleanly");
+
+        let content_ref = mounted.mutation.content_ref.expect("mounted content clip");
+        assert_eq!(content_ref, holder);
+        assert!(player.object_alive(&holder));
+
+        player
+            .loader_unload_published(&mut host_project, &holder, true, true)
+            .expect("unload published child project");
+        assert!(player.object_alive(&holder));
+        assert_eq!(player.object_frame_count(&host_project, &holder), Some(1));
+        assert_eq!(host_project.symbols.len(), initial_syms);
+        assert_eq!(host_project.resources.len(), initial_res);
+
+        // Also verify AS3 Loader (`as2_replace = false`) detaches & retires `content_ref`
+        let loader_obj = player.create_display(DynamicKind::Loader).unwrap();
+        let mounted_as3 = player
+            .loader_mount_project(
+                &mut host_project,
+                &loader_obj,
+                linked_stream_project(),
+                false,
+            )
+            .expect("mount published child project into AS3 Loader");
+        let as3_content = mounted_as3
+            .mutation
+            .content_ref
+            .expect("AS3 Loader content child");
+        assert_ne!(as3_content, loader_obj);
+        assert!(player.object_alive(&as3_content));
+        player
+            .loader_unload_published(&mut host_project, &loader_obj, false, true)
+            .expect("unloadAndStop AS3 Loader");
+        assert!(!player.object_alive(&as3_content));
+        assert_eq!(host_project.symbols.len(), initial_syms);
+        assert_eq!(host_project.resources.len(), initial_res);
     }
 }

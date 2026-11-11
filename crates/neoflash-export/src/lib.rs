@@ -1538,6 +1538,7 @@ pub(crate) fn prepare_with_config(
     let (published, scenes) = neoflash_core::flatten_scenes_with_ranges(project);
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
+    let avi_warnings = transcode_avi_resources_for_html5(&mut published);
     let video_manifest = neoflash_core::video_manifest_entries(&published);
     let external_videos = neoflash_core::strip_non_embedded_video_bytes(&mut published);
     let fonts = apply_font_policy(&mut published, font_policy);
@@ -1547,6 +1548,7 @@ pub(crate) fn prepare_with_config(
     }
     let runtime_id = shared_runtime_id(&bindings, &wasm);
     let mut warnings = export_warnings(project);
+    warnings.extend(avi_warnings);
     if font_policy == FontExportPolicy::Subset
         && fonts.subset_stats.iter().any(|stats| !stats.subset_applied)
     {
@@ -1568,6 +1570,115 @@ pub(crate) fn prepare_with_config(
         wasm,
         runtime_id,
     })
+}
+
+fn transcode_avi_resources_for_html5(project: &mut Project) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let ffmpeg = video::detect_ffmpeg();
+    let mut path_renames: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for resource in &mut project.resources {
+        let is_avi_mime = resource.media_type.eq_ignore_ascii_case("video/x-msvideo")
+            || resource.media_type.eq_ignore_ascii_case("video/avi");
+        let Ok(raw_bytes) = resource.decoded_bytes() else {
+            continue;
+        };
+        if raw_bytes.is_empty() || (!is_avi_mime && !neoflash_core::is_avi_bytes(&raw_bytes)) {
+            continue;
+        }
+        let Some(ffmpeg_bin) = ffmpeg.as_ref() else {
+            warnings.push(format!(
+                "AVI video '{}' kept in RIFF/AVI container (install ffmpeg for H.264 MP4 transcoding; MJPEG/PNG/RGB AVI plays via Canvas fallback).",
+                resource.path
+            ));
+            continue;
+        };
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let temp_dir = std::env::temp_dir().join(format!(
+            "neoflash-avi-transcode-{}-{nonce}",
+            std::process::id()
+        ));
+        if std::fs::create_dir_all(&temp_dir).is_err() {
+            continue;
+        }
+        let in_path = temp_dir.join("input.avi");
+        let out_path = temp_dir.join("output.mp4");
+        let transcoded = std::fs::write(&in_path, &raw_bytes).ok().and_then(|()| {
+            let status = std::process::Command::new(ffmpeg_bin)
+                .args([
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    in_path.to_str()?,
+                    "-vf",
+                    "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                    out_path.to_str()?,
+                ])
+                .status()
+                .ok()?;
+            if status.success() {
+                std::fs::read(&out_path).ok()
+            } else {
+                None
+            }
+        });
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        if let Some(mp4_bytes) = transcoded
+            && !mp4_bytes.is_empty()
+            && mp4_bytes.len() <= neoflash_core::MAX_RESOURCE_BYTES
+        {
+            let old_path = resource.path.clone();
+            let stem = old_path
+                .strip_suffix(".avi")
+                .or_else(|| old_path.strip_suffix(".AVI"))
+                .unwrap_or(&old_path);
+            let mut next_path = format!("{stem}.mp4");
+            let mut seq = 2usize;
+            while next_path != old_path && path_renames.values().any(|v| v == &next_path) {
+                next_path = format!("{stem}-{seq}.mp4");
+                seq += 1;
+            }
+            path_renames.insert(old_path, next_path.clone());
+            resource.path = next_path;
+            resource.media_type = "video/mp4".to_owned();
+            resource.data_base64 = STANDARD.encode(&mp4_bytes).into();
+        } else {
+            warnings.push(format!(
+                "AVI video '{}' could not be transcoded to H.264 MP4 by ffmpeg; preserving RIFF/AVI fallback.",
+                resource.path
+            ));
+        }
+    }
+    if !path_renames.is_empty() {
+        for symbol in &mut project.symbols {
+            for layer in &mut symbol.timeline.layers {
+                for key in &mut layer.keyframes {
+                    if let Some(video) = &mut key.video
+                        && let Some(ext) = &mut video.external_path
+                        && let Some(next) = path_renames.get(ext)
+                    {
+                        *ext = next.clone();
+                    }
+                }
+            }
+        }
+    }
+    warnings
 }
 
 fn apply_bitmap_jpeg_quality(project: &mut Project, default_quality: u8) {
