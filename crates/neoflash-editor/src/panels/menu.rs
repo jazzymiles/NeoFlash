@@ -343,7 +343,8 @@ impl Editor {
                 ui.horizontal_centered(|ui| {
                     // Figma: logo, 4 pt, product name (Title), then the menu titles.
                     ui.spacing_mut().item_spacing.x = 4.;
-                    neoflash_ui::components::logo(ui, 28.);
+                    let logo_side = neoflash_ui::metrics::density().pick(28.0, 22.0, 18.0);
+                    neoflash_ui::components::logo(ui, logo_side);
                     ui.label(
                         neoflash_ui::typography::rich("NeoFlash", neoflash_ui::TextStyle::Title)
                             .color(nf.text_primary),

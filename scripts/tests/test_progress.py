@@ -215,10 +215,11 @@ class ProgressTests(unittest.TestCase):
         progress.reports(self.root, categories, features, write=True)
         progress.reports(self.root, categories, features)
         readme = (self.root / "README.md").read_text()
-        self.assertIn("| 1. Mathematics and 2D geometry | 2 | 1 | 1 | 0 | 0 | 50.0% | 100.0% |", readme)
-        self.assertIn("Outside the target and never in a percentage: AS2 UI components 2", readme)
+        self.assertIn("| ActionScript 2 — Flash Player | 1 of 2 (50.0%) | 1 of 2 (50.0%) | 1 / 0 | AS2 UI components 2", readme)
         self.assertNotIn("ActionScript 3 — Flash Player", readme)
+        self.assertNotIn("history.html", readme)
         report = (self.root / "docs/progress/ACTIONSCRIPT.md").read_text()
+        self.assertIn("| 1. Mathematics and 2D geometry | 2 | 1 | 1 | 0 | 0 | 50.0% | 100.0% |", report)
         self.assertIn("## Full reference catalogue", report)
         self.write("docs/progress/ACTIONSCRIPT.md", "Outdated audit report.\n")
         with self.assertRaisesRegex(ValueError, "stale"):

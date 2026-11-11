@@ -411,3 +411,65 @@ test('flash.ui Keyboard, KeyLocation, KeyboardType, Mouse and MouseCursor contra
   assert.equal(HostMouse.cursor, 'auto');
   assert.equal(HostKeyboard.capsLock, false);
 });
+
+test('plain interactive clicks never draw focus-rect chrome while keyboard focus and explicit focusRect still do (T-214)', async () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const { resolve } = require('node:path');
+  const root = resolve(__dirname, '../..');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+  const context = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
+  vm.runInContext(fs.readFileSync(resolve(root, 'target/web-runtime/neoflash_web.js'), 'utf8'), context);
+  context.wasmBytes = fs.readFileSync(resolve(root, 'target/web-runtime/neoflash_web_bg.wasm'));
+  const wasm = await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)', context);
+  const project = JSON.parse(fs.readFileSync(resolve(root, 'examples/display-family.nflash'), 'utf8'));
+  project.sources = [];
+  delete project.document_class;
+  for (const sym of project.symbols) {
+    delete sym.class_name;
+    sym.timeline.frame_scripts = [];
+    for (const layer of sym.timeline.layers) {
+      for (const kf of layer.keyframes) {
+        delete kf.script;
+        delete kf.actions;
+        kf.scripts = [];
+        for (const el of kf.elements) el.scripts = [];
+      }
+    }
+  }
+  const player = new wasm.WebPlayer(JSON.stringify(project));
+  player.scripts_json();
+  player.runtime_scripts_json?.();
+  const { host } = createRuntimeHost(root, player, [], { project });
+  const rootClip = host.proxyFor([]), btn = rootClip.widget, stage = rootClip.stage;
+
+  // 1. Mouse pointerdown focuses btn for events, but focusReason is 'mouse' -> NO #ffcc00 focus box!
+  host.stage().handlePointer('pointerdown', { clientX: 50, clientY: 60, button: 0, buttons: 1 }, btn);
+  assert.equal(stage.focus, btn);
+  assert.equal(host.stage().focusReason(), 'mouse');
+  assert.equal(host.display().as2FocusBounds(), null, 'mouse pointer click on plain interactive clip must never draw focus rectangle');
+
+  // 2. Default AS3 programmatic stage.focus = btn without focusRect=true -> NO #ffcc00 focus box!
+  stage.focus = null;
+  stage.focus = btn;
+  assert.equal(host.stage().focusReason(), 'programmatic');
+  assert.equal(host.display().as2FocusBounds(), null, 'plain programmatic focus without focusRect opt-in does not draw focus rectangle');
+
+  // 3. Keyboard Tab focus ('key') DOES draw focus rectangle when stageFocusRect is true
+  host.stage().changeFocus(btn, 'key', {});
+  assert.equal(host.stage().focusReason(), 'key');
+  const keyBounds = host.display().as2FocusBounds();
+  assert.ok(keyBounds && keyBounds.width > 0 && keyBounds.height > 0, 'keyboard focus shows focus bounds');
+
+  // 4. Subsequent mouse click on the same object clears keyboard focus chrome immediately
+  host.stage().handlePointer('pointerdown', { clientX: 50, clientY: 60, button: 0, buttons: 1 }, btn);
+  assert.equal(host.stage().focusReason(), 'mouse');
+  assert.equal(host.display().as2FocusBounds(), null, 'mouse click on already-focused object hides keyboard focus ring');
+
+  // 5. Explicit focusRect = true with programmatic focus shows focus bounds
+  btn.focusRect = true;
+  stage.focus = null;
+  stage.focus = btn;
+  const explicitBounds = host.display().as2FocusBounds();
+  assert.ok(explicitBounds && explicitBounds.width > 0 && explicitBounds.height > 0, 'explicit focusRect=true shows focus bounds on programmatic focus');
+});

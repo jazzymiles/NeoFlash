@@ -3203,7 +3203,80 @@ fn write_palette_css_vars(p: &Palette, out: &mut String) {
     }
 }
 
+fn convert_svg_var_attrs_to_css_style(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + 512);
+    let mut rest = raw;
+    while let Some(lt) = rest.find('<') {
+        out.push_str(&rest[..lt]);
+        let after_lt = &rest[lt..];
+        let Some(gt_rel) = after_lt.find('>') else {
+            out.push_str(after_lt);
+            return out;
+        };
+        let tag = &after_lt[..=gt_rel];
+        rest = &after_lt[gt_rel + 1..];
+        if tag.starts_with("</")
+            || tag.starts_with("<!")
+            || (!tag.contains("fill=\"var(") && !tag.contains("stroke=\"var("))
+        {
+            out.push_str(tag);
+            continue;
+        }
+        let self_closing = tag.ends_with("/>");
+        let inner_end = if self_closing {
+            tag.len() - 2
+        } else {
+            tag.len() - 1
+        };
+        let mut inner = tag[1..inner_end].to_owned();
+        let mut styles: Vec<String> = Vec::new();
+        for attr in ["fill", "stroke"] {
+            let needle = format!("{attr}=\"var(");
+            if let Some(start) = inner.find(&needle) {
+                let val_start = start + attr.len() + 2;
+                if let Some(val_end_rel) = inner[val_start..].find('"') {
+                    let val = inner[val_start..val_start + val_end_rel].to_owned();
+                    styles.push(format!("{attr}:{val}"));
+                    let remove_end = val_start + val_end_rel + 1;
+                    let remove_start = if start > 0 && inner.as_bytes()[start - 1] == b' ' {
+                        start - 1
+                    } else {
+                        start
+                    };
+                    inner.replace_range(remove_start..remove_end, "");
+                }
+            } else if attr == "fill"
+                && let Some(start) = inner.find("fill=\"none\"")
+            {
+                styles.push("fill:none".to_owned());
+                let remove_end = start + "fill=\"none\"".len();
+                let remove_start = if start > 0 && inner.as_bytes()[start - 1] == b' ' {
+                    start - 1
+                } else {
+                    start
+                };
+                inner.replace_range(remove_start..remove_end, "");
+            }
+        }
+        out.push('<');
+        out.push_str(inner.trim_end());
+        if !styles.is_empty() {
+            out.push_str(" style=\"");
+            out.push_str(&styles.join(";"));
+            out.push('"');
+        }
+        if self_closing {
+            out.push_str("/>");
+        } else {
+            out.push('>');
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn write_chapter_svg_illustration(index: usize, out: &mut String) {
+    let svg_start = out.len();
     let caption = match index {
         0 => {
             "Illustration 1.1: Stage inside Pasteboard overlaid with NF2 Rulers, Ruler Corner (0,0), Cyan Guides, Stage Grid, and Selection Snap Ring."
@@ -3266,7 +3339,7 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
     let view_h = if index == 12 { 156 } else { 136 };
     let _ = write!(
         out,
-        "<figure class=\"diagram-card\"><svg class=\"chapter-svg\" viewBox=\"0 0 680 {view_h}\" role=\"img\" aria-label=\"Chapter {} illustration\">",
+        "<figure class=\"diagram-card\"><svg xmlns=\"http://www.w3.org/2000/svg\" class=\"chapter-svg\" width=\"680\" height=\"{view_h}\" viewBox=\"0 0 680 {view_h}\" role=\"img\" aria-label=\"Chapter {} illustration\">",
         index + 1
     );
     let _ = write!(
@@ -3651,37 +3724,74 @@ fn write_chapter_svg_illustration(index: usize, out: &mut String) {
     out.push_str("</svg><figcaption class=\"diagram-caption\">");
     super::help_manual::escape_html(caption, out);
     out.push_str("</figcaption></figure>");
+    let normalized = convert_svg_var_attrs_to_css_style(&out[svg_start..]);
+    out.replace_range(svg_start.., &normalized);
 }
 
 fn write_as_chapter_reference_html(index: usize, out: &mut String) {
     match index {
         10 => {
             out.push_str(
-                "<h3>AS1 / AS2 Timeline &amp; Instance Code Example</h3>\
+                "<h3>AS1 / AS2 Timeline &amp; Instance Handlers Quick Reference</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Construct / API</th><th>Scope</th><th>Behavior</th></tr></thead><tbody>\
+                 <tr><td><code>play / stop / gotoAndPlay / gotoAndStop</code></td><td>Timeline &amp; MovieClip</td><td>1-based frame index or frame label navigation on <code>this</code>, <code>_root</code>, <code>_parent</code>, or child clips.</td></tr>\
+                 <tr><td><code>on(release | press | rollOver | keyPress)</code></td><td>Button / MovieClip instance</td><td>Attached classic object handlers executing in the owning timeline or clip scope.</td></tr>\
+                 <tr><td><code>onClipEvent(load | enterFrame | mouseDown)</code></td><td>MovieClip instance</td><td>Lifecycle and per-frame hooks with <code>this</code> bound to the placed MovieClip instance.</td></tr>\
+                 <tr><td><code>attachMovie / duplicateMovieClip / removeMovieClip</code></td><td>MovieClip depth zone</td><td>Dynamic symbol instantiation and teardown across AVM1 dynamic depths.</td></tr>\
+                 </tbody></table>\
+                 <h3>AS1 / AS2 Timeline &amp; Instance Code Example</h3>\
                  <pre class=\"code-block\"><code>stop();\nvar depth:Number = this.getNextHighestDepth();\nvar coin:MovieClip = this.attachMovie(\"CoinSymbol\", \"coin_\" + depth, depth, {_x: 320, _y: 180});\nhero_mc.onEnterFrame = function():Void {\n    if (Key.isDown(Key.RIGHT)) { this._x += 5; }\n    if (this.hitTest(_root.coin._x, _root.coin._y, true)) {\n        _root.coin.removeMovieClip();\n    }\n};</code></pre>",
             );
         }
         11 => {
             out.push_str(
-                "<h3>AS2 Procedural Drawing, TextFormat &amp; BitmapData Example</h3>\
+                "<h3>AS2 Core Runtime Classes Quick Reference</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Class / Object</th><th>Package</th><th>Key Members</th></tr></thead><tbody>\
+                 <tr><td><code>MovieClip</code> (Drawing API)</td><td>Top-level</td><td><code>createEmptyMovieClip</code>, <code>lineStyle</code>, <code>beginFill</code>, <code>beginGradientFill</code>, <code>moveTo</code>, <code>lineTo</code>, <code>curveTo</code>, <code>endFill</code>.</td></tr>\
+                 <tr><td><code>TextField &amp; TextFormat</code></td><td>Top-level</td><td><code>createTextField</code>, <code>text</code>, <code>htmlText</code>, <code>setTextFormat</code>, <code>setNewTextFormat</code>, <code>autoSize</code>, <code>wordWrap</code>.</td></tr>\
+                 <tr><td><code>BitmapData / Matrix / ColorTransform</code></td><td><code>flash.display</code>, <code>flash.geom</code></td><td><code>draw</code>, <code>copyPixels</code>, <code>fillRect</code>, <code>getPixel32</code>, <code>perlinNoise</code>, <code>threshold</code>.</td></tr>\
+                 <tr><td><code>Sound / Stage / SharedObject / LoadVars</code></td><td>Top-level</td><td><code>attachSound</code>, <code>loadSound</code>, <code>Stage.scaleMode</code>, <code>Stage.align</code>, <code>Stage.displayState</code>, <code>getLocal</code>.</td></tr>\
+                 </tbody></table>\
+                 <h3>AS2 Procedural Drawing, TextFormat &amp; BitmapData Example</h3>\
                  <pre class=\"code-block\"><code>import flash.display.BitmapData;\nimport flash.geom.Matrix;\nvar canvas:MovieClip = this.createEmptyMovieClip(\"badge_mc\", this.getNextHighestDepth());\ncanvas.lineStyle(2, 0x6C93FF, 100);\ncanvas.beginFill(0x1F2A48, 95);\ncanvas.moveTo(20, 20); canvas.lineTo(180, 20); canvas.lineTo(180, 70); canvas.lineTo(20, 70); canvas.endFill();\nthis.createTextField(\"label_txt\", this.getNextHighestDepth(), 32, 32, 140, 28);\nlabel_txt.text = \"READY PLAYER ONE\";\nlabel_txt.setTextFormat(new TextFormat(\"Inter\", 14, 0xFFFFFF, true));</code></pre>",
             );
         }
         12 => {
             out.push_str(
-                "<h3>AS3 Display List &amp; Coordinate Space Example</h3>\
+                "<h3>AS3 Display List Hierarchy Quick Reference</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Class</th><th>Package</th><th>Capabilities</th></tr></thead><tbody>\
+                 <tr><td><code>DisplayObject</code></td><td><code>flash.display</code></td><td><code>x</code>, <code>y</code>, <code>scaleX</code>, <code>scaleY</code>, <code>rotation</code>, <code>alpha</code>, <code>visible</code>, <code>filters</code>, <code>mask</code>, <code>localToGlobal</code>, <code>getBounds</code>.</td></tr>\
+                 <tr><td><code>InteractiveObject</code></td><td><code>flash.display</code></td><td><code>mouseEnabled</code>, <code>tabEnabled</code>, <code>tabIndex</code>, <code>doubleClickEnabled</code>, keyboard &amp; pointer focus.</td></tr>\
+                 <tr><td><code>DisplayObjectContainer / Sprite</code></td><td><code>flash.display</code></td><td><code>addChild</code>, <code>addChildAt</code>, <code>removeChild</code>, <code>swapChildren</code>, <code>graphics</code>, <code>buttonMode</code>, <code>startDrag</code>.</td></tr>\
+                 <tr><td><code>MovieClip &amp; Stage</code></td><td><code>flash.display</code></td><td><code>currentFrame</code>, <code>currentLabel</code>, <code>totalFrames</code>, <code>stage.scaleMode</code>, <code>stage.align</code>, <code>stage.displayState</code>.</td></tr>\
+                 </tbody></table>\
+                 <h3>AS3 Display List &amp; Coordinate Space Example</h3>\
                  <pre class=\"code-block\"><code>package {\n    import flash.display.Sprite;\n    import flash.events.Event;\n    import flash.geom.Point;\n    public class Main extends Sprite {\n        public function Main() {\n            addEventListener(Event.ADDED_TO_STAGE, init);\n        }\n        private function init(e:Event):void {\n            var child:Sprite = new Sprite();\n            child.x = 120; child.y = 80;\n            addChild(child);\n            var globalPt:Point = child.localToGlobal(new Point(0, -18));\n            trace(\"Global position:\", globalPt.x, globalPt.y);\n        }\n    }\n}</code></pre>",
             );
         }
         13 => {
             out.push_str(
-                "<h3>AS3 3-Phase Events, Stage Keyboard &amp; Timer Example</h3>\
+                "<h3>AS3 Event Model &amp; Frame Lifecycle Quick Reference</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Event Class</th><th>Constants</th><th>Notes</th></tr></thead><tbody>\
+                 <tr><td><code>Event</code></td><td><code>ADDED_TO_STAGE</code>, <code>ENTER_FRAME</code>, <code>RESIZE</code>, <code>COMPLETE</code></td><td>3-phase W3C propagation (Capture → Target → Bubble); deterministic frame tick order.</td></tr>\
+                 <tr><td><code>MouseEvent</code></td><td><code>CLICK</code>, <code>MOUSE_DOWN</code>, <code>MOUSE_UP</code>, <code>MOUSE_MOVE</code>, <code>ROLL_OVER</code></td><td>Provides <code>localX/Y</code>, <code>stageX/Y</code>, <code>buttonDown</code>, <code>delta</code>; honors <code>Stage.align</code> &amp; fullscreen transforms.</td></tr>\
+                 <tr><td><code>KeyboardEvent / FullScreenEvent</code></td><td><code>KEY_DOWN</code>, <code>KEY_UP</code>, <code>FULL_SCREEN</code></td><td>Stage-dispatched keyboard input and fullscreen transitions (<code>StageDisplayState</code>).</td></tr>\
+                 <tr><td><code>Timer &amp; TimerEvent</code></td><td><code>TIMER</code>, <code>TIMER_COMPLETE</code></td><td>Repeatable millisecond intervals with <code>currentCount</code>, <code>reset()</code>, <code>start()</code>, and <code>stop()</code>.</td></tr>\
+                 </tbody></table>\
+                 <h3>AS3 3-Phase Events, Stage Keyboard &amp; Timer Example</h3>\
                  <pre class=\"code-block\"><code>import flash.events.MouseEvent;\nimport flash.events.KeyboardEvent;\nimport flash.events.TimerEvent;\nimport flash.utils.Timer;\ncard_mc.buttonMode = true;\ncard_mc.mouseChildren = false;\ncard_mc.addEventListener(MouseEvent.MOUSE_DOWN, function(e:MouseEvent):void { card_mc.startDrag(); });\nstage.addEventListener(MouseEvent.MOUSE_UP, function(e:MouseEvent):void { card_mc.stopDrag(); });\nvar timer:Timer = new Timer(500, 10);\ntimer.addEventListener(TimerEvent.TIMER, function(e:TimerEvent):void { trace(timer.currentCount); });\ntimer.start();</code></pre>",
             );
         }
         14 => {
             out.push_str(
-                "<h3>AS3 Graphics, GlowFilter, SoundChannel &amp; E4X XML Example</h3>\
+                "<h3>AS3 Graphics, Filters, Media &amp; Data Quick Reference</h3>\
+                 <table class=\"ref-table\"><thead><tr><th>Subsystem</th><th>Classes</th><th>Capabilities</th></tr></thead><tbody>\
+                 <tr><td>Vector Graphics</td><td><code>Graphics</code>, <code>GradientType</code></td><td><code>drawRect</code>, <code>drawRoundRect</code>, <code>drawCircle</code>, <code>drawEllipse</code>, <code>cubicCurveTo</code>, <code>drawPath</code>.</td></tr>\
+                 <tr><td>Live Filters</td><td><code>BlurFilter</code>, <code>GlowFilter</code>, <code>DropShadowFilter</code>, <code>ColorMatrixFilter</code></td><td>Composable per-display-object filter chains matching authored NF2 filter stacks.</td></tr>\
+                 <tr><td>Media &amp; Loading</td><td><code>Sound</code>, <code>SoundChannel</code>, <code>Loader</code>, <code>URLRequest</code>, <code>NetStream</code></td><td>Runtime loading of SWF, published NeoFlash bundles, MP3, WAV, MP4, AVI, SVG, and bitmaps.</td></tr>\
+                 <tr><td>Binary &amp; XML</td><td><code>ByteArray</code>, <code>XML</code>, <code>XMLList</code>, <code>SharedObject</code></td><td>Big/little-endian binary streams, E4X filtering, and persistent local state.</td></tr>\
+                 </tbody></table>\
+                 <h3>AS3 Graphics, GlowFilter, SoundChannel &amp; E4X XML Example</h3>\
                  <pre class=\"code-block\"><code>import flash.display.Sprite;\nimport flash.filters.GlowFilter;\nimport flash.media.Sound;\nimport flash.media.SoundTransform;\nvar orb:Sprite = new Sprite();\norb.graphics.beginFill(0x3C6BF0, 0.85);\norb.graphics.drawCircle(0, 0, 36);\norb.graphics.endFill();\norb.filters = [new GlowFilter(0x6C93FF, 0.9, 16, 16, 2, 2)];\naddChild(orb);\nvar xml:XML = &lt;items&gt;&lt;weapon id=\"railgun\" dmg=\"90\"/&gt;&lt;/items&gt;;\ntrace(xml.weapon.(Number(@dmg) &gt;= 50).@id);</code></pre>",
             );
         }
@@ -3764,14 +3874,42 @@ const fn browser_theme_label(theme: Theme) -> &'static str {
 }
 
 pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
+    render_browser_help_html_for_route(initial_theme, None, None, None)
+}
+
+pub(crate) fn render_browser_help_html_for_route(
+    initial_theme: Theme,
+    initial_mode: Option<super::help_manual::HelpManualMode>,
+    active_page: Option<usize>,
+    active_tag: Option<&str>,
+) -> String {
+    use super::help_manual::HelpManualMode;
     let hash = char::from(35u8);
-    let mut html = String::with_capacity(81_920);
+    let clamped_page = active_page.map(|p| p.min(HELP_CHAPTERS.len().saturating_sub(1)));
+    let initial_mode_slug = match initial_mode {
+        None => "ALL",
+        Some(HelpManualMode::AuthoringHelp) => "AUTHORING",
+        Some(HelpManualMode::ScriptingReference) => "SCRIPTING",
+    };
+    let initial_tag = active_tag
+        .filter(|t| HELP_ALL_TAGS.contains(t))
+        .unwrap_or("ALL");
+    let page_title = match initial_mode {
+        Some(HelpManualMode::ScriptingReference) => {
+            "NeoFlash Scripting Reference — NeoFlash Help &amp; Reference"
+        }
+        Some(HelpManualMode::AuthoringHelp) => {
+            "NeoFlash Authoring Manual — NeoFlash Help &amp; Reference"
+        }
+        None => "NeoFlash Help &amp; Reference",
+    };
+    let mut html = String::with_capacity(98_304);
     let _ = write!(
         html,
-        "<!doctype html><html lang=\"en\" data-initial-theme=\"{}\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"en\" data-initial-theme=\"{}\" data-initial-mode=\"{initial_mode_slug}\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
          <meta name=\"color-scheme\" content=\"dark light\">\
-         <title>NeoFlash Help &amp; Reference</title><style>",
+         <title>{page_title}</title><style>",
         browser_theme_slug(initial_theme)
     );
     html.push_str(":root{");
@@ -3819,7 +3957,8 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
          nav.sidebar a:hover{background:var(--bg-hover);color:var(--accent-default)}\
          main{display:flex;flex-direction:column;gap:20px;min-width:0}\
          section.chapter-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:20px;scroll-margin-top:84px}\
-         section.chapter-card:target{border-color:var(--accent-default)}\
+         section.chapter-card:target,section.chapter-card.is-opened-chapter{border-color:var(--accent-default);box-shadow:0 0 0 1px var(--accent-default)}\
+         nav.sidebar a.is-opened-nav{background:var(--accent-subtle);color:var(--accent-default);font-weight:600}\
          .chapter-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--border-subtle);padding-bottom:10px;margin-bottom:12px}\
          .chapter-head h2{margin:0;font-size:16px;font-weight:600;color:var(--text-primary)}\
          .chapter-sub{margin:4px 0 10px;color:var(--text-secondary);font-size:12px}\
@@ -3850,12 +3989,18 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
         );
     }
     html.push_str(
-        ".help-shell:has(input[data-tag=\"ALL\"]:checked) label[data-tag-pill=\"ALL\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}",
+        ".help-shell:has(input[data-tag=\"ALL\"]:checked) label[data-tag-pill=\"ALL\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}\
+         .help-shell:has(input[data-mode=\"ALL\"]:checked) label[data-mode-pill=\"ALL\"],\
+         .help-shell:has(input[data-mode=\"AUTHORING\"]:checked) label[data-mode-pill=\"AUTHORING\"],\
+         .help-shell:has(input[data-mode=\"SCRIPTING\"]:checked) label[data-mode-pill=\"SCRIPTING\"]{background:var(--accent-subtle);color:var(--accent-default);border-color:var(--accent-default)}\
+         .help-shell:has(input[data-mode=\"AUTHORING\"]:checked) section.chapter-card[data-section=\"scripting\"],\
+         .help-shell:has(input[data-mode=\"AUTHORING\"]:checked) nav.sidebar li[data-section=\"scripting\"]{display:none}\
+         .help-shell:has(input[data-mode=\"SCRIPTING\"]:checked) section.chapter-card[data-section=\"authoring\"],\
+         .help-shell:has(input[data-mode=\"SCRIPTING\"]:checked) nav.sidebar li[data-section=\"authoring\"]{display:none}",
     );
     html.push_str("</style></head><body>");
 
-    // Theme and tag filters remain fully declarative. Four labels occupy the same header slot, but
-    // CSS exposes only the label for the selected theme; activating it selects the next palette.
+    // Theme, section-mode and tag filters remain 100% declarative (zero <script>).
     for theme in Theme::ALL {
         let _ = write!(
             html,
@@ -3869,14 +4014,28 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
             }
         );
     }
-    html.push_str(
-        "<div class=\"help-shell\">\
-         <input type=\"radio\" name=\"nf2-tag\" id=\"nf2-tag-ALL\" data-tag=\"ALL\" class=\"sr-toggle\" checked>",
+    html.push_str("<div class=\"help-shell\">");
+    for mode_slug in ["ALL", "AUTHORING", "SCRIPTING"] {
+        let _ = write!(
+            html,
+            "<input type=\"radio\" name=\"nf2-mode\" id=\"nf2-mode-{mode_slug}\" data-mode=\"{mode_slug}\" class=\"sr-toggle\" {}>",
+            if mode_slug == initial_mode_slug {
+                "checked"
+            } else {
+                ""
+            }
+        );
+    }
+    let _ = write!(
+        html,
+        "<input type=\"radio\" name=\"nf2-tag\" id=\"nf2-tag-ALL\" data-tag=\"ALL\" class=\"sr-toggle\" {}>",
+        if initial_tag == "ALL" { "checked" } else { "" }
     );
     for tag in HELP_ALL_TAGS {
         let _ = write!(
             html,
-            "<input type=\"radio\" name=\"nf2-tag\" id=\"nf2-tag-{tag}\" data-tag=\"{tag}\" class=\"sr-toggle\">"
+            "<input type=\"radio\" name=\"nf2-tag\" id=\"nf2-tag-{tag}\" data-tag=\"{tag}\" class=\"sr-toggle\" {}>",
+            if *tag == initial_tag { "checked" } else { "" }
         );
     }
 
@@ -3884,16 +4043,38 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
         "<header class=\"top-header\" id=\"top\"><div>\
          <h1>NeoFlash Help &amp; Reference</h1>\
          <p>Illustrated NF2 Authoring Manual (Chapters 1–10) &amp; Scripting Reference: AS1/AS2, AS3, JavaScript, TypeScript &amp; Web APIs (Chapters 11–19).</p>\
-         </div>\
-         <label for=\"nf2-theme-light\" class=\"theme-btn theme-from-dark\" aria-label=\"Switch Help theme from Dark to Light\">Theme: Dark</label>\
+         </div><div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap\">",
+    );
+    if let Some(page) = clamped_page {
+        let _ = write!(
+            html,
+            "<a class=\"cross-link\" href=\"{hash}chapter-{}\">Opened: Chapter {} →</a>",
+            page + 1,
+            page + 1
+        );
+    }
+    html.push_str(
+        "<label for=\"nf2-theme-light\" class=\"theme-btn theme-from-dark\" aria-label=\"Switch Help theme from Dark to Light\">Theme: Dark</label>\
          <label for=\"nf2-theme-mid-neutral-gray\" class=\"theme-btn theme-from-light\" aria-label=\"Switch Help theme from Light to Mid Neutral Gray\">Theme: Light</label>\
          <label for=\"nf2-theme-dark-graphite\" class=\"theme-btn theme-from-mid-neutral-gray\" aria-label=\"Switch Help theme from Mid Neutral Gray to Dark Graphite\">Theme: Mid Neutral Gray</label>\
          <label for=\"nf2-theme-dark\" class=\"theme-btn theme-from-dark-graphite\" aria-label=\"Switch Help theme from Dark Graphite to Dark\">Theme: Dark Graphite</label>\
-         </header>",
+         </div></header>",
     );
 
-    // Interactive Tag Filter Bar
-    html.push_str("<div class=\"tag-bar\" role=\"toolbar\" aria-label=\"Filter by topic tag\"><span class=\"tag-bar-label\">Filter by Tag:</span>");
+    // Interactive Section Mode + Tag Filter Bar
+    let _ = write!(
+        html,
+        "<div class=\"tag-bar\" role=\"toolbar\" aria-label=\"Filter by section and topic tag\">\
+         <span class=\"tag-bar-label\">Section:</span>\
+         <label for=\"nf2-mode-ALL\" data-mode-pill=\"ALL\" class=\"tag-pill\">All Chapters ({})</label>\
+         <label for=\"nf2-mode-AUTHORING\" data-mode-pill=\"AUTHORING\" class=\"tag-pill\">Authoring Manual (1–{})</label>\
+         <label for=\"nf2-mode-SCRIPTING\" data-mode-pill=\"SCRIPTING\" class=\"tag-pill\">Scripting Reference ({}–{})</label>\
+         <span class=\"tag-bar-label\" style=\"margin-left:10px\">Tag:</span>",
+        HELP_CHAPTERS.len(),
+        AUTHORING_CHAPTER_COUNT,
+        AUTHORING_CHAPTER_COUNT + 1,
+        HELP_CHAPTERS.len()
+    );
     let _ = write!(
         html,
         "<label for=\"nf2-tag-ALL\" data-tag-pill=\"ALL\" class=\"tag-pill\">All ({})</label>",
@@ -3910,16 +4091,32 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
     html.push_str("<div class=\"layout\"><nav class=\"sidebar\" aria-label=\"Chapters\"><ol>");
     for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
         if index == 0 {
-            html.push_str("<li class=\"nav-group\">Authoring Help (1–10)</li>");
+            html.push_str(
+                "<li class=\"nav-group\" data-section=\"authoring\">Authoring Help (1–10)</li>",
+            );
         } else if index == AUTHORING_CHAPTER_COUNT {
-            html.push_str("<li class=\"nav-group\">Scripting Ref — ActionScript</li>");
+            html.push_str(
+                "<li class=\"nav-group\" data-section=\"scripting\">Scripting Ref — ActionScript</li>",
+            );
         } else if index == 16 {
-            html.push_str("<li class=\"nav-group\">Scripting Ref — JS / TS / Web</li>");
+            html.push_str(
+                "<li class=\"nav-group\" data-section=\"scripting\">Scripting Ref — JS / TS / Web</li>",
+            );
         }
+        let section_slug = if index < AUTHORING_CHAPTER_COUNT {
+            "authoring"
+        } else {
+            "scripting"
+        };
+        let nav_cls = if clamped_page == Some(index) {
+            " class=\"is-opened-nav\""
+        } else {
+            ""
+        };
         let tags_joined = chapter.tags.join(" ");
         let _ = write!(
             html,
-            "<li class=\"chapter-nav-item\" data-tags=\"{tags_joined}\"><a href=\"{hash}chapter-{}\">",
+            "<li class=\"chapter-nav-item\" data-section=\"{section_slug}\" data-tags=\"{tags_joined}\"><a href=\"{hash}chapter-{}\"{nav_cls}>",
             index + 1
         );
         super::help_manual::escape_html(chapter.title, &mut html);
@@ -3927,8 +4124,22 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
     }
     html.push_str("</ol></nav><main>");
 
+    // When opened on a specific chapter (e.g. Chapter 14 inside Scripting Reference), render that
+    // opened chapter first when it isn't already the first visible chapter in the active section, OR
+    // keep natural order and highlight it — natural order with `#chapter-{n}` URL fragment scrolls
+    // directly to it while keeping sequential reading intact.
     for (index, chapter) in HELP_CHAPTERS.iter().enumerate() {
         let tags_joined = chapter.tags.join(" ");
+        let section_slug = if index < AUTHORING_CHAPTER_COUNT {
+            "authoring"
+        } else {
+            "scripting"
+        };
+        let card_cls = if clamped_page == Some(index) {
+            "chapter-card is-opened-chapter"
+        } else {
+            "chapter-card"
+        };
         let mode_badge = if index < AUTHORING_CHAPTER_COUNT {
             format!("Help Ch. {} of {}", index + 1, AUTHORING_CHAPTER_COUNT)
         } else {
@@ -3940,7 +4151,7 @@ pub(crate) fn render_full_browser_help_html(initial_theme: Theme) -> String {
         };
         let _ = write!(
             html,
-            "<section class=\"chapter-card\" id=\"chapter-{}\" data-tags=\"{tags_joined}\"><div class=\"chapter-head\"><h2>",
+            "<section class=\"{card_cls}\" id=\"chapter-{}\" data-section=\"{section_slug}\" data-tags=\"{tags_joined}\"><div class=\"chapter-head\"><h2>",
             index + 1
         );
         super::help_manual::escape_html(chapter.title, &mut html);

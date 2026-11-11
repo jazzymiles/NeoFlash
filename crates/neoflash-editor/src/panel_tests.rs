@@ -8130,3 +8130,372 @@ fn classic_flash_tools_modifiers_and_multicolumn_bottom_up_compaction() {
     assert_eq!(r2_fill_swapped, [0, 0, 0, 255]);
     assert_eq!(r2_stroke_swapped, [255, 255, 255, 255]);
 }
+
+#[test]
+fn top_bar_logo_scales_proportionally_without_stretching_bar_across_densities() {
+    use crate::workspace::DensityPref;
+    use neoflash_ui::metrics::Density;
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    for (pref, ui_density, expected_bar_h) in [
+        (DensityPref::Comfortable, Density::Comfortable, 48.0_f32),
+        (DensityPref::Compact, Density::Compact, 40.0_f32),
+        (DensityPref::ClassicFlash, Density::ClassicFlash, 32.0_f32),
+    ] {
+        editor.workspace.set_density(pref);
+        neoflash_ui::metrics::set_density(ui_density);
+        let mut bar_h = 0.0_f32;
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                editor.menu(ctx);
+                bar_h = ctx.available_rect().min.y;
+            },
+        );
+        assert!(
+            (bar_h - expected_bar_h).abs() <= 1.0,
+            "density {pref:?} must keep exact top bar height {expected_bar_h}pt, got {bar_h}"
+        );
+        for clipped in &out.shapes {
+            let b = clipped.shape.visual_bounding_rect();
+            if b.is_finite() && b.min.x < 60.0 {
+                assert!(
+                    b.max.y <= expected_bar_h + 0.5 && b.min.y >= -0.5,
+                    "top-left NeoFlash logo shape {b:?} must fit cleanly inside {expected_bar_h}pt top bar in {pref:?}"
+                );
+            }
+        }
+    }
+    neoflash_ui::metrics::set_density(Density::Comfortable);
+}
+
+#[test]
+fn output_panel_search_filters_rows_in_same_frame_and_preserves_full_log() {
+    fn collect_texts(shape: &egui::Shape, acc: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => acc.push(t.galley.job.text.clone()),
+            egui::Shape::Vec(v) => {
+                for s in v {
+                    collect_texts(s, acc);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.output = vec![
+        "[trace] alpha_first".into(),
+        "[error] beta_match\n[error] beta_second_line".into(),
+        "[trace] gamma_last".into(),
+    ];
+    let filter_id = egui::Id::new(("neoflash-output-filter", &editor.clipboard.session));
+    ctx.data_mut(|d| d.insert_temp::<String>(filter_id, "beta".into()));
+
+    let out = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.output_panel(ui);
+            });
+        },
+    );
+    let mut painted = Vec::new();
+    for c in &out.shapes {
+        collect_texts(&c.shape, &mut painted);
+    }
+    assert!(
+        painted.iter().any(|t| t == "[error] beta_match")
+            && painted.iter().any(|t| t == "[error] beta_second_line"),
+        "matching logical lines must render immediately, got: {painted:?}"
+    );
+    assert!(
+        !painted.iter().any(|t| t.contains("alpha_first"))
+            && !painted.iter().any(|t| t.contains("gamma_last")),
+        "non-matching lines must be hidden while filtering, got: {painted:?}"
+    );
+    assert_eq!(
+        editor.output.len(),
+        3,
+        "filtering Output must never mutate the underlying session log"
+    );
+
+    // Clicking Copy output while filtered copies only the visible filtered rows.
+    let copy_rect = named_bounds(&out, "Copy output").expect("Copy output button");
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            events: vec![
+                Event::PointerMoved(copy_rect.center()),
+                primary_button(copy_rect.center(), true),
+            ],
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.output_panel(ui);
+            });
+        },
+    );
+    let out_copy = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            events: vec![primary_button(copy_rect.center(), false)],
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.output_panel(ui);
+            });
+        },
+    );
+    assert!(
+        out_copy.platform_output.commands.iter().any(|cmd| matches!(
+            cmd,
+            egui::OutputCommand::CopyText(text)
+                if text == "[error] beta_match\n[error] beta_second_line"
+        )),
+        "Copy output must copy only matching visible rows, got: {:?}",
+        out_copy.platform_output.commands
+    );
+
+    ctx.data_mut(|d| d.insert_temp::<String>(filter_id, String::new()));
+    let out_unfiltered = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(720.0, 360.0))),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.output_panel(ui);
+            });
+        },
+    );
+    let mut painted_all = Vec::new();
+    for c in &out_unfiltered.shapes {
+        collect_texts(&c.shape, &mut painted_all);
+    }
+    assert!(painted_all.iter().any(|t| t == "[trace] alpha_first"));
+    assert!(painted_all.iter().any(|t| t == "[trace] gamma_last"));
+}
+
+#[test]
+fn stage_live_preview_clicks_execute_button_and_movieclip_instance_handlers() {
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    let root = project.root.clone();
+    project.symbol_mut(&root).unwrap().timeline.frame_count = 3;
+    project.symbol_mut(&root).unwrap().timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "stop();".into(),
+        },
+    }];
+
+    // Create a Button symbol and a MovieClip symbol.
+    let btn_sym_id: Id = "live-btn-sym".into();
+    let mut btn_sym = project.symbol(&root).unwrap().clone();
+    btn_sym.id = btn_sym_id.clone();
+    btn_sym.name = "LiveBtn".into();
+    btn_sym.kind = SymbolKind::Button;
+    btn_sym.timeline.frame_count = 4;
+    btn_sym.timeline.scripts.clear();
+    btn_sym.timeline.layers[0].id = "btn-layer".into();
+    btn_sym.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "btn-rect".into(),
+        kind: ElementKind::Rectangle {
+            width: 80.0,
+            height: 50.0,
+            fill: [40, 120, 240, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        ..Element::default()
+    }];
+    project.symbols.push(btn_sym);
+
+    let mc_sym_id: Id = "live-mc-sym".into();
+    let mut mc_sym = project.symbol(&root).unwrap().clone();
+    mc_sym.id = mc_sym_id.clone();
+    mc_sym.name = "LiveMc".into();
+    mc_sym.kind = SymbolKind::MovieClip;
+    mc_sym.timeline.frame_count = 1;
+    mc_sym.timeline.scripts.clear();
+    mc_sym.timeline.layers[0].id = "mc-layer".into();
+    mc_sym.timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: "mc-rect".into(),
+        kind: ElementKind::Rectangle {
+            width: 80.0,
+            height: 50.0,
+            fill: [240, 120, 40, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        ..Element::default()
+    }];
+    project.symbols.push(mc_sym);
+
+    project.symbol_mut(&root).unwrap().timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![
+            Element {
+                id: "btn-inst".into(),
+                name: "goBtn".into(),
+                transform: Transform {
+                    x: 40.0,
+                    y: 40.0,
+                    ..Transform::default()
+                },
+                scripts: vec![ObjectScript {
+                    event: ObjectEvent::Load,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript2,
+                        source: "on(release) {\n    trace(\"btn-live-click\");\n    gotoAndStop(2);\n}".into(),
+                    },
+                }],
+                kind: ElementKind::Instance {
+                    symbol_id: btn_sym_id,
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "mc-inst".into(),
+                name: "actorMc".into(),
+                transform: Transform {
+                    x: 180.0,
+                    y: 40.0,
+                    ..Transform::default()
+                },
+                scripts: vec![ObjectScript {
+                    event: ObjectEvent::Load,
+                    script: Script {
+                        language: ScriptLanguage::ActionScript2,
+                        source: "onClipEvent(load) {\n    this.onRelease = function() {\n        trace(\"mc-live-click\");\n        unsupportedCustomRuntimeCall();\n    };\n}".into(),
+                    },
+                }],
+                kind: ElementKind::Instance {
+                    symbol_id: mc_sym_id,
+                    playback: InstancePlayback::Independent,
+                },
+                ..Element::default()
+            },
+        ],
+        ..Keyframe::default()
+    }];
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.panels_hidden = true;
+    editor.output.clear();
+    let viewport = Vec2::new(1440.0, 900.0);
+    let mut stage_rect = Rect::NOTHING;
+    let run_stage = |editor: &mut Editor,
+                     ctx: &egui::Context,
+                     time: f64,
+                     events: Vec<Event>,
+                     out_rect: &mut Rect| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, viewport)),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                editor.menu(ctx);
+                editor.document_bar(ctx);
+                *out_rect = ctx.available_rect();
+                editor.stage(ctx);
+            },
+        );
+    };
+    run_stage(&mut editor, &ctx, 0.1, vec![], &mut stage_rect);
+    editor.set_playing(true);
+    run_stage(&mut editor, &ctx, 0.2, vec![], &mut stage_rect);
+    assert_eq!(editor.frame, 0);
+
+    let size = Vec2::new(editor.project.width as f32, editor.project.height as f32) * editor.zoom;
+    let page = Rect::from_center_size(stage_rect.center() + editor.pan, size);
+    let btn_screen = page.min + Vec2::new(60.0, 55.0) * editor.zoom;
+    let mc_screen = page.min + Vec2::new(200.0, 55.0) * editor.zoom;
+
+    // Press and release on the Button instance on Stage.
+    run_stage(
+        &mut editor,
+        &ctx,
+        0.3,
+        vec![
+            Event::PointerMoved(btn_screen),
+            primary_button(btn_screen, true),
+        ],
+        &mut stage_rect,
+    );
+    run_stage(
+        &mut editor,
+        &ctx,
+        0.4,
+        vec![primary_button(btn_screen, false)],
+        &mut stage_rect,
+    );
+    assert_eq!(
+        editor.frame, 1,
+        "gotoAndStop(2) (1-based) advances root to frame index 1"
+    );
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|l| l.contains("[trace] btn-live-click")),
+        "expected Button on(release) trace in Output, got: {:?}",
+        editor.output
+    );
+
+    // Press and release on the MovieClip instance on Stage.
+    run_stage(
+        &mut editor,
+        &ctx,
+        0.5,
+        vec![
+            Event::PointerMoved(mc_screen),
+            primary_button(mc_screen, true),
+        ],
+        &mut stage_rect,
+    );
+    run_stage(
+        &mut editor,
+        &ctx,
+        0.6,
+        vec![primary_button(mc_screen, false)],
+        &mut stage_rect,
+    );
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|l| l.contains("[trace] mc-live-click")),
+        "expected MovieClip assigned onRelease trace in Output, got: {:?}",
+        editor.output
+    );
+    assert!(
+        editor
+            .output
+            .iter()
+            .any(|l| l.starts_with("[preview] ") && l.contains("unsupportedCustomRuntimeCall")),
+        "expected located [preview] diagnostic in Output, got: {:?}",
+        editor.output
+    );
+    assert!(
+        !editor.dirty(),
+        "live preview clicks must never dirty the authored project"
+    );
+}

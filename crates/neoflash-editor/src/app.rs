@@ -163,6 +163,9 @@ pub struct Editor {
     pub(crate) hovered_simple_button: Option<Id>,
     pub(crate) pressed_simple_button: Option<Id>,
     pub(crate) simple_button_capturing: bool,
+    pub(crate) hovered_live_preview_target: Option<Vec<Id>>,
+    pub(crate) pressed_live_preview_target: Option<Vec<Id>>,
+    pub(crate) live_preview_capturing: bool,
     pub resource_panel: crate::resources::ResourcePanel,
     pub bitmap_textures: crate::bitmaps::BitmapTextures,
     pub video_textures: crate::video_cache::VideoTextures,
@@ -508,6 +511,9 @@ impl Editor {
             hovered_simple_button: None,
             pressed_simple_button: None,
             simple_button_capturing: false,
+            hovered_live_preview_target: None,
+            pressed_live_preview_target: None,
+            live_preview_capturing: false,
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
             resource_panel: crate::resources::ResourcePanel::default(),
@@ -670,6 +676,11 @@ impl Editor {
         self.hovered_simple_button = None;
         self.pressed_simple_button = None;
         self.simple_button_capturing = false;
+    }
+    pub(crate) fn clear_live_preview_pointer_state(&mut self) {
+        self.hovered_live_preview_target = None;
+        self.pressed_live_preview_target = None;
+        self.live_preview_capturing = false;
     }
     /// Switch to a built-in workspace template (Window ▸ Workspace, top-bar select).
     pub(crate) fn apply_workspace_template(

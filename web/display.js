@@ -60,7 +60,7 @@
   const unsupportedText=new Set(['htmlText','styleSheet']);
   const textValue=value=>value.replace(/\r\n?|\n/g,'\r');
 
-  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
+  function create({player,geometry,getGeom3D=()=>null,proxyFor,proxyForRef,referenceOf,getStage=()=>null,getStageHost=()=>null,measureText,pathBounds,onMutation=()=>{},onTabChange=()=>{},onTextLink=null,project,prepareLinked=()=>{},getBitmap=()=>null,getText=()=>null,getLoader=()=>null,getVideo=()=>null,getFilters=()=>null,getNet=()=>null,getAudio=()=>null,getAS2Text=()=>null,getFte3D=()=>null,shapeContains=null,clipsContain=null,as2=null,beforeFilters=()=>{},beforeRaster=()=>{}}) {
     if(!geometry)throw new Error('The Rust geometry family is missing. Re-export this project.');
     const {Point,Rectangle,Matrix,ColorTransform}=geometry;
     const legacy = new Map();
@@ -1095,7 +1095,10 @@
       const refs=as2Input(proxyFor([]),{op:'tab_order',button_targets});if(!refs.length)return false;
       const stage=getStage(),current=stage.focus,position=current?refs.findIndex(ref=>refKey(ref)===referenceOf(current)?.key):-1;
       const next=position<0?(event.shiftKey?refs.length-1:0):(position+(event.shiftKey?-1:1)+refs.length)%refs.length;
-      event.preventDefault?.();stage.focus=proxyForRef(refs[next]);return true;
+      event.preventDefault?.();
+      const nextProxy=proxyForRef(refs[next]),host=getStageHost();
+      if(host?.changeFocus)host.changeFocus(nextProxy,'key',event);else stage.focus=nextProxy;
+      return true;
     }
 
     let dragging=null,pressed=null,hovered=null;
@@ -1286,6 +1289,8 @@
     function as2FocusBounds(){
       const stage=getStage(),target=stage?.focus;
       if(!target||target===stage||!alive(target))return null;
+      const reason=getStageHost()?.focusReason?.()??null;
+      if(reason==='mouse')return null;
       const node=descriptor(target);
       if(as2TabActive&&['movie_clip','button'].includes(node.owner)){
         const pref=as2Input(target).focus_rect,globalPref=typeof player.as2_settings_command==='function'&&as2Settings().focus_rect;
@@ -1296,6 +1301,7 @@
       if(!as2TabActive&&interactiveOwners.includes(node.owner)&&!isStaticTextNode(node)){
         const objPref=inputOf(node)?.focus_rect;
         if(node.owner==='text'&&objPref!==true)return null;
+        if(objPref!==true&&reason!=='key')return null;
         const stagePref=stage?.stageFocusRect??true;
         if((objPref??stagePref)!==true)return null;
         const rect=bounds(target,stage,true);

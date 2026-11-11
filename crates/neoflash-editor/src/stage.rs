@@ -867,7 +867,13 @@ impl Editor {
                 let id = self.symbol_id().to_owned();
                 let simple_button_consumed =
                     self.update_simple_buttons_stage(ui, &p, rect, mapping, origin);
-                let authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
+                let mut authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
+                let (live_preview_consumed, live_preview_changed) = self
+                    .update_live_preview_stage(ui, &p, rect, mapping, origin, &authored_scene);
+                if live_preview_changed {
+                    authored_scene = self.current_authored_scene(self.show_layer_masking(ctx));
+                }
+                let preview_consumed = simple_button_consumed || live_preview_consumed;
                 let symbol_context_clips = self.paint_symbol_edit_context(
                     &content,
                     origin,
@@ -1055,11 +1061,11 @@ impl Editor {
                 self.paint_motion_path(&p, origin, mapping);
                 self.paint_scale9_guides(&p, rect, origin, mapping);
                 self.paint_stage_guides(&p, rect, mapping, origin);
-                let quick_stage_exit = !simple_button_consumed
+                let quick_stage_exit = !preview_consumed
                     && (self.take_empty_stage_double_click(
                         ui, &p, origin, mapping, &scene, &response,
                     ) || self.take_empty_stage_exit_release(ui, &response));
-                if !simple_button_consumed && !quick_stage_exit {
+                if !preview_consumed && !quick_stage_exit {
                     let sticky_consumed =
                         self.stage_sticky_workflow_step(ui, &p, origin, mapping, rect, &scene);
                     let extended_tool = sticky_consumed
@@ -1140,7 +1146,7 @@ impl Editor {
                         self.vector_stage(ui, &content, origin, mapping, page, &response);
                     }
                 }
-                if !simple_button_consumed && !quick_stage_exit {
+                if !preview_consumed && !quick_stage_exit {
                     self.remember_empty_stage_click(ui, &p, origin, mapping, &scene, &response);
                 }
                 self.paint_shape_hints(&p, origin, mapping);
@@ -1761,6 +1767,238 @@ impl Editor {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         consumed
+    }
+
+    pub(crate) fn hit_test_live_preview_target(
+        &self,
+        painter: &egui::Painter,
+        stage_point: Pos2,
+        mapping: StageMapping,
+        authored_scene: &AuthoredScene,
+    ) -> Option<Vec<Id>> {
+        let preview = self.authored_preview.as_ref()?;
+        let zoom = self.zoom.max(0.1);
+        let context_point = mapping.edit_to_stage_pos(stage_point);
+
+        // 1. Front-to-back hit-test against presented draws (covers MovieClips, Buttons with visible
+        //    Up/Over/Down geometry, and nested interactive clips respecting active layer masks).
+        for draw in authored_scene.draws.iter().rev() {
+            let Some(target_path) = preview
+                .playback
+                .interactive_ancestor_path(&self.project, &draw.item.instance_path)
+            else {
+                continue;
+            };
+            if !authored_scene.contains_point(
+                &draw.item.instance_path,
+                [stage_point.x as f64, stage_point.y as f64],
+            ) {
+                continue;
+            }
+            // If `target_path` is a Button with a dedicated Frame 3 (`Hit`) shape, prefer Frame 3
+            // hit geometry over visual Up/Over/Down geometry.
+            if let Some((_, btn_sym_id, world)) = preview
+                .playback
+                .button_hit_candidates(&self.project)
+                .into_iter()
+                .find(|(p, _, _)| *p == target_path)
+                && let Some(btn_sym) = self.project.symbol(&btn_sym_id)
+                && btn_sym.timeline.frame_count > 3
+            {
+                let hit_items = evaluate(&self.project, &btn_sym_id, 3);
+                if !hit_items.is_empty() {
+                    if let Some(local_pt) = inverse(world, stage_point)
+                        && hit_items
+                            .iter()
+                            .rev()
+                            .any(|item| hit_item(item, painter, local_pt, zoom))
+                    {
+                        return Some(target_path);
+                    }
+                    continue;
+                }
+            }
+            let mut mapped = draw.item.clone();
+            mapped.transform = mapping.map_matrix(mapped.transform);
+            if hit_item_with_slop(&mapped, painter, context_point, zoom, 0.0) {
+                return Some(target_path);
+            }
+        }
+
+        // 2. Invisible hotspot Buttons (empty Up frame 0, shapes only on Frame 3 `Hit`).
+        for (btn_path, btn_sym_id, world) in preview
+            .playback
+            .button_hit_candidates(&self.project)
+            .into_iter()
+            .rev()
+        {
+            let Some(btn_sym) = self.project.symbol(&btn_sym_id) else {
+                continue;
+            };
+            if btn_sym.timeline.frame_count <= 3 {
+                continue;
+            }
+            let hit_items = evaluate(&self.project, &btn_sym_id, 3);
+            if hit_items.is_empty() {
+                continue;
+            }
+            let Some(local_pt) = inverse(world, stage_point) else {
+                continue;
+            };
+            if hit_items
+                .iter()
+                .rev()
+                .any(|item| hit_item(item, painter, local_pt, zoom))
+            {
+                return Some(btn_path);
+            }
+        }
+
+        // 3. Stage / root click listener (`stage.addEventListener("click", ...)`), active only while playing.
+        if self.playing && preview.playback.has_root_click_handler() {
+            return Some(Vec::new());
+        }
+        None
+    }
+
+    fn update_live_preview_stage(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        rect: Rect,
+        mapping: StageMapping,
+        origin: Pos2,
+        authored_scene: &AuthoredScene,
+    ) -> (bool, bool) {
+        let preview_active = self.live_script_preview
+            && !self.stage_view.guide_pointer
+            && self.timeline_motion.drag.is_none()
+            && self.timeline_motion.curve_drag.is_none()
+            && self.timeline_shape_hints.drag.is_none()
+            && self.authored_preview.as_ref().is_some_and(|p| {
+                self.playing || (self.tool == Tool::Select && p.playback.is_root_halted_by_script())
+            });
+        if !preview_active {
+            let had_button_state = self.hovered_live_preview_target.take();
+            self.pressed_live_preview_target = None;
+            self.live_preview_capturing = false;
+            let mut changed = false;
+            if let (Some(prev), Some(preview)) = (had_button_state, &mut self.authored_preview) {
+                changed = preview.playback.set_button_state(&self.project, &prev, 0);
+            }
+            return (false, changed);
+        }
+
+        let pointer_pos = ui.input(|i| i.pointer.latest_pos());
+        let over_canvas = pointer_pos.is_some_and(|pos| {
+            rect.contains(pos) && ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
+        });
+        let hit = if over_canvas {
+            let pos = pointer_pos.unwrap();
+            let stage_pt = mapping.screen_to_edit(origin, self.zoom.max(0.01), pos);
+            self.hit_test_live_preview_target(painter, stage_pt, mapping, authored_scene)
+        } else {
+            None
+        };
+
+        let (primary_pressed, primary_down, primary_released) = ui.input(|i| {
+            (
+                i.pointer.button_pressed(egui::PointerButton::Primary),
+                i.pointer.primary_down(),
+                i.pointer.button_released(egui::PointerButton::Primary),
+            )
+        });
+
+        let prev_hover = self.hovered_live_preview_target.clone();
+        let prev_press = self.pressed_live_preview_target.clone();
+        self.hovered_live_preview_target = hit.clone();
+
+        if primary_pressed {
+            if let Some(target) = hit.clone() {
+                self.finish_edits();
+                self.pressed_live_preview_target = Some(target);
+                self.live_preview_capturing = true;
+            } else {
+                self.pressed_live_preview_target = None;
+                self.live_preview_capturing = false;
+            }
+        }
+
+        let mut scene_changed = false;
+        // Update Button visual Up (0) / Over (1) / Down (2) states when pointer state changes.
+        if prev_hover != self.hovered_live_preview_target
+            || prev_press != self.pressed_live_preview_target
+        {
+            let mut reset_paths = Vec::new();
+            if let Some(p) = prev_hover {
+                reset_paths.push(p);
+            }
+            if let Some(p) = prev_press
+                && !reset_paths.contains(&p)
+            {
+                reset_paths.push(p);
+            }
+            if let Some(preview) = &mut self.authored_preview {
+                for path in &reset_paths {
+                    if !path.is_empty() {
+                        scene_changed |= preview.playback.set_button_state(&self.project, path, 0);
+                    }
+                }
+                if let Some(pressed) = &self.pressed_live_preview_target {
+                    if !pressed.is_empty() {
+                        let btn_state =
+                            if self.hovered_live_preview_target.as_ref() == Some(pressed) {
+                                2
+                            } else {
+                                1
+                            };
+                        scene_changed |=
+                            preview
+                                .playback
+                                .set_button_state(&self.project, pressed, btn_state);
+                    }
+                } else if let Some(hovered) = &self.hovered_live_preview_target
+                    && !hovered.is_empty()
+                {
+                    scene_changed |= preview.playback.set_button_state(&self.project, hovered, 1);
+                }
+            }
+        }
+
+        let consumed = self.live_preview_capturing;
+        if primary_released {
+            if let Some(pressed) = self.pressed_live_preview_target.take()
+                && hit.as_ref() == Some(&pressed)
+            {
+                if let Some(preview) = &mut self.authored_preview
+                    && !pressed.is_empty()
+                {
+                    let _ = preview
+                        .playback
+                        .set_button_state(&self.project, &pressed, 1);
+                }
+                self.click_authored_preview(&pressed);
+                scene_changed = true;
+            }
+            self.live_preview_capturing = false;
+        } else if !primary_down {
+            self.pressed_live_preview_target = None;
+            self.live_preview_capturing = false;
+        }
+
+        if self
+            .pressed_live_preview_target
+            .as_ref()
+            .is_some_and(|p| !p.is_empty())
+            || self
+                .hovered_live_preview_target
+                .as_ref()
+                .is_some_and(|p| !p.is_empty())
+        {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        (consumed, scene_changed)
     }
 }
 

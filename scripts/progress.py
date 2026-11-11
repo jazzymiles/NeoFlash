@@ -225,27 +225,49 @@ def catalog_report(catalog, targets):
     return "\n".join(lines).rstrip() + "\n"
 
 
+def readme_targets_summary(catalog, targets):
+    lines = [
+        "| Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ]
+    for language in ("AS3", "AS2"):
+        if language not in targets:
+            continue
+        view = targets[language]
+        now = view["now"]
+        target = view["target"]
+        outside = " · ".join(f"{item['title']} {item['counts']['total']:,}" for item in view["outside"])
+        lines.append(
+            f"| {view['title']} | {now['working']:,} of {now['total']:,} ({target_share(now, 'working')}) | "
+            f"{target['working']:,} of {target['total']:,} ({target_share(target, 'working')}) | "
+            f"{target['partial']:,} / {target['missing']:,} | {outside} |"
+        )
+    lines.extend([
+        "",
+        f"Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: {last_review(catalog)}. "
+        "Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).",
+    ])
+    return lines
+
+
 def reports(root, categories, features, write=False):
     catalog = load_catalog(root)
     targets = load_targets(root, catalog)
     block = "\n".join([
         REPORT_START,
-        "## Where we are",
+        "## Current coverage",
         "",
-        "The authoring workspace, nested timelines, vector tools (Object and Merge Drawing, boolean operations), ActionScript 1/2/3 and TypeScript/JavaScript runtime, portable HTML5/DOM export, and FLA/XFL/SWF/SWC import work across the audited scope below.",
-        "",
-        "### ActionScript: Flash Player areas",
-        "",
-        f"{STATUS_DEFINITIONS} Last status review: {last_review(catalog)}.",
-        "",
-        *targets_markdown(targets, "####"),
         "### Product functions",
         "",
         summary_table(categories, features),
         "",
         "Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.",
         "",
-        "[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)",
+        "### ActionScript: Flash Player target",
+        "",
+        *readme_targets_summary(catalog, targets),
+        "",
+        "[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)",
         "",
         "Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.",
         REPORT_END,

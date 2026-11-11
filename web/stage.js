@@ -376,7 +376,7 @@
     const hub = options.events;
     const alive = options.alive || (() => true);
     let width = size(options.width, 'stageWidth'), height = size(options.height, 'stageHeight');
-    let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null;
+    let frameRate = rate(options.frameRate ?? 24), mouseX = 0, mouseY = 0, focus = null, focusReason = null;
     let scaleMode = 'showAll', align = '', quality = 'HIGH', displayState = 'normal', colorCorrection = 'default';
     let fullScreenSourceRect = null, mouseLock = false;
     let stageColor = stageRgbValue(options.color ?? 0xffffff), colorAssigned = false;
@@ -622,7 +622,7 @@
         set(value) { if (typeof value !== 'boolean') throw new TypeError('Stage.stageFocusRect requires a Boolean.'); stageFocusRect = value; } },
       mouseX: { enumerable: true, get: () => mouseX }, mouseY: { enumerable: true, get: () => mouseY },
       focus: { enumerable: true, get() { if (focus && !alive(focus)) changeFocus(null); return focus; },
-        set(value) {changeFocus(value);} },
+        set(value) {changeFocus(value, 'programmatic');} },
       stage: { enumerable: true, get: () => stage }, parent: { enumerable: true, get: () => null },
       root: { enumerable: true, get: () => stage },
       assignFocus: { value(objectToFocus, direction) {
@@ -667,7 +667,7 @@
         if(reason==='mouse')value=null;
         else throw new Error('This display object is not currently focusable.');
       }
-      if(value===focus)return true;
+      if(value===focus){if(value!==null)focusReason=reason;return true;}
       if(focusDepth>=64)throw new RangeError('Recursive focus changes exceeded 64 transitions.');
       focusDepth++;
       try{
@@ -677,7 +677,7 @@
           if(!hub.dispatch(previous,event)){domEvent.preventDefault?.();return false;}
           if(focus!==previous)return false;
         }
-        focus=value;nativeFocus=false;const version=++focusVersion;
+        focus=value;focusReason=value?reason:null;nativeFocus=false;const version=++focusVersion;
         if(previous&&alive(previous))hub.dispatch(previous,new FocusEvent(FocusEvent.FOCUS_OUT,true,false,value));
         if(version!==focusVersion)return true;
         const handled=options.onFocusChanged?.(value,previous)===true;
@@ -1035,10 +1035,10 @@
       fallbackChildren.splice(0, fallbackChildren.length, ...(Array.isArray(options.initialChildren) ? options.initialChildren : []));
       options.onMouseChanged?.();
     }
-    function dispose() { cancelPointer();for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; nativeFocus=false; over = null; resetState(); }
+    function dispose() { cancelPointer();for (const cleanup of cleanups.splice(0)) cleanup(); attached = false; hub.release(stage); focus = null; focusReason = null; nativeFocus=false; over = null; resetState(); }
     function reset() {
       cancelPointer();
-      focus = null; nativeFocus=false; focusVersion++; over = null; mouseX = 0; mouseY = 0;
+      focus = null; focusReason = null; nativeFocus=false; focusVersion++; over = null; mouseX = 0; mouseY = 0;
       width = initial.width; height = initial.height;
       if (options.setFrameRate) options.setFrameRate(initial.frameRate);
       frameRate = initial.frameRate;
@@ -1046,6 +1046,7 @@
       hub.release(stage);
     }
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
+      focusReason: () => (focus && alive(focus) ? focusReason : null),
       colorAssigned: () => colorAssigned, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       tick(targets = [], onConstructed = null) {
         if (typeof targets === 'function') {

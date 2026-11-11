@@ -1,68 +1,42 @@
 # NeoFlash
 
-Open-source authoring environment inspired by classic Macromedia/Adobe Flash, built in Rust for macOS 15+. The goal is one comfortable workspace for interactive websites, applications, games and animation, publishing to HTML5.
+Open-source vector animation, interactive media and application authoring studio inspired by classic Macromedia/Adobe Flash before Animate, built in Rust for macOS 15+. NeoFlash gives illustrators, animators, web designers and game makers one responsive workspace with HTML5 + WebAssembly as its primary publishing target—requiring no Flash Player, browser plug-in or external CDN.
 
-**Status: development preview, 0.1.0.** The authoring environment, timeline engine, vector toolset (including Object and Merge Drawing modes and boolean Combine Objects operations), ActionScript 1/2/3 and TypeScript/JavaScript compiler and runtime, portable HTML5/DOM export, and FLA (Flash 3–CS6), XFL, SWF and SWC import are working across the audited scope below. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
+**Status: development preview, 0.1.0.** Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-The editor supports nested timelines, keyframes, classic, shape (with shape hints) and motion tweens with editable Bézier paths and selective motion paste, motion guides, scenes, timeline sounds with decoded waveforms, envelopes and trim windows, Object and Merge Drawing modes, boolean shape operations, filters and blend modes, frame/object scripts, embedded and system fonts, and standalone HTML5 or XFL export. The authoring workspace includes vector and alpha mask layers, guide and folder layers, colored layer outlines, stage rulers, guides and grid with snapping, configurable panel docks with saved layouts, Movie Explorer, Find and Replace, Code Snippets, and a searchable Library with folders and previews. ActionScript 1/2/3 and JavaScript/TypeScript coverage is audited below; runtime profiles and known limitations are described in the [compatibility matrix](docs/COMPATIBILITY.md).
+## Key capabilities
+
+- **Vector drawing & illustration:** Object Drawing and planar Merge Drawing modes (**J**), Pen (**P**), Subselection (**A**), Pencil (**Y**), calligraphic Brush (**B**) with presets and tablet pressure, Free Transform (**Q**), Gradient Transform (**F**), Paint Bucket gap closing, Eraser stroke/fill modes, boolean Combine Objects operations, **Trace Bitmap** vectorization, live filters and blend modes.
+- **Timelines, symbols & sound/video:** Nested MovieClip, Button (Up/Over/Down/Hit) and Graphic symbols (**F8**), in-place affine symbol editing with dimmed parent context, Classic, Motion (editable Bézier paths + property ◆ keyframes) and Shape tweens (with shape hints), motion guides, multiple scenes, vector/alpha/luminance mask layers, and decoded stereo timeline sound waveforms with envelopes and video trim sync.
+- **Scripting & debugging:** Frame scripts, placed instance handlers and project modules in **ActionScript 1/2**, **ActionScript 3**, **JavaScript (ES2023+)** and **TypeScript** (with built-in static checking, Source Map v3 and connected Chromium breakpoint debugging).
+- **Publishing & interchange:** Self-contained HTML5/Canvas/DOM bundles (`Full`, `Balanced`, `Compact`, `Shared`), texture atlases, raster/vector sequences, derived Adobe Animate `.fla` / XFL archives, standalone `.swf` movies, and opening legacy binary `.fla` (Flash 3–CS4), XFL/CS5+ `.fla`, `.swf`, `.swc`, `.svg`, `.ai`, `.pdf`, `.psd` and media assets.
 
 <!-- progress:start -->
-## Where we are
-
-The authoring workspace, nested timelines, vector tools (Object and Merge Drawing, boolean operations), ActionScript 1/2/3 and TypeScript/JavaScript runtime, portable HTML5/DOM export, and FLA/XFL/SWF/SWC import work across the audited scope below.
-
-### ActionScript: Flash Player areas
-
-**Working**: the main behavior from the Adobe reference runs and a linked test proves it. **Partial**: it runs, with the missing behavior named. **Missing**: no runtime path yet. **Needs review**: not yet classified. Statuses change only through test-backed reviews; this is not a Flash compatibility score. Last status review: 2026-11-05.
-
-#### ActionScript 3 — Flash Player
-
-| Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 155 | 155 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 2. Objects, language and collections | 582 | 579 | 3 | 0 | 0 | 99.5% | 100.0% |
-| 3. MovieClip and timeline | 37 | 37 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 4. Display, events and basic input | 678 | 677 | 1 | 0 | 0 | 99.9% | 100.0% |
-| 5. Graphics, bitmaps and filters | 313 | 313 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 6. Text and fonts | 174 | 174 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 7. File audio and video playback | 91 | 90 | 1 | 0 | 0 | 98.9% | 100.0% |
-| 8. Services and advanced Player APIs | 2,134 | 1,691 | 442 | 1 | 0 | 79.2% | <100% |
-| **Now: areas 1–6** | 1,939 | 1,935 | 4 | 0 | 0 | 99.8% | 100.0% |
-| **All Flash Player areas** | 4,164 | 3,716 | 447 | 1 | 0 | 89.2% | <100% |
-
-Outside the target and never in a percentage: AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138.
-
-#### ActionScript 2 — Flash Player
-
-| Flash Player area | Entries | Working | Partial | Missing | Needs review | Working | Working or partial |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Mathematics and 2D geometry | 128 | 128 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 2. Objects, language and collections | 281 | 281 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 3. MovieClip and timeline | 123 | 122 | 1 | 0 | 0 | 99.2% | 100.0% |
-| 4. Display, events and basic input | 130 | 130 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 5. Graphics, bitmaps and filters | 145 | 145 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 6. Text and fonts | 118 | 118 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 7. File audio and video playback | 83 | 83 | 0 | 0 | 0 | 100.0% | 100.0% |
-| 8. Services and advanced Player APIs | 230 | 196 | 34 | 0 | 0 | 85.2% | 100.0% |
-| **Now: areas 1–6** | 925 | 924 | 1 | 0 | 0 | 99.9% | 100.0% |
-| **All Flash Player areas** | 1,238 | 1,203 | 35 | 0 | 0 | 97.2% | 100.0% |
-
-Outside the target and never in a percentage: AS2 UI components 1,044 · Other libraries and extensions 25.
+## Current coverage
 
 ### Product functions
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 150 of 163 | 12 | 1 | 7 / 5 / 0 |
+| Editor and graphics | 151 of 163 | 11 | 1 | 7 / 5 / 0 |
 | Timelines and animation | 77 of 80 | 3 | 0 | 7 / 3 / 0 |
 | HTML5 and interactivity | 85 of 95 | 10 | 0 | 8 / 4 / 0 |
 | Import and file compatibility | 57 of 68 | 11 | 0 | 4 / 6 / 0 |
 | Platform and quality | 41 of 59 | 5 | 13 | 2 / 7 / 1 |
-| **All areas** | 410 of 465 | 41 | 14 | 28 / 25 / 1 |
+| **All areas** | 411 of 465 | 40 | 14 | 28 / 25 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
-[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Daily history](https://jazzymiles.github.io/NeoFlash/history.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)
+### ActionScript: Flash Player target
+
+| Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |
+| --- | ---: | ---: | ---: | --- |
+| ActionScript 3 — Flash Player | 1,935 of 1,939 (99.8%) | 3,716 of 4,164 (89.2%) | 447 / 1 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
+| ActionScript 2 — Flash Player | 924 of 925 (99.9%) | 1,203 of 1,238 (97.2%) | 35 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
+
+Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-05. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
+
+[Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)
 
 Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.
 <!-- progress:end -->
@@ -84,7 +58,7 @@ The first build downloads pinned Rust/WASM dependencies. Apple Silicon is locall
 Open [authoring-workspace.nflash](examples/authoring-workspace.nflash) for masks, guides, a linked library symbol, four-state buttons and Graphic playback. Drag [authoring-badge.svg](examples/authoring-badge.svg) onto the stage to import editable artwork. PNG/JPEG and more complex SVG artwork also import through **File → Import graphics to Stage**.
 
 1. Open the example, scrub the top timeline and enable **Onion Skin**. Drag the blue range handles or change Before/After; choose outlines and opacity.
-2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline. Double-click empty canvas to return directly to the root Stage without changing the active tool; use breadcrumbs for level-by-level navigation.
+2. Double-click a symbol in the Library or an instance on the stage to edit a nested timeline in place with its parent context dimmed. Double-click empty canvas to leave one parent hierarchy level without changing the active tool; repeat to climb further upward, or use the Stage breadcrumbs to jump directly to any level.
 3. Draw a rectangle or oval, or add text. Change position, scale, rotation, fill/stroke color, alpha and font in Properties. Fonts are discovered through macOS CoreText.
 4. Press **F6** to insert a keyframe, move the object, and create a classic, shape or motion tween from the Timeline controls or the frame menu; edit its curve in Properties or **Window → Panels → Ease**. **F5** inserts a frame; **F7** adds a blank keyframe. Filled spans show held content; a blank key ends that layer's visible content. Drag a key to move it; hold Option to copy it. [timeline-tweens.nflash](examples/timeline-tweens.nflash) shows shape, motion and guided tweens in two scenes.
 5. Select artwork and press **F8**. Choose a name, Movie Clip / Graphic / Button, a library folder, a registration point, and optional ActionScript linkage. Confirm to create a reusable symbol without moving its artwork; Cancel leaves the document unchanged. Drag more instances from the Library onto the Stage.
@@ -104,7 +78,7 @@ New and Open add document tabs; reopening the same file or imported source activ
 
 HTML5 export runs the shared Rust timeline/runtime through WebAssembly and a Canvas browser host. Published content needs no Flash Player or CDN. `neoflash-export --size-level` trades portability for weight: Full embeds WebAssembly in the project bundle, Balanced and Compact keep a streaming WebAssembly file plus a direct-file fallback (Compact leaves out ActionScript families the project never names), and Shared loads a runtime folder published once; `--size-estimate` compares them ([decision](docs/decisions/0038-publish-size-levels.md)). Full remains the default for older editor preferences and Test Movie. Publish settings (⇧F12) selects Full, Balanced, Compact or Shared runtime with a live on-disk weight bar, exact gzip total and hosting trade-offs. Publish uses the draft, OK saves workspace defaults, and Cancel discards changes. Frame/object JavaScript runs with the normal privileges of its containing page. The native authoring preview remains side-effect free.
 
-Timeline masks retain classic geometric silhouettes by default. Saved format9 projects can use explicit soft alpha with gradients, PNG transparency and nested/moving sources in the native stage and HTML5; the editor mode selector is still pending. AS2/AS3 use source-and-target `cacheAsBitmap` for the same soft coverage ([mask behavior and limits](docs/decisions/0023-runtime-masks-and-scroll-rectangles.md)).
+Timeline masks use classic geometric silhouettes by default and switch between **Geometry**, **Alpha** and **Luminance** mask modes directly from the Timeline layer badge or **Layer Properties** (supporting gradients, PNG transparency and nested/moving mask sources on both the native Stage and published HTML5). AS2/AS3 scripts can also combine `mask` with source-and-target `cacheAsBitmap` for runtime soft alpha masking ([mask behavior and limits](docs/decisions/0023-runtime-masks-and-scroll-rectangles.md)).
 
 System fonts are discovered through CoreText and author-selected standalone font bytes can be embedded as portable `@font-face` assets on HTML5 export. NeoFlash validates the font container but cannot determine the user's separate licence rights; lawful embedding remains the author's responsibility. Remaining native editor items awaiting NF2 design decisions, legacy binary FLA edge cases and notarized release packaging are tracked in the [roadmap](docs/ROADMAP.md).
 

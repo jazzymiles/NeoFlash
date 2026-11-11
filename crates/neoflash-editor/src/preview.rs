@@ -503,6 +503,7 @@ impl Editor {
     pub(crate) fn reset_authored_preview(&mut self) {
         self.authored_preview = None;
         self.accumulator = 0.;
+        self.clear_live_preview_pointer_state();
     }
 
     pub(crate) fn sync_authored_preview(&mut self) {
@@ -529,6 +530,7 @@ impl Editor {
             };
             self.frame = playback.frame();
             let mut traces = playback.drain_traces();
+            let preview_diagnostics = playback.drain_diagnostics();
             let mut unsupported_diagnostics = Vec::new();
             let mut halted = playback.is_root_halted_by_script();
             if let Some(swf) = &mut swf_player {
@@ -560,6 +562,12 @@ impl Editor {
             for line in traces {
                 self.output.push(format!("[trace] {line}"));
             }
+            for diag in preview_diagnostics {
+                let formatted = format!("[preview] {diag}");
+                if !self.output.contains(&formatted) {
+                    self.output.push(formatted);
+                }
+            }
             for diag in unsupported_diagnostics {
                 let formatted = format!("[swf] {diag}");
                 if !self.output.contains(&formatted) {
@@ -581,6 +589,7 @@ impl Editor {
             return;
         }
         let mut traces = Vec::new();
+        let mut preview_diagnostics = Vec::new();
         let mut unsupported_diagnostics = Vec::new();
         let mut halted = false;
         let mut tick_video_commands = Vec::new();
@@ -591,6 +600,7 @@ impl Editor {
             preview.playback.tick(&self.project);
             self.frame = preview.playback.frame();
             traces = preview.playback.drain_traces();
+            preview_diagnostics = preview.playback.drain_diagnostics();
             tick_video_commands = preview.playback.drain_video_commands();
             halted = preview.playback.is_root_halted_by_script();
             if self.live_script_preview
@@ -626,6 +636,12 @@ impl Editor {
         }
         for line in traces {
             self.output.push(format!("[trace] {line}"));
+        }
+        for diag in preview_diagnostics {
+            let formatted = format!("[preview] {diag}");
+            if !self.output.contains(&formatted) {
+                self.output.push(formatted);
+            }
         }
         for diag in unsupported_diagnostics {
             let formatted = format!("[swf] {diag}");
@@ -744,24 +760,49 @@ impl Editor {
     }
 
     /// Dispatch a click event on a placed element path during live authoring preview.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn click_authored_preview(&mut self, path: &[Id]) {
         let mut traces = Vec::new();
+        let mut preview_diagnostics = Vec::new();
+        let mut click_video_commands = Vec::new();
+        let mut was_halted = false;
         let mut halted = false;
+        let mut clicked = false;
         if let Some(preview) = &mut self.authored_preview {
+            was_halted = preview.playback.is_root_halted_by_script();
             preview
                 .playback
                 .set_live_scripts(&self.project, self.live_script_preview);
             preview.playback.click(&self.project, path);
             self.frame = preview.playback.frame();
             traces = preview.playback.drain_traces();
+            preview_diagnostics = preview.playback.drain_diagnostics();
+            click_video_commands = preview.playback.drain_video_commands();
             halted = preview.playback.is_root_halted_by_script();
+            clicked = true;
+        }
+        if clicked && !click_video_commands.is_empty() {
+            let epoch = self.valid_authored_preview().map(|p| p.epoch);
+            self.timeline_video.follow_preview(epoch);
+            for log_line in self.timeline_video.apply(click_video_commands) {
+                self.output.push(log_line);
+            }
         }
         for line in traces {
             self.output.push(format!("[trace] {line}"));
         }
+        for diag in preview_diagnostics {
+            let formatted = format!("[preview] {diag}");
+            if !self.output.contains(&formatted) {
+                self.output.push(formatted);
+            }
+        }
         if halted {
             self.playing = false;
+            self.timeline_video.pause_active();
+        } else if clicked && was_halted {
+            self.playing = true;
+            self.accumulator = 0.;
+            self.last_tick = Instant::now();
         }
     }
 

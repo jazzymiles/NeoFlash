@@ -630,20 +630,70 @@ pub(crate) fn paint_clipped_text(
         .text(pos, align, fitted, font_id, color);
 }
 
+#[cfg(test)]
 fn help_browser_html(theme: neoflash_ui::Theme) -> String {
     super::help_as_reference::render_full_browser_help_html(theme)
 }
 
-fn write_help_browser_document(theme: neoflash_ui::Theme) -> Result<PathBuf, String> {
+fn help_browser_html_for_state(
+    theme: neoflash_ui::Theme,
+    mode: HelpManualMode,
+    page: usize,
+    active_tag: Option<&str>,
+) -> String {
+    super::help_as_reference::render_browser_help_html_for_route(
+        theme,
+        Some(mode),
+        Some(page),
+        active_tag,
+    )
+}
+
+fn file_url_with_fragment(path: &std::path::Path, fragment: &str) -> String {
+    let raw = path.to_string_lossy();
+    let mut encoded = String::with_capacity(raw.len() + 32);
+    encoded.push_str("file://");
+    for byte in raw.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(char::from(byte));
+            }
+            _ => {
+                use std::fmt::Write as _;
+                let _ = write!(encoded, "%{byte:02X}");
+            }
+        }
+    }
+    encoded.push('#');
+    encoded.push_str(fragment);
+    encoded
+}
+
+fn write_help_browser_document(
+    theme: neoflash_ui::Theme,
+    mode: HelpManualMode,
+    page: usize,
+    active_tag: Option<&str>,
+) -> Result<(PathBuf, String), String> {
     let directory = std::env::temp_dir()
         .join("neoflash-help")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create the browser Help folder: {error}"))?;
-    let path = directory.join("help-reference.html");
-    std::fs::write(&path, help_browser_html(theme))
-        .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
-    Ok(path)
+    let filename = match mode {
+        HelpManualMode::AuthoringHelp => "help-manual.html",
+        HelpManualMode::ScriptingReference => "scripting-reference.html",
+    };
+    let path = directory.join(filename);
+    let clamped_page = page.min(HELP_CHAPTERS.len().saturating_sub(1));
+    let effective_tag = active_tag.filter(|tag| HELP_CHAPTERS[clamped_page].tags.contains(tag));
+    std::fs::write(
+        &path,
+        help_browser_html_for_state(theme, mode, clamped_page, effective_tag),
+    )
+    .map_err(|error| format!("Cannot write the browser Help document: {error}"))?;
+    let url = file_url_with_fragment(&path, &format!("chapter-{}", clamped_page + 1));
+    Ok((path, url))
 }
 
 impl crate::app::Editor {
@@ -986,11 +1036,22 @@ impl crate::app::Editor {
         if should_close || esc || modal.should_close() {
             state.open = false;
         }
+        let open_mode = state.mode;
+        let open_page = state.page;
+        let open_tag = state.active_tag;
         ctx.data_mut(|d| d.insert_temp(state_id(), state));
         if open_in_browser {
-            match write_help_browser_document(neoflash_ui::Theme::current(ctx)).and_then(|path| {
-                std::process::Command::new("open")
-                    .arg(&path)
+            match write_help_browser_document(
+                neoflash_ui::Theme::current(ctx),
+                open_mode,
+                open_page,
+                open_tag,
+            )
+            .and_then(|(path, url)| {
+                let mut cmd = std::process::Command::new("open");
+                #[cfg(target_os = "macos")]
+                cmd.arg("-u");
+                cmd.arg(&url)
                     .spawn()
                     .map(|_| path)
                     .map_err(|error| format!("Cannot open Help in the browser: {error}"))
@@ -3291,5 +3352,50 @@ mod tests {
     #[test]
     fn all_scripting_reference_code_samples_compile_cleanly_in_neoflash_script() {
         super::super::help_as_reference::verify_all_reference_code_samples_compile();
+    }
+
+    #[test]
+    fn browser_help_routes_scripting_reference_and_uses_valid_css_styled_svgs() {
+        let html = help_browser_html_for_state(
+            neoflash_ui::Theme::DarkGraphite,
+            HelpManualMode::ScriptingReference,
+            13,
+            Some("AS3"),
+        );
+        assert!(html.contains("data-initial-theme=\"dark-graphite\""));
+        assert!(html.contains("data-initial-mode=\"SCRIPTING\""));
+        assert!(html.contains(
+            "id=\"nf2-mode-SCRIPTING\" data-mode=\"SCRIPTING\" class=\"sr-toggle\" checked"
+        ));
+        assert!(html.contains("id=\"nf2-tag-AS3\" data-tag=\"AS3\" class=\"sr-toggle\" checked"));
+        assert!(
+            html.contains("<section class=\"chapter-card is-opened-chapter\" id=\"chapter-14\"")
+        );
+        assert!(html.contains("href=\"#chapter-14\">Opened: Chapter 14 →</a>"));
+        assert_eq!(
+            html.matches("<svg xmlns=\"http://www.w3.org/2000/svg\"")
+                .count(),
+            19,
+            "all 19 chapter SVGs must include explicit SVG XML namespace and dimensions"
+        );
+        assert!(
+            !html.contains("fill=\"var(") && !html.contains("stroke=\"var("),
+            "SVG shapes/text must style CSS custom properties via style=\"...\", never XML presentation attributes"
+        );
+        assert!(!html.contains("<script"));
+        if let Ok(dir) = std::env::var("NEOFLASH_DUMP_HELP_HTML_DIR") {
+            let dir = std::path::PathBuf::from(dir);
+            std::fs::create_dir_all(&dir).expect("create dump dir");
+            std::fs::write(dir.join("scripting-reference.html"), &html)
+                .expect("write scripting-reference.html");
+            let authoring = help_browser_html_for_state(
+                neoflash_ui::Theme::Dark,
+                HelpManualMode::AuthoringHelp,
+                0,
+                None,
+            );
+            std::fs::write(dir.join("help-manual.html"), authoring)
+                .expect("write help-manual.html");
+        }
     }
 }
