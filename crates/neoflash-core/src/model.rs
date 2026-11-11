@@ -452,6 +452,42 @@ impl Project {
             });
         }
     }
+
+    /// Assign fresh symbol, layer, group, element, and optionally resource IDs across the entire
+    /// project while preserving every cross-reference (`root`, `scenes`, `Instance.symbol`,
+    /// keyframe side-tables, and resource links) (`T-260`).
+    pub fn freshen_all_ids(&mut self, remap_resources: bool, mut fresh_id: impl FnMut(&str) -> Id) {
+        let mut sym_map = std::collections::BTreeMap::new();
+        for sym in &self.symbols {
+            sym_map.insert(sym.id.clone(), fresh_id("sym"));
+        }
+        let res_map = if remap_resources {
+            let mut m = std::collections::BTreeMap::new();
+            for res in &mut self.resources {
+                let next = fresh_id("res");
+                m.insert(res.id.clone(), next.clone());
+                res.id = next;
+            }
+            Some(m)
+        } else {
+            None
+        };
+        if let Some(next_root) = sym_map.get(&self.root).cloned() {
+            self.root = next_root;
+        }
+        for scene in &mut self.scenes {
+            if let Some(next_scene) = sym_map.get(scene) {
+                *scene = next_scene.clone();
+            }
+        }
+        for sym in &mut self.symbols {
+            if let Some(next_id) = sym_map.get(&sym.id) {
+                sym.id = next_id.clone();
+            }
+            sym.timeline
+                .remap_internal_ids(&mut fresh_id, Some(&sym_map), res_map.as_ref());
+        }
+    }
 }
 impl Project {
     /// Document features introduced with format 6 (scenes, tween kinds, motion and ruler guides,

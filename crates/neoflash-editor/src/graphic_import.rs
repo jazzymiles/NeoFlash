@@ -1396,28 +1396,7 @@ fn prepare_sequence_graphic(
 }
 
 fn freshen_imported_project_ids(imported: &mut Project, prefix: &str) {
-    let mut sym_map = std::collections::BTreeMap::new();
-    for sym in &imported.symbols {
-        sym_map.insert(sym.id.clone(), new_id(&format!("{prefix}-sym")));
-    }
-    if let Some(next_root) = sym_map.get(&imported.root).cloned() {
-        imported.root = next_root;
-    }
-    for scene in &mut imported.scenes {
-        if let Some(next_scene) = sym_map.get(scene) {
-            *scene = next_scene.clone();
-        }
-    }
-    for sym in &mut imported.symbols {
-        if let Some(next_id) = sym_map.get(&sym.id) {
-            sym.id = next_id.clone();
-        }
-        sym.timeline.remap_internal_ids(
-            |kind| new_id(&format!("{prefix}-{kind}")),
-            Some(&sym_map),
-            None,
-        );
-    }
+    imported.freshen_all_ids(false, |kind| new_id(&format!("{prefix}-{kind}")));
 }
 
 fn prepare_figma_graphic(

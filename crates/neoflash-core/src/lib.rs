@@ -91,7 +91,8 @@ pub use authoring_geometry::{
 };
 pub use avi::{
     AviFrameEntry, AviHeaderInfo, AviIndexedContainer, DecodedAviMedia, build_minimal_mjpeg_avi,
-    decode_avi_bytes, index_avi_container, inspect_avi_header, is_avi_bytes, wrap_pcm_as_wav,
+    decode_avi_bytes, index_avi_container, inspect_avi_header, is_avi_bytes, probe_mp4_duration_ms,
+    probe_video_bytes_duration_ms, probe_wav_duration_ms, wrap_pcm_as_wav,
 };
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,

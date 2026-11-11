@@ -701,16 +701,7 @@ fn safe_svg_id_prefix(value: &str) -> String {
 }
 
 fn encode_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
-    let img = RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
-        ExportError::InvalidProject(format!(
-            "Invalid RGBA buffer dimensions {width}x{height} ({} bytes)",
-            rgba.len()
-        ))
-    })?;
-    let mut cursor = Cursor::new(Vec::new());
-    img.write_to(&mut cursor, ImageFormat::Png)
-        .map_err(|e| ExportError::InvalidProject(format!("PNG encode failed: {e}")))?;
-    Ok(cursor.into_inner())
+    crate::bitmap_encode::encode_rgba_png(rgba, width, height)
 }
 
 fn encode_jpeg_bytes(
@@ -720,30 +711,11 @@ fn encode_jpeg_bytes(
     quality: u8,
     bg: Color,
 ) -> Result<Vec<u8>, ExportError> {
-    let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
-    for px in rgba.as_chunks::<4>().0 {
-        let a = u16::from(px[3]);
-        let inv = 255 - a;
-        rgb.push(((u16::from(px[0]) * a + u16::from(bg[0]) * inv + 127) / 255) as u8);
-        rgb.push(((u16::from(px[1]) * a + u16::from(bg[1]) * inv + 127) / 255) as u8);
-        rgb.push(((u16::from(px[2]) * a + u16::from(bg[2]) * inv + 127) / 255) as u8);
-    }
-    let mut out = Vec::new();
-    let mut encoder =
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100));
-    encoder
-        .encode(&rgb, width, height, image::ExtendedColorType::Rgb8)
-        .map_err(|e| ExportError::InvalidProject(format!("JPEG encode failed: {e}")))?;
-    Ok(out)
+    crate::bitmap_encode::encode_rgba_jpeg_composited(rgba, width, height, quality, bg)
 }
 
 fn encode_webp_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {
-    let mut out = Vec::new();
-    let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
-    encoder
-        .encode(rgba, width, height, image::ExtendedColorType::Rgba8)
-        .map_err(|e| ExportError::InvalidProject(format!("WebP encode failed: {e}")))?;
-    Ok(out)
+    crate::bitmap_encode::encode_rgba_webp_lossless(rgba, width, height)
 }
 
 fn encode_gif_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ExportError> {

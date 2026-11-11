@@ -906,6 +906,137 @@ pub fn build_minimal_mjpeg_avi(
     riff
 }
 
+/// Probe ISO-BMFF (`.mp4` / `.m4v` / `.mov`) container duration in milliseconds from `moov/mvhd`
+/// (versions `0` and `1`) without invoking external tools (`T-260`).
+pub fn probe_mp4_duration_ms(bytes: &[u8]) -> Option<u32> {
+    const MAX_MP4_BOX_DEPTH: usize = 8;
+    fn scan_boxes(buf: &[u8], depth: usize) -> Option<u32> {
+        if depth > MAX_MP4_BOX_DEPTH {
+            return None;
+        }
+        let mut pos = 0usize;
+        while pos + 8 <= buf.len() {
+            let size32 = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
+            let box_type = &buf[pos + 4..pos + 8];
+            let (header_len, box_len) = if size32 == 1 {
+                if pos + 16 > buf.len() {
+                    break;
+                }
+                let size64 = u64::from_be_bytes([
+                    buf[pos + 8],
+                    buf[pos + 9],
+                    buf[pos + 10],
+                    buf[pos + 11],
+                    buf[pos + 12],
+                    buf[pos + 13],
+                    buf[pos + 14],
+                    buf[pos + 15],
+                ]);
+                let Ok(size64) = usize::try_from(size64) else {
+                    break;
+                };
+                (16usize, size64)
+            } else if size32 == 0 {
+                (8usize, buf.len() - pos)
+            } else {
+                (8usize, size32 as usize)
+            };
+            if box_len < header_len || box_len > buf.len() - pos {
+                break;
+            }
+            let payload = &buf[pos + header_len..pos + box_len];
+            if box_type == b"moov"
+                && let Some(ms) = scan_boxes(payload, depth + 1)
+            {
+                return Some(ms);
+            } else if box_type == b"mvhd" && payload.len() >= 20 {
+                let version = payload[0];
+                if version == 0 && payload.len() >= 20 {
+                    let timescale =
+                        u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]);
+                    let duration =
+                        u32::from_be_bytes([payload[16], payload[17], payload[18], payload[19]]);
+                    if timescale > 0 && duration > 0 {
+                        let ms = (u64::from(duration) * 1000) / u64::from(timescale);
+                        return Some(ms.min(u64::from(u32::MAX)) as u32);
+                    }
+                } else if version == 1 && payload.len() >= 32 {
+                    let timescale =
+                        u32::from_be_bytes([payload[20], payload[21], payload[22], payload[23]]);
+                    let duration = u64::from_be_bytes([
+                        payload[24],
+                        payload[25],
+                        payload[26],
+                        payload[27],
+                        payload[28],
+                        payload[29],
+                        payload[30],
+                        payload[31],
+                    ]);
+                    if timescale > 0 && duration > 0 {
+                        let ms = duration.saturating_mul(1000) / u64::from(timescale);
+                        return Some(ms.min(u64::from(u32::MAX)) as u32);
+                    }
+                }
+            }
+            pos += box_len;
+        }
+        None
+    }
+    scan_boxes(bytes, 0)
+}
+
+/// Probe RIFF `WAVE` container duration in milliseconds from `fmt ` + `data` chunks (`T-260`).
+pub fn probe_wav_duration_ms(bytes: &[u8]) -> Option<u32> {
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut byte_rate = 0u32;
+    let mut data_bytes = 0u64;
+    let mut pos = 12usize;
+    while pos + 8 <= bytes.len() {
+        let id = &bytes[pos..pos + 4];
+        let chunk_len = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        let payload_start = pos + 8;
+        let payload_end = payload_start.saturating_add(chunk_len).min(bytes.len());
+        let payload = &bytes[payload_start..payload_end];
+        if id == b"fmt " && payload.len() >= 12 {
+            byte_rate = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+        } else if id == b"data" {
+            data_bytes = data_bytes.saturating_add(payload.len() as u64);
+        }
+        let step = chunk_len.saturating_add(chunk_len & 1);
+        let Some(next) = payload_start.checked_add(step) else {
+            break;
+        };
+        if next <= pos {
+            break;
+        }
+        pos = next;
+    }
+    if byte_rate == 0 || data_bytes == 0 {
+        return None;
+    }
+    let ms = data_bytes.saturating_mul(1000) / u64::from(byte_rate);
+    Some(ms.min(u64::from(u32::MAX)) as u32)
+}
+
+/// Probe RIFF `AVI` or ISO-BMFF `MP4`/`MOV` video container duration in milliseconds (`T-260`).
+pub fn probe_video_bytes_duration_ms(bytes: &[u8]) -> Option<u32> {
+    if is_avi_bytes(bytes) {
+        return inspect_avi_header(bytes)
+            .ok()
+            .map(|info| info.duration_ms())
+            .filter(|ms| *ms > 0);
+    }
+    probe_mp4_duration_ms(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -944,5 +1075,35 @@ mod tests {
         let wav = decoded.audio_bytes.expect("wav extracted");
         assert!(wav.starts_with(b"RIFF") && &wav[8..12] == b"WAVE");
         assert_eq!(decoded.audio_mime, Some("audio/wav"));
+        assert!(probe_wav_duration_ms(&wav).is_some());
+        assert_eq!(probe_video_bytes_duration_ms(&avi), Some(200));
+    }
+
+    #[test]
+    fn mp4_mvhd_and_project_freshen_helpers_preserve_durations_and_references() {
+        let mut mvhd = vec![0u8; 24];
+        mvhd[0] = 0; // version 0
+        mvhd[12..16].copy_from_slice(&1000u32.to_be_bytes()); // timescale 1000
+        mvhd[16..20].copy_from_slice(&2500u32.to_be_bytes()); // duration 2500 -> 2500ms
+        let mut moov = Vec::new();
+        moov.extend_from_slice(&((8 + mvhd.len()) as u32).to_be_bytes());
+        moov.extend_from_slice(b"mvhd");
+        moov.extend_from_slice(&mvhd);
+        let mut mp4 = Vec::new();
+        mp4.extend_from_slice(&((8 + moov.len()) as u32).to_be_bytes());
+        mp4.extend_from_slice(b"moov");
+        mp4.extend_from_slice(&moov);
+        assert_eq!(probe_mp4_duration_ms(&mp4), Some(2500));
+        assert_eq!(probe_video_bytes_duration_ms(&mp4), Some(2500));
+
+        let mut proj = crate::Project::demo();
+        let orig_root = proj.root.clone();
+        let mut seq = 0u32;
+        proj.freshen_all_ids(true, |kind| {
+            seq += 1;
+            format!("fresh-{kind}-{seq}")
+        });
+        assert_ne!(proj.root, orig_root);
+        assert!(proj.validate().is_ok());
     }
 }

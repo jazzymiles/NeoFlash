@@ -502,46 +502,20 @@ fn encode_atlas_sheet_bytes(
 ) -> Result<Vec<u8>, ExportError> {
     match format {
         AtlasImageFormat::Png => {
-            let mut png_bytes = Vec::new();
-            sheet
-                .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
-                .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
-            Ok(png_bytes)
+            crate::bitmap_encode::encode_rgba_png(sheet.as_raw(), sheet.width(), sheet.height())
         }
-        AtlasImageFormat::Webp => {
-            let mut out = Vec::new();
-            let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
-            encoder
-                .encode(
-                    sheet.as_raw(),
-                    sheet.width(),
-                    sheet.height(),
-                    image::ExtendedColorType::Rgba8,
-                )
-                .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
-            Ok(out)
-        }
-        AtlasImageFormat::Jpeg => {
-            let w = sheet.width();
-            let h = sheet.height();
-            let mut rgb = Vec::with_capacity((w as usize) * (h as usize) * 3);
-            for px in sheet.as_raw().as_chunks::<4>().0 {
-                let a = u16::from(px[3]);
-                let inv = 255 - a;
-                rgb.push(((u16::from(px[0]) * a + u16::from(bg[0]) * inv + 127) / 255) as u8);
-                rgb.push(((u16::from(px[1]) * a + u16::from(bg[1]) * inv + 127) / 255) as u8);
-                rgb.push(((u16::from(px[2]) * a + u16::from(bg[2]) * inv + 127) / 255) as u8);
-            }
-            let mut out = Vec::new();
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut out,
-                jpeg_quality.clamp(1, 100),
-            );
-            encoder
-                .encode(&rgb, w, h, image::ExtendedColorType::Rgb8)
-                .map_err(|e| ExportError::Io(std::io::Error::other(e.to_string())))?;
-            Ok(out)
-        }
+        AtlasImageFormat::Webp => crate::bitmap_encode::encode_rgba_webp_lossless(
+            sheet.as_raw(),
+            sheet.width(),
+            sheet.height(),
+        ),
+        AtlasImageFormat::Jpeg => crate::bitmap_encode::encode_rgba_jpeg_composited(
+            sheet.as_raw(),
+            sheet.width(),
+            sheet.height(),
+            jpeg_quality,
+            bg,
+        ),
     }
 }
 

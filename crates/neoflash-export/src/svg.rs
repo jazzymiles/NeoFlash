@@ -85,18 +85,7 @@ fn fmt_num(v: f64, prec: usize) -> String {
 }
 
 fn xml_escape(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for ch in input.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            _ => out.push(ch),
-        }
-    }
-    out
+    crate::xml_escape(input)
 }
 
 fn apply_color_transform(c: Color, ct: ColorTransform) -> Color {
