@@ -774,8 +774,10 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
     throw new Error(`[${modeName}] Expected NeoFlashWasmBase64 to be present for file:// fallback`);
   }
 
-  // Exercise canvas pixel rendering, interactive click on ctaBtn, text input editing, audio & video state.
-  const interactionReport = await cdp.evalJson(`
+  // Inspect rendering first, then use CDP input rather than synthetic DOM events. Trusted
+  // pointer/keyboard input is required to verify the browser's audio-gesture boundary and the
+  // same editable-text route that an actual user exercises.
+  const renderReport = await cdp.evalJson(`
     (async () => {
       const stage = document.getElementById('stage');
       const ctx = stage.getContext('2d');
@@ -812,40 +814,75 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
       const scaleY = rect.height / 360;
       const clickClientX = rect.left + 100 * scaleX;
       const clickClientY = rect.top + 235 * scaleY;
-      stage.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: clickClientX, clientY: clickClientY, button: 0 }));
-
-      await new Promise((r) => setTimeout(r, 80));
-      const traceAfterClick = document.getElementById('trace')?.textContent || '';
-      const errorText = document.getElementById('error')?.textContent || '';
-
-      // 2. Verify focused input TextField ([data-neoflash-text-input]) and type into it.
-      let inputEl = document.querySelector('[data-neoflash-text-input="true"]');
-      let typedValue = null;
-      if (inputEl) {
-        inputEl.focus();
-        inputEl.value = 'Beta1MatrixTyped';
-        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        await new Promise((r) => setTimeout(r, 60));
-        typedValue = inputEl.value;
-      }
-
-      // 3. Check audio status (do not synthetically click audio-toggle without userActivation).
-      const audioStatus = document.getElementById('audio-status')?.textContent || '';
 
       return {
         canvasWidth: stage.width,
         canvasHeight: stage.height,
         nonBgPixels,
         initialTrace,
-        traceAfterClick,
-        errorText,
-        inputMounted: Boolean(inputEl),
-        typedValue,
-        audioStatus,
         videoPixelRgba,
+        clickClientX,
+        clickClientY,
       };
     })()
   `);
+
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: renderReport.clickClientX,
+    y: renderReport.clickClientY,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: renderReport.clickClientX,
+    y: renderReport.clickClientY,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const inputState = await cdp.evalJson(`
+    (() => {
+      const input = document.querySelector('[data-neoflash-text-input="true"]');
+      if (!input) return { mounted: false };
+      input.focus();
+      input.select();
+      return { mounted: true };
+    })()
+  `);
+  if (inputState?.mounted) {
+    await cdp.send('Input.insertText', { text: 'Beta1MatrixTyped' });
+  }
+
+  const interactionState = await cdp.evalJson(`
+    new Promise((resolve) => {
+      const deadline = Date.now() + 1500;
+      const poll = () => {
+        const audioStatus = document.getElementById('audio-status')?.textContent || '';
+        if ((!/waiting|loading/i.test(audioStatus) && audioStatus) || Date.now() > deadline) {
+          const input = document.querySelector('[data-neoflash-text-input="true"]');
+          const audioButton = document.getElementById('audio-toggle');
+          resolve({
+            traceAfterClick: document.getElementById('trace')?.textContent || '',
+            errorText: document.getElementById('error')?.textContent || '',
+            inputMounted: Boolean(input),
+            typedValue: input?.value ?? null,
+            audioStatus,
+            audioButtonText: audioButton?.textContent || '',
+            audioButtonHidden: Boolean(audioButton?.hidden),
+          });
+          return;
+        }
+        setTimeout(poll, 30);
+      };
+      poll();
+    })
+  `);
+  const interactionReport = { ...renderReport, ...interactionState };
 
   if (interactionReport.errorText) {
     throw new Error(`[${modeName}] Runtime reported an error: "${interactionReport.errorText}"`);
@@ -859,8 +896,13 @@ async function verifyUrlInChrome(cdp, modeName, url, expectedProtocol) {
   if (!interactionReport.inputMounted || interactionReport.typedValue !== 'Beta1MatrixTyped') {
     throw new Error(`[${modeName}] Text input verification failed: ${JSON.stringify(interactionReport)}`);
   }
-  if (!interactionReport.audioStatus.startsWith('Audio ')) {
-    throw new Error(`[${modeName}] Unexpected audio status: "${interactionReport.audioStatus}"`);
+  if (!interactionReport.audioStatus.startsWith('Audio ') ||
+      interactionReport.audioButtonHidden || interactionReport.audioButtonText !== 'Mute audio') {
+    throw new Error(`[${modeName}] Unexpected audio state: ${JSON.stringify({
+      status: interactionReport.audioStatus,
+      button: interactionReport.audioButtonText,
+      hidden: interactionReport.audioButtonHidden,
+    })}`);
   }
   const [vr, vg, vb] = interactionReport.videoPixelRgba;
   if (Math.abs(vr - 18) <= 8 && Math.abs(vg - 22) <= 8 && Math.abs(vb - 31) <= 8) {
@@ -999,21 +1041,40 @@ async function verifySafariWebKit(fullDir, balancedDir, sharedUrl) {
     if (sessionRes.statusCode === 200 && sessionRes.body?.value?.sessionId) {
       const sessionId = sessionRes.body.value.sessionId;
       try {
-        await httpPostJson(port, `/session/${sessionId}/url`, { url: sharedUrl });
-        await new Promise((r) => setTimeout(r, 1200));
-        const evalRes = await httpPostJson(port, `/session/${sessionId}/execute/sync`, {
-          script: `return {
-            hasPlayer: Boolean(window.NeoFlashPlayer),
-            status: document.getElementById('status')?.textContent || '',
-            trace: document.getElementById('trace')?.textContent || '',
-          };`,
-          args: [],
-        });
+        const navigationRes = await httpPostJson(port, `/session/${sessionId}/url`, { url: sharedUrl });
+        if (navigationRes.statusCode !== 200) {
+          throw new Error(`Safari navigation failed: ${JSON.stringify(navigationRes.body)}`);
+        }
+        let liveResult = null;
+        const deadline = Date.now() + 8000;
+        while (Date.now() <= deadline) {
+          const evalRes = await httpPostJson(port, `/session/${sessionId}/execute/sync`, {
+            script: `return {
+              hasPlayer: Boolean(window.NeoFlashPlayer),
+              status: document.getElementById('status')?.textContent || '',
+              trace: document.getElementById('trace')?.textContent || '',
+              error: document.getElementById('error')?.style.display === 'block'
+                ? document.getElementById('error')?.textContent || ''
+                : '',
+            };`,
+            args: [],
+          });
+          if (evalRes.statusCode !== 200) {
+            throw new Error(`Safari runtime inspection failed: ${JSON.stringify(evalRes.body)}`);
+          }
+          liveResult = evalRes.body?.value || null;
+          if (liveResult?.error) throw new Error(`Safari runtime failed: ${liveResult.error}`);
+          if (liveResult?.hasPlayer && liveResult.status.includes('fps')) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (!liveResult?.hasPlayer || !liveResult.status.includes('fps')) {
+          throw new Error(`Safari runtime did not initialize: ${JSON.stringify(liveResult)}`);
+        }
         return {
           safariInstalled: true,
           driverVersion,
           automationStatus: 'live_webdriver_passed',
-          liveResult: evalRes.body?.value || null,
+          liveResult,
           staticWebKitChecks: staticChecks,
         };
       } finally {

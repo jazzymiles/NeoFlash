@@ -22,8 +22,8 @@ Open-source vector animation, interactive media and application authoring studio
 | Timelines and animation | 80 of 81 | 1 | 0 | 9 / 1 / 0 |
 | HTML5 and interactivity | 101 of 103 | 2 | 0 | 11 / 1 / 0 |
 | Import and file compatibility | 62 of 68 | 6 | 0 | 5 / 5 / 0 |
-| Platform and quality | 50 of 59 | 4 | 5 | 6 / 4 / 0 |
-| **All areas** | 454 of 474 | 14 | 6 | 41 / 13 / 0 |
+| Platform and quality | 51 of 61 | 5 | 5 | 5 / 5 / 0 |
+| **All areas** | 455 of 476 | 15 | 6 | 40 / 14 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -52,7 +52,7 @@ open dist/NeoFlash.app
 ```
 
 - **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
-- **Bundled media helpers:** Packaged `NeoFlash.app` bundles self-contained `ffmpeg` and `ffprobe` binaries inside `NeoFlash.app/Contents/Resources/media/bin/` (with third-party license notices in `Contents/Resources/licenses/`), so video import, audio/video transcoding, and MP4 export require zero Homebrew or `PATH` setup. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
+- **Bundled media helpers:** Packaged `NeoFlash.app` bundles self-contained `ffmpeg` and `ffprobe` binaries inside `NeoFlash.app/Contents/Resources/media/bin/`, so video import, audio/video transcoding, and MP4 export require zero Homebrew or `PATH` setup. Exact Rust notices live in `Contents/Resources/licenses/`, media notices in `Contents/Resources/media/licenses/`, and the package gate emits a checksummed corresponding-source archive beside the app artifacts. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
 - **Project backups & bug reporting:** `.nflash` projects are human-readable versioned JSON; keep projects in Git or maintain regular file backups before major migrations. When reporting a bug, attach a minimal `.nflash` reproduction project, any diagnostics copied from the **Output** panel, and the version/commit identifier from **NeoFlash → About NeoFlash**.
 - **Beta 1 known issues & limitations:**
   - Native macOS VoiceOver accessibility tree (`platform-accessibility`) for the custom-painted NF2 editor UI is deferred to post-Beta; keyboard-only focus navigation (`Tab` / `Shift+Tab`, `keyboardFocusActive` focus rings) and published HTML5 `#stage-a11y-overlay` ARIA DOM (`role`, `aria-label`, `tabindex`) are supported now.

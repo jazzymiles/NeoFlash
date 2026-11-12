@@ -19,7 +19,10 @@ use thiserror::Error;
 pub const CURRENT_EXTENSION_API_VERSION: SemVer = SemVer::new(1, 0, 0);
 
 /// Current NeoFlash host product version used for `min_host_version` / `max_host_version` checks.
-pub const CURRENT_HOST_VERSION: SemVer = SemVer::new(1, 0, 0);
+///
+/// `SemVer` intentionally models only the numeric compatibility core, so the Beta 1 prerelease
+/// suffix is omitted while preserving the product's actual `0.1.0` ordering boundary.
+pub const CURRENT_HOST_VERSION: SemVer = SemVer::new(0, 1, 0);
 
 /// File extension for serialized NeoFlash extension packages.
 pub const NFEXT_PACKAGE_EXTENSION: &str = "nfext";
@@ -1743,6 +1746,17 @@ mod tests {
         let host_too_new =
             check_api_compatibility_with_host(v2_0_0, v1_2_0, v1_0_0, None, Some(v1_3_1));
         assert_eq!(host_too_new.status, CompatibilityStatus::HostVersionTooNew);
+
+        // The default wrapper must use the shipped product version, not the public API version.
+        // Beta 1 is 0.1.0-beta.1, represented by its numeric compatibility core here.
+        let default_host = check_api_compatibility(
+            CURRENT_EXTENSION_API_VERSION,
+            CURRENT_EXTENSION_API_VERSION,
+            Some(SemVer::new(0, 2, 0)),
+            None,
+        );
+        assert_eq!(default_host.host_version, SemVer::new(0, 1, 0));
+        assert_eq!(default_host.status, CompatibilityStatus::HostVersionTooOld);
     }
 
     #[test]

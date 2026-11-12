@@ -282,6 +282,12 @@
     };
   }
 
+  // Keep authored accessibility nodes stable across animation frames. Replacing the complete
+  // overlay on every render drops browser focus and forces assistive technology to rediscover
+  // otherwise unchanged controls. The target identity still retires a node when a placement's
+  // runtime lifetime changes, matching the Stage event/semantic-layer boundary.
+  const accessibilityOverlayTargets = new WeakMap();
+
   const CONTENT_ACCESSIBLE_ROLE_MAP = Object.freeze({
     auto: 'generic',
     button: 'button',
@@ -489,7 +495,10 @@
         entries.push({
           id: String(element.id || `el-${entries.length + 1}`),
           name: String(element.name || ''),
-          target: runtimeTarget || undefined,
+          // Static authored elements may not have a runtime display proxy. Keep their project
+          // object as the lifetime identity so repeated render passes preserve DOM focus while a
+          // genuinely replaced element with the same authored ID still receives a fresh node.
+          target: runtimeTarget || element,
           role,
           ariaLabel: ariaLabel || String(element.id || `el-${entries.length + 1}`),
           ariaDescription,
@@ -523,8 +532,21 @@
     }
     const doc = overlayRoot.ownerDocument || (typeof document !== 'undefined' ? document : null);
     const createNode = () => (doc && typeof doc.createElement === 'function') ? doc.createElement('div') : createFallbackOverlayDomElement('div');
+    const previous = Array.from(overlayRoot.children || []);
+    const previousById = new Map();
+    for (const el of previous) {
+      const id = typeof el?.getAttribute === 'function'
+        ? el.getAttribute('data-neoflash-id')
+        : el?.dataset?.neoflashId;
+      if (!id) continue;
+      if (!previousById.has(id)) previousById.set(id, []);
+      previousById.get(id).push(el);
+    }
     const elements = nodes.map(node => {
-      const el = createNode();
+      const candidates = previousById.get(node.id) || [];
+      const candidateIndex = candidates.findIndex(el => accessibilityOverlayTargets.get(el) === node.target);
+      const el = candidateIndex >= 0 ? candidates.splice(candidateIndex, 1)[0] : createNode();
+      accessibilityOverlayTargets.set(el, node.target);
       el.id = `nf-a11y-${node.id}`;
       el.tabIndex = node.tabIndex;
       if (typeof el.setAttribute === 'function') {
@@ -574,11 +596,21 @@
       }
       return el;
     });
-    if (typeof overlayRoot.replaceChildren === 'function') {
-      overlayRoot.replaceChildren(...elements);
-    }
-    if (Array.isArray(overlayRoot.children)) {
+
+    // Real DOM roots can reorder existing children without replacing them. Avoid any mutation
+    // when the order is already correct so the active element remains attached across frames.
+    if (typeof overlayRoot.insertBefore === 'function' && typeof overlayRoot.removeChild === 'function') {
+      for (let index = 0; index < elements.length; index++) {
+        const current = overlayRoot.children?.[index] || null;
+        if (current !== elements[index]) overlayRoot.insertBefore(elements[index], current);
+      }
+      while ((overlayRoot.children?.length || 0) > elements.length) {
+        overlayRoot.removeChild(overlayRoot.children[overlayRoot.children.length - 1]);
+      }
+    } else if (Array.isArray(overlayRoot.children)) {
       overlayRoot.children.splice(0, overlayRoot.children.length, ...elements);
+    } else if (typeof overlayRoot.replaceChildren === 'function') {
+      overlayRoot.replaceChildren(...elements);
     } else if (!('children' in overlayRoot)) {
       overlayRoot.children = elements;
     }

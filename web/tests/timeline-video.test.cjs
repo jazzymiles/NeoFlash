@@ -134,6 +134,15 @@ test('authored timeline video binds full placement paths, decodes bundled bytes 
   assert.equal(blobs[0].size, bytes.length, 'bundled MP4 bytes reach the Blob decoder boundary');
   assert.equal(media[0].plays, 1, 'authored visuals advance before browser activation');
   assert.equal(media[0].mutedAtPlay, true, 'pre-activation playback remains browser-muted');
+  assert.equal(video.status().audible, true);
+  assert.equal(video.status().requiresGesture, true);
+  assert.equal(video.status().state, 'awaiting_gesture', 'an authored audible span requests browser activation even while its visuals advance');
+
+  video.timeline([{ ...stream, muted: true }]);
+  assert.equal(video.status().audible, false);
+  assert.equal(video.status().requiresGesture, false);
+  assert.equal(video.status().state, 'running', 'an authored-muted span does not advertise a needless audio gesture');
+  video.timeline([stream]);
 
   video.timeline([{ ...stream, target_time_ms: 1250 }]);
   assert.equal(media[0].currentTime, 1.25);

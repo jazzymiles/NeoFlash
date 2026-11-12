@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -26,12 +26,23 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use url::{Host, Url};
 
 /// Maximum UTF-8 byte length of a script excerpt included in an [`AiContextPack`].
 pub const MAX_SCRIPT_BYTES: usize = 16_384;
 
 /// Maximum decoded byte size of an asset whose metadata can be marked eligible in an [`AiContextPack`].
 pub const MAX_ASSET_BYTES: usize = 65_536;
+
+/// Maximum accepted provider response body. This applies after transport decoding and prevents a
+/// misbehaving local proxy from growing editor memory without bound.
+pub const MAX_AI_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Maximum diagnostic body retained from a failed provider response.
+pub const MAX_AI_ERROR_BYTES: usize = 64 * 1024;
+
+/// Maximum HTTP status/header/SSE line length accepted from a provider.
+const MAX_AI_HTTP_LINE_BYTES: usize = 1024 * 1024;
 
 /// Explicit MIME whitelist for asset inspection metadata in [`AiContextPack`].
 pub const ALLOWED_ASSET_MIME_TYPES: &[&str] = &[
@@ -365,9 +376,16 @@ impl SecretStore for KeychainSecretStore {
         if output.status.success() {
             let secret = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             Ok((!secret.is_empty()).then_some(secret))
-        } else {
+        } else if output.status.code() == Some(44) {
             // Exit code 44 in `/usr/bin/security` indicates item not found.
             Ok(None)
+        } else {
+            Err(AiConnectionError::SecretStore {
+                message: format!(
+                    "macOS Keychain lookup failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            })
         }
     }
 
@@ -401,7 +419,7 @@ impl SecretStore for KeychainSecretStore {
     }
 
     fn delete_secret(&self, profile_id: &str) -> Result<(), AiConnectionError> {
-        let _ = std::process::Command::new("/usr/bin/security")
+        let output = std::process::Command::new("/usr/bin/security")
             .args([
                 "delete-generic-password",
                 "-s",
@@ -409,8 +427,20 @@ impl SecretStore for KeychainSecretStore {
                 "-a",
                 profile_id,
             ])
-            .output();
-        Ok(())
+            .output()
+            .map_err(|error| AiConnectionError::SecretStore {
+                message: format!("Failed to invoke /usr/bin/security: {error}"),
+            })?;
+        if output.status.success() || output.status.code() == Some(44) {
+            Ok(())
+        } else {
+            Err(AiConnectionError::SecretStore {
+                message: format!(
+                    "macOS Keychain delete failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            })
+        }
     }
 }
 
@@ -917,6 +947,9 @@ pub fn format_provider_request(
             profile_id: profile.id.clone(),
         });
     }
+    if let Some(token) = token {
+        validate_http_header_value("Provider credential", token)?;
+    }
 
     let model = request
         .model
@@ -985,6 +1018,16 @@ pub fn format_provider_request(
             })
         }
         AiProviderKind::Gemini => {
+            if model.is_empty()
+                || model.len() > 128
+                || !model
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+            {
+                return Err(AiConnectionError::InvalidEndpoint {
+                    reason: "Gemini model name must be a 1..128 byte path-safe identifier.".into(),
+                });
+            }
             let action = if request.stream {
                 "streamGenerateContent?alt=sse"
             } else {
@@ -1140,54 +1183,75 @@ pub fn parse_sse_line(
 
 struct ParsedUrl {
     host: String,
+    host_header: String,
     port: u16,
 }
 
-fn parse_http_url(base_url: &str) -> Result<ParsedUrl, AiConnectionError> {
+fn parse_base_url(base_url: &str) -> Result<Url, AiConnectionError> {
     let trimmed = base_url.trim();
-    let rest = if let Some(r) = trimmed.strip_prefix("http://") {
-        r
-    } else if trimmed.starts_with("https://") {
+    if trimmed.is_empty()
+        || trimmed.chars().any(char::is_control)
+        || trimmed.chars().any(char::is_whitespace)
+        || trimmed.contains('\\')
+    {
         return Err(AiConnectionError::InvalidEndpoint {
-            reason: "Direct TcpStream transport requires an http:// endpoint or local proxy."
-                .into(),
-        });
-    } else {
-        return Err(AiConnectionError::InvalidEndpoint {
-            reason: format!("URL must start with http:// (got '{trimmed}')"),
-        });
-    };
-    let authority = rest.split('/').next().unwrap_or("");
-    if authority.is_empty() {
-        return Err(AiConnectionError::InvalidEndpoint {
-            reason: "Missing host in base_url".into(),
+            reason: "Endpoint contains empty, whitespace, control, or backslash characters.".into(),
         });
     }
-    let (host, port) = if let Some((h, p)) = authority.rsplit_once(':') {
-        let port = p
-            .parse::<u16>()
-            .map_err(|_| AiConnectionError::InvalidEndpoint {
-                reason: format!("Invalid port in '{authority}'"),
-            })?;
-        (h.to_owned(), port)
-    } else {
-        (authority.to_owned(), 80)
+    let parsed = Url::parse(trimmed).map_err(|error| AiConnectionError::InvalidEndpoint {
+        reason: format!("Malformed endpoint URL: {error}"),
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: "Endpoint URL must use http:// or https://.".into(),
+        });
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: "Endpoint URL must not contain embedded credentials.".into(),
+        });
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: "Endpoint base URL must not contain a query or fragment.".into(),
+        });
+    }
+    if parsed.host().is_none() {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: "Endpoint URL is missing a host.".into(),
+        });
+    }
+    Ok(parsed)
+}
+
+fn parse_http_url(base_url: &str) -> Result<ParsedUrl, AiConnectionError> {
+    let parsed = parse_base_url(base_url)?;
+    if parsed.scheme() == "https" {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: "Direct HTTPS transport is not connected yet; use a trusted local HTTP proxy."
+                .into(),
+        });
+    }
+    let host = parsed.host_str().unwrap_or_default().to_owned();
+    let host_header = match parsed.host() {
+        Some(Host::Ipv6(address)) => format!("[{address}]"),
+        _ => host.clone(),
     };
-    Ok(ParsedUrl { host, port })
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    Ok(ParsedUrl {
+        host,
+        host_header,
+        port,
+    })
 }
 
 fn extract_base_path(base_url: &str) -> Result<String, AiConnectionError> {
-    let trimmed = base_url.trim().trim_end_matches('/');
-    let rest = trimmed
-        .strip_prefix("http://")
-        .or_else(|| trimmed.strip_prefix("https://"))
-        .ok_or_else(|| AiConnectionError::InvalidEndpoint {
-            reason: format!("URL must start with http:// or https:// (got '{trimmed}')"),
-        })?;
-    if let Some((_, path)) = rest.split_once('/') {
-        Ok(format!("/{}", path.trim_matches('/')))
-    } else {
+    let parsed = parse_base_url(base_url)?;
+    let path = parsed.path().trim_matches('/');
+    if path.is_empty() {
         Ok(String::new())
+    } else {
+        Ok(format!("/{path}"))
     }
 }
 
@@ -1218,6 +1282,251 @@ fn is_timeout_io_error(err: &std::io::Error) -> bool {
     )
 }
 
+fn response_read_error(error: std::io::Error, timeout_ms: u64) -> AiConnectionError {
+    if is_timeout_io_error(&error) {
+        AiConnectionError::Timeout { timeout_ms }
+    } else if error.kind() == std::io::ErrorKind::InvalidData {
+        AiConnectionError::Protocol {
+            message: error.to_string(),
+        }
+    } else {
+        AiConnectionError::Offline {
+            reason: error.to_string(),
+        }
+    }
+}
+
+fn read_bounded_line<R: BufRead + ?Sized>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            break;
+        }
+        let take = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |idx| idx + 1);
+        if bytes.len().saturating_add(take) > max_bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("provider HTTP line exceeds {max_bytes} bytes"),
+            ));
+        }
+        bytes.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if bytes.last() == Some(&b'\n') {
+            break;
+        }
+    }
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    String::from_utf8(bytes).map(Some).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "provider HTTP line is not valid UTF-8",
+        )
+    })
+}
+
+fn read_error_body_bounded<R: Read + ?Sized>(reader: &mut R) -> std::io::Result<String> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_AI_ERROR_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    let truncated = bytes.len() > MAX_AI_ERROR_BYTES;
+    bytes.truncate(MAX_AI_ERROR_BYTES);
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if truncated {
+        text.push_str("\n[diagnostic body truncated]");
+    }
+    Ok(text)
+}
+
+const MAX_AI_HTTP_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+
+struct ChunkedBodyReader<R> {
+    inner: R,
+    remaining: usize,
+    needs_payload_crlf: bool,
+    finished: bool,
+}
+
+impl<R: BufRead> ChunkedBodyReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            remaining: 0,
+            needs_payload_crlf: false,
+            finished: false,
+        }
+    }
+
+    fn begin_next_chunk(&mut self) -> std::io::Result<()> {
+        if self.needs_payload_crlf {
+            let mut delimiter = [0u8; 2];
+            self.inner.read_exact(&mut delimiter)?;
+            if delimiter != *b"\r\n" {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "provider chunk payload is not followed by CRLF",
+                ));
+            }
+            self.needs_payload_crlf = false;
+        }
+        let line = read_bounded_line(&mut self.inner, 8 * 1024)?.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "provider chunked body ended before the final chunk",
+            )
+        })?;
+        if !line.ends_with("\r\n") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "provider chunk-size line is not CRLF terminated",
+            ));
+        }
+        let size_text = line
+            .trim_end_matches("\r\n")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+        let size = usize::from_str_radix(size_text, 16).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "provider returned an invalid HTTP chunk size",
+            )
+        })?;
+        if size > MAX_AI_HTTP_CHUNK_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "provider HTTP chunk exceeds the {} MiB limit",
+                    MAX_AI_HTTP_CHUNK_BYTES / (1024 * 1024)
+                ),
+            ));
+        }
+        if size == 0 {
+            let mut trailer_bytes = 0usize;
+            let mut trailer_fields = 0usize;
+            loop {
+                let trailer = read_bounded_line(&mut self.inner, 64 * 1024)?.ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "provider chunked trailers ended unexpectedly",
+                    )
+                })?;
+                if trailer == "\r\n" {
+                    break;
+                }
+                trailer_bytes = trailer_bytes.saturating_add(trailer.len());
+                trailer_fields = trailer_fields.saturating_add(1);
+                if trailer_bytes > 64 * 1024 || trailer_fields > 256 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "provider HTTP trailers exceed the 64 KiB / 256-field limit",
+                    ));
+                }
+            }
+            self.finished = true;
+        } else {
+            self.remaining = size;
+            self.needs_payload_crlf = true;
+        }
+        Ok(())
+    }
+}
+
+impl<R: BufRead> Read for ChunkedBodyReader<R> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        if output.is_empty() || self.finished {
+            return Ok(0);
+        }
+        while self.remaining == 0 && !self.finished {
+            self.begin_next_chunk()?;
+        }
+        if self.finished {
+            return Ok(0);
+        }
+        let limit = output.len().min(self.remaining);
+        let read = self.inner.read(&mut output[..limit])?;
+        if read == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "provider chunk payload ended unexpectedly",
+            ));
+        }
+        self.remaining -= read;
+        Ok(read)
+    }
+}
+
+fn response_uses_chunked_transfer(headers: &[(String, String)]) -> Result<bool, AiConnectionError> {
+    let mut codings = Vec::new();
+    for (_, value) in headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("transfer-encoding"))
+    {
+        codings.extend(
+            value
+                .split(',')
+                .map(|coding| coding.trim().to_ascii_lowercase())
+                .filter(|coding| !coding.is_empty()),
+        );
+    }
+    if codings.is_empty() {
+        return Ok(false);
+    }
+    if codings.last().is_some_and(|coding| coding == "chunked")
+        && codings.iter().filter(|coding| *coding == "chunked").count() == 1
+        && codings
+            .iter()
+            .all(|coding| matches!(coding.as_str(), "identity" | "chunked"))
+    {
+        Ok(true)
+    } else {
+        Err(AiConnectionError::Protocol {
+            message: format!(
+                "Unsupported provider Transfer-Encoding: {}",
+                codings.join(", ")
+            ),
+        })
+    }
+}
+
+fn validate_http_header_value(name: &str, value: &str) -> Result<(), AiConnectionError> {
+    if value.is_empty() || value.chars().any(char::is_control) {
+        return Err(AiConnectionError::InvalidEndpoint {
+            reason: format!("{name} contains empty or control characters."),
+        });
+    }
+    Ok(())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+fn validate_plaintext_transport(
+    parsed: &ParsedUrl,
+    resolved: SocketAddr,
+) -> Result<(), AiConnectionError> {
+    if is_loopback_host(&parsed.host) && resolved.ip().is_loopback() {
+        return Ok(());
+    }
+    Err(AiConnectionError::InvalidEndpoint {
+        reason: "Plaintext AI endpoints are limited to a trusted local proxy on localhost or a literal loopback address; the selected host and resolved address must both be loopback.".into(),
+    })
+}
+
 fn parse_retry_after_ms(headers: &[(String, String)]) -> Option<u64> {
     for (k, v) in headers {
         if k.eq_ignore_ascii_case("retry-after-ms")
@@ -1245,8 +1554,12 @@ pub fn test_provider_connection(
             profile_id: profile.id.clone(),
         });
     }
+    if let Some(token) = secret.as_deref() {
+        validate_http_header_value("Provider credential", token)?;
+    }
     let parsed = parse_http_url(&profile.base_url)?;
     let addr = resolve_socket_addr(&parsed.host, parsed.port)?;
+    validate_plaintext_transport(&parsed, addr)?;
     let timeout = Duration::from_millis(profile.timeout_ms.max(50));
     let mut stream = TcpStream::connect_timeout(&addr, timeout).map_err(|e| {
         if is_timeout_io_error(&e) {
@@ -1266,7 +1579,7 @@ pub fn test_provider_connection(
     let path = join_endpoint_path(&base_path, "/v1/models");
     let mut req = format!(
         "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n",
-        parsed.host, parsed.port
+        parsed.host_header, parsed.port
     );
     if let Some(tok) = secret.as_deref() {
         match profile.kind {
@@ -1291,18 +1604,11 @@ pub fn test_provider_connection(
         })?;
 
     let mut reader = BufReader::new(stream);
-    let mut status_line = String::new();
-    reader.read_line(&mut status_line).map_err(|e| {
-        if is_timeout_io_error(&e) {
-            AiConnectionError::Timeout {
-                timeout_ms: profile.timeout_ms,
-            }
-        } else {
-            AiConnectionError::Offline {
-                reason: e.to_string(),
-            }
-        }
-    })?;
+    let status_line = read_bounded_line(&mut reader, MAX_AI_HTTP_LINE_BYTES)
+        .map_err(|error| response_read_error(error, profile.timeout_ms))?
+        .ok_or_else(|| AiConnectionError::Protocol {
+            message: "Provider closed the connection before an HTTP status line.".into(),
+        })?;
     let status = parse_http_status(&status_line)?;
     if (200..300).contains(&status) {
         Ok(format!(
@@ -1385,6 +1691,13 @@ pub fn run_streaming_request(
             return Err(err);
         }
     };
+    if let Err(err) = validate_plaintext_transport(&parsed_url, addr) {
+        on_event(AiStreamEvent::Failed {
+            request_id: request.request_id.clone(),
+            error: err.clone(),
+        });
+        return Err(err);
+    }
 
     let model_name = request
         .model
@@ -1428,7 +1741,7 @@ pub fn run_streaming_request(
             "{} {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Length: {}\r\nConnection: close\r\n",
             formatted.method,
             formatted.path_and_query,
-            parsed_url.host,
+            parsed_url.host_header,
             parsed_url.port,
             formatted.body.len()
         );
@@ -1456,23 +1769,27 @@ pub fn run_streaming_request(
         }
 
         let mut reader = BufReader::new(stream);
-        let mut status_line = String::new();
-        if let Err(e) = reader.read_line(&mut status_line) {
-            let err = if is_timeout_io_error(&e) {
-                AiConnectionError::Timeout {
-                    timeout_ms: profile.timeout_ms,
-                }
-            } else {
-                AiConnectionError::Offline {
-                    reason: e.to_string(),
-                }
-            };
-            on_event(AiStreamEvent::Failed {
-                request_id: request.request_id.clone(),
-                error: err.clone(),
-            });
-            return Err(err);
-        }
+        let status_line = match read_bounded_line(&mut reader, MAX_AI_HTTP_LINE_BYTES) {
+            Ok(Some(line)) => line,
+            Ok(None) => {
+                let err = AiConnectionError::Protocol {
+                    message: "Provider closed the connection before an HTTP status line.".into(),
+                };
+                on_event(AiStreamEvent::Failed {
+                    request_id: request.request_id.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+            Err(error) => {
+                let err = response_read_error(error, profile.timeout_ms);
+                on_event(AiStreamEvent::Failed {
+                    request_id: request.request_id.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
 
         let status = match parse_http_status(&status_line) {
             Ok(s) => s,
@@ -1486,28 +1803,33 @@ pub fn run_streaming_request(
         };
 
         let mut resp_headers = Vec::new();
+        let mut response_header_bytes = 0usize;
         loop {
-            let mut hline = String::new();
-            match reader.read_line(&mut hline) {
-                Ok(0) => break,
-                Ok(_) => {
+            match read_bounded_line(&mut reader, MAX_AI_HTTP_LINE_BYTES) {
+                Ok(None) => break,
+                Ok(Some(hline)) => {
                     if hline == "\r\n" || hline == "\n" {
                         break;
+                    }
+                    response_header_bytes = response_header_bytes.saturating_add(hline.len());
+                    if response_header_bytes > 64 * 1024 || resp_headers.len() >= 256 {
+                        let err = AiConnectionError::Protocol {
+                            message:
+                                "Provider response headers exceed the 64 KiB / 256-field limit."
+                                    .into(),
+                        };
+                        on_event(AiStreamEvent::Failed {
+                            request_id: request.request_id.clone(),
+                            error: err.clone(),
+                        });
+                        return Err(err);
                     }
                     if let Some((k, v)) = hline.split_once(':') {
                         resp_headers.push((k.trim().to_owned(), v.trim().to_owned()));
                     }
                 }
-                Err(e) => {
-                    let err = if is_timeout_io_error(&e) {
-                        AiConnectionError::Timeout {
-                            timeout_ms: profile.timeout_ms,
-                        }
-                    } else {
-                        AiConnectionError::Offline {
-                            reason: e.to_string(),
-                        }
-                    };
+                Err(error) => {
+                    let err = response_read_error(error, profile.timeout_ms);
                     on_event(AiStreamEvent::Failed {
                         request_id: request.request_id.clone(),
                         error: err.clone(),
@@ -1517,9 +1839,36 @@ pub fn run_streaming_request(
             }
         }
 
+        let uses_chunked_transfer = match response_uses_chunked_transfer(&resp_headers) {
+            Ok(value) => value,
+            Err(err) => {
+                on_event(AiStreamEvent::Failed {
+                    request_id: request.request_id.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
+        // HTTP chunk framing is a transport detail. Decode it before applying diagnostic-body,
+        // SSE-line, and total-response limits so those limits continue to describe provider data.
+        let mut body_reader: Box<dyn BufRead> = if uses_chunked_transfer {
+            Box::new(BufReader::new(ChunkedBodyReader::new(reader)))
+        } else {
+            Box::new(reader)
+        };
+
         if status == 429 || (500..600).contains(&status) {
-            let mut err_body = String::new();
-            let _ = reader.read_to_string(&mut err_body);
+            let err_body = match read_error_body_bounded(body_reader.as_mut()) {
+                Ok(body) => body,
+                Err(error) => {
+                    let err = response_read_error(error, profile.timeout_ms);
+                    on_event(AiStreamEvent::Failed {
+                        request_id: request.request_id.clone(),
+                        error: err.clone(),
+                    });
+                    return Err(err);
+                }
+            };
             let retry_after_ms = parse_retry_after_ms(&resp_headers);
             let message = if err_body.trim().is_empty() {
                 status_line.trim().to_owned()
@@ -1570,8 +1919,17 @@ pub fn run_streaming_request(
         }
 
         if !(200..300).contains(&status) {
-            let mut err_body = String::new();
-            let _ = reader.read_to_string(&mut err_body);
+            let err_body = match read_error_body_bounded(body_reader.as_mut()) {
+                Ok(body) => body,
+                Err(error) => {
+                    let err = response_read_error(error, profile.timeout_ms);
+                    on_event(AiStreamEvent::Failed {
+                        request_id: request.request_id.clone(),
+                        error: err.clone(),
+                    });
+                    return Err(err);
+                }
+            };
             let err = AiConnectionError::HttpStatus {
                 status,
                 message: redact_sensitive_tokens(err_body.trim()),
@@ -1590,6 +1948,7 @@ pub fn run_streaming_request(
         });
 
         let mut full_text = String::new();
+        let mut decoded_body_bytes = 0usize;
         loop {
             if cancel_token.is_cancelled() {
                 on_event(AiStreamEvent::Cancelled {
@@ -1597,38 +1956,60 @@ pub fn run_streaming_request(
                 });
                 return Err(AiConnectionError::Cancelled);
             }
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => match parse_sse_line(profile.kind, &line) {
-                    Ok(SseParseOutcome::Ignore) => {}
-                    Ok(SseParseOutcome::Delta(delta)) => {
-                        let safe_delta = redact_sensitive_tokens(&delta);
-                        full_text.push_str(&safe_delta);
-                        on_event(AiStreamEvent::TextDelta {
-                            request_id: request.request_id.clone(),
-                            delta: safe_delta,
-                        });
-                    }
-                    Ok(SseParseOutcome::Done) => break,
-                    Err(err) => {
+            match read_bounded_line(body_reader.as_mut(), MAX_AI_HTTP_LINE_BYTES) {
+                Ok(None) => break,
+                Ok(Some(line)) => {
+                    decoded_body_bytes = decoded_body_bytes.saturating_add(line.len());
+                    if decoded_body_bytes > MAX_AI_RESPONSE_BYTES {
+                        let err = AiConnectionError::Protocol {
+                            message: format!(
+                                "Provider response exceeds the {} MiB limit.",
+                                MAX_AI_RESPONSE_BYTES / (1024 * 1024)
+                            ),
+                        };
                         on_event(AiStreamEvent::Failed {
                             request_id: request.request_id.clone(),
                             error: err.clone(),
                         });
                         return Err(err);
                     }
-                },
-                Err(e) => {
-                    let err = if is_timeout_io_error(&e) {
-                        AiConnectionError::Timeout {
-                            timeout_ms: profile.timeout_ms,
+                    match parse_sse_line(profile.kind, &line) {
+                        Ok(SseParseOutcome::Ignore) => {}
+                        Ok(SseParseOutcome::Delta(delta)) => {
+                            let safe_delta = redact_sensitive_tokens(&delta);
+                            if full_text.len().saturating_add(safe_delta.len())
+                                > MAX_AI_RESPONSE_BYTES
+                            {
+                                let err = AiConnectionError::Protocol {
+                                    message: format!(
+                                        "Provider response exceeds the {} MiB limit.",
+                                        MAX_AI_RESPONSE_BYTES / (1024 * 1024)
+                                    ),
+                                };
+                                on_event(AiStreamEvent::Failed {
+                                    request_id: request.request_id.clone(),
+                                    error: err.clone(),
+                                });
+                                return Err(err);
+                            }
+                            full_text.push_str(&safe_delta);
+                            on_event(AiStreamEvent::TextDelta {
+                                request_id: request.request_id.clone(),
+                                delta: safe_delta,
+                            });
                         }
-                    } else {
-                        AiConnectionError::Offline {
-                            reason: e.to_string(),
+                        Ok(SseParseOutcome::Done) => break,
+                        Err(err) => {
+                            on_event(AiStreamEvent::Failed {
+                                request_id: request.request_id.clone(),
+                                error: err.clone(),
+                            });
+                            return Err(err);
                         }
-                    };
+                    }
+                }
+                Err(error) => {
+                    let err = response_read_error(error, profile.timeout_ms);
                     on_event(AiStreamEvent::Failed {
                         request_id: request.request_id.clone(),
                         error: err.clone(),
@@ -1712,7 +2093,13 @@ impl Drop for AiConnectionWorker {
     fn drop(&mut self) {
         self.cancel_token.cancel();
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            // A socket read may remain blocked until its configured timeout. Dropping a UI-owned
+            // worker must never freeze the editor while waiting for that timeout; finished workers
+            // are joined, while an in-flight one is safely detached and observes cancellation at
+            // the next bounded I/O boundary.
+            if handle.is_finished() {
+                let _ = handle.join();
+            }
         }
     }
 }
@@ -1939,6 +2326,221 @@ mod tests {
 
         // Verify that no autonomous mutation occurred on the project.
         assert_eq!(project_before, project_snapshot);
+    }
+
+    #[test]
+    fn chunked_transport_decodes_split_sse_lines_error_bodies_and_rejects_bad_framing() {
+        let payload = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"chunked answer\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let split = payload.find("content").unwrap() + 4;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line == "\n" || line.is_empty() {
+                    break;
+                }
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            for chunk in [&payload.as_bytes()[..split], &payload.as_bytes()[split..]] {
+                write!(socket, "{:X};test=yes\r\n", chunk.len()).unwrap();
+                socket.write_all(chunk).unwrap();
+                socket.write_all(b"\r\n").unwrap();
+            }
+            socket
+                .write_all(b"0\r\nX-NeoFlash-Test: complete\r\n\r\n")
+                .unwrap();
+        });
+
+        let store = MemorySecretStore::new();
+        let profile = AiProviderProfile::new(
+            "chunked",
+            "Chunked",
+            AiProviderKind::LocalOpenAiCompatible,
+            format!("http://{addr}"),
+            "local-model",
+        );
+        let request = AiPromptRequest {
+            request_id: "req-chunked".into(),
+            profile_id: "chunked".into(),
+            model: None,
+            system_prompt: String::new(),
+            user_prompt: "Ping".into(),
+            context_pack: sample_context_pack(),
+            temperature: None,
+            max_output_tokens: 64,
+            stream: true,
+        };
+        let mut events = Vec::new();
+        run_streaming_request(
+            &profile,
+            &request,
+            &store,
+            &CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .unwrap();
+        server.join().unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AiStreamEvent::TextDelta { delta, .. } if delta == "chunked answer"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AiStreamEvent::Completed { full_text, .. } if full_text == "chunked answer"
+        )));
+
+        let error_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let error_addr = error_listener.local_addr().unwrap();
+        let error_server = std::thread::spawn(move || {
+            let (mut socket, _) = error_listener.accept().unwrap();
+            socket
+                .write_all(
+                    b"HTTP/1.1 503 Service Unavailable\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n9\r\ntemporari\r\nE\r\nly unavailable\r\n0\r\n\r\n",
+                )
+                .unwrap();
+        });
+        let mut error_profile = profile.clone();
+        error_profile.base_url = format!("http://{error_addr}");
+        error_profile.max_retries = 0;
+        let error = run_streaming_request(
+            &error_profile,
+            &request,
+            &store,
+            &CancellationToken::new(),
+            |_| {},
+        )
+        .unwrap_err();
+        error_server.join().unwrap();
+        assert_eq!(
+            error,
+            AiConnectionError::HttpStatus {
+                status: 503,
+                message: "temporarily unavailable".into(),
+            }
+        );
+
+        let mut valid = ChunkedBodyReader::new(BufReader::new(
+            b"4\r\nWiki\r\n5;extension=ok\r\npedia\r\n0\r\nTrailer: value\r\n\r\n".as_slice(),
+        ));
+        let mut decoded = String::new();
+        valid.read_to_string(&mut decoded).unwrap();
+        assert_eq!(decoded, "Wikipedia");
+
+        let mut bad_delimiter =
+            ChunkedBodyReader::new(BufReader::new(b"1\r\naX\r\n0\r\n\r\n".as_slice()));
+        let mut bytes = Vec::new();
+        let delimiter_error = bad_delimiter.read_to_end(&mut bytes).unwrap_err();
+        assert_eq!(delimiter_error.kind(), std::io::ErrorKind::InvalidData);
+
+        let oversized = format!("{:X}\r\n", MAX_AI_HTTP_CHUNK_BYTES + 1);
+        let mut oversized_reader = ChunkedBodyReader::new(BufReader::new(oversized.as_bytes()));
+        let oversized_error = oversized_reader.read_to_end(&mut Vec::new()).unwrap_err();
+        assert_eq!(oversized_error.kind(), std::io::ErrorKind::InvalidData);
+
+        assert!(matches!(
+            response_uses_chunked_transfer(&[("Transfer-Encoding".into(), "gzip, chunked".into())]),
+            Err(AiConnectionError::Protocol { .. })
+        ));
+        assert!(matches!(
+            response_uses_chunked_transfer(&[(
+                "Transfer-Encoding".into(),
+                "chunked, chunked".into()
+            )]),
+            Err(AiConnectionError::Protocol { .. })
+        ));
+    }
+
+    #[test]
+    fn streaming_response_limit_counts_ignored_sse_bytes() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut content_length = 0usize;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line == "\n" || line.is_empty() {
+                    break;
+                }
+                if let Some(value) = line
+                    .split_once(':')
+                    .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .map(|(_, value)| value.trim())
+                {
+                    content_length = value.parse().unwrap();
+                }
+            }
+            let mut request_body = vec![0u8; content_length];
+            reader.read_exact(&mut request_body).unwrap();
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            let ignored_line = format!(":{}\n", "x".repeat(64 * 1024));
+            let line_count = MAX_AI_RESPONSE_BYTES / ignored_line.len() + 2;
+            for _ in 0..line_count {
+                if socket.write_all(ignored_line.as_bytes()).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let store = MemorySecretStore::new();
+        let profile = AiProviderProfile::new(
+            "bounded-ignored-sse",
+            "Bounded ignored SSE",
+            AiProviderKind::LocalOpenAiCompatible,
+            format!("http://{addr}"),
+            "local-model",
+        );
+        let request = AiPromptRequest {
+            request_id: "req-bounded-ignored-sse".into(),
+            profile_id: profile.id.clone(),
+            model: None,
+            system_prompt: String::new(),
+            user_prompt: "Ping".into(),
+            context_pack: sample_context_pack(),
+            temperature: None,
+            max_output_tokens: 64,
+            stream: true,
+        };
+        let mut events = Vec::new();
+        let error = run_streaming_request(
+            &profile,
+            &request,
+            &store,
+            &CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(
+                &error,
+                AiConnectionError::Protocol { message }
+                    if message.contains("response exceeds the 4 MiB limit")
+            ),
+            "{error:?}"
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AiStreamEvent::Failed { error: AiConnectionError::Protocol { message }, .. }
+                if message.contains("response exceeds the 4 MiB limit")
+        )));
     }
 
     #[test]
@@ -2262,5 +2864,109 @@ mod tests {
         assert!(!formatted_dbg.contains(gemini_secret), "{formatted_dbg}");
         assert!(!formatted.body.contains(raw_secret));
         assert!(!formatted.body.contains(gemini_secret));
+    }
+
+    #[test]
+    fn provider_endpoints_headers_and_response_memory_are_fail_closed() {
+        let request = AiPromptRequest {
+            request_id: "req-hardening".into(),
+            profile_id: "provider".into(),
+            model: None,
+            system_prompt: "Keep edits reviewable.".into(),
+            user_prompt: "Explain the selected frame.".into(),
+            context_pack: sample_context_pack(),
+            temperature: None,
+            max_output_tokens: 64,
+            stream: true,
+        };
+
+        let injected_endpoint = AiProviderProfile::new(
+            "provider",
+            "Injected",
+            AiProviderKind::LocalOpenAiCompatible,
+            "http://127.0.0.1:8080\r\nX-Injected: yes",
+            "local-model",
+        );
+        assert!(matches!(
+            format_provider_request(&injected_endpoint, &request, None),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+
+        let local_profile = AiProviderProfile::new(
+            "provider",
+            "Local",
+            AiProviderKind::LocalOpenAiCompatible,
+            "http://127.0.0.1:8080",
+            "local-model",
+        );
+        assert!(matches!(
+            format_provider_request(&local_profile, &request, Some("token\r\nX-Leak: yes")),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+
+        let cloud_profile = AiProviderProfile::new(
+            "provider",
+            "Cloud",
+            AiProviderKind::OpenAi,
+            "http://example.com",
+            "gpt-4.1",
+        );
+        let store = MemorySecretStore::new();
+        store.set_secret("provider", "sk-test-safe-value").unwrap();
+        assert!(matches!(
+            test_provider_connection(&cloud_profile, &store),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+
+        let no_secret_remote = parse_http_url("http://192.0.2.1:8080").unwrap();
+        assert!(matches!(
+            validate_plaintext_transport(&no_secret_remote, "192.0.2.1:8080".parse().unwrap()),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+        let localhost = parse_http_url("http://localhost:8080").unwrap();
+        assert!(matches!(
+            validate_plaintext_transport(&localhost, "192.0.2.1:8080".parse().unwrap()),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+        assert!(
+            validate_plaintext_transport(&localhost, "127.0.0.1:8080".parse().unwrap()).is_ok()
+        );
+
+        let https_profile = AiProviderProfile::new(
+            "provider",
+            "HTTPS",
+            AiProviderKind::OpenAi,
+            "https://api.example.com",
+            "gpt-4.1",
+        );
+        assert!(matches!(
+            test_provider_connection(&https_profile, &store),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+
+        let mut gemini_request = request.clone();
+        gemini_request.model = Some("gemini-safe\r\nInjected".into());
+        let gemini_profile = AiProviderProfile::new(
+            "provider",
+            "Gemini",
+            AiProviderKind::Gemini,
+            "http://127.0.0.1:8080",
+            "gemini-2.5-pro",
+        );
+        assert!(matches!(
+            format_provider_request(&gemini_profile, &gemini_request, Some("safe-token")),
+            Err(AiConnectionError::InvalidEndpoint { .. })
+        ));
+
+        let oversized_line = vec![b'a'; MAX_AI_HTTP_LINE_BYTES + 1];
+        let mut line_reader = BufReader::new(oversized_line.as_slice());
+        let line_error = read_bounded_line(&mut line_reader, MAX_AI_HTTP_LINE_BYTES).unwrap_err();
+        assert_eq!(line_error.kind(), std::io::ErrorKind::InvalidData);
+
+        let oversized_error = vec![b'e'; MAX_AI_ERROR_BYTES + 100];
+        let mut error_reader = oversized_error.as_slice();
+        let diagnostic = read_error_body_bounded(&mut error_reader).unwrap();
+        assert!(diagnostic.len() < MAX_AI_ERROR_BYTES + 100);
+        assert!(diagnostic.ends_with("[diagnostic body truncated]"));
     }
 }

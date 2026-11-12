@@ -17,7 +17,266 @@ use neoflash_ui::tokens::space;
 use std::{
     io::Read,
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock, mpsc},
+    time::{Duration, Instant},
 };
+
+enum ProgressivePreviewFetch {
+    Queued {
+        mime_type: String,
+    },
+    Loading(mpsc::Receiver<Result<(), String>>),
+    Failed {
+        message: String,
+        reported: bool,
+        retry_at: Instant,
+    },
+}
+
+const MAX_PROGRESSIVE_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PROGRESSIVE_PREVIEW_FETCHES: usize = 4;
+const MAX_PROGRESSIVE_PREVIEW_STATES: usize = 32;
+const PROGRESSIVE_PREVIEW_RETRY_DELAY: Duration = Duration::from_secs(5);
+
+fn failed_progressive_preview(message: String) -> ProgressivePreviewFetch {
+    ProgressivePreviewFetch::Failed {
+        message,
+        reported: false,
+        retry_at: Instant::now() + PROGRESSIVE_PREVIEW_RETRY_DELAY,
+    }
+}
+
+fn read_progressive_preview_file(path: &Path) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > MAX_PROGRESSIVE_PREVIEW_BYTES as u64 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_PROGRESSIVE_PREVIEW_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() <= MAX_PROGRESSIVE_PREVIEW_BYTES).then_some(bytes)
+}
+
+fn progressive_preview_fetches()
+-> &'static Mutex<std::collections::HashMap<String, ProgressivePreviewFetch>> {
+    static FETCHES: OnceLock<Mutex<std::collections::HashMap<String, ProgressivePreviewFetch>>> =
+        OnceLock::new();
+    FETCHES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn fetch_progressive_preview_bytes(url: &str) -> Result<Vec<u8>, String> {
+    #[cfg(test)]
+    {
+        neoflash_export::fetch_progressive_video_bytes_allowing_private_for_tests(url)
+    }
+    #[cfg(not(test))]
+    {
+        neoflash_export::fetch_progressive_video_bytes(url)
+    }
+}
+
+fn start_progressive_preview_fetch(
+    url: &str,
+    mime_type: &str,
+) -> Result<mpsc::Receiver<Result<(), String>>, String> {
+    let (sender, receiver) = mpsc::channel();
+    let worker_url = url.to_owned();
+    let worker_mime = mime_type.to_owned();
+    std::thread::Builder::new()
+        .name("neoflash-progressive-preview".into())
+        .spawn(move || {
+            let result = fetch_progressive_preview_bytes(&worker_url).and_then(|bytes| {
+                neoflash_export::decode_video_stream_bytes(
+                    "downloaded Progressive preview",
+                    &worker_mime,
+                    &bytes,
+                )
+                .map(|_| {
+                    neoflash_export::stage_downloaded_progressive_video_bytes(
+                        worker_url.clone(),
+                        bytes,
+                    );
+                })
+                .map_err(|error| {
+                    format!("Downloaded Progressive preview could not be decoded: {error}")
+                })
+            });
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("Could not start Progressive preview download: {error}"))?;
+    Ok(receiver)
+}
+
+fn poll_or_start_progressive_preview_fetch(url: &str, mime_type: &str) -> bool {
+    if neoflash_export::lookup_staged_progressive_video_bytes(url).is_some() {
+        if let Ok(mut fetches) = progressive_preview_fetches().lock() {
+            fetches.remove(url);
+        }
+        return false;
+    }
+    let Ok(mut fetches) = progressive_preview_fetches().lock() else {
+        return false;
+    };
+
+    // Reap every completed worker before enforcing the process-wide concurrency limit. A dialog
+    // can close or switch URLs while its worker is running; without this sweep those completed,
+    // now-offscreen jobs would permanently consume all four download slots.
+    let completed = fetches
+        .iter_mut()
+        .filter_map(|(key, state)| {
+            let ProgressivePreviewFetch::Loading(receiver) = state else {
+                return None;
+            };
+            match receiver.try_recv() {
+                Ok(result) => Some((key.clone(), result)),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => Some((
+                    key.clone(),
+                    Err("Progressive preview worker stopped before returning a result.".to_owned()),
+                )),
+            }
+        })
+        .collect::<Vec<_>>();
+    for (key, result) in completed {
+        match result {
+            Ok(()) => {
+                fetches.remove(&key);
+            }
+            Err(message) => {
+                fetches.insert(key, failed_progressive_preview(message));
+            }
+        }
+    }
+    // A worker may have staged its validated bytes after the lock-free check above but before the
+    // completion sweep. Recheck here so that successful completion cannot start a duplicate GET.
+    if neoflash_export::lookup_staged_progressive_video_bytes(url).is_some() {
+        fetches.remove(url);
+        return false;
+    }
+    let active_fetches = fetches
+        .values()
+        .filter(|state| matches!(state, ProgressivePreviewFetch::Loading(_)))
+        .count();
+    if matches!(
+        fetches.get(url),
+        Some(ProgressivePreviewFetch::Queued { .. })
+    ) {
+        if active_fetches >= MAX_PROGRESSIVE_PREVIEW_FETCHES {
+            return true;
+        }
+        let queued_mime = match fetches.remove(url) {
+            Some(ProgressivePreviewFetch::Queued { mime_type }) => mime_type,
+            _ => mime_type.to_owned(),
+        };
+        match start_progressive_preview_fetch(url, &queued_mime) {
+            Ok(receiver) => {
+                fetches.insert(url.to_owned(), ProgressivePreviewFetch::Loading(receiver));
+                return true;
+            }
+            Err(message) => {
+                fetches.insert(url.to_owned(), failed_progressive_preview(message));
+                return false;
+            }
+        }
+    }
+    let retry_failed = fetches.get(url).is_some_and(|state| {
+        matches!(
+            state,
+            ProgressivePreviewFetch::Failed {
+                reported: true,
+                retry_at,
+                ..
+            } if Instant::now() >= *retry_at
+        )
+    });
+    if retry_failed {
+        // Keep a surfaced transient error from poisoning this URL for the rest of the process.
+        // The delay prevents a fast failing endpoint from spawning a worker every UI frame.
+        fetches.remove(url);
+    }
+    if let Some(state) = fetches.get_mut(url) {
+        match state {
+            ProgressivePreviewFetch::Loading(receiver) => match receiver.try_recv() {
+                Ok(Ok(())) => {
+                    fetches.remove(url);
+                    return false;
+                }
+                Ok(Err(message)) => {
+                    *state = failed_progressive_preview(message);
+                    return false;
+                }
+                Err(mpsc::TryRecvError::Empty) => return true,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    *state = failed_progressive_preview(
+                        "Progressive preview worker stopped before returning a result.".into(),
+                    );
+                    return false;
+                }
+            },
+            ProgressivePreviewFetch::Queued { .. } => unreachable!("queued state handled above"),
+            ProgressivePreviewFetch::Failed { .. } => return false,
+        }
+    }
+
+    // Bound retained states while never discarding an active transfer. Queued entries preserve
+    // eventual loading without spawning an unbounded thread per URL pasted into the dialog.
+    if fetches.len() >= MAX_PROGRESSIVE_PREVIEW_STATES
+        && let Some(evict) = fetches
+            .iter()
+            .find(|(_, state)| !matches!(state, ProgressivePreviewFetch::Loading(_)))
+            .map(|(key, _)| key.clone())
+    {
+        fetches.remove(&evict);
+    }
+    let url_owned = url.to_owned();
+    if active_fetches >= MAX_PROGRESSIVE_PREVIEW_FETCHES {
+        fetches.insert(
+            url_owned,
+            ProgressivePreviewFetch::Queued {
+                mime_type: mime_type.to_owned(),
+            },
+        );
+        return true;
+    }
+    match start_progressive_preview_fetch(url, mime_type) {
+        Ok(receiver) => {
+            fetches.insert(url_owned, ProgressivePreviewFetch::Loading(receiver));
+            true
+        }
+        Err(message) => {
+            fetches.insert(url_owned, failed_progressive_preview(message));
+            false
+        }
+    }
+}
+
+fn take_progressive_preview_error(url: &str) -> Option<String> {
+    let mut fetches = progressive_preview_fetches().lock().ok()?;
+    let ProgressivePreviewFetch::Failed {
+        message, reported, ..
+    } = fetches.get_mut(url)?
+    else {
+        return None;
+    };
+    if *reported {
+        None
+    } else {
+        *reported = true;
+        Some(message.clone())
+    }
+}
+
+fn progressive_preview_mime(path: &str, codec: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".webm") || codec.contains("VP9") {
+        "video/webm"
+    } else if lower.ends_with(".ogv") || lower.ends_with(".ogg") {
+        "video/ogg"
+    } else {
+        "video/mp4"
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ImportVideoDraft {
@@ -544,7 +803,7 @@ impl Editor {
     /// Decode the active `Import video` preview frame at `scrub_time_ms` (or `draft.in_time` when
     /// `None`) for `Embedded`, `External`, and `Progressive` video sources (`T-274`).
     pub(crate) fn decode_import_video_preview_frame(
-        &self,
+        &mut self,
         draft: &ImportVideoDraft,
         scrub_time_ms: Option<u32>,
     ) -> Option<neoflash_export::DecodedVideoFrame> {
@@ -557,37 +816,48 @@ impl Editor {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
-        let mime_type =
-            if raw_input.to_ascii_lowercase().ends_with(".webm") || draft.codec.contains("VP9") {
-                "video/webm"
-            } else if raw_input.to_ascii_lowercase().ends_with(".ogv")
-                || raw_input.to_ascii_lowercase().ends_with(".ogg")
-            {
-                "video/ogg"
-            } else {
-                "video/mp4"
-            };
+        let mime_type = progressive_preview_mime(raw_input, &draft.codec);
 
         let stream = if draft.deployment == 2 {
-            let spec = neoflash_core::VideoSourceSpec {
-                mode: VideoDeploymentMode::Progressive,
-                url_or_path: raw_input.to_owned(),
-                mime_type: mime_type.to_owned(),
-            };
             if let Some(staged) = neoflash_export::lookup_staged_progressive_video_bytes(raw_input)
             {
-                neoflash_export::decode_video_stream_bytes(raw_input, mime_type, &staged).ok()?
+                match neoflash_export::decode_video_stream_bytes(
+                    "staged Progressive preview",
+                    mime_type,
+                    &staged,
+                ) {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        neoflash_export::discard_staged_progressive_video_bytes(raw_input);
+                        self.message(format!(
+                            "Staged Progressive preview could not be decoded and was discarded: {error}"
+                        ));
+                        return None;
+                    }
+                }
             } else if let Some(local_path) = neoflash_export::resolve_progressive_local_path(
                 raw_input,
                 None,
                 base_dir.as_deref(),
             ) {
-                let bytes = std::fs::read(&local_path).ok()?;
-                neoflash_export::stage_progressive_video_bytes(raw_input.to_owned(), bytes.clone());
-                neoflash_export::decode_video_stream_bytes(raw_input, mime_type, &bytes).ok()?
+                let bytes = read_progressive_preview_file(&local_path)?;
+                match neoflash_export::decode_video_stream_bytes(
+                    &local_path.to_string_lossy(),
+                    mime_type,
+                    &bytes,
+                ) {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        self.message(format!(
+                            "Progressive preview file '{}' could not be decoded: {error}",
+                            local_path.display()
+                        ));
+                        return None;
+                    }
+                }
             } else if validate_progressive_video_url(raw_input).is_ok() {
-                neoflash_export::synthesize_progressive_video_stream(&self.project, None, &spec)
-                    .ok()?
+                poll_or_start_progressive_preview_fetch(raw_input, mime_type);
+                return None;
             } else {
                 return None;
             }
@@ -683,6 +953,22 @@ impl Editor {
                     }
                 } else {
                     preview_box(ui, 300.0, 169.0, "Video preview");
+                    if draft.deployment == 2
+                        && validate_progressive_video_url(draft.file_path.trim()).is_ok()
+                    {
+                        let preview_mime =
+                            progressive_preview_mime(draft.file_path.trim(), &draft.codec);
+                        if poll_or_start_progressive_preview_fetch(
+                            draft.file_path.trim(),
+                            preview_mime,
+                        ) {
+                            ui.ctx().request_repaint_after(Duration::from_millis(50));
+                        }
+                        if let Some(error) = take_progressive_preview_error(draft.file_path.trim())
+                        {
+                            self.message(error);
+                        }
+                    }
                 }
                 let base_dir = self
                     .path
@@ -976,6 +1262,58 @@ mod tests {
     use super::*;
     use neoflash_core::Project;
     use neoflash_export::encode_deterministic_mp4_rgba_frames;
+    use std::io::Write as _;
+    use std::net::TcpListener;
+
+    #[test]
+    fn failed_progressive_preview_retries_after_error_is_reported() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/transient-preview.mp4",
+            listener.local_addr().unwrap()
+        );
+        progressive_preview_fetches().lock().unwrap().insert(
+            url.clone(),
+            ProgressivePreviewFetch::Failed {
+                message: "first transient failure".into(),
+                reported: false,
+                retry_at: Instant::now() - Duration::from_millis(1),
+            },
+        );
+
+        assert_eq!(
+            take_progressive_preview_error(&url).as_deref(),
+            Some("first transient failure")
+        );
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .write_all(
+                    b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 9\r\nConnection: close\r\n\r\ntry later",
+                )
+                .unwrap();
+        });
+        assert!(
+            poll_or_start_progressive_preview_fetch(&url, "video/mp4"),
+            "a surfaced transient failure whose backoff elapsed must start a retry"
+        );
+        server.join().unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let retry_error = loop {
+            poll_or_start_progressive_preview_fetch(&url, "video/mp4");
+            if let Some(error) = take_progressive_preview_error(&url) {
+                break error;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "retried Progressive preview did not report its result"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert!(retry_error.contains("503"), "{retry_error}");
+        progressive_preview_fetches().lock().unwrap().remove(&url);
+    }
 
     #[test]
     fn t274_import_video_progressive_preview_decodes_and_scrubs_frames_and_imports_span() {
@@ -1030,25 +1368,49 @@ mod tests {
             .expect("decode progressive preview at in_time 200ms");
         assert_eq!(&trimmed_preview.image.rgba[..4], &[0, 0, 255, 255]);
 
-        // 2. Remote-only progressive URL in headless mode synthesizes deterministic multi-frame stream
+        // 2. Remote-only progressive preview downloads real bounded bytes off the UI thread.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let remote_addr = listener.local_addr().unwrap();
+        let remote_bytes = mp4_bytes.clone();
+        let remote_server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let response_header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                remote_bytes.len()
+            );
+            socket.write_all(response_header.as_bytes()).unwrap();
+            socket.write_all(&remote_bytes).unwrap();
+        });
         let remote_draft = ImportVideoDraft {
-            file_path: "https://cdn.example.com/streams/remote_only.mp4".into(),
+            file_path: format!("http://{remote_addr}/streams/remote_only.mp4"),
             deployment: 2,
             in_time: "00:00.00".into(),
             out_time: "00:01.00".into(),
             ..ImportVideoDraft::default()
         };
-        let synth_0 = editor
-            .decode_import_video_preview_frame(&remote_draft, Some(0))
-            .expect("decode synthesized progressive preview at 0ms");
-        let synth_1 = editor
-            .decode_import_video_preview_frame(&remote_draft, Some(200))
-            .expect("decode synthesized progressive preview at 200ms");
-        assert_ne!(
-            &synth_0.image.rgba[..4],
-            &synth_1.image.rgba[..4],
-            "synthesized progressive preview must advance across scrubbed timestamps"
+        assert!(
+            editor
+                .decode_import_video_preview_frame(&remote_draft, Some(0))
+                .is_none(),
+            "the first call must schedule rather than block on network I/O"
         );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let remote_0 = loop {
+            if let Some(frame) = editor.decode_import_video_preview_frame(&remote_draft, Some(0)) {
+                break frame;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "real Progressive preview did not finish within the test deadline"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let remote_2 = editor
+            .decode_import_video_preview_frame(&remote_draft, Some(200))
+            .expect("cached Progressive preview frame at 200ms");
+        remote_server.join().unwrap();
+        assert_eq!(&remote_0.image.rgba[..4], &[255, 0, 0, 255]);
+        assert_eq!(&remote_2.image.rgba[..4], &[0, 0, 255, 255]);
 
         // 3. Confirming progressive import creates a valid Progressive video span that decodes on Stage
         let ctx = egui::Context::default();

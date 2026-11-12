@@ -26,13 +26,14 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{BufRead, BufReader, BufWriter, Cursor, Read, Write},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use symphonia::core::{
     audio::SampleBuffer, codecs::DecoderOptions, errors::Error as SymphoniaError,
@@ -800,6 +801,11 @@ const MAX_VIDEO_INPUT_BYTES: usize = 512 * 1024 * 1024;
 const MAX_DECODED_VIDEO_STREAM_BYTES: usize = 512 * 1024 * 1024;
 const MAX_DECODED_VIDEO_BATCH_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_DECODED_VIDEO_DURATION_MS: u64 = 60 * 60 * 1000;
+const MAX_PROGRESSIVE_VIDEO_DOWNLOAD_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PROGRESSIVE_VIDEO_REDIRECTS: usize = 5;
+const MAX_DOWNLOADED_PROGRESSIVE_CACHE_BYTES: usize = 256 * 1024 * 1024;
+const MAX_DOWNLOADED_PROGRESSIVE_CACHE_ENTRIES: usize = 8;
+const DOWNLOADED_PROGRESSIVE_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 64 * 1024;
 /// Short clips at or below this uncompressed RGBA size and frame count take the eager in-memory
 /// fast path; longer streams switch automatically to `OnDemandVideoDecoder` (`T-229`).
@@ -2432,10 +2438,303 @@ fn decode_external_video_file(
     )
 }
 
+#[derive(Clone)]
+struct StagedProgressiveBytes {
+    bytes: Arc<[u8]>,
+    inserted_at: Instant,
+}
+
+#[derive(Default)]
+struct StagedProgressiveByteCache {
+    /// Explicitly staged bytes retain the pre-T-286 process-local behavior. Callers use this for
+    /// deterministic tests and for bytes whose lifetime they already own.
+    explicit: HashMap<String, StagedProgressiveBytes>,
+    /// Network responses are short-lived and separately byte-bounded so a remote URL cannot pin
+    /// sixteen 64 MiB responses for the entire editor process.
+    downloaded: HashMap<String, StagedProgressiveBytes>,
+}
+
 /// Bounded on-demand byte cache for `VideoDeploymentMode::Progressive` sources (`T-274`).
-fn staged_progressive_byte_cache() -> &'static Mutex<HashMap<String, Arc<[u8]>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Arc<[u8]>>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn staged_progressive_byte_cache() -> &'static Mutex<StagedProgressiveByteCache> {
+    static CACHE: OnceLock<Mutex<StagedProgressiveByteCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(StagedProgressiveByteCache::default()))
+}
+
+fn redacted_progressive_url(raw: &str) -> String {
+    if let Ok(mut parsed) = url::Url::parse(raw) {
+        let _ = parsed.set_username("");
+        let _ = parsed.set_password(None);
+        parsed.set_query(None);
+        parsed.set_fragment(None);
+        return parsed.to_string();
+    }
+    let safe = raw.split(['?', '#']).next().unwrap_or("<invalid URL>");
+    safe.chars().take(256).collect()
+}
+
+fn private_progressive_networks_allowed() -> bool {
+    env::var("NEOFLASH_ALLOW_PRIVATE_MEDIA_URLS").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn ipv4_in_prefix(address: Ipv4Addr, base: Ipv4Addr, prefix_bits: u32) -> bool {
+    let mask = if prefix_bits == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix_bits)
+    };
+    (u32::from(address) & mask) == (u32::from(base) & mask)
+}
+
+fn ipv6_in_prefix(address: Ipv6Addr, base: Ipv6Addr, prefix_bits: u32) -> bool {
+    let mask = if prefix_bits == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix_bits)
+    };
+    (u128::from(address) & mask) == (u128::from(base) & mask)
+}
+
+fn is_public_progressive_address(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            !(ipv4_in_prefix(address, Ipv4Addr::new(0, 0, 0, 0), 8)
+                || address.is_private()
+                || address.is_loopback()
+                || address.is_link_local()
+                || address.is_multicast()
+                || address.is_broadcast()
+                || address.is_documentation()
+                || ipv4_in_prefix(address, Ipv4Addr::new(100, 64, 0, 0), 10)
+                || ipv4_in_prefix(address, Ipv4Addr::new(192, 0, 0, 0), 24)
+                || ipv4_in_prefix(address, Ipv4Addr::new(192, 88, 99, 0), 24)
+                || ipv4_in_prefix(address, Ipv4Addr::new(198, 18, 0, 0), 15)
+                || ipv4_in_prefix(address, Ipv4Addr::new(240, 0, 0, 0), 4))
+        }
+        IpAddr::V6(address) => {
+            if let Some(mapped) = address.to_ipv4_mapped() {
+                return is_public_progressive_address(IpAddr::V4(mapped));
+            }
+            !(address.is_unspecified()
+                || address.is_loopback()
+                || address.is_multicast()
+                || ipv6_in_prefix(address, Ipv6Addr::UNSPECIFIED, 96)
+                || ipv6_in_prefix(address, Ipv6Addr::from(0x0064_ff9b_u128 << 96), 96)
+                || ipv6_in_prefix(address, Ipv6Addr::from(0x0064_ff9b_0001_u128 << 80), 48)
+                || ipv6_in_prefix(address, Ipv6Addr::from(0xfc00_u128 << 112), 7)
+                || ipv6_in_prefix(address, Ipv6Addr::from(0xfe80_u128 << 112), 10)
+                || ipv6_in_prefix(address, Ipv6Addr::from(0xfec0_u128 << 112), 10)
+                // IETF protocol assignments occupy 2001::/23. Do not reject the whole
+                // 2001::/32-looking textual family: ordinary globally routed networks such as
+                // 2001:4860::/32 live outside this special-use prefix.
+                || ipv6_in_prefix(address, Ipv6Addr::from(0x2001_u128 << 112), 23)
+                || ipv6_in_prefix(address, Ipv6Addr::from(0x2002_u128 << 112), 16)
+                || ipv6_in_prefix(
+                    address,
+                    Ipv6Addr::from(0x2001_0db8_0000_0000_0000_0000_0000_0000_u128),
+                    32,
+                )
+                || ipv6_in_prefix(address, Ipv6Addr::from(0x3fff_u128 << 112), 20)
+                || ipv6_in_prefix(
+                    address,
+                    Ipv6Addr::from(0x0100_0000_0000_0000_0000_0000_0000_0000_u128),
+                    64,
+                ))
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ProgressiveNetworkResolver {
+    allow_private: bool,
+}
+
+impl ureq::unversioned::resolver::Resolver for ProgressiveNetworkResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let resolved = ureq::unversioned::resolver::DefaultResolver::default()
+            .resolve(uri, config, timeout)?;
+        if self.allow_private {
+            return Ok(resolved);
+        }
+        let mut public = self.empty();
+        for address in resolved.iter().copied() {
+            if is_public_progressive_address(address.ip()) {
+                public.push(address);
+            }
+        }
+        if public.is_empty() {
+            Err(ureq::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Progressive media URL resolves only to a private, loopback, link-local, or reserved address; set NEOFLASH_ALLOW_PRIVATE_MEDIA_URLS=1 only for a trusted project and server",
+            )))
+        } else {
+            Ok(public)
+        }
+    }
+}
+
+fn progressive_download_agent(remaining: Duration, allow_private: bool) -> ureq::Agent {
+    let mut config = ureq::Agent::config_builder()
+        .timeout_global(Some(remaining))
+        .timeout_resolve(Some(remaining.min(Duration::from_secs(5))))
+        .timeout_connect(Some(remaining.min(Duration::from_secs(5))))
+        .timeout_recv_response(Some(remaining.min(Duration::from_secs(10))))
+        .timeout_recv_body(Some(remaining.min(Duration::from_secs(20))))
+        // Redirects are followed manually so every target passes the same DNS/address policy.
+        .max_redirects(0)
+        .max_response_header_size(32 * 1024)
+        .user_agent("NeoFlash/0.1.0-beta.1");
+    if !allow_private {
+        // An environment proxy could resolve the target itself and bypass the checked resolver.
+        // Trusted private/proxy workflows remain available through the explicit expert override.
+        config = config.proxy(None);
+    }
+    ureq::Agent::with_parts(
+        config.build(),
+        ureq::unversioned::transport::DefaultConnector::default(),
+        ProgressiveNetworkResolver { allow_private },
+    )
+}
+
+/// Download a Progressive video source with bounded memory and explicit network timeouts.
+///
+/// This is deliberately separate from document serialization: downloaded bytes live only in the
+/// process-local preview cache and are never silently embedded into the authored project.
+pub fn fetch_progressive_video_bytes(url: &str) -> Result<Vec<u8>, String> {
+    fetch_progressive_video_bytes_with_policy(
+        url,
+        MAX_PROGRESSIVE_VIDEO_DOWNLOAD_BYTES,
+        cfg!(test) || private_progressive_networks_allowed(),
+    )
+}
+
+/// Editor unit tests use a loopback HTTP fixture without weakening production URL policy.
+#[doc(hidden)]
+pub fn fetch_progressive_video_bytes_allowing_private_for_tests(
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    fetch_progressive_video_bytes_with_policy(url, MAX_PROGRESSIVE_VIDEO_DOWNLOAD_BYTES, true)
+}
+
+#[cfg(test)]
+fn fetch_progressive_video_bytes_with_limit(
+    url: &str,
+    max_download_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    fetch_progressive_video_bytes_with_policy(url, max_download_bytes, true)
+}
+
+fn fetch_progressive_video_bytes_with_policy(
+    url: &str,
+    max_download_bytes: usize,
+    allow_private: bool,
+) -> Result<Vec<u8>, String> {
+    let safe_initial = redacted_progressive_url(url);
+    neoflash_core::validate_progressive_video_url(url)
+        .map_err(|error| format!("Progressive video URL '{safe_initial}' is invalid: {error}"))?;
+    let mut current = url::Url::parse(url)
+        .map_err(|error| format!("Progressive video URL '{safe_initial}' is invalid: {error}"))?;
+    let started = Instant::now();
+
+    for redirect_count in 0..=MAX_PROGRESSIVE_VIDEO_REDIRECTS {
+        let safe_url = redacted_progressive_url(current.as_str());
+        neoflash_core::validate_progressive_video_url(current.as_str()).map_err(|error| {
+            format!("Progressive video redirect '{safe_url}' is invalid: {error}")
+        })?;
+        let remaining = Duration::from_secs(30)
+            .checked_sub(started.elapsed())
+            .filter(|duration| !duration.is_zero())
+            .ok_or_else(|| {
+                format!("Progressive video download '{safe_initial}' exceeded the 30-second global timeout.")
+            })?;
+        let agent = progressive_download_agent(remaining, allow_private);
+        let mut response = agent
+            .get(current.as_str())
+            .call()
+            .map_err(|error| match error {
+                ureq::Error::StatusCode(status) => format!(
+                    "Progressive video download '{safe_url}' returned HTTP status {status}."
+                ),
+                ureq::Error::Timeout(kind) => {
+                    format!("Progressive video download '{safe_url}' timed out while {kind:?}.")
+                }
+                other => format!("Progressive video download '{safe_url}' failed: {other}"),
+            })?;
+
+        if response.status().is_redirection() {
+            if redirect_count >= MAX_PROGRESSIVE_VIDEO_REDIRECTS {
+                return Err(format!(
+                    "Progressive video download '{safe_initial}' exceeded the {MAX_PROGRESSIVE_VIDEO_REDIRECTS}-redirect limit."
+                ));
+            }
+            let location = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| {
+                    format!(
+                        "Progressive video redirect '{safe_url}' omitted a valid Location header."
+                    )
+                })?;
+            current = current.join(location).map_err(|error| {
+                format!("Progressive video redirect from '{safe_url}' is invalid: {error}")
+            })?;
+            continue;
+        }
+
+        if let Some(content_length) = response
+            .headers()
+            .get("content-length")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            && content_length > max_download_bytes as u64
+        {
+            return Err(format!(
+                "Progressive video download '{safe_url}' declares {content_length} bytes, exceeding the {max_download_bytes}-byte download budget."
+            ));
+        }
+
+        let bytes = response
+            .body_mut()
+            .with_config()
+            // `ureq` checks the limit before its final EOF read, so allow one sentinel byte and
+            // enforce the exact public budget below.
+            .limit((max_download_bytes as u64).saturating_add(1))
+            .read_to_vec()
+            .map_err(|error| match error {
+                ureq::Error::BodyExceedsLimit(_) => format!(
+                    "Progressive video download '{safe_url}' exceeds the {max_download_bytes}-byte download budget."
+                ),
+                ureq::Error::Timeout(kind) => format!(
+                    "Progressive video download '{safe_url}' timed out while receiving the body ({kind:?})."
+                ),
+                other => format!(
+                    "Progressive video download '{safe_url}' failed while reading: {other}"
+                ),
+            })?;
+        if bytes.len() > max_download_bytes {
+            return Err(format!(
+                "Progressive video download '{safe_url}' is {} bytes, exceeding the {max_download_bytes}-byte download budget.",
+                bytes.len()
+            ));
+        }
+        if bytes.is_empty() {
+            return Err(format!(
+                "Progressive video download '{safe_url}' returned an empty response body."
+            ));
+        }
+        return Ok(bytes);
+    }
+    unreachable!("redirect loop exits through success or an explicit redirect-limit error")
 }
 
 /// Stage or update raw container bytes for a progressive video source URL, resource ID, or path.
@@ -2444,14 +2743,81 @@ pub fn stage_progressive_video_bytes(key: impl Into<String>, bytes: Vec<u8>) {
     if key.trim().is_empty() || bytes.is_empty() {
         return;
     }
-    if let Ok(mut map) = staged_progressive_byte_cache().lock() {
-        if map.len() >= 16
-            && !map.contains_key(&key)
-            && let Some(first_key) = map.keys().next().cloned()
+    if let Ok(mut cache) = staged_progressive_byte_cache().lock() {
+        if cache.explicit.len() >= 16
+            && !cache.explicit.contains_key(&key)
+            && let Some(oldest_key) = cache
+                .explicit
+                .iter()
+                .min_by_key(|(_, entry)| entry.inserted_at)
+                .map(|(key, _)| key.clone())
         {
-            map.remove(&first_key);
+            cache.explicit.remove(&oldest_key);
         }
-        map.insert(key, Arc::from(bytes));
+        cache.explicit.insert(
+            key,
+            StagedProgressiveBytes {
+                bytes: Arc::from(bytes),
+                inserted_at: Instant::now(),
+            },
+        );
+    }
+}
+
+/// Cache a successfully downloaded and decoded Progressive response for a short, byte-bounded
+/// process lifetime. Local companion files deliberately never enter this URL-keyed cache.
+pub fn stage_downloaded_progressive_video_bytes(key: impl Into<String>, bytes: Vec<u8>) {
+    let key = key.into();
+    if key.trim().is_empty()
+        || bytes.is_empty()
+        || bytes.len() > MAX_PROGRESSIVE_VIDEO_DOWNLOAD_BYTES
+    {
+        return;
+    }
+    if let Ok(mut cache) = staged_progressive_byte_cache().lock() {
+        let now = Instant::now();
+        cache.downloaded.retain(|_, entry| {
+            now.saturating_duration_since(entry.inserted_at) <= DOWNLOADED_PROGRESSIVE_CACHE_TTL
+        });
+        cache.downloaded.remove(&key);
+        loop {
+            let retained_bytes = cache
+                .downloaded
+                .values()
+                .map(|entry| entry.bytes.len())
+                .sum::<usize>();
+            if cache.downloaded.len() < MAX_DOWNLOADED_PROGRESSIVE_CACHE_ENTRIES
+                && retained_bytes.saturating_add(bytes.len())
+                    <= MAX_DOWNLOADED_PROGRESSIVE_CACHE_BYTES
+            {
+                break;
+            }
+            let Some(oldest_key) = cache
+                .downloaded
+                .iter()
+                .min_by_key(|(_, entry)| entry.inserted_at)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            cache.downloaded.remove(&oldest_key);
+        }
+        cache.downloaded.insert(
+            key,
+            StagedProgressiveBytes {
+                bytes: Arc::from(bytes),
+                inserted_at: now,
+            },
+        );
+    }
+}
+
+/// Remove an invalid or stale staged source so a later resolution may retry its local/remote
+/// origin instead of remaining poisoned for the process lifetime.
+pub fn discard_staged_progressive_video_bytes(key: &str) {
+    if let Ok(mut cache) = staged_progressive_byte_cache().lock() {
+        cache.explicit.remove(key);
+        cache.downloaded.remove(key);
     }
 }
 
@@ -2463,7 +2829,20 @@ pub fn lookup_staged_progressive_video_bytes(key: &str) -> Option<Arc<[u8]>> {
     staged_progressive_byte_cache()
         .lock()
         .ok()
-        .and_then(|map| map.get(key).cloned())
+        .and_then(|mut cache| {
+            if let Some(entry) = cache.explicit.get(key) {
+                return Some(entry.bytes.clone());
+            }
+            let now = Instant::now();
+            let expired = cache.downloaded.get(key).is_some_and(|entry| {
+                now.saturating_duration_since(entry.inserted_at) > DOWNLOADED_PROGRESSIVE_CACHE_TTL
+            });
+            if expired {
+                cache.downloaded.remove(key);
+                return None;
+            }
+            cache.downloaded.get(key).map(|entry| entry.bytes.clone())
+        })
 }
 
 /// Resolve a local or staged progressive file path from `url_or_path` / `resource_path` and `base_dir` (`T-274`).
@@ -2535,137 +2914,14 @@ pub fn resolve_progressive_local_path(
     None
 }
 
-/// Synthesize a deterministic multi-frame progressive video stream when a progressive asset has
-/// known metadata or a poster image in headless tests / preview (`T-274`).
-pub fn synthesize_progressive_video_stream(
-    project: &Project,
-    resource: Option<&neoflash_core::ResourceUnit>,
-    spec: &VideoSourceSpec,
-) -> Result<DecodedVideoStream, String> {
-    let mut poster_rgba: Option<(u32, u32, Vec<u8>)> = None;
-    for res in &project.resources {
-        if res.is_image()
-            && !res.data_base64.is_empty()
-            && let Ok(bytes) = res.decoded_bytes()
-            && let Ok(img) = image::load_from_memory(&bytes)
-        {
-            let rgba = img.to_rgba8();
-            let w = rgba.width().clamp(8, 256);
-            let h = rgba.height().clamp(8, 256);
-            let resized = if w != rgba.width() || h != rgba.height() {
-                image::imageops::resize(&rgba, w, h, FilterType::Triangle).into_raw()
-            } else {
-                rgba.into_raw()
-            };
-            poster_rgba = Some((w, h, resized));
-            break;
-        }
-    }
-
-    let (width, height) = if let Some((pw, ph, _)) = &poster_rgba {
-        (*pw, *ph)
-    } else {
-        let mut found_dims = None;
-        'outer: for sym in &project.symbols {
-            for layer in &sym.timeline.layers {
-                for kf in &layer.keyframes {
-                    for el in &kf.elements {
-                        if let ElementKind::Video { width, height } = el.kind {
-                            let w = (width.round() as u32).clamp(16, 128);
-                            let h = (height.round() as u32).clamp(16, 128);
-                            found_dims = Some((w, h));
-                            break 'outer;
-                        }
-                    }
-                }
-            }
-        }
-        found_dims.unwrap_or((32, 32))
-    };
-
-    let fps = project.fps.clamp(1, 60);
-    let max_tl_frames = project
-        .symbols
-        .iter()
-        .map(|s| s.timeline.frame_count)
-        .max()
-        .unwrap_or(12)
-        .clamp(8, 48) as usize;
-
-    let mut seed = 0x811c_9dc5u32;
-    for b in spec
-        .url_or_path
-        .bytes()
-        .chain(resource.map_or("", |r| r.id.as_str()).bytes())
-    {
-        seed ^= u32::from(b);
-        seed = seed.wrapping_mul(0x0100_0193);
-    }
-
-    let palette: [[u8; 4]; 6] = [
-        [235, 55, 45, 255],
-        [40, 205, 85, 255],
-        [45, 115, 240, 255],
-        [240, 200, 35, 255],
-        [195, 65, 225, 255],
-        [35, 205, 215, 255],
-    ];
-
-    let mut raw_frames: Vec<Vec<u8>> = Vec::with_capacity(max_tl_frames);
-    for frame_idx in 0..max_tl_frames {
-        let base_color = palette[(frame_idx + (seed as usize % palette.len())) % palette.len()];
-        let mut frame_buf = if let Some((_, _, ref poster)) = poster_rgba {
-            poster.clone()
-        } else {
-            vec![0u8; (width * height * 4) as usize]
-        };
-        let band_x = ((frame_idx as u32) * 5) % width.max(1);
-        for y in 0..height {
-            for x in 0..width {
-                let off = ((y * width + x) * 4) as usize;
-                let in_band = x.abs_diff(band_x) <= 2 || y == (frame_idx as u32 % height.max(1));
-                if poster_rgba.is_some() {
-                    if in_band {
-                        frame_buf[off] = base_color[0];
-                        frame_buf[off + 1] = base_color[1];
-                        frame_buf[off + 2] = base_color[2];
-                        frame_buf[off + 3] = 255;
-                    } else {
-                        frame_buf[off] =
-                            ((u16::from(frame_buf[off]) + u16::from(base_color[0])) / 2) as u8;
-                        frame_buf[off + 1] =
-                            ((u16::from(frame_buf[off + 1]) + u16::from(base_color[1])) / 2) as u8;
-                        frame_buf[off + 2] =
-                            ((u16::from(frame_buf[off + 2]) + u16::from(base_color[2])) / 2) as u8;
-                        frame_buf[off + 3] = 255;
-                    }
-                } else {
-                    let delta = if in_band { 20u8 } else { 0u8 };
-                    frame_buf[off] = base_color[0].saturating_add(delta);
-                    frame_buf[off + 1] = base_color[1].saturating_add(delta);
-                    frame_buf[off + 2] = base_color[2].saturating_add(delta);
-                    frame_buf[off + 3] = 255;
-                }
-            }
-        }
-        raw_frames.push(frame_buf);
-    }
-
-    let raw_slices: Vec<&[u8]> = raw_frames.iter().map(Vec::as_slice).collect();
-    let nfvf_bytes = encode_deterministic_mp4_rgba_frames(width, height, fps as u16, &raw_slices);
-    let label = resource
-        .map(|r| r.path.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(spec.url_or_path.as_str());
-    decode_video_stream_bytes(label, &spec.mime_type, &nfvf_bytes)
-}
-
 /// Resolve and decode a timeline video span/source from `project` (`Embedded`, `External`, or `Progressive`, `T-201` / `T-274`).
 ///
 /// For `VideoDeploymentMode::Progressive`, resolves the video byte stream from:
 /// 1. Embedded/cached resource bytes if present in `Project::resources` or staged progressive byte cache, OR
 /// 2. Local/staged progressive file path resolved against `base_dir` or local path, OR
-/// 3. Deterministic synthesized progressive frame stream when a progressive asset has known metadata/poster.
+/// 3. Bounded HTTP(S) download into the process-local cache for remote-only sources.
+///
+/// Failures are actionable and never substitute unrelated pixels for the authored media.
 pub fn resolve_and_decode_project_video(
     project: &Project,
     resource_id: &str,
@@ -2681,6 +2937,7 @@ pub fn resolve_and_decode_project_video(
 
     match spec.mode {
         VideoDeploymentMode::Progressive => {
+            let safe_source = redacted_progressive_url(&spec.url_or_path);
             // 1. Embedded/cached resource bytes in Project::resources or staged progressive byte cache:
             if let Some(res) = resource
                 && !res.data_base64.is_empty()
@@ -2689,18 +2946,33 @@ pub fn resolve_and_decode_project_video(
                     .decoded_bytes()
                     .map_err(|e| format!("Video '{resource_id}' base64 decode failed: {e}"))?;
                 let label = if res.path.is_empty() {
-                    spec.url_or_path.as_str()
+                    safe_source.as_str()
                 } else {
                     res.path.as_str()
                 };
                 return decode_video_stream_bytes(label, &spec.mime_type, &bytes).map(Arc::new);
             }
-            if let Some(staged) = lookup_staged_progressive_video_bytes(&spec.url_or_path)
-                .or_else(|| lookup_staged_progressive_video_bytes(resource_id))
-                .or_else(|| resource.and_then(|r| lookup_staged_progressive_video_bytes(&r.path)))
+            let mut staged_errors = Vec::new();
+            let mut staged_keys = vec![spec.url_or_path.as_str(), resource_id];
+            if let Some(path) = resource
+                .map(|resource| resource.path.as_str())
+                .filter(|path| !path.is_empty())
             {
-                return decode_video_stream_bytes(&spec.url_or_path, &spec.mime_type, &staged)
-                    .map(Arc::new);
+                staged_keys.push(path);
+            }
+            staged_keys.sort_unstable();
+            staged_keys.dedup();
+            for key in staged_keys {
+                let Some(staged) = lookup_staged_progressive_video_bytes(key) else {
+                    continue;
+                };
+                match decode_video_stream_bytes(&safe_source, &spec.mime_type, &staged) {
+                    Ok(decoded) => return Ok(Arc::new(decoded)),
+                    Err(error) => {
+                        discard_staged_progressive_video_bytes(key);
+                        staged_errors.push(error);
+                    }
+                }
             }
             if let Some(companion) = project.resources.iter().find(|r| {
                 r.is_video()
@@ -2721,53 +2993,37 @@ pub fn resolve_and_decode_project_video(
                 resource.map(|r| r.path.as_str()),
                 base_dir,
             ) {
-                if let Ok(bytes) = fs::read(&local_path)
-                    && bytes.len() <= 4 * 1024 * 1024
-                {
-                    stage_progressive_video_bytes(&spec.url_or_path, bytes);
-                }
-                return decode_external_video_file(&local_path, &spec.url_or_path, &spec.mime_type)
+                // Never put project-local companion bytes into the process-global URL cache: a
+                // different project may intentionally use the same remote URL with another local
+                // companion. The external decoder already owns its bounded local-file backing.
+                return decode_external_video_file(&local_path, &safe_source, &spec.mime_type)
                     .map(Arc::new);
             }
 
-            // Validate progressive URL before synthesizing a deterministic stream:
+            // Validate the remote URL before attempting a network request.
             neoflash_core::validate_progressive_video_url(&spec.url_or_path).map_err(|err| {
-                format!(
-                    "Timeline video '{resource_id}' uses Progressive deployment ('{}') with invalid URL: {err}",
-                    spec.url_or_path
-                )
+                let staged_note = (!staged_errors.is_empty()).then(|| {
+                    format!(" Earlier staged bytes were invalid: {}", staged_errors.join("; "))
+                });
+                format!("Timeline video '{resource_id}' uses Progressive deployment ('{safe_source}') with invalid URL: {err}.{}", staged_note.unwrap_or_default())
             })?;
 
-            // 3. Deterministic synthesized progressive frame stream when a progressive asset has
-            // known metadata (trim/duration/cue points) or a poster image in headless tests:
-            let has_poster = project
-                .resources
-                .iter()
-                .any(|r| r.is_image() && !r.data_base64.is_empty());
-            let has_known_span_metadata = project.symbols.iter().any(|sym| {
-                sym.timeline.layers.iter().any(|layer| {
-                    layer.keyframes.iter().any(|kf| {
-                        kf.video.as_ref().is_some_and(|v| {
-                            v.resource == resource_id
-                                && (v.end_offset_ms.is_some()
-                                    || v.start_offset_ms > 0
-                                    || !v.cue_points.is_empty())
-                        })
-                    })
-                })
-            });
-            if let Some(res) = resource
-                && res.is_video()
-                && (has_poster || has_known_span_metadata)
-            {
-                return synthesize_progressive_video_stream(project, Some(res), &spec)
-                    .map(Arc::new);
-            }
-
-            Err(format!(
-                "Timeline video '{resource_id}' uses Progressive deployment ('{}'), which cannot be decoded in offline video/sequence export (video-cors-remote). Switch deployment to Embedded or External local file, or provide staged bytes / known metadata.",
-                spec.url_or_path
-            ))
+            // 3. Bounded HTTP(S) download. Decode before caching so a corrupt or unsupported
+            // response never poisons later preview/export attempts.
+            let downloaded = fetch_progressive_video_bytes(&spec.url_or_path).map_err(|error| {
+                let staged_note = (!staged_errors.is_empty()).then(|| {
+                    format!(" Earlier staged bytes were invalid: {}", staged_errors.join("; "))
+                });
+                format!("Timeline video '{resource_id}' uses Progressive deployment ('{safe_source}'), but its media could not be downloaded: {error}.{}", staged_note.unwrap_or_default())
+            })?;
+            let decoded = decode_video_stream_bytes(&safe_source, &spec.mime_type, &downloaded)
+                .map_err(|error| {
+                format!(
+                    "Timeline video '{resource_id}' downloaded from '{safe_source}' could not be decoded: {error}"
+                )
+            })?;
+            stage_downloaded_progressive_video_bytes(spec.url_or_path.clone(), downloaded);
+            Ok(Arc::new(decoded))
         }
         VideoDeploymentMode::External => {
             validate_external_video_path(&spec.url_or_path).map_err(|err| {
@@ -6148,8 +6404,7 @@ mod tests {
     }
 
     #[test]
-    fn t274_progressive_video_decodes_embedded_bytes_staged_files_and_synthesized_streams_in_offline_export()
-     {
+    fn t274_progressive_video_decodes_embedded_staged_and_downloaded_bytes_in_offline_export() {
         use neoflash_core::{ResourceUnit, TimelineVideoSpan};
 
         let mp4_bytes = build_four_color_mp4_fixture();
@@ -6286,42 +6541,162 @@ mod tests {
         assert_eq!(p3.get_pixel(16, 16).0, [0, 0, 255, 255]);
         assert_eq!(p4.get_pixel(16, 16).0, [255, 255, 0, 255]);
 
-        // 3. Progressive span with known metadata in headless mode (no local file on disk):
-        // synthesizes a deterministic multi-frame RGBA stream across timeline frames.
-        let mut synth_prog_proj = make_prog_project(
-            ResourceUnit::from_bytes("vid_prog_synth", "streams/synth_only.mp4", "video/mp4", &[])
+        // 3. Remote-only Progressive spans fetch and decode real bytes. They must never replace
+        // unavailable authored media with synthetic pixels.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let served_mp4 = mp4_bytes.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                served_mp4.len()
+            )
+            .unwrap();
+            stream.write_all(&served_mp4).unwrap();
+        });
+        let remote_url = format!("http://{address}/streams/remote.mp4");
+        let remote_prog_proj = make_prog_project(
+            ResourceUnit::from_bytes("vid_prog_remote", "streams/remote.mp4", "video/mp4", &[])
                 .unwrap(),
-            "https://cdn.example.com/streams/synth_only.mp4",
+            &remote_url,
         );
-        {
-            let root_id = synth_prog_proj.root.clone();
-            let root = synth_prog_proj.symbol_mut(&root_id).unwrap();
-            root.timeline.layers[0].keyframes[0]
-                .video
-                .as_mut()
-                .unwrap()
-                .end_offset_ms = Some(4000);
-        }
-        synth_prog_proj.upgrade_format_for_features();
-        let sf0 =
-            render_project_frame_rgba(&synth_prog_proj, None, 0, 64, 64, false, false).unwrap();
-        let sf1 =
-            render_project_frame_rgba(&synth_prog_proj, None, 1, 64, 64, false, false).unwrap();
-        let sf2 =
-            render_project_frame_rgba(&synth_prog_proj, None, 2, 64, 64, false, false).unwrap();
-        assert_ne!(
-            sample_px(&sf0, 16, 16),
-            [10, 10, 10, 255],
-            "synthesized progressive frame must draw video pixels over stage background"
-        );
-        assert_ne!(
-            sample_px(&sf0, 16, 16),
-            sample_px(&sf1, 16, 16),
-            "synthesized progressive stream must advance across timeline frames"
-        );
-        assert_ne!(sample_px(&sf1, 16, 16), sample_px(&sf2, 16, 16));
+        let rf0 =
+            render_project_frame_rgba(&remote_prog_proj, None, 0, 64, 64, false, false).unwrap();
+        let rf1 =
+            render_project_frame_rgba(&remote_prog_proj, None, 1, 64, 64, false, false).unwrap();
+        let rf2 =
+            render_project_frame_rgba(&remote_prog_proj, None, 2, 64, 64, false, false).unwrap();
+        server.join().unwrap();
+        assert_eq!(sample_px(&rf0, 16, 16), [255, 0, 0, 255]);
+        assert_eq!(sample_px(&rf1, 16, 16), [0, 255, 0, 255]);
+        assert_eq!(sample_px(&rf2, 16, 16), [0, 0, 255, 255]);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn progressive_download_reports_http_errors_and_enforces_declared_and_streamed_limits() {
+        fn serve_once(response: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let handle = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 2048];
+                let _ = stream.read(&mut request);
+                stream.write_all(&response).unwrap();
+            });
+            (format!("http://{address}/clip.mp4"), handle)
+        }
+
+        let (status_url, status_server) = serve_once(
+            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
+        );
+        let status_error = fetch_progressive_video_bytes_with_limit(&status_url, 16).unwrap_err();
+        status_server.join().unwrap();
+        assert!(status_error.contains("HTTP status 503"), "{status_error}");
+
+        let (declared_url, declared_server) = serve_once(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 17\r\nConnection: close\r\n\r\n".to_vec(),
+        );
+        let declared_error =
+            fetch_progressive_video_bytes_with_limit(&declared_url, 16).unwrap_err();
+        declared_server.join().unwrap();
+        assert!(
+            declared_error.contains("declares 17 bytes")
+                && declared_error.contains("16-byte download budget"),
+            "{declared_error}"
+        );
+
+        let mut streamed_response = b"HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        streamed_response.extend_from_slice(&[7u8; 17]);
+        let (streamed_url, streamed_server) = serve_once(streamed_response);
+        let streamed_error =
+            fetch_progressive_video_bytes_with_limit(&streamed_url, 16).unwrap_err();
+        streamed_server.join().unwrap();
+        assert!(
+            streamed_error.contains("16-byte download budget"),
+            "{streamed_error}"
+        );
+    }
+
+    #[test]
+    fn progressive_network_policy_blocks_private_ranges_and_redacts_credentials() {
+        for address in [
+            "127.0.0.1",
+            "10.2.3.4",
+            "169.254.7.8",
+            "192.168.1.2",
+            "100.64.1.2",
+            "::1",
+            "::127.0.0.1",
+            "64:ff9b::127.0.0.1",
+            "fc00::1",
+            "fd12:3456::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+            "2001:db8::1",
+            "2002:7f00:1::1",
+            "3fff::1",
+        ] {
+            let parsed = address.parse::<IpAddr>().unwrap();
+            assert!(!is_public_progressive_address(parsed), "{address}");
+        }
+        for address in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "2001:4860:4860::8888",
+            "2606:4700:4700::1111",
+        ] {
+            let parsed = address.parse::<IpAddr>().unwrap();
+            assert!(is_public_progressive_address(parsed), "{address}");
+        }
+
+        let safe = redacted_progressive_url(
+            "https://user:password@example.test/video.mp4?token=secret#frame",
+        );
+        assert_eq!(safe, "https://example.test/video.mp4");
+        assert!(!safe.contains("password"));
+        assert!(!safe.contains("secret"));
+    }
+
+    #[test]
+    fn corrupt_staged_progressive_bytes_are_discarded_before_network_refetch() {
+        let mp4_bytes = build_four_color_mp4_fixture();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let served_mp4 = mp4_bytes.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                served_mp4.len()
+            )
+            .unwrap();
+            stream.write_all(&served_mp4).unwrap();
+        });
+        let url = format!("http://{address}/fresh.mp4?token=do-not-log");
+        stage_progressive_video_bytes(url.clone(), b"not a video".to_vec());
+        let spec = VideoSourceSpec {
+            mode: VideoDeploymentMode::Progressive,
+            url_or_path: url.clone(),
+            mime_type: "video/mp4".into(),
+        };
+
+        let stream =
+            resolve_and_decode_project_video(&Project::blank(), "remote-video", Some(&spec), None)
+                .expect("invalid staged bytes are removed and the authored URL is fetched");
+        server.join().unwrap();
+        assert_eq!(stream.logical_frame_count(), 4);
+        assert!(lookup_staged_progressive_video_bytes(&url).is_some());
+        discard_staged_progressive_video_bytes(&url);
     }
 
     #[test]

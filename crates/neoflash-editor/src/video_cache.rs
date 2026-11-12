@@ -15,13 +15,14 @@ use neoflash_export::{DecodedVideoFrame, DecodedVideoStream, resolve_and_decode_
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, mpsc},
     time::{Duration, Instant, SystemTime},
 };
 
 const MAX_VIDEO_TEXTURE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_VIDEO_DECODED_STREAM_CACHE_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_VIDEO_DECODED_STREAM_CACHE_FRAMES: usize = 144_000;
+const MAX_PROGRESSIVE_FETCH_JOBS: usize = 4;
 const EXTERNAL_VIDEO_RECHECK_INTERVAL: Duration = Duration::from_secs(1);
 type TextureKey = (String, usize, [u64; 8]);
 
@@ -32,6 +33,79 @@ struct CachedStream {
     last_external_check: Instant,
     result: Result<Arc<DecodedVideoStream>, String>,
     retry_after_cache_generation: Option<u64>,
+}
+
+enum ProgressiveFetchJob {
+    Loading(mpsc::Receiver<Result<Arc<DecodedVideoStream>, String>>),
+    Complete(Result<Arc<DecodedVideoStream>, String>),
+}
+
+enum ProgressiveFetchPoll {
+    Ready(Arc<DecodedVideoStream>),
+    Pending,
+    Failed(String),
+}
+
+fn unresolved_remote_progressive_source(
+    project: &Project,
+    placement: &ResolvedVideoPlacement,
+    base_dir: Option<&Path>,
+) -> Option<(String, String, Vec<String>)> {
+    let source = placement.source.as_ref()?;
+    let parsed = url::Url::parse(&source.url_or_path).ok()?;
+    if source.mode != VideoDeploymentMode::Progressive
+        || !matches!(parsed.scheme(), "http" | "https")
+        || neoflash_core::validate_progressive_video_url(&source.url_or_path).is_err()
+    {
+        return None;
+    }
+    let resource = project
+        .resources
+        .iter()
+        .find(|resource| resource.id == placement.resource);
+    if resource.is_some_and(|resource| !resource.data_base64.is_empty())
+        || project.resources.iter().any(|candidate| {
+            candidate.is_video()
+                && !candidate.data_base64.is_empty()
+                && (candidate.path == source.url_or_path
+                    || resource.is_some_and(|resource| {
+                        !resource.path.is_empty() && candidate.path == resource.path
+                    }))
+        })
+        || neoflash_export::resolve_progressive_local_path(
+            &source.url_or_path,
+            resource.map(|resource| resource.path.as_str()),
+            base_dir,
+        )
+        .is_some()
+    {
+        return None;
+    }
+    let mut staged_keys = vec![source.url_or_path.clone(), placement.resource.clone()];
+    if let Some(path) = resource
+        .map(|resource| resource.path.as_str())
+        .filter(|path| !path.is_empty())
+    {
+        staged_keys.push(path.to_owned());
+    }
+    staged_keys.sort_unstable();
+    staged_keys.dedup();
+    Some((
+        source.url_or_path.clone(),
+        source.mime_type.clone(),
+        staged_keys,
+    ))
+}
+
+fn fetch_progressive_stage_bytes(url: &str) -> Result<Vec<u8>, String> {
+    #[cfg(test)]
+    {
+        neoflash_export::fetch_progressive_video_bytes_allowing_private_for_tests(url)
+    }
+    #[cfg(not(test))]
+    {
+        neoflash_export::fetch_progressive_video_bytes(url)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,6 +292,7 @@ pub type VideoFrameCache = VideoTextures;
 #[derive(Default)]
 pub struct VideoTextures {
     streams: HashMap<String, CachedStream>,
+    progressive_fetches: HashMap<String, ProgressiveFetchJob>,
     textures: HashMap<TextureKey, CachedFrameTexture>,
     used: HashSet<TextureKey>,
     reported_errors: HashMap<String, String>,
@@ -231,6 +306,123 @@ pub struct VideoTextures {
 }
 
 impl VideoTextures {
+    fn poll_progressive_fetch_jobs(&mut self) {
+        for job in self.progressive_fetches.values_mut() {
+            let ProgressiveFetchJob::Loading(receiver) = job else {
+                continue;
+            };
+            let completed = match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err(
+                    "Progressive video download worker stopped before returning a result.".into(),
+                )),
+            };
+            if let Some(result) = completed {
+                *job = ProgressiveFetchJob::Complete(result);
+            }
+        }
+    }
+
+    fn poll_or_start_progressive_fetch(
+        &mut self,
+        cache_key: &str,
+        url: &str,
+        mime_type: &str,
+        staged_keys: Vec<String>,
+    ) -> ProgressiveFetchPoll {
+        self.poll_progressive_fetch_jobs();
+        if let Some(job) = self.progressive_fetches.get(cache_key) {
+            match job {
+                ProgressiveFetchJob::Complete(Ok(stream)) => {
+                    let stream = stream.clone();
+                    self.progressive_fetches.remove(cache_key);
+                    return ProgressiveFetchPoll::Ready(stream);
+                }
+                ProgressiveFetchJob::Complete(Err(error)) => {
+                    let error = error.clone();
+                    self.progressive_fetches.remove(cache_key);
+                    return ProgressiveFetchPoll::Failed(error);
+                }
+                ProgressiveFetchJob::Loading(_) => return ProgressiveFetchPoll::Pending,
+            }
+        }
+
+        let active_fetches = self
+            .progressive_fetches
+            .values()
+            .filter(|job| matches!(job, ProgressiveFetchJob::Loading(_)))
+            .count();
+        if active_fetches >= MAX_PROGRESSIVE_FETCH_JOBS {
+            return ProgressiveFetchPoll::Pending;
+        }
+        let (sender, receiver) = mpsc::channel();
+        let worker_url = url.to_owned();
+        let worker_mime = mime_type.to_owned();
+        match std::thread::Builder::new()
+            .name("neoflash-progressive-stage".into())
+            .spawn(move || {
+                let mut staged_errors = Vec::new();
+                let result = staged_keys
+                    .iter()
+                    .find_map(|key| {
+                        let bytes = neoflash_export::lookup_staged_progressive_video_bytes(key)?;
+                        match neoflash_export::decode_video_stream_bytes(
+                            "staged Progressive Stage video",
+                            &worker_mime,
+                            &bytes,
+                        ) {
+                            Ok(stream) => Some(Ok(Arc::new(stream))),
+                            Err(error) => {
+                                neoflash_export::discard_staged_progressive_video_bytes(key);
+                                staged_errors.push(error);
+                                None
+                            }
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        fetch_progressive_stage_bytes(&worker_url)
+                            .map_err(|error| {
+                                if staged_errors.is_empty() {
+                                    error
+                                } else {
+                                    format!(
+                                        "{error} Earlier staged bytes were invalid: {}",
+                                        staged_errors.join("; ")
+                                    )
+                                }
+                            })
+                            .and_then(|bytes| {
+                                let stream = neoflash_export::decode_video_stream_bytes(
+                                    "downloaded Progressive Stage video",
+                                    &worker_mime,
+                                    &bytes,
+                                )
+                                .map_err(|error| {
+                                    format!(
+                                        "Downloaded Progressive Stage video could not be decoded: {error}"
+                                    )
+                                })?;
+                                neoflash_export::stage_downloaded_progressive_video_bytes(
+                                    worker_url.clone(),
+                                    bytes,
+                                );
+                                Ok(Arc::new(stream))
+                            })
+                    });
+                let _ = sender.send(result);
+            }) {
+            Ok(_) => {
+                self.progressive_fetches
+                    .insert(cache_key.to_owned(), ProgressiveFetchJob::Loading(receiver));
+                ProgressiveFetchPoll::Pending
+            }
+            Err(error) => ProgressiveFetchPoll::Failed(format!(
+                "Could not start Progressive video download: {error}"
+            )),
+        }
+    }
+
     pub fn begin_frame(
         &mut self,
         project: &Project,
@@ -238,6 +430,7 @@ impl VideoTextures {
         document_revision: u64,
     ) {
         self.used.clear();
+        self.poll_progressive_fetch_jobs();
         let base_owned = base_dir.map(Path::to_path_buf);
         if self.last_base_dir != base_owned {
             let released_decoded_stream = self.streams.values().any(|cached| cached.result.is_ok());
@@ -251,7 +444,7 @@ impl VideoTextures {
                 self.stream_cache_generation = self.stream_cache_generation.wrapping_add(1);
             }
         }
-        if self.streams.is_empty() {
+        if self.streams.is_empty() && self.progressive_fetches.is_empty() {
             self.authored_source_revision = None;
             self.authored_source_keys.clear();
             return;
@@ -267,6 +460,13 @@ impl VideoTextures {
                 self.authored_source_scan_count += 1;
             }
         }
+        // Do not forget a live worker when the document or base directory changes: detached
+        // workers would evade the four-job limit. Completed offscreen jobs can be discarded; a
+        // successful worker has already placed only decoded bytes in the short-lived URL cache.
+        self.progressive_fetches.retain(|key, job| {
+            self.authored_source_keys.contains(key)
+                || matches!(job, ProgressiveFetchJob::Loading(_))
+        });
         let mut released_decoded_stream = false;
         self.streams.retain(|key, cached| {
             let current_resource = project
@@ -339,18 +539,54 @@ impl VideoTextures {
         };
 
         if needs_reload {
+            let progressive_source =
+                unresolved_remote_progressive_source(project, placement, base_dir);
+            let mut progressive_stream = None;
+            let progressive_failure = if let Some((url, mime_type, staged_keys)) =
+                progressive_source
+            {
+                match self.poll_or_start_progressive_fetch(
+                    &cache_key,
+                    &url,
+                    &mime_type,
+                    staged_keys,
+                ) {
+                    ProgressiveFetchPoll::Ready(stream) => {
+                        progressive_stream = Some(stream);
+                        None
+                    }
+                    ProgressiveFetchPoll::Pending => {
+                        return Err(format!(
+                            "Progressive video '{}' is downloading in the background.",
+                            placement.resource
+                        ));
+                    }
+                    ProgressiveFetchPoll::Failed(error) => Some(format!(
+                        "Timeline video '{}' could not download its Progressive source: {error}",
+                        placement.resource
+                    )),
+                }
+            } else {
+                None
+            };
             let previous_had_decoded_stream = self
                 .streams
                 .get(&cache_key)
                 .is_some_and(|cached| cached.result.is_ok());
             self.textures
                 .retain(|(stream_key, _, _), _| stream_key != &cache_key);
-            let mut result = resolve_and_decode_project_video(
-                project,
-                &placement.resource,
-                placement.source.as_ref(),
-                base_dir,
-            );
+            let mut result = if let Some(error) = progressive_failure {
+                Err(error)
+            } else if let Some(stream) = progressive_stream {
+                Ok(stream)
+            } else {
+                resolve_and_decode_project_video(
+                    project,
+                    &placement.resource,
+                    placement.source.as_ref(),
+                    base_dir,
+                )
+            };
             let mut budget_rejected = false;
             if let Ok(candidate) = &result {
                 let cached_streams = self
@@ -452,7 +688,20 @@ impl VideoTextures {
         placement: &ResolvedVideoPlacement,
         color: ColorTransform,
     ) -> Option<TextureId> {
-        let (frame_idx, frame) = self.frame_for_placement(project, base_dir, placement)?;
+        let frame = self.frame_for_placement(project, base_dir, placement);
+        let Some((frame_idx, frame)) = frame else {
+            if self
+                .progressive_fetches
+                .contains_key(&placement_cache_key(placement, base_dir))
+                || self
+                    .progressive_fetches
+                    .values()
+                    .any(|job| matches!(job, ProgressiveFetchJob::Loading(_)))
+            {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+            return None;
+        };
         let channels: [u64; 8] = color
             .multipliers
             .into_iter()
@@ -546,6 +795,8 @@ mod tests {
     use super::*;
     use neoflash_core::{DecodedImage, ResourceUnit, VideoSourceSpec, VideoSyncMode};
     use neoflash_export::encode_deterministic_mp4_rgba_frames;
+    use std::io::Write as _;
+    use std::net::TcpListener;
 
     fn solid_fixture(color: [u8; 4]) -> Vec<u8> {
         let mut rgba = Vec::with_capacity(4 * 4 * 4);
@@ -1056,43 +1307,73 @@ mod tests {
             );
         }
 
-        // 2. Progressive span with known metadata in headless mode (no local file on disk)
-        // synthesizes deterministic RGBA frames across timeline scrubbing
-        let mut synth_project = Project::blank();
-        synth_project.resources.push(
-            ResourceUnit::from_bytes("prog-synth", "streams/headless.mp4", "video/mp4", &[])
+        // 2. A remote-only Progressive span downloads real bytes in the background instead of
+        // blocking Stage paint or substituting synthetic content.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let remote_addr = listener.local_addr().unwrap();
+        let remote_bytes = long_mp4.clone();
+        let remote_server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                remote_bytes.len()
+            );
+            socket.write_all(header.as_bytes()).unwrap();
+            socket.write_all(&remote_bytes).unwrap();
+        });
+        let remote_url = format!("http://{remote_addr}/streams/remote.mp4");
+        let mut remote_project = Project::blank();
+        remote_project.resources.push(
+            ResourceUnit::from_bytes("prog-remote", "streams/remote.mp4", "video/mp4", &[])
                 .unwrap(),
         );
         {
-            let root_id = synth_project.root.clone();
-            let root = synth_project.symbol_mut(&root_id).unwrap();
-            let mut span = neoflash_core::TimelineVideoSpan::progressive(
-                "prog-synth",
-                "https://cdn.example.com/streams/headless.mp4",
-            );
+            let root_id = remote_project.root.clone();
+            let root = remote_project.symbol_mut(&root_id).unwrap();
+            let mut span =
+                neoflash_core::TimelineVideoSpan::progressive("prog-remote", remote_url.clone());
             span.end_offset_ms = Some(4000);
             root.timeline.layers[0].keyframes[0].video = Some(span);
         }
-        let mut synth_placement = placement.clone();
-        synth_placement.resource = "prog-synth".into();
-        synth_placement.source = Some(VideoSourceSpec {
+        let mut remote_placement = placement.clone();
+        remote_placement.resource = "prog-remote".into();
+        remote_placement.source = Some(VideoSourceSpec {
             mode: VideoDeploymentMode::Progressive,
-            url_or_path: "https://cdn.example.com/streams/headless.mp4".into(),
+            url_or_path: remote_url.clone(),
             mime_type: "video/mp4".into(),
         });
-        synth_placement.time_ms = 0;
-        let (_, f0) = cache
-            .frame_for_placement(&synth_project, None, &synth_placement)
-            .expect("synthesized progressive frame 0");
-        synth_placement.time_ms = 100;
+        remote_placement.time_ms = 0;
+        neoflash_export::stage_progressive_video_bytes(remote_url.clone(), b"not a video".to_vec());
+        let first = cache.stream_for_placement(&remote_project, None, &remote_placement);
+        assert!(
+            first
+                .as_ref()
+                .is_err_and(|error| error.contains("downloading in the background")),
+            "first remote Stage lookup must schedule rather than block"
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (_, f0) = loop {
+            if let Some(frame) = cache.frame_for_placement(&remote_project, None, &remote_placement)
+            {
+                break frame;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "remote Progressive Stage download did not finish within the test deadline"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        remote_placement.time_ms = 100;
         let (_, f1) = cache
-            .frame_for_placement(&synth_project, None, &synth_placement)
-            .expect("synthesized progressive frame 1");
+            .frame_for_placement(&remote_project, None, &remote_placement)
+            .expect("downloaded Progressive frame 1");
+        remote_server.join().unwrap();
         assert_ne!(
             &f0.image.rgba[..4],
             &f1.image.rgba[..4],
-            "progressive synthesized stream must advance across timeline scrubbing"
+            "downloaded Progressive stream must advance across timeline scrubbing"
         );
+        neoflash_export::discard_staged_progressive_video_bytes(&remote_url);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

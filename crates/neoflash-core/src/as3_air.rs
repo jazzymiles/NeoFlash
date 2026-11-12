@@ -8570,10 +8570,13 @@ mod tests {
         INJECT_SEQ.store(10, std::sync::atomic::Ordering::Relaxed);
         set_csprng_provider(Some(test_provider));
         let (salt_inj, nonce_inj) = generate_sql_salt_and_nonce(&key, 42, 64);
-        assert_eq!(salt_inj[0], 0xAA);
-        assert_eq!(salt_inj[15], 0xAAu8.wrapping_add(15));
-        assert_eq!(nonce_inj[0], 0xAAu8.wrapping_add(16));
-        assert_eq!(nonce_inj[11], 0xAAu8.wrapping_add(27));
+        // Other parallel AIR tests may legitimately request entropy while the process-wide host
+        // provider is installed. Assert this call's provider pattern instead of assuming that it
+        // must consume the first sequence number after `store(10)`.
+        let injected_start = salt_inj[0];
+        for (index, byte) in salt_inj.iter().chain(nonce_inj.iter()).enumerate() {
+            assert_eq!(*byte, injected_start.wrapping_add(index as u8));
+        }
 
         // 3. Fallback path when custom provider returns `false` still produces distinct ChaCha20-backed nonces.
         fn failing_provider(_dest: &mut [u8]) -> bool {

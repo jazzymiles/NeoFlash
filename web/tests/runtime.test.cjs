@@ -516,6 +516,39 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
   let activeFrame = 0;
   let playingState = true;
   let rafCallback = null;
+  const lifetimes = new Map([
+    ['[]', 'root-life'],
+    ['["start_btn"]', 'start-life-1'],
+    ['["intro_heading"]', 'heading-life-1'],
+    ['["victory_modal"]', 'dialog-life-1'],
+  ]);
+  const runtimeAccessibility = () => activeFrame === 0
+    ? [
+        {
+          instance_path: ['start_btn'],
+          lifetime_id: lifetimes.get('["start_btn"]'),
+          accessibility: {
+            name: 'Begin Quest', description: 'Starts level 1', role: 'button',
+            tab_order: 2, disabled: false,
+          },
+        },
+        {
+          instance_path: ['intro_heading'],
+          lifetime_id: lifetimes.get('["intro_heading"]'),
+          accessibility: {
+            name: 'Welcome Hero Heading', description: 'Main screen banner', role: 'image',
+            tab_order: 1, disabled: false,
+          },
+        },
+      ]
+    : [{
+        instance_path: ['victory_modal'],
+        lifetime_id: lifetimes.get('["victory_modal"]'),
+        accessibility: {
+          name: 'Mission Complete', description: 'All objectives cleared', role: 'image',
+          tab_order: 1, disabled: false,
+        },
+      }];
 
   const mockPlayer = {
     current_frame: () => activeFrame,
@@ -533,10 +566,13 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
     },
     scene_json: () => '[]',
     scripts_json: () => '[]',
-    accessibility_json: () => '[]',
+    accessibility_json: () => JSON.stringify(runtimeAccessibility()),
     is_dispatch_current: () => true,
     script_overflowed: () => false,
-    lifetime_id: () => 'root-life',
+    lifetime_id: key => lifetimes.get(key) || '',
+    child_path: () => 'null',
+    visible: () => true,
+    property: () => 0,
   };
 
   const sandbox = {
@@ -712,9 +748,25 @@ test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nod
   assert.equal(overlayEl.children[1].getAttribute('aria-keyshortcuts'), 'Enter');
   assert.equal(overlayEl.children[1].getAttribute('tabindex'), '2');
 
-  // Advance runtime frame loop via requestAnimationFrame (10 fps => 100ms step)
+  // Matching runtime semantics use nested `accessibility` metadata and instance-path names.
+  // They must enrich the authored entries rather than doubling the browser's controls.
+  const stableTitleNode = overlayEl.children[0];
+  const stableButtonNode = overlayEl.children[1];
   assert.equal(typeof rafCallback, 'function');
   rafCallback(1000);
+  assert.equal(overlayEl.children.length, 2);
+  assert.equal(overlayEl.children[0], stableTitleNode, 'same authored/runtime lifetime preserves the focused DOM node');
+  assert.equal(overlayEl.children[1], stableButtonNode);
+
+  // Re-instantiating one placement with the same authored name but a fresh lifetime retires only
+  // that placement's DOM node; the sibling keeps its identity and focus state.
+  lifetimes.set('["intro_heading"]', 'heading-life-2');
+  rafCallback(1001);
+  assert.equal(overlayEl.children.length, 2);
+  assert.notEqual(overlayEl.children[0], stableTitleNode);
+  assert.equal(overlayEl.children[1], stableButtonNode);
+
+  // Advance runtime frame loop via requestAnimationFrame (10 fps => 100ms step).
   rafCallback(1120);
 
   assert.equal(activeFrame, 1, 'runtime advanced to frame 1');

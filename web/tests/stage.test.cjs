@@ -599,6 +599,32 @@ test('syncAccessibilityOverlay synchronizes deterministic tabIndex read order, r
   assert.equal(overlayRoot.children[0].getAttribute('data-keyboard-focus-ring'), 'false');
   assert.equal(overlayRoot.children[1].getAttribute('aria-live'), 'polite');
 
+  // Stable placements retain their exact DOM nodes across render-loop synchronizations so
+  // keyboard focus and assistive-technology state are not reset every animation frame.
+  playAcc.name = 'Start Mission Now';
+  const stableSync = controller.syncAccessibilityOverlay(overlayRoot, [root, silentDeco, child]);
+  assert.equal(stableSync.elements[0], firstSync.elements[0]);
+  assert.equal(stableSync.elements[1], firstSync.elements[1]);
+  assert.equal(stableSync.elements[2], firstSync.elements[2]);
+  assert.equal(stableSync.elements[0].getAttribute('aria-label'), 'Start Mission Now');
+  playAcc.name = 'Start Mission';
+
+  // Reusing an authored ID for a new runtime lifetime must create a fresh node instead of
+  // transferring focus/state from the retired placement.
+  const replacementChild = { ...child, id: child.id, accessibilityProperties: playAcc };
+  const replacementSync = controller.syncAccessibilityOverlay(overlayRoot, [root, silentDeco, replacementChild]);
+  assert.notEqual(replacementSync.elements[0], firstSync.elements[0]);
+  assert.equal(replacementSync.elements[1], firstSync.elements[1]);
+
+  // Runtime snapshots are decoded into fresh JS objects every frame. A stable lifetime token
+  // therefore preserves a node, while a new runtime generation with the same authored ID retires it.
+  const runtimeLifetimeA = { ...child, target: 'runtime-a11y:child:17', id: 'runtime-child' };
+  const lifetimeSyncA = controller.syncAccessibilityOverlay(overlayRoot, [runtimeLifetimeA]);
+  const lifetimeSyncA2 = controller.syncAccessibilityOverlay(overlayRoot, [{ ...runtimeLifetimeA }]);
+  assert.equal(lifetimeSyncA2.elements[0], lifetimeSyncA.elements[0]);
+  const lifetimeSyncB = controller.syncAccessibilityOverlay(overlayRoot, [{ ...runtimeLifetimeA, target: 'runtime-a11y:child:18' }]);
+  assert.notEqual(lifetimeSyncB.elements[0], lifetimeSyncA.elements[0]);
+
   // 2. Keyboard focus switches focusReason to 'key' without mutating authored AccessibilityProperties
   controller.changeFocus(child, 'key', {});
   assert.equal(controller.focusReason(), 'key');

@@ -564,8 +564,10 @@
     }
     function updateAudioStatus(){
       if(typeof document==='undefined')return;
-      const states=[audioHost?.status(),videoHost?.status()].filter(value=>value&&value.state!=='idle');
-      const state={state:states.some(value=>value.state==='awaiting_gesture')?'awaiting_gesture':states.some(value=>value.state==='loading')?'loading':states.length?'ready':'idle',unlocked:states.every(value=>value.unlocked),muted:states.length>0&&states.every(value=>value.muted),pending:states.reduce((n,value)=>n+value.pending,0),active:states.reduce((n,value)=>n+value.active,0),loading:states.reduce((n,value)=>n+value.loading,0),error:states.find(value=>value.error)?.error};
+      const videoState=videoHost?.status();
+      const states=[audioHost?.status(),videoState?.audible===false?null:videoState].filter(value=>value&&value.state!=='idle');
+      const effectivelyUnlocked=value=>Boolean(value.unlocked||value.requiresGesture===false);
+      const state={state:states.some(value=>value.state==='awaiting_gesture')?'awaiting_gesture':states.some(value=>value.state==='loading')?'loading':states.length?'ready':'idle',unlocked:states.every(effectivelyUnlocked),muted:states.length>0&&states.every(value=>value.muted),pending:states.reduce((n,value)=>n+value.pending,0),active:states.reduce((n,value)=>n+value.active,0),loading:states.reduce((n,value)=>n+value.loading,0),error:states.find(value=>value.error)?.error};
       const button=document.getElementById('audio-toggle'),label=document.getElementById('audio-status');if(!button||!label)return;
       button.hidden=label.hidden=state.state==='idle';
       button.textContent=!state.unlocked||state.state==='awaiting_gesture'?'Enable audio':state.muted?'Unmute audio':'Mute audio';
@@ -1876,12 +1878,18 @@
       const entries = global.NeoFlashStage.collectProjectAccessibilityEntries
         ? global.NeoFlashStage.collectProjectAccessibilityEntries(project, currentFrame, {
             resolveTarget: el => {
-              if (!el || !el.name) return null;
-              const byPath = proxies.get(JSON.stringify([el.name]));
-              if (byPath && byPath.proxy) return byPath.proxy;
+              if (!el) return null;
+              if (el.name) {
+                const byPath = proxies.get(JSON.stringify([el.name]));
+                if (byPath && byPath.proxy) return byPath.proxy;
+              }
               if (typeof display !== 'undefined' && display && typeof display.nodes === 'function') {
                 for (const node of display.nodes()) {
-                  if (node && node.name === el.name && node.object_ref) {
+                  const sourcePath = Array.isArray(node?.source_path)
+                    ? node.source_path
+                    : (Array.isArray(node?.authored_path) ? node.authored_path : node?.path);
+                  const sameAuthoredPlacement = Array.isArray(sourcePath) && sourcePath[sourcePath.length - 1] === el.id;
+                  if (node && (sameAuthoredPlacement || (el.name && node.name === el.name)) && node.object_ref) {
                     const byRef = proxies.get(JSON.stringify(node.object_ref));
                     if (byRef && byRef.proxy) return byRef.proxy;
                   }
@@ -1891,30 +1899,43 @@
             },
           })
         : [];
-      const seenIds = new Set(entries.map(e => String(e.id)));
-      const seenNames = new Set(entries.map(e => String(e.name || '')).filter(Boolean));
       for (const node of (Array.isArray(semNodes) ? semNodes : [])) {
         if (!node || typeof node !== 'object') continue;
-        const nodeId = String(node.id || (Array.isArray(node.instance_path) && node.instance_path.length ? node.instance_path.join('.') : ''));
-        const nodeName = Array.isArray(node.instance_path) && node.instance_path.length ? String(node.instance_path[node.instance_path.length - 1]) : '';
-        if ((nodeId && seenIds.has(nodeId)) || (nodeName && seenNames.has(nodeName))) continue;
+        const instancePath = Array.isArray(node.instance_path) ? node.instance_path : [];
+        const nodeId = String(node.id || (instancePath.length ? instancePath.join('.') : ''));
+        const nodeName = instancePath.length ? String(instancePath[instancePath.length - 1]) : '';
+        const accessibility = node.accessibility && typeof node.accessibility === 'object'
+          ? node.accessibility
+          : node;
         const runtimeTarget = node.owner_ref && typeof proxyForRef === 'function'
           ? proxyForRef(node.owner_ref)
-          : (Array.isArray(node.instance_path) && node.instance_path.length && typeof proxyFor === 'function'
-            ? proxyFor(node.instance_path)
+          : (instancePath.length && typeof proxyFor === 'function'
+            ? proxyFor(instancePath)
             : null);
+        const lifetimeTarget = runtimeTarget || `runtime-a11y:${node.owner_ref ? JSON.stringify(node.owner_ref) : ''}:${String(node.lifetime_id || '')}:${nodeId}`;
+        const existing = entries.find(entry =>
+          (nodeId && String(entry.id) === nodeId) ||
+          (nodeName && String(entry.name || '') === nodeName));
+        if (existing) {
+          // Authored metadata owns labels/order/extensions, while the runtime identity owns DOM
+          // lifetime. Re-instantiating the same authored placement therefore retires its focused
+          // node instead of leaking focus across generations.
+          existing.target = lifetimeTarget;
+          existing.disabled = Boolean(existing.disabled || accessibility.disabled);
+          continue;
+        }
         entries.push({
           id: nodeId || `sem-${entries.length + 1}`,
           name: nodeName,
-          target: runtimeTarget || undefined,
-          role: node.role === 'button' ? 'button' : (node.role === 'image' ? 'img' : (node.role || 'group')),
-          ariaLabel: String(node.name || nodeName || nodeId || ''),
-          ariaDescription: String(node.description || ''),
-          ariaLive: node.live || 'off',
-          shortcut: String(node.shortcut || ''),
-          silent: Boolean(node.silent),
-          disabled: Boolean(node.disabled),
-          tabIndex: Number.isInteger(Number(node.tab_order)) && Number(node.tab_order) > 0 ? Number(node.tab_order) : undefined,
+          target: lifetimeTarget,
+          role: accessibility.role === 'button' ? 'button' : (accessibility.role === 'image' ? 'img' : (accessibility.role || 'group')),
+          ariaLabel: String(accessibility.name || nodeName || nodeId || ''),
+          ariaDescription: String(accessibility.description || ''),
+          ariaLive: accessibility.live || 'off',
+          shortcut: String(accessibility.shortcut || ''),
+          silent: Boolean(accessibility.silent),
+          disabled: Boolean(accessibility.disabled),
+          tabIndex: Number.isInteger(Number(accessibility.tab_order)) && Number(accessibility.tab_order) > 0 ? Number(accessibility.tab_order) : undefined,
         });
       }
       if (typeof stageHost !== 'undefined' && stageHost?.syncAccessibilityOverlay) {
@@ -2057,7 +2078,7 @@
     });
     document.getElementById('audio-toggle')?.addEventListener('click',()=>{
       if(failed)return;
-      const services=[audioHost,videoHost].filter(host=>host&&host.status().state!=='idle'),mute=services.length&&services.every(host=>{const state=host.status();return state.unlocked&&!state.muted&&state.state!=='awaiting_gesture';});
+      const services=[audioHost,videoHost].filter(host=>{if(!host)return false;const state=host.status();return state.state!=='idle'&&state.audible!==false;}),mute=services.length&&services.every(host=>{const state=host.status();return (state.unlocked||state.requiresGesture===false)&&!state.muted&&state.state!=='awaiting_gesture';});
       Promise.all(services.map(host=>mute?host.setMuted(true):host.resumeFromGesture())).catch(audioFailure);
     });
     global.addEventListener('resize', () => { resize(); render(); });
