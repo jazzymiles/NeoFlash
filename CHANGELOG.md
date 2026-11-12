@@ -2,6 +2,10 @@
 
 ## Unreleased — Filters, authoring panels, code preferences and classic Flash workflows
 
+- Reserved top-level `dist/` for current platform applications/installers and their checksums; verification,
+  progress, browser-acceptance and generated example outputs now default to ignored `target/artifacts/` so release
+  bundles are not mixed with internal evidence or historical exports (`T-285`).
+
 - Completed live Stage gestures/gizmos (`Envelope` 4×4, `Perspective` 2×2, `Asset Warp` pins, `IK Bone`/`Bind`), `Publish settings` profile import/export/duplicate & Network Startup Simulator, live Debugger conditional/hit-count breakpoints, `Watch` expressions & one-click Compiler Quick-Fixes, native `Progressive` video preview/scrubbing, provider-neutral secure AI connections, legacy binary FLA fidelity batch, and public extension/localization contracts (`T-271`, `T-272`, `T-273`, `T-274`, `T-219`, `T-236`, `T-238`):
   - **Live Stage gestures & gizmos for `Envelope` (4×4), `Perspective` (2×2), `Asset Warp` pins & `IK Bone`/`Bind` (`T-271`):** Wired interactive Stage pointer hit-testing, live dragging, mesh/lattice overlays and 1-step Undo in `crates/neoflash-editor/src/{vector,stage}.rs` for `FreeTransformSubmode::Envelope` (16-point `4×4` Coons patch handles), `FreeTransformSubmode::Perspective` (4-corner `2×2` projective quad handles with `Shift` symmetric taper), `Tool::AssetWarp` (`W`, direct Stage pin creation, dragging, Delaunay-style mesh overlay and `Delete`/`Backspace` removal), and `Tool::Bone` / `Tool::Bind` (Stage click-drag bone creation, inverse-kinematics CCD effector dragging and contour vertex skin binding).
   - **`Publish settings` profile JSON import/export/duplicate & Network Startup Simulator (`T-272`):** Connected `duplicate_profile`, `export_profile_json`, `import_profile_json` and `simulate_network_startup` (`NetworkProfile::{Fast3G, Slow3G, Cable, OfflineLocal}`) into `Publish settings` (`panels/publish_settings.rs`) and `neoflash-export` CLI (`--export-profile`, `--import-profile`, `--simulate-network`).

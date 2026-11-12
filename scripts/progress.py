@@ -403,7 +403,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="validate the working-tree inventory without publishing")
     parser.add_argument("--write-reports", action="store_true", help="regenerate the README summary and local detailed ledger")
     parser.add_argument("--revision", default="HEAD", help="committed revision to build (default HEAD)")
-    parser.add_argument("--output", type=Path, default=ROOT / "dist/progress")
+    parser.add_argument("--output", type=Path, default=ROOT / "target/artifacts/progress")
     args = parser.parse_args()
     if args.check or args.write_reports:
         categories, features = read_inventory(ROOT)

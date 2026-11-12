@@ -169,7 +169,7 @@ def main(argv=None):
     parser.add_argument("--manifest", type=Path, help="JSON cases; source paths relative to repository root")
     parser.add_argument("--exporter", required=True, type=Path, help="already built exporter binary")
     parser.add_argument("--runtime", type=Path, help="existing WASM runtime directory passed to exporter")
-    parser.add_argument("--output", type=Path, default=ROOT / "dist/acceptance")
+    parser.add_argument("--output", type=Path, default=ROOT / "target/artifacts/acceptance")
     parser.add_argument("--timeout", type=float, default=60, help="seconds per export (default: 60)")
     parser.add_argument("--runtime-timeout", type=float, default=15, help="one browser readiness deadline per iframe (default: 15 seconds)")
     args = parser.parse_args(argv)

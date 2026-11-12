@@ -28,7 +28,7 @@ node --test web/tests/*.test.cjs scripts/check-fla-examples.cjs scripts/tests/*.
 node crates/neoflash-script/tests/execute.mjs        # emitted-script fixtures
 node crates/neoflash-script/tests/project-execute.mjs  # every project workflow family, incl. sound-playback
 python3 -B -m unittest discover -s scripts/tests -p 'test_browser_batch.py'
-cargo run --locked -p neoflash-export -- --demo --output dist/demo
+cargo run --locked -p neoflash-export -- --demo --output target/artifacts/demo
 ```
 
 Deliveries that change ActionScript or product status also run `python3 scripts/progress.py --write-reports`, `python3 scripts/progress.py --check` and `python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'`. After a concrete project-family failure, `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` selects affected families (for example `NEOFLASH_WORKFLOWS=sound-playback`); that selection is not a complete delivery check. Browser and native UI behavior still require direct observation. The Metal dependency's `block 0.1.6` future-compatibility notice was not a current compilation error.
@@ -47,7 +47,9 @@ automatically removed temporary directories. They never rewrite authored `exampl
 movie just because a previous export was deleted. For deliberate artifact generation, set
 `NEOFLASH_EXPORT_EPISODE3_MEDIA=1` when running the `midnight_express_episode_3_starlight_morph_cartoon` export test
 to produce MP4/GIF (MP4 requires FFmpeg). Set `NEOFLASH_EXPORT_CARTOON_HTML5=1` after `scripts/build-web.sh` to export
-the cartoon tests with the real browser runtime. Requested artifacts go under `dist/generated-examples/`.
+the cartoon tests with the real browser runtime. Requested artifacts go under
+`target/artifacts/generated-examples/`. The top-level `dist/` directory is reserved for current platform
+applications/installers and their checksums, not verification output.
 
 ### NF2 v2.25 four-theme integration
 

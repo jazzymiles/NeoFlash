@@ -36,7 +36,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
-          path: dist/progress
+          path: target/artifacts/progress
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

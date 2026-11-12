@@ -175,7 +175,7 @@ class ProgressTests(unittest.TestCase):
         self.write("docs/progress/actionscript-catalog.json", "invalid uncommitted catalogue")
         self.write("web/progress/index.html", "uncommitted page")
         (self.root / "src/evidence.txt").unlink()
-        output = self.root / "dist/site"
+        output = self.root / "target/artifacts/site"
         data = progress.build(self.root, output, revision)
         self.assertEqual(data["revision"], revision)
         self.assertEqual(data["schemaVersion"], 3)
@@ -196,7 +196,7 @@ class ProgressTests(unittest.TestCase):
         audit = self.commit("method two", "2026-10-26T12:00:00+00:00")
         self.inventory(method=3)
         new = self.commit("method three", "2026-10-27T12:00:00+00:00")
-        data = progress.build(self.root, self.root / "dist/site", new)
+        data = progress.build(self.root, self.root / "target/artifacts/site", new)
         first, second, third = data["history"]
         self.assertEqual([(row["revision"], row["methodologyVersion"]) for row in data["history"]], [(old, 1), (audit, 2), (new, 3)])
         self.assertNotIn("as2", first["categories"])
@@ -231,14 +231,14 @@ class ProgressTests(unittest.TestCase):
         self.priority_manifest()
         current = self.commit("priority plan", "2026-10-27T12:00:00+00:00")
         self.write("docs/progress/as3-priorities.json", "invalid uncommitted priority plan")
-        data = progress.build(self.root, self.root / "dist/current", current)
+        data = progress.build(self.root, self.root / "target/artifacts/current", current)
         as3 = data["actionscript"]["targets"]["AS3"]
         self.assertEqual(as3["total"]["total"], 4)
         self.assertEqual(as3["target"]["total"], 3)  # The framework entry is a library, outside the target.
         self.assertEqual([item["counts"]["total"] for item in as3["outside"]], [0, 1, 0])
         self.assertNotIn("catalog_id", json.dumps(data["actionscript"]["targets"]))
         self.assertEqual([("as3" in row["categories"]) for row in data["history"]], [False, True])
-        historical = progress.build(self.root, self.root / "dist/earlier", earlier)
+        historical = progress.build(self.root, self.root / "target/artifacts/earlier", earlier)
         self.assertNotIn("AS3", historical["actionscript"]["targets"])
 
     def test_generated_report_drift_is_rejected(self):

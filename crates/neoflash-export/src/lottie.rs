@@ -5051,7 +5051,7 @@ mod tests {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let export_html5 = std::env::var_os("NEOFLASH_EXPORT_CARTOON_HTML5").is_some();
         let qa_dir = if export_html5 {
-            repo_root.join("dist/generated-examples/midnight-express")
+            repo_root.join("target/artifacts/generated-examples/midnight-express")
         } else {
             output.0.clone()
         };
@@ -7249,13 +7249,13 @@ mod tests {
         // Keep Lottie coverage in the ordinary suite. Full media generation is explicit:
         // NEOFLASH_EXPORT_EPISODE3_MEDIA=1 writes MP4/GIF, and
         // NEOFLASH_EXPORT_CARTOON_HTML5=1 uses the built HTML5 runtime.
-        // Neither mode rewrites examples/; requested artifacts go to dist/generated-examples/.
+        // Neither mode rewrites examples/; requested artifacts go to target/artifacts/generated-examples/.
         let output = TestOutputDir::new("midnight-express-3");
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let export_media = std::env::var_os("NEOFLASH_EXPORT_EPISODE3_MEDIA").is_some();
         let export_html5 = std::env::var_os("NEOFLASH_EXPORT_CARTOON_HTML5").is_some();
         let out_dir = if export_media || export_html5 {
-            repo_root.join("dist/generated-examples")
+            repo_root.join("target/artifacts/generated-examples")
         } else {
             output.0.clone()
         };
@@ -8902,7 +8902,7 @@ if (this.ep4Init == undefined) {
         let export_media = std::env::var_os("NEOFLASH_EXPORT_EPISODE4_MEDIA").is_some();
         let export_html5 = std::env::var_os("NEOFLASH_EXPORT_CARTOON_HTML5").is_some();
         let out_dir = if export_media || export_html5 {
-            repo_root.join("dist/generated-examples")
+            repo_root.join("target/artifacts/generated-examples")
         } else {
             output.0.clone()
         };

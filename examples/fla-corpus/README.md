@@ -84,7 +84,7 @@ that binary, which may be older than the working tree.
 
 Build the browser runtime with `./scripts/build-web.sh`, then check the authored
 runtime examples with `node --test scripts/check-fla-examples.cjs`. Export a native
-example with `cargo run -p neoflash-export -- PATH.nflash --output dist/NAME`.
+example with `cargo run -p neoflash-export -- PATH.nflash --output target/artifacts/NAME`.
 Use **File → Open** for `.nflash` in the editor and **Test Movie** for scripts.
 See [verification](VERIFICATION.md) for checks actually performed and their limits.
 
@@ -95,7 +95,7 @@ URLs. Keep original bytes and necessary companions. Add expected inspection and
 conversion behavior to the manifest; do not automatically replace expectations
 when an importer changes. New support needs semantic tests before changing a
 blocked case to a successful conversion. Generated reports and HTML5 builds
-belong under `target/` and `dist/`, never alongside source examples.
+belong under `target/artifacts/`, never alongside source examples or in the distribution directory.
 
 Regenerating original examples intentionally changes their own payloads and
 subtree metadata. If content changes, review and update the root manifest's

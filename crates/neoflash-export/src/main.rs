@@ -62,7 +62,7 @@ where
     let mut import_profile_path: Option<PathBuf> = None;
     let mut profile_selector: Option<String> = None;
     let mut simulate_network_preset: Option<NetworkPreset> = None;
-    let mut output = PathBuf::from("dist/html5");
+    let mut output = PathBuf::from("target/artifacts/html5");
     let mut runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/web-runtime");
     while let Some(arg) = args.next() {
         match arg.as_str() {

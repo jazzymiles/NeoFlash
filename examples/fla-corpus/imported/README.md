@@ -48,7 +48,7 @@ cargo run --locked -p neoflash-import -- import \
 ./scripts/build-web.sh
 cargo run --locked -p neoflash-export -- \
   examples/fla-corpus/imported/ruffle-avm1-frame-labels.nflash \
-  --output dist/fla-corpus/ruffle-avm1-frame-labels
+  --output target/artifacts/fla-corpus/ruffle-avm1-frame-labels
 node --test web/tests/real-fla-frame-labels.test.cjs
 ```
 

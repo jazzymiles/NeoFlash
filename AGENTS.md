@@ -29,9 +29,15 @@ Every AI agent on this project (Claude Code, Codex, Gemini/Antigravity) works fr
 - Validate feature batches with representative integration/browser scenarios and one shared regression pass. Do not create a separate lengthy HTML5 acceptance cycle for each API. Record non-blocking failures for a later batch; only shared breakage, crashes or content/data loss block the whole delivery.
 - Keep verification cost controlled: extend coherent family scenarios before adding new test cases, avoid duplicating the same behavior across many harnesses, and rerun the shared suite only for a delivery batch or a concrete regression. While the user is away or the screen is locked, continue compiler/runtime work in the background and leave UI-only acceptance explicitly pending.
 - Project workflow checks collect all family failures in one pass. After a concrete failure, use `NEOFLASH_WORKFLOWS=id1,id2 node crates/neoflash-script/tests/project-execute.mjs` to rerun only affected families; the default still runs every family and its common prelude. Do not use a focused selection to claim a complete delivery check.
-- Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains. Build outputs go under ignored `target/` and `dist/`.
+- Keep one source tree. Versions belong in Git tags/history, never in nested v1/v2 copies. No asset-folder chains.
+  Build caches, verification output and generated project exports go under ignored `target/` (normally
+  `target/artifacts/`). Reserve the top level of ignored `dist/` for current user-installable platform applications,
+  installers/archives and their checksums only.
 - Reuse compatible open-source algorithms and references after understanding and adapting them to the shared Rust core. Preserve licenses, attribution and pinned provenance; do not label adapted code as wholly original. Do not embed complete third-party ActionScript engines or introduce foreign-language implementations for new runtime behavior. Browser adapters should marshal data and connect browser facilities, without duplicating Rust algorithms.
-- Downloaded source checkouts, archives, external tools and exploratory artifacts belong under ignored `target/`; generated exports belong under ignored `dist/`. Commit only deliberately adapted source, necessary license notices and authored project examples.
+- Downloaded source checkouts, historical delivery evidence, external tools, exploratory artifacts and generated
+  exports belong under ignored `target/`; use `target/artifacts/` for outputs meant for manual inspection. `dist/`
+  is not a test-output or worklog directory. Commit only deliberately adapted source, necessary license notices and
+  authored project examples.
 - `crates/` contains Rust modules, `web/` the browser host, `examples/` small source projects, `scripts/` build/check tasks, `docs/` product and engineering records.
 - Keep the serialized document independent of UI, rendering backend and filesystem paths. Keep authored evaluation side-effect free for scrubbing/onion skin.
 - Unsupported imports and script features must produce actionable diagnostics. Never silently drop content or code.

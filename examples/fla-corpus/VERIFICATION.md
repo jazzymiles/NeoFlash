@@ -16,7 +16,7 @@ synthetic or stripped replacement.
 | Corpus | 21/21 cases passed: 9 successful imports and 12 explicit refusals. 72 hashed files, 1,007,040 bytes, including the native projects. |
 | Binary MX fixtures | Public button and static-text sources import directly. Rust checks cover Up/Over/Down/Hit state geometry, invisible Hit artwork, text/font/style/bounds/alpha, source-byte retention and document roundtrip. Both contain zero scripts; no browser trace comparison is claimed. |
 | Real WASM and host | `web/tests/real-fla-frame-labels.test.cjs` imports the original FLA, compiles all nine scripts, compares all 17 trace lines with upstream `output.txt`, checks eight more stable ticks and repeats after reset. Passed. |
-| Actual HTML5 | Current exporter generated `dist/fla-corpus/ruffle-avm1-frame-labels/`; opened in the in-app browser. The original red square and black stroke rendered. |
+| Actual HTML5 | Current exporter generated the bundle now archived under `target/artifacts/dist-history-2026-11-12/fla-corpus/ruffle-avm1-frame-labels/`; opened in the in-app browser. The original red square and black stroke rendered. |
 | Browser trace | Exactly 17 upstream trace lines on initial playback; Restart produced the same 17 again (34 total). No console errors. Root remained on UI frame 3 / 7. |
 
 The original source uses missing-label no-ops, ASCII-only case-insensitive labels,
@@ -62,7 +62,7 @@ verification record, not an Adobe interoperability certification.
 | Overwrite/input preservation | Successful-import destinations could not be overwritten; every source hash matched again after all checks. |
 | Reproducible fixtures | The authored generator was run twice; ZIP, XFL, native project and metadata bytes matched. |
 | Actual WASM runtime | `node --test scripts/check-fla-examples.cjs`: 3/3 passed after `./scripts/build-web.sh`. |
-| HTML5 exporter | Current exporter successfully produced all three original examples in `dist/fla-corpus/`. |
+| HTML5 exporter | Current exporter successfully produced all three original examples, now archived under `target/artifacts/dist-history-2026-11-12/fla-corpus/`. |
 | Browser | All three exports opened and rendered in the in-app browser; no console errors were observed. |
 
 ## Runtime evidence
@@ -94,7 +94,7 @@ used to verify the timeline stop.
 - Full inspection reports and summary: `target/fla-corpus/reports/`.
 - Collection research and import-refusal logs: `target/fla-corpus-research/`.
 - Browser screenshots and console evidence: `target/fla-corpus/screenshots/`.
-- HTML5 output: `dist/fla-corpus/<example>/index.html`.
+- HTML5 output: `target/artifacts/fla-corpus/<example>/index.html`.
 
 At that initial collection pass, those paths were ignored build/check outputs.
 Source fixtures are kept in this

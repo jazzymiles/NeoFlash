@@ -41,7 +41,7 @@ Export an example after building the web runtime:
 ```sh
 cargo run -p neoflash-export -- \
   examples/fla-corpus/authored/frame-scripts-as3/frame-scripts-as3.nflash \
-  --output dist/fla-corpus/frame-scripts-as3
+  --output target/artifacts/fla-corpus/frame-scripts-as3
 ```
 
 Successful import means the source model was accepted. Browser behavior and

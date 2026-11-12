@@ -104,4 +104,4 @@ python3 scripts/progress.py --check
 python3 -m unittest discover -s scripts/tests -p 'test_progress*.py'
 ```
 
-`--check` fails on stale generated reports, on group statuses that contradict their items, and on unknown evidence paths. The `Progress Pages` workflow runs the same checks on pull requests and publishes `dist/progress/` from `main` through GitHub Actions. The public `progress.json` contains the target views and product registry. The per-declaration list stays in the repository.
+`--check` fails on stale generated reports, on group statuses that contradict their items, and on unknown evidence paths. The `Progress Pages` workflow runs the same checks on pull requests and publishes `target/artifacts/progress/` from `main` through GitHub Actions. The public `progress.json` contains the target views and product registry. The per-declaration list stays in the repository.
