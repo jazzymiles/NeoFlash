@@ -3,6 +3,7 @@
 pub mod as2_suite;
 pub mod as3_suite;
 pub mod express5;
+pub mod express6;
 
 use image::{ImageFormat, Rgb, RgbImage, Rgba, RgbaImage};
 use neoflash_core::{

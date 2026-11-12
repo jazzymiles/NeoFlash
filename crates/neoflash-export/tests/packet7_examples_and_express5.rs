@@ -8,7 +8,7 @@ use neoflash_export::{
     export_project_aep, export_project_atlas, export_project_image, export_project_video,
     export_project_with_config, export_project_with_options, publish_swf_bytes,
 };
-use packet7_support::{as2_suite, as3_suite, express5};
+use packet7_support::{as2_suite, as3_suite, express5, express6};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,6 +38,7 @@ const AS3_REL_PATHS: [&str; 9] = [
 ];
 
 const EXPRESS5_REL_PATH: &str = "examples/midnight-express-5.nflash";
+const EXPRESS6_REL_PATH: &str = "examples/midnight-express-6.nflash";
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -227,26 +228,36 @@ fn as2_and_as3_example_suites_validate_compile_and_publish_cleanly() {
     }
 }
 
-#[test]
-fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
+fn verify_midnight_express_episode(
+    episode_num: u32,
+    rel_path: &str,
+    slug: &str,
+    locomotive_symbol_id: &str,
+    full_media_env: &str,
+    builder: fn() -> Project,
+) {
     let root = workspace_root();
-    let scratch = temp_dir("express5");
-    let express_path = root.join(EXPRESS5_REL_PATH);
+    let scratch = temp_dir(&format!("express{episode_num}"));
+    let express_path = root.join(rel_path);
 
     if std::env::var("NEOFLASH_WRITE_EXAMPLES").as_deref() == Ok("1") {
-        let generated = express5::build_midnight_express_5();
+        let generated = builder();
         write_project_pretty(&express_path, &generated);
     }
 
-    let raw = fs::read_to_string(&express_path)
-        .unwrap_or_else(|e| panic!("missing {EXPRESS5_REL_PATH}: {e}"));
-    let project: Project = serde_json::from_str(&raw)
-        .unwrap_or_else(|e| panic!("failed to parse {EXPRESS5_REL_PATH}: {e}"));
+    let raw =
+        fs::read_to_string(&express_path).unwrap_or_else(|e| panic!("missing {rel_path}: {e}"));
+    let project: Project =
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("failed to parse {rel_path}: {e}"));
 
     project
         .validate()
-        .expect("Midnight Express 5 project.validate()");
-    assert_eq!(project.scenes.len(), 3, "Episode 5 must have 3 scenes");
+        .unwrap_or_else(|e| panic!("Midnight Express {episode_num} project.validate(): {e}"));
+    assert_eq!(
+        project.scenes.len(),
+        3,
+        "Episode {episode_num} must have 3 scenes"
+    );
     assert_eq!(project.width, 960);
     assert_eq!(project.height, 540);
     assert_eq!(project.fps, 24);
@@ -254,7 +265,7 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
     let (flattened, ranges) = flatten_scenes_with_ranges(&project);
     flattened
         .validate()
-        .expect("flattened Episode 5 validate()");
+        .unwrap_or_else(|e| panic!("flattened Episode {episode_num} validate(): {e}"));
     assert_eq!(ranges.len(), 3);
     let root_sym = flattened.symbol(&flattened.root).expect("flattened root");
     assert_eq!(root_sym.timeline.frame_count, 180);
@@ -271,7 +282,7 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
     let html_dir = std::env::var("NEOFLASH_VERIFY_PUBLISH_DIR")
         .map(|p| {
             let pb = PathBuf::from(p);
-            (if pb.is_absolute() { pb } else { root.join(pb) }).join("midnight-express-5")
+            (if pb.is_absolute() { pb } else { root.join(pb) }).join(slug)
         })
         .unwrap_or_else(|_| scratch.join("html5"));
     let _ = fs::remove_dir_all(&html_dir);
@@ -282,7 +293,7 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
         &PublishOptions::default(),
         &HtmlPublishConfig::default(),
     )
-    .expect("export Midnight Express 5 HTML5");
+    .unwrap_or_else(|e| panic!("export Midnight Express {episode_num} HTML5: {e}"));
     assert!(html_index.exists());
 
     // 2. Multi-format frame sequence exports (.svg, .ai, .png across Scene 2 guided viaduct)
@@ -298,7 +309,7 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
         img_opts.range = ImageExportRange::Frames { start: 74, end: 76 };
         let report = export_project_image(
             &flattened,
-            &seq_dir.join(format!("express5.{ext}")),
+            &seq_dir.join(format!("express{episode_num}.{ext}")),
             &img_opts,
         )
         .unwrap_or_else(|e| panic!("sequence export {ext} failed: {e}"));
@@ -312,11 +323,11 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
         }
     }
 
-    // 3. Texture Atlas export for Midnight Locomotive Mk.V symbol
+    // 3. Texture Atlas export for locomotive symbol
     let atlas_dir = scratch.join("atlas");
     fs::create_dir_all(&atlas_dir).unwrap();
     let atlas_opts = AtlasOptions {
-        symbol_id: Some("sym-locomotive".into()),
+        symbol_id: Some(locomotive_symbol_id.into()),
         format: AtlasFormat::StarlingXml,
         image_format: AtlasImageFormat::Png,
         ..AtlasOptions::default()
@@ -337,7 +348,7 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
         scriptless_mode: false,
     };
     let (swf_bytes, swf_report) =
-        publish_swf_bytes(&project, &swf_opts).expect("publish Midnight Express 5 SWF");
+        publish_swf_bytes(&project, &swf_opts).expect("publish Midnight Express SWF");
     assert!(swf_report.can_proceed());
     assert_eq!(&swf_bytes[0..3], b"CWS");
     assert!(swf_bytes.len() > 512);
@@ -349,9 +360,8 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
         shape_morph_step: 4,
         ..AepOptions::default()
     };
-    let aep_report =
-        export_project_aep(&project, aep_dir.join("midnight-express-5.aep"), &aep_opts)
-            .expect("export Midnight Express 5 AEP");
+    let aep_report = export_project_aep(&project, aep_dir.join(format!("{slug}.aep")), &aep_opts)
+        .expect("export Midnight Express AEP");
     assert!(aep_report.aep_path.exists());
     assert!(aep_report.jsx_path.as_ref().is_some_and(|p| p.exists()));
     assert_eq!(
@@ -361,14 +371,14 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
     );
 
     // 6. MP4 video export (fast 6-frame sample in default suite; full 180-frame render on opt-in)
-    let full_media = std::env::var("NEOFLASH_FULL_EXPRESS5_MEDIA").as_deref() == Ok("1");
+    let full_media = std::env::var(full_media_env).as_deref() == Ok("1");
     let mp4_path = if full_media {
         html_dir
             .parent()
             .unwrap_or(&scratch)
-            .join("midnight-express-5.mp4")
+            .join(format!("{slug}.mp4"))
     } else {
-        scratch.join("midnight-express-5-sample.mp4")
+        scratch.join(format!("{slug}-sample.mp4"))
     };
     let vid_opts = VideoOptions {
         from_frame: if full_media { 1 } else { 72 },
@@ -379,12 +389,36 @@ fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
         runtime_capture: false,
         ..VideoOptions::default()
     };
-    let vid_report = export_project_video(&project, &mp4_path, &vid_opts)
-        .expect("export Midnight Express 5 MP4");
+    let vid_report =
+        export_project_video(&project, &mp4_path, &vid_opts).expect("export Midnight Express MP4");
     assert!(vid_report.output_path.exists());
     assert!(fs::metadata(&vid_report.output_path).unwrap().len() > 1024);
 
     if std::env::var_os("NEOFLASH_VERIFY_PUBLISH_DIR").is_none() {
         let _ = fs::remove_dir_all(&scratch);
     }
+}
+
+#[test]
+fn midnight_express_5_validates_evaluates_and_exports_across_all_formats() {
+    verify_midnight_express_episode(
+        5,
+        EXPRESS5_REL_PATH,
+        "midnight-express-5",
+        "sym-locomotive",
+        "NEOFLASH_FULL_EXPRESS5_MEDIA",
+        express5::build_midnight_express_5,
+    );
+}
+
+#[test]
+fn midnight_express_6_validates_evaluates_and_exports_across_all_formats() {
+    verify_midnight_express_episode(
+        6,
+        EXPRESS6_REL_PATH,
+        "midnight-express-6",
+        "sym-aurora-locomotive",
+        "NEOFLASH_FULL_EXPRESS6_MEDIA",
+        express6::build_midnight_express_6,
+    );
 }

@@ -982,6 +982,9 @@ fn new_and_open_keep_workspace_preferences_and_save_only_preferences() {
         .join("../../examples/script-recovery.nflash");
     editor.open_path(opened.clone(), &ctx);
     preferences.general.push_recent(&opened);
+    preferences
+        .general
+        .set_session_files(std::slice::from_ref(&opened), Some(&opened));
     assert_eq!(editor.workspace, preferences);
     assert!(ctx.style().visuals.dark_mode);
     assert!(!editor.dirty());
