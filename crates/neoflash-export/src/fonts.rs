@@ -1420,7 +1420,3 @@ mod tests {
         );
     }
 }
-
-#[path = "html.rs"]
-pub mod html;
-pub use html::*;

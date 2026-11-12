@@ -398,6 +398,20 @@
       if (failed) return;
       try {activateSemantic(node);} catch (error) {fail(error);}
     });
+    const stageSurface = document.getElementById('stage-surface') || document.getElementById('stage-wrap');
+    let a11yOverlay = document.getElementById('stage-a11y-overlay');
+    if (!a11yOverlay && typeof document.createElement === 'function') {
+      a11yOverlay = document.createElement('div');
+      a11yOverlay.id = 'stage-a11y-overlay';
+      a11yOverlay.className = 'neoflash-a11y-overlay';
+      if (a11yOverlay.style) {
+        a11yOverlay.style.position = 'absolute';
+        a11yOverlay.style.inset = '0';
+        a11yOverlay.style.pointerEvents = 'none';
+        a11yOverlay.style.overflow = 'hidden';
+      }
+      stageSurface?.appendChild?.(a11yOverlay);
+    }
     const preview = new global.NeoFlashPreview.Preview(viewport, document.getElementById('stage-space'), document.getElementById('stage-surface'), canvas, project, () => render());
     const functions = new Map();
     const sourceUnits = bundle.scripts.concat(bundle.program ? [bundle.program] : []);
@@ -706,6 +720,7 @@
           const rawNodes=snap.semantics.filter(node=>Boolean(semanticRoute(node,snap.objects)));
           const semNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawNodes;
           semanticLayer.update(semNodes,semScene,{width:w,height:h},sc,(line,kind)=>{if(typeof context==='undefined')return line.length*kind.font_size*0.6;context.font=font(kind);return context.measureText(line).width;},{x:ox,y:oy});
+          syncStageAccessibilityOverlay(semNodes);
         }
         if(!inDispatch&&typeof context!=='undefined')render();
       }
@@ -1871,6 +1886,59 @@
       lastTickNow = null;
       fpsIntervals.length = 0;
     }
+    function syncStageAccessibilityOverlay(semNodes = []) {
+      if (!a11yOverlay || !global.NeoFlashStage?.syncAccessibilityOverlay) return;
+      const currentFrame = typeof player.current_frame === 'function' ? player.current_frame() : 0;
+      const entries = global.NeoFlashStage.collectProjectAccessibilityEntries
+        ? global.NeoFlashStage.collectProjectAccessibilityEntries(project, currentFrame, {
+            resolveTarget: el => {
+              if (!el || !el.name) return null;
+              const byPath = proxies.get(JSON.stringify([el.name]));
+              if (byPath && byPath.proxy) return byPath.proxy;
+              if (typeof display !== 'undefined' && display && typeof display.nodes === 'function') {
+                for (const node of display.nodes()) {
+                  if (node && node.name === el.name && node.object_ref) {
+                    const byRef = proxies.get(JSON.stringify(node.object_ref));
+                    if (byRef && byRef.proxy) return byRef.proxy;
+                  }
+                }
+              }
+              return null;
+            },
+          })
+        : [];
+      const seenIds = new Set(entries.map(e => String(e.id)));
+      const seenNames = new Set(entries.map(e => String(e.name || '')).filter(Boolean));
+      for (const node of (Array.isArray(semNodes) ? semNodes : [])) {
+        if (!node || typeof node !== 'object') continue;
+        const nodeId = String(node.id || (Array.isArray(node.instance_path) && node.instance_path.length ? node.instance_path.join('.') : ''));
+        const nodeName = Array.isArray(node.instance_path) && node.instance_path.length ? String(node.instance_path[node.instance_path.length - 1]) : '';
+        if ((nodeId && seenIds.has(nodeId)) || (nodeName && seenNames.has(nodeName))) continue;
+        const runtimeTarget = node.owner_ref && typeof proxyForRef === 'function'
+          ? proxyForRef(node.owner_ref)
+          : (Array.isArray(node.instance_path) && node.instance_path.length && typeof proxyFor === 'function'
+            ? proxyFor(node.instance_path)
+            : null);
+        entries.push({
+          id: nodeId || `sem-${entries.length + 1}`,
+          name: nodeName,
+          target: runtimeTarget || undefined,
+          role: node.role === 'button' ? 'button' : (node.role === 'image' ? 'img' : (node.role || 'group')),
+          ariaLabel: String(node.name || nodeName || nodeId || ''),
+          ariaDescription: String(node.description || ''),
+          ariaLive: node.live || 'off',
+          shortcut: String(node.shortcut || ''),
+          silent: Boolean(node.silent),
+          disabled: Boolean(node.disabled),
+          tabIndex: Number.isInteger(Number(node.tab_order)) && Number(node.tab_order) > 0 ? Number(node.tab_order) : undefined,
+        });
+      }
+      if (typeof stageHost !== 'undefined' && stageHost?.syncAccessibilityOverlay) {
+        stageHost.syncAccessibilityOverlay(a11yOverlay, entries);
+      } else {
+        global.NeoFlashStage.syncAccessibilityOverlay(a11yOverlay, entries);
+      }
+    }
     function render() {
       flushStageRender();
       let snapshot=graphMode?(display?.snapshot?display.snapshot():JSON.parse(player.runtime_snapshot_json())):null;
@@ -1904,6 +1972,7 @@
       const enrichedSemNodes=as3MediaEventsHost?.applyAccessibilityPropertiesToSemanticNodes?as3MediaEventsHost.applyAccessibilityPropertiesToSemanticNodes(rawSemNodes,node=>node.owner_ref?proxyForRef(node.owner_ref):proxyFor(node.instance_path||[])):rawSemNodes;
       const semanticScene=enrichedSemNodes.length?(snapshot?scene.map(item=>{const ancestry_refs=[];for(let node=objects.get(JSON.stringify(item.owner_ref));node;node=objects.get(JSON.stringify(node.parent_ref)))ancestry_refs.push(node.object_ref);return {...item,...(clippedBounds.has(item)?{clipped_bounds:clippedBounds.get(item)}:{}),transform:bitmapMatrix(item),ancestry_refs,kind:item.kind.type==='bitmap_pixels'?{...item.kind,alpha_bounds:bitmapHost.cache.bounds(item.kind)}:item.kind.type==='text_field'?{...item.kind,text_bounds:textHost.bounds(item.kind.field,true)}:item.kind};}):scene):[];
       const targetCount = semanticLayer.update(enrichedSemNodes, semanticScene, {...project,width,height}, {x:preview.view.scale,y:preview.view.scaleY||preview.view.scale}, (line, kind) => { context.font = font(kind); return context.measureText(line).width; }, {x:originX,y:originY});
+      syncStageAccessibilityOverlay(enrichedSemNodes);
       bitmapHost?.cache.endFrame();
       if (targetCount) canvas.setAttribute('aria-hidden', 'true'); else canvas.removeAttribute('aria-hidden');
       status.textContent = `${player.current_frame() + 1} / ${player.total_frames()} · ${runtimeFrameRate} fps`;

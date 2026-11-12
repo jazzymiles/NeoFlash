@@ -1430,6 +1430,35 @@ impl Editor {
             let _ = self.navigate_timeline_marker(false);
             ui.close();
         }
+        let marker_at_playhead = self
+            .active_timeline_markers()
+            .into_iter()
+            .find(|m| m.frame == self.frame);
+        if ui
+            .add_enabled(
+                marker_at_playhead.is_some(),
+                MenuItem::new("Remove marker at playhead"),
+            )
+            .clicked()
+            && let Some(m) = marker_at_playhead
+        {
+            let _ = self.remove_timeline_marker(&m.id);
+            ui.close();
+        }
+        nf::menu_separator(ui);
+        if ui.add(MenuItem::new("Apply Motion Wiggler")).clicked() {
+            let cfg = self.timeline_motion.wiggler.clone();
+            let _ = self.apply_motion_wiggler(cfg, None);
+            ui.close();
+        }
+        let sketch_armed = self.is_motion_sketch_armed();
+        if ui
+            .add(MenuItem::new("Capture Motion Sketch").checked(sketch_armed))
+            .clicked()
+        {
+            self.set_motion_sketch_armed(!sketch_armed);
+            ui.close();
+        }
         nf::menu_separator(ui);
         if ui.add(MenuItem::new("Help").shortcut("F1")).clicked() {
             self.open_function_search(ui.ctx());

@@ -413,3 +413,317 @@ test('Compact and Balanced packages boot directly over file:// using NeoFlashWas
   assert.equal(footer.hidden, true, 'clean publish hides technical footer');
   assert.equal(elements.get('trace').textContent, '', 'include_trace=false suppresses trace() DOM output');
 });
+
+test('runtime render loop automatically synchronizes #stage-a11y-overlay DOM nodes as frames advance (T-265)', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+
+  const runtimeJs = fs.readFileSync(path.resolve(__dirname, '../runtime.js'), 'utf8');
+  const previewJs = fs.readFileSync(path.resolve(__dirname, '../preview.js'), 'utf8');
+  const pathJs = fs.readFileSync(path.resolve(__dirname, '../path.js'), 'utf8');
+  const accessibilityJs = fs.readFileSync(path.resolve(__dirname, '../accessibility.js'), 'utf8');
+  const eventsJs = fs.readFileSync(path.resolve(__dirname, '../events.js'), 'utf8');
+  const stageJs = fs.readFileSync(path.resolve(__dirname, '../stage.js'), 'utf8');
+  const displayJs = fs.readFileSync(path.resolve(__dirname, '../display.js'), 'utf8');
+
+  function makeElement(id = '') {
+    const attrs = new Map();
+    const children = [];
+    return {
+      id,
+      hidden: false,
+      disabled: false,
+      textContent: '',
+      title: '',
+      value: 'fit',
+      tabIndex: 0,
+      clientWidth: 800,
+      clientHeight: 600,
+      scrollLeft: 0,
+      scrollTop: 0,
+      dataset: {},
+      children,
+      ownerDocument: {
+        activeElement: null,
+        createElement(tag) {
+          return makeElement(tag);
+        },
+      },
+      style: { display: 'none' },
+      classList: { toggle() {} },
+      setAttribute(k, v) {
+        attrs.set(k, String(v));
+        if (k === 'tabindex') this.tabIndex = Number(v);
+      },
+      getAttribute(k) { return attrs.get(k) ?? null; },
+      removeAttribute(k) { attrs.delete(k); },
+      addEventListener() {},
+      removeEventListener() {},
+      replaceChildren(...next) {
+        children.splice(0, children.length, ...next);
+      },
+      appendChild(child) {
+        children.push(child);
+      },
+      getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 }; },
+      getContext() {
+        return {
+          setTransform() {},
+          clearRect() {},
+          fillRect() {},
+          save() {},
+          restore() {},
+          transform() {},
+          beginPath() {},
+          arc() {},
+          fill() {},
+          stroke() {},
+          fillText() {},
+          measureText(str) { return { width: String(str).length * 8 }; },
+        };
+      },
+    };
+  }
+
+  const overlayEl = makeElement('stage-a11y-overlay');
+  const elements = new Map([
+    ['stage', makeElement('stage')],
+    ['stage-space', makeElement('stage-space')],
+    ['stage-surface', makeElement('stage-surface')],
+    ['semantic-layer', makeElement('semantic-layer')],
+    ['stage-a11y-overlay', overlayEl],
+    ['viewport', makeElement('viewport')],
+    ['status', makeElement('status')],
+    ['toggle', makeElement('toggle')],
+    ['restart', makeElement('restart')],
+    ['zoom', makeElement('zoom')],
+    ['pan', makeElement('pan')],
+    ['audio-toggle', makeElement('audio-toggle')],
+    ['report-toggle', makeElement('report-toggle')],
+    ['name', makeElement('name')],
+    ['load-info', makeElement('load-info')],
+    ['audio-status', makeElement('audio-status')],
+    ['trace', makeElement('trace')],
+    ['size-report', makeElement('size-report')],
+    ['error', makeElement('error')],
+    ['loading', makeElement('loading')],
+  ]);
+  const footer = makeElement('footer');
+  const transport = makeElement('transport');
+  const body = makeElement('body');
+
+  let activeFrame = 0;
+  let playingState = true;
+  let rafCallback = null;
+
+  const mockPlayer = {
+    current_frame: () => activeFrame,
+    frame_count: () => 2,
+    total_frames: () => 2,
+    is_playing: () => playingState,
+    set_playing(v) { playingState = Boolean(v); },
+    tick() {
+      activeFrame = (activeFrame + 1) % 2;
+      return true;
+    },
+    reset() {
+      activeFrame = 0;
+      playingState = true;
+    },
+    scene_json: () => '[]',
+    scripts_json: () => '[]',
+    accessibility_json: () => '[]',
+    is_dispatch_current: () => true,
+    script_overflowed: () => false,
+    lifetime_id: () => 'root-life',
+  };
+
+  const sandbox = {
+    console: { warn() {}, info() {}, error() {} },
+    location: { protocol: 'file:', href: 'file:///Users/miles/Projects/NeoFlash/examples/test/neoflash-export/index.html' },
+    atob: b64 => Buffer.from(b64, 'base64').toString('binary'),
+    Uint8Array,
+    Map,
+    WeakMap,
+    Set,
+    Promise,
+    Error,
+    TypeError,
+    Math,
+    Number,
+    String,
+    Boolean,
+    Array,
+    Object,
+    JSON,
+    Symbol,
+    Reflect,
+    Path2D: class { moveTo() {} lineTo() {} closePath() {} },
+    ResizeObserver: class { observe() {} },
+    requestAnimationFrame(cb) { rafCallback = cb; },
+    addEventListener() {},
+    devicePixelRatio: 1,
+    document: {
+      body,
+      visibilityState: 'visible',
+      getElementById: id => elements.get(id) || makeElement(id),
+      querySelector: sel => sel === 'footer' ? footer : sel === '.transport' ? transport : null,
+      addEventListener() {},
+    },
+    NeoFlashWasmBase64: Buffer.from('\0asm\x01\0\0\0', 'binary').toString('base64'),
+    NeoFlashWasm: Object.assign(
+      () => Promise.resolve(),
+      {
+        WebPlayer: function() { return mockPlayer; },
+      }
+    ),
+    NeoFlashBundle: {
+      project: {
+        format_version: 1,
+        name: 'A11y Timeline Sync',
+        width: 800,
+        height: 600,
+        fps: 10,
+        background: [20, 24, 32, 255],
+        root: 'root',
+        symbols: [{
+          id: 'root',
+          name: 'Scene 1',
+          kind: 'movie_clip',
+          timeline: {
+            frame_count: 2,
+            scripts: [],
+            layers: [{
+              id: 'layer-main',
+              name: 'Layer 1',
+              visible: true,
+              locked: false,
+              keyframes: [
+                {
+                  frame: 0,
+                  elements: [
+                    {
+                      id: 'el-f0-cta',
+                      name: 'start_btn',
+                      visible: true,
+                      transform: { x: 40, y: 120, scale_x: 1, scale_y: 1, rotation: 0 },
+                      kind: { type: 'rectangle', width: 120, height: 40, fill: [40, 80, 160, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+                      accessibility: {
+                        name: 'Begin Quest',
+                        description: 'Starts level 1',
+                        role: 'button',
+                        tab_order: 2,
+                        disabled: false,
+                      },
+                    },
+                    {
+                      id: 'el-f0-title',
+                      name: 'intro_heading',
+                      visible: true,
+                      transform: { x: 40, y: 30, scale_x: 1, scale_y: 1, rotation: 0 },
+                      kind: { type: 'text', text: 'Welcome Hero', font_family: 'Inter', font_size: 24, color: [255, 255, 255, 255] },
+                      accessibility: {
+                        name: 'Welcome Hero Heading',
+                        description: 'Main screen banner',
+                        role: 'image',
+                        tab_order: 1,
+                        disabled: false,
+                      },
+                    },
+                  ],
+                  extended_accessibility: [
+                    {
+                      element_id: 'el-f0-title',
+                      role: 'heading',
+                      live: 'polite',
+                      shortcut: '',
+                      silent: false,
+                    },
+                    {
+                      element_id: 'el-f0-cta',
+                      role: 'button',
+                      live: 'off',
+                      shortcut: 'Enter',
+                      silent: false,
+                    },
+                  ],
+                },
+                {
+                  frame: 1,
+                  elements: [
+                    {
+                      id: 'el-f1-dialog',
+                      name: 'victory_modal',
+                      visible: true,
+                      transform: { x: 100, y: 80, scale_x: 1, scale_y: 1, rotation: 0 },
+                      kind: { type: 'rectangle', width: 320, height: 180, fill: [30, 50, 70, 255], stroke: [0, 0, 0, 0], stroke_width: 0 },
+                      accessibility: {
+                        name: 'Mission Complete',
+                        description: 'All objectives cleared',
+                        role: 'image',
+                        tab_order: 1,
+                        disabled: false,
+                      },
+                    },
+                  ],
+                  extended_accessibility: [
+                    {
+                      element_id: 'el-f1-dialog',
+                      role: 'dialog',
+                      live: 'assertive',
+                      shortcut: 'Escape',
+                      silent: false,
+                    },
+                  ],
+                },
+              ],
+            }],
+          },
+        }],
+      },
+      scripts: [],
+      wasm: Buffer.from('\0asm\x01\0\0\0', 'binary').toString('base64'),
+      publish: { level: 'full', omitted_modules: [] },
+      warnings: [],
+    },
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.window = sandbox;
+  const ctx = vm.createContext(sandbox);
+  for (const src of [pathJs, accessibilityJs, previewJs, eventsJs, stageJs, displayJs, runtimeJs]) {
+    vm.runInContext(src, ctx);
+  }
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(elements.get('error').style.display, 'none', `unexpected boot error: ${elements.get('error').textContent}`);
+  assert.equal(overlayEl.getAttribute('role'), 'region');
+  assert.equal(overlayEl.children.length, 2, 'frame 0 populates 2 accessibility nodes in #stage-a11y-overlay');
+  assert.equal(overlayEl.children[0].getAttribute('data-element-id'), 'el-f0-title');
+  assert.equal(overlayEl.children[0].getAttribute('role'), 'heading');
+  assert.equal(overlayEl.children[0].getAttribute('aria-label'), 'Welcome Hero Heading');
+  assert.equal(overlayEl.children[0].getAttribute('aria-description'), 'Main screen banner');
+  assert.equal(overlayEl.children[0].getAttribute('aria-live'), 'polite');
+  assert.equal(overlayEl.children[0].getAttribute('tabindex'), '1');
+
+  assert.equal(overlayEl.children[1].getAttribute('data-element-id'), 'el-f0-cta');
+  assert.equal(overlayEl.children[1].getAttribute('role'), 'button');
+  assert.equal(overlayEl.children[1].getAttribute('aria-label'), 'Begin Quest');
+  assert.equal(overlayEl.children[1].getAttribute('aria-keyshortcuts'), 'Enter');
+  assert.equal(overlayEl.children[1].getAttribute('tabindex'), '2');
+
+  // Advance runtime frame loop via requestAnimationFrame (10 fps => 100ms step)
+  assert.equal(typeof rafCallback, 'function');
+  rafCallback(1000);
+  rafCallback(1120);
+
+  assert.equal(activeFrame, 1, 'runtime advanced to frame 1');
+  assert.equal(overlayEl.children.length, 1, 'frame 1 replaces #stage-a11y-overlay children with frame 1 nodes');
+  assert.equal(overlayEl.children[0].getAttribute('data-element-id'), 'el-f1-dialog');
+  assert.equal(overlayEl.children[0].getAttribute('role'), 'dialog');
+  assert.equal(overlayEl.children[0].getAttribute('aria-label'), 'Mission Complete');
+  assert.equal(overlayEl.children[0].getAttribute('aria-description'), 'All objectives cleared');
+  assert.equal(overlayEl.children[0].getAttribute('aria-live'), 'assertive');
+  assert.equal(overlayEl.children[0].getAttribute('aria-keyshortcuts'), 'Escape');
+  assert.equal(overlayEl.children[0].getAttribute('tabindex'), '1');
+});

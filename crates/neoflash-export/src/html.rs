@@ -435,13 +435,14 @@ pub fn render_accessibility_overlay_nodes_html(
     let mut html = String::new();
     let _ = writeln!(
         html,
-        "<div class=\"neoflash-a11y-overlay\" role=\"region\" aria-label=\"Stage accessibility overlay\" data-focus-policy=\"keyboard-distinct\" style=\"position:absolute;inset:0;pointer-events:none;overflow:hidden;\">"
+        "<div id=\"stage-a11y-overlay\" class=\"neoflash-a11y-overlay\" role=\"region\" aria-label=\"Stage accessibility overlay\" data-focus-policy=\"keyboard-distinct\" style=\"position:absolute;inset:0;pointer-events:none;overflow:hidden;\">"
     );
     for node in nodes {
         let [x, y, w, h] = node.bounds;
         let mut attrs = format!(
-            "id=\"{}\" data-element-id=\"{}\" role=\"{}\" tabindex=\"{}\"",
+            "id=\"{}\" data-element-id=\"{}\" data-neoflash-id=\"{}\" role=\"{}\" tabindex=\"{}\"",
             html_attr_escape(&node.dom_id),
+            html_attr_escape(&node.element_id),
             html_attr_escape(&node.element_id),
             html_attr_escape(&node.role),
             node.tab_index
@@ -485,6 +486,13 @@ pub fn render_accessibility_overlay_nodes_html(
     }
     html.push_str("</div>\n");
     html
+}
+
+/// Resolves published accessibility overlay nodes for the root symbol at frame 0.
+pub fn collect_project_accessibility_items(
+    project: &Project,
+) -> Vec<PublishedAccessibilityOverlayNode> {
+    resolve_published_accessibility_overlay_nodes(project, None, 0)
 }
 
 /// Resolves and renders the published DOM accessibility overlay HTML for `project` at `(symbol_id, frame)`.

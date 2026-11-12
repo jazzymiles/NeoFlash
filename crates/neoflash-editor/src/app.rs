@@ -3183,6 +3183,55 @@ impl Editor {
         if self.take_command_shortcut(ctx, C::ViewShowShapeHints) {
             self.toggle_shape_hints();
         }
+        if self.take_command_shortcut(ctx, C::CaptureStageA) {
+            let label = format!("A (F{})", self.frame + 1);
+            let _ = self.capture_stage_snapshot_a(label);
+        }
+        if self.take_command_shortcut(ctx, C::CaptureStageB) {
+            let label = format!("B (F{})", self.frame + 1);
+            let _ = self.capture_stage_snapshot_b(label);
+        }
+        if self.take_command_shortcut(ctx, C::ToggleStageAbSplit) {
+            let _ = self.toggle_stage_ab_split();
+        }
+        if self.take_command_shortcut(ctx, C::ApplyMotionWiggler) {
+            let cfg = self.timeline_motion.wiggler.clone();
+            let _ = self.apply_motion_wiggler(cfg, None);
+        }
+        if self.take_command_shortcut(ctx, C::ToggleMotionSketch) {
+            self.set_motion_sketch_armed(!self.is_motion_sketch_armed());
+        }
+        if self.take_command_shortcut(ctx, C::ExpandShapeAppearance) {
+            let _ = self.expand_selected_shape_appearance();
+        }
+        if self.take_command_shortcut(ctx, C::SetWorkAreaIn) {
+            let _ = self.set_work_area_in_at_playhead();
+        }
+        if self.take_command_shortcut(ctx, C::SetWorkAreaOut) {
+            let _ = self.set_work_area_out_at_playhead();
+        }
+        if self.take_command_shortcut(ctx, C::ClearWorkArea) {
+            let _ = self.clear_timeline_work_area();
+        }
+        if self.take_command_shortcut(ctx, C::AddTimelineMarker) {
+            let f = self.frame;
+            let count = self.active_timeline_markers().len() + 1;
+            let _ = self.upsert_timeline_marker(neoflash_core::TimelineMarker {
+                id: format!("marker-{f}-{count}"),
+                frame: f,
+                duration_frames: 1,
+                name: format!("Marker {count}"),
+                comment: String::new(),
+                color_tag: Some("#4296FA".into()),
+                cue_point_parameters: std::collections::BTreeMap::new(),
+            });
+        }
+        if self.take_command_shortcut(ctx, C::NextTimelineMarker) {
+            let _ = self.navigate_timeline_marker(true);
+        }
+        if self.take_command_shortcut(ctx, C::PreviousTimelineMarker) {
+            let _ = self.navigate_timeline_marker(false);
+        }
         if self.take_command_shortcut(ctx, C::ModifyAddShapeHint) {
             self.add_shape_hint();
         }
@@ -3213,6 +3262,13 @@ impl Editor {
                 }
             });
         }
+    }
+
+    /// Queue and dispatch a [`crate::commands::CommandId`] through the editor command router (`T-264`).
+    #[allow(dead_code)]
+    pub fn execute_command(&mut self, ctx: &egui::Context, cmd: crate::commands::CommandId) {
+        crate::commands::queue_command(ctx, cmd);
+        self.shortcuts(ctx);
     }
 
     pub fn insert_frame(&mut self) {

@@ -830,6 +830,7 @@ impl Editor {
                 self.shape_hint_input(ui, rect, page, origin, mapping);
                 self.motion_curve_input(ui, rect, origin, mapping);
                 self.motion_path_input(ui, rect, origin, mapping);
+                self.stage_ab_split_input(ui, rect, page);
                 self.stage_file_drop(ui, rect, origin, mapping);
                 self.stage_library_drop(ui, rect, origin, mapping);
                 let visible_page = page.intersect(rect);
@@ -1039,6 +1040,7 @@ impl Editor {
                         },
                     );
                 }
+                self.paint_stage_ab_comparison_overlay(&content, page, self.zoom);
                 let interactive_scene =
                     self.interactive_authored_scene(authored_scene, self.show_layer_masking(ctx));
                 let scene: Vec<_> = interactive_scene
@@ -2711,6 +2713,26 @@ impl Editor {
         state.split_ratio = ratio.clamp(0.05, 0.95);
     }
 
+    /// Alias for [`Self::set_stage_ab_split_ratio`] (`T-264`).
+    pub fn set_stage_ab_split(&mut self, ratio: f32) {
+        self.set_stage_ab_split_ratio(ratio);
+    }
+
+    /// Toggle `StageAbComparisonMode::SplitVertical` on/off, capturing Snapshot A if empty (`T-264`).
+    pub fn toggle_stage_ab_split(&mut self) -> StageAbComparisonMode {
+        if self.stage_ab_mode() == StageAbComparisonMode::SplitVertical {
+            self.set_stage_ab_mode(StageAbComparisonMode::Off);
+            StageAbComparisonMode::Off
+        } else {
+            if self.stage_ab_snapshots().0.is_none() {
+                let label = format!("A (F{})", self.frame + 1);
+                let _ = self.capture_stage_snapshot_a(label);
+            }
+            self.set_stage_ab_mode(StageAbComparisonMode::SplitVertical);
+            StageAbComparisonMode::SplitVertical
+        }
+    }
+
     /// Return the vertical split ratio for `Stage A/B` comparison (`T-233`).
     pub fn stage_ab_split_ratio(&self) -> f32 {
         let sessions = STAGE_AB_SESSIONS.lock().unwrap();
@@ -2739,21 +2761,218 @@ impl Editor {
         Some((only_a.len(), only_b.len(), modified.len()))
     }
 
-    /// Paint the `Stage A/B` split/toggle reference frame comparison overlay on the Stage (`T-233`).
-    pub fn paint_stage_ab_comparison_overlay(&self, painter: &egui::Painter, stage_rect: Rect) {
+    /// Handle interactive dragging of the vertical split divider on Stage when in
+    /// `StageAbComparisonMode::SplitVertical` (`T-264`).
+    pub(crate) fn stage_ab_split_input(
+        &mut self,
+        ui: &egui::Ui,
+        canvas_rect: Rect,
+        stage_rect: Rect,
+    ) {
+        if self.stage_ab_mode() != StageAbComparisonMode::SplitVertical || stage_rect.width() <= 1.0
+        {
+            let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+            if let Some(state) = sessions.get_mut(&self.clipboard.session) {
+                state.dragging_split = false;
+            }
+            return;
+        }
+        let split_x = stage_rect.left() + stage_rect.width() * self.stage_ab_split_ratio();
+        let pointer_pos = ui.input(|i| i.pointer.latest_pos());
+        let near_line = pointer_pos.is_some_and(|p| {
+            canvas_rect.contains(p)
+                && stage_rect.y_range().contains(p.y)
+                && (p.x - split_x).abs() <= 6.0
+        });
+        let primary_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+        let primary_down = ui.input(|i| i.pointer.primary_down());
+
+        let mut is_dragging = {
+            let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+            let state = sessions.entry(self.clipboard.session.clone()).or_default();
+            if primary_pressed && near_line {
+                state.dragging_split = true;
+            }
+            if !primary_down {
+                state.dragging_split = false;
+            }
+            state.dragging_split
+        };
+        if is_dragging {
+            if let Some(p) = pointer_pos {
+                let ratio = ((p.x - stage_rect.left()) / stage_rect.width()).clamp(0.05, 0.95);
+                self.set_stage_ab_split(ratio);
+            } else {
+                is_dragging = false;
+            }
+        }
+        if near_line || is_dragging {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+    }
+
+    fn paint_stage_snapshot_in_rect(
+        &self,
+        painter: &egui::Painter,
+        stage_rect: Rect,
+        clip_rect: Rect,
+        zoom: f32,
+        snap: &StageSnapshotAB,
+    ) {
+        let effective_clip = clip_rect.intersect(painter.clip_rect());
+        if !effective_clip.is_positive() {
+            return;
+        }
+        let clipped = painter.with_clip_rect(effective_clip);
+        let bg = Color32::from_rgba_unmultiplied(
+            self.project.background[0],
+            self.project.background[1],
+            self.project.background[2],
+            self.project.background[3],
+        );
+        clipped.rect_filled(effective_clip, 0.0, bg);
+        let origin = if self.edit_context_is_isolated() {
+            stage_rect.center()
+        } else {
+            stage_rect.min
+        };
+        for el in &snap.elements {
+            if let ElementKind::Instance { symbol_id, .. } = &el.kind {
+                let parent_mat = transform_matrix(el.transform);
+                for mut child in evaluate(&self.project, symbol_id, snap.frame) {
+                    let c = child.transform;
+                    child.transform = [
+                        parent_mat[0] * c[0] + parent_mat[2] * c[1],
+                        parent_mat[1] * c[0] + parent_mat[3] * c[1],
+                        parent_mat[0] * c[2] + parent_mat[2] * c[3],
+                        parent_mat[1] * c[2] + parent_mat[3] * c[3],
+                        parent_mat[0] * c[4] + parent_mat[2] * c[5] + parent_mat[4],
+                        parent_mat[1] * c[4] + parent_mat[3] * c[5] + parent_mat[5],
+                    ];
+                    let alpha = (el.transform.alpha * child.alpha).clamp(0.0, 1.0);
+                    draw_item(
+                        &clipped,
+                        &child,
+                        DrawStyle {
+                            origin,
+                            zoom,
+                            opacity: alpha,
+                            tint: None,
+                            outlines: false,
+                            bitmap_texture: None,
+                        },
+                        false,
+                    );
+                }
+            } else {
+                let item = DrawItem {
+                    element_id: el.id.clone(),
+                    name: el.name.clone(),
+                    instance_path: vec![el.id.clone()],
+                    layer_id: String::new(),
+                    transform: transform_matrix(el.transform),
+                    alpha: el.transform.alpha,
+                    color_transform: el.transform.color_transform,
+                    path_fingerprint: None,
+                    kind: el.kind.clone(),
+                };
+                draw_item(
+                    &clipped,
+                    &item,
+                    DrawStyle {
+                        origin,
+                        zoom,
+                        opacity: el.transform.alpha.clamp(0.0, 1.0),
+                        tint: None,
+                        outlines: false,
+                        bitmap_texture: None,
+                    },
+                    false,
+                );
+            }
+        }
+    }
+
+    fn paint_stage_ab_badge(&self, painter: &egui::Painter, center_top: Pos2, text: &str) {
+        let nf = neoflash_ui::palette(painter.ctx());
+        let font = neoflash_ui::typography::font(neoflash_ui::TextStyle::Small);
+        let galley = painter.layout_no_wrap(text.to_owned(), font, nf.text_primary);
+        let pad = Vec2::new(
+            neoflash_ui::tokens::space::S2,
+            neoflash_ui::tokens::space::S1 * 0.5,
+        );
+        let pill = Rect::from_min_size(
+            Pos2::new(center_top.x - galley.size().x * 0.5 - pad.x, center_top.y),
+            galley.size() + pad * 2.0,
+        );
+        painter.rect_filled(pill, neoflash_ui::tokens::radius::SM, nf.bg_raised);
+        painter.rect_stroke(
+            pill,
+            neoflash_ui::tokens::radius::SM,
+            Stroke::new(1.0_f32, nf.border_subtle),
+            StrokeKind::Inside,
+        );
+        painter.galley(pill.min + pad, galley, nf.text_primary);
+    }
+
+    /// Paint the `Stage A/B` split/toggle reference frame comparison overlay on the Stage (`T-233` / `T-264`).
+    pub fn paint_stage_ab_comparison_overlay(
+        &self,
+        painter: &egui::Painter,
+        stage_rect: Rect,
+        zoom: f32,
+    ) {
         let mode = self.stage_ab_mode();
         if mode == StageAbComparisonMode::Off {
             return;
         }
+        let (snap_a, snap_b) = self.stage_ab_snapshots();
         let nf = neoflash_ui::palette(painter.ctx());
-        if mode == StageAbComparisonMode::SplitVertical {
-            let ratio = self.stage_ab_split_ratio();
-            let split_x = stage_rect.left() + stage_rect.width() * ratio;
-            painter.vline(
-                split_x,
-                stage_rect.y_range(),
-                Stroke::new(1.5_f32, nf.guide),
-            );
+        let badge_y = stage_rect.top() + neoflash_ui::tokens::space::S2;
+        match mode {
+            StageAbComparisonMode::Off => {}
+            StageAbComparisonMode::ShowA => {
+                if let Some(a) = &snap_a {
+                    self.paint_stage_snapshot_in_rect(painter, stage_rect, stage_rect, zoom, a);
+                }
+                self.paint_stage_ab_badge(
+                    painter,
+                    Pos2::new(stage_rect.left() + neoflash_ui::tokens::space::S5, badge_y),
+                    "A",
+                );
+            }
+            StageAbComparisonMode::ShowB => {
+                if let Some(b) = &snap_b {
+                    self.paint_stage_snapshot_in_rect(painter, stage_rect, stage_rect, zoom, b);
+                }
+                self.paint_stage_ab_badge(
+                    painter,
+                    Pos2::new(stage_rect.left() + neoflash_ui::tokens::space::S5, badge_y),
+                    "B",
+                );
+            }
+            StageAbComparisonMode::SplitVertical => {
+                let ratio = self.stage_ab_split_ratio();
+                let split_x = stage_rect.left() + stage_rect.width() * ratio;
+                let left_rect =
+                    Rect::from_min_max(stage_rect.min, Pos2::new(split_x, stage_rect.max.y));
+                let right_rect =
+                    Rect::from_min_max(Pos2::new(split_x, stage_rect.min.y), stage_rect.max);
+                if let Some(a) = &snap_a {
+                    self.paint_stage_snapshot_in_rect(painter, stage_rect, left_rect, zoom, a);
+                }
+                if let Some(b) = &snap_b {
+                    self.paint_stage_snapshot_in_rect(painter, stage_rect, right_rect, zoom, b);
+                }
+                painter.vline(
+                    split_x,
+                    stage_rect.y_range(),
+                    Stroke::new(1.5_f32, nf.guide),
+                );
+                let offset_x = neoflash_ui::tokens::space::S4;
+                self.paint_stage_ab_badge(painter, Pos2::new(split_x - offset_x, badge_y), "A");
+                self.paint_stage_ab_badge(painter, Pos2::new(split_x + offset_x, badge_y), "B");
+            }
         }
     }
 }
@@ -2811,11 +3030,16 @@ pub enum StageAbComparisonMode {
     SplitVertical,
 }
 
+/// Alias for [`StageAbComparisonMode`] (`T-264`).
+#[allow(dead_code)]
+pub type StageAbMode = StageAbComparisonMode;
+
 #[allow(dead_code)]
 #[derive(Clone)]
 struct StageAbSessionState {
     mode: StageAbComparisonMode,
     split_ratio: f32,
+    dragging_split: bool,
     snapshot_a: Option<StageSnapshotAB>,
     snapshot_b: Option<StageSnapshotAB>,
     joint_specs: Vec<IkJointSpec>,
@@ -2826,6 +3050,7 @@ impl Default for StageAbSessionState {
         Self {
             mode: StageAbComparisonMode::Off,
             split_ratio: 0.5,
+            dragging_split: false,
             snapshot_a: None,
             snapshot_b: None,
             joint_specs: Vec::new(),
@@ -3631,5 +3856,102 @@ mod stage_tools_and_context_menu_tests {
             });
         });
         assert!(editor.selection.is_empty());
+    }
+
+    fn collect_clipped_texts(shapes: &[egui::epaint::ClippedShape], out: &mut Vec<String>) {
+        for cs in shapes {
+            match &cs.shape {
+                Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                Shape::Vec(nested) => {
+                    for s in nested {
+                        if let Shape::Text(t) = s {
+                            out.push(t.galley.text().to_owned());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn stage_ab_live_stage_rendering_split_vertical_and_command_ids() {
+        let mut editor = make_test_editor();
+        let root_id = editor.project.root.clone();
+        {
+            let sym = editor.project.symbol_mut(&root_id).unwrap();
+            sym.timeline.frame_count = 6;
+            sym.timeline.layers[0].keyframes[0].elements.clear();
+            sym.timeline.layers[0].keyframes[0]
+                .elements
+                .push(make_test_element(
+                    "ab-shape",
+                    "AB",
+                    20.0,
+                    30.0,
+                    ElementKind::Rectangle {
+                        width: 60.0,
+                        height: 40.0,
+                        fill: [220, 60, 40, 255],
+                        stroke: [20, 20, 20, 255],
+                        stroke_width: 2.0,
+                    },
+                ));
+            let mut k5 = sym.timeline.layers[0].keyframes[0].clone();
+            k5.frame = 5;
+            k5.elements[0].transform.x = 180.0;
+            sym.timeline.layers[0].keyframes.push(k5);
+        }
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        editor.seek_frame(0);
+        editor.execute_command(&ctx, crate::commands::CommandId::CaptureStageA);
+        editor.seek_frame(5);
+        editor.execute_command(&ctx, crate::commands::CommandId::CaptureStageB);
+        editor.execute_command(&ctx, crate::commands::CommandId::ToggleStageAbSplit);
+        assert_eq!(editor.stage_ab_mode(), StageAbMode::SplitVertical);
+        let (snap_a, snap_b) = editor.stage_ab_snapshots();
+        assert!(snap_a.is_some());
+        assert!(snap_b.is_some());
+
+        // Render Editor::stage with SplitVertical mode active
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0))),
+            ..egui::RawInput::default()
+        };
+        let output = ctx.run(input, |ctx| {
+            editor.stage(ctx);
+        });
+        let mut texts = Vec::new();
+        collect_clipped_texts(&output.shapes, &mut texts);
+        assert!(
+            texts.iter().any(|t| t == "A"),
+            "expected 'A' badge in Stage A/B SplitVertical overlay, got: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t == "B"),
+            "expected 'B' badge in Stage A/B SplitVertical overlay, got: {texts:?}"
+        );
+        // Verify clipped left/right snapshot regions and vertical split divider line were emitted
+        let has_vline = output
+            .shapes
+            .iter()
+            .any(|cs| matches!(cs.shape, Shape::LineSegment { .. }));
+        assert!(has_vline, "expected vertical split line on Stage");
+
+        // Test interactive split ratio update and CommandId::ApplyMotionWiggler
+        editor.set_stage_ab_split(0.35);
+        assert!((editor.stage_ab_split_ratio() - 0.35).abs() < 1e-5);
+
+        editor.seek_frame(0);
+        let target = sel_target(&editor, "ab-shape");
+        editor.set_selection(vec![target]);
+        editor.execute_command(&ctx, crate::commands::CommandId::ApplyMotionWiggler);
+        assert!(
+            editor.symbol().timeline.layers[0].keyframes.len() > 2,
+            "ApplyMotionWiggler should materialize intermediate motion keys"
+        );
+        assert!(editor.project.validate().is_ok());
     }
 }

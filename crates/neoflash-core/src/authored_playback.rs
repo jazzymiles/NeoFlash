@@ -4,9 +4,137 @@
 //! authored document pure.
 use crate::{
     AccessibleRole, AuthoredScene, ElementKind, Id, PlaybackCommand, Player, Project,
-    ScriptDispatch, ScriptEvent, SymbolKind, VideoCommand,
+    ScriptDispatch, ScriptEvent, ScriptLanguage, SymbolKind, VideoCommand,
 };
 use std::collections::{HashMap, HashSet};
+
+/// Typed runtime value for live authoring script preview (`T-266`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PreviewValue {
+    Undefined,
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+}
+
+impl PreviewValue {
+    pub fn is_truthy(&self, is_as1: bool) -> bool {
+        match self {
+            Self::Undefined | Self::Null => false,
+            Self::Bool(b) => *b,
+            Self::Number(n) => *n != 0.0 && !n.is_nan(),
+            Self::String(s) => {
+                if is_as1 {
+                    !s.is_empty() && s != "0" && s != "false"
+                } else {
+                    !s.is_empty()
+                }
+            }
+        }
+    }
+
+    pub fn to_number(&self, is_as1: bool) -> f64 {
+        match self {
+            Self::Undefined => {
+                if is_as1 {
+                    0.0
+                } else {
+                    f64::NAN
+                }
+            }
+            Self::Null | Self::Bool(false) => 0.0,
+            Self::Bool(true) => 1.0,
+            Self::Number(n) => *n,
+            Self::String(s) => {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    if is_as1 { 0.0 } else { f64::NAN }
+                } else if let Some(hex) = trimmed
+                    .strip_prefix("0x")
+                    .or_else(|| trimmed.strip_prefix("0X"))
+                {
+                    u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| v as f64)
+                } else {
+                    trimmed
+                        .parse::<f64>()
+                        .unwrap_or(if is_as1 { 0.0 } else { f64::NAN })
+                }
+            }
+        }
+    }
+
+    fn to_compound_lhs_number(&self, is_as1: bool) -> f64 {
+        match self {
+            Self::Undefined | Self::Null => 0.0,
+            other => {
+                let n = other.to_number(is_as1);
+                if n.is_nan() { 0.0 } else { n }
+            }
+        }
+    }
+
+    pub fn to_es_string(&self, is_as1: bool) -> String {
+        match self {
+            Self::Undefined => {
+                if is_as1 {
+                    String::new()
+                } else {
+                    "undefined".to_owned()
+                }
+            }
+            Self::Null => "null".to_owned(),
+            Self::Bool(b) => b.to_string(),
+            Self::Number(n) => format_number(*n),
+            Self::String(s) => s.clone(),
+        }
+    }
+
+    pub fn to_display_string(&self) -> String {
+        match self {
+            Self::Undefined => "undefined".to_owned(),
+            Self::Null => "null".to_owned(),
+            Self::Bool(b) => b.to_string(),
+            Self::Number(n) => format_number(*n),
+            Self::String(s) => s.clone(),
+        }
+    }
+
+    pub fn strict_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Undefined, Self::Undefined) | (Self::Null, Self::Null) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::String(a), Self::String(b)) => a == b,
+            _ => false,
+        }
+    }
+
+    pub fn loose_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Undefined | Self::Null, Self::Undefined | Self::Null) => true,
+            (Self::Undefined | Self::Null, _) | (_, Self::Undefined | Self::Null) => false,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::Bool(b), rhs) => Self::Number(if *b { 1.0 } else { 0.0 }).loose_eq(rhs),
+            (lhs, Self::Bool(b)) => lhs.loose_eq(&Self::Number(if *b { 1.0 } else { 0.0 })),
+            (Self::Number(n), Self::String(s)) | (Self::String(s), Self::Number(n)) => {
+                let s_num = Self::String(s.clone()).to_number(false);
+                *n == s_num
+            }
+        }
+    }
+
+    pub fn compare_rel(&self, other: &Self, is_as1: bool) -> Option<std::cmp::Ordering> {
+        if let (Self::String(a), Self::String(b)) = (self, other) {
+            return Some(a.cmp(b));
+        }
+        let l = self.to_number(is_as1);
+        let r = other.to_number(is_as1);
+        l.partial_cmp(&r)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RegisteredEvent {
@@ -19,6 +147,7 @@ struct RegisteredHandler {
     target_path: Vec<Id>,
     target_lifetime: u64,
     event: RegisteredEvent,
+    language: ScriptLanguage,
     body: String,
     origin: String,
     base_line: usize,
@@ -37,10 +166,11 @@ pub struct AuthoredPlayback {
     looping: bool,
     live_scripts: bool,
     script_halted_root: bool,
+    current_language: ScriptLanguage,
     traces: Vec<String>,
     diagnostics: Vec<String>,
     reported_diagnostics: HashSet<String>,
-    vars: HashMap<(Vec<Id>, String), String>,
+    vars: HashMap<(Vec<Id>, String), PreviewValue>,
     registered_handlers: Vec<RegisteredHandler>,
     initialized_wrapper_placements: HashSet<(Vec<Id>, u64)>,
     executed_load_blocks: HashSet<(Vec<Id>, u64, usize)>,
@@ -79,6 +209,7 @@ impl AuthoredPlayback {
             looping: true,
             live_scripts,
             script_halted_root: false,
+            current_language: ScriptLanguage::ActionScript2,
             traces: Vec::new(),
             diagnostics: Vec::new(),
             reported_diagnostics: HashSet::new(),
@@ -388,6 +519,8 @@ impl AuthoredPlayback {
             if self.player.lifetime_id(&handler.target_path) != Some(handler.target_lifetime) {
                 continue;
             }
+            let prev_lang = self.current_language;
+            self.current_language = handler.language;
             self.execute_block(
                 project,
                 &handler.target_path,
@@ -397,6 +530,7 @@ impl AuthoredPlayback {
                 handler.base_line,
                 &HashMap::new(),
             );
+            self.current_language = prev_lang;
             self.process_scripts(project);
         }
     }
@@ -422,6 +556,8 @@ impl AuthoredPlayback {
             if self.player.lifetime_id(&handler.target_path) != Some(handler.target_lifetime) {
                 continue;
             }
+            let prev_lang = self.current_language;
+            self.current_language = handler.language;
             self.execute_block(
                 project,
                 &handler.target_path,
@@ -431,6 +567,7 @@ impl AuthoredPlayback {
                 handler.base_line,
                 &HashMap::new(),
             );
+            self.current_language = prev_lang;
             self.process_scripts(project);
         }
     }
@@ -583,6 +720,7 @@ impl AuthoredPlayback {
             target_path,
             target_lifetime,
             event,
+            language: self.current_language,
             body,
             origin,
             base_line,
@@ -615,9 +753,15 @@ impl AuthoredPlayback {
         });
     }
 
+    fn is_as1(&self) -> bool {
+        self.current_language == ScriptLanguage::ActionScript1
+    }
+
     fn execute_preview_dispatch(&mut self, project: &Project, dispatch: &ScriptDispatch) {
         let origin = self.describe_origin(project, dispatch);
         let local_fns = collect_local_functions(&dispatch.script.source);
+        let prev_lang = self.current_language;
+        self.current_language = dispatch.script.language;
         self.execute_block(
             project,
             &dispatch.target_path,
@@ -627,6 +771,7 @@ impl AuthoredPlayback {
             1,
             &local_fns,
         );
+        self.current_language = prev_lang;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -911,7 +1056,7 @@ impl AuthoredPlayback {
                     if let Some((lhs, rhs)) = split_top_level_assign(decl) {
                         let name = lhs.split(':').next().unwrap_or(lhs).trim();
                         if !name.is_empty() {
-                            let val = self.eval_preview_expr(project, &scope_path, rhs.trim());
+                            let val = self.eval_preview_value(project, &scope_path, rhs.trim());
                             self.vars.insert((scope_path.clone(), name.to_owned()), val);
                         }
                     } else {
@@ -919,7 +1064,7 @@ impl AuthoredPlayback {
                         if !name.is_empty() {
                             self.vars
                                 .entry((scope_path.clone(), name.to_owned()))
-                                .or_insert_with(|| "undefined".to_owned());
+                                .or_insert(PreviewValue::Undefined);
                         }
                     }
                 }
@@ -1436,6 +1581,7 @@ impl AuthoredPlayback {
         };
 
         // Check if mutating an existing script variable (`score += 10`, `count = 2`)
+        let is_as1 = self.is_as1();
         if recv_opt.is_none()
             && self
                 .vars
@@ -1445,9 +1591,9 @@ impl AuthoredPlayback {
                 .vars
                 .get(&(scope_path.clone(), prop_raw.to_owned()))
                 .cloned()
-                .unwrap_or_default();
-            let rhs_val = self.eval_preview_expr(project, &scope_path, rhs);
-            let Some(next_val) = apply_compound_var_op(op, &cur_val, &rhs_val, rhs) else {
+                .unwrap_or(PreviewValue::Undefined);
+            let rhs_val = self.eval_preview_value(project, &scope_path, rhs);
+            let Some(next_val) = apply_compound_var_op(op, &cur_val, &rhs_val, is_as1) else {
                 return false;
             };
             self.vars
@@ -1462,11 +1608,8 @@ impl AuthoredPlayback {
         };
 
         if matches!(prop_raw, "_visible" | "visible") && op == "=" {
-            let val_str = self.eval_preview_expr(project, &scope_path, rhs);
-            let visible = !matches!(
-                val_str.as_str(),
-                "false" | "0" | "" | "null" | "undefined" | "NaN"
-            );
+            let val = self.eval_preview_value(project, &scope_path, rhs);
+            let visible = val.is_truthy(is_as1);
             self.player.set_visible(&target_path, visible);
             return true;
         }
@@ -1488,9 +1631,10 @@ impl AuthoredPlayback {
                         .vars
                         .get(&(target_path.clone(), prop_raw.to_owned()))
                         .cloned()
-                        .unwrap_or_else(|| "0".into());
-                    let rhs_val = self.eval_preview_expr(project, &scope_path, rhs);
-                    let Some(next_val) = apply_compound_var_op(op, &cur_val, &rhs_val, rhs) else {
+                        .unwrap_or(PreviewValue::Undefined);
+                    let rhs_val = self.eval_preview_value(project, &scope_path, rhs);
+                    let Some(next_val) = apply_compound_var_op(op, &cur_val, &rhs_val, is_as1)
+                    else {
                         return false;
                     };
                     self.vars
@@ -1500,10 +1644,8 @@ impl AuthoredPlayback {
                 return false;
             }
         };
-        let rhs_eval = self.eval_preview_expr(project, &scope_path, rhs);
-        let Some(rhs_num) = parse_or_coerce_number(&rhs_eval) else {
-            return false;
-        };
+        let rhs_eval = self.eval_preview_value(project, &scope_path, rhs);
+        let rhs_num = rhs_eval.to_compound_lhs_number(is_as1);
         let cur = self
             .player
             .property(project, &target_path, prop_name)
@@ -1543,153 +1685,174 @@ impl AuthoredPlayback {
     }
 
     fn eval_preview_condition(&self, project: &Project, path: &[Id], cond: &str) -> bool {
-        let mut s = cond.trim();
-        while s.starts_with('(') && s.ends_with(')') && is_single_paren_group(s) {
-            s = s[1..s.len() - 1].trim();
-        }
-        let or_parts = split_top_level_op(s, "||");
-        if or_parts.len() > 1 {
-            return or_parts
-                .into_iter()
-                .any(|p| self.eval_preview_condition(project, path, p));
-        }
-        let and_parts = split_top_level_op(s, "&&");
-        if and_parts.len() > 1 {
-            return and_parts
-                .into_iter()
-                .all(|p| self.eval_preview_condition(project, path, p));
-        }
-        if let Some(inner) = s.strip_prefix('!') {
-            return !self.eval_preview_condition(project, path, inner);
-        }
-        for op in ["===", "!==", "<=", ">=", "==", "!=", "<", ">"] {
-            let parts = split_top_level_op(s, op);
-            if parts.len() == 2 {
-                let lv = self.eval_preview_expr(project, path, parts[0]);
-                let rv = self.eval_preview_expr(project, path, parts[1]);
-                let num_cmp = match (lv.parse::<f64>(), rv.parse::<f64>()) {
-                    (Ok(a), Ok(b)) => a.partial_cmp(&b),
-                    _ => None,
-                };
-                return match op {
-                    "===" | "==" => num_cmp.map_or(lv == rv, |o| o.is_eq()),
-                    "!==" | "!=" => num_cmp.map_or(lv != rv, |o| !o.is_eq()),
-                    "<" => num_cmp.map_or(lv < rv, |o| o.is_lt()),
-                    "<=" => num_cmp.map_or(lv <= rv, |o| o.is_le()),
-                    ">" => num_cmp.map_or(lv > rv, |o| o.is_gt()),
-                    ">=" => num_cmp.map_or(lv >= rv, |o| o.is_ge()),
-                    _ => false,
-                };
-            }
-        }
-        let val = self.eval_preview_expr(project, path, s);
-        !matches!(
-            val.as_str(),
-            "" | "false" | "0" | "null" | "undefined" | "NaN"
-        )
+        let is_as1 = self.is_as1();
+        self.eval_preview_value(project, path, cond)
+            .is_truthy(is_as1)
     }
 
     fn eval_preview_expr(&self, project: &Project, path: &[Id], expr: &str) -> String {
+        self.eval_preview_value(project, path, expr)
+            .to_display_string()
+    }
+
+    pub fn eval_preview_value(&self, project: &Project, path: &[Id], expr: &str) -> PreviewValue {
         let scope_path = self.effective_scope_path(project, path);
+        let is_as1 = self.is_as1();
         let mut trimmed = expr.trim();
         while trimmed.starts_with('(') && trimmed.ends_with(')') && is_single_paren_group(trimmed) {
             trimmed = trimmed[1..trimmed.len() - 1].trim();
         }
         if trimmed.is_empty() {
-            return String::new();
+            return PreviewValue::String(String::new());
+        }
+        let or_parts = split_top_level_op(trimmed, "||");
+        if or_parts.len() > 1 {
+            return PreviewValue::Bool(or_parts.into_iter().any(|p| {
+                self.eval_preview_value(project, &scope_path, p)
+                    .is_truthy(is_as1)
+            }));
+        }
+        let and_parts = split_top_level_op(trimmed, "&&");
+        if and_parts.len() > 1 {
+            return PreviewValue::Bool(and_parts.into_iter().all(|p| {
+                self.eval_preview_value(project, &scope_path, p)
+                    .is_truthy(is_as1)
+            }));
+        }
+        for op in ["===", "!==", "==", "!="] {
+            let parts = split_top_level_op(trimmed, op);
+            if parts.len() == 2 {
+                let lv = self.eval_preview_value(project, &scope_path, parts[0]);
+                let rv = self.eval_preview_value(project, &scope_path, parts[1]);
+                let res = match op {
+                    "===" => lv.strict_eq(&rv),
+                    "!==" => !lv.strict_eq(&rv),
+                    "==" => lv.loose_eq(&rv),
+                    "!=" => !lv.loose_eq(&rv),
+                    _ => false,
+                };
+                return PreviewValue::Bool(res);
+            }
+        }
+        for op in ["<=", ">=", "<", ">"] {
+            let parts = split_top_level_op(trimmed, op);
+            if parts.len() == 2 {
+                let lv = self.eval_preview_value(project, &scope_path, parts[0]);
+                let rv = self.eval_preview_value(project, &scope_path, parts[1]);
+                let ord = lv.compare_rel(&rv, is_as1);
+                let res = match op {
+                    "<" => ord == Some(std::cmp::Ordering::Less),
+                    "<=" => matches!(
+                        ord,
+                        Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                    ),
+                    ">" => ord == Some(std::cmp::Ordering::Greater),
+                    ">=" => matches!(
+                        ord,
+                        Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+                    ),
+                    _ => false,
+                };
+                return PreviewValue::Bool(res);
+            }
         }
         let parts = split_top_level_plus(trimmed);
         if parts.len() > 1 {
-            let has_string_literal = parts.iter().any(|p| {
-                let pt = p.trim();
-                (pt.starts_with('"') && pt.ends_with('"'))
-                    || (pt.starts_with('\'') && pt.ends_with('\''))
-            });
-            let evaluated: Vec<String> = parts
+            let mut iter = parts
                 .into_iter()
-                .map(|p| self.eval_preview_expr(project, &scope_path, p))
-                .collect();
-            if !has_string_literal
-                && evaluated
-                    .iter()
-                    .all(|s| parse_or_coerce_number(s).is_some())
-            {
-                let sum: f64 = evaluated
-                    .iter()
-                    .filter_map(|s| parse_or_coerce_number(s))
-                    .sum();
-                return format_number(sum);
-            }
-            return evaluated.concat();
+                .map(|p| self.eval_preview_value(project, &scope_path, p));
+            let first = iter.next().unwrap_or(PreviewValue::Undefined);
+            return iter.fold(first, |acc, rhs| eval_add_values(acc, rhs, is_as1));
         }
         let sub_parts = split_top_level_binary_minus(trimmed);
         if let Some((l, r)) = sub_parts {
-            let lv = coerce_preview_number(&self.eval_preview_expr(project, &scope_path, l));
-            let rv = coerce_preview_number(&self.eval_preview_expr(project, &scope_path, r));
-            return format_number(lv - rv);
+            let lv = self
+                .eval_preview_value(project, &scope_path, l)
+                .to_number(is_as1);
+            let rv = self
+                .eval_preview_value(project, &scope_path, r)
+                .to_number(is_as1);
+            return PreviewValue::Number(lv - rv);
         }
         let mul_parts = split_top_level_op(trimmed, "*");
         if mul_parts.len() == 2 {
-            let lv =
-                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, mul_parts[0]));
-            let rv =
-                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, mul_parts[1]));
-            return format_number(lv * rv);
+            let lv = self
+                .eval_preview_value(project, &scope_path, mul_parts[0])
+                .to_number(is_as1);
+            let rv = self
+                .eval_preview_value(project, &scope_path, mul_parts[1])
+                .to_number(is_as1);
+            return PreviewValue::Number(lv * rv);
         }
         let div_parts = split_top_level_op(trimmed, "/");
         if div_parts.len() == 2 {
-            let lv =
-                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, div_parts[0]));
-            let rv =
-                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, div_parts[1]));
-            return if rv.abs() < 1e-12 {
-                "0".into()
+            let lv = self
+                .eval_preview_value(project, &scope_path, div_parts[0])
+                .to_number(is_as1);
+            let rv = self
+                .eval_preview_value(project, &scope_path, div_parts[1])
+                .to_number(is_as1);
+            return if lv.is_nan() || rv.is_nan() {
+                PreviewValue::Number(f64::NAN)
+            } else if rv.abs() < 1e-12 {
+                PreviewValue::Number(0.0)
             } else {
-                format_number(lv / rv)
+                PreviewValue::Number(lv / rv)
             };
         }
         let rem_parts = split_top_level_op(trimmed, "%");
         if rem_parts.len() == 2 {
-            let lv =
-                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, rem_parts[0]));
-            let rv =
-                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, rem_parts[1]));
-            return if rv.abs() < 1e-12 {
-                "0".into()
+            let lv = self
+                .eval_preview_value(project, &scope_path, rem_parts[0])
+                .to_number(is_as1);
+            let rv = self
+                .eval_preview_value(project, &scope_path, rem_parts[1])
+                .to_number(is_as1);
+            return if lv.is_nan() || rv.is_nan() {
+                PreviewValue::Number(f64::NAN)
+            } else if rv.abs() < 1e-12 {
+                PreviewValue::Number(0.0)
             } else {
-                format_number(lv % rv)
+                PreviewValue::Number(lv % rv)
             };
         }
-        self.eval_preview_atom(project, &scope_path, trimmed)
+        self.eval_preview_atom_value(project, &scope_path, trimmed)
     }
 
-    fn eval_preview_atom(&self, project: &Project, path: &[Id], atom: &str) -> String {
+    fn eval_preview_atom_value(&self, project: &Project, path: &[Id], atom: &str) -> PreviewValue {
         let s = atom.trim();
+        let is_as1 = self.is_as1();
         if (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
             || (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
         {
-            return unescape_string_literal(&s[1..s.len() - 1]);
+            return PreviewValue::String(unescape_string_literal(&s[1..s.len() - 1]));
         }
-        if matches!(s, "true" | "false" | "undefined" | "null" | "NaN") {
-            return s.to_owned();
+        match s {
+            "true" => return PreviewValue::Bool(true),
+            "false" => return PreviewValue::Bool(false),
+            "null" => return PreviewValue::Null,
+            "undefined" => return PreviewValue::Undefined,
+            "NaN" => return PreviewValue::Number(f64::NAN),
+            "Infinity" => return PreviewValue::Number(f64::INFINITY),
+            "-Infinity" => return PreviewValue::Number(f64::NEG_INFINITY),
+            _ => {}
         }
         if let Some(inner) = s.strip_prefix('!') {
-            return if self.eval_preview_condition(project, path, inner) {
-                "false".into()
-            } else {
-                "true".into()
-            };
+            return PreviewValue::Bool(!self.eval_preview_condition(project, path, inner));
+        }
+        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X"))
+            && let Ok(v) = u64::from_str_radix(hex, 16)
+        {
+            return PreviewValue::Number(v as f64);
         }
         if let Ok(n) = s.parse::<f64>() {
-            return format_number(n);
+            return PreviewValue::Number(n);
         }
         if let Some(inner) = s.strip_prefix('-')
             && !inner.trim().is_empty()
         {
-            let val = self.eval_preview_expr(project, path, inner);
-            if let Some(n) = parse_or_coerce_number(&val) {
-                return format_number(-n);
-            }
+            let val = self.eval_preview_value(project, path, inner);
+            return PreviewValue::Number(-val.to_number(is_as1));
         }
         if let Some(val) = self.vars.get(&(path.to_vec(), s.to_owned())) {
             return val.clone();
@@ -1710,7 +1873,7 @@ impl AuthoredPlayback {
                     .player
                     .clip_frame(&target_path)
                     .unwrap_or_else(|| self.player.frame());
-                (f + 1).to_string()
+                PreviewValue::Number(f64::from(f + 1))
             }
             "_totalframes" | "totalFrames" => {
                 let sym_id = if target_path.is_empty() {
@@ -1724,15 +1887,17 @@ impl AuthoredPlayback {
                 let count = sym_id
                     .and_then(|id| project.symbol(id))
                     .map_or(1, |sym| sym.timeline.frame_count.max(1));
-                count.to_string()
+                PreviewValue::Number(f64::from(count))
             }
-            "_name" | "name" => target_path
-                .last()
-                .map(|id| {
-                    let parent = &target_path[..target_path.len() - 1];
-                    self.element_display_name(project, parent, id)
-                })
-                .unwrap_or_else(|| "root".into()),
+            "_name" | "name" => PreviewValue::String(
+                target_path
+                    .last()
+                    .map(|id| {
+                        let parent = &target_path[..target_path.len() - 1];
+                        self.element_display_name(project, parent, id)
+                    })
+                    .unwrap_or_else(|| "root".into()),
+            ),
             "_visible" | "visible" => {
                 let vis = self
                     .player
@@ -1740,55 +1905,66 @@ impl AuthoredPlayback {
                     .get(&target_path)
                     .and_then(|o| o.visible)
                     .unwrap_or(true);
-                vis.to_string()
+                PreviewValue::Bool(vis)
             }
-            "x" | "_x" => self
-                .player
-                .property(project, &target_path, "x")
-                .map(format_number)
-                .unwrap_or_else(|| "0".into()),
-            "y" | "_y" => self
-                .player
-                .property(project, &target_path, "y")
-                .map(format_number)
-                .unwrap_or_else(|| "0".into()),
-            "rotation" | "_rotation" => self
-                .player
-                .property(project, &target_path, "rotation")
-                .map(format_number)
-                .unwrap_or_else(|| "0".into()),
-            "scaleX" | "scale_x" => self
-                .player
-                .property(project, &target_path, "scale_x")
-                .map(format_number)
-                .unwrap_or_else(|| "1".into()),
-            "_xscale" => self
-                .player
-                .property(project, &target_path, "scale_x")
-                .map(|v| format_number(v * 100.0))
-                .unwrap_or_else(|| "100".into()),
-            "scaleY" | "scale_y" => self
-                .player
-                .property(project, &target_path, "scale_y")
-                .map(format_number)
-                .unwrap_or_else(|| "1".into()),
-            "_yscale" => self
-                .player
-                .property(project, &target_path, "scale_y")
-                .map(|v| format_number(v * 100.0))
-                .unwrap_or_else(|| "100".into()),
-            "alpha" => self
-                .player
-                .property(project, &target_path, "alpha")
-                .map(format_number)
-                .unwrap_or_else(|| "1".into()),
-            "_alpha" => self
-                .player
-                .property(project, &target_path, "alpha")
-                .map(|a| format_number(a * 100.0))
-                .unwrap_or_else(|| "100".into()),
-            _ => s.to_owned(),
+            "x" | "_x" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "x")
+                    .unwrap_or(0.0),
+            ),
+            "y" | "_y" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "y")
+                    .unwrap_or(0.0),
+            ),
+            "rotation" | "_rotation" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "rotation")
+                    .unwrap_or(0.0),
+            ),
+            "scaleX" | "scale_x" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "scale_x")
+                    .unwrap_or(1.0),
+            ),
+            "_xscale" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "scale_x")
+                    .map_or(100.0, |v| v * 100.0),
+            ),
+            "scaleY" | "scale_y" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "scale_y")
+                    .unwrap_or(1.0),
+            ),
+            "_yscale" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "scale_y")
+                    .map_or(100.0, |v| v * 100.0),
+            ),
+            "alpha" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "alpha")
+                    .unwrap_or(1.0),
+            ),
+            "_alpha" => PreviewValue::Number(
+                self.player
+                    .property(project, &target_path, "alpha")
+                    .map_or(100.0, |a| a * 100.0),
+            ),
+            _ if is_valid_identifier(prop) => PreviewValue::Undefined,
+            _ => PreviewValue::String(s.to_owned()),
         }
+    }
+}
+
+fn eval_add_values(lhs: PreviewValue, rhs: PreviewValue, is_as1: bool) -> PreviewValue {
+    if matches!(lhs, PreviewValue::String(_)) || matches!(rhs, PreviewValue::String(_)) {
+        let mut s = lhs.to_es_string(is_as1);
+        s.push_str(&rhs.to_es_string(is_as1));
+        PreviewValue::String(s)
+    } else {
+        PreviewValue::Number(lhs.to_number(is_as1) + rhs.to_number(is_as1))
     }
 }
 
@@ -1814,62 +1990,53 @@ fn is_supported_preview_rhs(rhs: &str) -> bool {
     !trimmed.is_empty() && !trimmed.starts_with("new ") && !trimmed.contains('{')
 }
 
-fn parse_or_coerce_number(s: &str) -> Option<f64> {
-    let trimmed = s.trim();
-    if let Ok(n) = trimmed.parse::<f64>() {
-        return Some(n);
-    }
-    match trimmed {
-        "undefined" | "null" | "false" | "" => Some(0.0),
-        "true" => Some(1.0),
-        _ => None,
-    }
-}
-
-fn coerce_preview_number(s: &str) -> f64 {
-    parse_or_coerce_number(s).unwrap_or(0.0)
-}
-
-fn apply_compound_var_op(op: &str, cur_val: &str, rhs_val: &str, raw_rhs: &str) -> Option<String> {
-    let rhs_trimmed = raw_rhs.trim();
-    let rhs_is_string_lit = (rhs_trimmed.starts_with('"') && rhs_trimmed.ends_with('"'))
-        || (rhs_trimmed.starts_with('\'') && rhs_trimmed.ends_with('\''));
+fn apply_compound_var_op(
+    op: &str,
+    cur_val: &PreviewValue,
+    rhs_val: &PreviewValue,
+    is_as1: bool,
+) -> Option<PreviewValue> {
     match op {
-        "=" => Some(rhs_val.to_owned()),
+        "=" => Some(rhs_val.clone()),
         "+=" => {
-            if !rhs_is_string_lit
-                && let (Some(a), Some(b)) = (
-                    parse_or_coerce_number(cur_val),
-                    parse_or_coerce_number(rhs_val),
-                )
+            if matches!(cur_val, PreviewValue::String(_))
+                || matches!(rhs_val, PreviewValue::String(_))
             {
-                Some(format_number(a + b))
+                let mut s = cur_val.to_es_string(is_as1);
+                s.push_str(&rhs_val.to_es_string(is_as1));
+                Some(PreviewValue::String(s))
             } else {
-                Some(format!("{cur_val}{rhs_val}"))
+                let a = cur_val.to_compound_lhs_number(is_as1);
+                let b = rhs_val.to_number(is_as1);
+                Some(PreviewValue::Number(a + b))
             }
         }
-        "-=" => Some(format_number(
-            coerce_preview_number(cur_val) - coerce_preview_number(rhs_val),
+        "-=" => Some(PreviewValue::Number(
+            cur_val.to_compound_lhs_number(is_as1) - rhs_val.to_number(is_as1),
         )),
-        "*=" => Some(format_number(
-            coerce_preview_number(cur_val) * coerce_preview_number(rhs_val),
+        "*=" => Some(PreviewValue::Number(
+            cur_val.to_compound_lhs_number(is_as1) * rhs_val.to_number(is_as1),
         )),
         "/=" => {
-            let a = coerce_preview_number(cur_val);
-            let b = coerce_preview_number(rhs_val);
-            if b.abs() < 1e-12 {
-                Some("0".into())
+            let a = cur_val.to_compound_lhs_number(is_as1);
+            let b = rhs_val.to_number(is_as1);
+            if b.is_nan() {
+                Some(PreviewValue::Number(f64::NAN))
+            } else if b.abs() < 1e-12 {
+                Some(PreviewValue::Number(0.0))
             } else {
-                Some(format_number(a / b))
+                Some(PreviewValue::Number(a / b))
             }
         }
         "%=" => {
-            let a = coerce_preview_number(cur_val);
-            let b = coerce_preview_number(rhs_val);
-            if b.abs() < 1e-12 {
-                Some("0".into())
+            let a = cur_val.to_compound_lhs_number(is_as1);
+            let b = rhs_val.to_number(is_as1);
+            if b.is_nan() {
+                Some(PreviewValue::Number(f64::NAN))
+            } else if b.abs() < 1e-12 {
+                Some(PreviewValue::Number(0.0))
             } else {
-                Some(format_number(a % b))
+                Some(PreviewValue::Number(a % b))
             }
         }
         _ => None,
@@ -1887,7 +2054,15 @@ fn truncate_snippet(s: &str, max_chars: usize) -> String {
 }
 
 fn format_number(n: f64) -> String {
-    if (n - n.round()).abs() < 1e-9 {
+    if n.is_nan() {
+        "NaN".to_owned()
+    } else if n.is_infinite() {
+        if n.is_sign_positive() {
+            "Infinity".to_owned()
+        } else {
+            "-Infinity".to_owned()
+        }
+    } else if (n - n.round()).abs() < 1e-9 && n.abs() < (i64::MAX as f64) {
         format!("{}", n.round() as i64)
     } else {
         format!("{n}")
@@ -3205,5 +3380,104 @@ mod tests {
             true,
         );
         assert!(hidden_scene.draws.is_empty());
+    }
+
+    #[test]
+    fn t266_typed_preview_value_strict_vs_loose_equality_string_plus_and_null_undefined() {
+        let mut project = Project::blank();
+        let root = project.root.clone();
+        project.symbol_mut(&root).unwrap().timeline.scripts = vec![crate::FrameScript {
+            frame: 0,
+            script: crate::Script {
+                language: crate::ScriptLanguage::ActionScript3,
+                source: r#"
+                    trace("5" === 5, "5" == 5, "5" !== 5, "5" != 5);
+                    trace(null == undefined, null === undefined, null == 0, undefined == 0);
+                    trace("null" == null, "undefined" == undefined);
+                    var sn = "null", su = "undefined", n_val = null, u_val;
+                    trace(sn == n_val, su == u_val, n_val == u_val, n_val === u_val);
+                    var a = "5";
+                    var b = a + 1;
+                    var s = "hello ";
+                    var w = s + "world";
+                    var n = 2;
+                    var m = n + 3;
+                    trace(b, b === "51", b === 51, w, m, m === 5);
+                    a += 2;
+                    trace(a, a === "52");
+                    if ("5" === 5) {
+                        trace("BUG_STRICT_EQ");
+                    }
+                    if ("5" == 5 && "5" !== 5 && null == undefined && !(null === undefined)) {
+                        trace("COND_OK");
+                    }
+                "#
+                .into(),
+            },
+        }];
+        let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        assert!(preview.drain_diagnostics().is_empty());
+        assert_eq!(
+            preview.drain_traces(),
+            vec![
+                "false true true false".to_owned(),
+                "true false false false".to_owned(),
+                "false false".to_owned(),
+                "false false true false".to_owned(),
+                "51 true false hello world 5 true".to_owned(),
+                "52 true".to_owned(),
+                "COND_OK".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn t266_null_and_undefined_arithmetic_and_relational_across_as1_as2_and_as3() {
+        let run_for_lang = |language: crate::ScriptLanguage| -> Vec<String> {
+            let mut project = Project::blank();
+            let root = project.root.clone();
+            project.symbol_mut(&root).unwrap().timeline.scripts = vec![crate::FrameScript {
+                frame: 0,
+                script: crate::Script {
+                    language,
+                    source: r#"
+                        var u;
+                        var nl = null;
+                        trace(nl + 5, nl - 2, nl * 10, nl < 5, nl >= 0, nl > 0);
+                        trace(u + 5, u - 2, u < 5, u > 5, u <= 0, u >= 0);
+                        trace("ab" < "ac", "b" < "a");
+                    "#
+                    .into(),
+                },
+            }];
+            let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+            assert!(preview.drain_diagnostics().is_empty());
+            preview.drain_traces()
+        };
+
+        let as1_traces = run_for_lang(crate::ScriptLanguage::ActionScript1);
+        assert_eq!(
+            as1_traces,
+            vec![
+                "5 -2 0 true true false".to_owned(),
+                "5 -2 true false true true".to_owned(),
+                "true false".to_owned(),
+            ]
+        );
+
+        for lang in [
+            crate::ScriptLanguage::ActionScript2,
+            crate::ScriptLanguage::ActionScript3,
+        ] {
+            let traces = run_for_lang(lang);
+            assert_eq!(
+                traces,
+                vec![
+                    "5 -2 0 true true false".to_owned(),
+                    "NaN NaN false false false false".to_owned(),
+                    "true false".to_owned(),
+                ]
+            );
+        }
     }
 }

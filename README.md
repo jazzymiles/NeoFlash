@@ -18,12 +18,12 @@ Open-source vector animation, interactive media and application authoring studio
 
 | Area | Functions working | Partial | Planned | Capability groups (closed / partial / planned) |
 | --- | ---: | ---: | ---: | ---: |
-| Editor and graphics | 159 of 164 | 4 | 1 | 9 / 3 / 0 |
+| Editor and graphics | 159 of 163 | 3 | 1 | 9 / 3 / 0 |
 | Timelines and animation | 79 of 81 | 2 | 0 | 8 / 2 / 0 |
 | HTML5 and interactivity | 95 of 103 | 8 | 0 | 8 / 4 / 0 |
 | Import and file compatibility | 57 of 68 | 11 | 0 | 4 / 6 / 0 |
 | Platform and quality | 46 of 59 | 3 | 10 | 4 / 5 / 1 |
-| **All areas** | 436 of 475 | 28 | 11 | 33 / 20 / 1 |
+| **All areas** | 436 of 474 | 27 | 11 | 33 / 20 / 1 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 

@@ -960,6 +960,18 @@ impl Editor {
                 } else if is_text_box {
                     self.display_and_filters_sections_ui(ui, "props-text", false, false);
                 }
+                let is_vector_shape = matches!(
+                    original.kind,
+                    ElementKind::Rectangle { .. }
+                        | ElementKind::Ellipse { .. }
+                        | ElementKind::Path { .. }
+                        | ElementKind::PaintedPath { .. }
+                );
+                if is_vector_shape {
+                    ui.add_enabled_ui_semantic(self.selected_editable(), |ui| {
+                        self.appearance_panel_ui(ui);
+                    });
+                }
                 let is_video_element = matches!(original.kind, ElementKind::Video { .. });
                 if is_video_element {
                     self.frame_video_section(ui);

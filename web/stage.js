@@ -282,6 +282,234 @@
     };
   }
 
+  const CONTENT_ACCESSIBLE_ROLE_MAP = Object.freeze({
+    auto: 'generic',
+    button: 'button',
+    check_box: 'checkbox',
+    radio_button: 'radio',
+    combo_box: 'combobox',
+    list: 'list',
+    list_item: 'listitem',
+    menu: 'menu',
+    menu_item: 'menuitem',
+    slider: 'slider',
+    progress_bar: 'progressbar',
+    tab: 'tab',
+    tab_panel: 'tabpanel',
+    dialog: 'dialog',
+    heading: 'heading',
+    link: 'link',
+    image: 'img',
+    group: 'group',
+    region: 'region',
+    application: 'application',
+    presentation: 'presentation',
+  });
+
+  function elementStageBounds(element) {
+    const tx = Number(element?.transform?.x ?? 0);
+    const ty = Number(element?.transform?.y ?? 0);
+    const sx = Math.max(0.001, Math.abs(Number(element?.transform?.scale_x ?? 1)));
+    const sy = Math.max(0.001, Math.abs(Number(element?.transform?.scale_y ?? 1)));
+    const kind = element?.kind || {};
+    let w = 64 * sx;
+    let h = 64 * sy;
+    if (kind.type === 'rectangle' || kind.type === 'ellipse' || kind.type === 'video' || kind.type === 'text_box' || kind.type === 'bitmap') {
+      w = Number(kind.width ?? 0) * sx;
+      h = Number(kind.height ?? 0) * sy;
+    } else if (kind.type === 'text') {
+      const textLen = Math.max(1, Array.from(String(kind.text || '')).length);
+      const fontSize = Number(kind.font_size ?? 16);
+      w = textLen * (fontSize * 0.6) * sx;
+      h = (fontSize * 1.2) * sy;
+    } else if (kind.type === 'path' || kind.type === 'gradient_path') {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const cmd of (Array.isArray(kind.commands) ? kind.commands : [])) {
+        if (Number.isFinite(Number(cmd?.x)) && Number.isFinite(Number(cmd?.y))) {
+          minX = Math.min(minX, Number(cmd.x));
+          minY = Math.min(minY, Number(cmd.y));
+          maxX = Math.max(maxX, Number(cmd.x));
+          maxY = Math.max(maxY, Number(cmd.y));
+        }
+      }
+      if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+        w = Math.max(1, maxX - minX) * sx;
+        h = Math.max(1, maxY - minY) * sy;
+      } else {
+        w = 24 * sx;
+        h = 24 * sy;
+      }
+    }
+    return [tx, ty, Math.max(1, w), Math.max(1, h)];
+  }
+
+  function safeGet(obj, key) {
+    if (!obj || typeof obj !== 'object') return undefined;
+    try { return obj[key]; } catch (_) { return undefined; }
+  }
+
+  function collectProjectAccessibilityEntries(project, frame = 0, options = {}) {
+    if (!project || typeof project !== 'object' || !Array.isArray(project.symbols)) return [];
+    const targetId = (options && options.symbolId) || project.root || 'root';
+    const symbolsById = new Map(project.symbols.map(s => [s.id, s]));
+    const symbol = symbolsById.get(targetId) || project.symbols[0];
+    if (!symbol || !symbol.timeline || !Array.isArray(symbol.timeline.layers)) return [];
+
+    const frameNum = Math.max(0, Number(frame) || 0);
+    const resolveTarget = options && typeof options.resolveTarget === 'function' ? options.resolveTarget : null;
+    const entries = [];
+    const layers = symbol.timeline.layers.slice().reverse();
+
+    for (const layer of layers) {
+      if (!layer || layer.visible === false) continue;
+      const layerRole = layer.properties?.role || 'normal';
+      if (layerRole === 'guide' || layerRole === 'mask' || layerRole === 'folder') continue;
+      const keyframes = Array.isArray(layer.keyframes) ? layer.keyframes : [];
+      let kf = null;
+      for (const candidate of keyframes) {
+        const kfFrame = Number(candidate?.frame ?? 0);
+        if (kfFrame <= frameNum && (!kf || kfFrame >= Number(kf.frame ?? 0))) {
+          kf = candidate;
+        }
+      }
+      if (!kf) continue;
+
+      const extList = Array.isArray(kf.extended_accessibility) ? kf.extended_accessibility : [];
+      const extMap = new Map(extList.map(e => [e.element_id, e]));
+      const elements = Array.isArray(kf.elements) ? kf.elements : [];
+      const elMap = new Map(elements.map(e => [e.id, e]));
+
+      for (const element of elements) {
+        if (!element || element.visible === false) continue;
+        let runtimeTarget = null;
+        if (resolveTarget) {
+          try { runtimeTarget = resolveTarget(element); } catch (_) { runtimeTarget = null; }
+        }
+        if (runtimeTarget && safeGet(runtimeTarget, 'visible') === false) continue;
+
+        const ext = extMap.get(element.id) || element.extended_accessibility || null;
+        const hasNonDefaultExt = Boolean(ext && (
+          (ext.role && ext.role !== 'auto') ||
+          ext.live === 'polite' ||
+          ext.live === 'assertive' ||
+          Boolean(ext.silent) ||
+          Boolean(ext.force_simple) ||
+          Boolean(ext.no_auto_labeling) ||
+          (typeof ext.shortcut === 'string' && ext.shortcut.trim() !== '') ||
+          (Number(ext.reading_order) > 0) ||
+          Boolean(ext.aria_labelled_by) ||
+          Boolean(ext.aria_described_by) ||
+          (typeof ext.focus_group === 'string' && ext.focus_group.trim() !== '')
+        ));
+        const kindType = element.kind?.type || '';
+        const isInteractiveOrText = kindType === 'text' || kindType === 'text_box' || kindType === 'instance';
+        const runtimeAcc = safeGet(runtimeTarget, 'accessibilityProperties') || null;
+        if (!element.accessibility && !hasNonDefaultExt && !isInteractiveOrText && !runtimeAcc) continue;
+
+        let role = 'img';
+        if (runtimeAcc && typeof runtimeAcc.role === 'string' && runtimeAcc.role.trim()) {
+          role = runtimeAcc.role.trim();
+        } else if (ext && ext.role && ext.role !== 'auto') {
+          role = CONTENT_ACCESSIBLE_ROLE_MAP[ext.role] || String(ext.role);
+        } else if (element.accessibility && element.accessibility.role) {
+          role = element.accessibility.role === 'button'
+            ? 'button'
+            : (element.accessibility.role === 'image' ? 'img' : String(element.accessibility.role));
+        } else if (kindType === 'text') {
+          role = 'note';
+        } else if (kindType === 'text_box') {
+          const fieldType = element.kind?.format?.field?.type || element.kind?.format?.field_type;
+          role = fieldType === 'input' ? 'textbox' : 'note';
+        } else if (kindType === 'instance') {
+          const symKind = symbolsById.get(element.kind?.symbol_id)?.kind || 'graphic';
+          role = symKind === 'button' ? 'button' : (symKind === 'movie_clip' ? 'group' : 'img');
+        }
+
+        const autoLabel = !(ext && ext.no_auto_labeling) && !(runtimeAcc && runtimeAcc.noAutoLabeling);
+        const explicitName = String((runtimeAcc && runtimeAcc.name) || (element.accessibility && element.accessibility.name) || '').trim();
+        let ariaLabel = '';
+        if (explicitName) {
+          ariaLabel = explicitName;
+        } else if (autoLabel) {
+          const textVal = (kindType === 'text' || kindType === 'text_box') ? String(element.kind?.text || '').trim() : '';
+          if (textVal) {
+            ariaLabel = textVal;
+          } else if (typeof element.name === 'string' && element.name.trim()) {
+            ariaLabel = element.name.trim();
+          } else if (kindType === 'instance') {
+            ariaLabel = String(symbolsById.get(element.kind?.symbol_id)?.name || '').trim();
+          }
+        } else if (typeof element.name === 'string' && element.name.trim()) {
+          ariaLabel = element.name.trim();
+        }
+
+        if (!ariaLabel && ext && ext.aria_labelled_by) {
+          const labelEl = elMap.get(ext.aria_labelled_by);
+          if (labelEl) {
+            const lText = (labelEl.kind?.type === 'text' || labelEl.kind?.type === 'text_box') ? String(labelEl.kind?.text || '').trim() : '';
+            ariaLabel = lText || String(labelEl.accessibility?.name || '').trim();
+          }
+        }
+
+        let ariaDescription = String((runtimeAcc && runtimeAcc.description) || (element.accessibility && element.accessibility.description) || '').trim();
+        if (!ariaDescription && ext && ext.aria_described_by) {
+          const descEl = elMap.get(ext.aria_described_by);
+          if (descEl) {
+            const dText = (descEl.kind?.type === 'text' || descEl.kind?.type === 'text_box') ? String(descEl.kind?.text || '').trim() : '';
+            ariaDescription = dText || String(descEl.accessibility?.description || '').trim();
+          }
+        }
+
+        const liveRaw = String((runtimeAcc && runtimeAcc.live) || (ext && ext.live) || 'off').trim().toLowerCase();
+        const ariaLive = (liveRaw === 'polite' || liveRaw === 'assertive') ? liveRaw : 'off';
+        const shortcut = String((runtimeAcc && runtimeAcc.shortcut) || (ext && ext.shortcut) || '').trim();
+        const silent = Boolean((runtimeAcc && runtimeAcc.silent) || (ext && ext.silent));
+        const rtEnabled = safeGet(runtimeTarget, 'enabled');
+        const disabled = Boolean((element.accessibility && element.accessibility.disabled) || rtEnabled === false);
+        const rtTabEnabled = safeGet(runtimeTarget, 'tabEnabled');
+        const tabEnabled = rtTabEnabled !== undefined ? Boolean(rtTabEnabled) : true;
+        const runtimeTab = Number(safeGet(runtimeTarget, 'tabIndex'));
+        const accTab = Number(element.accessibility && element.accessibility.tab_order);
+        const extOrder = Number(ext && ext.reading_order);
+        const tabIndex = (Number.isInteger(runtimeTab) && runtimeTab > 0)
+          ? runtimeTab
+          : ((Number.isInteger(accTab) && accTab > 0)
+            ? accTab
+            : ((Number.isInteger(extOrder) && extOrder > 0) ? extOrder : undefined));
+        const [bx, by, bw, bh] = elementStageBounds(element);
+        const rtx = Number(safeGet(runtimeTarget, 'x'));
+        const rty = Number(safeGet(runtimeTarget, 'y'));
+        const rtw = Number(safeGet(runtimeTarget, 'width'));
+        const rth = Number(safeGet(runtimeTarget, 'height'));
+        const x = Number.isFinite(rtx) ? rtx : bx;
+        const y = Number.isFinite(rty) ? rty : by;
+        const width = Number.isFinite(rtw) && rtw > 0 ? rtw : bw;
+        const height = Number.isFinite(rth) && rth > 0 ? rth : bh;
+
+        entries.push({
+          id: String(element.id || `el-${entries.length + 1}`),
+          name: String(element.name || ''),
+          target: runtimeTarget || undefined,
+          role,
+          ariaLabel: ariaLabel || String(element.id || `el-${entries.length + 1}`),
+          ariaDescription,
+          ariaLive,
+          shortcut,
+          silent,
+          disabled,
+          tabEnabled,
+          tabIndex,
+          readingOrder: Number.isInteger(extOrder) && extOrder > 0 ? extOrder : undefined,
+          x,
+          y,
+          width,
+          height,
+        });
+      }
+    }
+    return entries;
+  }
+
   function syncAccessibilityOverlay(overlayRoot, entries = [], options = {}) {
     const nodes = resolveAccessibilityOverlayNodes(entries, options);
     const diagnostics = validateAccessibilityReadOrder(entries);
@@ -291,13 +519,17 @@
     if (typeof overlayRoot.setAttribute === 'function') {
       overlayRoot.setAttribute('role', 'region');
       overlayRoot.setAttribute('aria-label', (options && options.stageLabel) ? String(options.stageLabel) : 'Stage accessibility overlay');
+      overlayRoot.setAttribute('data-focus-policy', 'keyboard-distinct');
     }
     const doc = overlayRoot.ownerDocument || (typeof document !== 'undefined' ? document : null);
     const createNode = () => (doc && typeof doc.createElement === 'function') ? doc.createElement('div') : createFallbackOverlayDomElement('div');
     const elements = nodes.map(node => {
       const el = createNode();
+      el.id = `nf-a11y-${node.id}`;
       el.tabIndex = node.tabIndex;
       if (typeof el.setAttribute === 'function') {
+        el.setAttribute('id', `nf-a11y-${node.id}`);
+        el.setAttribute('data-element-id', node.id);
         el.setAttribute('data-neoflash-id', node.id);
         el.setAttribute('data-reading-order', String(node.readingOrder));
         el.setAttribute('role', node.role);
@@ -333,18 +565,21 @@
         }
       }
       if (el.style && typeof el.style === 'object') {
+        el.style.position = 'absolute';
         el.style.left = `${node.x}px`;
         el.style.top = `${node.y}px`;
         el.style.width = `${node.width}px`;
         el.style.height = `${node.height}px`;
+        el.style.pointerEvents = 'none';
       }
       return el;
     });
     if (typeof overlayRoot.replaceChildren === 'function') {
       overlayRoot.replaceChildren(...elements);
-    } else if (Array.isArray(overlayRoot.children)) {
+    }
+    if (Array.isArray(overlayRoot.children)) {
       overlayRoot.children.splice(0, overlayRoot.children.length, ...elements);
-    } else {
+    } else if (!('children' in overlayRoot)) {
       overlayRoot.children = elements;
     }
     return { nodes, diagnostics, elements };
@@ -1416,6 +1651,7 @@
         },
       ),
       validateAccessibilityReadOrder: (entries = []) => validateAccessibilityReadOrder(entries),
+      collectProjectAccessibilityEntries: (project, frame = 0, extraOptions = {}) => collectProjectAccessibilityEntries(project, frame, extraOptions),
       syncAccessibilityOverlay: (overlayRoot, entries = [], extraOptions = {}) => syncAccessibilityOverlay(
         overlayRoot,
         entries,
@@ -1452,7 +1688,7 @@
     Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, MouseCursorData,
     AccessibilityProperties, ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenu, ContextMenuItem,
     createKeyboard, createMouse, setStageAdapters,
-    resolveAccessibilityOverlayNodes, validateAccessibilityReadOrder, syncAccessibilityOverlay });
+    collectProjectAccessibilityEntries, resolveAccessibilityOverlayNodes, validateAccessibilityReadOrder, syncAccessibilityOverlay });
   global.NeoFlashStage = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

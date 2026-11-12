@@ -1363,3 +1363,114 @@ fn export_desktop_app_creates_macos_app_bundle_and_windows_launcher() {
 
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn export_project_emits_stage_a11y_overlay_with_extended_aria_attributes() {
+    let dir = temp();
+    let rt = dir.join("runtime");
+    runtime(&rt);
+
+    let mut project = Project::blank();
+    project.format_version = 9;
+    let kf = &mut project.symbols[0].timeline.layers[0].keyframes[0];
+    kf.elements.clear();
+    kf.extended_accessibility.clear();
+
+    kf.elements.push(neoflash_core::Element {
+        id: "el-cta".into(),
+        name: "play_btn".into(),
+        transform: neoflash_core::Transform {
+            x: 40.0,
+            y: 120.0,
+            ..neoflash_core::Transform::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 140.0,
+            height: 44.0,
+            fill: [40, 80, 160, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        accessibility: Some(neoflash_core::Accessibility {
+            name: "Launch Campaign".into(),
+            description: "Starts the main mission".into(),
+            role: neoflash_core::AccessibleRole::Button,
+            tab_order: 2,
+            disabled: false,
+        }),
+        ..neoflash_core::Element::default()
+    });
+    kf.elements.push(neoflash_core::Element {
+        id: "el-banner".into(),
+        name: "score_banner".into(),
+        transform: neoflash_core::Transform {
+            x: 40.0,
+            y: 20.0,
+            ..neoflash_core::Transform::default()
+        },
+        kind: ElementKind::Rectangle {
+            width: 240.0,
+            height: 32.0,
+            fill: [20, 30, 40, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        accessibility: Some(neoflash_core::Accessibility {
+            name: "Live Score".into(),
+            description: "Current mission points".into(),
+            role: neoflash_core::AccessibleRole::Image,
+            tab_order: 1,
+            disabled: false,
+        }),
+        ..neoflash_core::Element::default()
+    });
+    kf.extended_accessibility
+        .push(neoflash_core::ExtendedAccessibility {
+            element_id: "el-cta".into(),
+            role: neoflash_core::ContentAccessibleRole::Button,
+            shortcut: "Enter".into(),
+            live: neoflash_core::AccessibilityLivePoliteness::Off,
+            ..neoflash_core::ExtendedAccessibility::default()
+        });
+    kf.extended_accessibility
+        .push(neoflash_core::ExtendedAccessibility {
+            element_id: "el-banner".into(),
+            role: neoflash_core::ContentAccessibleRole::Heading,
+            live: neoflash_core::AccessibilityLivePoliteness::Polite,
+            ..neoflash_core::ExtendedAccessibility::default()
+        });
+
+    let out = dir.join("a11y-export");
+    export_project(&project, &out, &rt).unwrap();
+
+    let html = fs::read_to_string(out.join("index.html")).unwrap();
+    assert!(
+        html.contains("id=\"stage-a11y-overlay\""),
+        "exported index.html must contain #stage-a11y-overlay"
+    );
+    assert!(html.contains("role=\"heading\""));
+    assert!(html.contains("aria-label=\"Live Score\""));
+    assert!(html.contains("aria-description=\"Current mission points\""));
+    assert!(html.contains("aria-live=\"polite\""));
+    assert!(html.contains("tabindex=\"1\""));
+    assert!(html.contains("role=\"button\""));
+    assert!(html.contains("aria-label=\"Launch Campaign\""));
+    assert!(html.contains("aria-description=\"Starts the main mission\""));
+    assert!(html.contains("aria-keyshortcuts=\"Enter\""));
+    assert!(html.contains("tabindex=\"2\""));
+
+    let banner_pos = html.find("data-element-id=\"el-banner\"").unwrap();
+    let cta_pos = html.find("data-element-id=\"el-cta\"").unwrap();
+    assert!(
+        banner_pos < cta_pos,
+        "tab_order=1 must precede tab_order=2 in #stage-a11y-overlay"
+    );
+
+    let bundle = fs::read_to_string(out.join("bundle.js")).unwrap();
+    assert!(
+        bundle.contains("\"extended_accessibility\""),
+        "exported bundle.js must preserve extended_accessibility for runtime frame sync"
+    );
+
+    fs::remove_dir_all(dir).unwrap();
+}

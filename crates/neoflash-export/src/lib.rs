@@ -6,6 +6,7 @@ pub mod audio;
 pub mod banner;
 pub mod fla_preflight;
 pub mod fonts;
+pub mod html;
 pub mod image_export;
 pub mod legacy_fla;
 pub mod lottie;
@@ -24,6 +25,7 @@ pub use audio::*;
 pub use banner::*;
 pub use fla_preflight::*;
 pub use fonts::*;
+pub use html::*;
 pub use image_export::*;
 pub use legacy_fla::*;
 pub use lottie::*;
@@ -1505,12 +1507,16 @@ pub(crate) fn assemble_with_config(
     scripts.push("bundle.js".to_owned());
     scripts.extend(modules.iter().map(|(file, _)| runtime_src(file)));
     scripts.push(runtime_src("runtime.js"));
+    let a11y_overlay_html = html::render_accessibility_overlay_nodes_html(
+        &html::collect_project_accessibility_items(&effective_published),
+    );
     let html = html_document_with_config(
         &title,
         project.width,
         project.height,
         &prepared.fonts.css_rules,
         &scripts,
+        a11y_overlay_html.trim(),
         config,
     );
     let readme = format!(
@@ -1940,7 +1946,16 @@ pub(crate) fn html_escape(value: &str) -> String {
 
 #[allow(dead_code)]
 fn html_document(title: &str, font_css: &str, scripts: &[String]) -> String {
-    html_document_with_config(title, 800, 600, font_css, scripts, None)
+    let default_overlay = html::render_accessibility_overlay_nodes_html(&[]);
+    html_document_with_config(
+        title,
+        800,
+        600,
+        font_css,
+        scripts,
+        default_overlay.trim(),
+        None,
+    )
 }
 
 fn html_document_with_config(
@@ -1949,6 +1964,7 @@ fn html_document_with_config(
     height: u32,
     font_css: &str,
     scripts: &[String],
+    a11y_overlay_html: &str,
     config: Option<&HtmlPublishConfig>,
 ) -> String {
     let script_tags: String = scripts
@@ -2043,6 +2059,7 @@ fn html_document_with_config(
     [data-neoflash-text-input] {{ outline: none; scrollbar-width: none; -ms-overflow-style: none; }}
     [data-neoflash-text-input]::-webkit-scrollbar {{ display: none; width: 0; height: 0; }}
     #semantic-layer {{ position: absolute; inset: 0; pointer-events: none; }}
+    #stage-a11y-overlay {{ position: absolute; inset: 0; pointer-events: none; overflow: hidden; }}
     footer {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-top: 1px solid #ffffff12; min-width: 0; }}
     .transport {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}
     button, select {{ background: #34373e; color: #f3f4f6; border: 1px solid #555a64; border-radius: 4px; font: inherit; padding: 7px 12px; cursor: pointer; min-height: 34px; }}
@@ -2066,7 +2083,7 @@ fn html_document_with_config(
   </style>
 {script_tags}</head>
 <body{body_attr}>
-  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage"{canvas_accel_attr} aria-label="{title}"></canvas><div id="semantic-layer"></div></div></div></main>
+  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}"><canvas id="stage"{canvas_accel_attr} aria-label="{title}"></canvas><div id="semantic-layer"></div>{a11y_overlay_html}</div></div></main>
   <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="fullscreen-toggle" type="button" aria-pressed="false" title="Toggle fullscreen stage"{fullscreen_attr}>Fullscreen</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
   <div id="loading" role="status"{loading_attr}>Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>

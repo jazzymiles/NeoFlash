@@ -1316,72 +1316,173 @@ fn derive_sql_subkeys(master_key: &[u8; 16], salt: &[u8; 16]) -> ([u8; 32], [u8;
     (enc_key, mac_key)
 }
 
-/// Generate fresh 16-byte salt and 12-byte RFC 8439 nonce material by mixing a
-/// seeded xorshift64* + atomic counter CSPRNG mixer, `RandomState` OS seed, a
-/// high-resolution clock, and stack address entropy without performing host
-/// filesystem I/O.
+/// Host-supplied CSPRNG byte filler callback (`T-267`).
+pub type CsprngFillFn = fn(&mut [u8]) -> bool;
+
+static CUSTOM_CSPRNG_PROVIDER: std::sync::OnceLock<std::sync::RwLock<Option<CsprngFillFn>>> =
+    std::sync::OnceLock::new();
+
+/// Register or clear a custom CSPRNG provider (used by embedded/WASM hosts and tests).
+pub fn set_csprng_provider(provider: Option<CsprngFillFn>) {
+    let lock = CUSTOM_CSPRNG_PROVIDER.get_or_init(|| std::sync::RwLock::new(None));
+    if let Ok(mut guard) = lock.write() {
+        *guard = provider;
+    }
+}
+
+/// Fill `dest` with genuine OS cryptographic entropy (`T-267`) without `std::fs` I/O:
+/// - Custom host provider registered via [`set_csprng_provider`] if present.
+/// - Darwin / macOS / iOS / BSD: `arc4random_buf` in system `libSystem.B.dylib` / `libc`
+///   (backed directly by the XNU kernel CSPRNG `ccrng`).
+/// - Linux / Android: `getrandom(2)` in `libc`.
+/// - Windows: `BCryptGenRandom` with `BCRYPT_USE_SYSTEM_PREFERRED_RNG`.
+pub fn fill_os_csprng_bytes(dest: &mut [u8]) -> bool {
+    if dest.is_empty() {
+        return true;
+    }
+    if let Some(lock) = CUSTOM_CSPRNG_PROVIDER.get()
+        && let Ok(guard) = lock.read()
+        && let Some(provider) = *guard
+    {
+        return provider(dest);
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
+    {
+        unsafe extern "C" {
+            fn arc4random_buf(buf: *mut core::ffi::c_void, nbytes: usize);
+        }
+        // Safety: `dest` is a valid mutable slice of `dest.len()` bytes; Darwin/BSD
+        // `arc4random_buf` is thread-safe, never fails, and fills `nbytes` from the kernel CSPRNG.
+        unsafe {
+            arc4random_buf(dest.as_mut_ptr().cast::<core::ffi::c_void>(), dest.len());
+        }
+        true
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        unsafe extern "C" {
+            fn getrandom(buf: *mut core::ffi::c_void, buflen: usize, flags: u32) -> isize;
+        }
+        let mut filled = 0usize;
+        while filled < dest.len() {
+            let rem = &mut dest[filled..];
+            // Safety: `rem` is a valid mutable byte slice of length `rem.len()`.
+            let n =
+                unsafe { getrandom(rem.as_mut_ptr().cast::<core::ffi::c_void>(), rem.len(), 0) };
+            if n > 0 {
+                filled += n as usize;
+            } else {
+                break;
+            }
+        }
+        filled == dest.len()
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "bcrypt")]
+        unsafe extern "system" {
+            fn BCryptGenRandom(
+                h_algorithm: *mut core::ffi::c_void,
+                pb_buffer: *mut u8,
+                cb_buffer: u32,
+                dw_flags: u32,
+            ) -> i32;
+        }
+        const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+        if let Ok(len_u32) = u32::try_from(dest.len()) {
+            // Safety: `dest` is a valid mutable buffer of `len_u32` bytes.
+            let status = unsafe {
+                BCryptGenRandom(
+                    core::ptr::null_mut(),
+                    dest.as_mut_ptr(),
+                    len_u32,
+                    BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+                )
+            };
+            return status == 0;
+        }
+        return false;
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "linux",
+        target_os = "android",
+        target_os = "windows"
+    )))]
+    {
+        false
+    }
+}
+
+/// Generate fresh 16-byte salt and 12-byte RFC 8439 nonce material from the
+/// OS kernel CSPRNG (`fill_os_csprng_bytes`, backed by `arc4random_buf` on macOS),
+/// falling back on non-OS targets without an injected provider to an RFC 8439
+/// ChaCha20 20-round stream block keyed via HKDF/HMAC-SHA256 from OS-seeded
+/// `RandomState` instances and monotonic counters (`T-267`).
 fn generate_sql_salt_and_nonce(
     key: &[u8; 16],
     instance_seed: u64,
     payload_len: usize,
 ) -> ([u8; 16], [u8; 12]) {
+    let mut csprng_bytes = [0u8; 32];
+    if fill_os_csprng_bytes(&mut csprng_bytes) && csprng_bytes.iter().any(|&b| b != 0) {
+        let mut salt = [0u8; 16];
+        let mut nonce = [0u8; 12];
+        salt.copy_from_slice(&csprng_bytes[..16]);
+        nonce.copy_from_slice(&csprng_bytes[16..28]);
+        return (salt, nonce);
+    }
+
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
 
     let global_seq = SQL_CRYPTO_GLOBAL_COUNTER
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         .wrapping_add(1);
-    let mut stack_anchor = global_seq ^ instance_seed;
+    let stack_anchor = global_seq ^ instance_seed;
     let stack_addr = &stack_anchor as *const u64 as usize as u64;
 
-    let mut hasher_a = RandomState::new().build_hasher();
-    hasher_a.write_u64(global_seq);
-    hasher_a.write_u64(instance_seed);
-    hasher_a.write_u64(stack_addr);
-    let rand_a = hasher_a.finish();
-
-    let mut hasher_b = RandomState::new().build_hasher();
-    hasher_b.write_u64(rand_a.rotate_left(17));
-    hasher_b.write_usize(payload_len);
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        hasher_b.write_u128(dur.as_nanos());
-    }
-    let rand_b = hasher_b.finish();
-
-    // Seeded xorshift64* CSPRNG mixer (4 x 64-bit words = 32 bytes).
-    let mut xorshift_state = rand_a
-        ^ rand_b.rotate_left(29)
-        ^ global_seq.wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ instance_seed.rotate_left(13)
-        ^ stack_addr.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    if xorshift_state == 0 {
-        xorshift_state = 0x2545_F491_4F6C_DD1D;
-    }
-    stack_anchor ^= xorshift_state;
-    let mut os_entropy = [0u8; 32];
-    for chunk in os_entropy.as_chunks_mut::<8>().0 {
-        xorshift_state ^= xorshift_state >> 12;
-        xorshift_state ^= xorshift_state << 25;
-        xorshift_state ^= xorshift_state >> 27;
-        let word = xorshift_state.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ stack_anchor;
-        *chunk = word.to_le_bytes();
-        xorshift_state = xorshift_state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut seed_material = Vec::with_capacity(64);
+    seed_material.extend_from_slice(&global_seq.to_le_bytes());
+    seed_material.extend_from_slice(&instance_seed.to_le_bytes());
+    seed_material.extend_from_slice(&stack_addr.to_le_bytes());
+    seed_material.extend_from_slice(&(payload_len as u64).to_le_bytes());
+    for round in 0..4u64 {
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_u64(global_seq.wrapping_add(round));
+        hasher.write_u64(instance_seed.rotate_left((round as u32) * 13));
+        hasher.write_u64(stack_addr);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            hasher.write_u128(dur.as_nanos());
+        }
+        seed_material.extend_from_slice(&hasher.finish().to_le_bytes());
     }
 
-    let mut entropy_buf = Vec::with_capacity(80);
-    entropy_buf.extend_from_slice(&os_entropy);
-    entropy_buf.extend_from_slice(&global_seq.to_le_bytes());
-    entropy_buf.extend_from_slice(&instance_seed.to_le_bytes());
-    entropy_buf.extend_from_slice(&rand_a.to_le_bytes());
-    entropy_buf.extend_from_slice(&rand_b.to_le_bytes());
-    entropy_buf.extend_from_slice(&(payload_len as u64).to_le_bytes());
+    let chacha_key = hmac_sha256(key, &seed_material);
+    let nonce_digest = hmac_sha256(&chacha_key, b"neoflash-air-sql-fallback-nonce\x01");
+    let mut chacha_nonce = [0u8; 12];
+    chacha_nonce.copy_from_slice(&nonce_digest[..12]);
+    let stream_block = chacha20_block(&chacha_key, global_seq as u32, &chacha_nonce);
 
-    let block = hmac_sha256(key, &entropy_buf);
     let mut salt = [0u8; 16];
     let mut nonce = [0u8; 12];
-    salt.copy_from_slice(&block[..16]);
-    nonce.copy_from_slice(&block[16..28]);
+    salt.copy_from_slice(&stream_block[..16]);
+    nonce.copy_from_slice(&stream_block[16..28]);
     (salt, nonce)
 }
 
@@ -8423,5 +8524,64 @@ mod tests {
 
         assert!(body.starts_with(SQL_ENC_V2_HEADER));
         assert_eq!(decrypt_sql_payload(&key, &body, "open").unwrap(), plaintext);
+    }
+
+    #[test]
+    fn t267_os_csprng_salt_nonce_uniqueness_distribution_and_custom_provider_injection() {
+        let key: [u8; 16] = *b"0123456789abcdef";
+
+        // 1. Rapid calls to OS CSPRNG must produce 64 distinct (salt, nonce) pairs with healthy bit distribution.
+        set_csprng_provider(None);
+        let mut seen = std::collections::HashSet::new();
+        let mut ones_count = 0u32;
+        let mut total_bits = 0u32;
+        for _ in 0..64 {
+            let (salt, nonce) = generate_sql_salt_and_nonce(&key, 0, 128);
+            assert!(seen.insert((salt, nonce)));
+            for b in salt.iter().chain(nonce.iter()) {
+                ones_count += b.count_ones();
+                total_bits += 8;
+            }
+        }
+        // Across 64 * 28 * 8 = 14,336 bits of CSPRNG output, 1-bits should be well within [35%, 65%].
+        assert!(
+            ones_count > total_bits * 35 / 100 && ones_count < total_bits * 65 / 100,
+            "unexpected bit balance: {ones_count} / {total_bits}"
+        );
+
+        // 2. Custom CSPRNG provider injection via `set_csprng_provider`.
+        static INJECT_SEQ: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+        fn test_provider(dest: &mut [u8]) -> bool {
+            let seq = INJECT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            for (i, b) in dest.iter_mut().enumerate() {
+                *b = 0xA0u8.wrapping_add(seq).wrapping_add(i as u8);
+            }
+            true
+        }
+
+        struct ResetProviderGuard;
+        impl Drop for ResetProviderGuard {
+            fn drop(&mut self) {
+                set_csprng_provider(None);
+            }
+        }
+
+        let _guard = ResetProviderGuard;
+        INJECT_SEQ.store(10, std::sync::atomic::Ordering::Relaxed);
+        set_csprng_provider(Some(test_provider));
+        let (salt_inj, nonce_inj) = generate_sql_salt_and_nonce(&key, 42, 64);
+        assert_eq!(salt_inj[0], 0xAA);
+        assert_eq!(salt_inj[15], 0xAAu8.wrapping_add(15));
+        assert_eq!(nonce_inj[0], 0xAAu8.wrapping_add(16));
+        assert_eq!(nonce_inj[11], 0xAAu8.wrapping_add(27));
+
+        // 3. Fallback path when custom provider returns `false` still produces distinct ChaCha20-backed nonces.
+        fn failing_provider(_dest: &mut [u8]) -> bool {
+            false
+        }
+        set_csprng_provider(Some(failing_provider));
+        let (s1, n1) = generate_sql_salt_and_nonce(&key, 0, 64);
+        let (s2, n2) = generate_sql_salt_and_nonce(&key, 0, 64);
+        assert_ne!((s1, n1), (s2, n2));
     }
 }

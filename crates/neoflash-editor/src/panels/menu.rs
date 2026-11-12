@@ -923,6 +923,39 @@ impl Editor {
             self.toggle_shape_hints();
             ui.close();
         }
+        menu_popup(ui, "Stage A/B", "Capture Snapshot B", "", |ui| {
+            let ab_mode = self.stage_ab_mode();
+            if menu_item(ui, "Capture Snapshot A", &self.sc(C::CaptureStageA)).clicked() {
+                let label = format!("A (F{})", self.frame + 1);
+                let _ = self.capture_stage_snapshot_a(label);
+                ui.close();
+            }
+            if menu_item(ui, "Capture Snapshot B", &self.sc(C::CaptureStageB)).clicked() {
+                let label = format!("B (F{})", self.frame + 1);
+                let _ = self.capture_stage_snapshot_b(label);
+                ui.close();
+            }
+            nf::menu_separator(ui);
+            if Self::view_toggle(
+                ui,
+                ab_mode == crate::stage::StageAbComparisonMode::SplitVertical,
+                "Split A/B View",
+                &self.sc(C::ToggleStageAbSplit),
+            ) {
+                let _ = self.toggle_stage_ab_split();
+            }
+            if menu_item_enabled(
+                ui,
+                ab_mode != crate::stage::StageAbComparisonMode::Off,
+                "Disable A/B View",
+                "",
+            )
+            .clicked()
+            {
+                self.set_stage_ab_mode(crate::stage::StageAbComparisonMode::Off);
+                ui.close();
+            }
+        });
     }
 
     /// Insert (§8).
