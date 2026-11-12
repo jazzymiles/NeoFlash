@@ -229,13 +229,18 @@ impl Editor {
 
         let probed_duration_sec = probe_video_duration_seconds(raw_input, draft.deployment);
         let default_out_sec = probed_duration_sec.unwrap_or(4.0).max(0.1);
-        let in_sec = parse_timecode_seconds(&draft.in_time).unwrap_or(0.0);
+        let in_sec = parse_timecode_seconds(&draft.in_time)
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.0)
+            .clamp(0.0, 36_000.0);
         let raw_out_sec = if draft.out_time.trim() == "00:04.00" {
             probed_duration_sec.unwrap_or(4.0)
         } else {
-            parse_timecode_seconds(&draft.out_time).unwrap_or(default_out_sec)
+            parse_timecode_seconds(&draft.out_time)
+                .filter(|v| v.is_finite())
+                .unwrap_or(default_out_sec)
         };
-        let out_sec = raw_out_sec.max(in_sec + 0.1);
+        let out_sec = raw_out_sec.clamp(in_sec + 0.1, in_sec + 600.0);
         let duration_sec = (out_sec - in_sec).clamp(0.1, 600.0);
         let start_offset_ms = (in_sec * 1000.0).round().max(0.0) as u32;
         let explicit_trim = start_offset_ms > 0
@@ -710,10 +715,14 @@ impl Editor {
             });
         });
 
-        let in_sec = parse_timecode_seconds(&draft.in_time).unwrap_or(0.0);
+        let in_sec = parse_timecode_seconds(&draft.in_time)
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.0)
+            .clamp(0.0, 36_000.0);
         let out_sec = parse_timecode_seconds(&draft.out_time)
+            .filter(|v| v.is_finite())
             .unwrap_or(24.0)
-            .max(in_sec + 0.1);
+            .clamp(in_sec + 0.1, in_sec + 600.0);
         let dur = out_sec - in_sec;
         let summary = format!(
             "1280×720 · {} fps → {} fps · {:.1} s · {}",
@@ -747,6 +756,7 @@ impl Editor {
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut do_import = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
         let modal = egui::Modal::new(egui::Id::new("import-video"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -773,8 +783,12 @@ impl Editor {
                     });
             });
 
-        if modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            close_cancel = true;
+        if !close_cancel && !do_import {
+            match kb.resolve(ctx, &modal, !draft.file_path.trim().is_empty()) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_import = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
 
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft));

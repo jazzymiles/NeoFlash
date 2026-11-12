@@ -1654,6 +1654,7 @@ impl Editor {
         self.cancel_vector();
         self.shape_draft = None;
         self.timeline_key_drag = None;
+        self.scale9_guide_drag = None;
         self.cancel_guide_drag();
     }
     pub(crate) fn set_playing(&mut self, playing: bool) {

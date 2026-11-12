@@ -128,10 +128,14 @@ impl PreferencesDraft {
                 self.ui_scale = defaults.ui_scale;
                 self.undo_levels = defaults.undo_levels as f64;
                 self.shift_select = defaults.shift_select;
-                // Recent files are history, not a setting.
+                // Recent files and open-session tab history are history, not settings.
                 let recent = std::mem::take(&mut self.general.recent_files);
+                let session_files = std::mem::take(&mut self.general.session_files);
+                let active_session_file = self.general.active_session_file.take();
                 self.general = GeneralPrefs {
                     recent_files: recent,
+                    session_files,
+                    active_session_file,
                     ..defaults.general
                 };
             }
@@ -232,8 +236,12 @@ impl Editor {
     pub(crate) fn save_preferences(&mut self, ctx: &egui::Context, draft: &PreferencesDraft) {
         self.set_theme(ctx, draft.theme);
         let w = &mut self.workspace;
-        w.ui_scale = draft.ui_scale;
-        w.undo_levels = draft.undo_levels.round() as u32;
+        if draft.ui_scale.is_finite() {
+            w.ui_scale = draft.ui_scale;
+        }
+        if draft.undo_levels.is_finite() {
+            w.undo_levels = draft.undo_levels.round().clamp(1.0, 10_000.0) as u32;
+        }
         w.shift_select = draft.shift_select;
         w.timeline.preview = draft.timeline.preview;
         w.timeline.short_rows = draft.timeline.short_rows;
@@ -245,10 +253,18 @@ impl Editor {
         if draft.density != w.density {
             w.set_density(draft.density);
         }
-        w.onion_range = draft.onion.map(|n| n.round().max(0.0) as u32);
+        w.onion_range = draft.onion.map(|n| {
+            if n.is_finite() {
+                n.round().clamp(0.0, 100.0) as u32
+            } else {
+                0
+            }
+        });
         w.default_ease = draft.default_ease;
         w.text_font = draft.text_font.clone();
-        w.text_size = draft.text_size;
+        if draft.text_size.is_finite() {
+            w.text_size = draft.text_size;
+        }
         w.paste_in_place = draft.paste_in_place;
         w.general = draft.general.clone();
         w.code_editor = draft.code_editor.clone();
@@ -266,6 +282,7 @@ impl Editor {
         w.sanitize();
         self.stage_view.prefs.pixels_snap = draft.pixels_snap;
         self.apply_editor_preferences(ctx);
+        self.sync_session_tabs_to_prefs();
     }
 
     pub(crate) fn preferences_dialog(&mut self, ctx: &egui::Context) {
@@ -277,6 +294,7 @@ impl Editor {
             cancel_shortcut_recording(ctx);
         }
         let was_recording = is_recording_shortcut(ctx, draft.page);
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut close_save = false;
@@ -340,36 +358,30 @@ impl Editor {
                     });
             });
         if !close_cancel && !close_save && !was_recording {
-            let typing = ctx.wants_keyboard_input();
-            let popup_open = egui::Popup::is_any_open(ctx);
-            if !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-            {
-                close_cancel = true;
-            } else if !typing
-                && !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-            {
-                close_save = true;
-            } else if modal.should_close() {
-                close_cancel = true;
+            match kb.resolve(ctx, &modal, true) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_save = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
             }
         }
-        // Live theme preview: the stage and panels behind the dialog follow the draft.
+        // Live theme & density preview: the stage and panels behind the dialog follow the draft.
         let shown = ThemeMode::current(ctx);
         if close_cancel {
             clear_shortcuts_ui_state(ctx);
             self.preferences = None;
             draft.original_theme.apply(ctx);
+            self.apply_density(ctx);
         } else if close_save {
             clear_shortcuts_ui_state(ctx);
             self.preferences = None;
             self.save_preferences(ctx, &draft);
+            self.apply_density(ctx);
         } else {
             if draft.theme != shown {
                 draft.theme.apply(ctx);
             }
             self.preferences = Some(draft);
+            self.apply_density(ctx);
         }
     }
 }

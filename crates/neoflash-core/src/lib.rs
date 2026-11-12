@@ -81,9 +81,9 @@ pub use accessibility::{
 pub use as3_fte_3d::Display3dPose;
 pub use authored_layers::{
     AuthoredDraw, AuthoredMaskGroup, AuthoredScene, evaluate_scene, evaluate_scene_with_buttons,
-    evaluate_scene_with_frozen_clips, layer_effective_blend_mode, layer_effective_outline_color,
-    layer_effectively_locked, layer_effectively_synced, layer_effectively_visible,
-    layer_outline_color,
+    evaluate_scene_with_frozen_clips, evaluate_scene_with_symbol_overrides,
+    layer_effective_blend_mode, layer_effective_outline_color, layer_effectively_locked,
+    layer_effectively_synced, layer_effectively_visible, layer_outline_color,
 };
 pub use authored_playback::AuthoredPlayback;
 pub use authoring_geometry::{

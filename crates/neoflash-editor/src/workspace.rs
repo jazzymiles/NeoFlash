@@ -1913,6 +1913,12 @@ pub struct GeneralPrefs {
     pub on_launch: OnLaunch,
     /// Most recent first, bounded to 10 (File ▸ Open recent, On launch ▸ Last document).
     pub recent_files: Vec<String>,
+    /// Ordered open document-tab paths from the previous session (`T-231`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_files: Vec<String>,
+    /// Active tab path among `session_files` from the previous session (`T-231`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_session_file: Option<String>,
     pub autosave: bool,
     pub autosave_minutes: u32,
     /// Show keyboard shortcuts in tooltips.
@@ -1924,6 +1930,8 @@ impl Default for GeneralPrefs {
             language: "English".into(),
             on_launch: OnLaunch::Example,
             recent_files: Vec::new(),
+            session_files: Vec::new(),
+            active_session_file: None,
             autosave: true,
             autosave_minutes: 5,
             tooltip_shortcuts: true,
@@ -1933,6 +1941,60 @@ impl Default for GeneralPrefs {
 
 impl GeneralPrefs {
     pub const MAX_RECENT_FILES: usize = 10;
+    pub const MAX_SESSION_FILES: usize = 32;
+
+    /// Record the ordered open document-tab paths and active tab path (`T-231`).
+    pub fn set_session_files(
+        &mut self,
+        paths: &[std::path::PathBuf],
+        active: Option<&std::path::Path>,
+    ) {
+        let mut deduped: Vec<String> = Vec::new();
+        let mut seen_canon: Vec<std::path::PathBuf> = Vec::new();
+        for path in paths {
+            let canon = crate::recovery::canonical_or_normalized_path(path);
+            let entry = canon.to_string_lossy().trim().to_owned();
+            if entry.is_empty() || entry.len() > 4096 || seen_canon.contains(&canon) {
+                continue;
+            }
+            seen_canon.push(canon);
+            deduped.push(entry);
+            if deduped.len() >= Self::MAX_SESSION_FILES {
+                break;
+            }
+        }
+        self.session_files = deduped;
+        self.active_session_file = active.and_then(|act| {
+            let canon = crate::recovery::canonical_or_normalized_path(act);
+            let entry = canon.to_string_lossy().trim().to_owned();
+            (!entry.is_empty() && entry.len() <= 4096 && seen_canon.contains(&canon))
+                .then_some(entry)
+        });
+    }
+
+    /// Existing session-tab paths in saved left-to-right tab order (missing/duplicate files dropped).
+    pub fn existing_session_files(&self) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut seen = Vec::new();
+        for raw in &self.session_files {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() || trimmed.len() > 4096 {
+                continue;
+            }
+            let path = std::path::PathBuf::from(trimmed);
+            if path.is_file() {
+                let canon = crate::recovery::canonical_or_normalized_path(&path);
+                if !seen.contains(&canon) {
+                    seen.push(canon);
+                    out.push(path);
+                    if out.len() >= Self::MAX_SESSION_FILES {
+                        break;
+                    }
+                }
+            }
+        }
+        out
+    }
 
     /// Record `path` as the most recently opened or saved document (deduped, max 10).
     pub fn push_recent(&mut self, path: &std::path::Path) {
@@ -2493,6 +2555,27 @@ impl Default for PublishPrefs {
 }
 
 impl PublishPrefs {
+    /// Clamps persisted/edited numeric fields to valid ranges (`T-224`).
+    pub fn sanitize(&mut self) {
+        self.jpeg_quality = self.jpeg_quality.clamp(1, 100);
+        self.atlas_extrude = self.atlas_extrude.min(8);
+        self.banner_max_gzip_kb = self.banner_max_gzip_kb.clamp(10, 5000);
+        self.video_options.quality = self.video_options.quality.clamp(1, 100);
+        if self.video_options.width > 0 {
+            self.video_options.width = self.video_options.width.clamp(16, 7680);
+        }
+        if self.video_options.height > 0 {
+            self.video_options.height = self.video_options.height.clamp(16, 4320);
+        }
+        if !self.video_options.fps.is_finite() {
+            self.video_options.fps = 0.0;
+        } else if self.video_options.fps > 0.0 {
+            self.video_options.fps = self.video_options.fps.clamp(1.0, 120.0);
+        } else {
+            self.video_options.fps = 0.0;
+        }
+    }
+
     /// Returns `true` when at least one publish target checkbox is enabled.
     pub fn has_any_enabled_target(&self) -> bool {
         self.html5_enabled
@@ -2813,6 +2896,15 @@ impl WorkspacePrefs {
         g.language = "English".into();
         g.recent_files.retain(|p| !p.is_empty() && p.len() <= 4096);
         g.recent_files.truncate(10);
+        g.session_files
+            .retain(|p| !p.trim().is_empty() && p.len() <= 4096);
+        g.session_files.truncate(GeneralPrefs::MAX_SESSION_FILES);
+        if g.active_session_file
+            .as_ref()
+            .is_some_and(|p| p.trim().is_empty() || p.len() > 4096)
+        {
+            g.active_session_file = None;
+        }
         g.autosave_minutes = g.autosave_minutes.clamp(1, 120);
         let c = &mut self.code_editor;
         c.font.truncate(256);

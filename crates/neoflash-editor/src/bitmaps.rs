@@ -17,6 +17,59 @@ struct Texture {
     smoothing: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Scale9GuideDrag {
+    pub symbol_id: String,
+    pub edge_index: usize,
+    pub initial_grid: [f64; 4],
+    pub preview_grid: [f64; 4],
+    pub mapping: crate::stage_mapping::StageMapping,
+    pub moved: bool,
+}
+
+fn compute_nudged_scale9_grid(
+    current: [f64; 4],
+    edge_index: usize,
+    new_coord: f64,
+) -> Result<[f64; 4], String> {
+    if !new_coord.is_finite() {
+        return Err("9-slice guide coordinate must be finite.".into());
+    }
+    let mut x0 = current[0];
+    let mut x1 = current[0] + current[2].max(1.0);
+    let mut y0 = current[1];
+    let mut y1 = current[1] + current[3].max(1.0);
+    match edge_index {
+        0 => x0 = new_coord.min(x1 - 1.0),
+        1 => x1 = new_coord.max(x0 + 1.0),
+        2 => y0 = new_coord.min(y1 - 1.0),
+        3 => y1 = new_coord.max(y0 + 1.0),
+        _ => return Err(format!("Invalid 9-slice guide edge index {edge_index}.")),
+    }
+    Ok([x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)])
+}
+
+fn screen_line_distance_and_cursor(
+    a: egui::Pos2,
+    b: egui::Pos2,
+    pos: egui::Pos2,
+) -> (f32, egui::CursorIcon) {
+    let dir = b - a;
+    let len = dir.length();
+    if len <= 1e-5 {
+        return (f32::INFINITY, egui::CursorIcon::Default);
+    }
+    let cross = (dir.x * (pos.y - a.y) - dir.y * (pos.x - a.x)).abs();
+    let dist = cross / len;
+    // Dragging moves perpendicular to the guide line: a vertical guide moves horizontally.
+    let cursor = if dir.y.abs() >= dir.x.abs() {
+        egui::CursorIcon::ResizeHorizontal
+    } else {
+        egui::CursorIcon::ResizeVertical
+    };
+    (dist, cursor)
+}
+
 #[derive(Default)]
 pub(crate) struct BitmapTextures {
     textures: HashMap<Key, Texture>,
@@ -530,6 +583,9 @@ impl crate::app::Editor {
         grid: Option<[f64; 4]>,
     ) -> Result<(), String> {
         self.finish_edits();
+        if self.project.symbol(symbol_id).and_then(|s| s.scale9_grid()) == grid {
+            return Ok(());
+        }
         let mut candidate = self.project.clone();
         let Some(sym) = candidate.symbol_mut(symbol_id) else {
             return Err(format!("Symbol {symbol_id} not found."));
@@ -552,29 +608,260 @@ impl crate::app::Editor {
         edge_index: usize,
         new_coord: f64,
     ) -> Result<[f64; 4], String> {
-        if !new_coord.is_finite() {
-            return Err("9-slice guide coordinate must be finite.".into());
-        }
         let current = self
             .project
             .symbol(symbol_id)
             .ok_or_else(|| format!("Symbol {symbol_id} not found."))?
             .scale9_grid()
             .unwrap_or([10.0, 10.0, 80.0, 80.0]);
-        let mut x0 = current[0];
-        let mut x1 = current[0] + current[2].max(1.0);
-        let mut y0 = current[1];
-        let mut y1 = current[1] + current[3].max(1.0);
-        match edge_index {
-            0 => x0 = new_coord.min(x1 - 1.0),
-            1 => x1 = new_coord.max(x0 + 1.0),
-            2 => y0 = new_coord.min(y1 - 1.0),
-            3 => y1 = new_coord.max(y0 + 1.0),
-            _ => return Err(format!("Invalid 9-slice guide edge index {edge_index}.")),
-        }
-        let next = [x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0)];
+        let next = compute_nudged_scale9_grid(current, edge_index, new_coord)?;
         self.set_symbol_scale9_grid(symbol_id, Some(next))?;
         Ok(next)
+    }
+
+    /// Interactive Stage hit-testing, hover cursors, live drag preview, `Escape` cancel, and
+    /// 1-Undo release commit for the 4 dashed 9-slice scaling guides (`T-231`).
+    pub(crate) fn scale9_guide_input(
+        &mut self,
+        ui: &egui::Ui,
+        canvas: egui::Rect,
+        origin: egui::Pos2,
+        mapping: crate::stage_mapping::StageMapping,
+    ) {
+        const HIT_RADIUS_PT: f32 = 5.0;
+
+        let active_symbol_id = self.symbol().id.clone();
+        let active_kind = self.symbol().kind;
+        let Some(authored_grid) = self.symbol().scale9_grid() else {
+            self.scale9_guide_drag = None;
+            return;
+        };
+        if self.playing || active_kind == neoflash_core::SymbolKind::Button {
+            self.scale9_guide_drag = None;
+            return;
+        }
+        if self
+            .scale9_guide_drag
+            .as_ref()
+            .is_some_and(|d| d.symbol_id != active_symbol_id || d.mapping != mapping)
+        {
+            self.scale9_guide_drag = None;
+        }
+
+        let zoom = self.zoom;
+        let show_rulers = self.stage_view.prefs.rulers;
+        let rulers = neoflash_ui::components::canvas::RulerLayout::new(canvas);
+        let in_interactive_canvas = |pos: egui::Pos2| {
+            canvas.contains(pos)
+                && !(show_rulers && rulers.contains(pos))
+                && ui.ctx().layer_id_at(pos).is_none_or(|l| l == ui.layer_id())
+        };
+        let hit_edge = |grid: [f64; 4], pos: egui::Pos2| -> Option<(usize, egui::CursorIcon)> {
+            let [gx, gy, gw, gh] = grid;
+            let x0 = gx as f32;
+            let x1 = (gx + gw) as f32;
+            let y0 = gy as f32;
+            let y1 = (gy + gh) as f32;
+            let span = 256.0_f32;
+            let edges = [
+                (
+                    0usize,
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0, y0 - span)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0, y0 + span)),
+                ),
+                (
+                    1usize,
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x1, y0 - span)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x1, y0 + span)),
+                ),
+                (
+                    2usize,
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 - span, y0)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 + span, y0)),
+                ),
+                (
+                    3usize,
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 - span, y1)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(x0 + span, y1)),
+                ),
+            ];
+            let mut best: Option<(usize, f32, egui::CursorIcon)> = None;
+            for (idx, a, b) in edges {
+                let (dist, cursor) = screen_line_distance_and_cursor(a, b, pos);
+                if dist <= HIT_RADIUS_PT && best.is_none_or(|(_, bdist, _)| dist < bdist) {
+                    best = Some((idx, dist, cursor));
+                }
+            }
+            best.map(|(idx, _, cursor)| (idx, cursor))
+        };
+        let coord_for_edge = |edge_index: usize, pos: egui::Pos2| -> f64 {
+            let pt = mapping.screen_to_edit(origin, zoom, pos);
+            let raw = if edge_index < 2 {
+                f64::from(pt.x)
+            } else {
+                f64::from(pt.y)
+            };
+            (raw * 10.0).round() / 10.0
+        };
+
+        let mut consumed_pointer = false;
+        let mut consumed_escape = false;
+        let mut commit_release: Option<(String, [f64; 4], [f64; 4])> = None;
+
+        for event in ui.input(|i| i.events.clone()) {
+            match event {
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    ..
+                } if self.scale9_guide_drag.is_none()
+                    && !self.stage_view.guide_pointer
+                    && in_interactive_canvas(pos) =>
+                {
+                    if let Some((edge_index, cursor)) = hit_edge(authored_grid, pos) {
+                        self.scale9_guide_drag = Some(Scale9GuideDrag {
+                            symbol_id: active_symbol_id.clone(),
+                            edge_index,
+                            initial_grid: authored_grid,
+                            preview_grid: authored_grid,
+                            mapping,
+                            moved: false,
+                        });
+                        self.stage_view.guide_pointer = true;
+                        ui.ctx().set_cursor_icon(cursor);
+                        consumed_pointer = true;
+                    }
+                }
+                egui::Event::PointerMoved(pos) if self.scale9_guide_drag.is_some() => {
+                    if let Some(drag) = &mut self.scale9_guide_drag {
+                        let new_coord = coord_for_edge(drag.edge_index, pos);
+                        if let Ok(next) = compute_nudged_scale9_grid(
+                            drag.initial_grid,
+                            drag.edge_index,
+                            new_coord,
+                        ) {
+                            if next
+                                .iter()
+                                .zip(drag.initial_grid.iter())
+                                .any(|(a, b)| (a - b).abs() > 1e-6)
+                            {
+                                drag.moved = true;
+                            }
+                            drag.preview_grid = next;
+                        }
+                    }
+                    self.stage_view.guide_pointer = true;
+                    consumed_pointer = true;
+                }
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    ..
+                } if self.scale9_guide_drag.is_some() => {
+                    if let Some(mut drag) = self.scale9_guide_drag.take() {
+                        if canvas.contains(pos) {
+                            let new_coord = coord_for_edge(drag.edge_index, pos);
+                            if let Ok(next) = compute_nudged_scale9_grid(
+                                drag.initial_grid,
+                                drag.edge_index,
+                                new_coord,
+                            ) {
+                                if next
+                                    .iter()
+                                    .zip(drag.initial_grid.iter())
+                                    .any(|(a, b)| (a - b).abs() > 1e-6)
+                                {
+                                    drag.moved = true;
+                                }
+                                drag.preview_grid = next;
+                            }
+                        }
+                        if drag.moved {
+                            commit_release =
+                                Some((drag.symbol_id, drag.initial_grid, drag.preview_grid));
+                        }
+                    }
+                    self.stage_view.guide_pointer = true;
+                    consumed_pointer = true;
+                }
+                egui::Event::Key {
+                    key: egui::Key::Escape,
+                    pressed: true,
+                    ..
+                } if self.scale9_guide_drag.is_some() => {
+                    self.scale9_guide_drag = None;
+                    consumed_escape = true;
+                }
+                _ => {}
+            }
+        }
+
+        if consumed_pointer || consumed_escape {
+            ui.ctx().input_mut(|i| {
+                i.events.retain(|event| {
+                    !(consumed_pointer
+                        && matches!(
+                            event,
+                            egui::Event::PointerButton {
+                                button: egui::PointerButton::Primary,
+                                ..
+                            } | egui::Event::PointerMoved(_)
+                        ))
+                        && !(consumed_escape
+                            && matches!(
+                                event,
+                                egui::Event::Key {
+                                    key: egui::Key::Escape,
+                                    pressed: true,
+                                    ..
+                                }
+                            ))
+                });
+            });
+        }
+
+        if let Some((sym_id, initial, final_grid)) = commit_release
+            && final_grid
+                .iter()
+                .zip(initial.iter())
+                .any(|(a, b)| (a - b).abs() > 1e-6)
+        {
+            let _ = self.set_symbol_scale9_grid(&sym_id, Some(final_grid));
+        }
+
+        if let Some(drag) = &self.scale9_guide_drag {
+            self.stage_view.guide_pointer = true;
+            let [gx, gy, gw, gh] = drag.preview_grid;
+            let (a, b) = match drag.edge_index {
+                0 => (
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(gx as f32, 0.0)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(gx as f32, 100.0)),
+                ),
+                1 => (
+                    mapping.edit_to_screen(origin, zoom, egui::pos2((gx + gw) as f32, 0.0)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2((gx + gw) as f32, 100.0)),
+                ),
+                2 => (
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(0.0, gy as f32)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(100.0, gy as f32)),
+                ),
+                _ => (
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(0.0, (gy + gh) as f32)),
+                    mapping.edit_to_screen(origin, zoom, egui::pos2(100.0, (gy + gh) as f32)),
+                ),
+            };
+            let (_, cursor) = screen_line_distance_and_cursor(a, b, a);
+            ui.ctx().set_cursor_icon(cursor);
+        } else if !self.stage_view.guide_pointer
+            && let Some(pos) = ui
+                .input(|i| i.pointer.hover_pos())
+                .filter(|p| in_interactive_canvas(*p))
+            && let Some((_, cursor)) = hit_edge(authored_grid, pos)
+        {
+            ui.ctx().set_cursor_icon(cursor);
+        }
     }
 
     /// Paint the 4 dashed 9-slice scaling guide lines when editing a symbol that has `scale9_grid` enabled (`T-166`).
@@ -585,7 +872,14 @@ impl crate::app::Editor {
         origin: egui::Pos2,
         mapping: crate::stage_mapping::StageMapping,
     ) {
-        let Some([gx, gy, gw, gh]) = self.symbol().scale9_grid() else {
+        let active_id = &self.symbol().id;
+        let Some([gx, gy, gw, gh]) = self
+            .scale9_guide_drag
+            .as_ref()
+            .filter(|d| &d.symbol_id == active_id)
+            .map(|d| d.preview_grid)
+            .or_else(|| self.symbol().scale9_grid())
+        else {
             return;
         };
         let p0 = mapping.edit_to_screen(origin, self.zoom, egui::pos2(gx as f32, gy as f32));
@@ -647,9 +941,17 @@ impl crate::app::Editor {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| draft.unit.path.clone());
 
+        let pass_id = egui::Id::new("nf2-bitmap-properties-painted-pass");
+        let pass_nr = ctx.cumulative_pass_nr();
+        if ctx.data(|d| d.get_temp::<u64>(pass_id)) == Some(pass_nr) {
+            return;
+        }
+        ctx.data_mut(|d| d.insert_temp(pass_id, pass_nr));
+
         let mut close_cancel = false;
         let mut close_ok = false;
         let mut do_import = false;
+        let kb = crate::panels::dialog_helpers::DialogKeyboardState::capture(ctx);
 
         let modal = egui::Modal::new(egui::Id::new("bitmap-properties"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -807,8 +1109,16 @@ impl crate::app::Editor {
             }
         }
 
-        if !close_cancel && !close_ok && modal.should_close() {
-            close_cancel = true;
+        if !close_cancel && !close_ok && !do_import {
+            match kb.resolve(ctx, &modal, !draft.name.trim().is_empty()) {
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::Cancel => {
+                    close_cancel = true;
+                }
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::Confirm => {
+                    close_ok = true;
+                }
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
         if close_cancel {
             self.cancel_bitmap_properties(ctx);

@@ -214,6 +214,7 @@ pub struct Editor {
     pub(crate) sessions: Vec<Option<crate::document_sessions::DocumentSession>>,
     pub(crate) active_session: usize,
     pub(crate) close_origin: Option<usize>,
+    pub(crate) quit_origin_session: Option<usize>,
     pub(crate) quit_approved: Vec<usize>,
     pub(crate) close_targets: Vec<usize>,
     pub(crate) close_quit: bool,
@@ -221,6 +222,7 @@ pub struct Editor {
     pub(crate) notifications: crate::notifications::NotificationCenter,
     pub(crate) bitmap_trace: crate::bitmap_trace::BitmapTraceController,
     pub(crate) stage_text_edit: crate::stage_text_edit::StageTextEditState,
+    pub(crate) scale9_guide_drag: Option<crate::bitmaps::Scale9GuideDrag>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,14 +282,18 @@ impl Editor {
         s.stage_view.settings_open =
             std::env::var_os("NEOFLASH_SCREENSHOT_VIEW_SETTINGS").is_some();
         if let Some(path) = arg_open {
+            if !is_screenshot
+                && s.workspace.general.on_launch == crate::workspace::OnLaunch::LastDocument
+            {
+                let _ = s.restore_session_tabs_on_launch(&cc.egui_ctx);
+            }
             s.open_path(PathBuf::from(path), &cc.egui_ctx);
         } else if env_open.is_none() && !is_screenshot {
             s.apply_on_launch(&cc.egui_ctx);
         }
         if !is_screenshot {
-            s.recovery.retarget(s.path.as_deref());
-            s.recovery
-                .set_dir(crate::recovery::RecoveryManager::default_recovery_dir());
+            let rec_dir = crate::recovery::RecoveryManager::default_recovery_dir();
+            s.propagate_recovery_dir(rec_dir);
             s.check_recovery_on_launch();
         }
         // Screenshot aid: `NEOFLASH_SCREENSHOT_ROWS=short|compact` captures the Frame View row heights.
@@ -560,6 +566,7 @@ impl Editor {
             sessions: vec![None],
             active_session: 0,
             close_origin: None,
+            quit_origin_session: None,
             quit_approved: Vec::new(),
             close_targets: Vec::new(),
             close_quit: false,
@@ -567,6 +574,7 @@ impl Editor {
             notifications: Default::default(),
             bitmap_trace: Default::default(),
             stage_text_edit: Default::default(),
+            scale9_guide_drag: None,
         };
         s.fonts.install_ui(ctx);
         s.load_project_fonts(ctx);
@@ -574,8 +582,85 @@ impl Editor {
         s
     }
 
+    pub(crate) fn propagate_recovery_dir(&mut self, dir: Option<PathBuf>) {
+        let tracked_active = self.tracked_disk_path().map(Path::to_path_buf);
+        self.recovery.retarget(tracked_active.as_deref());
+        self.recovery.set_dir(dir.clone());
+        for session in self.sessions.iter_mut().flatten() {
+            let tracked = session.tracked_disk_path().map(Path::to_path_buf);
+            session.recovery.retarget(tracked.as_deref());
+            session.recovery.set_dir(dir.clone());
+        }
+    }
+
+    /// Restore validated open document tabs from `WorkspacePrefs::general.session_files` in saved
+    /// left-to-right order without duplicates or recovery loss (`T-231`).
+    pub(crate) fn restore_session_tabs_on_launch(
+        &mut self,
+        ctx: &egui::Context,
+    ) -> (usize, Option<String>) {
+        let mut unique_recorded = Vec::new();
+        for raw in &self.workspace.general.session_files {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() || trimmed.len() > 4096 {
+                continue;
+            }
+            let canon = crate::recovery::canonical_or_normalized_path(Path::new(trimmed));
+            if !unique_recorded.contains(&canon) {
+                unique_recorded.push(canon);
+            }
+        }
+        let existing_paths = self.workspace.general.existing_session_files();
+        if existing_paths.is_empty() {
+            return (0, None);
+        }
+        let target_active = self.workspace.general.active_session_file.clone();
+        let preserved_recent = self.workspace.general.recent_files.clone();
+        let mut opened = 0usize;
+        let mut last_err = None;
+        let mut failed_count = unique_recorded.len().saturating_sub(existing_paths.len());
+        for path in existing_paths {
+            if self.session_for_open_path(&path).is_some() {
+                continue;
+            }
+            if self.try_open_path(path, ctx) {
+                opened += 1;
+            } else {
+                failed_count += 1;
+                last_err = Some(self.status.clone());
+            }
+        }
+        self.workspace.general.recent_files = preserved_recent;
+        if opened > 0 {
+            if let Some(active_raw) = target_active
+                && let Some(idx) = self.session_for_open_path(Path::new(&active_raw))
+            {
+                self.switch_session_tab(ctx, idx);
+            }
+            if let Some(active_path) = self.tracked_disk_path().map(Path::to_path_buf) {
+                self.workspace.general.push_recent(&active_path);
+            }
+            self.sync_session_tabs_to_prefs();
+            if failed_count > 0 {
+                self.message(format!(
+                    "Restored {opened} document tab{}; skipped {failed_count} missing or invalid tab{}.",
+                    if opened == 1 { "" } else { "s" },
+                    if failed_count == 1 { "" } else { "s" },
+                ));
+            } else if opened > 1 {
+                self.message(format!("Restored {opened} document tabs."));
+            }
+        }
+        (opened, last_err)
+    }
+
     /// Apply `Preferences ▸ General ▸ On launch` when no startup document path was given.
     pub(crate) fn apply_on_launch(&mut self, ctx: &egui::Context) {
+        // Hold `recovery.dir = None` while installing launch tabs so unprompted crash-recovery
+        // candidates on disk are never cleared before `check_recovery_on_launch()` runs (`T-231`).
+        let saved_dir = self.recovery.take_dir();
+        let mut held_prompts = crate::recovery::RecoveryManager::default();
+        self.recovery.move_prompts_to(&mut held_prompts);
         self.sessions.clear();
         match self.workspace.general.on_launch {
             crate::workspace::OnLaunch::NewDocument => {
@@ -585,24 +670,30 @@ impl Editor {
                 self.perform(Pending::Demo, ctx);
             }
             crate::workspace::OnLaunch::LastDocument => {
-                if let Some(path) = self
-                    .workspace
-                    .general
-                    .existing_recent_files()
-                    .into_iter()
-                    .next()
-                {
-                    if !self.try_open_path(path, ctx) {
-                        let err = self.status.clone();
-                        self.perform(Pending::Demo, ctx);
-                        self.message(format!("{err} Opened example document."));
+                let (restored, session_err) = self.restore_session_tabs_on_launch(ctx);
+                if restored == 0 {
+                    let mut opened_recent = false;
+                    let mut last_err = session_err;
+                    for path in self.workspace.general.existing_recent_files() {
+                        if self.try_open_path(path, ctx) {
+                            opened_recent = true;
+                            break;
+                        }
+                        last_err = Some(self.status.clone());
                     }
-                } else {
-                    self.perform(Pending::Demo, ctx);
-                    self.message("No recent document found; opened example document.");
+                    if !opened_recent {
+                        self.perform(Pending::Demo, ctx);
+                        if let Some(err) = last_err {
+                            self.message(format!("{err} Opened example document."));
+                        } else {
+                            self.message("No recent document found; opened example document.");
+                        }
+                    }
                 }
             }
         }
+        self.propagate_recovery_dir(saved_dir);
+        held_prompts.move_prompts_to(&mut self.recovery);
     }
     /// Apply the Preferences stored in the workspace prefs: UI scale, undo levels, onion range, code font.
     pub(crate) fn apply_editor_preferences(&mut self, ctx: &egui::Context) {
@@ -748,6 +839,7 @@ impl Editor {
     }
     pub(crate) fn has_modal_dialog(&self) -> bool {
         self.confirm.is_some()
+            || self.show_about
             || self.workspace_dialog.is_some()
             || self.bitmap_trace.is_open()
             || self.symbol_conversion.is_some()
@@ -759,6 +851,8 @@ impl Editor {
             || self.preferences.is_some()
             || self.edit_envelope.is_some()
             || self.authoring_modify.scale_and_rotate_dialog.is_some()
+            || self.authoring_tools.polystar_dialog.is_some()
+            || self.authoring_tools.magic_wand_dialog.is_some()
             || self.find_replace.is_some()
             || self.confirm_revert
             || self.has_external_change_prompt()
@@ -767,6 +861,7 @@ impl Editor {
     pub(crate) fn has_modal_dialog_in(&self, ctx: &egui::Context) -> bool {
         self.has_modal_dialog()
             || self.customize_tools_open(ctx)
+            || crate::bitmaps::has_bitmap_properties_dialog(ctx)
             || crate::panels::export_audio::has_export_audio_dialog(ctx)
             || crate::panels::export_image::has_export_image_dialog(ctx)
             || crate::panels::import_video::has_import_video_dialog(ctx)
@@ -775,6 +870,8 @@ impl Editor {
             || crate::panels::sound_properties::has_sound_properties_dialog(ctx)
             || crate::panels::layer_properties::has_layer_properties_dialog(ctx)
             || crate::panels::productivity_tools::has_productivity_modal(ctx)
+            || crate::panels::help_manual::is_help_manual_open(ctx)
+            || crate::panels::ui_studio::is_studio_open(ctx)
     }
     pub fn message(&mut self, msg: impl Into<String>) {
         self.status = msg.into();
@@ -1583,6 +1680,7 @@ impl Editor {
                     self.saved_project = Some(self.project.clone());
                     self.path = Some(path);
                     self.clear_and_retarget_recovery();
+                    self.sync_session_tabs_to_prefs();
                     self.message("Project saved.");
                     if self.workspace.publish.publish_on_save {
                         let settings = self.workspace.publish.clone();
@@ -2619,13 +2717,16 @@ impl Editor {
             if self.take_command_shortcut(ctx, C::EditClear) {
                 self.delete_selected();
             }
-            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            if ctx.input(|i| i.key_pressed(Key::Escape))
+                && !crate::panels::dialog_helpers::escape_dismissed_focus_or_popup(ctx)
+            {
                 let finish_open_pen = self
                     .vector
                     .draft
                     .as_ref()
                     .is_some_and(|draft| !draft.pencil && draft.anchors.len() >= 2);
                 let captured = self.object_gesture.is_some()
+                    || self.scale9_guide_drag.is_some()
                     || self.timeline_motion.drag.is_some()
                     || self.timeline_motion.curve_drag.is_some()
                     || self.timeline_shape_hints.drag.is_some()
@@ -2776,16 +2877,38 @@ impl Editor {
         // Classic Flash object shortcuts remain object commands while a Stage selection exists,
         // so handle them before the general typing guard. Their Command-modified chords are safe
         // from ordinary character input and each command still validates the current selection.
-        if !self.selection.is_empty() && self.take_command_shortcut(ctx, C::ModifyBreakApart) {
+        let typing = ctx.wants_keyboard_input();
+        let break_apart_safe = !typing
+            || crate::commands::effective_shortcuts(&self.workspace.shortcuts, C::ModifyBreakApart)
+                .iter()
+                .all(|sc| sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
+        let ungroup_safe = !typing
+            || crate::commands::effective_shortcuts(&self.workspace.shortcuts, C::ModifyUngroup)
+                .iter()
+                .all(|sc| sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
+        let group_safe = !typing
+            || crate::commands::effective_shortcuts(&self.workspace.shortcuts, C::ModifyGroup)
+                .iter()
+                .all(|sc| sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
+        if !self.selection.is_empty()
+            && break_apart_safe
+            && self.take_command_shortcut(ctx, C::ModifyBreakApart)
+        {
             self.break_apart_selection();
         }
-        if self.can_ungroup_selection() && self.take_command_shortcut(ctx, C::ModifyUngroup) {
+        if self.can_ungroup_selection()
+            && ungroup_safe
+            && self.take_command_shortcut(ctx, C::ModifyUngroup)
+        {
             self.ungroup_selection();
         }
-        if !self.selection.is_empty() && self.take_command_shortcut(ctx, C::ModifyGroup) {
+        if !self.selection.is_empty()
+            && group_safe
+            && self.take_command_shortcut(ctx, C::ModifyGroup)
+        {
             self.group_selection();
         }
-        if ctx.wants_keyboard_input() {
+        if typing {
             return;
         }
         // ⌥⌘X / ⌥⌘C / ⌥⌘V arrive as Cut / Copy / Paste events on macOS when un-overridden.
@@ -3142,6 +3265,9 @@ impl Editor {
         self.edit_envelope_dialog(ctx);
         self.paste_motion_special_dialog(ctx);
         self.sound_properties_dialog(ctx);
+        if crate::bitmaps::has_bitmap_properties_dialog(ctx) {
+            self.bitmap_properties_dialog(ctx);
+        }
         self.export_audio_dialog(ctx);
         self.export_image_dialog(ctx);
         self.import_video_dialog(ctx);
@@ -3457,6 +3583,7 @@ impl eframe::App for Editor {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.sync_session_tabs_to_prefs();
         self.workspace.active_bottom = self.bottom;
         self.workspace.save(storage);
     }
@@ -3546,6 +3673,9 @@ impl eframe::App for Editor {
         if self.has_document() {
             self.detached_panels(ctx);
         }
+        if self.property_edit.is_some() {
+            self.end_property_interaction(ctx);
+        }
         self.planned_panels(ctx);
         crate::panels::ui_studio::show_studio_window(ctx);
         self.update_publish_estimate(ctx);
@@ -3567,6 +3697,7 @@ impl eframe::App for Editor {
             },
             if self.dirty() { " •" } else { "" }
         )));
+        crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         crate::shell::capture(ctx, ctx.cumulative_pass_nr());
     }
 }

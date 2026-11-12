@@ -2351,8 +2351,31 @@ pub(crate) fn snapshot_mode(
     patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
     include_guides: bool,
 ) -> Evaluation {
+    snapshot_mode_with_overrides(
+        project,
+        None,
+        symbol_id,
+        frame,
+        clock,
+        patch,
+        include_guides,
+    )
+}
+
+pub(crate) fn snapshot_mode_with_overrides(
+    project: &Project,
+    symbol_overrides: Option<&std::collections::HashMap<String, Symbol>>,
+    symbol_id: &str,
+    frame: u32,
+    clock: &dyn Fn(&[Id]) -> Option<u32>,
+    patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
+    include_guides: bool,
+) -> Evaluation {
     let mut result = Evaluation::default();
-    let Some(root) = project.symbol(symbol_id) else {
+    let Some(root) = symbol_overrides
+        .and_then(|m| m.get(symbol_id))
+        .or_else(|| project.symbol(symbol_id))
+    else {
         return result;
     };
     let frame = frame.min(root.timeline.frame_count.saturating_sub(1));
@@ -2382,6 +2405,7 @@ pub(crate) fn snapshot_mode(
     });
     let mut walker = Walker {
         project,
+        symbol_overrides,
         clock,
         patch,
         result: &mut result,
@@ -2597,6 +2621,7 @@ fn symbol_natural_bounds(symbol: &Symbol, frame: u32, fallback: [f64; 4], fps: f
 
 struct Walker<'a> {
     project: &'a Project,
+    symbol_overrides: Option<&'a std::collections::HashMap<String, Symbol>>,
     clock: &'a dyn Fn(&[Id]) -> Option<u32>,
     patch: &'a dyn Fn(&[Id]) -> Option<DisplayPatch>,
     result: &'a mut Evaluation,
@@ -2800,7 +2825,11 @@ impl Walker<'_> {
                                 element_blend_mode,
                             ));
                     }
-                    let Some(child) = self.project.symbol(symbol_id) else {
+                    let Some(child) = self
+                        .symbol_overrides
+                        .and_then(|m| m.get(symbol_id))
+                        .or_else(|| self.project.symbol(symbol_id))
+                    else {
                         continue;
                     };
                     let count = child.timeline.frame_count.max(1);

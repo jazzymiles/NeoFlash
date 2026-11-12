@@ -491,3 +491,450 @@ fn library_donor_session_tracks_tab_insertions_and_removals() {
     assert_eq!(editor.library_panel.source, LibrarySource::ActiveDocument);
     assert_eq!(editor.library_source_project().name, "A");
 }
+
+#[test]
+fn t231_relaunch_restores_validated_tab_set_active_tab_dedupes_and_preserves_recovery() {
+    use crate::workspace::OnLaunch;
+
+    let (mut prev, ctx, dir) = setup("t231-relaunch-tabs");
+    let alpha_path = dir.join("Alpha.nflash");
+    let beta_path = dir.join("Beta.nflash");
+    let gamma_path = dir.join("Gamma.nflash");
+    let delta_path = dir.join("Delta.nflash");
+
+    prev.project.name = "Alpha".into();
+    assert!(prev.save_to_path(alpha_path.clone()));
+
+    let mut beta = Project::blank();
+    beta.name = "Beta".into();
+    prev.open_new_session_tab(&ctx, beta, None);
+    assert!(prev.save_to_path(beta_path.clone()));
+
+    let mut gamma = Project::blank();
+    gamma.name = "Gamma".into();
+    prev.open_new_session_tab(&ctx, gamma, None);
+    assert!(prev.save_to_path(gamma_path.clone()));
+
+    let mut delta = Project::blank();
+    delta.name = "Delta".into();
+    prev.open_new_session_tab(&ctx, delta, None);
+    assert!(prev.save_to_path(delta_path.clone()));
+
+    // User focuses Beta (tab 1), while Gamma (tab 2) has an unsaved edit before Quit.
+    assert!(prev.switch_session_tab(&ctx, 2));
+    prev.transact(|e| e.project.name = "Gamma Unsaved".into());
+    assert!(prev.switch_session_tab(&ctx, 1));
+    assert_eq!(prev.project.name, "Beta");
+    prev.request_quit(&ctx);
+    assert_eq!(prev.confirm, Some(Pending::Close));
+    assert_eq!(prev.project.name, "Gamma Unsaved");
+    prev.approve_quit_document(&ctx);
+    assert!(prev.allow_close);
+
+    // Saved prefs must preserve all 4 tabs in order AND keep Beta (the pre-quit active tab) active.
+    let mut saved_prefs = prev.workspace.clone();
+    saved_prefs.general.on_launch = OnLaunch::LastDocument;
+    assert_eq!(saved_prefs.general.session_files.len(), 4);
+    // Inject a duplicate non-canonical Alpha entry; delete Gamma; corrupt Delta.
+    saved_prefs
+        .general
+        .session_files
+        .push(dir.join("./Alpha.nflash").to_string_lossy().into_owned());
+    std::fs::remove_file(&gamma_path).unwrap();
+    std::fs::write(&delta_path, "{corrupt json").unwrap();
+
+    // Simulate an unprompted crash-recovery snapshot for Alpha present on disk before relaunch.
+    let mut crashed_alpha = Project::blank();
+    crashed_alpha.name = "Alpha Crashed Copy".into();
+    let mut crash_writer = prev.recovery.for_document(Some(&alpha_path));
+    crash_writer
+        .write_active(&crashed_alpha, Some(&alpha_path), "Alpha", 4200)
+        .unwrap();
+    assert_eq!(recovery_files(&dir), 1);
+
+    let mut relaunched = Editor::from_project(&ctx, Project::demo());
+    relaunched.workspace = saved_prefs;
+    relaunched.recovery.set_dir(Some(dir.join("Recovery")));
+    relaunched.apply_on_launch(&ctx);
+    relaunched.check_recovery_on_launch();
+
+    assert_eq!(
+        relaunched.session_count(),
+        2,
+        "only valid unique tabs Alpha and Beta are restored"
+    );
+    assert_eq!(
+        relaunched.active_session, 1,
+        "pre-quit active tab Beta is restored as active"
+    );
+    assert_eq!(relaunched.project.name, "Beta");
+    assert_eq!(
+        relaunched.sessions[0].as_ref().unwrap().project.name,
+        "Alpha"
+    );
+    assert!(
+        relaunched.status.contains("skipped 2"),
+        "expected skipped diagnostic, got: {}",
+        relaunched.status
+    );
+    assert_eq!(
+        recovery_files(&dir),
+        1,
+        "unprompted crash recovery file must survive session-tab restoration"
+    );
+    assert!(relaunched.recovery.has_prompt());
+
+    // Restoring the crash recovery opens an independent 3rd tab without overwriting clean Alpha.
+    relaunched.restore_recovery_prompt(&ctx);
+    assert_eq!(relaunched.session_count(), 3);
+    assert_eq!(relaunched.project.name, "Alpha Crashed Copy");
+    assert!(relaunched.path.is_none());
+    assert!(relaunched.switch_session_tab(&ctx, 0));
+    assert_eq!(relaunched.project.name, "Alpha");
+    assert!(!relaunched.dirty());
+}
+
+#[test]
+fn t231_stage_scale9_guide_drag_previews_cancels_on_escape_and_commits_one_undo() {
+    use neoflash_core::{Symbol, SymbolKind};
+
+    let (mut editor, ctx, _dir) = setup("t231-scale9-drag");
+    let blank_tl = Project::blank().symbols[0].timeline.clone();
+    let mut sym = Symbol {
+        id: "sym-card".into(),
+        name: "Card".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: None,
+        timeline: blank_tl,
+    };
+    sym.set_scale9_grid(Some([20.0, 15.0, 100.0, 60.0]));
+    editor.project.symbols.push(sym);
+    editor.enter_symbol("sym-card".into());
+    assert_eq!(editor.symbol().id, "sym-card");
+    editor.stage_view.prefs.rulers = false;
+    editor.zoom = 1.0;
+
+    let canvas = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, 400.0));
+    let origin = canvas.center();
+    let mapping = crate::stage_mapping::StageMapping::identity();
+
+    let run_events = |editor: &mut Editor, events: Vec<egui::Event>, hover: Option<egui::Pos2>| {
+        let mut raw = egui::RawInput {
+            screen_rect: Some(canvas),
+            events,
+            ..Default::default()
+        };
+        if let Some(h) = hover {
+            raw.events.insert(0, egui::Event::PointerMoved(h));
+        }
+        let mut icon = egui::CursorIcon::Default;
+        let out = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.stage_view.guide_pointer = false;
+                editor.scale9_guide_input(ui, canvas, origin, mapping);
+            });
+            icon = ctx.output(|o| o.cursor_icon);
+        });
+        let _ = out;
+        icon
+    };
+
+    // 1. Hover over left vertical guide (x = 20 in isolated space -> origin.x + 20) sets ResizeHorizontal.
+    let left_guide_pos = egui::pos2(origin.x + 20.0, origin.y + 30.0);
+    let hover_icon = run_events(&mut editor, vec![], Some(left_guide_pos));
+    assert_eq!(hover_icon, egui::CursorIcon::ResizeHorizontal);
+
+    // 2. Press on left guide, drag to x = 42, then Escape cancels preview with zero Undo commits.
+    let _ = run_events(
+        &mut editor,
+        vec![
+            egui::Event::PointerButton {
+                pos: left_guide_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerMoved(egui::pos2(origin.x + 42.0, origin.y + 30.0)),
+        ],
+        None,
+    );
+    assert_eq!(
+        editor.scale9_guide_drag.as_ref().map(|d| d.preview_grid),
+        Some([42.0, 15.0, 78.0, 60.0])
+    );
+    assert_eq!(editor.history.undo_len(), 0);
+
+    let _ = run_events(
+        &mut editor,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        None,
+    );
+    assert!(editor.scale9_guide_drag.is_none());
+    assert_eq!(
+        editor.project.symbol("sym-card").unwrap().scale9_grid(),
+        Some([20.0, 15.0, 100.0, 60.0])
+    );
+    assert_eq!(editor.history.undo_len(), 0);
+
+    // 3. Drag right guide (x = 120) to x = 155 and release -> commits exactly 1 Undo step.
+    let right_guide_pos = egui::pos2(origin.x + 120.0, origin.y + 30.0);
+    let _ = run_events(
+        &mut editor,
+        vec![
+            egui::Event::PointerButton {
+                pos: right_guide_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerMoved(egui::pos2(origin.x + 140.0, origin.y + 30.0)),
+            egui::Event::PointerMoved(egui::pos2(origin.x + 155.0, origin.y + 30.0)),
+            egui::Event::PointerButton {
+                pos: egui::pos2(origin.x + 155.0, origin.y + 30.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+        None,
+    );
+    assert_eq!(
+        editor.project.symbol("sym-card").unwrap().scale9_grid(),
+        Some([20.0, 15.0, 135.0, 60.0])
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    assert_eq!(editor.history.undo_label(), Some("9-slice scaling"));
+    editor
+        .project
+        .validate()
+        .expect("project validates after 9-slice drag");
+    editor.undo();
+    assert_eq!(
+        editor.project.symbol("sym-card").unwrap().scale9_grid(),
+        Some([20.0, 15.0, 100.0, 60.0])
+    );
+    editor.redo();
+    assert_eq!(
+        editor.project.symbol("sym-card").unwrap().scale9_grid(),
+        Some([20.0, 15.0, 135.0, 60.0])
+    );
+}
+
+#[test]
+fn t231_shared_library_external_nflash_mount_and_disk_url_sync_are_collision_safe_and_idempotent() {
+    use neoflash_core::{
+        Element, ElementKind, InstancePlayback, ResourceUnit, SharedLibraryLinkage, Symbol,
+        SymbolKind,
+    };
+
+    let (mut editor, _ctx, dir) = setup("t231-shared-lib");
+    let blank_tl = || Project::blank().symbols[0].timeline.clone();
+    let libs_dir = dir.join("libs");
+    std::fs::create_dir_all(&libs_dir).unwrap();
+    let donor_path = libs_dir.join("UIKit.nflash");
+    let recipient_path = dir.join("App.nflash");
+
+    //Tiny 1x1 PNG fixtures with distinct bytes to prove resource collision safety.
+    let make_png = |rgba: [u8; 4]| -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let img = image::RgbaImage::from_pixel(1, 1, image::Rgba(rgba));
+        img.write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+        bytes
+    };
+    let local_png = make_png([220, 40, 40, 255]);
+    let donor_png = make_png([30, 140, 250, 255]);
+
+    // Recipient owns colliding IDs `sym-collide`, `layer-collide`, `el-collide`, `res-collide`.
+    editor.project.resources.push(
+        ResourceUnit::from_bytes("res-collide", "assets/logo.png", "image/png", &local_png)
+            .unwrap(),
+    );
+    let mut local_unrelated = Symbol {
+        id: "sym-collide".into(),
+        name: "LocalHero".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: None,
+        timeline: blank_tl(),
+    };
+    local_unrelated.timeline.layers[0].id = "layer-collide".into();
+    local_unrelated.timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "el-collide".into(),
+            kind: ElementKind::Bitmap {
+                resource_id: "res-collide".into(),
+                width: 1,
+                height: 1,
+                smoothing: true,
+            },
+            ..Element::default()
+        });
+    editor.project.symbols.push(local_unrelated);
+
+    let badge_placeholder = Symbol {
+        id: "sym-local-badge".into(),
+        name: "Badge".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: Some("ui.Badge".into()),
+        timeline: blank_tl(),
+    };
+    editor.project.symbols.push(badge_placeholder);
+    editor.project.set_shared_library(
+        "sym-local-badge",
+        Some(SharedLibraryLinkage {
+            symbol_id: "sym-local-badge".into(),
+            url: "libs/UIKit.nflash".into(),
+            export_for_runtime: false,
+            import_for_runtime: true,
+            always_update: false,
+        }),
+    );
+    editor.project.upgrade_format_for_features();
+    assert!(editor.save_to_path(recipient_path.clone()));
+
+    // Donor `UIKit.nflash` exports `Badge` which nests `sym-collide` (`DonorLeaf`) and `res-collide` (`assets/logo.png`).
+    let mut donor = Project::blank();
+    donor.name = "UIKit".into();
+    donor.resources.push(
+        ResourceUnit::from_bytes("res-collide", "assets/logo.png", "image/png", &donor_png)
+            .unwrap(),
+    );
+    let mut donor_leaf = Symbol {
+        id: "sym-collide".into(),
+        name: "DonorLeaf".into(),
+        folder: "Shared/Icons".into(),
+        kind: SymbolKind::Graphic,
+        class_name: None,
+        linkage_id: None,
+        timeline: blank_tl(),
+    };
+    donor_leaf.timeline.layers[0].id = "layer-collide".into();
+    donor_leaf.timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "el-collide".into(),
+            kind: ElementKind::Bitmap {
+                resource_id: "res-collide".into(),
+                width: 1,
+                height: 1,
+                smoothing: true,
+            },
+            ..Element::default()
+        });
+    let _ = donor.add_library_folder("Shared/Icons");
+    donor.symbols.push(donor_leaf);
+
+    let mut donor_badge = Symbol {
+        id: "donor-badge".into(),
+        name: "Badge".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: Some("ui.Badge".into()),
+        timeline: blank_tl(),
+    };
+    donor_badge.timeline.layers[0].id = "layer-badge".into();
+    donor_badge.timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "el-badge".into(),
+            kind: ElementKind::Instance {
+                symbol_id: "sym-collide".into(),
+                playback: InstancePlayback::Loop,
+            },
+            ..Element::default()
+        });
+    donor.symbols.push(donor_badge);
+    donor.set_shared_library(
+        "donor-badge",
+        Some(SharedLibraryLinkage {
+            symbol_id: "donor-badge".into(),
+            url: "libs/UIKit.nflash".into(),
+            export_for_runtime: true,
+            import_for_runtime: false,
+            always_update: false,
+        }),
+    );
+    donor.upgrade_format_for_features();
+    donor.validate().expect("donor validates");
+    std::fs::write(&donor_path, donor.to_json().unwrap()).unwrap();
+
+    // 1. Disk URL sync resolves `libs/UIKit.nflash` relative to `App.nflash` without overwriting local collisions!
+    assert_eq!(editor.sync_shared_libraries_from_open_documents(), 1);
+    editor
+        .project
+        .validate()
+        .expect("recipient validates after collision-safe sync");
+    assert_eq!(editor.history.undo_label(), Some("Sync shared library"));
+    assert_eq!(
+        editor.project.symbol("sym-collide").unwrap().name,
+        "LocalHero"
+    );
+    let local_res_bytes = editor
+        .project
+        .resources
+        .iter()
+        .find(|r| r.id == "res-collide")
+        .unwrap()
+        .decoded_bytes()
+        .unwrap();
+    assert_eq!(local_res_bytes, local_png);
+    assert!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .any(|s| s.name == "DonorLeaf" && s.id != "sym-collide"),
+        "nested DonorLeaf imported under a non-colliding ID"
+    );
+
+    // 2. Repeated sync is idempotent (no duplicate symbols or resources added).
+    let sym_count_after_first = editor.project.symbols.len();
+    let res_count_after_first = editor.project.resources.len();
+    assert_eq!(editor.sync_shared_libraries_from_open_documents(), 1);
+    assert_eq!(editor.project.symbols.len(), sym_count_after_first);
+    assert_eq!(editor.project.resources.len(), res_count_after_first);
+    editor
+        .project
+        .validate()
+        .expect("recipient validates after second sync");
+
+    // 3. External `.nflash` path mount + self-mount guard + close_external_library.
+    assert!(
+        editor.open_external_library_path(&recipient_path).is_err(),
+        "mounting the active document as its own external library must be rejected"
+    );
+    editor
+        .open_external_library_path(&donor_path)
+        .expect("mount UIKit.nflash");
+    assert_eq!(
+        Editor::format_shared_library_url_for_project(Some(&recipient_path), &donor_path),
+        "libs/UIKit.nflash"
+    );
+    assert_eq!(editor.library_source_project().name, "UIKit");
+    editor.close_external_library();
+    assert!(editor.library_panel.external_library.is_none());
+    assert_eq!(editor.library_source_project().name, editor.project.name);
+
+    // Undo restores clean pre-sync state cleanly.
+    editor.undo();
+    editor.undo();
+    assert!(!editor.project.symbols.iter().any(|s| s.name == "DonorLeaf"));
+    editor.project.validate().unwrap();
+}

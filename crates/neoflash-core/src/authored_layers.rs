@@ -501,6 +501,35 @@ pub fn evaluate_scene_with_buttons(
     scene_from_evaluation(project, evaluation, show_masking, Some(symbol))
 }
 
+/// Evaluate `symbol` at `frame` using transient runtime `symbol_overrides` without cloning
+/// `project` (`T-230`). Unoverridden symbols, resources, and document dimensions resolve directly
+/// from `project`.
+pub fn evaluate_scene_with_symbol_overrides(
+    project: &Project,
+    symbol_overrides: &HashMap<String, Symbol>,
+    symbol: &str,
+    frame: u32,
+    include_guides: bool,
+    show_masking: bool,
+) -> AuthoredScene {
+    let evaluation = crate::evaluate::snapshot_mode_with_overrides(
+        project,
+        Some(symbol_overrides),
+        symbol,
+        frame,
+        &|_| None,
+        &|_| None,
+        include_guides,
+    );
+    scene_from_evaluation_with_overrides(
+        project,
+        Some(symbol_overrides),
+        evaluation,
+        show_masking,
+        Some(symbol),
+    )
+}
+
 /// Shared authored geometry/mask assembly. Only the edited symbol's layer
 /// preferences affect authoring outlines; transport preview passes no scope.
 pub(crate) fn scene_from_evaluation(
@@ -509,11 +538,25 @@ pub(crate) fn scene_from_evaluation(
     show_masking: bool,
     outline_symbol: Option<&str>,
 ) -> AuthoredScene {
+    scene_from_evaluation_with_overrides(project, None, evaluation, show_masking, outline_symbol)
+}
+
+fn scene_from_evaluation_with_overrides(
+    project: &Project,
+    symbol_overrides: Option<&HashMap<String, Symbol>>,
+    evaluation: crate::evaluate::Evaluation,
+    show_masking: bool,
+    outline_symbol: Option<&str>,
+) -> AuthoredScene {
     // Outline is a local editing preference, not inherited published artwork.
     // An outlined layer/folder in the edited timeline colors its whole subtree,
     // while preferences saved inside nested symbols stay local to those symbols.
     let mut outlines = HashMap::new();
-    if let Some(symbol) = outline_symbol.and_then(|id| project.symbol(id)) {
+    if let Some(symbol) = outline_symbol.and_then(|id| {
+        symbol_overrides
+            .and_then(|m| m.get(id))
+            .or_else(|| project.symbol(id))
+    }) {
         for layer in &symbol.timeline.layers {
             if let Some(color) = layer_effective_outline_color(&symbol.timeline, layer) {
                 for element in layer.keyframes.iter().flat_map(|key| &key.elements) {

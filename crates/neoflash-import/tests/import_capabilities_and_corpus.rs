@@ -2386,3 +2386,184 @@ fn t208_swf_goto_presents_destination_display_list_and_keeps_diagnostics() {
         replay_state.unsupported_diagnostics
     );
 }
+
+#[test]
+fn t230_swf_stage_overlay_evaluates_without_cloning_project_and_matches_overlay() {
+    let temp = TempDir::new();
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 2, &define_red_square_shape_tag(1));
+
+    // Inner sprite 3 steps leaf x from 0 -> 25 across two frames.
+    let mut inner = Vec::new();
+    inner.extend_from_slice(&3_u16.to_le_bytes());
+    inner.extend_from_slice(&2_u16.to_le_bytes());
+    let mut inner_place = vec![0x26];
+    inner_place.extend_from_slice(&1_u16.to_le_bytes());
+    inner_place.extend_from_slice(&1_u16.to_le_bytes());
+    inner_place.extend_from_slice(&swf_matrix_bytes(None, None, 0.0, 0.0));
+    inner_place.extend_from_slice(b"leaf\0");
+    swf_tag(&mut inner, 26, &inner_place);
+    swf_tag(&mut inner, 1, &[]);
+    let mut inner_move = vec![0x05];
+    inner_move.extend_from_slice(&1_u16.to_le_bytes());
+    inner_move.extend_from_slice(&swf_matrix_bytes(None, None, 25.0, 10.0));
+    swf_tag(&mut inner, 26, &inner_move);
+    swf_tag(&mut inner, 1, &[]);
+    swf_tag(&mut inner, 0, &[]);
+    swf_tag(&mut tags, 39, &inner);
+
+    // Outer sprite 2 hosts inner sprite 3 across two frames.
+    let mut outer = Vec::new();
+    outer.extend_from_slice(&2_u16.to_le_bytes());
+    outer.extend_from_slice(&2_u16.to_le_bytes());
+    let mut outer_place = vec![0x26];
+    outer_place.extend_from_slice(&1_u16.to_le_bytes());
+    outer_place.extend_from_slice(&3_u16.to_le_bytes());
+    outer_place.extend_from_slice(&swf_matrix_bytes(None, None, 5.0, 5.0));
+    outer_place.extend_from_slice(b"inner\0");
+    swf_tag(&mut outer, 26, &outer_place);
+    swf_tag(&mut outer, 1, &[]);
+    swf_tag(&mut outer, 1, &[]);
+    swf_tag(&mut outer, 0, &[]);
+    swf_tag(&mut tags, 39, &outer);
+
+    // Root places a clip-depth mask at depth 1 and two staggered outer sprite instances at depths 2 and 3.
+    let mut place_mask = vec![0x66]; // HasClipDepth | HasName | HasMatrix | HasCharacter
+    place_mask.extend_from_slice(&1_u16.to_le_bytes());
+    place_mask.extend_from_slice(&1_u16.to_le_bytes());
+    place_mask.extend_from_slice(&swf_matrix_bytes(Some(8.0), Some(8.0), 0.0, 0.0));
+    place_mask.extend_from_slice(b"mask\0");
+    place_mask.extend_from_slice(&4_u16.to_le_bytes());
+    swf_tag(&mut tags, 26, &place_mask);
+
+    let place_outer = |depth: u16, name: &str, x: f64, y: f64| {
+        let mut p = vec![0x26];
+        p.extend_from_slice(&depth.to_le_bytes());
+        p.extend_from_slice(&2_u16.to_le_bytes());
+        p.extend_from_slice(&swf_matrix_bytes(None, None, x, y));
+        p.extend_from_slice(name.as_bytes());
+        p.push(0);
+        p
+    };
+    swf_tag(&mut tags, 26, &place_outer(2, "alpha", 40.0, 20.0));
+    swf_tag(&mut tags, 1, &[]);
+    swf_tag(&mut tags, 26, &place_outer(3, "beta", 90.0, 35.0));
+    swf_tag(&mut tags, 1, &[]);
+    let mut move_alpha = vec![0x05];
+    move_alpha.extend_from_slice(&2_u16.to_le_bytes());
+    move_alpha.extend_from_slice(&swf_matrix_bytes(None, None, 65.0, 20.0));
+    swf_tag(&mut tags, 26, &move_alpha);
+    swf_tag(&mut tags, 1, &[]);
+
+    let bytes = build_uncompressed_swf(8, 3, &tags);
+    let path = temp.0.join("t230-zero-clone-overlay.swf");
+    fs::write(&path, &bytes).unwrap();
+    let mut project = import_project(&path).unwrap();
+
+    // Attach heavy untouched payload (8 MiB embedded resource + 128 untouched library symbols
+    // carrying dense vector elements) so full-project cloning per frame would copy thousands of
+    // symbols/elements while symbol-override evaluation touches only the active display-list symbols.
+    project.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "heavy-bg-media",
+            "HeavyMedia.bin",
+            "application/octet-stream",
+            &vec![0x5A_u8; 8 * 1024 * 1024],
+        )
+        .unwrap(),
+    );
+    let leaf_timeline = project.symbol("swf-sym-1").unwrap().timeline.clone();
+    let mut seq = 0usize;
+    for idx in 0..128 {
+        let mut timeline = leaf_timeline.clone();
+        timeline.remap_internal_ids(
+            &mut |prefix: &str| {
+                seq += 1;
+                format!("untouched-{idx}-{prefix}-{seq}")
+            },
+            None,
+            None,
+        );
+        project.symbols.push(neoflash_core::Symbol {
+            id: format!("untouched-sym-{idx}"),
+            name: format!("Untouched {idx}"),
+            folder: String::new(),
+            kind: neoflash_core::SymbolKind::Graphic,
+            timeline,
+            class_name: None,
+            linkage_id: None,
+        });
+    }
+    project.validate().unwrap();
+    let heavy_resource_ptr = project.resources.last().unwrap().data_base64.as_ptr();
+    let symbols_len_before = project.symbols.len();
+
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    for &frame in &[0_u32, 1, 2, 0, 1] {
+        let _ = player.seek_to_frame(frame);
+        let overrides = player.build_display_list_symbol_overrides(&project, &project.root, frame);
+        // Only root + active nested sprite instances (<= 5 symbols) are materialized, never the 128 untouched ones.
+        assert!(
+            overrides.len() <= 5,
+            "expected minimal transient overrides at frame {frame}, got {}",
+            overrides.len()
+        );
+        for show_masking in [true, false] {
+            let fast_scene =
+                player.evaluate_stage_scene(&project, &project.root, frame, show_masking);
+            let reference_overlay =
+                player.project_with_display_list_overlay(&project, &project.root, frame);
+            let reference_scene = neoflash_core::evaluate_scene(
+                &reference_overlay,
+                &project.root,
+                frame,
+                true,
+                show_masking,
+            );
+            assert_eq!(
+                format!("{fast_scene:?}"),
+                format!("{reference_scene:?}"),
+                "transient override scene must match overlay scene at frame {frame} (masking={show_masking})"
+            );
+            let authoring_fast = neoflash_core::evaluate_scene_with_symbol_overrides(
+                &project,
+                &overrides,
+                &project.root,
+                frame,
+                false,
+                show_masking,
+            );
+            let authoring_ref = neoflash_core::evaluate_scene(
+                &reference_overlay,
+                &project.root,
+                frame,
+                false,
+                show_masking,
+            );
+            assert_eq!(
+                format!("{authoring_fast:?}"),
+                format!("{authoring_ref:?}"),
+                "authoring-mode override scene must match overlay scene at frame {frame}"
+            );
+        }
+    }
+
+    // 120 consecutive Stage evaluations must keep the authored Project & 32 MiB buffer untouched and fast.
+    let start = std::time::Instant::now();
+    for step in 0..120_u32 {
+        let f = step % 3;
+        let _ = player.seek_to_frame(f);
+        let scene = player.evaluate_stage_scene(&project, &project.root, f, true);
+        assert!(!scene.draws.is_empty());
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 1500,
+        "120 zero-clone SWF Stage evaluations took unexpectedly long: {elapsed:?}"
+    );
+    assert_eq!(project.symbols.len(), symbols_len_before);
+    assert_eq!(
+        project.resources.last().unwrap().data_base64.as_ptr(),
+        heavy_resource_ptr
+    );
+}

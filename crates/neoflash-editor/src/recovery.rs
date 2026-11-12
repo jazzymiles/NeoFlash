@@ -377,6 +377,10 @@ impl RecoveryManager {
         self.dir = dir;
     }
 
+    pub(crate) fn take_dir(&mut self) -> Option<PathBuf> {
+        self.dir.take()
+    }
+
     #[cfg(test)]
     pub(crate) fn active_id(&self) -> &str {
         &self.active_id

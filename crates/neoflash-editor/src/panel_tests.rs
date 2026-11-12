@@ -1988,7 +1988,11 @@ fn full_frame(
             if editor.has_document() {
                 editor.detached_panels(ctx);
             }
+            if editor.property_edit.is_some() {
+                editor.end_property_interaction(ctx);
+            }
             editor.planned_panels(ctx);
+            crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         },
     )
 }
@@ -8498,4 +8502,398 @@ fn stage_live_preview_clicks_execute_button_and_movieclip_instance_handlers() {
         !editor.dirty(),
         "live preview clicks must never dirty the authored project"
     );
+}
+
+#[test]
+fn t224_modals_and_overlays_suppress_global_shortcuts_across_first_batch() {
+    use crate::app::Tool;
+
+    let mut d = Driver::new();
+    let mut project = Project::blank();
+    let mut png_bytes = Vec::new();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([91, 140, 255, 255]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    let bmp_res = "bmp-hero".to_owned();
+    project.resources.push(
+        ResourceUnit::from_bytes(&bmp_res, "assets/hero.png", "image/png", &png_bytes).unwrap(),
+    );
+    d.editor = Editor::from_project(&d.ctx, project);
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 80.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        40.0,
+        50.0,
+    );
+    let selected_id = d.editor.selection.clone();
+    assert!(!selected_id.is_empty());
+    d.editor.set_tool(Tool::Select);
+    d.settle();
+
+    let send_global_chords = |d: &mut Driver, label: &str| {
+        assert!(
+            d.editor.has_modal_dialog_in(&d.ctx),
+            "{label} must register in has_modal_dialog_in"
+        );
+        for key in [
+            egui::Key::R,
+            egui::Key::T,
+            egui::Key::Backspace,
+            egui::Key::Space,
+        ] {
+            d.step(vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            d.step(vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        }
+        assert_eq!(d.editor.tool, Tool::Select, "{label} leaked tool shortcut");
+        assert!(!d.editor.playing, "{label} leaked playback shortcut");
+        assert_eq!(
+            d.editor.selection, selected_id,
+            "{label} leaked Backspace/selection clear"
+        );
+        assert_eq!(
+            d.editor.symbol().timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            1,
+            "{label} deleted Stage artwork"
+        );
+    };
+
+    // 1. About modal
+    d.editor.show_about = true;
+    d.settle();
+    send_global_chords(&mut d, "About");
+    d.editor.show_about = false;
+    d.settle();
+
+    // 2. Bitmap properties modal
+    d.editor
+        .open_bitmap_properties(&d.ctx, Some(bmp_res.clone()));
+    d.settle();
+    send_global_chords(&mut d, "Bitmap properties");
+    d.click("Cancel");
+    assert!(!crate::bitmaps::has_bitmap_properties_dialog(&d.ctx));
+
+    // 3. Help manual window
+    d.editor.open_help_manual(&d.ctx);
+    d.settle();
+    send_global_chords(&mut d, "Help manual");
+    crate::panels::help_manual::close_help_manual(&d.ctx);
+    d.settle();
+
+    // 4. UI Layout Studio window
+    crate::panels::ui_studio::set_studio_open(&d.ctx, true);
+    d.settle();
+    send_global_chords(&mut d, "UI Layout Studio");
+    crate::panels::ui_studio::set_studio_open(&d.ctx, false);
+    d.settle();
+
+    // 5. Preferences, Publish settings, Export image, Export video, Import video
+    d.editor.open_preferences(0);
+    d.settle();
+    send_global_chords(&mut d, "Preferences");
+    d.editor.preferences = None;
+    d.settle();
+
+    d.editor.open_publish_settings();
+    d.settle();
+    send_global_chords(&mut d, "Publish settings");
+    d.editor.publish_settings = None;
+    d.settle();
+
+    d.editor.open_export_image(&d.ctx);
+    d.settle();
+    send_global_chords(&mut d, "Export image");
+    d.click("Cancel");
+    assert!(!crate::panels::export_image::has_export_image_dialog(
+        &d.ctx
+    ));
+
+    d.editor.open_export_video(None);
+    d.settle();
+    send_global_chords(&mut d, "Export video");
+    d.editor.export_video = None;
+    d.settle();
+
+    d.editor.open_import_video(&d.ctx);
+    d.settle();
+    send_global_chords(&mut d, "Import video");
+    d.click("Cancel");
+    assert!(!crate::panels::import_video::has_import_video_dialog(
+        &d.ctx
+    ));
+    assert!(!d.editor.has_modal_dialog_in(&d.ctx));
+}
+
+#[test]
+fn t224_dialog_keyboard_state_handles_field_focus_enter_escape_and_density_rollback() {
+    use crate::workspace::DensityPref;
+
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    d.editor.workspace.theme = ThemeMode::Dark;
+    d.editor.workspace.density = DensityPref::Comfortable;
+    d.editor.apply_density(&d.ctx);
+    let comfortable_row_h = neoflash_ui::metrics::control();
+
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 80.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        20.0,
+        30.0,
+    );
+    d.editor.clear_history();
+    let before_rect = d.editor.project.clone();
+    d.settle();
+
+    // Open Preferences, preview Light + ClassicFlash density, focus Autosave minutes field.
+    d.editor.open_preferences(0);
+    d.settle();
+    {
+        let draft = d.editor.preferences.as_mut().unwrap();
+        draft.theme = ThemeMode::Light;
+        draft.density = DensityPref::ClassicFlash;
+    }
+    d.settle();
+    assert!(
+        neoflash_ui::metrics::control() < comfortable_row_h,
+        "ClassicFlash preview shrinks control height"
+    );
+
+    // Click into Autosave minutes field so it has keyboard focus.
+    d.click("Autosave minutes");
+    assert!(
+        d.ctx.wants_keyboard_input(),
+        "Autosave minutes field focused"
+    );
+
+    // First Escape reverts/surrenders field focus WITHOUT cancelling the modal!
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(
+        !d.ctx.wants_keyboard_input(),
+        "First Escape surrenders field focus"
+    );
+    assert!(
+        d.editor.preferences.is_some(),
+        "First Escape inside a focused field must NOT cancel Preferences modal"
+    );
+
+    // Second Escape (no field focused) cancels Preferences and rolls back BOTH theme and density!
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(d.editor.preferences.is_none());
+    assert_eq!(ThemeMode::current(&d.ctx), ThemeMode::Dark);
+    assert_eq!(d.editor.workspace.density, DensityPref::Comfortable);
+    assert_eq!(
+        neoflash_ui::metrics::control(),
+        comfortable_row_h,
+        "Cancelling Preferences must immediately restore live DensityPref metrics"
+    );
+
+    // Open Scale and Rotate on the selected rectangle: focus Scale field, type 150, press Enter twice.
+    d.editor.open_scale_and_rotate_dialog();
+    d.settle();
+    assert!(d.editor.authoring_modify.scale_and_rotate_dialog.is_some());
+    d.click("Scale");
+    assert!(d.ctx.wants_keyboard_input(), "Scale field focused");
+    d.step(vec![Event::Key {
+        key: egui::Key::A,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    }]);
+    d.step(vec![Event::Text("150".into())]);
+    d.step(vec![Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(
+        !d.ctx.wants_keyboard_input(),
+        "First Enter commits field and surrenders focus"
+    );
+    assert_eq!(
+        d.editor
+            .authoring_modify
+            .scale_and_rotate_dialog
+            .map(|(s, _)| s.round()),
+        Some(150.0),
+        "First Enter commits 150% in Scale field while keeping modal open"
+    );
+
+    // Second Enter confirms Scale and Rotate modal and commits 1 Undo step.
+    d.step(vec![Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(d.editor.authoring_modify.scale_and_rotate_dialog.is_none());
+    assert_eq!(d.editor.history.undo_len(), 1);
+    let el = &d.editor.symbol().timeline.layers[0].keyframes[0].elements[0];
+    assert!(
+        (el.transform.scale_x - 1.5).abs() < 1e-3
+            || matches!(
+                el.kind,
+                ElementKind::Rectangle { width, .. } if (width - 150.0).abs() < 0.5
+            ),
+        "150% Scale applied"
+    );
+    d.editor.undo();
+    assert_eq!(d.editor.project, before_rect);
+}
+
+#[test]
+fn t224_inspector_tab_focus_transfer_commits_distinct_undos_and_clamps_bounds() {
+    let mut d = Driver::new();
+    d.editor = Editor::from_project(&d.ctx, Project::blank());
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 100.0,
+            height: 80.0,
+            fill: [91, 140, 255, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        40.0,
+        50.0,
+    );
+    let selected = d.editor.selection.clone();
+    d.editor.clear_history();
+    // Hide Properties and show only Transform to prove Transform finalizes PropertyEdit on its own.
+    d.editor.set_panel_visible(PanelId::Properties, false);
+    d.editor.show_panel(PanelId::Transform);
+    d.settle();
+
+    // Focus Rotate in Transform, type 30, then press Tab on the next frame to transfer focus to Skew.
+    d.click("Rotate");
+    assert!(d.ctx.wants_keyboard_input(), "Rotate field focused");
+    d.step(vec![Event::Text("30".into())]);
+    d.step(vec![Event::Key {
+        key: egui::Key::Tab,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert_eq!(
+        d.editor.history.undo_len(),
+        1,
+        "Tab focus transfer from Rotate to Skew must immediately commit Undo step #1"
+    );
+    assert!(
+        (d.editor.symbol().timeline.layers[0].keyframes[0].elements[0]
+            .transform
+            .rotation
+            - 30.0)
+            .abs()
+            < 1e-3
+    );
+
+    // Skew now has focus (or click Skew), type out-of-range 999, then press Enter: clamps to 89°.
+    d.click("Skew");
+    d.step(vec![Event::Text("999".into())]);
+    d.step(vec![Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert_eq!(
+        d.editor.history.undo_len(),
+        2,
+        "Skew edit commits as distinct Undo step #2"
+    );
+    let skew = d.editor.symbol().timeline.layers[0].keyframes[0].elements[0]
+        .transform
+        .skew;
+    assert!(
+        (skew - 89.0).abs() < 1e-3,
+        "Out-of-range Skew 999° must clamp to 89.0°, got {skew}"
+    );
+    d.editor.project.validate().unwrap();
+
+    // Focus Rotate again and press Escape: surrenders focus WITHOUT clearing Stage selection!
+    d.click("Rotate");
+    assert!(d.ctx.wants_keyboard_input());
+    d.step(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    d.settle();
+    assert!(!d.ctx.wants_keyboard_input());
+    assert_eq!(
+        d.editor.selection, selected,
+        "Escape inside inspector field must surrender focus without clearing Stage selection"
+    );
+
+    // PublishPrefs::sanitize clamps out-of-range / non-finite numeric fields.
+    let mut prefs = crate::workspace::PublishPrefs {
+        jpeg_quality: 250,
+        atlas_extrude: 99,
+        banner_max_gzip_kb: 1,
+        ..Default::default()
+    };
+    prefs.video_options.quality = 0;
+    prefs.video_options.width = 4;
+    prefs.video_options.height = 99999;
+    prefs.video_options.fps = f32::NAN;
+    prefs.sanitize();
+    assert_eq!(prefs.jpeg_quality, 100);
+    assert_eq!(prefs.atlas_extrude, 8);
+    assert_eq!(prefs.banner_max_gzip_kb, 10);
+    assert_eq!(prefs.video_options.quality, 1);
+    assert_eq!(prefs.video_options.width, 16);
+    assert_eq!(prefs.video_options.height, 4320);
+    assert_eq!(prefs.video_options.fps, 0.0);
 }

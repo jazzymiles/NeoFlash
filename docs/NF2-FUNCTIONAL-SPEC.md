@@ -117,7 +117,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-04 | Export image (PNG/SVG/PSD/AI/PDF) | Dialog | partial (`panels/export_image.rs` + `neoflash_export::image_export`; documented format fallbacks) | yes | P2 (PNG/SVG) / P3 |
 | DL-05 | Export video | Dialog | done (`panels/export_video.rs`) | yes | P3 |
 | DL-06 | Export audio | Dialog | done | yes | P3 |
-| DL-07 | Import video | Dialog | partial (`panels/import_video.rs`; HTML5 plus native Embedded/local External playback work, Progressive/native cue editing and bounded on-demand long-video decode remain) | yes | P3 |
+| DL-07 | Import video | Dialog | partial (`panels/import_video.rs`; HTML5 plus native Embedded/local External playback and bounded `OnDemandVideoDecoder` long-video ring caching work; native Progressive HTTP streaming remains) | yes | P3 |
 | DL-08 | Sound properties | Dialog | done | yes | P3 |
 | DL-09 | Edit envelope | Dialog | done | yes | P3 |
 | DL-10 | Import PSD to library | Importer | done for the bounded supported profile (`neoflash_import::psd`; editor and CLI routes) | yes | P3 |
@@ -125,7 +125,7 @@ and remaining task cards are in [NF2-WIRING-PLAN.md](NF2-WIRING-PLAN.md) §7.
 | DL-12 | Test Movie window | Window | done (`panels/live_planned.rs` + browser host) | yes | P2 |
 | DL-13 | Find and replace | Dialog | done (`panels/find_replace.rs`) | editor | P2 |
 | DL-14 | Movie Explorer | Panel | done (`panels/movie_explorer.rs`) | editor | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | partial (Library fields, painted guides and open-document sharing work; direct guide drag/external-file chooser remain) | yes | P3 |
+| DL-15 | Convert to Symbol ▸ Advanced: 9-slice, runtime / authortime sharing | Dialog | done (Library fields, interactive Stage guide drag with Escape/Undo, and open-document + external `.nflash` chooser sharing work) | yes | P3 |
 | DL-16 | Layer properties: Guided / Masked / Armature types, layer height | Dialog | done (Armature disabled) | editor / yes | P2 |
 | DL-17 | Accessibility: child objects, auto label, shortcut | Panel | partial | yes (small) | P3 |
 | MN-01 | Menu items absent from §8 menus | Menus | partial | mixed | P1–P3 |
@@ -982,9 +982,10 @@ Screenshot aids: `NEOFLASH_SCREENSHOT_PREFERENCES=<page index>` and
   unique. Read, format or project-validation failures leave both the draft and document unchanged. Embedded authored
   spans publish and play automatically in HTML5 (AVI transcodes to H.264 MP4 during publish). External spans stage a
   package-relative asset and Progressive spans retain a validated HTTP(S) URL; mixed deployment of one resource is
-  deterministic. Native Stage playback and offline export decode Embedded and local External spans through the shared
-  streaming pipe, with format-12 authored out-points and PR-09 montage/cue-point editing honored. Decoded CPU frames are
-  currently retained, so bounded on-demand long-video decoding and native Progressive playback remain incomplete. Local
+  deterministic. Native Stage playback and offline export decode Embedded and local External spans through bounded
+  on-demand windowed ring sessions (`OnDemandVideoDecoder` + `WindowedFrameRing`, keeping sequential playback O(1) per
+  frame without retaining unbounded full-movie RGBA buffers), with format-12 authored out-points and PR-09
+  montage/cue-point editing honored; native Progressive HTTP streaming remains incomplete. Local
   External authoring keeps source bytes in the portable document so a later offline publish can stage them.
 
 **DL-08 · Sound properties** — done (`panels/sound_properties.rs`, modal dialog): edits audio resource name, shows
@@ -1000,7 +1001,7 @@ audition). P3.
 | DL-12 | Test Movie window | Native window: stage, transport, speed, fps/memory badge, Output drawer | Embedded runtime host (today Test Movie opens a browser) | P2 |
 | DL-13 | Find and replace (⌘F) | Text / Font / Colour / Symbol / Sound / Video / Bitmap search, scope, regex, results table, Replace all | editor scan of `Project` (+ scripts); Replace all = one Undo | P2 |
 | DL-14 | Movie Explorer | Tree document ▸ scene ▸ layer ▸ frame ▸ instance / actions, filters, path footer | editor traversal of `Project` | P2 |
-| DL-15 | Convert to Symbol ▸ Advanced — **partial** | Library Properties edits the 9-slice rectangle and shared linkage; Stage paints guides; open documents can act as collision-safe donor libraries and synchronize shared symbols | direct guide dragging and a separate external-library file chooser remain | P3 |
+| DL-15 | Convert to Symbol ▸ Advanced — **done** | Library Properties edits the 9-slice rectangle and shared linkage; Stage drags 9-slice guides interactively with Escape cancel and 1-Undo; open documents and external `.nflash` files chosen on disk act as collision-safe donor libraries and synchronize shared symbols | — | P3 |
 | DL-16 | Layer properties — **done** (`panels/layer_properties.rs`) | Modal dialog editing Name, Visible, Locked, Type (`Normal`, `Guide`, `Guided` ↔ `motion_guide`, `Mask`, `Masked`, `Folder`; `Armature` stays disabled), `Mask mode` (`Geometry`, `Alpha`, `Luminance`) + `Invert mask` (`R-048`), Outline colour + outlines toggle, Layer height `Compact`/`Short`/`100 %`/`200 %`, `Blending: <mode>` (`Blending: Inherited (<mode>)` for folder-inherited modes, 6 groups of 14 modes, `R-040`), and `Sync layer to timeline` Switch (`R-042`) with one Undo | Guided = TL-01 (done); Armature = TO-05 | P2 |
 | DL-17 | Accessibility panel (`panels/accessibility.rs`) | Missing: Make child objects accessible, Auto label, Shortcut | `Accessibility` lacks these fields (**NEW**) + HTML5 ARIA mapping | P3 |
 

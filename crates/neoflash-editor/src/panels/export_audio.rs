@@ -194,6 +194,7 @@ impl Editor {
         let mut close_cancel = false;
         let mut do_export = false;
         let mut refresh_needed = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
         let symbol_id = self.symbol_id().to_owned();
         let sound_layers = self.sound_layers_in_active_symbol();
@@ -497,19 +498,10 @@ impl Editor {
         }
 
         if !close_cancel && !do_export {
-            let typing = ctx.wants_keyboard_input();
-            let popup_open = egui::Popup::is_any_open(ctx);
-            if !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-            {
-                close_cancel = true;
-            } else if !typing
-                && !popup_open
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-            {
-                do_export = true;
-            } else if modal.should_close() {
-                close_cancel = true;
+            match kb.resolve(ctx, &modal, true) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_export = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
             }
         }
 

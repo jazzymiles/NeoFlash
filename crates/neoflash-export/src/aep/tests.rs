@@ -1,4 +1,3 @@
-
 use super::*;
 use neoflash_core::{
     BitmapCompression, BitmapExportSettings, FrameScript, GradientStop, ObjectScript,

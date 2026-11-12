@@ -175,6 +175,7 @@ impl Editor {
         let mut save = false;
         let mut publish = false;
         let mut export_runtime = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let p = neoflash_ui::palette(ctx);
         let mut estimate = self.request_publish_estimate(ctx, &draft.settings).clone();
         let modal = egui::Modal::new(egui::Id::new("publish-settings"))
@@ -362,6 +363,7 @@ impl Editor {
                                                             .width(160.0),
                                                     )
                                                     .changed()
+                                                    && max_kb.is_finite()
                                                 {
                                                     draft.settings.banner_max_gzip_kb =
                                                         max_kb.round().clamp(10.0, 5000.0) as u32;
@@ -662,17 +664,19 @@ impl Editor {
                     });
                 });
             });
-        close |= modal.should_close();
-        if !close
-            && draft.url_error().is_none()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-        {
-            save = true;
+        if !close && !save && !publish && !export_runtime {
+            match kb.resolve(ctx, &modal, draft.url_error().is_none()) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => save = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
         if !close && save {
+            draft.settings.sanitize();
             self.workspace.publish = draft.settings.clone();
             close = true;
         } else if !close && publish {
+            draft.settings.sanitize();
             if !draft.settings.has_any_enabled_target() {
                 draft.settings.enable_target(draft.selected_target);
                 draft.settings.default_target = draft.selected_target;
@@ -907,6 +911,7 @@ fn draw_video_target_settings(
                     .width(96.0),
             )
             .changed()
+            && w_val.is_finite()
         {
             let nw = w_val.round().clamp(16.0, 7680.0) as u32;
             if opts.constrain_proportions && project.width > 0 {
@@ -927,6 +932,7 @@ fn draw_video_target_settings(
                     .width(96.0),
             )
             .changed()
+            && h_val.is_finite()
         {
             let nh = h_val.round().clamp(16.0, 4320.0) as u32;
             if opts.constrain_proportions && project.height > 0 {
@@ -956,6 +962,7 @@ fn draw_video_target_settings(
                     .width(94.0),
             )
             .changed()
+            && fps_val.is_finite()
         {
             opts.fps = (fps_val as f32).clamp(1.0, 120.0);
             changed = true;

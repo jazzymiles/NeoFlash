@@ -696,6 +696,7 @@ impl Editor {
         let mut do_export = false;
         let mut toggle_pause = false;
         let mut changed = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
         let nf = neoflash_ui::palette(ctx);
         let modal = egui::Modal::new(egui::Id::new("export-video-modal"))
@@ -1215,10 +1216,21 @@ impl Editor {
                 );
             });
 
+        let can_export_now = !is_exporting
+            && draft.error_message.is_none()
+            && (!draft.options.format.requires_ffmpeg()
+                || draft.estimate.as_ref().is_none_or(|e| e.ffmpeg_available));
+        if !cancel && !do_export && !toggle_pause {
+            match kb.resolve(ctx, &modal, can_export_now) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_export = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
+        }
         if toggle_pause && let Ok(w) = draft.worker.lock() {
             w.toggle_pause();
         }
-        if cancel || modal.should_close() {
+        if cancel {
             draft.cancel_worker();
             self.export_video = None;
             return;

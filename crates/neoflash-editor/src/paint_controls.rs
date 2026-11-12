@@ -120,6 +120,7 @@ pub(crate) fn number_field(
 ) -> Response {
     let name = numeric_name(prefix).to_owned();
     let before = *value;
+    let (lo, hi) = (*range.start(), *range.end());
     let mut field = DragField::new(value, &name)
         .prefix(prefix)
         .suffix(suffix)
@@ -130,11 +131,19 @@ pub(crate) fn number_field(
         field = field.width(width);
     }
     let mut response = ui.add(field);
+    if *value != before {
+        if !value.is_finite() {
+            *value = before;
+        } else {
+            *value = value.clamp(lo, hi);
+        }
+    }
     // TextEdit also marks changes while a pending number is being typed.
     // Consumers should begin a document transaction only for applied values.
-    response
-        .flags
-        .set(egui::response::Flags::CHANGED, *value != before);
+    response.flags.set(
+        egui::response::Flags::CHANGED,
+        (*value - before).abs() > 1e-12,
+    );
     response.on_hover_text(
         "Click to type · drag to scrub · Shift for precision · Enter to apply · Esc to cancel",
     )
@@ -1086,10 +1095,14 @@ impl Editor {
         }
     }
     pub(crate) fn end_property_interaction(&mut self, ctx: &egui::Context) {
-        if !ctx.input(|input| input.pointer.any_down())
-            && !ctx.wants_keyboard_input()
-            && !egui::Popup::is_any_open(ctx)
-        {
+        let pointer_down = ctx.input(|input| input.pointer.any_down());
+        let popup_open = egui::Popup::is_any_open(ctx);
+        let focused_now = ctx.memory(|m| m.focused());
+        let control_still_focused = self.property_edit.as_ref().is_some_and(|edit| {
+            ctx.wants_keyboard_input()
+                && focused_now.is_some_and(|f| f == edit.control || f == edit.control.with("edit"))
+        });
+        if !pointer_down && !popup_open && !control_still_focused {
             self.finish_property_edit();
         }
     }

@@ -23,13 +23,13 @@ use neoflash_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{BufRead, BufReader, BufWriter, Cursor, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -632,6 +632,13 @@ const MAX_DECODED_VIDEO_STREAM_BYTES: usize = 512 * 1024 * 1024;
 const MAX_DECODED_VIDEO_BATCH_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_DECODED_VIDEO_DURATION_MS: u64 = 60 * 60 * 1000;
 const MAX_FFMPEG_DIAGNOSTIC_BYTES: usize = 64 * 1024;
+/// Short clips at or below this uncompressed RGBA size and frame count take the eager in-memory
+/// fast path; longer streams switch automatically to `OnDemandVideoDecoder` (`T-229`).
+const MAX_EAGER_VIDEO_STREAM_BYTES: usize = 32 * 1024 * 1024;
+const MAX_EAGER_VIDEO_FRAMES: usize = 180;
+/// Pinned CPU decoded-frame ring budget per long-form video stream (`T-229`).
+const MAX_WINDOWED_RING_STREAM_BYTES: usize = 64 * 1024 * 1024;
+const MAX_WINDOWED_RING_FRAMES: usize = 32;
 
 fn read_bounded_video_file_with_limit(
     path: &Path,
@@ -679,7 +686,340 @@ pub struct DecodedVideoFrame {
     pub image: Arc<DecodedImage>,
 }
 
-/// Decoded timeline video stream with deterministic timestamp lookup (`T-201`).
+#[derive(Debug)]
+enum FfmpegMediaBacking {
+    ExternalPath(PathBuf),
+    Staged(StagedMediaFile),
+}
+
+impl FfmpegMediaBacking {
+    fn path(&self) -> &Path {
+        match self {
+            Self::ExternalPath(path) => path,
+            Self::Staged(staged) => staged.path(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum OnDemandVideoBackend {
+    Nfvf {
+        payload: Arc<[u8]>,
+        frames_offset: usize,
+        frame_bytes: usize,
+    },
+    Avi {
+        bytes: Arc<[u8]>,
+        container: neoflash_core::AviIndexedContainer,
+    },
+    Ffmpeg {
+        ffmpeg: PathBuf,
+        backing: FfmpegMediaBacking,
+    },
+}
+
+#[derive(Debug)]
+struct WindowedFrameRing {
+    entries: VecDeque<(usize, DecodedVideoFrame)>,
+    resident_bytes: usize,
+    effective_frame_count: usize,
+    window_fetches: usize,
+}
+
+/// Bounded on-demand / windowed ring decoder for long-form timeline video (`T-229`).
+#[derive(Debug)]
+pub struct OnDemandVideoDecoder {
+    width: u32,
+    height: u32,
+    fps: f32,
+    frame_dur_ms: u32,
+    frame_bytes: usize,
+    frame_count: usize,
+    max_ring_frames: usize,
+    max_ring_bytes: usize,
+    window_fetch_frames: usize,
+    backing_ram_bytes: usize,
+    backend: OnDemandVideoBackend,
+    ring: Mutex<WindowedFrameRing>,
+}
+
+impl OnDemandVideoDecoder {
+    fn new(
+        width: u32,
+        height: u32,
+        fps: f32,
+        frame_bytes: usize,
+        frame_count: usize,
+        backing_ram_bytes: usize,
+        backend: OnDemandVideoBackend,
+    ) -> Self {
+        let safe_fps = if fps.is_finite() && fps > 0.0 {
+            fps
+        } else {
+            24.0
+        };
+        let frame_dur_ms = ((1000.0 / f64::from(safe_fps)).round() as u32).max(1);
+        let max_ring_frames = (MAX_WINDOWED_RING_STREAM_BYTES / frame_bytes.max(1))
+            .clamp(1, MAX_WINDOWED_RING_FRAMES)
+            .min(frame_count.max(1));
+        let max_ring_bytes = max_ring_frames.saturating_mul(frame_bytes).max(frame_bytes);
+        let window_fetch_frames = max_ring_frames.clamp(1, 16);
+        Self {
+            width,
+            height,
+            fps: safe_fps,
+            frame_dur_ms,
+            frame_bytes,
+            frame_count,
+            max_ring_frames,
+            max_ring_bytes,
+            window_fetch_frames,
+            backing_ram_bytes,
+            backend,
+            ring: Mutex::new(WindowedFrameRing {
+                entries: VecDeque::with_capacity(max_ring_frames),
+                resident_bytes: 0,
+                effective_frame_count: frame_count,
+                window_fetches: 0,
+            }),
+        }
+    }
+
+    pub fn logical_frame_count(&self) -> usize {
+        self.frame_count
+    }
+
+    pub fn max_ring_frames(&self) -> usize {
+        self.max_ring_frames
+    }
+
+    /// Pinned upper-bound CPU memory reservation for this stream (ring capacity + any in-RAM
+    /// compressed container bytes).
+    pub fn pinned_budget_bytes(&self) -> Option<usize> {
+        const ARC_ALLOCATION_OVERHEAD: usize = 2 * std::mem::size_of::<usize>();
+        let per_ring_entry = self
+            .frame_bytes
+            .checked_add(std::mem::size_of::<DecodedImage>())?
+            .checked_add(ARC_ALLOCATION_OVERHEAD)?
+            .checked_add(std::mem::size_of::<(usize, DecodedVideoFrame)>())?;
+        let ring_budget = self.max_ring_frames.checked_mul(per_ring_entry)?;
+        std::mem::size_of::<Self>()
+            .checked_add(ARC_ALLOCATION_OVERHEAD)?
+            .checked_add(ring_budget)?
+            .checked_add(self.backing_ram_bytes)
+    }
+
+    pub fn resident_ring_frames(&self) -> usize {
+        self.ring.lock().map_or(0, |ring| ring.entries.len())
+    }
+
+    pub fn resident_ring_bytes(&self) -> usize {
+        self.ring.lock().map_or(0, |ring| ring.resident_bytes)
+    }
+
+    pub fn window_fetch_count(&self) -> usize {
+        self.ring.lock().map_or(0, |ring| ring.window_fetches)
+    }
+
+    fn timestamp_ms_for_index(&self, idx: usize) -> u32 {
+        match &self.backend {
+            OnDemandVideoBackend::Avi { container, .. } => container
+                .frames
+                .get(idx)
+                .map_or(0, |entry| entry.timestamp_ms),
+            OnDemandVideoBackend::Nfvf { .. } | OnDemandVideoBackend::Ffmpeg { .. } => {
+                ((idx as f64 * 1000.0) / f64::from(self.fps)).round() as u32
+            }
+        }
+    }
+
+    fn choose_index_for_target_ms(&self, target_ms: u32) -> Option<usize> {
+        let effective_count = self
+            .ring
+            .lock()
+            .map_or(self.frame_count, |r| r.effective_frame_count);
+        if effective_count == 0 {
+            return None;
+        }
+        match &self.backend {
+            OnDemandVideoBackend::Avi { container, .. } => container
+                .frame_index_at_ms(target_ms)
+                .map(|idx| idx.min(effective_count - 1)),
+            OnDemandVideoBackend::Nfvf { .. } | OnDemandVideoBackend::Ffmpeg { .. } => {
+                let mut lo = 0usize;
+                let mut hi = effective_count;
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2;
+                    if self.timestamp_ms_for_index(mid) <= target_ms {
+                        lo = mid + 1;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                Some(lo.saturating_sub(1).min(effective_count - 1))
+            }
+        }
+    }
+
+    fn decode_window_frames(
+        &self,
+        start_idx: usize,
+        count: usize,
+    ) -> Result<Vec<(usize, DecodedVideoFrame)>, String> {
+        if count == 0 || start_idx >= self.frame_count {
+            return Ok(Vec::new());
+        }
+        let bounded_count = count.min(self.frame_count - start_idx);
+        match &self.backend {
+            OnDemandVideoBackend::Nfvf {
+                payload,
+                frames_offset,
+                frame_bytes,
+            } => {
+                let mut out = Vec::with_capacity(bounded_count);
+                for offset in 0..bounded_count {
+                    let idx = start_idx + offset;
+                    let byte_start =
+                        frames_offset
+                            .checked_add(idx.checked_mul(*frame_bytes).ok_or_else(|| {
+                                "nfvf window frame byte offset overflow.".to_owned()
+                            })?)
+                            .ok_or_else(|| "nfvf window payload offset overflow.".to_owned())?;
+                    let byte_end = byte_start
+                        .checked_add(*frame_bytes)
+                        .ok_or_else(|| "nfvf window end offset overflow.".to_owned())?;
+                    let slice = payload
+                        .get(byte_start..byte_end)
+                        .ok_or_else(|| "Truncated nfvf window slice.".to_owned())?;
+                    out.push((
+                        idx,
+                        DecodedVideoFrame {
+                            timestamp_ms: self.timestamp_ms_for_index(idx),
+                            duration_ms: self.frame_dur_ms,
+                            image: Arc::new(DecodedImage {
+                                width: self.width,
+                                height: self.height,
+                                rgba: slice.to_vec().into(),
+                            }),
+                        },
+                    ));
+                }
+                Ok(out)
+            }
+            OnDemandVideoBackend::Avi { bytes, container } => {
+                let mut out = Vec::with_capacity(bounded_count);
+                for offset in 0..bounded_count {
+                    let idx = start_idx + offset;
+                    let decoded = container.decode_frame(bytes, idx)?;
+                    out.push((
+                        idx,
+                        DecodedVideoFrame {
+                            timestamp_ms: self.timestamp_ms_for_index(idx),
+                            duration_ms: self.frame_dur_ms,
+                            image: Arc::new(decoded),
+                        },
+                    ));
+                }
+                Ok(out)
+            }
+            OnDemandVideoBackend::Ffmpeg { ffmpeg, backing } => {
+                let seek_sec = ((start_idx as f64 - 0.05) / f64::from(self.fps)).max(0.0);
+                let raw = decode_ffmpeg_pam_window(
+                    ffmpeg,
+                    backing.path(),
+                    Some(seek_sec),
+                    bounded_count,
+                    Some((self.width, self.height)),
+                )?;
+                let mut out = Vec::with_capacity(raw.images.len());
+                for (offset, image) in raw.images.into_iter().enumerate() {
+                    let idx = start_idx + offset;
+                    out.push((
+                        idx,
+                        DecodedVideoFrame {
+                            timestamp_ms: self.timestamp_ms_for_index(idx),
+                            duration_ms: self.frame_dur_ms,
+                            image,
+                        },
+                    ));
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    fn insert_decoded_batch(
+        &self,
+        ring: &mut WindowedFrameRing,
+        decoded: Vec<(usize, DecodedVideoFrame)>,
+    ) {
+        for (idx, frame) in decoded {
+            let img_bytes = frame.image.rgba.len();
+            if let Some(pos) = ring
+                .entries
+                .iter()
+                .position(|(existing, _)| *existing == idx)
+                && let Some((_, old)) = ring.entries.remove(pos)
+            {
+                ring.resident_bytes = ring.resident_bytes.saturating_sub(old.image.rgba.len());
+            }
+            while (!ring.entries.is_empty())
+                && (ring.entries.len() >= self.max_ring_frames
+                    || ring.resident_bytes.saturating_add(img_bytes) > self.max_ring_bytes)
+            {
+                if let Some((_, evicted)) = ring.entries.pop_front() {
+                    ring.resident_bytes =
+                        ring.resident_bytes.saturating_sub(evicted.image.rgba.len());
+                }
+            }
+            ring.resident_bytes = ring.resident_bytes.saturating_add(img_bytes);
+            ring.entries.push_back((idx, frame));
+        }
+    }
+
+    fn frame_at_index(&self, target_idx: usize) -> Option<(usize, DecodedVideoFrame)> {
+        {
+            let mut ring = self.ring.lock().ok()?;
+            if let Some(pos) = ring.entries.iter().position(|(idx, _)| *idx == target_idx) {
+                let entry = ring.entries.remove(pos)?;
+                let out = entry.clone();
+                ring.entries.push_back(entry);
+                return Some(out);
+            }
+        }
+
+        let fetched = self
+            .decode_window_frames(target_idx, self.window_fetch_frames)
+            .ok()?;
+        if !fetched.is_empty() {
+            let mut ring = self.ring.lock().ok()?;
+            ring.window_fetches = ring.window_fetches.saturating_add(1);
+            self.insert_decoded_batch(&mut ring, fetched);
+            if let Some((_, frame)) = ring.entries.iter().find(|(idx, _)| *idx == target_idx) {
+                return Some((target_idx, frame.clone()));
+            }
+        } else if target_idx > 0 {
+            // Audio-padded containers can report a format duration 1-2 frames past the final video
+            // packet. Step back one window to clamp cleanly to the true final video frame.
+            let fallback_start = target_idx.saturating_sub(self.window_fetch_frames.max(4));
+            let tail = self
+                .decode_window_frames(fallback_start, target_idx - fallback_start + 1)
+                .ok()?;
+            if let Some((last_idx, _)) = tail.last().cloned() {
+                let mut ring = self.ring.lock().ok()?;
+                ring.window_fetches = ring.window_fetches.saturating_add(1);
+                ring.effective_frame_count = ring.effective_frame_count.min(last_idx + 1);
+                self.insert_decoded_batch(&mut ring, tail);
+                if let Some((_, frame)) = ring.entries.iter().find(|(idx, _)| *idx == last_idx) {
+                    return Some((last_idx, frame.clone()));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Decoded timeline video stream with deterministic timestamp lookup (`T-201` / `T-229`).
 #[derive(Clone, Debug)]
 pub struct DecodedVideoStream {
     pub width: u32,
@@ -687,16 +1027,36 @@ pub struct DecodedVideoStream {
     pub fps: f32,
     pub duration_ms: u32,
     pub frames: Vec<DecodedVideoFrame>,
+    pub on_demand: Option<Arc<OnDemandVideoDecoder>>,
 }
 
 impl DecodedVideoStream {
-    /// Resolve `(frame_index, &DecodedVideoFrame)` for `placement`, honoring `in_point_ms`,
-    /// `out_point_ms`, `loop_video`, and retained `stopped` frames (`T-201`).
+    pub fn logical_frame_count(&self) -> usize {
+        self.on_demand
+            .as_ref()
+            .map_or(self.frames.len(), |d| d.logical_frame_count())
+    }
+
+    pub fn resident_cpu_bytes(&self) -> usize {
+        if let Some(decoder) = &self.on_demand {
+            decoder.resident_ring_bytes()
+        } else {
+            self.frames.iter().map(|f| f.image.rgba.len()).sum()
+        }
+    }
+
+    /// Resolve `(frame_index, DecodedVideoFrame)` for `placement`, honoring `in_point_ms`,
+    /// `out_point_ms`, `loop_video`, and retained `stopped` frames (`T-201` / `T-229`).
     pub fn frame_at_placement(
         &self,
         placement: &ResolvedVideoPlacement,
-    ) -> Option<(usize, &DecodedVideoFrame)> {
-        if self.frames.is_empty() || (placement.sync == VideoSyncMode::Stop && !placement.stopped) {
+    ) -> Option<(usize, DecodedVideoFrame)> {
+        let has_any_frames = !self.frames.is_empty()
+            || self
+                .on_demand
+                .as_ref()
+                .is_some_and(|d| d.logical_frame_count() > 0);
+        if !has_any_frames || (placement.sync == VideoSyncMode::Stop && !placement.stopped) {
             return None;
         }
         let effective_end = match (
@@ -715,6 +1075,10 @@ impl DecodedVideoStream {
         {
             target_ms = target_ms.min(end_ms.saturating_sub(1));
         }
+        if let Some(decoder) = &self.on_demand {
+            let chosen_idx = decoder.choose_index_for_target_ms(target_ms)?;
+            return decoder.frame_at_index(chosen_idx);
+        }
         let mut chosen_idx = 0usize;
         for (idx, frame) in self.frames.iter().enumerate() {
             if frame.timestamp_ms <= target_ms {
@@ -723,7 +1087,10 @@ impl DecodedVideoStream {
                 break;
             }
         }
-        self.frames.get(chosen_idx).map(|f| (chosen_idx, f))
+        self.frames
+            .get(chosen_idx)
+            .cloned()
+            .map(|f| (chosen_idx, f))
     }
 }
 
@@ -817,6 +1184,61 @@ fn checked_decoded_video_duration_ms(frame_count: usize, fps: f32) -> Result<u32
     Ok(duration_ms as u32)
 }
 
+fn checked_on_demand_video_bounds(
+    width: u32,
+    height: u32,
+    frame_count: usize,
+) -> Result<usize, String> {
+    if width == 0
+        || height == 0
+        || width > MAX_DECODED_VIDEO_WIDTH
+        || height > MAX_DECODED_VIDEO_HEIGHT
+    {
+        return Err(format!(
+            "Decoded video dimensions {width}x{height} exceed the supported 1..={MAX_DECODED_VIDEO_WIDTH} by 1..={MAX_DECODED_VIDEO_HEIGHT} bounds."
+        ));
+    }
+    if frame_count == 0 || frame_count > MAX_DECODED_VIDEO_BATCH_FRAMES {
+        return Err(format!(
+            "Decoded video frame count {frame_count} exceeds the supported 1..={MAX_DECODED_VIDEO_BATCH_FRAMES} budget."
+        ));
+    }
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "Decoded video frame dimensions overflow the RGBA byte size.".to_owned())
+}
+
+fn should_use_eager_video_frames(frame_bytes: usize, frame_count: usize) -> bool {
+    frame_count <= MAX_EAGER_VIDEO_FRAMES
+        && frame_bytes
+            .checked_mul(frame_count)
+            .is_some_and(|total| total <= MAX_EAGER_VIDEO_STREAM_BYTES)
+}
+
+fn has_nfvf_box_header(bytes: &[u8]) -> bool {
+    let mut offsets = vec![0usize];
+    if bytes.starts_with(LEGACY_STUB_MP4_HEADER) && bytes.len() > 32 {
+        offsets.push(32);
+    }
+    for start_offset in offsets {
+        let mut pos = start_offset;
+        while pos + 8 <= bytes.len() {
+            let box_size =
+                u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+                    as usize;
+            if &bytes[pos + 4..pos + 8] == NFVF_FOURCC {
+                return true;
+            }
+            if box_size < 8 || pos.saturating_add(box_size) > bytes.len() {
+                break;
+            }
+            pos += box_size;
+        }
+    }
+    false
+}
+
 fn try_decode_nfvf_box(bytes: &[u8]) -> Option<Result<DecodedVideoStream, String>> {
     let mut offsets = vec![0usize];
     if bytes.starts_with(LEGACY_STUB_MP4_HEADER) && bytes.len() > 32 {
@@ -847,43 +1269,77 @@ fn try_decode_nfvf_box(bytes: &[u8]) -> Option<Result<DecodedVideoStream, String
                 if fps_u16 == 0 {
                     return Some(Err("Invalid dimensions or frame count in nfvf box.".into()));
                 }
-                let (frame_bytes, _) = match checked_decoded_video_payload_len(w, h, count) {
+                let frame_bytes = match checked_on_demand_video_bounds(w, h, count) {
                     Ok(value) => value,
                     Err(e) => return Some(Err(e)),
                 };
-                let expected_payload = 13usize.saturating_add(count.saturating_mul(frame_bytes));
+                let expected_payload = match count
+                    .checked_mul(frame_bytes)
+                    .and_then(|n| n.checked_add(13))
+                {
+                    Some(len) => len,
+                    None => {
+                        return Some(Err("nfvf video payload byte length overflow.".into()));
+                    }
+                };
                 if payload.len() != expected_payload {
                     return Some(Err(
                         "Corrupt or truncated frame payload in MP4 video.".into()
                     ));
                 }
                 let fps = f32::from(fps_u16);
-                let frame_dur_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
-                let mut frames = Vec::with_capacity(count);
-                for idx in 0..count {
-                    let start = 13 + idx * frame_bytes;
-                    let rgba = payload[start..start + frame_bytes].to_vec();
-                    let timestamp_ms = ((idx as f64 * 1000.0) / f64::from(fps)).round() as u32;
-                    frames.push(DecodedVideoFrame {
-                        timestamp_ms,
-                        duration_ms: frame_dur_ms,
-                        image: Arc::new(DecodedImage {
-                            width: w,
-                            height: h,
-                            rgba: rgba.into(),
-                        }),
-                    });
-                }
                 let duration_ms = match checked_decoded_video_duration_ms(count, fps) {
                     Ok(duration_ms) => duration_ms,
                     Err(e) => return Some(Err(e)),
                 };
+                if should_use_eager_video_frames(frame_bytes, count) {
+                    let frame_dur_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
+                    let mut frames = Vec::with_capacity(count);
+                    for idx in 0..count {
+                        let start = 13 + idx * frame_bytes;
+                        let rgba = payload[start..start + frame_bytes].to_vec();
+                        let timestamp_ms = ((idx as f64 * 1000.0) / f64::from(fps)).round() as u32;
+                        frames.push(DecodedVideoFrame {
+                            timestamp_ms,
+                            duration_ms: frame_dur_ms,
+                            image: Arc::new(DecodedImage {
+                                width: w,
+                                height: h,
+                                rgba: rgba.into(),
+                            }),
+                        });
+                    }
+                    return Some(Ok(DecodedVideoStream {
+                        width: w,
+                        height: h,
+                        fps,
+                        duration_ms,
+                        frames,
+                        on_demand: None,
+                    }));
+                }
+                let backing: Arc<[u8]> = payload.to_vec().into();
+                let backing_len = backing.len();
+                let decoder = OnDemandVideoDecoder::new(
+                    w,
+                    h,
+                    fps,
+                    frame_bytes,
+                    count,
+                    backing_len,
+                    OnDemandVideoBackend::Nfvf {
+                        payload: backing,
+                        frames_offset: 13,
+                        frame_bytes,
+                    },
+                );
                 return Some(Ok(DecodedVideoStream {
                     width: w,
                     height: h,
                     fps,
                     duration_ms,
-                    frames,
+                    frames: Vec::new(),
+                    on_demand: Some(Arc::new(decoder)),
                 }));
             }
             if box_size < 8 || pos + box_size > bytes.len() {
@@ -1034,9 +1490,11 @@ fn finish_pam_rgba_frames(raw: PamFrameSet, fps: f32) -> Result<DecodedVideoStre
         fps: safe_fps,
         duration_ms,
         frames,
+        on_demand: None,
     })
 }
 
+#[derive(Debug)]
 struct StagedMediaFile {
     path: PathBuf,
 }
@@ -1166,11 +1624,21 @@ fn detect_ffprobe(ffmpeg: &Path) -> Option<PathBuf> {
     None
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 struct VideoProbeMetadata {
     width: u32,
     height: u32,
     fps: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ProbedStreamMetadata {
+    width: u32,
+    height: u32,
+    fps: f32,
+    frame_count: Option<usize>,
+    duration_ms: Option<u64>,
 }
 
 fn parse_ffprobe_rate(value: &str) -> Option<f32> {
@@ -1190,7 +1658,7 @@ fn parse_ffprobe_rate(value: &str) -> Option<f32> {
         .filter(|rate| rate.is_finite() && *rate > 0.0)
 }
 
-fn parse_ffprobe_metadata(text: &str) -> Result<VideoProbeMetadata, String> {
+fn parse_ffprobe_raw_fields(text: &str) -> Result<ProbedStreamMetadata, String> {
     let mut width = None;
     let mut height = None;
     let mut avg_fps = None;
@@ -1237,12 +1705,37 @@ fn parse_ffprobe_metadata(text: &str) -> Result<VideoProbeMetadata, String> {
             frame_count = Some(estimate as usize);
         }
     }
-    let bounded_frame_count = frame_count.unwrap_or(1);
-    checked_decoded_video_payload_len(width, height, bounded_frame_count)?;
-    Ok(VideoProbeMetadata { width, height, fps })
+    Ok(ProbedStreamMetadata {
+        width,
+        height,
+        fps,
+        frame_count,
+        duration_ms,
+    })
 }
 
-fn probe_video_metadata(ffmpeg: &Path, input: &Path) -> Result<Option<VideoProbeMetadata>, String> {
+#[cfg(test)]
+fn parse_ffprobe_metadata(text: &str) -> Result<VideoProbeMetadata, String> {
+    let raw = parse_ffprobe_raw_fields(text)?;
+    let bounded_frame_count = raw.frame_count.unwrap_or(1);
+    checked_decoded_video_payload_len(raw.width, raw.height, bounded_frame_count)?;
+    Ok(VideoProbeMetadata {
+        width: raw.width,
+        height: raw.height,
+        fps: raw.fps,
+    })
+}
+
+fn parse_ffprobe_stream_metadata(text: &str) -> Result<ProbedStreamMetadata, String> {
+    let raw = parse_ffprobe_raw_fields(text)?;
+    checked_on_demand_video_bounds(raw.width, raw.height, raw.frame_count.unwrap_or(1))?;
+    Ok(raw)
+}
+
+fn probe_stream_metadata(
+    ffmpeg: &Path,
+    input: &Path,
+) -> Result<Option<ProbedStreamMetadata>, String> {
     let Some(ffprobe) = detect_ffprobe(ffmpeg) else {
         return Ok(None);
     };
@@ -1304,28 +1797,163 @@ fn probe_video_metadata(ffmpeg: &Path, input: &Path) -> Result<Option<VideoProbe
         ));
     }
     let metadata = String::from_utf8_lossy(&stdout.head);
-    parse_ffprobe_metadata(&metadata).map(Some)
+    parse_ffprobe_stream_metadata(&metadata).map(Some)
 }
 
-fn decode_video_stream_with_ffmpeg(
-    name: &str,
-    mime: &str,
-    bytes: &[u8],
-) -> Result<DecodedVideoStream, String> {
-    let ffmpeg = detect_ffmpeg().ok_or_else(|| {
-        format!(
-            "Video '{name}' requires ffmpeg to decode compressed video frames, but ffmpeg was not found."
-        )
-    })?;
-    let ext = if mime.contains("webm") || name.ends_with(".webm") {
-        "webm"
-    } else if mime.contains("ogg") || name.ends_with(".ogv") || name.ends_with(".ogg") {
-        "ogv"
-    } else {
-        "mp4"
+fn decode_ffmpeg_pam_window(
+    ffmpeg: &Path,
+    input: &Path,
+    seek_sec: Option<f64>,
+    max_frames: usize,
+    expected_dims: Option<(u32, u32)>,
+) -> Result<PamFrameSet, String> {
+    let mut cmd = Command::new(ffmpeg);
+    cmd.arg("-hide_banner")
+        .arg("-nostdin")
+        .arg("-max_pixels")
+        .arg(
+            u64::from(MAX_DECODED_VIDEO_WIDTH)
+                .saturating_mul(u64::from(MAX_DECODED_VIDEO_HEIGHT))
+                .to_string(),
+        );
+    if let Some(sec) = seek_sec {
+        cmd.arg("-ss").arg(format!("{:.6}", sec.max(0.0)));
+    }
+    cmd.arg("-i").arg(input);
+    if max_frames > 0 {
+        cmd.arg("-frames:v").arg(max_frames.to_string());
+    }
+    let mut child = cmd
+        .arg("-f")
+        .arg("image2pipe")
+        .arg("-c:v")
+        .arg("pam")
+        .arg("-pix_fmt")
+        .arg("rgba")
+        .arg("pipe:1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to run ffmpeg for windowed video decode: {e}"))?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Failed to capture ffmpeg windowed frames.".into());
+        }
     };
-    let staged_video = StagedMediaFile::create(name, ext, bytes)?;
-    let probed_metadata = probe_video_metadata(&ffmpeg, staged_video.path())?;
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Failed to capture ffmpeg windowed diagnostics.".into());
+        }
+    };
+    let stderr_reader = std::thread::spawn(move || read_bounded_process_diagnostics(stderr));
+    let mut stdout = BufReader::new(stdout);
+    let parsed = parse_pam_rgba_frames(&mut stdout);
+    let allow_eof_empty = seek_sec.is_some()
+        && parsed
+            .as_ref()
+            .is_err_and(|msg| msg.contains("0 decodable frames"));
+    if parsed.is_err() && !allow_eof_empty {
+        let _ = child.kill();
+    }
+    let status = match child.wait() {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stderr_reader.join();
+            return Err(format!("Failed waiting for ffmpeg window decode: {error}"));
+        }
+    };
+    let stderr_capture = stderr_reader
+        .join()
+        .map_err(|_| "ffmpeg diagnostics reader panicked.".to_owned())?
+        .map_err(|e| format!("Failed reading ffmpeg diagnostics: {e}"))?;
+    if !status.success() {
+        let stderr_tail = String::from_utf8_lossy(&stderr_capture.tail);
+        let last_err = stderr_tail
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("corrupt or unsupported video stream");
+        return Err(format!(
+            "Video failed codec/container decoding: {}",
+            last_err.trim()
+        ));
+    }
+    if allow_eof_empty {
+        let (w, h) = expected_dims.unwrap_or((1, 1));
+        return Ok(PamFrameSet {
+            width: w,
+            height: h,
+            images: Vec::new(),
+        });
+    }
+    let raw = parsed?;
+    if let Some((exp_w, exp_h)) = expected_dims
+        && (raw.width != exp_w || raw.height != exp_h)
+    {
+        return Err(format!(
+            "Video changed dimensions between probe ({exp_w}x{exp_h}) and decode ({}x{}).",
+            raw.width, raw.height
+        ));
+    }
+    Ok(raw)
+}
+
+fn decode_ffmpeg_backing(
+    name: &str,
+    ffmpeg: PathBuf,
+    backing: FfmpegMediaBacking,
+) -> Result<DecodedVideoStream, String> {
+    let probed_metadata = probe_stream_metadata(&ffmpeg, backing.path())?;
+    if let Some(meta) = probed_metadata
+        && let Some(frame_count) = meta.frame_count
+    {
+        let frame_bytes = checked_on_demand_video_bounds(meta.width, meta.height, frame_count)?;
+        if !should_use_eager_video_frames(frame_bytes, frame_count) {
+            let duration_ms = match meta.duration_ms {
+                Some(dur_ms) if dur_ms > 0 => u32::try_from(dur_ms).unwrap_or(u32::MAX),
+                _ => checked_decoded_video_duration_ms(frame_count, meta.fps)?,
+            };
+            let decoder = OnDemandVideoDecoder::new(
+                meta.width,
+                meta.height,
+                meta.fps,
+                frame_bytes,
+                frame_count,
+                0,
+                OnDemandVideoBackend::Ffmpeg { ffmpeg, backing },
+            );
+            let initial = decoder
+                .decode_window_frames(0, decoder.window_fetch_frames)
+                .map_err(|e| format!("Video '{name}' initial window decode failed: {e}"))?;
+            if initial.is_empty() {
+                return Err(format!("Video '{name}' produced 0 decodable frames."));
+            }
+            if let Ok(mut ring) = decoder.ring.lock() {
+                ring.window_fetches = 1;
+                decoder.insert_decoded_batch(&mut ring, initial);
+            }
+            return Ok(DecodedVideoStream {
+                width: meta.width,
+                height: meta.height,
+                fps: meta.fps,
+                duration_ms,
+                frames: Vec::new(),
+                on_demand: Some(Arc::new(decoder)),
+            });
+        }
+    }
+
+    if let Some(meta) = probed_metadata {
+        checked_decoded_video_payload_len(meta.width, meta.height, meta.frame_count.unwrap_or(1))?;
+    }
 
     let mut child = Command::new(&ffmpeg)
         .arg("-hide_banner")
@@ -1337,7 +1965,7 @@ fn decode_video_stream_with_ffmpeg(
                 .to_string(),
         )
         .arg("-i")
-        .arg(staged_video.path())
+        .arg(backing.path())
         .arg("-f")
         .arg("image2pipe")
         .arg("-c:v")
@@ -1428,7 +2056,109 @@ fn decode_video_stream_with_ffmpeg(
         .map_err(|e| format!("Video '{name}' frame extraction failed: {e}"))
 }
 
-/// Decode a video byte buffer (`MP4`, `WebM`, `Ogg`, or deterministic `nfvf` MP4) into RGBA8 frames (`T-201`).
+fn decode_video_stream_with_ffmpeg(
+    name: &str,
+    mime: &str,
+    bytes: &[u8],
+) -> Result<DecodedVideoStream, String> {
+    let ffmpeg = detect_ffmpeg().ok_or_else(|| {
+        format!(
+            "Video '{name}' requires ffmpeg to decode compressed video frames, but ffmpeg was not found."
+        )
+    })?;
+    let ext = if mime.contains("webm") || name.ends_with(".webm") {
+        "webm"
+    } else if mime.contains("ogg") || name.ends_with(".ogv") || name.ends_with(".ogg") {
+        "ogv"
+    } else {
+        "mp4"
+    };
+    let staged_video = StagedMediaFile::create(name, ext, bytes)?;
+    decode_ffmpeg_backing(name, ffmpeg, FfmpegMediaBacking::Staged(staged_video))
+}
+
+fn decode_avi_stream_bytes(name: &str, bytes: &[u8]) -> Option<Result<DecodedVideoStream, String>> {
+    let container = neoflash_core::index_avi_container(bytes).ok()?;
+    if !container.info.supports_pure_rust_video() || container.frames.is_empty() {
+        return None;
+    }
+    let count = container.frames.len();
+    let frame_bytes =
+        match checked_on_demand_video_bounds(container.info.width, container.info.height, count) {
+            Ok(fb) => fb,
+            Err(e) => return Some(Err(format!("Video '{name}' failed decoding: {e}"))),
+        };
+    let fps = (container.info.fps as f32).max(1.0);
+    let duration_ms = container.info.duration_ms();
+    if u64::from(duration_ms) > MAX_DECODED_VIDEO_DURATION_MS {
+        return Some(Err(format!(
+            "Video '{name}' duration {duration_ms} ms exceeds the supported {MAX_DECODED_VIDEO_DURATION_MS} ms budget."
+        )));
+    }
+    if should_use_eager_video_frames(frame_bytes, count) {
+        if let Ok(avi) = neoflash_core::decode_avi_bytes(bytes) {
+            let default_dur_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
+            let frames = avi
+                .frames
+                .into_iter()
+                .map(|(timestamp_ms, image)| DecodedVideoFrame {
+                    timestamp_ms,
+                    duration_ms: default_dur_ms,
+                    image,
+                })
+                .collect();
+            return Some(Ok(DecodedVideoStream {
+                width: avi.info.width,
+                height: avi.info.height,
+                fps,
+                duration_ms,
+                frames,
+                on_demand: None,
+            }));
+        }
+        return None;
+    }
+
+    let backing: Arc<[u8]> = bytes.to_vec().into();
+    let backing_len = backing.len();
+    let w = container.info.width;
+    let h = container.info.height;
+    let decoder = OnDemandVideoDecoder::new(
+        w,
+        h,
+        fps,
+        frame_bytes,
+        count,
+        backing_len,
+        OnDemandVideoBackend::Avi {
+            bytes: backing,
+            container,
+        },
+    );
+    let initial = match decoder.decode_window_frames(0, decoder.window_fetch_frames) {
+        Ok(frames) if !frames.is_empty() => frames,
+        Ok(_) => {
+            return Some(Err(format!(
+                "Video '{name}' produced 0 decodable AVI frames."
+            )));
+        }
+        Err(e) => return Some(Err(format!("Video '{name}' AVI decode failed: {e}"))),
+    };
+    if let Ok(mut ring) = decoder.ring.lock() {
+        ring.window_fetches = 1;
+        decoder.insert_decoded_batch(&mut ring, initial);
+    }
+    Some(Ok(DecodedVideoStream {
+        width: w,
+        height: h,
+        fps,
+        duration_ms,
+        frames: Vec::new(),
+        on_demand: Some(Arc::new(decoder)),
+    }))
+}
+
+/// Decode a video byte buffer (`MP4`, `WebM`, `Ogg`, `AVI`, or deterministic `nfvf` MP4) into RGBA8 frames (`T-201` / `T-229`).
 pub fn decode_video_stream_bytes(
     name: &str,
     mime: &str,
@@ -1449,30 +2179,71 @@ pub fn decode_video_stream_bytes(
         return nfvf_res.map_err(|e| format!("Video '{name}' failed decoding: {e}"));
     }
     if neoflash_core::is_avi_bytes(bytes)
-        && let Ok(avi) = neoflash_core::decode_avi_bytes(bytes)
+        && let Some(avi_res) = decode_avi_stream_bytes(name, bytes)
     {
-        let fps = (avi.info.fps as f32).max(1.0);
-        let default_dur_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
-        let total = avi.frames.len();
-        let mut frames = Vec::with_capacity(total);
-        for (idx, (timestamp_ms, image)) in avi.frames.into_iter().enumerate() {
-            let duration_ms = default_dur_ms;
-            let _ = idx;
-            frames.push(DecodedVideoFrame {
-                timestamp_ms,
-                duration_ms,
-                image,
-            });
-        }
-        return Ok(DecodedVideoStream {
-            width: avi.info.width,
-            height: avi.info.height,
-            fps,
-            duration_ms: avi.info.duration_ms(),
-            frames,
-        });
+        return avi_res;
     }
     decode_video_stream_with_ffmpeg(name, mime, bytes)
+}
+
+fn decode_external_video_file(
+    candidate: &Path,
+    label: &str,
+    mime: &str,
+) -> Result<DecodedVideoStream, String> {
+    let file = fs::File::open(candidate)
+        .map_err(|error| format!("Failed to open external video '{label}': {error}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("Failed to inspect external video '{label}': {error}"))?;
+    if !metadata.is_file() {
+        return Err(format!("External video '{label}' is not a regular file."));
+    }
+    if metadata.len() > MAX_VIDEO_INPUT_BYTES as u64 {
+        return Err(format!(
+            "External video '{label}' is {} bytes, exceeding the {} MiB input budget.",
+            metadata.len(),
+            MAX_VIDEO_INPUT_BYTES / (1024 * 1024)
+        ));
+    }
+    let mut prefix = Vec::with_capacity(65_536.min(metadata.len() as usize));
+    file.take(65_536)
+        .read_to_end(&mut prefix)
+        .map_err(|error| format!("Failed to read external video '{label}': {error}"))?;
+    if prefix.is_empty() {
+        return Err(format!("External video '{label}' is empty."));
+    }
+    if has_nfvf_box_header(&prefix) || neoflash_core::is_avi_bytes(&prefix) {
+        let bytes = read_bounded_video_file(candidate, label)?;
+        return decode_video_stream_bytes(label, mime, &bytes);
+    }
+    // Inspect full container boxes when small, or prefix for large external MP4/WebM files so
+    // explicit codec diagnostics (`hvc1`, unsupported container) fire without reading 512 MiB into RAM.
+    if metadata.len() <= 4 * 1024 * 1024 {
+        let bytes = read_bounded_video_file(candidate, label)?;
+        let diags = inspect_video_resource(label, mime, &bytes, None);
+        if let Some(err_diag) = diags.iter().find(|d| d.is_error) {
+            return Err(err_diag.message.clone());
+        }
+    } else {
+        let diags = inspect_video_resource(label, mime, &prefix, None);
+        if let Some(err_diag) = diags
+            .iter()
+            .find(|d| d.is_error && !d.message.contains("truncated"))
+        {
+            return Err(err_diag.message.clone());
+        }
+    }
+    let ffmpeg = detect_ffmpeg().ok_or_else(|| {
+        format!(
+            "Video '{label}' requires ffmpeg to decode compressed video frames, but ffmpeg was not found."
+        )
+    })?;
+    decode_ffmpeg_backing(
+        label,
+        ffmpeg,
+        FfmpegMediaBacking::ExternalPath(candidate.to_path_buf()),
+    )
 }
 
 /// Resolve and decode a timeline video span/source from `project` (`Embedded` or `External` relative to `base_dir`, `T-201`).
@@ -1509,17 +2280,13 @@ pub fn resolve_and_decode_project_video(
             })?;
             if let Some(dir) = base_dir {
                 let candidate = dir.join(&spec.url_or_path);
-                match read_bounded_video_file(&candidate, &spec.url_or_path) {
-                    Ok(bytes) => {
-                        return decode_video_stream_bytes(
-                            &spec.url_or_path,
-                            &spec.mime_type,
-                            &bytes,
-                        )
-                        .map(Arc::new);
-                    }
-                    Err(_) if !candidate.exists() => {}
-                    Err(error) => return Err(error),
+                if candidate.exists() {
+                    return decode_external_video_file(
+                        &candidate,
+                        &spec.url_or_path,
+                        &spec.mime_type,
+                    )
+                    .map(Arc::new);
                 }
                 return Err(format!(
                     "External video file '{}' for resource '{resource_id}' was not found at '{}'. Ensure the relative media file exists beside the project or switch deployment to Embedded.",
@@ -1666,6 +2433,7 @@ fn insert_decoded_video_stream_with_limits(
 
     let mut seen_streams = HashSet::new();
     let mut seen_images = HashSet::new();
+    let mut seen_decoders = HashSet::new();
     let mut total_bytes = 0usize;
     let mut total_frames = 0usize;
 
@@ -1700,7 +2468,7 @@ fn insert_decoded_video_stream_with_limits(
             continue;
         }
         total_frames = total_frames
-            .checked_add(existing.frames.len())
+            .checked_add(existing.logical_frame_count())
             .ok_or_else(|| "Decoded timeline-video frame count overflow.".to_owned())?;
         if total_frames > frame_limit {
             return Err(format!(
@@ -1715,6 +2483,15 @@ fn insert_decoded_video_stream_with_limits(
             .and_then(|bytes| bytes.checked_add(ARC_ALLOCATION_OVERHEAD))
             .ok_or_else(|| "Decoded timeline-video frame-record byte size overflow.".to_owned())?;
         add_bytes(frame_storage, "frame-record")?;
+
+        if let Some(decoder) = &existing.on_demand
+            && seen_decoders.insert(Arc::as_ptr(decoder) as usize)
+        {
+            let ring_budget = decoder.pinned_budget_bytes().ok_or_else(|| {
+                "Decoded timeline-video ring decoder byte size overflow.".to_owned()
+            })?;
+            add_bytes(ring_budget, "ring-decoder")?;
+        }
 
         for frame in &existing.frames {
             let image_ptr = Arc::as_ptr(&frame.image) as usize;
@@ -3923,6 +4700,7 @@ mod tests {
                         rgba: color.to_vec().into(),
                     }),
                 }],
+                on_demand: None,
             })
         };
         let mut cache = HashMap::new();
@@ -4635,5 +5413,168 @@ mod tests {
         assert!(!child_path.with_extension("png").exists());
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn t229_long_form_video_decodes_on_demand_within_pinned_ring_and_matches_seeks_and_trims() {
+        use neoflash_core::ResourceUnit;
+
+        // 1. Short clip fast path (<= MAX_EAGER_VIDEO_FRAMES and <= 32 MiB): retains eager frames.
+        let short_mp4 = build_four_color_mp4_fixture();
+        let short_stream = decode_video_stream_bytes("short.mp4", "video/mp4", &short_mp4).unwrap();
+        assert!(short_stream.on_demand.is_none());
+        assert_eq!(short_stream.frames.len(), 4);
+
+        // 2. Long-form deterministic nfvf stream (240 frames > MAX_EAGER_VIDEO_FRAMES = 180):
+        // switches automatically to OnDemandVideoDecoder with bounded ring eviction.
+        let frame_count = 240usize;
+        let raw_frames: Vec<Vec<u8>> = (0..frame_count)
+            .map(|idx| [idx as u8, ((idx * 3) & 0xFF) as u8, 42, 255].repeat(8 * 8))
+            .collect();
+        let raw_slices: Vec<&[u8]> = raw_frames.iter().map(Vec::as_slice).collect();
+        let long_nfvf = encode_deterministic_mp4_rgba_frames(8, 8, 20, &raw_slices);
+        let long_stream = decode_video_stream_bytes("long.mp4", "video/mp4", &long_nfvf).unwrap();
+        assert!(long_stream.frames.is_empty());
+        let decoder = long_stream
+            .on_demand
+            .as_ref()
+            .expect("expected on-demand windowed decoder");
+        assert_eq!(decoder.logical_frame_count(), frame_count);
+        assert!(decoder.max_ring_frames() <= MAX_WINDOWED_RING_FRAMES);
+
+        let make_placement = |time_ms: u32,
+                              in_point_ms: u32,
+                              out_point_ms: Option<u32>,
+                              loop_video: bool,
+                              sync: VideoSyncMode,
+                              stopped: bool| ResolvedVideoPlacement {
+            channel: "video".into(),
+            target_path: vec!["vid".into()],
+            layer_id: "layer".into(),
+            resource: "res".into(),
+            source: None,
+            sync,
+            time_ms,
+            in_point_ms,
+            out_point_ms,
+            playing: true,
+            loop_video,
+            muted: false,
+            stopped,
+        };
+
+        // Random forward & backward seeks across the 240-frame stream stay pixel-exact and never
+        // exceed MAX_WINDOWED_RING_FRAMES.
+        for &target_idx in &[0usize, 5, 199, 73, 239, 12, 150, 0] {
+            let p = make_placement(
+                (target_idx as u32) * 50,
+                0,
+                None,
+                false,
+                VideoSyncMode::Stream,
+                false,
+            );
+            let (resolved_idx, frame) = long_stream.frame_at_placement(&p).unwrap();
+            assert_eq!(resolved_idx, target_idx);
+            assert_eq!(
+                &frame.image.rgba[..4],
+                &[target_idx as u8, ((target_idx * 3) & 0xFF) as u8, 42, 255]
+            );
+            assert!(decoder.resident_ring_frames() <= MAX_WINDOWED_RING_FRAMES);
+            assert!(decoder.resident_ring_bytes() <= MAX_WINDOWED_RING_STREAM_BYTES);
+        }
+
+        // Trim clamps (in_point_ms / out_point_ms), Loop, and Stop semantics match exactly.
+        let trimmed = make_placement(5_000, 500, Some(1_500), false, VideoSyncMode::Stream, false);
+        let (clamped_idx, _) = long_stream.frame_at_placement(&trimmed).unwrap();
+        assert_eq!(
+            clamped_idx, 29,
+            "non-looped trim must hold final frame before out_point_ms"
+        );
+
+        let unstopped = make_placement(0, 0, None, false, VideoSyncMode::Stop, false);
+        assert!(long_stream.frame_at_placement(&unstopped).is_none());
+        let stopped_hold = make_placement(250, 0, None, false, VideoSyncMode::Stop, true);
+        assert_eq!(long_stream.frame_at_placement(&stopped_hold).unwrap().0, 5);
+
+        // 3. Long-form multi-GOP H.264 external MP4 (when ffmpeg + ffprobe are available):
+        // verifies real codec seeking across GOP boundaries without loading all frames into RAM.
+        if let Some(ffmpeg) = detect_ffmpeg()
+            && detect_ffprobe(&ffmpeg).is_some()
+        {
+            let dir = env::temp_dir().join(format!(
+                "neoflash-t229-windowed-h264-{}-{}",
+                std::process::id(),
+                VIDEO_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            let mp4_path = dir.join("long_gop.mp4");
+            // 210 frames at 30 fps (7s > MAX_EAGER_VIDEO_FRAMES = 180) with GOP = 30.
+            let status = Command::new(&ffmpeg)
+                .args([
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc2=s=64x64:r=30:d=7",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-g",
+                    "30",
+                ])
+                .arg(&mp4_path)
+                .status()
+                .unwrap();
+            assert!(status.success());
+
+            let mut project = Project::blank();
+            project.resources.push(
+                ResourceUnit::from_bytes("long_vid", "long_gop.mp4", "video/mp4", &[]).unwrap(),
+            );
+            let spec = VideoSourceSpec {
+                mode: VideoDeploymentMode::External,
+                url_or_path: "long_gop.mp4".into(),
+                mime_type: "video/mp4".into(),
+            };
+            let ext_stream =
+                resolve_and_decode_project_video(&project, "long_vid", Some(&spec), Some(&dir))
+                    .unwrap();
+            assert!(ext_stream.frames.is_empty());
+            let ext_dec = ext_stream.on_demand.as_ref().unwrap();
+            assert_eq!(ext_dec.logical_frame_count(), 210);
+
+            // Reference full raw decode for exact pixel verification across GOPs:
+            let full_raw = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-loglevel", "error", "-i"])
+                .arg(&mp4_path)
+                .args(["-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
+                .output()
+                .unwrap();
+            assert!(full_raw.status.success());
+            let fbytes = 64 * 64 * 4;
+            assert_eq!(full_raw.stdout.len(), 210 * fbytes);
+
+            for &seek_frame in &[0usize, 1, 29, 30, 31, 107, 179, 209, 44] {
+                let target_ms = ((seek_frame as f64 * 1000.0) / 30.0).round() as u32;
+                let p = make_placement(target_ms, 0, None, false, VideoSyncMode::Stream, false);
+                let (got_idx, got_frame) = ext_stream.frame_at_placement(&p).unwrap();
+                assert_eq!(got_idx, seek_frame);
+                let ref_slice = &full_raw.stdout[seek_frame * fbytes..(seek_frame + 1) * fbytes];
+                assert_eq!(
+                    got_frame.image.rgba.as_ref(),
+                    ref_slice,
+                    "windowed H.264 seek mismatch at frame {seek_frame}"
+                );
+                assert!(ext_dec.resident_ring_frames() <= MAX_WINDOWED_RING_FRAMES);
+            }
+
+            let _ = fs::remove_dir_all(&dir);
+        }
     }
 }

@@ -824,6 +824,7 @@ impl Editor {
                     }
                 };
                 self.stage_view_input(ui, rect, mapping, origin);
+                self.scale9_guide_input(ui, rect, origin, mapping);
                 self.shape_hint_input(ui, rect, page, origin, mapping);
                 self.motion_curve_input(ui, rect, origin, mapping);
                 self.motion_path_input(ui, rect, origin, mapping);
@@ -1741,6 +1742,7 @@ impl Editor {
         if !self.enable_simple_buttons
             || self.playing
             || self.stage_view.guide_pointer
+            || self.scale9_guide_drag.is_some()
             || self.timeline_motion.drag.is_some()
             || self.timeline_motion.curve_drag.is_some()
             || self.timeline_shape_hints.drag.is_some()
@@ -1891,6 +1893,7 @@ impl Editor {
     ) -> (bool, bool) {
         let preview_active = self.live_script_preview
             && !self.stage_view.guide_pointer
+            && self.scale9_guide_drag.is_none()
             && self.timeline_motion.drag.is_none()
             && self.timeline_motion.curve_drag.is_none()
             && self.timeline_shape_hints.drag.is_none()

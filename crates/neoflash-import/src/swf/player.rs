@@ -12,8 +12,8 @@ use super::{SwfContainer, read_container, read_container_from_bytes};
 use crate::ImportError;
 use neoflash_core::{
     AuthoredScene, BlendMode, ColorTransform, Element, ElementKind, FilterSpec, InstancePlayback,
-    Keyframe, Layer, LayerProperties, LayerRole, Project, SoundCommand, SoundSync, SymbolKind,
-    Transform, evaluate_scene, transform_matrix,
+    Keyframe, Layer, LayerProperties, LayerRole, Project, SoundCommand, SoundSync, Symbol,
+    SymbolKind, Timeline, Transform, evaluate_scene_with_symbol_overrides, transform_matrix,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -917,6 +917,45 @@ impl SwfBytecodePlayer {
         out
     }
 
+    /// Build the transient runtime `Symbol` override table for `symbol_id` and any nested
+    /// `SwfSprite` instances without cloning `project` (`T-230`).
+    pub fn build_display_list_symbol_overrides(
+        &self,
+        project: &Project,
+        symbol_id: &str,
+        frame: u32,
+    ) -> HashMap<String, Symbol> {
+        let mut overrides = HashMap::new();
+        let entries = self.display_list();
+        let mut next_runtime_symbol = 0usize;
+        let instance_symbols = self.materialize_runtime_symbol_overrides(
+            project,
+            &mut overrides,
+            &entries,
+            0,
+            &mut next_runtime_symbol,
+        );
+        let offset = if symbol_id == project.root {
+            self.stage_offset
+        } else {
+            (0.0, 0.0)
+        };
+        if let Some(target_sym) = Self::build_overridden_symbol(
+            project,
+            &overrides,
+            symbol_id,
+            symbol_id,
+            frame,
+            &entries,
+            offset,
+            &instance_symbols,
+            true,
+        ) {
+            overrides.insert(symbol_id.to_owned(), target_sym);
+        }
+        overrides
+    }
+
     /// Project the current runtime display-list state onto an ephemeral clone of `project`
     /// without mutating the authored `Project`.
     pub fn project_with_display_list_overlay(
@@ -926,28 +965,23 @@ impl SwfBytecodePlayer {
         frame: u32,
     ) -> Project {
         let mut overlay = project.clone();
-        let entries = self.display_list();
-        let mut next_runtime_symbol = 0usize;
-        let instance_symbols =
-            self.materialize_runtime_symbols(&mut overlay, &entries, 0, &mut next_runtime_symbol);
-        let offset = if symbol_id == project.root {
-            self.stage_offset
-        } else {
-            (0.0, 0.0)
-        };
-        Self::apply_entries_to_symbol(
-            &mut overlay,
-            symbol_id,
-            frame,
-            &entries,
-            offset,
-            &instance_symbols,
-        );
+        let mut overrides = self.build_display_list_symbol_overrides(project, symbol_id, frame);
+        if let Some(target_sym) = overrides.remove(symbol_id)
+            && let Some(slot) = overlay.symbol_mut(symbol_id)
+        {
+            *slot = target_sym;
+        }
+        let mut extra: Vec<(String, Symbol)> = overrides.into_iter().collect();
+        extra.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, sym) in extra {
+            overlay.symbols.push(sym);
+        }
         overlay
     }
 
     /// Evaluate the native Stage `AuthoredScene` for the current `SwfBytecodePlayer` display-list
-    /// state without mutating `project`.
+    /// state directly against `project` + transient symbol overrides without cloning `project`
+    /// (`T-230`).
     pub fn evaluate_stage_scene(
         &self,
         project: &Project,
@@ -955,16 +989,24 @@ impl SwfBytecodePlayer {
         frame: u32,
         show_masking: bool,
     ) -> AuthoredScene {
-        let overlay = self.project_with_display_list_overlay(project, symbol_id, frame);
-        evaluate_scene(&overlay, symbol_id, frame, true, show_masking)
+        let overrides = self.build_display_list_symbol_overrides(project, symbol_id, frame);
+        evaluate_scene_with_symbol_overrides(
+            project,
+            &overrides,
+            symbol_id,
+            frame,
+            true,
+            show_masking,
+        )
     }
 
-    /// Clone sprite symbols per runtime instance before applying their display lists. Reusing the
-    /// authored `swf-sym-*` symbol would make two instances of the same character overwrite each
-    /// other's frame and descendants. The clones exist only in the ephemeral overlay.
-    fn materialize_runtime_symbols(
+    /// Synthesize transient runtime `Symbol` overrides per active `SwfSprite` instance without
+    /// cloning `project` (`T-230`). Reusing the authored `swf-sym-*` symbol would make two
+    /// instances of the same character overwrite each other's frame and descendants.
+    fn materialize_runtime_symbol_overrides(
         &self,
-        overlay: &mut Project,
+        project: &Project,
+        overrides: &mut HashMap<String, Symbol>,
         entries: &[SwfDisplayEntry],
         runtime_depth: usize,
         next_runtime_symbol: &mut usize,
@@ -978,59 +1020,73 @@ impl SwfBytecodePlayer {
                 symbols.insert(entry.depth, base_symbol_id);
                 continue;
             }
-            let Some(mut runtime_symbol) = overlay.symbol(&base_symbol_id).cloned() else {
+            if project.symbol(&base_symbol_id).is_none() && !overrides.contains_key(&base_symbol_id)
+            {
                 continue;
-            };
+            }
             let runtime_symbol_id = loop {
                 *next_runtime_symbol = next_runtime_symbol.saturating_add(1);
                 let candidate = format!("swf-runtime-overlay-{}", *next_runtime_symbol);
-                if overlay.symbol(&candidate).is_none() {
+                if project.symbol(&candidate).is_none() && !overrides.contains_key(&candidate) {
                     break candidate;
                 }
             };
-            runtime_symbol.id = runtime_symbol_id.clone();
-            runtime_symbol.class_name = None;
-            runtime_symbol.linkage_id = None;
-            overlay.symbols.push(runtime_symbol);
 
-            let child_symbols = self.materialize_runtime_symbols(
-                overlay,
+            let child_symbols = self.materialize_runtime_symbol_overrides(
+                project,
+                overrides,
                 &entry.children,
                 runtime_depth + 1,
                 next_runtime_symbol,
             );
-            Self::apply_entries_to_symbol(
-                overlay,
+            if let Some(mut runtime_symbol) = Self::build_overridden_symbol(
+                project,
+                overrides,
+                &base_symbol_id,
                 &runtime_symbol_id,
                 entry.current_frame,
                 &entry.children,
                 (0.0, 0.0),
                 &child_symbols,
-            );
-            symbols.insert(entry.depth, runtime_symbol_id);
+                false,
+            ) {
+                runtime_symbol.class_name = None;
+                runtime_symbol.linkage_id = None;
+                overrides.insert(runtime_symbol_id.clone(), runtime_symbol);
+                symbols.insert(entry.depth, runtime_symbol_id);
+            }
         }
         symbols
     }
 
-    fn apply_entries_to_symbol(
-        overlay: &mut Project,
+    #[allow(clippy::too_many_arguments)]
+    fn build_overridden_symbol(
+        project: &Project,
+        overrides: &HashMap<String, Symbol>,
+        source_symbol_id: &str,
         target_symbol_id: &str,
         frame: u32,
         entries: &[SwfDisplayEntry],
         offset: (f64, f64),
         instance_symbols: &BTreeMap<u16, String>,
-    ) {
+        match_existing_layer_elements: bool,
+    ) -> Option<Symbol> {
+        let base_sym = overrides
+            .get(source_symbol_id)
+            .or_else(|| project.symbol(source_symbol_id))?;
         let mut layers: Vec<Layer> = Vec::with_capacity(entries.len().max(1));
         let mut depth_to_layer_idx: BTreeMap<u16, usize> = BTreeMap::new();
         let mut mask_requests: Vec<(u16, u16, usize)> = Vec::new();
-        let existing_sym = overlay.symbol(target_symbol_id).cloned();
 
         for entry in entries {
             let char_sym_id = instance_symbols
                 .get(&entry.depth)
                 .cloned()
                 .unwrap_or_else(|| format!("swf-sym-{}", entry.character_id));
-            let Some(child_sym) = overlay.symbol(&char_sym_id) else {
+            let Some(child_sym) = overrides
+                .get(&char_sym_id)
+                .or_else(|| project.symbol(&char_sym_id))
+            else {
                 continue;
             };
             let playback = if let Some(ratio) = entry.ratio
@@ -1045,17 +1101,23 @@ impl SwfBytecodePlayer {
                 InstancePlayback::SingleFrame(entry.current_frame.min(max_f.saturating_sub(1)))
             };
             let depth_layer_id = format!("{target_symbol_id}-d{}", entry.depth);
-            let existing_elem_id = existing_sym
-                .as_ref()
-                .and_then(|sym| sym.timeline.layers.iter().find(|l| l.id == depth_layer_id))
-                .and_then(|layer| {
-                    layer
-                        .key_at(frame)
-                        .and_then(|k| k.elements.first())
-                        .or_else(|| layer.keyframes.iter().flat_map(|k| &k.elements).next())
-                })
-                .map(|e| e.id.clone())
-                .unwrap_or_else(|| format!("swf-el-{target_symbol_id}-d{}-s1", entry.depth));
+            let existing_elem_id = if match_existing_layer_elements {
+                base_sym
+                    .timeline
+                    .layers
+                    .iter()
+                    .find(|l| l.id == depth_layer_id)
+                    .and_then(|layer| {
+                        layer
+                            .key_at(frame)
+                            .and_then(|k| k.elements.first())
+                            .or_else(|| layer.keyframes.iter().flat_map(|k| &k.elements).next())
+                    })
+                    .map(|e| e.id.clone())
+            } else {
+                None
+            }
+            .unwrap_or_else(|| format!("swf-el-{target_symbol_id}-d{}-s1", entry.depth));
             let el = Element {
                 id: existing_elem_id,
                 name: entry.name.clone(),
@@ -1151,10 +1213,20 @@ impl SwfBytecodePlayer {
             });
         }
 
-        if let Some(sym) = overlay.symbol_mut(target_symbol_id) {
-            sym.timeline.frame_count = sym.timeline.frame_count.max(frame + 1);
-            sym.timeline.layers = layers;
-        }
+        Some(Symbol {
+            id: target_symbol_id.to_owned(),
+            name: base_sym.name.clone(),
+            kind: base_sym.kind,
+            folder: base_sym.folder.clone(),
+            class_name: base_sym.class_name.clone(),
+            linkage_id: base_sym.linkage_id.clone(),
+            timeline: Timeline {
+                frame_count: base_sym.timeline.frame_count.max(frame + 1),
+                layers,
+                scripts: base_sym.timeline.scripts.clone(),
+                guides: base_sym.timeline.guides.clone(),
+            },
+        })
     }
 
     /// Execute one frame step on the SWF timeline and return the resulting `SwfFrameState`.

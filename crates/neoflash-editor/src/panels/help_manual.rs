@@ -154,7 +154,6 @@ pub(crate) fn close_help_manual(ctx: &egui::Context) {
     });
 }
 
-#[cfg(test)]
 pub(crate) fn is_help_manual_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| {
         d.get_temp::<HelpManualState>(state_id())

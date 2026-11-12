@@ -129,6 +129,44 @@ impl Editor {
             self.active_session = 0;
         }
         self.session_installed(ctx);
+        self.sync_session_tabs_to_prefs();
+    }
+
+    /// Synchronize `WorkspacePrefs::general.{session_files, active_session_file}` with the
+    /// currently open document sessions in left-to-right tab order (`T-231`).
+    pub(crate) fn sync_session_tabs_to_prefs(&mut self) {
+        if self.sessions.is_empty() {
+            self.workspace.general.set_session_files(&[], None);
+            return;
+        }
+        let mut paths = Vec::with_capacity(self.sessions.len());
+        for index in 0..self.sessions.len() {
+            let tracked = if index == self.active_session {
+                self.tracked_disk_path().map(Path::to_path_buf)
+            } else {
+                self.sessions[index]
+                    .as_ref()
+                    .and_then(DocumentSession::tracked_disk_path)
+                    .map(Path::to_path_buf)
+            };
+            if let Some(p) = tracked {
+                paths.push(p);
+            }
+        }
+        let preferred_idx = self.quit_origin_session.unwrap_or(self.active_session);
+        let active_path = if preferred_idx == self.active_session {
+            self.tracked_disk_path().map(Path::to_path_buf)
+        } else {
+            self.sessions
+                .get(preferred_idx)
+                .and_then(|s| s.as_ref())
+                .and_then(DocumentSession::tracked_disk_path)
+                .map(Path::to_path_buf)
+                .or_else(|| self.tracked_disk_path().map(Path::to_path_buf))
+        };
+        self.workspace
+            .general
+            .set_session_files(&paths, active_path.as_deref());
     }
 
     pub(crate) fn has_document(&self) -> bool {
@@ -156,6 +194,7 @@ impl Editor {
         let identity = self.clipboard.session.clone();
         self.clipboard = Default::default();
         self.clipboard.session = identity;
+        self.scale9_guide_drag = None;
         self.cancel_guide_drag();
         self.set_playing(false);
         self.timeline_key_drag = None;
@@ -250,6 +289,7 @@ impl Editor {
             self.sessions.push(None);
         }
         self.session_installed(ctx);
+        self.sync_session_tabs_to_prefs();
         self.active_session
     }
 
@@ -325,6 +365,7 @@ impl Editor {
         self.sessions[self.active_session] = Some(incoming);
         self.active_session = index;
         self.session_installed(ctx);
+        self.sync_session_tabs_to_prefs();
         true
     }
 
@@ -359,6 +400,7 @@ impl Editor {
             self.install_document(ctx, Project::blank(), None, true);
             self.sessions.clear();
             self.active_session = 0;
+            self.sync_session_tabs_to_prefs();
             self.message("Document closed.");
             return;
         }
@@ -381,6 +423,7 @@ impl Editor {
         incoming.exchange(self);
         self.active_session = next;
         self.session_installed(ctx);
+        self.sync_session_tabs_to_prefs();
     }
 
     pub(crate) fn cycle_document(&mut self, ctx: &egui::Context, previous: bool) {
@@ -405,6 +448,9 @@ impl Editor {
         }
         self.finish_edits();
         self.close_origin = Some(self.active_session);
+        if quit {
+            self.quit_origin_session = Some(self.active_session);
+        }
         self.close_targets = (0..self.session_count())
             .filter(|index| !others || *index != self.active_session)
             .collect();
@@ -442,6 +488,7 @@ impl Editor {
         self.close_origin = None;
         self.quit_approved.clear();
         if self.close_quit {
+            self.sync_session_tabs_to_prefs();
             self.clear_all_session_recovery();
             self.close_targets.clear();
             self.allow_close = true;
@@ -461,6 +508,7 @@ impl Editor {
         self.close_targets.clear();
         self.close_quit = false;
         self.close_origin = None;
+        self.quit_origin_session = None;
     }
 
     pub(crate) fn continue_confirmation(&mut self, ctx: &egui::Context) {

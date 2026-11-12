@@ -746,6 +746,7 @@ impl Editor {
 
         let mut cancel = false;
         let mut do_export = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
         let nf = neoflash_ui::palette(ctx);
         let modal = egui::Modal::new(egui::Id::new("export-lottie-modal"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -1277,11 +1278,16 @@ impl Editor {
                 );
             });
 
-        do_export |= !draft.is_exporting()
-            && draft.blocking_error.is_none()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        let can_export_lottie = !draft.is_exporting() && draft.blocking_error.is_none();
+        if !cancel && !do_export {
+            match kb.resolve(ctx, &modal, can_export_lottie) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_export = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
+        }
 
-        if cancel || modal.should_close() {
+        if cancel {
             let was_exporting = draft.is_exporting();
             draft.cancel_worker();
             if was_exporting {

@@ -3088,12 +3088,16 @@ impl Project {
         self.format_version = self.format_version.max(3);
     }
 
-    /// Synchronize imported Shared Library symbols in `self` from `donor` (`T-128`).
+    /// Synchronize imported Shared Library symbols in `self` from `donor` (`T-128`, `T-231`).
     ///
     /// Matches symbols with `import_for_runtime == true` against exported symbols in `donor`
     /// (by `linkage_id` or `name`), updating the local symbol's `kind`, `timeline`, and
-    /// `class_name` while preserving its local `id` so existing instances remain valid.
+    /// non-colliding `class_name` while preserving its local `id` so existing instances remain
+    /// valid, and transitively importing any nested sub-symbols, resources, global swatches, and
+    /// vector styles with collision-safe IDs and paths.
     pub fn resolve_shared_library_symbols(&mut self, donor: &Project) -> usize {
+        use std::collections::{BTreeMap, HashMap, HashSet};
+
         let imports: Vec<SharedLibraryLinkage> = self
             .shared_libraries()
             .into_iter()
@@ -3103,7 +3107,7 @@ impl Project {
             return 0;
         }
         let donor_exports = donor.shared_libraries();
-        let mut updated = 0usize;
+        let mut matched_roots: Vec<(Id, Symbol)> = Vec::new();
         for import_entry in imports {
             let Some(local_sym) = self
                 .symbols
@@ -3113,10 +3117,16 @@ impl Project {
             else {
                 continue;
             };
+            if self.is_scene(&local_sym.id) {
+                continue;
+            }
             let donor_sym = donor
                 .symbols
                 .iter()
                 .find(|ds| {
+                    if donor.is_scene(&ds.id) {
+                        return false;
+                    }
                     let is_exported = donor_exports
                         .iter()
                         .any(|de| de.symbol_id == ds.id && de.export_for_runtime)
@@ -3134,36 +3144,451 @@ impl Project {
                         || ds.linkage_id.as_deref() == Some(local_sym.name.as_str())
                 })
                 .cloned();
-            let Some(donor_sym) = donor_sym else {
+            if let Some(ds) = donor_sym
+                && !matched_roots.iter().any(|(lid, _)| lid == &local_sym.id)
+            {
+                matched_roots.push((local_sym.id, ds));
+            }
+        }
+        if matched_roots.is_empty() {
+            return 0;
+        }
+
+        // Collect transitive symbol, resource, swatch, and style dependencies in `donor`.
+        let mut sym_map: BTreeMap<Id, Id> = BTreeMap::new();
+        for (local_id, donor_sym) in &matched_roots {
+            sym_map.insert(donor_sym.id.clone(), local_id.clone());
+        }
+        let mut visited_donor_syms: HashSet<Id> = HashSet::new();
+        let mut extra_donor_syms: Vec<Symbol> = Vec::new();
+        let mut needed_resources: Vec<Id> = Vec::new();
+        let mut seen_resources: HashSet<Id> = HashSet::new();
+        let mut needed_swatches: Vec<Id> = Vec::new();
+        let mut seen_swatches: HashSet<Id> = HashSet::new();
+        let mut needed_styles: Vec<Id> = Vec::new();
+        let mut seen_styles: HashSet<Id> = HashSet::new();
+
+        let mut stack: Vec<Symbol> = matched_roots.iter().map(|(_, ds)| ds.clone()).collect();
+        while let Some(curr) = stack.pop() {
+            if !visited_donor_syms.insert(curr.id.clone()) {
+                continue;
+            }
+            if !matched_roots.iter().any(|(_, ds)| ds.id == curr.id) {
+                extra_donor_syms.push(curr.clone());
+            }
+            for layer in &curr.timeline.layers {
+                for kf in &layer.keyframes {
+                    if let Some(snd) = &kf.sound
+                        && seen_resources.insert(snd.resource.clone())
+                    {
+                        needed_resources.push(snd.resource.clone());
+                    }
+                    if let Some(vid) = &kf.video
+                        && seen_resources.insert(vid.resource.clone())
+                    {
+                        needed_resources.push(vid.resource.clone());
+                    }
+                    for bf in &kf.bitmap_fills {
+                        if seen_resources.insert(bf.resource_id.clone()) {
+                            needed_resources.push(bf.resource_id.clone());
+                        }
+                    }
+                    for app in &kf.appearances {
+                        for sw in app.fill_swatch_id.iter().chain(app.stroke_swatch_id.iter()) {
+                            if seen_swatches.insert(sw.clone()) {
+                                needed_swatches.push(sw.clone());
+                            }
+                        }
+                        if let Some(st) = &app.style_id
+                            && seen_styles.insert(st.clone())
+                        {
+                            needed_styles.push(st.clone());
+                        }
+                        for entry in &app.entries {
+                            let sw_opt = match entry {
+                                AppearancePaintEntry::Fill { swatch_id, .. }
+                                | AppearancePaintEntry::Stroke { swatch_id, .. } => swatch_id,
+                            };
+                            if let Some(sw) = sw_opt
+                                && seen_swatches.insert(sw.clone())
+                            {
+                                needed_swatches.push(sw.clone());
+                            }
+                        }
+                    }
+                    for el in &kf.elements {
+                        match &el.kind {
+                            ElementKind::Instance { symbol_id, .. } => {
+                                if !donor.is_scene(symbol_id)
+                                    && let Some(child_sym) = donor.symbol(symbol_id)
+                                {
+                                    stack.push(child_sym.clone());
+                                }
+                            }
+                            ElementKind::Bitmap { resource_id, .. }
+                                if seen_resources.insert(resource_id.clone()) =>
+                            {
+                                needed_resources.push(resource_id.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // Determine target IDs for nested helper symbols (reusing previously synced helpers when
+        // name + kind match, and never overwriting unrelated local symbols).
+        let mut replaced_symbol_ids: HashSet<Id> =
+            matched_roots.iter().map(|(lid, _)| lid.clone()).collect();
+        for helper in &extra_donor_syms {
+            if sym_map.contains_key(&helper.id) {
+                continue;
+            }
+            let shared_candidate = format!("shared-{}", helper.id);
+            let reusable = self
+                .symbols
+                .iter()
+                .find(|s| {
+                    !self.is_scene(&s.id)
+                        && !replaced_symbol_ids.contains(&s.id)
+                        && (s.id == helper.id || s.id == shared_candidate)
+                        && s.name == helper.name
+                        && s.kind == helper.kind
+                })
+                .map(|s| s.id.clone());
+            if let Some(existing_id) = reusable {
+                replaced_symbol_ids.insert(existing_id.clone());
+                sym_map.insert(helper.id.clone(), existing_id);
+            }
+        }
+
+        // Collect occupied IDs across `self`, excluding internal timeline IDs of symbols whose
+        // timelines are about to be replaced.
+        let mut occupied_ids: HashSet<Id> = HashSet::new();
+        occupied_ids.insert(self.root.clone());
+        occupied_ids.extend(self.scenes.iter().cloned());
+        for sym in &self.symbols {
+            occupied_ids.insert(sym.id.clone());
+            if !replaced_symbol_ids.contains(&sym.id) {
+                for layer in &sym.timeline.layers {
+                    occupied_ids.insert(layer.id.clone());
+                    for g in &layer.properties.groups {
+                        occupied_ids.insert(g.id.clone());
+                    }
+                    for kf in &layer.keyframes {
+                        for el in &kf.elements {
+                            occupied_ids.insert(el.id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for res in &self.resources {
+            occupied_ids.insert(res.id.clone());
+        }
+        for sw in self.global_swatches() {
+            occupied_ids.insert(sw.id);
+        }
+        for st in self.vector_styles() {
+            occupied_ids.insert(st.id);
+        }
+
+        let alloc_id = |prefix: &str, preferred: Option<&str>, occupied: &mut HashSet<Id>| -> Id {
+            if let Some(pref) = preferred
+                && !pref.is_empty()
+                && occupied.insert(pref.to_owned())
+            {
+                return pref.to_owned();
+            }
+            let stem = preferred.filter(|p| !p.is_empty()).unwrap_or(prefix);
+            let first = format!("shared-{stem}");
+            if occupied.insert(first.clone()) {
+                return first;
+            }
+            let mut n = 2usize;
+            loop {
+                let cand = format!("shared-{stem}-{n}");
+                if occupied.insert(cand.clone()) {
+                    return cand;
+                }
+                n += 1;
+            }
+        };
+
+        for helper in &extra_donor_syms {
+            if !sym_map.contains_key(&helper.id) {
+                let target_id = alloc_id("sym", Some(&helper.id), &mut occupied_ids);
+                sym_map.insert(helper.id.clone(), target_id);
+            }
+        }
+
+        // Import/deduplicate referenced resources.
+        let mut occupied_paths: HashSet<String> = self
+            .resources
+            .iter()
+            .map(|r| r.path.to_ascii_lowercase())
+            .collect();
+        let mut res_map: BTreeMap<Id, Id> = BTreeMap::new();
+        for res_id in &needed_resources {
+            let Some(donor_res) = donor.resources.iter().find(|r| r.id == *res_id) else {
                 continue;
             };
-            if let Some(target_sym) = self
-                .symbols
-                .iter_mut()
-                .find(|s| s.id == import_entry.symbol_id)
+            if donor_res
+                .path
+                .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
             {
+                continue;
+            }
+            if let Some(existing) = self.resources.iter().find(|r| {
+                r.media_type == donor_res.media_type && r.data_base64 == donor_res.data_base64
+            }) {
+                res_map.insert(res_id.clone(), existing.id.clone());
+                continue;
+            }
+            let new_id = alloc_id("res", Some(&donor_res.id), &mut occupied_ids);
+            let new_path = if occupied_paths.insert(donor_res.path.to_ascii_lowercase()) {
+                donor_res.path.clone()
+            } else {
+                let (stem, ext) = match donor_res.path.rsplit_once('.') {
+                    Some((s, e)) => (s, format!(".{e}")),
+                    None => (donor_res.path.as_str(), String::new()),
+                };
+                let mut candidate_path = format!("{stem}-{new_id}{ext}");
+                let mut n = 2usize;
+                while !occupied_paths.insert(candidate_path.to_ascii_lowercase()) {
+                    candidate_path = format!("{stem}-{new_id}-{n}{ext}");
+                    n += 1;
+                }
+                candidate_path
+            };
+            let mut imported = donor_res.clone();
+            imported.id = new_id.clone();
+            imported.path = new_path;
+            self.resources.push(imported);
+            res_map.insert(res_id.clone(), new_id);
+        }
+
+        // Import/deduplicate referenced global swatches and vector styles.
+        let mut swatch_map: HashMap<Id, Id> = HashMap::new();
+        if !needed_swatches.is_empty() {
+            let donor_swatches = donor.global_swatches();
+            let mut local_swatches = self.global_swatches();
+            let mut changed_swatches = false;
+            for sw_id in &needed_swatches {
+                let Some(dsw) = donor_swatches.iter().find(|s| s.id == *sw_id) else {
+                    continue;
+                };
+                if let Some(existing) = local_swatches
+                    .iter()
+                    .find(|s| s.name == dsw.name && s.color == dsw.color)
+                {
+                    swatch_map.insert(sw_id.clone(), existing.id.clone());
+                    continue;
+                }
+                let new_id = alloc_id("swatch", Some(sw_id), &mut occupied_ids);
+                let mut copy = dsw.clone();
+                copy.id = new_id.clone();
+                local_swatches.push(copy);
+                swatch_map.insert(sw_id.clone(), new_id);
+                changed_swatches = true;
+            }
+            if changed_swatches {
+                self.set_global_swatches(&local_swatches);
+            }
+        }
+
+        let mut style_map: HashMap<Id, Id> = HashMap::new();
+        if !needed_styles.is_empty() {
+            let donor_styles = donor.vector_styles();
+            let mut local_styles = self.vector_styles();
+            let mut changed_styles = false;
+            for st_id in &needed_styles {
+                let Some(dst) = donor_styles.iter().find(|s| s.id == *st_id) else {
+                    continue;
+                };
+                if let Some(existing) = local_styles.iter().find(|s| s == &dst) {
+                    style_map.insert(st_id.clone(), existing.id.clone());
+                    continue;
+                }
+                let new_id = alloc_id("style", Some(st_id), &mut occupied_ids);
+                let mut copy = dst.clone();
+                copy.id = new_id.clone();
+                local_styles.push(copy);
+                style_map.insert(st_id.clone(), new_id);
+                changed_styles = true;
+            }
+            if changed_styles {
+                self.set_vector_styles(&local_styles);
+            }
+        }
+
+        let remap_timeline = |mut tl: Timeline,
+                              occupied: &mut HashSet<Id>,
+                              sym_map: &BTreeMap<Id, Id>,
+                              res_map: &BTreeMap<Id, Id>,
+                              swatch_map: &HashMap<Id, Id>,
+                              style_map: &HashMap<Id, Id>|
+         -> Timeline {
+            let mut layer_map: HashMap<Id, Id> = HashMap::with_capacity(tl.layers.len());
+            for layer in &tl.layers {
+                let next_lid = alloc_id("layer", Some(&layer.id), occupied);
+                layer_map.insert(layer.id.clone(), next_lid);
+            }
+            for layer in &mut tl.layers {
+                let mut elem_map: HashMap<Id, Id> = HashMap::new();
+                for kf in &layer.keyframes {
+                    for el in &kf.elements {
+                        elem_map
+                            .entry(el.id.clone())
+                            .or_insert_with(|| alloc_id("object", Some(&el.id), occupied));
+                    }
+                }
+                if let Some(lid) = layer_map.get(&layer.id) {
+                    layer.id = lid.clone();
+                }
+                layer.properties.parent = layer
+                    .properties
+                    .parent
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+                layer.properties.mask = layer
+                    .properties
+                    .mask
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+                layer.properties.motion_guide = layer
+                    .properties
+                    .motion_guide
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+                layer.properties.linked_layer = layer
+                    .properties
+                    .linked_layer
+                    .as_ref()
+                    .and_then(|id| layer_map.get(id).cloned());
+                for group in &mut layer.properties.groups {
+                    group.id = alloc_id("group", Some(&group.id), occupied);
+                    for member in &mut group.members {
+                        if let Some(eid) = elem_map.get(member) {
+                            *member = eid.clone();
+                        }
+                    }
+                }
+                for kf in &mut layer.keyframes {
+                    kf.remap_all_ids(&elem_map, Some(sym_map), Some(res_map));
+                    for app in &mut kf.appearances {
+                        if let Some(sw) = &mut app.fill_swatch_id
+                            && let Some(mapped) = swatch_map.get(sw)
+                        {
+                            *sw = mapped.clone();
+                        }
+                        if let Some(sw) = &mut app.stroke_swatch_id
+                            && let Some(mapped) = swatch_map.get(sw)
+                        {
+                            *sw = mapped.clone();
+                        }
+                        if let Some(st) = &mut app.style_id
+                            && let Some(mapped) = style_map.get(st)
+                        {
+                            *st = mapped.clone();
+                        }
+                        for entry in &mut app.entries {
+                            let sw_opt = match entry {
+                                AppearancePaintEntry::Fill { swatch_id, .. }
+                                | AppearancePaintEntry::Stroke { swatch_id, .. } => swatch_id,
+                            };
+                            if let Some(sw) = sw_opt
+                                && let Some(mapped) = swatch_map.get(sw)
+                            {
+                                *sw = mapped.clone();
+                            }
+                        }
+                    }
+                }
+            }
+            tl
+        };
+
+        let mut occupied_linkages: HashSet<String> = self
+            .symbols
+            .iter()
+            .filter_map(|s| s.linkage_id.clone())
+            .collect();
+        let mut occupied_classes: HashSet<String> = self
+            .symbols
+            .iter()
+            .filter_map(|s| s.class_name.clone())
+            .collect();
+
+        // Install or update nested helper symbols first so root symbol references validate cleanly.
+        for helper in extra_donor_syms.into_iter().rev() {
+            let Some(target_id) = sym_map.get(&helper.id).cloned() else {
+                continue;
+            };
+            let remapped_tl = remap_timeline(
+                helper.timeline.clone(),
+                &mut occupied_ids,
+                &sym_map,
+                &res_map,
+                &swatch_map,
+                &style_map,
+            );
+            if let Some(existing) = self.symbols.iter_mut().find(|s| s.id == target_id) {
+                existing.kind = helper.kind;
+                existing.timeline = remapped_tl;
+            } else {
+                let mut imported = helper;
+                imported.id = target_id;
+                imported.timeline = remapped_tl;
+                if let Some(link) = &imported.linkage_id
+                    && !occupied_linkages.insert(link.clone())
+                {
+                    imported.linkage_id = None;
+                }
+                if let Some(cls) = &imported.class_name
+                    && !occupied_classes.insert(cls.clone())
+                {
+                    imported.class_name = None;
+                }
+                if !imported.folder.is_empty() {
+                    let _ = self.add_library_folder(&imported.folder);
+                }
+                self.symbols.push(imported);
+            }
+        }
+
+        // Update matched root symbols while preserving their local symbol IDs.
+        let mut updated = 0usize;
+        for (local_id, donor_sym) in matched_roots {
+            let remapped_tl = remap_timeline(
+                donor_sym.timeline,
+                &mut occupied_ids,
+                &sym_map,
+                &res_map,
+                &swatch_map,
+                &style_map,
+            );
+            let class_taken_elsewhere = donor_sym.class_name.as_ref().is_some_and(|cls| {
+                self.symbols
+                    .iter()
+                    .any(|s| s.id != local_id && s.class_name.as_ref() == Some(cls))
+            });
+            if let Some(target_sym) = self.symbols.iter_mut().find(|s| s.id == local_id) {
                 target_sym.kind = donor_sym.kind;
-                target_sym.timeline = donor_sym.timeline;
-                if donor_sym.class_name.is_some() {
-                    target_sym.class_name = donor_sym.class_name;
+                target_sym.timeline = remapped_tl;
+                if let Some(cls) = donor_sym.class_name
+                    && !class_taken_elsewhere
+                {
+                    occupied_classes.insert(cls.clone());
+                    target_sym.class_name = Some(cls);
                 }
                 updated += 1;
             }
         }
         if updated > 0 {
-            for res in &donor.resources {
-                if !res
-                    .path
-                    .eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
-                    && !self
-                        .resources
-                        .iter()
-                        .any(|r| r.id == res.id || r.path.eq_ignore_ascii_case(&res.path))
-                {
-                    self.resources.push(res.clone());
-                }
-            }
             self.format_version = self.format_version.max(donor.format_version).max(3);
+            self.upgrade_format_for_features();
         }
         updated
     }

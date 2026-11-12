@@ -886,6 +886,7 @@ impl Editor {
         };
         let mut accept = false;
         let mut cancel = false;
+        let kb = crate::panels::dialog_helpers::DialogKeyboardState::capture(ctx);
         let modal = egui::Modal::new(egui::Id::new("nf2-scale-and-rotate"))
             .frame(c::Surface::Dialog.frame(ctx))
             .show(ctx, |ui| {
@@ -932,15 +933,23 @@ impl Editor {
                     }
                 });
             });
-        if modal.should_close() {
-            cancel = true;
+        if !accept && !cancel {
+            match kb.resolve(ctx, &modal, true) {
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::Cancel => cancel = true,
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::Confirm => accept = true,
+                crate::panels::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
-        if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-            accept = true;
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            cancel = true;
-        }
+        scale_pct = if scale_pct.is_finite() {
+            scale_pct.clamp(1.0, 1000.0)
+        } else {
+            100.0
+        };
+        rotate_deg = if rotate_deg.is_finite() {
+            rotate_deg.clamp(-360.0, 360.0)
+        } else {
+            0.0
+        };
         if accept {
             self.authoring_modify.scale_and_rotate_dialog = None;
             self.apply_scale_and_rotate(ctx, scale_pct, rotate_deg);
@@ -3233,13 +3242,20 @@ impl Editor {
                     Some(linked),
                 );
                 overline(ui, "Rotate and skew");
-                let [rr, rk] = field_pair(
+                let (rr, rk) = two_column_row(
                     ui,
-                    ["Rotate", "Skew"],
-                    [rotation, skew],
-                    -360_000. ..=360_000.,
-                    "°",
-                    None,
+                    |ui, width| {
+                        number_field(
+                            ui,
+                            "Rotate",
+                            rotation,
+                            -360_000. ..=360_000.,
+                            1.,
+                            "°",
+                            Some(width),
+                        )
+                    },
+                    |ui, width| number_field(ui, "Skew", skew, -89. ..=89., 1., "°", Some(width)),
                 );
                 for (index, response) in [rsx, rsy, rr, rk].into_iter().enumerate() {
                     if !response.changed() {
@@ -3249,19 +3265,29 @@ impl Editor {
                     let mut new = old;
                     match index {
                         0 => {
-                            new.scale_x = value / 100.;
+                            let sx_factor = (value / 100.).clamp(-1e4, 1e4);
+                            if sx_factor.abs() < 1e-4 {
+                                continue;
+                            }
+                            new.scale_x = sx_factor;
                             if self.authoring_modify.linked_scale && old.scale_x.abs() > 1e-9 {
-                                new.scale_y *= new.scale_x / old.scale_x;
+                                new.scale_y =
+                                    (new.scale_y * (new.scale_x / old.scale_x)).clamp(-1e4, 1e4);
                             }
                         }
                         1 => {
-                            new.scale_y = value / 100.;
+                            let sy_factor = (value / 100.).clamp(-1e4, 1e4);
+                            if sy_factor.abs() < 1e-4 {
+                                continue;
+                            }
+                            new.scale_y = sy_factor;
                             if self.authoring_modify.linked_scale && old.scale_y.abs() > 1e-9 {
-                                new.scale_x *= new.scale_y / old.scale_y;
+                                new.scale_x =
+                                    (new.scale_x * (new.scale_y / old.scale_y)).clamp(-1e4, 1e4);
                             }
                         }
-                        2 => new.rotation = value,
-                        _ => new.skew = value,
+                        2 => new.rotation = value.clamp(-360_000., 360_000.),
+                        _ => new.skew = value.clamp(-89., 89.),
                     }
                     if new.scale_x.abs().max(new.scale_y.abs()) <= 1e4 {
                         let mut element = item.element.clone();
@@ -3286,13 +3312,20 @@ impl Editor {
                     Some(linked),
                 );
                 overline(ui, "Rotate and skew");
-                let [rr, rk] = field_pair(
+                let (rr, rk) = two_column_row(
                     ui,
-                    ["Rotate", "Skew"],
-                    [rotation, skew],
-                    -360_000. ..=360_000.,
-                    "°",
-                    None,
+                    |ui, width| {
+                        number_field(
+                            ui,
+                            "Rotate",
+                            rotation,
+                            -360_000. ..=360_000.,
+                            1.,
+                            "°",
+                            Some(width),
+                        )
+                    },
+                    |ui, width| number_field(ui, "Skew", skew, -89. ..=89., 1., "°", Some(width)),
                 );
                 let pivot = self
                     .authoring_modify
@@ -3367,6 +3400,7 @@ impl Editor {
                 });
             });
         });
+        self.end_property_interaction(ui.ctx());
     }
 
     #[allow(dead_code)]
@@ -4510,6 +4544,7 @@ impl Editor {
                 }
             }
         });
+        self.end_property_interaction(ui.ctx());
     }
 }
 

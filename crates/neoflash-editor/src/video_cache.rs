@@ -55,6 +55,7 @@ fn decoded_stream_cache_usage<'a>(
     let mut seen_streams = HashSet::new();
     let mut seen_images = HashSet::new();
     let mut seen_rgba = HashSet::new();
+    let mut seen_decoders = HashSet::new();
     let mut bytes = 0usize;
     let mut frames = 0usize;
 
@@ -68,7 +69,7 @@ fn decoded_stream_cache_usage<'a>(
             continue;
         }
 
-        frames = frames.checked_add(stream.frames.len())?;
+        frames = frames.checked_add(stream.logical_frame_count())?;
         let stream_allocation = std::mem::size_of::<DecodedVideoStream>()
             .checked_add(ARC_ALLOCATION_OVERHEAD)?
             .checked_add(
@@ -78,6 +79,12 @@ fn decoded_stream_cache_usage<'a>(
                     .checked_mul(std::mem::size_of::<DecodedVideoFrame>())?,
             )?;
         add_bytes(&mut bytes, stream_allocation)?;
+
+        if let Some(decoder) = &stream.on_demand
+            && seen_decoders.insert(Arc::as_ptr(decoder) as usize)
+        {
+            add_bytes(&mut bytes, decoder.pinned_budget_bytes()?)?;
+        }
 
         for frame in &stream.frames {
             if seen_images.insert(Arc::as_ptr(&frame.image) as usize) {
@@ -403,8 +410,7 @@ impl VideoTextures {
         let stream = self
             .stream_for_placement(project, base_dir, placement)
             .ok()?;
-        let (idx, frame) = stream.frame_at_placement(placement)?;
-        Some((idx, frame.clone()))
+        stream.frame_at_placement(placement)
     }
 
     pub fn duration_for_placement(
@@ -590,6 +596,7 @@ mod tests {
                     image: shared,
                 },
             ],
+            on_demand: None,
         });
         let stream_b = DecodedVideoStream {
             width: 4,
@@ -601,6 +608,7 @@ mod tests {
                 duration_ms: 100,
                 image: distinct,
             }],
+            on_demand: None,
         };
 
         let stream_a_usage =
@@ -663,6 +671,7 @@ mod tests {
                     image: shared.clone(),
                 })
                 .collect(),
+            on_demand: None,
         };
         let stream_a = tiny_stream(0);
         let stream_b = tiny_stream(3);
@@ -788,6 +797,7 @@ mod tests {
                     fps: 1_000.0,
                     duration_ms: MAX_VIDEO_DECODED_STREAM_CACHE_FRAMES as u32,
                     frames: vec![filler_frame; MAX_VIDEO_DECODED_STREAM_CACHE_FRAMES],
+                    on_demand: None,
                 })),
                 retry_after_cache_generation: None,
             },
@@ -889,6 +899,80 @@ mod tests {
                 .unwrap(),
             100
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t229_video_textures_caches_long_form_streams_within_pinned_ring_and_invalidates_revisions() {
+        let dir = std::env::temp_dir().join(format!(
+            "neoflash-video-cache-t229-long-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("long_clip.mp4");
+
+        // 240 frames (> MAX_EAGER_VIDEO_FRAMES = 180) so VideoTextures uses OnDemandVideoDecoder.
+        let raw_frames: Vec<Vec<u8>> = (0..240usize)
+            .map(|idx| [idx as u8, 200u8.wrapping_sub(idx as u8), 90, 255].repeat(16))
+            .collect();
+        let raw_slices: Vec<&[u8]> = raw_frames.iter().map(Vec::as_slice).collect();
+        std::fs::write(
+            &path,
+            encode_deterministic_mp4_rgba_frames(4, 4, 20, &raw_slices),
+        )
+        .unwrap();
+
+        let mut project = Project::blank();
+        project.resources.push(
+            ResourceUnit::from_bytes("video-resource", "long_clip.mp4", "video/mp4", &[]).unwrap(),
+        );
+        let mut cache = VideoTextures::default();
+        let mut placement = external_placement("long_clip.mp4");
+
+        let stream = cache
+            .stream_for_placement(&project, Some(&dir), &placement)
+            .unwrap();
+        assert!(stream.frames.is_empty());
+        assert!(stream.on_demand.is_some());
+        assert_eq!(stream.logical_frame_count(), 240);
+
+        let usage = decoded_stream_cache_usage(std::iter::once(stream.as_ref())).unwrap();
+        assert_eq!(usage.frames, 240);
+        assert!(usage.bytes < MAX_VIDEO_DECODED_STREAM_CACHE_BYTES);
+
+        for &seek_idx in &[0usize, 120, 239, 45, 200, 3] {
+            placement.time_ms = (seek_idx as u32) * 50;
+            let (got_idx, frame) = cache
+                .frame_for_placement(&project, Some(&dir), &placement)
+                .unwrap();
+            assert_eq!(got_idx, seek_idx);
+            assert_eq!(
+                &frame.image.rgba[..4],
+                &[seek_idx as u8, 200u8.wrapping_sub(seek_idx as u8), 90, 255]
+            );
+            assert!(stream.resident_cpu_bytes() <= 64 * 1024 * 1024);
+        }
+
+        // Replacing the external long-form source invalidates the old decoder cleanly.
+        let replacement = dir.join("replacement_long.mp4");
+        let alt_frames: Vec<Vec<u8>> = (0..220usize)
+            .map(|_| [9u8, 88, 177, 255].repeat(16))
+            .collect();
+        let alt_slices: Vec<&[u8]> = alt_frames.iter().map(Vec::as_slice).collect();
+        std::fs::write(
+            &replacement,
+            encode_deterministic_mp4_rgba_frames(4, 4, 20, &alt_slices),
+        )
+        .unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        expire_external_checks(&mut cache);
+        placement.time_ms = 5_000;
+        let (_, refreshed) = cache
+            .frame_for_placement(&project, Some(&dir), &placement)
+            .unwrap();
+        assert_eq!(&refreshed.image.rgba[..4], &[9, 88, 177, 255]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

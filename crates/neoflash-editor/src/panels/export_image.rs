@@ -278,7 +278,15 @@ impl Editor {
                         )
                         .changed()
                     {
-                        let count = (frames_val.round() as u32).clamp(1, total_frames.max(1));
+                        let count = if frames_val.is_finite() {
+                            (frames_val
+                                .round()
+                                .clamp(1.0, f64::from(total_frames.max(1)))
+                                as u32)
+                                .clamp(1, total_frames.max(1))
+                        } else {
+                            span_frames
+                        };
                         draft.options.range = ImageExportRange::Frames {
                             start: start_f,
                             end: (start_f + count - 1).min(total_frames.saturating_sub(1)),
@@ -302,8 +310,10 @@ impl Editor {
                                 .width(120.0),
                         )
                         .changed()
+                        && w_val.is_finite()
                     {
-                        draft.options.width = (w_val.round() as u32).clamp(1, 8192);
+                        draft.options.width =
+                            (w_val.round().clamp(1.0, 8192.0) as u32).clamp(1, 8192);
                         if draft.options.constrain_proportions {
                             draft.options.height = ((draft.options.width as f64 / aspect).round()
                                 as u32)
@@ -319,8 +329,10 @@ impl Editor {
                                 .width(120.0),
                         )
                         .changed()
+                        && h_val.is_finite()
                     {
-                        draft.options.height = (h_val.round() as u32).clamp(1, 8192);
+                        draft.options.height =
+                            (h_val.round().clamp(1.0, 8192.0) as u32).clamp(1, 8192);
                         if draft.options.constrain_proportions {
                             draft.options.width = ((draft.options.height as f64 * aspect).round()
                                 as u32)
@@ -704,6 +716,7 @@ impl Editor {
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut do_export = false;
+        let kb = super::dialog_helpers::DialogKeyboardState::capture(ctx);
 
         let modal = egui::Modal::new(egui::Id::new("export-image"))
             .frame(c::Surface::Dialog.frame(ctx))
@@ -730,8 +743,12 @@ impl Editor {
                     });
             });
 
-        if modal.should_close() || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            close_cancel = true;
+        if !close_cancel && !do_export {
+            match kb.resolve(ctx, &modal, true) {
+                super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
+                super::dialog_helpers::DialogKeyboardOutcome::Confirm => do_export = true,
+                super::dialog_helpers::DialogKeyboardOutcome::None => {}
+            }
         }
 
         ctx.data_mut(|d| d.insert_temp(draft_id(), draft.clone()));

@@ -37,6 +37,7 @@ pub(crate) struct LibraryPanel {
     pub(crate) source: LibrarySource,
     source_selected: Option<String>,
     pub(crate) external_library: Option<(String, neoflash_core::Project)>,
+    pub(crate) external_library_path: Option<std::path::PathBuf>,
 }
 
 impl LibraryPanel {
@@ -699,11 +700,129 @@ impl Editor {
         project: neoflash_core::Project,
     ) {
         self.library_panel.external_library = Some((label.into(), project));
+        self.library_panel.external_library_path = None;
         self.library_panel.source = LibrarySource::External;
         self.library_panel.source_selected = None;
         self.library_panel.selected_folder.clear();
         self.library_panel.editing = None;
         self.library_panel.drag = None;
+    }
+
+    /// Validate and mount an external `.nflash` donor file from disk (`T-231`).
+    pub fn open_external_library_path(&mut self, path: &std::path::Path) -> Result<(), String> {
+        self.open_external_library_path_inner(path, true)
+    }
+
+    fn open_external_library_path_inner(
+        &mut self,
+        path: &std::path::Path,
+        switch_to_external_view: bool,
+    ) -> Result<(), String> {
+        const MAX_EXTERNAL_LIBRARY_BYTES: u64 = 64 * 1024 * 1024;
+        if self
+            .path
+            .as_deref()
+            .is_some_and(|active| crate::document_sessions::same_path(active, path))
+        {
+            return Err(
+                "Choose a separate external .nflash file rather than the active document.".into(),
+            );
+        }
+        let meta = std::fs::metadata(path)
+            .map_err(|e| format!("Could not read external library {}: {e}", path.display()))?;
+        if !meta.is_file() {
+            return Err(format!("{} is not a regular file.", path.display()));
+        }
+        if meta.len() > MAX_EXTERNAL_LIBRARY_BYTES {
+            return Err(format!(
+                "External library {} exceeds the 64 MiB limit.",
+                path.display()
+            ));
+        }
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| format!("Could not read external library {}: {e}", path.display()))?;
+        let project = neoflash_core::Project::from_json(&raw)
+            .map_err(|e| format!("Invalid external library {}: {e}", path.display()))?;
+        let label = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| project.name.clone());
+        if switch_to_external_view {
+            self.open_external_library_project(label.clone(), project);
+        } else {
+            self.library_panel.external_library = Some((label.clone(), project));
+        }
+        self.library_panel.external_library_path = Some(path.to_path_buf());
+        if switch_to_external_view
+            && self
+                .project
+                .shared_libraries()
+                .iter()
+                .any(|entry| entry.import_for_runtime && entry.always_update)
+        {
+            let _ = self.sync_shared_libraries_from_open_documents();
+        } else {
+            self.message(format!("Opened external library {label}."));
+        }
+        Ok(())
+    }
+
+    /// Unmount any currently mounted external `.nflash` library (`T-231`).
+    pub fn close_external_library(&mut self) {
+        self.library_panel.external_library = None;
+        self.library_panel.external_library_path = None;
+        if self.library_panel.source == LibrarySource::External {
+            self.library_panel.source = LibrarySource::ActiveDocument;
+            self.library_panel.source_selected = None;
+            self.library_panel.selected_folder.clear();
+            self.library_panel.editing = None;
+            self.library_panel.drag = None;
+            self.library_panel.drag_press = None;
+        }
+        self.message("Closed external library.");
+    }
+
+    /// Open a native macOS file chooser to mount an external `.nflash` donor library (`T-231`).
+    pub fn choose_external_library_file(&mut self) -> Option<std::path::PathBuf> {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Open External Library")
+            .add_filter("NeoFlash Project", &["nflash"]);
+        if let Some(dir) = self
+            .library_panel
+            .external_library_path
+            .as_deref()
+            .and_then(std::path::Path::parent)
+            .or_else(|| self.path.as_deref().and_then(std::path::Path::parent))
+        {
+            dialog = dialog.set_directory(dir);
+        }
+        let picked = dialog.pick_file()?;
+        match self.open_external_library_path(&picked) {
+            Ok(()) => Some(picked),
+            Err(error) => {
+                self.message(error);
+                None
+            }
+        }
+    }
+
+    pub(crate) fn format_shared_library_url_for_project(
+        doc_path: Option<&std::path::Path>,
+        chosen: &std::path::Path,
+    ) -> String {
+        let canon_chosen = std::fs::canonicalize(chosen).unwrap_or_else(|_| chosen.to_path_buf());
+        if let Some(base_dir) = doc_path.and_then(std::path::Path::parent) {
+            let canon_base =
+                std::fs::canonicalize(base_dir).unwrap_or_else(|_| base_dir.to_path_buf());
+            if let Ok(rel) = canon_chosen.strip_prefix(&canon_base)
+                && !rel.as_os_str().is_empty()
+            {
+                return rel.to_string_lossy().replace('\\', "/");
+            }
+        }
+        chosen.to_string_lossy().into_owned()
     }
 
     /// Copy a symbol (along with any nested symbols and referenced resources) from `donor`
@@ -1130,12 +1249,78 @@ impl Editor {
         self.import_symbol_from_donor_project(&donor, symbol_id)
     }
 
-    /// Synchronize all `import_for_runtime` Shared Library symbols in the active project against
-    /// any mounted external library and all other open document sessions in one Undo step (`T-166`).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn sync_shared_libraries_from_open_documents(&mut self) -> usize {
-        self.finish_edits();
-        let mut candidate = self.project.clone();
+    fn collect_disk_shared_donor_projects(
+        &self,
+        candidate: &neoflash_core::Project,
+        only_auto_update: bool,
+    ) -> Vec<neoflash_core::Project> {
+        const MAX_DONOR_BYTES: u64 = 64 * 1024 * 1024;
+        let mut seen_paths = HashSet::new();
+        if let Some(ext_path) = &self.library_panel.external_library_path {
+            seen_paths.insert(crate::recovery::canonical_or_normalized_path(ext_path));
+        }
+        if let Some(self_path) = &self.path {
+            seen_paths.insert(crate::recovery::canonical_or_normalized_path(self_path));
+        }
+        for slot in self.sessions.iter().flatten() {
+            if let Some(sess_path) = &slot.path {
+                seen_paths.insert(crate::recovery::canonical_or_normalized_path(sess_path));
+            }
+        }
+        let base_dir = self.path.as_deref().and_then(std::path::Path::parent);
+        let mut donors = Vec::new();
+        for entry in candidate.shared_libraries() {
+            if !entry.import_for_runtime || (only_auto_update && !entry.always_update) {
+                continue;
+            }
+            let raw_url = entry.url.trim();
+            if raw_url.is_empty()
+                || raw_url.starts_with("http://")
+                || raw_url.starts_with("https://")
+                || !raw_url.to_ascii_lowercase().ends_with(".nflash")
+            {
+                continue;
+            }
+            let url_path = std::path::Path::new(raw_url);
+            let resolved = if url_path.is_absolute() {
+                url_path.to_path_buf()
+            } else if let Some(base) = base_dir {
+                let candidate_rel = base.join(url_path);
+                if candidate_rel.exists() {
+                    candidate_rel
+                } else {
+                    url_path.to_path_buf()
+                }
+            } else {
+                url_path.to_path_buf()
+            };
+            if !resolved.is_file() {
+                continue;
+            }
+            let norm = crate::recovery::canonical_or_normalized_path(&resolved);
+            if !seen_paths.insert(norm) {
+                continue;
+            }
+            let Ok(meta) = std::fs::metadata(&resolved) else {
+                continue;
+            };
+            if meta.len() > MAX_DONOR_BYTES {
+                continue;
+            }
+            if let Ok(raw) = std::fs::read_to_string(&resolved)
+                && let Ok(donor_proj) = neoflash_core::Project::from_json(&raw)
+            {
+                donors.push(donor_proj);
+            }
+        }
+        donors
+    }
+
+    fn apply_shared_library_sync_to_candidate(
+        &self,
+        candidate: &mut neoflash_core::Project,
+        only_auto_update: bool,
+    ) -> usize {
         let mut total = 0usize;
         if let Some((_, ext_proj)) = &self.library_panel.external_library {
             total += candidate.resolve_shared_library_symbols(ext_proj);
@@ -1148,6 +1333,20 @@ impl Editor {
                 total += candidate.resolve_shared_library_symbols(&sess.project);
             }
         }
+        for disk_donor in self.collect_disk_shared_donor_projects(candidate, only_auto_update) {
+            total += candidate.resolve_shared_library_symbols(&disk_donor);
+        }
+        total
+    }
+
+    /// Synchronize all `import_for_runtime` Shared Library symbols in the active project against
+    /// any mounted external library, other open document sessions, and linked `.nflash` URLs on
+    /// disk in one Undo step (`T-166`, `T-231`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sync_shared_libraries_from_open_documents(&mut self) -> usize {
+        self.finish_edits();
+        let mut candidate = self.project.clone();
+        let total = self.apply_shared_library_sync_to_candidate(&mut candidate, false);
         if total == 0 {
             return 0;
         }
@@ -2229,8 +2428,24 @@ impl Editor {
             self.delete_unused_library_items();
             ui.close();
         }
-        let has_shared = !self.project.shared_libraries().is_empty()
-            && (self.library_panel.external_library.is_some() || self.sessions.len() > 1);
+        if ui
+            .add(nf::MenuItem::new("Open external library…"))
+            .clicked()
+        {
+            let _ = self.choose_external_library_file();
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                self.library_panel.external_library.is_some(),
+                nf::MenuItem::new("Close external library"),
+            )
+            .clicked()
+        {
+            self.close_external_library();
+            ui.close();
+        }
+        let has_shared = !self.project.shared_libraries().is_empty();
         if ui
             .add_enabled(has_shared, nf::MenuItem::new("Sync shared library"))
             .clicked()
@@ -2434,6 +2649,7 @@ impl Editor {
         };
         let mut accept = false;
         let mut cancel = false;
+        let mut pick_source_file = false;
         let p = neoflash_ui::palette(ui.ctx());
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = space::S2;
@@ -2553,6 +2769,14 @@ impl Editor {
                             "Import for runtime sharing",
                         ));
                         crate::paint_controls::text_row(ui, "URL", &mut edit.shared_url);
+                        if edit.shared_import {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = space::S2;
+                                if ui.add(nf::Button::new("Source file…")).clicked() {
+                                    pick_source_file = true;
+                                }
+                            });
+                        }
                         ui.add(nf::Checkbox::new(
                             &mut edit.shared_always_update,
                             "Update automatically",
@@ -2577,6 +2801,36 @@ impl Editor {
             nf::divider(ui, false);
         });
         if cancel {
+            return;
+        }
+        if pick_source_file {
+            let mut dialog = rfd::FileDialog::new()
+                .set_title("Choose Shared Library (.nflash)")
+                .add_filter("NeoFlash Project", &["nflash"]);
+            if let Some(dir) = self
+                .library_panel
+                .external_library_path
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .or_else(|| self.path.as_deref().and_then(std::path::Path::parent))
+            {
+                dialog = dialog.set_directory(dir);
+            }
+            if let Some(picked) = dialog.pick_file() {
+                match self.open_external_library_path_inner(&picked, false) {
+                    Ok(()) => {
+                        edit.shared_url = Self::format_shared_library_url_for_project(
+                            self.path.as_deref(),
+                            &picked,
+                        );
+                        edit.error = None;
+                    }
+                    Err(error) => {
+                        edit.error = Some(error);
+                    }
+                }
+            }
+            self.library_panel.editing = Some(edit);
             return;
         }
         if accept {
@@ -2654,6 +2908,13 @@ impl Editor {
                                 }
                             });
                             candidate.set_shared_library(id, shared_opt);
+                            if edit.shared_enabled
+                                && edit.shared_import
+                                && edit.shared_always_update
+                            {
+                                let _ =
+                                    self.apply_shared_library_sync_to_candidate(&mut candidate, true);
+                            }
                             candidate.upgrade_format_for_features();
                             Ok(())
                         })
