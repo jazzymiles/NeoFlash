@@ -42,6 +42,8 @@ pub struct AuthoredPlayback {
     reported_diagnostics: HashSet<String>,
     vars: HashMap<(Vec<Id>, String), String>,
     registered_handlers: Vec<RegisteredHandler>,
+    initialized_wrapper_placements: HashSet<(Vec<Id>, u64)>,
+    executed_load_blocks: HashSet<(Vec<Id>, u64, usize)>,
     call_depth: usize,
     steps_remaining: usize,
 }
@@ -82,6 +84,8 @@ impl AuthoredPlayback {
             reported_diagnostics: HashSet::new(),
             vars: HashMap::new(),
             registered_handlers: Vec::new(),
+            initialized_wrapper_placements: HashSet::new(),
+            executed_load_blocks: HashSet::new(),
             call_depth: 0,
             steps_remaining: MAX_PREVIEW_STEPS_PER_PASS,
         };
@@ -437,8 +441,46 @@ impl AuthoredPlayback {
         if !self.live_scripts {
             return;
         }
+        // Ensure `onClipEvent(load)` / `on(...)` wrappers attached inside `ObjectEvent::EnterFrame`
+        // or `ObjectEvent::Click` also run their initial Load/registration pass once per placement lifetime.
+        let mut extra_load_dispatches = Vec::new();
+        let mut paths: Vec<Vec<Id>> = self.player.previous.keys().cloned().collect();
+        paths.sort();
+        for path in paths {
+            let Some(lifetime) = self.player.lifetime_id(&path) else {
+                continue;
+            };
+            if !self
+                .initialized_wrapper_placements
+                .insert((path.clone(), lifetime))
+            {
+                continue;
+            }
+            if let Some(node) = self.player.previous.get(&path) {
+                for handler in &node.scripts {
+                    if handler.event != crate::ObjectEvent::Load
+                        && (handler.script.source.contains("onClipEvent")
+                            || handler.script.source.contains("on(")
+                            || handler.script.source.contains("on ("))
+                    {
+                        extra_load_dispatches.push(ScriptDispatch {
+                            target_path: path.clone(),
+                            target_lifetime: lifetime,
+                            event: ScriptEvent::Load,
+                            script: handler.script.clone(),
+                        });
+                    }
+                }
+            }
+        }
         for dispatch in dispatches {
             if !self.player.is_dispatch_current(project, &dispatch) {
+                continue;
+            }
+            self.execute_preview_dispatch(project, &dispatch);
+        }
+        for dispatch in extra_load_dispatches {
+            if self.player.lifetime_id(&dispatch.target_path) != Some(dispatch.target_lifetime) {
                 continue;
             }
             self.execute_preview_dispatch(project, &dispatch);
@@ -545,6 +587,23 @@ impl AuthoredPlayback {
             origin,
             base_line,
         });
+    }
+
+    fn has_registered_handler(
+        &self,
+        target_path: &[Id],
+        event: RegisteredEvent,
+        body: &str,
+    ) -> bool {
+        let Some(target_lifetime) = self.player.lifetime_id(target_path) else {
+            return false;
+        };
+        self.registered_handlers.iter().any(|h| {
+            h.target_path == target_path
+                && h.target_lifetime == target_lifetime
+                && h.event == event
+                && h.body == body
+        })
     }
 
     fn clear_registered_handler(&mut self, target_path: &[Id], event: RegisteredEvent) {
@@ -658,15 +717,17 @@ impl AuthoredPlayback {
                 if is_click_like {
                     match current_event {
                         ScriptEvent::Click => {
-                            self.execute_block(
-                                project,
-                                path,
-                                current_event,
-                                body,
-                                origin,
-                                line,
-                                local_fns,
-                            );
+                            if !self.has_registered_handler(path, RegisteredEvent::Click, body) {
+                                self.execute_block(
+                                    project,
+                                    path,
+                                    current_event,
+                                    body,
+                                    origin,
+                                    line,
+                                    local_fns,
+                                );
+                            }
                         }
                         ScriptEvent::Load | ScriptEvent::Frame(_) => {
                             self.register_handler(
@@ -702,7 +763,12 @@ impl AuthoredPlayback {
                 let mut handled_any = false;
                 if events.iter().any(|e| e == "load") {
                     handled_any = true;
-                    if matches!(current_event, ScriptEvent::Load | ScriptEvent::Frame(_)) {
+                    let lifetime = self.player.lifetime_id(path).unwrap_or(0);
+                    if matches!(current_event, ScriptEvent::Load | ScriptEvent::Frame(_))
+                        && self
+                            .executed_load_blocks
+                            .insert((path.to_vec(), lifetime, line))
+                    {
                         self.execute_block(
                             project,
                             path,
@@ -718,15 +784,18 @@ impl AuthoredPlayback {
                     handled_any = true;
                     match current_event {
                         ScriptEvent::EnterFrame => {
-                            self.execute_block(
-                                project,
-                                path,
-                                current_event,
-                                body,
-                                origin,
-                                line,
-                                local_fns,
-                            );
+                            if !self.has_registered_handler(path, RegisteredEvent::EnterFrame, body)
+                            {
+                                self.execute_block(
+                                    project,
+                                    path,
+                                    current_event,
+                                    body,
+                                    origin,
+                                    line,
+                                    local_fns,
+                                );
+                            }
                         }
                         ScriptEvent::Load | ScriptEvent::Frame(_) => {
                             self.register_handler(
@@ -755,7 +824,9 @@ impl AuthoredPlayback {
                             line,
                             false,
                         );
-                    } else if matches!(current_event, ScriptEvent::Click) {
+                    } else if matches!(current_event, ScriptEvent::Click)
+                        && !self.has_registered_handler(path, RegisteredEvent::Click, body)
+                    {
                         self.execute_block(
                             project,
                             path,
@@ -829,24 +900,27 @@ impl AuthoredPlayback {
             {
                 continue;
             }
-            // 1. Variable declaration: var/let/const name[:Type] [= expr]
+            // 1. Variable declaration: var/let/const name[:Type] [= expr] (supports comma-separated declarations)
             if let Some(rest) = stmt
                 .strip_prefix("var ")
                 .or_else(|| stmt.strip_prefix("let "))
                 .or_else(|| stmt.strip_prefix("const "))
             {
-                if let Some((lhs, rhs)) = split_top_level_assign(rest) {
-                    let name = lhs.split(':').next().unwrap_or(lhs).trim();
-                    if !name.is_empty() {
-                        let val = self.eval_preview_expr(project, path, rhs.trim());
-                        self.vars.insert((path.to_vec(), name.to_owned()), val);
-                    }
-                } else {
-                    let name = rest.split(':').next().unwrap_or(rest).trim();
-                    if !name.is_empty() {
-                        self.vars
-                            .entry((path.to_vec(), name.to_owned()))
-                            .or_default();
+                let scope_path = self.effective_scope_path(project, path);
+                for decl in split_top_level_comma(rest) {
+                    if let Some((lhs, rhs)) = split_top_level_assign(decl) {
+                        let name = lhs.split(':').next().unwrap_or(lhs).trim();
+                        if !name.is_empty() {
+                            let val = self.eval_preview_expr(project, &scope_path, rhs.trim());
+                            self.vars.insert((scope_path.clone(), name.to_owned()), val);
+                        }
+                    } else {
+                        let name = decl.split(':').next().unwrap_or(decl).trim();
+                        if !name.is_empty() {
+                            self.vars
+                                .entry((scope_path.clone(), name.to_owned()))
+                                .or_insert_with(|| "undefined".to_owned());
+                        }
                     }
                 }
                 continue;
@@ -1189,6 +1263,17 @@ impl AuthoredPlayback {
             .is_some_and(|s| s.kind == SymbolKind::Button)
     }
 
+    /// Classic Flash (`T-240`): `on(...)` on a `Button` executes in its parent MovieClip's timeline
+    /// scope, whereas `on(...)` and `onClipEvent(...)` on a `MovieClip` execute in that MovieClip's
+    /// own instance scope across frames.
+    fn effective_scope_path(&self, project: &Project, path: &[Id]) -> Vec<Id> {
+        if !path.is_empty() && self.is_button_instance(project, path) {
+            path[..path.len() - 1].to_vec()
+        } else {
+            path.to_vec()
+        }
+    }
+
     fn resolve_receiver_path(
         &self,
         project: &Project,
@@ -1318,14 +1403,15 @@ impl AuthoredPlayback {
         path: &[Id],
         stmt: &str,
     ) -> bool {
-        // Increment / decrement shorthand: `x++`, `this._x++`, `count--`
-        if let Some(lhs) = stmt.strip_suffix("++") {
+        let scope_path = self.effective_scope_path(project, path);
+        // Postfix and prefix increment / decrement shorthand: `x++`, `++x`, `this._x++`, `--count`
+        if let Some(lhs) = stmt.strip_suffix("++").or_else(|| stmt.strip_prefix("++")) {
             let rewritten = format!("{} += 1", lhs.trim());
-            return self.try_apply_property_or_var_mutation(project, path, &rewritten);
+            return self.try_apply_property_or_var_mutation(project, &scope_path, &rewritten);
         }
-        if let Some(lhs) = stmt.strip_suffix("--") {
+        if let Some(lhs) = stmt.strip_suffix("--").or_else(|| stmt.strip_prefix("--")) {
             let rewritten = format!("{} -= 1", lhs.trim());
-            return self.try_apply_property_or_var_mutation(project, path, &rewritten);
+            return self.try_apply_property_or_var_mutation(project, &scope_path, &rewritten);
         }
 
         let (lhs, op, rhs) = if let Some((l, r)) = split_compound_op(stmt, "+=") {
@@ -1334,6 +1420,10 @@ impl AuthoredPlayback {
             (l, "-=", r)
         } else if let Some((l, r)) = split_compound_op(stmt, "*=") {
             (l, "*=", r)
+        } else if let Some((l, r)) = split_compound_op(stmt, "/=") {
+            (l, "/=", r)
+        } else if let Some((l, r)) = split_compound_op(stmt, "%=") {
+            (l, "%=", r)
         } else if let Some((l, r)) = split_top_level_assign(stmt) {
             (l, "=", r)
         } else {
@@ -1349,42 +1439,34 @@ impl AuthoredPlayback {
         if recv_opt.is_none()
             && self
                 .vars
-                .contains_key(&(path.to_vec(), prop_raw.to_owned()))
+                .contains_key(&(scope_path.clone(), prop_raw.to_owned()))
         {
             let cur_val = self
                 .vars
-                .get(&(path.to_vec(), prop_raw.to_owned()))
+                .get(&(scope_path.clone(), prop_raw.to_owned()))
                 .cloned()
                 .unwrap_or_default();
-            let rhs_val = self.eval_preview_expr(project, path, rhs);
-            let next_val = match op {
-                "=" => rhs_val,
-                "+=" => match (cur_val.parse::<f64>(), rhs_val.parse::<f64>()) {
-                    (Ok(a), Ok(b)) => format_number(a + b),
-                    _ => format!("{cur_val}{rhs_val}"),
-                },
-                "-=" => format_number(
-                    cur_val.parse::<f64>().unwrap_or(0.0) - rhs_val.parse::<f64>().unwrap_or(0.0),
-                ),
-                "*=" => format_number(
-                    cur_val.parse::<f64>().unwrap_or(0.0) * rhs_val.parse::<f64>().unwrap_or(0.0),
-                ),
-                _ => return false,
+            let rhs_val = self.eval_preview_expr(project, &scope_path, rhs);
+            let Some(next_val) = apply_compound_var_op(op, &cur_val, &rhs_val, rhs) else {
+                return false;
             };
             self.vars
-                .insert((path.to_vec(), prop_raw.to_owned()), next_val);
+                .insert((scope_path, prop_raw.to_owned()), next_val);
             return true;
         }
 
         let Some(target_path) =
-            self.resolve_receiver_path(project, path, recv_opt.unwrap_or("this"))
+            self.resolve_receiver_path(project, &scope_path, recv_opt.unwrap_or("this"))
         else {
             return false;
         };
 
         if matches!(prop_raw, "_visible" | "visible") && op == "=" {
-            let val_str = self.eval_preview_expr(project, path, rhs);
-            let visible = !matches!(val_str.as_str(), "false" | "0" | "");
+            let val_str = self.eval_preview_expr(project, &scope_path, rhs);
+            let visible = !matches!(
+                val_str.as_str(),
+                "false" | "0" | "" | "null" | "undefined" | "NaN"
+            );
             self.player.set_visible(&target_path, visible);
             return true;
         }
@@ -1399,33 +1481,17 @@ impl AuthoredPlayback {
             "alpha" => ("alpha", 1.0),
             "_alpha" => ("alpha", 0.01),
             _ => {
-                // Allow dynamic custom field storage on target path (`this.vy = 4`, `hero.hp = 10`)
-                if recv_opt.is_some()
-                    && prop_raw
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-                {
+                // Allow dynamic custom field/variable storage on target MovieClip scope
+                // (`this.vy = 4`, `vy = 4`, `hero.hp += 10`, `speed %= 5`)
+                if is_valid_identifier(prop_raw) && is_supported_preview_rhs(rhs) {
                     let cur_val = self
                         .vars
                         .get(&(target_path.clone(), prop_raw.to_owned()))
                         .cloned()
                         .unwrap_or_else(|| "0".into());
-                    let rhs_val = self.eval_preview_expr(project, path, rhs);
-                    let next_val = match op {
-                        "=" => rhs_val,
-                        "+=" => match (cur_val.parse::<f64>(), rhs_val.parse::<f64>()) {
-                            (Ok(a), Ok(b)) => format_number(a + b),
-                            _ => format!("{cur_val}{rhs_val}"),
-                        },
-                        "-=" => format_number(
-                            cur_val.parse::<f64>().unwrap_or(0.0)
-                                - rhs_val.parse::<f64>().unwrap_or(0.0),
-                        ),
-                        "*=" => format_number(
-                            cur_val.parse::<f64>().unwrap_or(0.0)
-                                * rhs_val.parse::<f64>().unwrap_or(0.0),
-                        ),
-                        _ => return false,
+                    let rhs_val = self.eval_preview_expr(project, &scope_path, rhs);
+                    let Some(next_val) = apply_compound_var_op(op, &cur_val, &rhs_val, rhs) else {
+                        return false;
                     };
                     self.vars
                         .insert((target_path, prop_raw.to_owned()), next_val);
@@ -1434,7 +1500,8 @@ impl AuthoredPlayback {
                 return false;
             }
         };
-        let Ok(rhs_num) = self.eval_preview_expr(project, path, rhs).parse::<f64>() else {
+        let rhs_eval = self.eval_preview_expr(project, &scope_path, rhs);
+        let Some(rhs_num) = parse_or_coerce_number(&rhs_eval) else {
             return false;
         };
         let cur = self
@@ -1449,6 +1516,20 @@ impl AuthoredPlayback {
             "+=" => cur + rhs_num,
             "-=" => cur - rhs_num,
             "*=" => cur * rhs_num,
+            "/=" => {
+                if rhs_num.abs() < 1e-12 {
+                    cur
+                } else {
+                    cur / rhs_num
+                }
+            }
+            "%=" => {
+                if rhs_num.abs() < 1e-12 {
+                    0.0
+                } else {
+                    cur % rhs_num
+                }
+            }
             "=" => rhs_num,
             _ => return false,
         } * scale_factor;
@@ -1509,6 +1590,7 @@ impl AuthoredPlayback {
     }
 
     fn eval_preview_expr(&self, project: &Project, path: &[Id], expr: &str) -> String {
+        let scope_path = self.effective_scope_path(project, path);
         let mut trimmed = expr.trim();
         while trimmed.starts_with('(') && trimmed.ends_with(')') && is_single_paren_group(trimmed) {
             trimmed = trimmed[1..trimmed.len() - 1].trim();
@@ -1518,41 +1600,67 @@ impl AuthoredPlayback {
         }
         let parts = split_top_level_plus(trimmed);
         if parts.len() > 1 {
+            let has_string_literal = parts.iter().any(|p| {
+                let pt = p.trim();
+                (pt.starts_with('"') && pt.ends_with('"'))
+                    || (pt.starts_with('\'') && pt.ends_with('\''))
+            });
             let evaluated: Vec<String> = parts
                 .into_iter()
-                .map(|p| self.eval_preview_expr(project, path, p))
+                .map(|p| self.eval_preview_expr(project, &scope_path, p))
                 .collect();
-            if evaluated.iter().all(|s| s.parse::<f64>().is_ok()) {
-                let sum: f64 = evaluated.iter().filter_map(|s| s.parse::<f64>().ok()).sum();
+            if !has_string_literal
+                && evaluated
+                    .iter()
+                    .all(|s| parse_or_coerce_number(s).is_some())
+            {
+                let sum: f64 = evaluated
+                    .iter()
+                    .filter_map(|s| parse_or_coerce_number(s))
+                    .sum();
                 return format_number(sum);
             }
             return evaluated.concat();
         }
         let sub_parts = split_top_level_binary_minus(trimmed);
         if let Some((l, r)) = sub_parts {
-            let lv = self
-                .eval_preview_expr(project, path, l)
-                .parse::<f64>()
-                .unwrap_or(0.0);
-            let rv = self
-                .eval_preview_expr(project, path, r)
-                .parse::<f64>()
-                .unwrap_or(0.0);
+            let lv = coerce_preview_number(&self.eval_preview_expr(project, &scope_path, l));
+            let rv = coerce_preview_number(&self.eval_preview_expr(project, &scope_path, r));
             return format_number(lv - rv);
         }
         let mul_parts = split_top_level_op(trimmed, "*");
         if mul_parts.len() == 2 {
-            let lv = self
-                .eval_preview_expr(project, path, mul_parts[0])
-                .parse::<f64>()
-                .unwrap_or(0.0);
-            let rv = self
-                .eval_preview_expr(project, path, mul_parts[1])
-                .parse::<f64>()
-                .unwrap_or(0.0);
+            let lv =
+                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, mul_parts[0]));
+            let rv =
+                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, mul_parts[1]));
             return format_number(lv * rv);
         }
-        self.eval_preview_atom(project, path, trimmed)
+        let div_parts = split_top_level_op(trimmed, "/");
+        if div_parts.len() == 2 {
+            let lv =
+                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, div_parts[0]));
+            let rv =
+                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, div_parts[1]));
+            return if rv.abs() < 1e-12 {
+                "0".into()
+            } else {
+                format_number(lv / rv)
+            };
+        }
+        let rem_parts = split_top_level_op(trimmed, "%");
+        if rem_parts.len() == 2 {
+            let lv =
+                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, rem_parts[0]));
+            let rv =
+                coerce_preview_number(&self.eval_preview_expr(project, &scope_path, rem_parts[1]));
+            return if rv.abs() < 1e-12 {
+                "0".into()
+            } else {
+                format_number(lv % rv)
+            };
+        }
+        self.eval_preview_atom(project, &scope_path, trimmed)
     }
 
     fn eval_preview_atom(&self, project: &Project, path: &[Id], atom: &str) -> String {
@@ -1562,7 +1670,7 @@ impl AuthoredPlayback {
         {
             return unescape_string_literal(&s[1..s.len() - 1]);
         }
-        if s == "true" || s == "false" {
+        if matches!(s, "true" | "false" | "undefined" | "null" | "NaN") {
             return s.to_owned();
         }
         if let Some(inner) = s.strip_prefix('!') {
@@ -1574,6 +1682,14 @@ impl AuthoredPlayback {
         }
         if let Ok(n) = s.parse::<f64>() {
             return format_number(n);
+        }
+        if let Some(inner) = s.strip_prefix('-')
+            && !inner.trim().is_empty()
+        {
+            let val = self.eval_preview_expr(project, path, inner);
+            if let Some(n) = parse_or_coerce_number(&val) {
+                return format_number(-n);
+            }
         }
         if let Some(val) = self.vars.get(&(path.to_vec(), s.to_owned())) {
             return val.clone();
@@ -1680,6 +1796,82 @@ fn callback_prop_to_event(prop: &str) -> Option<RegisteredEvent> {
     match prop.trim() {
         "onRelease" | "onPress" | "onclick" => Some(RegisteredEvent::Click),
         "onEnterFrame" => Some(RegisteredEvent::EnterFrame),
+        _ => None,
+    }
+}
+
+fn is_valid_identifier(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    !bytes.is_empty()
+        && !bytes[0].is_ascii_digit()
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
+}
+
+fn is_supported_preview_rhs(rhs: &str) -> bool {
+    let trimmed = rhs.trim();
+    !trimmed.is_empty() && !trimmed.starts_with("new ") && !trimmed.contains('{')
+}
+
+fn parse_or_coerce_number(s: &str) -> Option<f64> {
+    let trimmed = s.trim();
+    if let Ok(n) = trimmed.parse::<f64>() {
+        return Some(n);
+    }
+    match trimmed {
+        "undefined" | "null" | "false" | "" => Some(0.0),
+        "true" => Some(1.0),
+        _ => None,
+    }
+}
+
+fn coerce_preview_number(s: &str) -> f64 {
+    parse_or_coerce_number(s).unwrap_or(0.0)
+}
+
+fn apply_compound_var_op(op: &str, cur_val: &str, rhs_val: &str, raw_rhs: &str) -> Option<String> {
+    let rhs_trimmed = raw_rhs.trim();
+    let rhs_is_string_lit = (rhs_trimmed.starts_with('"') && rhs_trimmed.ends_with('"'))
+        || (rhs_trimmed.starts_with('\'') && rhs_trimmed.ends_with('\''));
+    match op {
+        "=" => Some(rhs_val.to_owned()),
+        "+=" => {
+            if !rhs_is_string_lit
+                && let (Some(a), Some(b)) = (
+                    parse_or_coerce_number(cur_val),
+                    parse_or_coerce_number(rhs_val),
+                )
+            {
+                Some(format_number(a + b))
+            } else {
+                Some(format!("{cur_val}{rhs_val}"))
+            }
+        }
+        "-=" => Some(format_number(
+            coerce_preview_number(cur_val) - coerce_preview_number(rhs_val),
+        )),
+        "*=" => Some(format_number(
+            coerce_preview_number(cur_val) * coerce_preview_number(rhs_val),
+        )),
+        "/=" => {
+            let a = coerce_preview_number(cur_val);
+            let b = coerce_preview_number(rhs_val);
+            if b.abs() < 1e-12 {
+                Some("0".into())
+            } else {
+                Some(format_number(a / b))
+            }
+        }
+        "%=" => {
+            let a = coerce_preview_number(cur_val);
+            let b = coerce_preview_number(rhs_val);
+            if b.abs() < 1e-12 {
+                Some("0".into())
+            } else {
+                Some(format_number(a % b))
+            }
+        }
         _ => None,
     }
 }
@@ -2377,8 +2569,10 @@ fn split_top_level_assign(stmt: &str) -> Option<(&str, &str)> {
             b'=' if paren == 0 && brace == 0 && bracket == 0 => {
                 let prev = if i > 0 { bytes[i - 1] } else { 0 };
                 let next = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
-                if !matches!(prev, b'!' | b'=' | b'<' | b'>' | b'+' | b'-' | b'*' | b'/')
-                    && next != b'='
+                if !matches!(
+                    prev,
+                    b'!' | b'=' | b'<' | b'>' | b'+' | b'-' | b'*' | b'/' | b'%'
+                ) && next != b'='
                     && next != b'>'
                 {
                     return Some((stmt[..i].trim(), stmt[i + 1..].trim()));
@@ -2469,7 +2663,7 @@ fn split_top_level_op<'a>(expr: &'a str, op: &str) -> Vec<&'a str> {
                 let conflict = (op == "==" && (prev == b'=' || prev == b'!' || next == b'='))
                     || (op == "!=" && next == b'=')
                     || ((op == "<" || op == ">") && next == b'=')
-                    || (op == "*" && next == b'=');
+                    || ((op == "*" || op == "/" || op == "%") && next == b'=');
                 if !conflict {
                     parts.push(expr[start..i].trim());
                     start = i + op_bytes.len();
@@ -2883,5 +3077,133 @@ mod tests {
         preview.click(&project, &btn_path);
         assert_eq!(preview.frame(), 3);
         assert_eq!(preview.drain_traces(), vec!["btn jumped root".to_string()]);
+    }
+
+    #[test]
+    fn on_clip_event_load_persists_into_enter_frame_and_compound_ops_mutate_stage_preview() {
+        let mut project = Project::blank();
+        let root = project.root.clone();
+        let mut mc_sym = project.symbol(&root).unwrap().clone();
+        mc_sym.id = "spinner-mc".into();
+        mc_sym.name = "SpinnerClip".into();
+        mc_sym.kind = SymbolKind::MovieClip;
+        mc_sym.timeline.frame_count = 1;
+        mc_sym.timeline.layers[0].id = "spinner-layer".into();
+        project.symbols.push(mc_sym);
+
+        let root_sym = project.symbol_mut(&root).unwrap();
+        root_sym.timeline.frame_count = 4;
+        root_sym.timeline.layers[0].keyframes[0].elements = vec![crate::Element {
+            id: "spinner-inst".into(),
+            name: "spinner".into(),
+            kind: crate::ElementKind::Instance {
+                symbol_id: "spinner-mc".into(),
+                playback: crate::InstancePlayback::Independent,
+            },
+            scripts: vec![crate::ObjectScript {
+                event: ObjectEvent::EnterFrame,
+                script: crate::Script {
+                    language: crate::ScriptLanguage::ActionScript2,
+                    source: "onClipEvent (load) {\n    var vx = 20, bonus;\n    omega = 15;\n    _x = 100;\n    _y = 50;\n    _rotation = 10;\n    _xscale = 120;\n    _yscale = 80;\n    _alpha = 90;\n}\nonClipEvent (enterFrame) {\n    bonus += 3;\n    vx /= 2;\n    omega %= 10;\n    _x += vx + bonus;\n    ++_x;\n    _y -= 5;\n    --_y;\n    _rotation += omega;\n    _rotation++;\n    _xscale *= 1.5;\n    _yscale /= 2;\n    _alpha -= 15;\n}\non (release) {\n    vx += 4;\n    trace(\"spinner vx=\" + vx + \" x=\" + _x + \" rot=\" + _rotation);\n}"
+                        .into(),
+                },
+            }],
+            ..crate::Element::default()
+        }];
+        project.validate().unwrap();
+
+        let spinner_path = vec!["spinner-inst".to_owned()];
+        let mut preview = AuthoredPlayback::with_live_scripts(&project, &root, 0, true);
+        assert!(preview.drain_diagnostics().is_empty());
+        assert_eq!(
+            preview.player.property(&project, &spinner_path, "x"),
+            Some(100.0)
+        );
+        assert_eq!(
+            preview.player.property(&project, &spinner_path, "rotation"),
+            Some(10.0)
+        );
+
+        // Frame 1 tick:
+        // bonus: undefined -> 0 + 3 = 3
+        // vx: 20 /= 2 -> 10
+        // omega: 15 %= 10 -> 5
+        // _x: 100 + (10 + 3) = 113, ++_x -> 114
+        // _y: 50 - 5 = 45, --_y -> 44
+        // _rotation: 10 + 5 = 15, _rotation++ -> 16
+        // _xscale: 120 *= 1.5 -> 180 (scale_x = 1.8)
+        // _yscale: 80 /= 2 -> 40 (scale_y = 0.4)
+        // _alpha: 90 -= 15 -> 75 (alpha = 0.75)
+        preview.tick(&project);
+        assert!(preview.drain_diagnostics().is_empty());
+        assert_eq!(
+            preview.player.property(&project, &spinner_path, "x"),
+            Some(114.0)
+        );
+        assert_eq!(
+            preview.player.property(&project, &spinner_path, "y"),
+            Some(44.0)
+        );
+        assert_eq!(
+            preview.player.property(&project, &spinner_path, "rotation"),
+            Some(16.0)
+        );
+        assert!(
+            (preview
+                .player
+                .property(&project, &spinner_path, "scale_x")
+                .unwrap()
+                - 1.8)
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (preview
+                .player
+                .property(&project, &spinner_path, "scale_y")
+                .unwrap()
+                - 0.4)
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (preview
+                .player
+                .property(&project, &spinner_path, "alpha")
+                .unwrap()
+                - 0.75)
+                .abs()
+                < 1e-6
+        );
+
+        // Clicking `spinner` mutates the same instance scope (`vx`: 10 += 4 -> 14)
+        preview.click(&project, &spinner_path);
+        assert_eq!(
+            preview.drain_traces(),
+            vec!["spinner vx=14 x=114 rot=16".to_owned()]
+        );
+
+        // Frame 2 tick uses updated `vx = 14` (`14 /= 2 -> 7`) and `bonus` (`3 += 3 -> 6`):
+        // `_x`: 114 + (7 + 6) + 1 = 128
+        preview.tick(&project);
+        assert_eq!(
+            preview.player.property(&project, &spinner_path, "x"),
+            Some(128.0)
+        );
+
+        // Verify `evaluate_scene_with_symbol_overrides` evaluates single-symbol solo overrides
+        // without cloning `Project`.
+        let mut solo_sym = project.symbol(&root).unwrap().clone();
+        solo_sym.timeline.layers[0].visible = false;
+        let solo_overrides = std::collections::HashMap::from([(root.clone(), solo_sym)]);
+        let hidden_scene = crate::evaluate_scene_with_symbol_overrides(
+            &project,
+            &solo_overrides,
+            &root,
+            0,
+            true,
+            true,
+        );
+        assert!(hidden_scene.draws.is_empty());
     }
 }

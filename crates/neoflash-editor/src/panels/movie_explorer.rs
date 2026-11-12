@@ -15,6 +15,50 @@ use neoflash_ui::icons::i16;
 use neoflash_ui::tokens::space;
 use std::collections::HashSet;
 
+/// Minimum number of rows in the Movie Explorer tree before row virtualization activates.
+pub const MOVIE_EXPLORER_VIRTUALIZATION_THRESHOLD: usize = 64;
+
+/// Vertical overscan (in rows) above and below the visible Movie Explorer viewport.
+pub const MOVIE_EXPLORER_OVERSCAN_ROWS: usize = 8;
+
+/// Telemetry recorded during the most recent `movie_explorer_panel_ui` pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MovieExplorerVirtualStats {
+    pub total_rows: usize,
+    pub first_row: usize,
+    pub last_row: usize,
+    pub drawn_rows: usize,
+}
+
+const MOVIE_EXPLORER_VIRTUAL_STATS_ID: &str = "neoflash_movie_explorer_virtual_stats";
+
+/// Compute the visible Movie Explorer row index range (`start..end`) inside `clip_top..=clip_bottom`.
+pub fn visible_movie_explorer_row_range(
+    clip_top: f32,
+    clip_bottom: f32,
+    list_top: f32,
+    row_pitch: f32,
+    total_rows: usize,
+    overscan_rows: usize,
+) -> std::ops::Range<usize> {
+    if total_rows <= MOVIE_EXPLORER_VIRTUALIZATION_THRESHOLD
+        || row_pitch <= 0.0
+        || !clip_top.is_finite()
+        || !clip_bottom.is_finite()
+        || clip_bottom <= clip_top
+    {
+        return 0..total_rows;
+    }
+    let raw_first = ((clip_top - list_top) / row_pitch).floor().max(0.0) as usize;
+    let raw_last = ((clip_bottom - list_top) / row_pitch).ceil().max(1.0) as usize;
+    let start = raw_first.saturating_sub(overscan_rows).min(total_rows);
+    let end = raw_last
+        .saturating_add(overscan_rows)
+        .min(total_rows)
+        .max(start);
+    start..end
+}
+
 pub(crate) const CAT_TEXT: usize = 0;
 pub(crate) const CAT_SYMBOLS: usize = 1;
 pub(crate) const CAT_SCRIPTS: usize = 2;
@@ -346,11 +390,37 @@ fn push_symbol_rows(
                 .or(top_layer_idx)
         };
 
+        let has_timeline_scripts = cats[CAT_SCRIPTS]
+            && sym
+                .timeline
+                .scripts
+                .iter()
+                .any(|fs| !fs.script.source.trim().is_empty());
+
         for (layer_idx, layer) in sym.timeline.layers.iter().enumerate().rev() {
             let layer_key = format!("layer:{}:{}", sym.id, layer.id);
             let layer_bc = format!("{bc_prefix} › {}", layer.name);
+            let layer_label = format!("Layer {:?}", layer.name);
+            let layer_open = filtering || !state.collapsed.contains(&layer_key);
+            if !filtering && !layer_open {
+                rows.push(MovieRow {
+                    key: layer_key,
+                    label: layer_label,
+                    breadcrumb: layer_bc,
+                    depth: base_depth,
+                    is_folder: true,
+                    is_open: false,
+                    leaf_icon: None,
+                    target: MovieTarget::Layer {
+                        symbol: sym.id.clone(),
+                        layer_index: layer_idx,
+                    },
+                });
+                continue;
+            }
+
             let mut frame_numbers: Vec<u32> = layer.keyframes.iter().map(|k| k.frame).collect();
-            if cats[CAT_SCRIPTS] {
+            if has_timeline_scripts {
                 for fs in &sym.timeline.scripts {
                     if !fs.script.source.trim().is_empty()
                         && script_layer_idx(fs.frame) == Some(layer_idx)
@@ -362,14 +432,29 @@ fn push_symbol_rows(
                 frame_numbers.sort_unstable();
             }
 
+            let keyframes_sorted = layer.keyframes.windows(2).all(|w| w[0].frame <= w[1].frame);
             let mut frame_blocks: Vec<(u32, String, String, Vec<LeafEntry>)> = Vec::new();
             for frame_num in frame_numbers {
-                let key_opt = layer.keyframes.iter().find(|k| k.frame == frame_num);
+                let key_opt = if keyframes_sorted {
+                    layer
+                        .keyframes
+                        .binary_search_by_key(&frame_num, |k| k.frame)
+                        .ok()
+                        .map(|idx| &layer.keyframes[idx])
+                } else {
+                    layer.keyframes.iter().find(|k| k.frame == frame_num)
+                };
                 let frame_label = match key_opt.map(|k| k.label.trim()).filter(|l| !l.is_empty()) {
                     Some(lbl) => format!("Frame {} ({lbl:?})", frame_num + 1),
                     None => format!("Frame {}", frame_num + 1),
                 };
                 let frame_bc = format!("{layer_bc} › Frame {}", frame_num + 1);
+                let frame_key = format!("frame:{}:{}:{frame_num}", sym.id, layer.id);
+                let frame_open = filtering || !state.collapsed.contains(&frame_key);
+                if !filtering && !frame_open {
+                    frame_blocks.push((frame_num, frame_label, frame_bc, Vec::new()));
+                    continue;
+                }
                 let mut leaves = Vec::new();
                 if let Some(key) = key_opt {
                     for el in &key.elements {
@@ -412,13 +497,13 @@ fn push_symbol_rows(
                         }
                     }
                 }
-                if script_layer_idx(frame_num) == Some(layer_idx)
-                    && cats[CAT_SCRIPTS]
+                if has_timeline_scripts
                     && let Some(fs) = sym
                         .timeline
                         .scripts
                         .iter()
                         .find(|fs| fs.frame == frame_num && !fs.script.source.trim().is_empty())
+                    && script_layer_idx(frame_num) == Some(layer_idx)
                 {
                     let label = format!("Actions for Frame {}", fs.frame + 1);
                     if !filtering
@@ -444,13 +529,11 @@ fn push_symbol_rows(
                 }
             }
 
-            let layer_label = format!("Layer {:?}", layer.name);
             let layer_matches = !filtering || layer_label.to_ascii_lowercase().contains(query);
             if filtering && frame_blocks.is_empty() && !layer_matches {
                 continue;
             }
 
-            let layer_open = filtering || !state.collapsed.contains(&layer_key);
             rows.push(MovieRow {
                 key: layer_key,
                 label: layer_label,
@@ -1024,7 +1107,39 @@ impl Editor {
             .themed()
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = space::S1;
-                for row in &rows {
+                let total_rows = rows.len();
+                let row_h = neoflash_ui::metrics::control();
+                let row_pitch = row_h + space::S1;
+                let list_top = ui.cursor().min.y;
+                let clip = ui.clip_rect();
+                let row_range = visible_movie_explorer_row_range(
+                    clip.top(),
+                    clip.bottom(),
+                    list_top,
+                    row_pitch,
+                    total_rows,
+                    MOVIE_EXPLORER_OVERSCAN_ROWS,
+                );
+                let top_spacer = (row_range.start as f32 * row_pitch - space::S1).max(0.0);
+                if top_spacer > 0.0 {
+                    ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), top_spacer),
+                        egui::Sense::hover(),
+                    );
+                }
+                let bottom_rows = total_rows.saturating_sub(row_range.end);
+                let bottom_spacer = (bottom_rows as f32 * row_pitch - space::S1).max(0.0);
+                let drawn_rows = row_range.len();
+                let stats = MovieExplorerVirtualStats {
+                    total_rows,
+                    first_row: row_range.start,
+                    last_row: row_range.end.saturating_sub(1),
+                    drawn_rows,
+                };
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(egui::Id::new(MOVIE_EXPLORER_VIRTUAL_STATS_ID), stats);
+                });
+                for row in &rows[row_range] {
                     let kind = if row.is_folder {
                         if row.is_open {
                             c::TreeItemType::FolderOpen
@@ -1091,6 +1206,12 @@ impl Editor {
                         });
                     }
                 }
+                if bottom_spacer > 0.0 {
+                    ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), bottom_spacer),
+                        egui::Sense::hover(),
+                    );
+                }
             });
 
         if let Some(key) = toggle_folder
@@ -1119,5 +1240,16 @@ impl Editor {
             .or_else(|| self.movie_explorer.selected_breadcrumb.clone())
             .unwrap_or_else(|| self.default_explorer_breadcrumb());
         mono(ui, &breadcrumb);
+    }
+
+    /// Return the virtualization telemetry recorded by the most recent `movie_explorer_panel_ui` pass.
+    #[allow(dead_code)]
+    pub fn last_movie_explorer_virtual_stats(
+        &self,
+        ctx: &egui::Context,
+    ) -> Option<MovieExplorerVirtualStats> {
+        ctx.data(|d| {
+            d.get_temp::<MovieExplorerVirtualStats>(egui::Id::new(MOVIE_EXPLORER_VIRTUAL_STATS_ID))
+        })
     }
 }

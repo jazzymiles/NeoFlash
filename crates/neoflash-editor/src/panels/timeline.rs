@@ -21,6 +21,199 @@ use neoflash_ui::metrics::LAYER_TOGGLE;
 use neoflash_ui::tokens::space;
 use neoflash_ui::{TextStyle, typography};
 
+#[path = "output.rs"]
+pub(crate) mod output;
+#[allow(unused_imports)]
+pub(crate) use output::*;
+
+/// Default vertical overscan (in rows) for timeline row virtualization.
+pub const DEFAULT_TIMELINE_OVERSCAN_ROWS: usize = 4;
+
+/// Default horizontal overscan (in frames) for timeline frame-column virtualization.
+pub const DEFAULT_TIMELINE_OVERSCAN_FRAMES: u32 = 16;
+
+/// Deterministic viewport virtualization window for the Timeline panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimelineVirtualWindow {
+    /// First visible/overscanned row index (inclusive, 0-based).
+    pub first_row: usize,
+    /// Last visible/overscanned row index (inclusive, 0-based).
+    pub last_row: usize,
+    /// First visible/overscanned frame index (inclusive, 0-based).
+    pub first_frame: u32,
+    /// Last visible/overscanned frame index (inclusive, 0-based).
+    pub last_frame: u32,
+    /// Vertical overscan margin in rows.
+    pub overscan_rows: usize,
+    /// Horizontal overscan margin in frames.
+    pub overscan_frames: u32,
+}
+
+impl TimelineVirtualWindow {
+    /// Compute the virtualized row and frame window from a viewport/clip rect, content origin,
+    /// row height (`row_h`), and frame cell width (`cell_w`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute(
+        clip_rect: Rect,
+        content_origin: Pos2,
+        row_h: f32,
+        cell_w: f32,
+        total_rows: usize,
+        total_frames: u32,
+        overscan_rows: usize,
+        overscan_frames: u32,
+    ) -> Self {
+        let last_valid_row = total_rows.saturating_sub(1);
+        let (first_row, last_row) = if total_rows == 0
+            || row_h <= 0.0
+            || !clip_rect.top().is_finite()
+            || !clip_rect.bottom().is_finite()
+            || clip_rect.bottom() <= clip_rect.top()
+        {
+            (0, last_valid_row)
+        } else {
+            let raw_first = ((clip_rect.top() - content_origin.y) / row_h)
+                .floor()
+                .max(0.0) as usize;
+            let raw_last = (((clip_rect.bottom() - content_origin.y) / row_h)
+                .ceil()
+                .max(1.0) as usize)
+                .saturating_sub(1);
+            let first = raw_first.saturating_sub(overscan_rows).min(last_valid_row);
+            let last = raw_last
+                .saturating_add(overscan_rows)
+                .min(last_valid_row)
+                .max(first);
+            (first, last)
+        };
+
+        let last_valid_frame = total_frames.saturating_sub(1);
+        let (first_frame, last_frame) = if total_frames == 0
+            || cell_w <= 0.0
+            || !clip_rect.left().is_finite()
+            || !clip_rect.right().is_finite()
+            || clip_rect.right() <= clip_rect.left()
+        {
+            (0, last_valid_frame)
+        } else {
+            let raw_first = ((clip_rect.left() - content_origin.x) / cell_w)
+                .floor()
+                .max(0.0) as u32;
+            let raw_last = (((clip_rect.right() - content_origin.x) / cell_w)
+                .ceil()
+                .max(1.0) as u32)
+                .saturating_sub(1);
+            let first = raw_first
+                .saturating_sub(overscan_frames)
+                .min(last_valid_frame);
+            let last = raw_last
+                .saturating_add(overscan_frames)
+                .min(last_valid_frame)
+                .max(first);
+            (first, last)
+        };
+
+        Self {
+            first_row,
+            last_row,
+            first_frame,
+            last_frame,
+            overscan_rows,
+            overscan_frames,
+        }
+    }
+
+    /// Compute with the standard overscan margins (`4` rows, `16` frames).
+    pub fn with_default_overscan(
+        clip_rect: Rect,
+        content_origin: Pos2,
+        row_h: f32,
+        cell_w: f32,
+        total_rows: usize,
+        total_frames: u32,
+    ) -> Self {
+        Self::compute(
+            clip_rect,
+            content_origin,
+            row_h,
+            cell_w,
+            total_rows,
+            total_frames,
+            DEFAULT_TIMELINE_OVERSCAN_ROWS,
+            DEFAULT_TIMELINE_OVERSCAN_FRAMES,
+        )
+    }
+
+    /// Half-open row range (`start..end`) clamped to `total_rows`.
+    pub fn row_range(&self, total_rows: usize) -> std::ops::Range<usize> {
+        if total_rows == 0 {
+            return 0..0;
+        }
+        let start = self.first_row.min(total_rows);
+        let end = self.last_row.saturating_add(1).min(total_rows).max(start);
+        start..end
+    }
+
+    /// Half-open frame range (`start..end`) clamped to `total_frames`.
+    pub fn frame_range(&self, total_frames: u32) -> std::ops::Range<u32> {
+        if total_frames == 0 {
+            return 0..0;
+        }
+        let start = self.first_frame.min(total_frames);
+        let end = self
+            .last_frame
+            .saturating_add(1)
+            .min(total_frames)
+            .max(start);
+        start..end
+    }
+
+    /// Exact top spacer height above `first_row`.
+    pub fn top_spacer_height(&self, row_h: f32, total_rows: usize) -> f32 {
+        (self.row_range(total_rows).start as f32 * row_h.max(0.0)).max(0.0)
+    }
+
+    /// Exact bottom spacer height below `last_row`.
+    pub fn bottom_spacer_height(&self, row_h: f32, total_rows: usize) -> f32 {
+        let range = self.row_range(total_rows);
+        (total_rows.saturating_sub(range.end) as f32 * row_h.max(0.0)).max(0.0)
+    }
+
+    /// Exact left spacer width before `first_frame`.
+    #[allow(dead_code)]
+    pub fn left_spacer_width(&self, cell_w: f32, total_frames: u32) -> f32 {
+        (self.frame_range(total_frames).start as f32 * cell_w.max(0.0)).max(0.0)
+    }
+
+    /// Exact right spacer width after `last_frame`.
+    #[allow(dead_code)]
+    pub fn right_spacer_width(&self, cell_w: f32, total_frames: u32) -> f32 {
+        let range = self.frame_range(total_frames);
+        (total_frames.saturating_sub(range.end) as f32 * cell_w.max(0.0)).max(0.0)
+    }
+
+    /// Whether a frame span `[start_frame..end_frame_exclusive)` (or single frame when
+    /// `end_frame_exclusive <= start_frame`) intersects `[first_frame..=last_frame]`.
+    pub fn span_intersects(&self, start_frame: u32, end_frame_exclusive: u32) -> bool {
+        let end_inclusive = end_frame_exclusive.max(start_frame);
+        end_inclusive >= self.first_frame && start_frame <= self.last_frame.saturating_add(1)
+    }
+}
+
+/// Telemetry recorded during the most recent `timeline_contents` pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimelineVirtualStats {
+    pub window: TimelineVirtualWindow,
+    pub total_rows: usize,
+    pub total_frames: u32,
+    pub drawn_layer_rows: usize,
+    pub drawn_grid_rows: usize,
+    pub drawn_frame_columns: u32,
+    pub drawn_spans: usize,
+}
+
+const TIMELINE_VIRTUAL_STATS_ID: &str = "neoflash_timeline_virtual_stats";
+
 /// Compute the visible layer row index range (`start..end`) inside `clip_top..=clip_bottom`
 /// for timeline row virtualization (with a 2-row overscan margin).
 #[allow(dead_code)]
@@ -42,6 +235,21 @@ pub(crate) fn visible_layer_row_range(
 }
 
 impl Editor {
+    /// Return the virtualization telemetry recorded by the most recent `timeline_contents` pass.
+    #[allow(dead_code)]
+    pub fn last_timeline_virtual_stats(&self, ctx: &egui::Context) -> Option<TimelineVirtualStats> {
+        ctx.data(|d| d.get_temp::<TimelineVirtualStats>(egui::Id::new(TIMELINE_VIRTUAL_STATS_ID)))
+    }
+
+    /// Return the `TimelineVirtualWindow` recorded by the most recent `timeline_contents` pass.
+    #[allow(dead_code)]
+    pub fn last_timeline_virtual_window(
+        &self,
+        ctx: &egui::Context,
+    ) -> Option<TimelineVirtualWindow> {
+        self.last_timeline_virtual_stats(ctx).map(|s| s.window)
+    }
+
     /// Test helper: paint the dock edge that currently holds the Timeline.
     #[cfg(test)]
     pub fn timeline(&mut self, ctx: &egui::Context) {
@@ -206,6 +414,17 @@ impl Editor {
                 }
             }
             // Frame exposures are ordered by their frame, independent of JSON order.
+            if self
+                .symbol()
+                .timeline
+                .layers
+                .iter()
+                .any(|l| !l.keyframes.windows(2).all(|w| w[0].frame <= w[1].frame))
+            {
+                for layer in &mut self.symbol_mut().timeline.layers {
+                    layer.keyframes.sort_by_key(|key| key.frame);
+                }
+            }
             let layer_indices = visible_layer_indices(&self.symbol().timeline);
             if !layer_indices.contains(&self.layer) {
                 let previous_layer = self.layer;
@@ -215,16 +434,9 @@ impl Editor {
                 }
                 self.clear_selection();
             }
-            let depths: Vec<usize> = {
-                let timeline = &self.symbol().timeline;
-                layer_indices.iter().map(|index| layer_depth(timeline, &timeline.layers[*index])).collect()
-            };
-            let mut layers: Vec<_> = layer_indices.iter().map(|index| self.symbol().timeline.layers[*index].clone()).collect();
-            for layer in &mut layers {
-                layer.keyframes.sort_by_key(|key| key.frame);
-            }
+            let total_rows = layer_indices.len();
             let count = self.symbol().timeline.frame_count;
-            let script_frames: Vec<u32> = self
+            let mut script_frames: Vec<u32> = self
                 .symbol()
                 .timeline
                 .scripts
@@ -232,17 +444,26 @@ impl Editor {
                 .filter(|script| !script.script.source.trim().is_empty())
                 .map(|script| script.frame)
                 .collect();
+            script_frames.sort_unstable();
+            script_frames.dedup();
             // Frame scripts belong to the whole timeline. Like Flash's actions layer, they show as
             // Action keyframes on the topmost visible non-folder row that has an ordinary keyframe at
             // that frame; otherwise on the ruler.
-            let action_row = layers.iter().position(|layer| layer.properties.role != LayerRole::Folder);
-            let content_height = layers.len() as f32 * row_height;
+            let action_row = {
+                let timeline = &self.symbol().timeline;
+                layer_indices
+                    .iter()
+                    .position(|&idx| timeline.layers[idx].properties.role != LayerRole::Folder)
+            };
+            let content_height = total_rows as f32 * row_height;
             // Solid scrollbars own a separate strip instead of covering the last
             // visible key. Content drags belong to frames, not kinetic scrolling.
             let scroll_source = egui::scroll_area::ScrollSource::SCROLL_BAR
                 | egui::scroll_area::ScrollSource::MOUSE_WHEEL;
             let mut grid_rect = Rect::NOTHING;
             let mut grid_clip = Rect::NOTHING;
+            let mut drawn_layer_rows = 0usize;
+            let mut virtual_stats: Option<TimelineVirtualStats> = None;
             let rows = egui::ScrollArea::vertical()
                 .id_salt("timeline_rows")
                 .scroll_source(scroll_source)
@@ -258,14 +479,63 @@ impl Editor {
                             |ui| {
                                 ui.set_width(layer_column_width);
                                 ui.spacing_mut().item_spacing.y = 0.;
-                                for (row_index, layer) in layers.iter().enumerate() {
-                                    let idx = layer_indices[row_index];
+                                let list_origin = ui.cursor().min;
+                                let row_window = TimelineVirtualWindow::with_default_overscan(
+                                    ui.clip_rect(),
+                                    list_origin,
+                                    row_height,
+                                    cell_width,
+                                    total_rows,
+                                    count.max(1),
+                                );
+                                let row_range = row_window.row_range(total_rows);
+                                let top_spacer =
+                                    row_window.top_spacer_height(row_height, total_rows);
+                                if top_spacer > 0.0 {
+                                    ui.allocate_exact_size(
+                                        Vec2::new(layer_column_width, top_spacer),
+                                        Sense::hover(),
+                                    );
+                                }
+                                for row_index in row_range {
+                                    let Some(&idx) = layer_indices.get(row_index) else {
+                                        continue;
+                                    };
+                                    let (layer, depth, kind, effective_blend_label, color) = {
+                                        let timeline = &self.symbol().timeline;
+                                        let Some(real_layer) = timeline.layers.get(idx) else {
+                                            continue;
+                                        };
+                                        let depth = layer_depth(timeline, real_layer);
+                                        let kind = layer_kind(timeline, real_layer);
+                                        let effective_blend_label =
+                                            neoflash_core::layer_effective_blend_mode(
+                                                timeline, real_layer,
+                                            )
+                                            .label();
+                                        let color = layer_color(real_layer);
+                                        let header_layer = Layer {
+                                            id: real_layer.id.clone(),
+                                            name: real_layer.name.clone(),
+                                            visible: real_layer.visible,
+                                            locked: real_layer.locked,
+                                            keyframes: Vec::new(),
+                                            properties: real_layer.properties.clone(),
+                                        };
+                                        (
+                                            header_layer,
+                                            depth,
+                                            kind,
+                                            effective_blend_label,
+                                            color,
+                                        )
+                                    };
+                                    drawn_layer_rows += 1;
                                     let (row_rect, row_response) = ui.allocate_exact_size(
                                         Vec2::new(layer_column_width, row_height),
                                         Sense::click_and_drag(),
                                     );
                                     let renaming = rename.as_ref().is_some_and(|draft| draft.layer == layer.id);
-                                    let kind = layer_kind(&self.symbol().timeline, layer);
                                     let is_mask_row = layer.properties.role == LayerRole::Mask;
                                     let mode_cell = if !show_mode {
                                         tl::ModeCell::Hidden
@@ -279,25 +549,19 @@ impl Editor {
                                     {
                                         tl::ModeCell::Empty
                                     } else {
-                                        tl::ModeCell::Mode(
-                                            neoflash_core::layer_effective_blend_mode(
-                                                &self.symbol().timeline,
-                                                layer,
-                                            )
-                                            .label(),
-                                        )
+                                        tl::ModeCell::Mode(effective_blend_label)
                                     };
                                     let row_selected = self.is_layer_row_selected(idx);
                                     let row = LayerRow {
                                         label: if renaming { "" } else { &layer.name },
                                         kind,
                                         selected: row_selected,
-                                        indent: depths[row_index],
+                                        indent: depth,
                                         editing: idx == self.layer,
                                         visible: layer.visible,
                                         locked: layer.locked,
                                         outline: layer.properties.outline,
-                                        color: layer_color(layer),
+                                        color,
                                     }
                                     .paint_at_with(
                                         ui,
@@ -385,7 +649,7 @@ impl Editor {
                                         Vec2::new(LAYER_TOGGLE, row_rect.height()),
                                     );
                                     let swatch = ui.interact(swatch, row.row.id.with(ToggleKind::Outline as u8), Sense::click());
-                                    self.layer_outline_menu(&swatch, layer);
+                                    self.layer_outline_menu(&swatch, &layer);
                                     if let Some(draft) = rename.as_mut().filter(|draft| draft.layer == layer.id) {
                                         let rename_style = if row_height < 18.0 {
                                             TextStyle::Small
@@ -516,6 +780,14 @@ impl Editor {
                                         });
                                     });
                                 }
+                                let bottom_spacer =
+                                    row_window.bottom_spacer_height(row_height, total_rows);
+                                if bottom_spacer > 0.0 {
+                                    ui.allocate_exact_size(
+                                        Vec2::new(layer_column_width, bottom_spacer),
+                                        Sense::hover(),
+                                    );
+                                }
                             },
                         );
                         let frames = egui::ScrollArea::horizontal()
@@ -542,7 +814,9 @@ impl Editor {
                                 self.timeline_grid_interact(ui, &response, rect, grid_clip, cell_width, grid_count, &layer_indices, resize.is_some() || reorder.is_some());
                                 let painter = ui.painter_at(rect);
                                 painter.rect_filled(rect, 0, palette.panel_fill);
-                                self.paint_timeline_rows(&painter, rect, grid_clip, cell_width, &layers, action_row, &script_frames, view.tinted);
+                                let mut stats = self.paint_timeline_rows(&painter, rect, grid_clip, cell_width, &layer_indices, action_row, &script_frames, view.tinted);
+                                stats.drawn_layer_rows = drawn_layer_rows;
+                                virtual_stats = Some(stats);
                                 self.paint_frame_selection(ui, rect, cell_width, &layer_indices);
                                 let selected_cell = Rect::from_min_size(
                                     Pos2::new(rect.left() + self.frame as f32 * cell_width, rect.top() + layer_indices.iter().position(|i| *i == self.layer).unwrap_or(0) as f32 * row_height),
@@ -550,10 +824,12 @@ impl Editor {
                                 );
                                 if response.hovered()
                                     && let Some(pos) = response.hover_pos()
-                                    && let Some((frame, layer)) = timeline_cell_at(pos, rect.min, cell_width, grid_count, layers.len(), row_height)
+                                    && let Some((frame, layer_row)) = timeline_cell_at(pos, rect.min, cell_width, grid_count, total_rows, row_height)
+                                    && let Some(&layer_idx) = layer_indices.get(layer_row)
+                                    && let Some(hover_layer) = self.symbol().timeline.layers.get(layer_idx)
                                 {
-                                    let layer_end = layers[layer].properties.end_frame.unwrap_or(count).min(count);
-                                    let key = (frame < layer_end).then(|| layers[layer].key_at(frame)).flatten();
+                                    let layer_end = hover_layer.properties.end_frame.unwrap_or(count).min(count);
+                                    let key = (frame < layer_end).then(|| hover_layer.key_at(frame)).flatten();
                                     let label = match key {
                                         Some(key) if key.frame == frame && key.elements.is_empty() => "Blank keyframe".to_owned(),
                                         Some(key) if key.frame == frame => "Keyframe · drag to move, Option-drag to copy".to_owned(),
@@ -562,10 +838,11 @@ impl Editor {
                                         None if frame >= layer_end => format!("Empty frame (layer ends at frame {} · F5 to insert frame, F6/F7 for keyframe)", layer_end),
                                         None => "Empty before the first keyframe".to_owned(),
                                     };
-                                    if key.is_some_and(|key| key.frame == frame) && !layers[layer].locked && layers[layer].visible {
+                                    if key.is_some_and(|key| key.frame == frame) && !hover_layer.locked && hover_layer.visible {
                                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                                     }
-                                    response.clone().on_hover_text(format!("{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions", layers[layer].name, frame + 1, label));
+                                    let hover_layer_name = hover_layer.name.clone();
+                                    response.clone().on_hover_text(format!("{} · Frame {}\n{}\nShift-click/drag selects a frame range. Drag a selected range to move; Option-drag copies.\nRight-click for frame commands and Actions", hover_layer_name, frame + 1, label));
                                 }
                                 if response.dragged_by(egui::PointerButton::Primary)
                                     && let Some((symbol, layer_id, from)) = &self.timeline_key_drag
@@ -579,7 +856,7 @@ impl Editor {
                                 {
                                     let layer = &self.symbol().timeline.layers[layer_idx];
                                     let key_conflict = self.frame != *from
-                                        && layer.keyframes.iter().any(|key| key.frame == self.frame);
+                                        && layer.keyframes.binary_search_by_key(&self.frame, |key| key.frame).is_ok();
                                     let script_conflict = self.frame != *from
                                         && self
                                             .symbol()
@@ -600,7 +877,7 @@ impl Editor {
                                     painter.text(Pos2::new(grid_clip.left() + space::S1, grid_clip.bottom() - space::S1), Align2::LEFT_BOTTOM, text, typography::font(TextStyle::Small), stroke.color);
                                 }
                                 if response.context_menu_opened()
-                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, grid_count, layers.len(), row_height).is_some())
+                                    || response.interact_pointer_pos().is_some_and(|pos| timeline_cell_at(pos, rect.min, cell_width, grid_count, total_rows, row_height).is_some())
                                 {
                                 response.context_menu(|ui| {
                                     crate::ui_icons::menu_contents(ui, 280., |ui| self.frame_context_menu(ui));
@@ -646,9 +923,49 @@ impl Editor {
                         }
                     });
                 });
+            if let Some(stats) = virtual_stats {
+                ctx.data_mut(|data| {
+                    data.insert_temp(egui::Id::new(TIMELINE_VIRTUAL_STATS_ID), stats);
+                });
+            }
+            // Continue an existing frame-range drag at the vertical viewport edge.
+            if self.timeline_edit.dragging()
+                && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging())
+                && let Some(pos) = pointer
+                && pos.x >= grid_clip.left()
+                && pos.x <= grid_clip.right()
+            {
+                let margin = 24.;
+                let direction = if pos.y < rows.inner_rect.top() + margin {
+                    -1.
+                } else if pos.y > rows.inner_rect.bottom() - margin {
+                    1.
+                } else {
+                    0.
+                };
+                if direction != 0. {
+                    let mut state = rows.state;
+                    let dt = ui.input(|i| i.stable_dt).min(0.05);
+                    let maximum = (rows.content_size.y - rows.inner_rect.height()).max(0.);
+                    let next = (state.offset.y + direction * 260. * dt).clamp(0., maximum);
+                    if next != state.offset.y {
+                        state.offset.y = next;
+                        state.store(ui.ctx(), rows.id);
+                        ctx.request_repaint();
+                    }
+                }
+            }
             ui.painter().vline(divider_x, header.top()..=rows.inner_rect.bottom(), Stroke::new(if resize.is_some() {2.0_f32} else {1.0_f32}, if resize.is_some() {palette.accent} else {palette.divider}));
             if let Some(drag)=&mut reorder {
-                if drag.symbol!=self.symbol_id() || !layers.iter().any(|layer| layer.id==drag.layer) {reorder=None;}
+                fn layer_row_at<'a>(
+                    timeline: &'a Timeline,
+                    layer_indices: &[usize],
+                    row: usize,
+                ) -> Option<&'a Layer> {
+                    let &idx = layer_indices.get(row)?;
+                    timeline.layers.get(idx)
+                }
+                if drag.symbol!=self.symbol_id() || !layer_indices.iter().any(|&idx| self.symbol().timeline.layers[idx].id==drag.layer) {reorder=None;}
                 else if let Some(position)=pointer {
                     drag.moved |= position.distance(drag.start)>=6.;
                     if drag.moved {
@@ -656,10 +973,11 @@ impl Editor {
                         let within=names_view.contains(position);
                         ctx.set_cursor_icon(if within {egui::CursorIcon::Grabbing} else {egui::CursorIcon::NotAllowed});
                         if within {
+                            let timeline = &self.symbol().timeline;
                             let rel_y = (position.y - grid_rect.top()) / row_height;
                             let hover_row = rel_y.floor().max(0.) as usize;
                             let row_frac = rel_y - hover_row as f32;
-                            let folder_target = layers.get(hover_row).filter(|l| {
+                            let folder_target = layer_row_at(timeline, &layer_indices, hover_row).filter(|l| {
                                 l.properties.role == LayerRole::Folder
                                     && l.id != drag.layer
                                     && (0.22..=0.78).contains(&row_frac)
@@ -689,12 +1007,13 @@ impl Editor {
                                         Some((drag.layer.clone(), folder.id.clone()));
                                 }
                             } else {
-                                let boundary = (rel_y.round().max(0.) as usize).min(layers.len());
+                                let boundary = (rel_y.round().max(0.) as usize).min(total_rows);
                                 let y = (grid_rect.top() + boundary as f32 * row_height)
                                     .clamp(names_view.top(), names_view.bottom());
-                                let above = boundary.checked_sub(1).and_then(|i| layers.get(i));
-                                let below = layers.get(boundary);
-                                let dragged_parent = layers
+                                let above = boundary.checked_sub(1).and_then(|i| layer_row_at(timeline, &layer_indices, i));
+                                let below = layer_row_at(timeline, &layer_indices, boundary);
+                                let dragged_parent = timeline
+                                    .layers
                                     .iter()
                                     .find(|l| l.id == drag.layer)
                                     .and_then(|l| l.properties.parent.clone());
@@ -821,7 +1140,13 @@ impl Editor {
                     let seconds = rp.with_clip_rect(Rect::from_min_max(ruler.min, Pos2::new(grid_end_x, ruler.top() + seconds_row)));
                     tl::paint_ruler(&seconds, &ctx, full_ruler, &geo, fps, view.show_seconds);
                 }
-                for &frame in &script_frames {
+                let ruler_first = (((ruler.left() - grid_rect.left()) / cell_width).floor().max(0.) as u32).min(count);
+                let ruler_last = (((ruler.right() - grid_rect.left()) / cell_width).ceil().max(0.) as u32).min(count);
+                let start_sf = script_frames.partition_point(|&f| f < ruler_first);
+                for &frame in &script_frames[start_sf..] {
+                    if frame > ruler_last {
+                        break;
+                    }
                     let on_row = self.symbol().timeline.action_layer_for_frame(frame).is_some();
                     if !on_row && frame < count {
                         let cell = geo.cell(ruler, frame + 1);
@@ -1064,11 +1389,19 @@ impl Editor {
         rect: Rect,
         clip: Rect,
         cell: f32,
-        layers: &[Layer],
+        layer_indices: &[usize],
         _action_row: Option<usize>,
         script_frames: &[u32],
         tinted: bool,
-    ) {
+    ) -> TimelineVirtualStats {
+        #[derive(Clone, Copy)]
+        struct VisibleSpan {
+            ki: usize,
+            start: u32,
+            next: u32,
+            kind: Option<SpanType>,
+        }
+
         let ctx = painter.ctx().clone();
         let p = neoflash_ui::palette(&ctx);
         let count = self.symbol().timeline.frame_count;
@@ -1078,8 +1411,20 @@ impl Editor {
             frame_width: cell,
             row_height,
         };
-        let first = (((clip.left() - rect.left()) / cell).max(0.) as u32).min(count);
-        let last = (((clip.right() - rect.left()) / cell).ceil().max(0.) as u32).min(count);
+        let total_rows = layer_indices.len();
+        let window = TimelineVirtualWindow::with_default_overscan(
+            clip,
+            rect.min,
+            row_height,
+            cell,
+            total_rows,
+            count.max(1),
+        );
+        let first = window.first_frame.min(count);
+        let last = window.last_frame.min(count);
+        let row_range = window.row_range(total_rows);
+        let frame_range = window.frame_range(count.max(1));
+        let drawn_frame_columns = frame_range.end.saturating_sub(frame_range.start);
         let end_x = rect.left() + count as f32 * cell;
         let button_states = self.symbol().kind == SymbolKind::Button;
         let grid_end_x = if button_states {
@@ -1090,10 +1435,22 @@ impl Editor {
         let selection = self.frame_range();
         let preview = self.workspace.timeline.preview != crate::workspace::FramePreview::Off;
         if preview {
-            self.begin_thumbnail_pass();
+            let visible_layer_ids: Vec<String> = row_range
+                .clone()
+                .filter_map(|li| {
+                    let &idx = layer_indices.get(li)?;
+                    self.symbol().timeline.layers.get(idx).map(|l| l.id.clone())
+                })
+                .collect();
+            self.begin_thumbnail_pass_for_window(first, last, &visible_layer_ids);
         }
         let any_solo = self.has_any_solo_layers();
-        for (li, layer) in layers.iter().enumerate() {
+        let mut drawn_grid_rows = 0usize;
+        let mut drawn_spans = 0usize;
+        for li in row_range {
+            let Some(&layer_idx) = layer_indices.get(li) else {
+                continue;
+            };
             let y = rect.top() + li as f32 * row_height;
             let row =
                 Rect::from_min_max(Pos2::new(rect.left(), y), Pos2::new(end_x, y + row_height));
@@ -1104,38 +1461,65 @@ impl Editor {
             if !grid_row.intersects(clip) {
                 continue;
             }
+            drawn_grid_rows += 1;
+            let (layer_id, layer_role, layer_end) = {
+                let Some(layer) = self.symbol().timeline.layers.get(layer_idx) else {
+                    continue;
+                };
+                (
+                    layer.id.clone(),
+                    layer.properties.role,
+                    layer.properties.end_frame.unwrap_or(count).min(count),
+                )
+            };
             let rp = painter.with_clip_rect(clip.intersect(row));
             let grid_rp = painter.with_clip_rect(clip.intersect(grid_row));
-            if layer.properties.role == LayerRole::Folder {
+            if layer_role == LayerRole::Folder {
                 tl::paint_grid(&grid_rp, &ctx, grid_row, &geo, GridKind::Folder);
-                if any_solo && !self.is_layer_id_effectively_soloed(&layer.id) {
+                if any_solo && !self.is_layer_id_effectively_soloed(&layer_id) {
                     grid_rp.rect_filled(grid_row, 0., p.bg_panel.gamma_multiply(0.55));
                 }
                 continue;
             }
             tl::paint_grid(&grid_rp, &ctx, grid_row, &geo, GridKind::Layer);
-            let layer_end = layer.properties.end_frame.unwrap_or(count).min(count);
             // A motion tween is one span through its ◆ property keys (which have no span of
             // their own); classic and shape tweens without an end keyframe are broken.
-            let span_end = |ki: usize| {
-                let key = &layer.keyframes[ki];
-                let motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
-                layer.keyframes[ki + 1..]
-                    .iter()
-                    .find(|k| !(motion && k.keyed_properties.is_some()))
-                    .map(|k| k.frame)
-            };
-            let spans: Vec<(u32, u32, Option<SpanType>)> = layer
-                .keyframes
-                .iter()
-                .enumerate()
-                .filter_map(|(ki, key)| {
+            let spans: Vec<VisibleSpan> = {
+                let keyframes = &self.symbol().timeline.layers[layer_idx].keyframes;
+                let mut start_ki = keyframes
+                    .partition_point(|k| k.frame <= first)
+                    .saturating_sub(1);
+                while start_ki > 0 && keyframes[start_ki].keyed_properties.is_some() {
+                    start_ki -= 1;
+                }
+                let span_end = |ki: usize| {
+                    let key = &keyframes[ki];
+                    let motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+                    keyframes[ki + 1..]
+                        .iter()
+                        .find(|k| !(motion && k.keyed_properties.is_some()))
+                        .map(|k| k.frame)
+                };
+                let mut visible_spans = Vec::new();
+                for (offset, key) in keyframes[start_ki..].iter().enumerate() {
+                    let ki = start_ki + offset;
+                    if key.frame > last.saturating_add(1) {
+                        break;
+                    }
                     if key.keyed_properties.is_some() {
-                        return Some((key.frame, key.frame, None));
+                        if window.span_intersects(key.frame, key.frame) {
+                            visible_spans.push(VisibleSpan {
+                                ki,
+                                start: key.frame,
+                                next: key.frame,
+                                kind: None,
+                            });
+                        }
+                        continue;
                     }
                     let next_key = span_end(ki);
                     let next = next_key.unwrap_or(layer_end).min(count);
-                    (next > key.frame).then(|| {
+                    if next > key.frame && window.span_intersects(key.frame, next) {
                         let kind = if key.tween.is_some() {
                             Some(match key.tween_kind {
                                 TweenKind::Motion => SpanType::MotionTween,
@@ -1150,14 +1534,24 @@ impl Editor {
                         } else {
                             None
                         };
-                        (key.frame, next, kind)
-                    })
-                })
-                .collect();
-            for &(start, next, kind) in &spans {
-                if next < first || start > last {
+                        visible_spans.push(VisibleSpan {
+                            ki,
+                            start: key.frame,
+                            next,
+                            kind,
+                        });
+                    }
+                }
+                visible_spans
+            };
+            for &VisibleSpan {
+                start, next, kind, ..
+            } in &spans
+            {
+                if !window.span_intersects(start, next) {
                     continue;
                 }
+                drawn_spans += 1;
                 if let Some(kind) = kind {
                     let span = geo.span(row, start + 1, next);
                     // Sound's Static background is identical; omit the gallery-only decoration.
@@ -1186,7 +1580,7 @@ impl Editor {
             // NF2 v2.2: frame ticks (`TL Grid Lines`) belong to `paint_grid`, below spans.
             let selected = selection
                 .as_ref()
-                .filter(|range| range.layers.contains(&layer.id))
+                .filter(|range| range.layers.contains(&layer_id))
                 .map(|range| (range.start, range.end));
             if let Some((start, end)) = selected {
                 tl::paint_span(
@@ -1199,27 +1593,52 @@ impl Editor {
             }
             // Frame view ▸ Preview: keyframe thumbnails under the markers (visible spans only).
             if preview {
-                for &(start, next, kind) in &spans {
-                    if kind.is_none() || next < first || start > last {
+                for &VisibleSpan {
+                    ki,
+                    start,
+                    next,
+                    kind,
+                } in &spans
+                {
+                    if kind.is_none() || !window.span_intersects(start, next) {
                         continue;
                     }
                     if let Some(thumb) =
                         crate::timeline_preview::thumbnail_rect(&geo, row, start, next)
                     {
-                        self.paint_span_thumbnail(&rp, layer, start, thumb);
+                        let key_element_ids: Vec<Id> = self.symbol().timeline.layers[layer_idx]
+                            .keyframes[ki]
+                            .elements
+                            .iter()
+                            .map(|el| el.id.clone())
+                            .collect();
+                        self.paint_span_thumbnail_by_id(
+                            &rp,
+                            &layer_id,
+                            &key_element_ids,
+                            start,
+                            thumb,
+                        );
                     }
                 }
             }
             // Decode-free peak lookup after selection/preview fills, so selected sounds remain legible.
-            for &(start, next, kind) in &spans {
+            for &VisibleSpan {
+                ki,
+                start,
+                next,
+                kind,
+            } in &spans
+            {
                 if kind == Some(SpanType::Sound)
-                    && next >= first
-                    && start <= last
-                    && let Some(sound) = layer.key_at(start).and_then(|key| key.sound.as_ref())
+                    && window.span_intersects(start, next)
+                    && let Some(sound) = self.symbol().timeline.layers[layer_idx].keyframes[ki]
+                        .sound
+                        .clone()
                 {
                     self.timeline_audio.paint_waveform(
                         &self.project,
-                        sound,
+                        &sound,
                         &rp,
                         geo.span(row, start + 1, next),
                         f64::from(cell) * f64::from(self.project.fps),
@@ -1228,17 +1647,23 @@ impl Editor {
             }
             let on_selection =
                 |frame: u32| selected.is_some_and(|(start, end)| start <= frame && frame <= end);
-            for (ki, &(start, next, kind)) in spans.iter().enumerate() {
-                if next < first || start > last.saturating_add(1) {
+            for &VisibleSpan {
+                ki,
+                start,
+                next,
+                kind,
+            } in &spans
+            {
+                if !window.span_intersects(start, next) {
                     continue;
                 }
-                let key = &layer.keyframes[ki];
-                let action = script_frames.contains(&start)
+                let action = script_frames.binary_search(&start).is_ok()
                     && self
                         .symbol()
                         .timeline
                         .action_layer_for_frame(start)
-                        .is_some_and(|idx| self.symbol().timeline.layers[idx].id == layer.id);
+                        .is_some_and(|idx| idx == layer_idx);
+                let key = &self.symbol().timeline.layers[layer_idx].keyframes[ki];
                 let marker = match (key.elements.is_empty(), action) {
                     _ if key.keyed_properties.is_some() => MarkerKind::PropertyKeyframe,
                     (true, true) => MarkerKind::ActionBlankKeyframe,
@@ -1287,9 +1712,18 @@ impl Editor {
                 }
             }
             // R-045: while any layer is soloed, frame cells of non-soloed rows are drawn at 45 %.
-            if any_solo && !self.is_layer_id_effectively_soloed(&layer.id) {
+            if any_solo && !self.is_layer_id_effectively_soloed(&layer_id) {
                 grid_rp.rect_filled(grid_row, 0., p.bg_panel.gamma_multiply(0.55));
             }
+        }
+        TimelineVirtualStats {
+            window,
+            total_rows,
+            total_frames: count,
+            drawn_layer_rows: 0,
+            drawn_grid_rows,
+            drawn_frame_columns,
+            drawn_spans,
         }
     }
 

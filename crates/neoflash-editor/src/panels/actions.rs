@@ -12,7 +12,7 @@ use crate::theme::{DesignUi as _, ScrollTheme as _};
 use crate::workspace::PanelId;
 use eframe::egui;
 use neoflash_core::*;
-use neoflash_ui::components::{self as nf, TreeItemType, code::Severity};
+use neoflash_ui::components::{self as nf, TreeItemType};
 use neoflash_ui::icons::{Icon, i16};
 use neoflash_ui::tokens::{TextStyle, radius, space};
 use std::collections::HashSet;
@@ -170,13 +170,7 @@ impl Editor {
                     .themed()
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.;
-                        for line in &visible_lines {
-                            ui.add(nf::LogLine {
-                                severity: Severity::Info,
-                                time: "",
-                                text: line,
-                            });
-                        }
+                        super::timeline::output::show_virtualized_output_rows(ui, &visible_lines);
                         if visible_lines.is_empty() {
                             ui.label(
                                 neoflash_ui::typography::rich(
@@ -442,7 +436,8 @@ impl Editor {
         let pending_lang = ui
             .data(|d| d.get_temp::<ScriptLanguage>(empty_lang_id))
             .or_else(|| stored.as_ref().map(|s| s.language))
-            .unwrap_or(ScriptLanguage::JavaScript);
+            .or_else(|| self.preferred_script_language())
+            .unwrap_or_else(|| self.default_script_language_for_project());
         let has_stored_script = stored.as_ref().is_some_and(|s| !s.source.is_empty());
         let original = match &stored {
             Some(s) if !s.source.is_empty() => s.clone(),
@@ -488,6 +483,7 @@ impl Editor {
             .show(ui, |ui| self.actions_toolbar(ui, &mut script, &context));
         if !has_stored_script && script.language != pending_lang {
             ui.data_mut(|d| d.insert_temp(empty_lang_id, script.language));
+            self.set_preferred_script_language(Some(script.language));
         }
         let line_y = ui.cursor().top();
         ui.painter().hline(
@@ -583,6 +579,9 @@ impl Editor {
             };
         if should_commit {
             ui.data_mut(|d| d.insert_temp(empty_lang_id, script.language));
+            if script.language != original.language {
+                self.set_preferred_script_language(Some(script.language));
+            }
             if self.playing {
                 self.set_playing(false);
             }

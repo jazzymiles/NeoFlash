@@ -1008,3 +1008,459 @@ fn motion_editor_ui_add_property_popups_have_distinct_ids_and_add_skew_color_and
     assert_eq!(start_key(&editor).elements[0].filters.len(), 1);
     assert!(editor.workspace.is_panel_visible(PanelId::Filters));
 }
+
+fn test_virtualization_ctx() -> egui::Context {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(neoflash_ui::typography::font_definitions());
+    neoflash_ui::theme::install(&ctx, neoflash_ui::Theme::Dark);
+    ctx
+}
+
+fn build_large_virtualization_fixture(
+    layer_count: usize,
+    frame_count: u32,
+    library_symbol_count: usize,
+    output_line_count: usize,
+) -> Editor {
+    let mut project = Project::blank();
+    project.name = "Large Virtualized Project".into();
+    let root_id = project.root.clone();
+    {
+        let root_sym = project.symbol_mut(&root_id).expect("root symbol");
+        root_sym.timeline.frame_count = frame_count;
+        root_sym.timeline.layers.clear();
+        for li in 0..layer_count {
+            let mut keyframes = vec![
+                Keyframe {
+                    frame: 0,
+                    elements: vec![element(
+                        &format!("el_{li}_0"),
+                        rectangle(),
+                        10.0 + (li % 20) as f64 * 4.0,
+                    )],
+                    tween: (li % 3 == 0).then_some(Easing::Linear),
+                    tween_kind: if li % 6 == 0 {
+                        TweenKind::Motion
+                    } else {
+                        TweenKind::Classic
+                    },
+                    label: if li % 10 == 0 {
+                        format!("start_{li}")
+                    } else {
+                        String::new()
+                    },
+                    ..Default::default()
+                },
+                Keyframe {
+                    frame: frame_count / 2,
+                    elements: vec![element(&format!("el_{li}_mid"), rectangle(), 120.0)],
+                    tween: (li % 2 == 0).then_some(Easing::Linear),
+                    tween_kind: TweenKind::Classic,
+                    label: String::new(),
+                    ..Default::default()
+                },
+                Keyframe {
+                    frame: frame_count.saturating_sub(1),
+                    elements: vec![element(&format!("el_{li}_end"), rectangle(), 240.0)],
+                    tween: None,
+                    tween_kind: TweenKind::Classic,
+                    label: String::new(),
+                    ..Default::default()
+                },
+            ];
+            if li % 6 == 0 && frame_count > 200 {
+                keyframes.insert(
+                    1,
+                    Keyframe {
+                        frame: 50,
+                        elements: vec![element(&format!("el_{li}_0"), rectangle(), 60.0)],
+                        keyed_properties: Some(vec![TweenProperty::X, TweenProperty::Y]),
+                        ..Default::default()
+                    },
+                );
+            }
+            root_sym.timeline.layers.push(Layer {
+                id: format!("layer_{li}"),
+                name: format!("Layer {}", li + 1),
+                visible: true,
+                locked: false,
+                keyframes,
+                properties: LayerProperties::default(),
+            });
+        }
+    }
+
+    for folder_idx in 0..10 {
+        let _ = project.add_library_folder(&format!("Folder_{folder_idx:02}"));
+    }
+    for si in 0..library_symbol_count {
+        let kind = match si % 3 {
+            0 => SymbolKind::MovieClip,
+            1 => SymbolKind::Graphic,
+            _ => SymbolKind::Button,
+        };
+        let frame_total = if kind == SymbolKind::Button { 4 } else { 12 };
+        project.symbols.push(Symbol {
+            id: format!("lib_sym_{si:04}"),
+            name: format!("Item_{si:04}"),
+            kind,
+            folder: format!("Folder_{:02}", si % 10),
+            linkage_id: (kind != SymbolKind::Graphic && si % 5 == 0)
+                .then(|| format!("Export_{si:04}")),
+            class_name: None,
+            timeline: Timeline {
+                frame_count: frame_total,
+                layers: vec![Layer {
+                    id: format!("sym_layer_{si}"),
+                    name: "Layer 1".to_owned(),
+                    visible: true,
+                    locked: false,
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![element(&format!("sym_el_{si}"), rectangle(), 0.0)],
+                        ..Default::default()
+                    }],
+                    properties: LayerProperties::default(),
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+        });
+    }
+
+    project.upgrade_format_for_features();
+    let ctx = test_virtualization_ctx();
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.output = (0..output_line_count)
+        .map(|i| {
+            if i % 25 == 0 {
+                format!("[Frame {}] Error: synthetic diagnostic #{i}", (i % 200) + 1)
+            } else if i % 10 == 0 {
+                format!("Warning: timeline check at line {i}")
+            } else {
+                format!("trace(\"tick {i}\");")
+            }
+        })
+        .collect();
+
+    editor.layer = 0;
+    editor.frame = 0;
+    editor
+}
+
+#[test]
+fn timeline_virtual_window_bounds_and_long_span_intersection() {
+    use crate::panels::timeline::{
+        DEFAULT_TIMELINE_OVERSCAN_FRAMES, DEFAULT_TIMELINE_OVERSCAN_ROWS, TimelineVirtualWindow,
+    };
+
+    let total_rows = 200usize;
+    let total_frames = 2_000u32;
+    let row_h = 28.0_f32;
+    let cell_w = 10.0_f32;
+
+    // Scrolled to row 50 (y = -50 * 28 = -1400) and frame 800 (x = -800 * 10 = -8000)
+    // inside a 600x224 viewport (60 frames wide, 8 rows tall).
+    let content_origin = egui::pos2(-8_000.0, -1_400.0);
+    let clip_rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, 224.0));
+    let win = TimelineVirtualWindow::with_default_overscan(
+        clip_rect,
+        content_origin,
+        row_h,
+        cell_w,
+        total_rows,
+        total_frames,
+    );
+
+    assert_eq!(win.overscan_rows, DEFAULT_TIMELINE_OVERSCAN_ROWS);
+    assert_eq!(win.overscan_frames, DEFAULT_TIMELINE_OVERSCAN_FRAMES);
+    assert_eq!(win.first_row, 50 - DEFAULT_TIMELINE_OVERSCAN_ROWS);
+    assert_eq!(win.last_row, 57 + DEFAULT_TIMELINE_OVERSCAN_ROWS);
+    assert_eq!(win.first_frame, 800 - DEFAULT_TIMELINE_OVERSCAN_FRAMES);
+    assert_eq!(win.last_frame, 859 + DEFAULT_TIMELINE_OVERSCAN_FRAMES);
+
+    let row_range = win.row_range(total_rows);
+    assert_eq!(row_range.len(), 8 + 2 * DEFAULT_TIMELINE_OVERSCAN_ROWS);
+    let total_h = win.top_spacer_height(row_h, total_rows)
+        + (row_range.len() as f32 * row_h)
+        + win.bottom_spacer_height(row_h, total_rows);
+    assert!((total_h - total_rows as f32 * row_h).abs() < 1e-3);
+
+    let frame_range = win.frame_range(total_frames);
+    assert_eq!(
+        frame_range.end - frame_range.start,
+        60 + 2 * DEFAULT_TIMELINE_OVERSCAN_FRAMES
+    );
+    let total_w = win.left_spacer_width(cell_w, total_frames)
+        + ((frame_range.end - frame_range.start) as f32 * cell_w)
+        + win.right_spacer_width(cell_w, total_frames);
+    assert!((total_w - total_frames as f32 * cell_w).abs() < 1e-3);
+
+    // Long tween/span banner [0..2000] starting before `first_frame` and ending after `last_frame`
+    // must still intersect the virtual window.
+    assert!(win.span_intersects(0, 2_000));
+    assert!(win.span_intersects(100, 820));
+    assert!(win.span_intersects(850, 1_500));
+    assert!(!win.span_intersects(0, 500));
+    assert!(!win.span_intersects(1_200, 1_600));
+}
+
+#[test]
+fn timeline_200_layers_by_2000_frames_virtualization_selection_and_scrub() {
+    let mut editor = build_large_virtualization_fixture(200, 2_000, 10, 10);
+    editor.project.validate().unwrap();
+
+    // Select an off-screen frame range on layer 180 (frames 1500..=1520) and off-screen layer rows.
+    editor.select_layer_row(180, false, false);
+    editor.select_layer_row(185, false, true);
+    let offscreen_range = FrameRange {
+        layers: vec!["layer_180".to_owned(), "layer_185".to_owned()],
+        start: 1_500,
+        end: 1_520,
+    };
+    editor.select_frame_range(offscreen_range.clone());
+
+    let ctx = test_virtualization_ctx();
+    for _ in 0..2 {
+        let mut raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1_280.0, 320.0),
+            )),
+            ..Default::default()
+        };
+        raw.focused = true;
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.timeline_contents(ui);
+            });
+        });
+    }
+
+    let win = editor
+        .last_timeline_virtual_window(&ctx)
+        .expect("timeline virtual window recorded");
+    assert_eq!(win.first_row, 0);
+    assert!(win.last_row < 32);
+    assert_eq!(win.first_frame, 0);
+    assert!(win.last_frame < 200);
+
+    let stats = editor
+        .last_timeline_virtual_stats(&ctx)
+        .expect("timeline virtualization stats recorded");
+    assert_eq!(stats.total_rows, 200);
+    assert_eq!(stats.total_frames, 2_000);
+    assert!(
+        stats.drawn_layer_rows > 0 && stats.drawn_layer_rows <= 28,
+        "drawn layer rows must be O(visible), got {}",
+        stats.drawn_layer_rows
+    );
+    assert!(
+        stats.drawn_grid_rows > 0 && stats.drawn_grid_rows <= 28,
+        "drawn grid rows must be O(visible), got {}",
+        stats.drawn_grid_rows
+    );
+    assert!(
+        stats.drawn_frame_columns > 0 && stats.drawn_frame_columns <= 180,
+        "drawn frame columns must be O(visible), got {}",
+        stats.drawn_frame_columns
+    );
+    assert!(
+        stats.drawn_spans > 0,
+        "visible spans intersecting the viewport must be rendered"
+    );
+
+    // Off-screen frame selection and layer-row multi-selection must be preserved untouched.
+    assert_eq!(editor.frame_range(), Some(offscreen_range));
+    assert!(editor.is_layer_row_selected(180));
+    assert!(editor.is_layer_row_selected(185));
+
+    // Scrub playhead across the timeline and verify zero document mutation.
+    editor.frame = 1_250;
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1_280.0, 320.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.timeline_contents(ui);
+            });
+        },
+    );
+    assert_eq!(editor.frame, 1_250);
+    assert!(
+        !editor.history.can_undo(),
+        "scrubbing must not mutate history"
+    );
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn library_movie_explorer_output_virtualization_and_thumbnail_budget() {
+    use crate::timeline_preview::MAX_THUMBNAIL_RENDERS_PER_FRAME;
+
+    let mut editor = build_large_virtualization_fixture(200, 2_000, 1_000, 5_000);
+    editor.project.validate().unwrap();
+
+    let ctx = test_virtualization_ctx();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1_440.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::SidePanel::left("lib_test")
+                .exact_width(320.0)
+                .show(ctx, |ui| {
+                    editor.library_body(ui);
+                });
+            egui::SidePanel::right("explorer_test")
+                .exact_width(340.0)
+                .show(ctx, |ui| {
+                    editor.movie_explorer_panel_ui(ui);
+                });
+            egui::TopBottomPanel::bottom("output_test")
+                .exact_height(220.0)
+                .show(ctx, |ui| {
+                    editor.output_panel_virtualized(ui);
+                });
+        },
+    );
+
+    let lib_stats = editor
+        .last_library_virtual_stats(&ctx)
+        .expect("library virtual stats");
+    assert!(
+        lib_stats.total_rows >= 1_000,
+        "expected >= 1,000 library rows, got {}",
+        lib_stats.total_rows
+    );
+    assert!(
+        lib_stats.drawn_rows > 0 && lib_stats.drawn_rows <= 45,
+        "library drawn rows must stay O(visible), got {}",
+        lib_stats.drawn_rows
+    );
+
+    let me_stats = editor
+        .last_movie_explorer_virtual_stats(&ctx)
+        .expect("movie explorer virtual stats");
+    assert!(
+        me_stats.total_rows >= 200,
+        "expected >= 200 movie explorer rows, got {}",
+        me_stats.total_rows
+    );
+    assert!(
+        me_stats.drawn_rows > 0 && me_stats.drawn_rows <= 45,
+        "movie explorer drawn rows must stay O(visible), got {}",
+        me_stats.drawn_rows
+    );
+
+    let out_stats = editor
+        .last_output_virtual_stats(&ctx)
+        .expect("output virtual stats");
+    assert_eq!(out_stats.total_lines, 5_000);
+    assert!(
+        out_stats.drawn_rows > 0 && out_stats.drawn_rows <= 45,
+        "output drawn rows must stay O(visible), got {}",
+        out_stats.drawn_rows
+    );
+
+    // Enable timeline preview thumbnails and verify per-frame render budget cap & stale eviction.
+    editor.workspace.timeline.preview = crate::workspace::FramePreview::Layer;
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1_280.0, 640.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                editor.timeline_contents(ui);
+            });
+        },
+    );
+    assert!(
+        editor.timeline_thumbnails.rendered_in_last_pass() <= MAX_THUMBNAIL_RENDERS_PER_FRAME,
+        "per-frame thumbnail rasterization must be capped at {MAX_THUMBNAIL_RENDERS_PER_FRAME}, got {}",
+        editor.timeline_thumbnails.rendered_in_last_pass()
+    );
+    assert!(
+        editor.timeline_thumbnails.cached_frame_count() > 0,
+        "rendered thumbnails must populate the bounded frame cache"
+    );
+    assert!(
+        editor.timeline_thumbnails.coalesced_skip_count() > 0,
+        "excess thumbnail requests in a single pass must be coalesced/deferred"
+    );
+
+    // Jumping to a distant frame window evicts stale off-screen cached frames.
+    editor.begin_thumbnail_pass_for_window(1_200, 1_280, &["layer_0".to_owned()]);
+    assert!(
+        editor.timeline_thumbnails.evicted_stale_count() > 0,
+        "scrolling far away must evict stale off-screen thumbnail cache entries"
+    );
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn large_project_ui_frame_execution_budget() {
+    let mut editor = build_large_virtualization_fixture(200, 2_000, 1_000, 5_000);
+    let ctx = test_virtualization_ctx();
+
+    let run_pass = |editor: &mut Editor, frame_num: u32| {
+        editor.frame = frame_num;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1_600.0, 900.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::SidePanel::left("budget_lib")
+                    .exact_width(300.0)
+                    .show(ctx, |ui| {
+                        editor.library_body(ui);
+                    });
+                egui::SidePanel::right("budget_explorer")
+                    .exact_width(320.0)
+                    .show(ctx, |ui| {
+                        editor.movie_explorer_panel_ui(ui);
+                    });
+                egui::TopBottomPanel::bottom("budget_output")
+                    .exact_height(180.0)
+                    .show(ctx, |ui| {
+                        editor.output_panel_virtualized(ui);
+                    });
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.timeline_contents(ui);
+                });
+            },
+        );
+    };
+
+    // Warm-up layout pass.
+    run_pass(&mut editor, 0);
+
+    let iterations = 5u32;
+    let start = std::time::Instant::now();
+    for i in 1..=iterations {
+        run_pass(&mut editor, i * 10);
+    }
+    let avg_ms = start.elapsed().as_secs_f64() * 1_000.0 / f64::from(iterations);
+    assert!(
+        avg_ms < 250.0,
+        "virtualized large-project frame pass exceeded budget: avg {avg_ms:.2} ms/frame"
+    );
+    editor.project.validate().unwrap();
+}

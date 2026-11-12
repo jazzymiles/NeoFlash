@@ -121,6 +121,7 @@ pub(crate) fn convert(
             "forceSimple",
             "silent",
             "docType",
+            "documentClass",
         ],
         &[
             "timelines",
@@ -612,7 +613,14 @@ pub(crate) fn convert(
         p.symbols.push(symbol);
     }
     p.symbols.extend(parser.extra_symbols);
-    if let Some(raw_doc_class) = publish.document_class {
+    let doc_class_candidate = publish
+        .document_class
+        .map(|s| (s, "PublishSettings.xml"))
+        .or_else(|| {
+            root.attribute("documentClass")
+                .map(|s| (s.to_owned(), "DOMDocument.xml"))
+        });
+    if let Some((raw_doc_class, doc_class_loc)) = doc_class_candidate {
         let trimmed = raw_doc_class.trim();
         if !trimmed.is_empty() {
             if is_valid_qualified_class_name(trimmed) {
@@ -620,7 +628,7 @@ pub(crate) fn convert(
             } else {
                 parser.report.warning(
                     "xfl_invalid_document_class",
-                    "PublishSettings.xml",
+                    doc_class_loc,
                     format!(
                         "DocumentClass {trimmed:?} is not a valid qualified ActionScript identifier and was omitted."
                     ),
@@ -5871,10 +5879,29 @@ fn strip_neoflash_language_marker(source: &str) -> Option<(ScriptLanguage, Strin
     None
 }
 
+fn skip_leading_ws_and_comments(mut s: &str) -> &str {
+    loop {
+        s = s.trim_start();
+        if let Some(after_line) = s.strip_prefix("//") {
+            match after_line.find('\n') {
+                Some(nl) => s = &after_line[nl + 1..],
+                None => return "",
+            }
+        } else if let Some(after_block) = s.strip_prefix("/*") {
+            match after_block.find("*/") {
+                Some(end) => s = &after_block[end + 2..],
+                None => return "",
+            }
+        } else {
+            return s;
+        }
+    }
+}
+
 fn flash_handler_event(source: &str) -> Option<ObjectEvent> {
-    let trimmed = source.trim_start();
+    let trimmed = skip_leading_ws_and_comments(source);
     let open = trimmed.find('(')?;
-    let handler = trimmed[..open].trim();
+    let handler = skip_leading_ws_and_comments(&trimmed[..open]).trim();
     let close = trimmed[open + 1..].find(')')? + open + 1;
     let event = trimmed[open + 1..close].trim();
     if handler.eq_ignore_ascii_case("on") {

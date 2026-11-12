@@ -51,6 +51,237 @@ pub struct FlFileCapabilities {
     pub allow_delete: bool,
 }
 
+fn normalize_lexical_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(comp.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(part) => out.push(part),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        PathBuf::from("/")
+    } else {
+        out
+    }
+}
+
+/// Abstract filesystem interface for capability-gated JSFL `FLfile` and `fl.runScript` operations,
+/// keeping `neoflash-core` free of direct host `std::fs` calls.
+pub trait JsflFileSystem: Send + Sync + fmt::Debug {
+    fn read_file(&self, path: &Path) -> Result<String, String>;
+    fn write_file(&self, path: &Path, content: &str) -> Result<(), String>;
+    fn append_file(&self, path: &Path, content: &str) -> Result<(), String>;
+    fn create_folder(&self, path: &Path) -> Result<(), String>;
+    fn remove(&self, path: &Path) -> Result<bool, String>;
+    fn list_folder(&self, path: &Path, files_only: bool) -> Result<Vec<String>, String>;
+    fn exists(&self, path: &Path) -> bool;
+    fn is_folder(&self, path: &Path) -> bool;
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, String> {
+        Ok(normalize_lexical_path(path))
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct MemoryFsState {
+    files: BTreeMap<PathBuf, String>,
+    folders: std::collections::BTreeSet<PathBuf>,
+    symlinks: BTreeMap<PathBuf, PathBuf>,
+}
+
+/// Deterministic in-memory `JsflFileSystem` implementation used in `neoflash-core` when no host
+/// filesystem adapter is attached.
+#[derive(Clone, Debug)]
+pub struct MemoryJsflFileSystem {
+    state: std::sync::Arc<std::sync::RwLock<MemoryFsState>>,
+}
+
+/// Type alias preserving compatibility for callers referencing `StdJsflFileSystem` on `neoflash-core`.
+pub type StdJsflFileSystem = MemoryJsflFileSystem;
+
+impl Default for MemoryJsflFileSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MemoryJsflFileSystem {
+    pub fn new() -> Self {
+        let mut state = MemoryFsState::default();
+        state.folders.insert(PathBuf::from("/"));
+        Self {
+            state: std::sync::Arc::new(std::sync::RwLock::new(state)),
+        }
+    }
+
+    pub fn insert_folder(&self, path: impl AsRef<Path>) {
+        let norm = normalize_lexical_path(path.as_ref());
+        let mut guard = self.state.write().unwrap_or_else(|e| e.into_inner());
+        for ancestor in norm.ancestors() {
+            if !ancestor.as_os_str().is_empty() {
+                guard.folders.insert(ancestor.to_path_buf());
+            }
+        }
+    }
+
+    pub fn insert_file(&self, path: impl AsRef<Path>, content: impl Into<String>) {
+        let norm = normalize_lexical_path(path.as_ref());
+        if let Some(parent) = norm.parent() {
+            self.insert_folder(parent);
+        }
+        let mut guard = self.state.write().unwrap_or_else(|e| e.into_inner());
+        guard.files.insert(norm, content.into());
+    }
+
+    pub fn insert_symlink(&self, link: impl AsRef<Path>, target: impl AsRef<Path>) {
+        let norm_link = normalize_lexical_path(link.as_ref());
+        let norm_target = normalize_lexical_path(target.as_ref());
+        if let Some(parent) = norm_link.parent() {
+            self.insert_folder(parent);
+        }
+        let mut guard = self.state.write().unwrap_or_else(|e| e.into_inner());
+        guard.symlinks.insert(norm_link, norm_target);
+    }
+
+    fn resolve_symlinks(&self, path: &Path) -> Result<PathBuf, String> {
+        let guard = self.state.read().unwrap_or_else(|e| e.into_inner());
+        let mut current = normalize_lexical_path(path);
+        for _ in 0..16 {
+            let comps: Vec<Component<'_>> = current.components().collect();
+            let mut accum = PathBuf::new();
+            let mut replaced = None;
+            for (idx, comp) in comps.iter().enumerate() {
+                accum.push(comp.as_os_str());
+                if let Some(target) = guard.symlinks.get(&accum) {
+                    let mut next = if target.is_absolute() {
+                        target.clone()
+                    } else {
+                        accum
+                            .parent()
+                            .unwrap_or_else(|| Path::new("/"))
+                            .join(target)
+                    };
+                    for rem in &comps[idx + 1..] {
+                        next.push(rem.as_os_str());
+                    }
+                    replaced = Some(normalize_lexical_path(&next));
+                    break;
+                }
+            }
+            if let Some(next) = replaced {
+                current = next;
+            } else {
+                return Ok(current);
+            }
+        }
+        Err("Too many levels of symbolic links.".to_owned())
+    }
+}
+
+impl JsflFileSystem for MemoryJsflFileSystem {
+    fn read_file(&self, path: &Path) -> Result<String, String> {
+        let p = self.canonicalize(path)?;
+        let guard = self.state.read().unwrap_or_else(|e| e.into_inner());
+        guard
+            .files
+            .get(&p)
+            .cloned()
+            .ok_or_else(|| format!("No such file: '{}'", p.display()))
+    }
+
+    fn write_file(&self, path: &Path, content: &str) -> Result<(), String> {
+        let p = self.canonicalize(path)?;
+        self.insert_file(&p, content.to_owned());
+        Ok(())
+    }
+
+    fn append_file(&self, path: &Path, content: &str) -> Result<(), String> {
+        let p = self.canonicalize(path)?;
+        if let Some(parent) = p.parent() {
+            self.insert_folder(parent);
+        }
+        let mut guard = self.state.write().unwrap_or_else(|e| e.into_inner());
+        guard.files.entry(p).or_default().push_str(content);
+        Ok(())
+    }
+
+    fn create_folder(&self, path: &Path) -> Result<(), String> {
+        let p = self.canonicalize(path)?;
+        self.insert_folder(&p);
+        Ok(())
+    }
+
+    fn remove(&self, path: &Path) -> Result<bool, String> {
+        let p = self.canonicalize(path)?;
+        let mut guard = self.state.write().unwrap_or_else(|e| e.into_inner());
+        if guard.files.remove(&p).is_some() {
+            return Ok(true);
+        }
+        if guard.folders.contains(&p) {
+            guard.folders.retain(|f| f != &p && !f.starts_with(&p));
+            guard.files.retain(|f, _| !f.starts_with(&p));
+            guard.symlinks.retain(|l, _| l != &p && !l.starts_with(&p));
+            return Ok(true);
+        }
+        if guard.symlinks.remove(&p).is_some() {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn list_folder(&self, path: &Path, files_only: bool) -> Result<Vec<String>, String> {
+        let p = self.canonicalize(path)?;
+        let guard = self.state.read().unwrap_or_else(|e| e.into_inner());
+        if !guard.folders.contains(&p) {
+            return Err(format!("No such directory: '{}'", p.display()));
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for file_path in guard.files.keys() {
+            if file_path.parent() == Some(p.as_path())
+                && let Some(name) = file_path.file_name().and_then(|n| n.to_str())
+            {
+                names.insert(name.to_owned());
+            }
+        }
+        if !files_only {
+            for dir_path in &guard.folders {
+                if dir_path != &p
+                    && dir_path.parent() == Some(p.as_path())
+                    && let Some(name) = dir_path.file_name().and_then(|n| n.to_str())
+                {
+                    names.insert(name.to_owned());
+                }
+            }
+        }
+        Ok(names.into_iter().collect())
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        let Ok(p) = self.canonicalize(path) else {
+            return false;
+        };
+        let guard = self.state.read().unwrap_or_else(|e| e.into_inner());
+        guard.files.contains_key(&p) || guard.folders.contains(&p)
+    }
+
+    fn is_folder(&self, path: &Path) -> bool {
+        let Ok(p) = self.canonicalize(path) else {
+            return false;
+        };
+        let guard = self.state.read().unwrap_or_else(|e| e.into_inner());
+        guard.folders.contains(&p)
+    }
+
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, String> {
+        self.resolve_symlinks(path)
+    }
+}
+
 /// Located diagnostic reported when a JSFL script fails to parse, throws, exceeds limits,
 /// touches a stale handle, violates capabilities, or produces an invalid project.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2530,14 +2761,21 @@ impl<'a> Parser<'a> {
 // ---------------------------------------------------------------------------
 
 /// Sandboxed, deterministic, interruptible JSFL executor (`T-187`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct JsflSandbox {
     pub limits: JsflLimits,
     pub flfile_caps: FlFileCapabilities,
+    pub fs: std::sync::Arc<dyn JsflFileSystem>,
     pub version: String,
     pub config_uri: String,
     pub script_uri: String,
     pub virtual_scripts: HashMap<String, String>,
+}
+
+impl Default for JsflSandbox {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl JsflSandbox {
@@ -2545,6 +2783,7 @@ impl JsflSandbox {
         Self {
             limits: JsflLimits::default(),
             flfile_caps: FlFileCapabilities::default(),
+            fs: std::sync::Arc::new(MemoryJsflFileSystem::new()),
             version: "NF2 12,0,0,0".to_owned(),
             config_uri: "file:///NeoFlash/Configuration/".to_owned(),
             script_uri: "file:///NeoFlash/Commands/script.jsfl".to_owned(),
@@ -2558,7 +2797,18 @@ impl JsflSandbox {
     }
 
     pub fn with_flfile_capabilities(mut self, caps: FlFileCapabilities) -> Self {
+        if let Some(root) = &caps.allowed_root {
+            let _ = self.fs.create_folder(root);
+        }
         self.flfile_caps = caps;
+        self
+    }
+
+    pub fn with_file_system(mut self, fs: std::sync::Arc<dyn JsflFileSystem>) -> Self {
+        if let Some(root) = &self.flfile_caps.allowed_root {
+            let _ = fs.create_folder(root);
+        }
+        self.fs = fs;
         self
     }
 
@@ -2746,6 +2996,7 @@ fn uri_to_platform_path(file: &str, span: Span, uri: &str) -> Result<String, Jsf
 
 fn resolve_scoped_flfile_path(
     caps: &FlFileCapabilities,
+    fs: &dyn JsflFileSystem,
     file: &str,
     span: Span,
     uri: &str,
@@ -2770,7 +3021,7 @@ fn resolve_scoped_flfile_path(
             ));
         }
     }
-    let canonical_root = std::fs::canonicalize(root).map_err(|e| {
+    let canonical_root = fs.canonicalize(root).map_err(|e| {
         JsflDiagnostic::new(
             file,
             span.line,
@@ -2793,7 +3044,8 @@ fn resolve_scoped_flfile_path(
     // Walk up to the nearest existing ancestor to canonicalize and detect symlink escapes.
     let mut existing = joined.as_path();
     let mut tail_parts: Vec<&std::ffi::OsStr> = Vec::new();
-    while !existing.exists() {
+    while !fs.exists(existing) && existing != canonical_root.as_path() && existing != root.as_path()
+    {
         if let Some(name) = existing.file_name() {
             tail_parts.push(name);
         }
@@ -2802,7 +3054,7 @@ fn resolve_scoped_flfile_path(
         };
         existing = parent;
     }
-    let canonical_existing = std::fs::canonicalize(existing).map_err(|e| {
+    let canonical_existing = fs.canonicalize(existing).map_err(|e| {
         JsflDiagnostic::new(
             file,
             span.line,
@@ -2822,26 +3074,23 @@ fn resolve_scoped_flfile_path(
     for part in tail_parts.into_iter().rev() {
         resolved.push(part);
     }
-    if resolved.exists() {
-        let final_canon = std::fs::canonicalize(&resolved).map_err(|e| {
-            JsflDiagnostic::new(
-                file,
-                span.line,
-                span.column,
-                format!("Failed to canonicalize target '{uri}': {e}"),
-            )
-        })?;
-        if !final_canon.starts_with(&canonical_root) {
-            return Err(JsflDiagnostic::new(
-                file,
-                span.line,
-                span.column,
-                format!("FLfile target '{uri}' escapes allowed_root via symlink."),
-            ));
-        }
-        return Ok(final_canon);
+    let final_canon = fs.canonicalize(&resolved).map_err(|e| {
+        JsflDiagnostic::new(
+            file,
+            span.line,
+            span.column,
+            format!("Failed to canonicalize target '{uri}': {e}"),
+        )
+    })?;
+    if !final_canon.starts_with(&canonical_root) {
+        return Err(JsflDiagnostic::new(
+            file,
+            span.line,
+            span.column,
+            format!("FLfile target '{uri}' escapes allowed_root via symlink."),
+        ));
     }
-    Ok(resolved)
+    Ok(final_canon)
 }
 
 #[derive(Clone, Debug)]
@@ -5302,11 +5551,12 @@ impl<'a> JsflVm<'a> {
                     }
                     let path = resolve_scoped_flfile_path(
                         &self.sandbox.flfile_caps,
+                        self.sandbox.fs.as_ref(),
                         &self.current_file,
                         span,
                         &uri,
                     )?;
-                    std::fs::read_to_string(&path).map_err(|e| {
+                    self.sandbox.fs.read_file(&path).map_err(|e| {
                         self.err(span, format!("fl.runScript failed to read '{uri}': {e}"))
                     })?
                 };
@@ -5374,11 +5624,12 @@ impl<'a> JsflVm<'a> {
                 }
                 let path = resolve_scoped_flfile_path(
                     &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
                     &self.current_file,
                     span,
                     &first_str,
                 )?;
-                Ok(JsflValue::Bool(path.exists()))
+                Ok(JsflValue::Bool(self.sandbox.fs.exists(&path)))
             }
             "read" => {
                 if !self.sandbox.flfile_caps.allow_read {
@@ -5388,11 +5639,12 @@ impl<'a> JsflVm<'a> {
                 }
                 let path = resolve_scoped_flfile_path(
                     &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
                     &self.current_file,
                     span,
                     &first_str,
                 )?;
-                let content = std::fs::read_to_string(&path).map_err(|e| {
+                let content = self.sandbox.fs.read_file(&path).map_err(|e| {
                     self.err(span, format!("FLfile.read('{first_str}') failed: {e}"))
                 })?;
                 Ok(JsflValue::String(content))
@@ -5414,18 +5666,17 @@ impl<'a> JsflVm<'a> {
                     .unwrap_or_default();
                 let path = resolve_scoped_flfile_path(
                     &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
                     &self.current_file,
                     span,
                     &first_str,
                 )?;
-                if mode.eq_ignore_ascii_case("append") && path.exists() {
-                    let mut existing = std::fs::read_to_string(&path).unwrap_or_default();
-                    existing.push_str(&text);
-                    std::fs::write(&path, existing).map_err(|e| {
+                if mode.eq_ignore_ascii_case("append") && self.sandbox.fs.exists(&path) {
+                    self.sandbox.fs.append_file(&path, &text).map_err(|e| {
                         self.err(span, format!("FLfile.write('{first_str}') failed: {e}"))
                     })?;
                 } else {
-                    std::fs::write(&path, text).map_err(|e| {
+                    self.sandbox.fs.write_file(&path, &text).map_err(|e| {
                         self.err(span, format!("FLfile.write('{first_str}') failed: {e}"))
                     })?;
                 }
@@ -5440,11 +5691,12 @@ impl<'a> JsflVm<'a> {
                 }
                 let path = resolve_scoped_flfile_path(
                     &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
                     &self.current_file,
                     span,
                     &first_str,
                 )?;
-                std::fs::create_dir_all(&path).map_err(|e| {
+                self.sandbox.fs.create_folder(&path).map_err(|e| {
                     self.err(
                         span,
                         format!("FLfile.createFolder('{first_str}') failed: {e}"),
@@ -5461,22 +5713,15 @@ impl<'a> JsflVm<'a> {
                 }
                 let path = resolve_scoped_flfile_path(
                     &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
                     &self.current_file,
                     span,
                     &first_str,
                 )?;
-                if path.is_dir() {
-                    std::fs::remove_dir_all(&path).map_err(|e| {
-                        self.err(span, format!("FLfile.remove('{first_str}') failed: {e}"))
-                    })?;
-                } else if path.exists() {
-                    std::fs::remove_file(&path).map_err(|e| {
-                        self.err(span, format!("FLfile.remove('{first_str}') failed: {e}"))
-                    })?;
-                } else {
-                    return Ok(JsflValue::Bool(false));
-                }
-                Ok(JsflValue::Bool(true))
+                let removed = self.sandbox.fs.remove(&path).map_err(|e| {
+                    self.err(span, format!("FLfile.remove('{first_str}') failed: {e}"))
+                })?;
+                Ok(JsflValue::Bool(removed))
             }
             "listFolder" => {
                 if !self.sandbox.flfile_caps.allow_read {
@@ -5488,26 +5733,21 @@ impl<'a> JsflVm<'a> {
                 let files_only = args.get(1).is_some_and(JsflValue::is_truthy);
                 let path = resolve_scoped_flfile_path(
                     &self.sandbox.flfile_caps,
+                    self.sandbox.fs.as_ref(),
                     &self.current_file,
                     span,
                     &first_str,
                 )?;
-                let rd = std::fs::read_dir(&path).map_err(|e| {
-                    self.err(
-                        span,
-                        format!("FLfile.listFolder('{first_str}') failed: {e}"),
-                    )
-                })?;
-                let mut names = Vec::new();
-                for entry in rd.flatten() {
-                    if files_only && entry.path().is_dir() {
-                        continue;
-                    }
-                    if let Some(name) = entry.file_name().to_str() {
-                        names.push(name.to_owned());
-                    }
-                }
-                names.sort();
+                let names = self
+                    .sandbox
+                    .fs
+                    .list_folder(&path, files_only)
+                    .map_err(|e| {
+                        self.err(
+                            span,
+                            format!("FLfile.listFolder('{first_str}') failed: {e}"),
+                        )
+                    })?;
                 Ok(JsflValue::Array(
                     names.into_iter().map(JsflValue::String).collect(),
                 ))
@@ -8164,29 +8404,25 @@ mod tests {
             .unwrap_err();
         assert!(deny_err.message.contains("denied"));
 
-        // 2. Scoped temp directory with read-only first, then read+write+delete
-        let tmp_base =
-            std::env::temp_dir().join(format!("neoflash_jsfl_test_{}", std::process::id()));
+        // 2. Scoped virtual directory with read-only first, then read+write+delete
+        let tmp_base = PathBuf::from("/virtual/neoflash_jsfl_test");
         let allowed_dir = tmp_base.join("allowed");
         let outside_dir = tmp_base.join("outside");
-        let _ = std::fs::remove_dir_all(&tmp_base);
-        std::fs::create_dir_all(&allowed_dir).unwrap();
-        std::fs::create_dir_all(&outside_dir).unwrap();
         let secret_file = outside_dir.join("secret.txt");
-        std::fs::write(&secret_file, "top-secret").unwrap();
+        let mem_fs = std::sync::Arc::new(MemoryJsflFileSystem::new());
+        mem_fs.insert_folder(&allowed_dir);
+        mem_fs.insert_folder(&outside_dir);
+        mem_fs.insert_file(&secret_file, "top-secret");
+        mem_fs.insert_symlink(allowed_dir.join("escape_link.txt"), &secret_file);
 
-        #[cfg(unix)]
-        {
-            let symlink_path = allowed_dir.join("escape_link.txt");
-            let _ = std::os::unix::fs::symlink(&secret_file, &symlink_path);
-        }
-
-        let ro_sb = JsflSandbox::new().with_flfile_capabilities(FlFileCapabilities {
-            allowed_root: Some(allowed_dir.clone()),
-            allow_read: true,
-            allow_write: false,
-            allow_delete: false,
-        });
+        let ro_sb = JsflSandbox::new()
+            .with_file_system(mem_fs.clone())
+            .with_flfile_capabilities(FlFileCapabilities {
+                allowed_root: Some(allowed_dir.clone()),
+                allow_read: true,
+                allow_write: false,
+                allow_delete: false,
+            });
 
         // Write and delete rejected in read-only capability mode
         assert!(
@@ -8222,26 +8458,25 @@ mod tests {
         assert!(trav_err.message.contains("traversal"));
 
         // Symlink escape rejected
-        #[cfg(unix)]
-        {
-            let sym_err = ro_sb
-                .execute(
-                    &project,
-                    &state,
-                    "symlink.jsfl",
-                    "FLfile.read('file:///escape_link.txt');",
-                )
-                .unwrap_err();
-            assert!(sym_err.message.contains("escapes allowed_root"));
-        }
+        let sym_err = ro_sb
+            .execute(
+                &project,
+                &state,
+                "symlink.jsfl",
+                "FLfile.read('file:///escape_link.txt');",
+            )
+            .unwrap_err();
+        assert!(sym_err.message.contains("escapes allowed_root"));
 
         // Full read/write/delete within allowed_root succeeds
-        let rw_sb = JsflSandbox::new().with_flfile_capabilities(FlFileCapabilities {
-            allowed_root: Some(allowed_dir.clone()),
-            allow_read: true,
-            allow_write: true,
-            allow_delete: true,
-        });
+        let rw_sb = JsflSandbox::new()
+            .with_file_system(mem_fs)
+            .with_flfile_capabilities(FlFileCapabilities {
+                allowed_root: Some(allowed_dir.clone()),
+                allow_read: true,
+                allow_write: true,
+                allow_delete: true,
+            });
         let file_res = rw_sb
             .execute(
                 &project,
@@ -8264,7 +8499,6 @@ mod tests {
             file_res.output_lines,
             vec!["true alpha-beta data.txt false"]
         );
-        let _ = std::fs::remove_dir_all(&tmp_base);
 
         // 3. Output flooding cap
         let cap_sb = JsflSandbox::new().with_limits(JsflLimits {

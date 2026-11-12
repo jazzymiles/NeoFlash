@@ -3,8 +3,8 @@ use crate::app::Editor;
 use neoflash_core::{
     AuthoredDraw, AuthoredPlayback, AuthoredScene, DrawItem, ElementKind, Id, Project,
     ResolvedVideoPlacement, SoundCommand, VideoCommand, VideoSyncMode, clamp_or_loop_video_time_ms,
-    evaluate_scene, evaluate_scene_with_buttons, path_commands_fingerprint,
-    resolve_draw_item_video_placement, timeline_video::VideoSourceSpec,
+    evaluate_scene, evaluate_scene_with_buttons, evaluate_scene_with_symbol_overrides,
+    path_commands_fingerprint, resolve_draw_item_video_placement, timeline_video::VideoSourceSpec,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -995,9 +995,20 @@ impl Editor {
         frames.retain(|&f| f != self.frame);
         frames.sort_by_key(|&f| (f.abs_diff(self.frame), f));
         let symbol_id = self.symbol_id();
-        let eval_project = self.project_for_stage_eval();
+        let solo_overrides = self.solo_symbol_overrides();
         for f in frames {
-            let ghost = evaluate_scene(&eval_project, symbol_id, f, true, show_masking);
+            let ghost = if solo_overrides.is_empty() {
+                evaluate_scene(&self.project, symbol_id, f, true, show_masking)
+            } else {
+                evaluate_scene_with_symbol_overrides(
+                    &self.project,
+                    &solo_overrides,
+                    symbol_id,
+                    f,
+                    true,
+                    show_masking,
+                )
+            };
             let mut added_this_frame = HashSet::new();
             let prefix = |id: &str| format!("@emf-{f}:{id}");
             for mut draw in ghost.draws {
@@ -1077,13 +1088,13 @@ impl Editor {
         if !self.playing && self.frame >= self.symbol().timeline.frame_count {
             return AuthoredScene::default();
         }
-        let eval_project = self.project_for_stage_eval();
         let simple_buttons_active = self.enable_simple_buttons
             && !self.playing
             && (preview.is_none()
                 || self.hovered_simple_button.is_some()
                 || self.pressed_simple_button.is_some());
         if simple_buttons_active {
+            let eval_project = self.project_for_stage_eval();
             return evaluate_scene_with_buttons(
                 &eval_project,
                 self.symbol_id(),
@@ -1095,6 +1106,7 @@ impl Editor {
         }
         match preview {
             Some(preview) => {
+                let eval_project = self.project_for_stage_eval();
                 if self.live_script_preview
                     && self.editing_scene()
                     && let Some(swf) = &preview.swf_player
@@ -1108,13 +1120,27 @@ impl Editor {
                 }
                 preview.playback.scene(&eval_project, true, show_masking)
             }
-            None => evaluate_scene(
-                &eval_project,
-                self.symbol_id(),
-                self.frame,
-                true,
-                show_masking,
-            ),
+            None => {
+                let solo_overrides = self.solo_symbol_overrides();
+                if solo_overrides.is_empty() {
+                    evaluate_scene(
+                        &self.project,
+                        self.symbol_id(),
+                        self.frame,
+                        true,
+                        show_masking,
+                    )
+                } else {
+                    evaluate_scene_with_symbol_overrides(
+                        &self.project,
+                        &solo_overrides,
+                        self.symbol_id(),
+                        self.frame,
+                        true,
+                        show_masking,
+                    )
+                }
+            }
         }
     }
 }
@@ -1249,5 +1275,62 @@ mod timeline_video_preview_tests {
         editor.timeline_video.advance_event_streams(100, &[]);
         assert_eq!(editor.timeline_video.channels["event-channel"].time_ms, 200);
         assert!(!editor.timeline_video.has_playing_events());
+    }
+
+    #[test]
+    fn solo_symbol_overrides_evaluates_stage_without_cloning_project() {
+        let mut project = Project::demo();
+        let root_id = project.root.clone();
+        let first_layer_id = project.symbol(&root_id).unwrap().timeline.layers[0]
+            .id
+            .clone();
+        let mut extra_layer = project.symbol(&root_id).unwrap().timeline.layers[0].clone();
+        extra_layer.id = "layer-extra-bg".into();
+        extra_layer.name = "Extra BG".into();
+        for key in &mut extra_layer.keyframes {
+            for el in &mut key.elements {
+                el.id = format!("{}-bg", el.id);
+            }
+        }
+        project
+            .symbol_mut(&root_id)
+            .unwrap()
+            .timeline
+            .layers
+            .push(extra_layer);
+
+        let ctx = eframe::egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, project);
+        assert!(editor.solo_symbol_overrides().is_empty());
+        assert!(matches!(
+            editor.project_for_stage_eval(),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        let full_draws = editor.presented_authored_scene(true).draws.len();
+
+        editor.toggle_layer_solo(0, false);
+        let overrides = editor.solo_symbol_overrides();
+        assert_eq!(overrides.len(), 1);
+        let overridden_sym = overrides.get(&root_id).unwrap();
+        assert!(
+            overridden_sym
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.id == first_layer_id)
+                .unwrap()
+                .visible
+        );
+        assert!(
+            !overridden_sym
+                .timeline
+                .layers
+                .iter()
+                .find(|l| l.id == "layer-extra-bg")
+                .unwrap()
+                .visible
+        );
+        let solo_draws = editor.presented_authored_scene(true).draws.len();
+        assert!(solo_draws < full_draws);
     }
 }

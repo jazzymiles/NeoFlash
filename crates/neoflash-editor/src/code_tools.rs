@@ -84,29 +84,270 @@ pub(crate) fn apply_with_tab_size(
             let mut position = selection.0 + caret;
             if let Some(line) = import
                 .as_deref()
-                .and_then(|q| crate::script_api::missing_import(text, q))
+                .and_then(|q| crate::script_api::missing_import(&out, q))
             {
-                // After the last leading import, otherwise at the top.
-                let at = out
-                    .match_indices("import ")
-                    .filter(|(i, _)| *i == 0 || out.as_bytes()[i - 1] == b'\n')
-                    .last()
-                    .map_or(0, |(i, _)| {
-                        out[i..].find('\n').map_or(out.len(), |n| i + n + 1)
-                    });
-                let line = if at == out.len() && !out.ends_with('\n') && !out.is_empty() {
-                    format!("\n{line}")
-                } else {
-                    format!("{line}\n")
-                };
+                let (at, inserted_chars) = insert_as3_import_line(&mut out, &line);
                 if out[..at].chars().count() <= position {
-                    position += line.chars().count();
+                    position += inserted_chars;
                 }
-                out.insert_str(at, &line);
             }
             Some((out, (position, position)))
         }
     }
+}
+
+pub(crate) fn insert_as3_import_line(out: &mut String, line: &str) -> (usize, usize) {
+    if let Some(open_brace) = find_package_open_brace(out) {
+        let after_brace = &out[open_brace + 1..];
+        let rel_nl = after_brace.find('\n');
+        let rest_of_brace_line = rel_nl.map_or(after_brace, |n| &after_brace[..n]);
+        if let Some(nl_offset) = rel_nl.filter(|_| {
+            rest_of_brace_line
+                .bytes()
+                .all(|b| matches!(b, b' ' | b'\t' | b'\r'))
+        }) {
+            let body_start = open_brace + 1 + nl_offset + 1;
+            let mut cursor = body_start;
+            let mut last_import_end: Option<usize> = None;
+            let mut last_import_indent: Option<String> = None;
+            let mut first_stmt_indent: Option<String> = None;
+            let mut in_block_comment = false;
+
+            while cursor < out.len() {
+                let rest = &out[cursor..];
+                let (line_str, line_end_with_nl) = match rest.find('\n') {
+                    Some(n) => (&rest[..n], cursor + n + 1),
+                    None => (rest, out.len()),
+                };
+                let line_clean = line_str.strip_suffix('\r').unwrap_or(line_str);
+                let trimmed = line_clean.trim_start_matches([' ', '\t']);
+                let indent = &line_clean[..line_clean.len() - trimmed.len()];
+
+                if in_block_comment {
+                    if let Some(end_idx) = trimmed.find("*/") {
+                        in_block_comment = false;
+                        let after_comment = trimmed[end_idx + 2..].trim_start_matches([' ', '\t']);
+                        if after_comment.is_empty() {
+                            cursor = line_end_with_nl;
+                            continue;
+                        }
+                    } else {
+                        cursor = line_end_with_nl;
+                        continue;
+                    }
+                }
+
+                if trimmed.is_empty() || trimmed.starts_with("//") {
+                    cursor = line_end_with_nl;
+                    continue;
+                }
+                if trimmed.starts_with("/*") {
+                    if !trimmed.contains("*/") {
+                        in_block_comment = true;
+                    }
+                    cursor = line_end_with_nl;
+                    continue;
+                }
+
+                if first_stmt_indent.is_none() && !trimmed.starts_with('}') {
+                    first_stmt_indent = Some(indent.to_owned());
+                }
+
+                if trimmed.starts_with("import ") || trimmed.starts_with("import\t") {
+                    last_import_end = Some(line_end_with_nl);
+                    last_import_indent = Some(indent.to_owned());
+                    cursor = line_end_with_nl;
+                    continue;
+                }
+
+                break;
+            }
+
+            if let Some(at) = last_import_end {
+                let indent = last_import_indent.unwrap_or_else(|| "    ".to_owned());
+                let prefix = if at > 0 && out.as_bytes()[at - 1] != b'\n' {
+                    "\n"
+                } else {
+                    ""
+                };
+                let formatted = format!("{prefix}{indent}{line}\n");
+                let chars = formatted.chars().count();
+                out.insert_str(at, &formatted);
+                return (at, chars);
+            }
+
+            let at = body_start;
+            let indent = first_stmt_indent
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "    ".to_owned());
+            let formatted = format!("{indent}{line}\n");
+            let chars = formatted.chars().count();
+            out.insert_str(at, &formatted);
+            return (at, chars);
+        }
+
+        // Single-line `package { ... }` block: advance past any inline `import ...;` statements.
+        let mut scan = open_brace + 1;
+        let mut inline_import_end: Option<usize> = None;
+        let bytes = out.as_bytes();
+        loop {
+            while scan < bytes.len() && matches!(bytes[scan], b' ' | b'\t' | b'\r') {
+                scan += 1;
+            }
+            let remaining = &out[scan..];
+            if (remaining.starts_with("import ") || remaining.starts_with("import\t"))
+                && let Some(semi) = remaining.find(';')
+            {
+                scan += semi + 1;
+                inline_import_end = Some(scan);
+                continue;
+            }
+            break;
+        }
+        let at = inline_import_end.unwrap_or(open_brace + 1);
+        let formatted = if out
+            .as_bytes()
+            .get(at)
+            .is_some_and(|b| b.is_ascii_whitespace())
+        {
+            format!(" {line}")
+        } else {
+            format!(" {line} ")
+        };
+        let chars = formatted.chars().count();
+        out.insert_str(at, &formatted);
+        return (at, chars);
+    }
+
+    // No `package` block: insert after the last leading/top-level import, or at the top.
+    let mut cursor = 0;
+    let mut last_import_end: Option<usize> = None;
+    let mut last_import_indent = String::new();
+    while cursor < out.len() {
+        let rest = &out[cursor..];
+        let (line_str, line_end_with_nl) = match rest.find('\n') {
+            Some(n) => (&rest[..n], cursor + n + 1),
+            None => (rest, out.len()),
+        };
+        let line_clean = line_str.strip_suffix('\r').unwrap_or(line_str);
+        let trimmed = line_clean.trim_start_matches([' ', '\t']);
+        if trimmed.starts_with("import ") || trimmed.starts_with("import\t") {
+            let indent = &line_clean[..line_clean.len() - trimmed.len()];
+            last_import_end = Some(line_end_with_nl);
+            last_import_indent = indent.to_owned();
+        }
+        cursor = line_end_with_nl;
+    }
+
+    let at = last_import_end.unwrap_or(0);
+    let formatted = if at == out.len() && !out.ends_with('\n') && !out.is_empty() {
+        format!("\n{last_import_indent}{line}\n")
+    } else {
+        format!("{last_import_indent}{line}\n")
+    };
+    let chars = formatted.chars().count();
+    out.insert_str(at, &formatted);
+    (at, chars)
+}
+
+fn find_package_open_brace(source: &str) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut depth = 0usize;
+
+    while i < len {
+        let b = bytes[i];
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(len);
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            while i < len {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(len);
+                    continue;
+                }
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'{' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if b == b'}' {
+            depth = depth.saturating_sub(1);
+            i += 1;
+            continue;
+        }
+        if depth == 0 && source[i..].starts_with("package") {
+            let prev_ok = i == 0
+                || (!bytes[i - 1].is_ascii_alphanumeric()
+                    && bytes[i - 1] != b'_'
+                    && bytes[i - 1] != b'$'
+                    && bytes[i - 1] != b'.');
+            let after_pkg = i + "package".len();
+            let next_ok = after_pkg >= len
+                || (!bytes[after_pkg].is_ascii_alphanumeric()
+                    && bytes[after_pkg] != b'_'
+                    && bytes[after_pkg] != b'$');
+            if prev_ok && next_ok {
+                let mut j = after_pkg;
+                while j < len {
+                    let jb = bytes[j];
+                    if jb.is_ascii_whitespace()
+                        || jb.is_ascii_alphanumeric()
+                        || jb == b'_'
+                        || jb == b'$'
+                        || jb == b'.'
+                    {
+                        j += 1;
+                        continue;
+                    }
+                    if jb == b'/' && j + 1 < len && bytes[j + 1] == b'/' {
+                        j += 2;
+                        while j < len && bytes[j] != b'\n' {
+                            j += 1;
+                        }
+                        continue;
+                    }
+                    if jb == b'/' && j + 1 < len && bytes[j + 1] == b'*' {
+                        j += 2;
+                        while j + 1 < len && !(bytes[j] == b'*' && bytes[j + 1] == b'/') {
+                            j += 1;
+                        }
+                        j = (j + 2).min(len);
+                        continue;
+                    }
+                    if jb == b'{' {
+                        return Some(j);
+                    }
+                    break;
+                }
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 fn char_to_byte(text: &str, index: usize) -> usize {
@@ -1679,5 +1920,61 @@ export function clamp(val: number, min: number, max: number): number { return va
         )
         .unwrap();
         assert!(modern_and.contains("if (a && b)"));
+    }
+
+    #[test]
+    fn insert_places_as3_imports_inside_package_block_and_deduplicates() {
+        let pkg_src = "package com.demo {\n    public class Main {\n        public function Main() {\n            \n        }\n    }\n}\n";
+        let caret = pkg_src.find("            \n").unwrap() + 12;
+        let (after_first, (new_pos, _)) = apply(
+            &CodeCommand::Insert {
+                text: "var mc:MovieClip = new MovieClip();".into(),
+                caret: "var mc:MovieClip = new MovieClip();".chars().count(),
+                import: Some("flash.display.MovieClip".into()),
+            },
+            pkg_src,
+            (caret, caret),
+        )
+        .unwrap();
+        assert!(
+            after_first.starts_with(
+                "package com.demo {\n    import flash.display.MovieClip;\n    public class Main {"
+            ),
+            "unexpected output:\n{after_first}"
+        );
+        assert!(!after_first.starts_with("import "));
+
+        let (after_second, _) = apply(
+            &CodeCommand::Insert {
+                text: "\n            var ev:Event;".into(),
+                caret: "\n            var ev:Event;".chars().count(),
+                import: Some("flash.events.Event".into()),
+            },
+            &after_first,
+            (new_pos, new_pos),
+        )
+        .unwrap();
+        assert!(
+            after_second.starts_with(
+                "package com.demo {\n    import flash.display.MovieClip;\n    import flash.events.Event;\n    public class Main {"
+            ),
+            "unexpected output:\n{after_second}"
+        );
+
+        // Re-inserting an already-imported type does not duplicate the import line.
+        let (after_dup, _) = apply(
+            &CodeCommand::Insert {
+                text: "".into(),
+                caret: 0,
+                import: Some("flash.display.MovieClip".into()),
+            },
+            &after_second,
+            (new_pos, new_pos),
+        )
+        .unwrap();
+        assert_eq!(
+            after_dup.matches("import flash.display.MovieClip;").count(),
+            1
+        );
     }
 }

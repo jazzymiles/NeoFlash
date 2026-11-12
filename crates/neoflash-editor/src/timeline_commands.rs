@@ -834,16 +834,14 @@ impl Editor {
         self.project_for_symbol_stage_eval(self.symbol_id())
     }
 
-    /// The same transient solo projection for a frozen parent timeline while a
-    /// nested symbol is active. Solo state is keyed by symbol, not by the current
-    /// breadcrumb level, so parent context must not accidentally use the child's set.
-    pub(crate) fn project_for_symbol_stage_eval(
+    /// Ephemeral single-`Symbol` override when any layer on `symbol_id` is soloed (`R-045`).
+    /// Clones only the single target `Symbol` (never `self.project.resources` or other symbols)
+    /// and hides non-soloed layers while preserving ancestor folders and referenced masks/guides.
+    pub(crate) fn solo_symbol_override(
         &self,
         symbol_id: &str,
-    ) -> std::borrow::Cow<'_, Project> {
-        let Some(symbol) = self.project.symbol(symbol_id) else {
-            return std::borrow::Cow::Borrowed(&self.project);
-        };
+    ) -> Option<(Id, neoflash_core::Symbol)> {
+        let symbol = self.project.symbol(symbol_id)?;
         let timeline = &symbol.timeline;
         let solo: std::collections::BTreeSet<Id> = self
             .solo_layers
@@ -854,7 +852,7 @@ impl Editor {
             .cloned()
             .collect();
         if solo.is_empty() {
-            return std::borrow::Cow::Borrowed(&self.project);
+            return None;
         }
         let effectively_soloed = |layer_id: &str| {
             let mut seen = std::collections::HashSet::from([layer_id]);
@@ -901,13 +899,37 @@ impl Editor {
                 }
             }
         }
-        let mut copy = self.project.clone();
-        if let Some(sym) = copy.symbol_mut(symbol_id) {
-            for layer in &mut sym.timeline.layers {
-                if !soloed_ids.contains(&layer.id) && !needed_ids.contains(&layer.id) {
-                    layer.visible = false;
-                }
+        let mut sym_copy = symbol.clone();
+        for layer in &mut sym_copy.timeline.layers {
+            if !soloed_ids.contains(&layer.id) && !needed_ids.contains(&layer.id) {
+                layer.visible = false;
             }
+        }
+        Some((symbol.id.clone(), sym_copy))
+    }
+
+    /// Active symbol solo override map for `evaluate_scene_with_symbol_overrides` (zero `Project::clone()`).
+    pub(crate) fn solo_symbol_overrides(
+        &self,
+    ) -> std::collections::HashMap<Id, neoflash_core::Symbol> {
+        self.solo_symbol_override(self.symbol_id())
+            .into_iter()
+            .collect()
+    }
+
+    /// The same transient solo projection for a frozen parent timeline while a
+    /// nested symbol is active. Solo state is keyed by symbol, not by the current
+    /// breadcrumb level, so parent context must not accidentally use the child's set.
+    pub(crate) fn project_for_symbol_stage_eval(
+        &self,
+        symbol_id: &str,
+    ) -> std::borrow::Cow<'_, Project> {
+        let Some((id, sym_override)) = self.solo_symbol_override(symbol_id) else {
+            return std::borrow::Cow::Borrowed(&self.project);
+        };
+        let mut copy = self.project.clone();
+        if let Some(sym) = copy.symbol_mut(&id) {
+            *sym = sym_override;
         }
         std::borrow::Cow::Owned(copy)
     }

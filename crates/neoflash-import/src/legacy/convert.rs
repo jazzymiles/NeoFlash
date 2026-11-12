@@ -625,6 +625,65 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     if !document.inspection.container_tolerances.is_empty() {
         context.report.warning("fla_container_compatibility","CFB directory",format!("The source container has non-canonical metadata outside its live streams ({}). Streams were read from their directory chains unchanged; the original FLA is retained.",document.inspection.container_tolerances.join("; ")))
     }
+    let mut imported_sources = Vec::new();
+    let mut seen_source_paths = std::collections::HashSet::new();
+    if let Some(ext) = &c.extensions {
+        for (idx, prop) in ext.document_properties.iter().enumerate() {
+            let Some(key) = c.string_text(&prop.key) else {
+                continue;
+            };
+            let Some(rest) = key.strip_prefix("NeoFlash::Source::") else {
+                continue;
+            };
+            let Some((lang_tag, rel_path)) = rest.split_once("::") else {
+                continue;
+            };
+            if rel_path.is_empty()
+                || rel_path.len() > 1024
+                || rel_path.contains(['\\', '\0', ':'])
+                || rel_path
+                    .split('/')
+                    .any(|part| part.is_empty() || matches!(part, "." | ".."))
+                || !seen_source_paths.insert(rel_path.to_lowercase())
+            {
+                continue;
+            }
+            let Some(source_text) = c.string_text(&prop.value) else {
+                continue;
+            };
+            let src_lang = match lang_tag {
+                "as1" => ScriptLanguage::ActionScript1,
+                "as2" => ScriptLanguage::ActionScript2,
+                "as3" => ScriptLanguage::ActionScript3,
+                "js" => ScriptLanguage::JavaScript,
+                "ts" => ScriptLanguage::TypeScript,
+                _ => language,
+            };
+            imported_sources.push(SourceUnit {
+                id: format!("fla-source-{}", idx + 1),
+                path: rel_path.to_owned(),
+                language: src_lang,
+                source: source_text,
+            });
+        }
+    }
+    let document_class = c
+        .publish_property(0, "Vector::DocumentClass")
+        .or_else(|| c.publish_property(0, "DocumentClass"))
+        .map(|s| s.trim().to_owned())
+        .filter(|name| {
+            !name.is_empty()
+                && name.len() <= 1024
+                && name.split('.').all(|part| {
+                    !part.is_empty()
+                        && part.chars().enumerate().all(|(i, ch)| {
+                            ch == '_'
+                                || ch == '$'
+                                || ch.is_alphabetic()
+                                || (i > 0 && ch.is_numeric())
+                        })
+                })
+        });
     let mut project = Project {
         format_version: 5,
         name: std::path::Path::new(&context.report.source)
@@ -645,9 +704,9 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         root: sid(root_index),
         symbols,
         library_folders: folders,
-        sources: vec![],
+        sources: imported_sources,
         resources,
-        document_class: None,
+        document_class,
         scenes: if scene_indices.len() > 1 {
             scene_indices.iter().map(|i| sid(*i)).collect()
         } else {

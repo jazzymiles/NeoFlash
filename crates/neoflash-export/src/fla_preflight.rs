@@ -482,6 +482,28 @@ pub fn preflight_fla_export_with_options(
             &mut has_web_scripts,
             &mut report,
         );
+        let lang_supported = matches!(
+            src.language,
+            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+        ) || (profile.supports_as3()
+            && src.language == ScriptLanguage::ActionScript3);
+        if profile.is_legacy_binary() && lang_supported {
+            report.push(
+                "legacy_fla_external_source_approximated",
+                FlaFeatureCategory::Scripts,
+                if options.allow_approximations || options.strip_unsupported_scripts {
+                    FlaFeatureDisposition::Approximated
+                } else {
+                    FlaFeatureDisposition::Blocking
+                },
+                &loc,
+                format!(
+                    "External source file {:?} cannot be stored as a standalone file inside a single-file binary CFB .fla archive ({}); it is preserved in Contents document properties.",
+                    src.path,
+                    profile.label()
+                ),
+            );
+        }
     }
 
     if let Some(doc_class) = &project.document_class
@@ -2013,8 +2035,15 @@ fn build_xfl_package(
         "#{:02X}{:02X}{:02X}",
         project.background[0], project.background[1], project.background[2]
     );
+    let doc_class_attr = project
+        .document_class
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|dc| format!(" documentClass=\"{}\"", xml_escape(dc)))
+        .unwrap_or_default();
     let dom_document_xml = format!(
-        r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="{}" height="{}" frameRate="{}" backgroundColor="{}" xflVersion="{}" creatorInfo="{}">
+        r#"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="{}" height="{}" frameRate="{}" backgroundColor="{}" xflVersion="{}" creatorInfo="{}"{}>
 {}{}{}{}</DOMDocument>
 "#,
         project.width.max(1),
@@ -2023,6 +2052,7 @@ fn build_xfl_package(
         bg_hex,
         profile.xfl_version(),
         xml_escape(profile.creator_info()),
+        doc_class_attr,
         folders_section,
         media_section,
         symbols_section,
@@ -2134,33 +2164,54 @@ fn write_dom_timeline_xml(
 
     let first_normal_idx = xfl_layers
         .iter()
-        .position(|l| l.properties.role != LayerRole::Folder)
-        .unwrap_or(0);
+        .position(|l| l.properties.role != LayerRole::Folder);
 
-    if xfl_layers.is_empty() {
-        out.push_str(&format!(
-            "{indent}    <DOMLayer name=\"Layer 1\">\n{indent}      <frames>\n{indent}        <DOMFrame index=\"0\" duration=\"{}\"/>\n{indent}      </frames>\n{indent}    </DOMLayer>\n",
-            timeline.frame_count.max(1)
-        ));
-    } else {
-        for (xfl_idx, layer) in xfl_layers.iter().copied().enumerate() {
-            let attach_scripts = if xfl_idx == first_normal_idx {
-                Some(&scripts_by_frame)
+    if xfl_layers.is_empty() || (first_normal_idx.is_none() && !scripts_by_frame.is_empty()) {
+        let synth_layer = Layer {
+            id: "__nf_synth_actions_layer__".to_owned(),
+            name: if scripts_by_frame.is_empty() {
+                "Layer 1".to_owned()
             } else {
-                None
-            };
-            out.push_str(&write_dom_layer_xml(
-                layer,
-                timeline.frame_count.max(1),
-                &id_to_xfl_idx,
-                attach_scripts,
-                project,
-                symbol_lib_names,
-                bitmap_names,
-                sound_names,
-                &format!("{indent}    "),
-            ));
-        }
+                "Actions".to_owned()
+            },
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: Vec::new(),
+                ..Default::default()
+            }],
+            properties: neoflash_core::LayerProperties::default(),
+        };
+        out.push_str(&write_dom_layer_xml(
+            &synth_layer,
+            timeline.frame_count.max(1),
+            &id_to_xfl_idx,
+            Some(&scripts_by_frame),
+            project,
+            symbol_lib_names,
+            bitmap_names,
+            sound_names,
+            &format!("{indent}    "),
+        ));
+    }
+    for (xfl_idx, layer) in xfl_layers.iter().copied().enumerate() {
+        let attach_scripts = if Some(xfl_idx) == first_normal_idx {
+            Some(&scripts_by_frame)
+        } else {
+            None
+        };
+        out.push_str(&write_dom_layer_xml(
+            layer,
+            timeline.frame_count.max(1),
+            &id_to_xfl_idx,
+            attach_scripts,
+            project,
+            symbol_lib_names,
+            bitmap_names,
+            sound_names,
+            &format!("{indent}    "),
+        ));
     }
 
     out.push_str(&format!("{indent}  </layers>\n{indent}</DOMTimeline>\n"));
@@ -3087,17 +3138,63 @@ fn write_filters_xml(filters: &[FilterSpec], indent: &str) -> String {
     }
 }
 
+pub(crate) fn skip_leading_ws_and_comments(mut s: &str) -> &str {
+    loop {
+        s = s.trim_start();
+        if let Some(after_line_comment) = s.strip_prefix("//") {
+            match after_line_comment.find('\n') {
+                Some(nl) => s = &after_line_comment[nl + 1..],
+                None => return "",
+            }
+        } else if let Some(after_block_start) = s.strip_prefix("/*") {
+            match after_block_start.find("*/") {
+                Some(end) => s = &after_block_start[end + 2..],
+                None => return "",
+            }
+        } else {
+            return s;
+        }
+    }
+}
+
+pub(crate) fn script_starts_with_event_wrapper(source: &str) -> bool {
+    let s = skip_leading_ws_and_comments(source);
+    let after_kw = if let Some(prefix) = s.get(..11)
+        && prefix.eq_ignore_ascii_case("onClipEvent")
+    {
+        let rest = &s[11..];
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+        {
+            return false;
+        }
+        rest
+    } else if let Some(prefix) = s.get(..2)
+        && prefix.eq_ignore_ascii_case("on")
+    {
+        let rest = &s[2..];
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+        {
+            return false;
+        }
+        rest
+    } else {
+        return false;
+    };
+    skip_leading_ws_and_comments(after_kw).starts_with('(')
+}
+
 fn write_object_scripts_xml(scripts: &[ObjectScript], indent: &str) -> String {
     if scripts.is_empty() {
         return String::new();
     }
     let mut blocks = Vec::with_capacity(scripts.len());
     for os in scripts {
-        let header = match os.event {
-            ObjectEvent::Click => "on (release) {\n",
-            ObjectEvent::Load => "onClipEvent (load) {\n",
-            ObjectEvent::EnterFrame => "onClipEvent (enterFrame) {\n",
-        };
         let marker = match os.script.language {
             ScriptLanguage::JavaScript => "/* neoflash:language=javascript */\n",
             ScriptLanguage::TypeScript => "/* neoflash:language=typescript */\n",
@@ -3105,7 +3202,17 @@ fn write_object_scripts_xml(scripts: &[ObjectScript], indent: &str) -> String {
             ScriptLanguage::ActionScript2 => "/* neoflash:language=actionscript2 */\n",
             ScriptLanguage::ActionScript3 => "/* neoflash:language=actionscript3 */\n",
         };
-        blocks.push(format!("{header}{marker}{}\n}}", os.script.source));
+        let trimmed = os.script.source.trim();
+        if script_starts_with_event_wrapper(trimmed) {
+            blocks.push(format!("{marker}{trimmed}"));
+        } else {
+            let header = match os.event {
+                ObjectEvent::Click => "on (release) {\n",
+                ObjectEvent::Load => "onClipEvent (load) {\n",
+                ObjectEvent::EnterFrame => "onClipEvent (enterFrame) {\n",
+            };
+            blocks.push(format!("{header}{marker}{}\n}}", os.script.source));
+        }
     }
     format!(
         "{indent}<Actionscript>\n{indent}  <script>{}</script>\n{indent}</Actionscript>\n",
@@ -3131,7 +3238,7 @@ fn sanitize_xfl_item_name(raw: &str, fallback: &str) -> String {
     }
 }
 
-fn sanitize_source_rel_path(raw: &str, idx: usize) -> String {
+pub(crate) fn sanitize_source_rel_path(raw: &str, idx: usize) -> String {
     let clean: Vec<String> = raw
         .split(['/', '\\'])
         .filter(|seg| !seg.is_empty() && *seg != "." && *seg != "..")

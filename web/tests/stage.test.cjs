@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Events = require('../events.js');
 const { create, computeStageLayout, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
-  Keyboard, KeyLocation, KeyboardType, MouseCursor, MouseCursorData } = require('../stage.js');
+  Keyboard, KeyLocation, KeyboardType, MouseCursor, MouseCursorData, AccessibilityProperties } = require('../stage.js');
 
 // A real EventTarget drives the adapter's installed native listeners; no direct callback invocation.
 class Surface extends EventTarget {
@@ -519,4 +519,101 @@ test('computeStageLayout matches Rust ScriptAS2Stage across all 4 scaleModes, al
   } finally {
     core.free();
   }
+});
+
+test('syncAccessibilityOverlay synchronizes deterministic tabIndex read order, role, aria-label, aria-description, aria-live, and aria-hidden while keeping pointer and keyboard focus distinct (T-234)', () => {
+  const { controller, root, child } = setup();
+
+  const statusAcc = new AccessibilityProperties();
+  statusAcc.name = 'Live Score Banner';
+  statusAcc.description = 'Updates when score changes';
+  statusAcc.role = 'status';
+  statusAcc.live = 'polite';
+
+  const playAcc = new AccessibilityProperties();
+  playAcc.name = 'Start Mission';
+  playAcc.description = 'Launches the campaign';
+  playAcc.role = 'button';
+  playAcc.shortcut = 'Enter';
+
+  const bgAcc = new AccessibilityProperties();
+  bgAcc.name = 'Decorative Clouds';
+  bgAcc.silent = true;
+
+  child.accessibilityProperties = playAcc;
+  child.tabIndex = 1;
+  child.x = 40;
+  child.y = 120;
+  child.width = 140;
+  child.height = 44;
+
+  root.accessibilityProperties = statusAcc;
+  root.tabIndex = 2;
+  root.x = 40;
+  root.y = 20;
+  root.width = 240;
+  root.height = 32;
+
+  const silentDeco = {
+    id: 'deco-clouds',
+    accessibilityProperties: bgAcc,
+    tabIndex: 1,
+    x: 0,
+    y: 0,
+    width: 800,
+    height: 600,
+  };
+
+  const overlayRoot = {
+    attrs: {},
+    children: [],
+    setAttribute(k, v) {
+      this.attrs[k] = String(v);
+    },
+  };
+
+  // 1. Mouse pointer interaction focuses `child` with focusReason === 'mouse' (not keyboard focus ring)
+  controller.handlePointer('pointerdown', { clientX: 50, clientY: 130, button: 0, buttons: 1 }, child);
+  assert.equal(controller.focusReason(), 'mouse');
+
+  const firstSync = controller.syncAccessibilityOverlay(overlayRoot, [root, silentDeco, child]);
+  assert.deepEqual(firstSync.diagnostics, []);
+  assert.equal(overlayRoot.children.length, 3);
+  assert.deepEqual(
+    overlayRoot.children.map(el => [
+      el.getAttribute('aria-label'),
+      el.getAttribute('role'),
+      el.tabIndex,
+      el.getAttribute('data-reading-order'),
+      el.getAttribute('aria-hidden'),
+    ]),
+    [
+      ['Start Mission', 'button', 1, '1', 'false'],
+      ['Live Score Banner', 'status', 2, '2', 'false'],
+      ['Decorative Clouds', 'group', -1, '0', 'true'],
+    ],
+  );
+  assert.equal(overlayRoot.children[0].getAttribute('aria-description'), 'Launches the campaign');
+  assert.equal(overlayRoot.children[0].getAttribute('aria-keyshortcuts'), 'Enter');
+  assert.equal(overlayRoot.children[0].getAttribute('data-focus-reason'), 'mouse');
+  assert.equal(overlayRoot.children[0].getAttribute('data-keyboard-focus-ring'), 'false');
+  assert.equal(overlayRoot.children[1].getAttribute('aria-live'), 'polite');
+
+  // 2. Keyboard focus switches focusReason to 'key' without mutating authored AccessibilityProperties
+  controller.changeFocus(child, 'key', {});
+  assert.equal(controller.focusReason(), 'key');
+  controller.syncAccessibilityOverlay(overlayRoot, [root, silentDeco, child]);
+  assert.equal(overlayRoot.children[0].getAttribute('data-focus-reason'), 'key');
+  assert.equal(overlayRoot.children[0].getAttribute('data-keyboard-focus-ring'), 'true');
+  assert.equal(playAcc.name, 'Start Mission');
+
+  // 3. Read-order conflict and gap diagnostics report duplicate and skipped tabIndex values
+  const conflictDiagnostics = controller.validateAccessibilityReadOrder([
+    { id: 'btn-a', name: 'Button A', tabIndex: 1 },
+    { id: 'btn-b', name: 'Button B', tabIndex: 1 },
+    { id: 'btn-c', name: 'Button C', tabIndex: 4 },
+  ]);
+  assert.equal(conflictDiagnostics.length, 2);
+  assert.match(conflictDiagnostics[0], /conflict: tabIndex 1/i);
+  assert.match(conflictDiagnostics[1], /gap: missing tabIndex 2\.\.3/i);
 });

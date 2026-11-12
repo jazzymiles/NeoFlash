@@ -1374,6 +1374,63 @@ impl Editor {
             ui.close();
         }
         nf::menu_separator(ui);
+        let work_area = self.active_timeline_work_area();
+        let wa_enabled = work_area.is_some_and(|w| w.enabled);
+        if ui
+            .add(MenuItem::new("Set work area in at playhead").shortcut("["))
+            .clicked()
+        {
+            self.set_work_area_in_at_playhead();
+            ui.close();
+        }
+        if ui
+            .add(MenuItem::new("Set work area out at playhead").shortcut("]"))
+            .clicked()
+        {
+            self.set_work_area_out_at_playhead();
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                work_area.is_some(),
+                MenuItem::new("Clear work area").checked(wa_enabled),
+            )
+            .clicked()
+        {
+            self.clear_timeline_work_area();
+            ui.close();
+        }
+        nf::menu_separator(ui);
+        if ui.add(MenuItem::new("Add marker at playhead")).clicked() {
+            let f = self.frame;
+            let count = self.active_timeline_markers().len() + 1;
+            let _ = self.upsert_timeline_marker(TimelineMarker {
+                id: format!("marker-{f}-{count}"),
+                frame: f,
+                duration_frames: 1,
+                name: format!("Marker {count}"),
+                comment: String::new(),
+                color_tag: Some("#4296FA".into()),
+                cue_point_parameters: std::collections::BTreeMap::new(),
+            });
+            ui.close();
+        }
+        let has_markers = !self.active_timeline_markers().is_empty();
+        if ui
+            .add_enabled(has_markers, MenuItem::new("Next marker"))
+            .clicked()
+        {
+            let _ = self.navigate_timeline_marker(true);
+            ui.close();
+        }
+        if ui
+            .add_enabled(has_markers, MenuItem::new("Previous marker"))
+            .clicked()
+        {
+            let _ = self.navigate_timeline_marker(false);
+            ui.close();
+        }
+        nf::menu_separator(ui);
         if ui.add(MenuItem::new("Help").shortcut("F1")).clicked() {
             self.open_function_search(ui.ctx());
             ui.close();
@@ -1382,6 +1439,177 @@ impl Editor {
             self.set_panel_visible(PanelId::Timeline, false);
             ui.close();
         }
+    }
+
+    // =========================================================================
+    // Timeline Work Area & Markers (`T-233`)
+    // =========================================================================
+
+    /// Return the active `PreviewWorkArea` on the current timeline, if any (`T-233`).
+    pub fn active_timeline_work_area(&self) -> Option<PreviewWorkArea> {
+        self.symbol().timeline.work_area()
+    }
+
+    /// Set the active timeline's `PreviewWorkArea` (`in_frame..=out_frame`) in 1 Undo step (`T-233`).
+    pub fn set_timeline_work_area_range(
+        &mut self,
+        in_frame: u32,
+        out_frame: u32,
+        enabled: bool,
+    ) -> bool {
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        let clean_in = in_frame.min(out_frame).min(last);
+        let clean_out = out_frame.max(in_frame).min(last);
+        let skip = self
+            .symbol()
+            .timeline
+            .work_area()
+            .map(|w| w.skip_nth_frame)
+            .unwrap_or(0);
+        let target = Some(PreviewWorkArea {
+            enabled,
+            in_frame: clean_in,
+            out_frame: clean_out,
+            skip_nth_frame: skip,
+        });
+        if self.symbol().timeline.work_area() == target {
+            return false;
+        }
+        self.transact_named("Set Work Area", |editor| {
+            editor.symbol_mut().timeline.set_work_area(target);
+        });
+        true
+    }
+
+    /// Clear the active timeline's `PreviewWorkArea` in 1 Undo step (`T-233`).
+    pub fn clear_timeline_work_area(&mut self) -> bool {
+        if self.active_timeline_work_area().is_none() {
+            return false;
+        }
+        self.transact_named("Clear Work Area", |editor| {
+            editor.symbol_mut().timeline.set_work_area(None);
+        });
+        true
+    }
+
+    /// Set the work area `in_frame` bracket to the current playhead in 1 Undo step (`T-233`).
+    pub fn set_work_area_in_at_playhead(&mut self) -> bool {
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        let cur = self.frame.min(last);
+        let out = self
+            .active_timeline_work_area()
+            .map(|w| w.out_frame.max(cur))
+            .unwrap_or(last);
+        self.set_timeline_work_area_range(cur, out, true)
+    }
+
+    /// Set the work area `out_frame` bracket to the current playhead in 1 Undo step (`T-233`).
+    pub fn set_work_area_out_at_playhead(&mut self) -> bool {
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        let cur = self.frame.min(last);
+        let in_f = self
+            .active_timeline_work_area()
+            .map(|w| w.in_frame.min(cur))
+            .unwrap_or(0);
+        self.set_timeline_work_area_range(in_f, cur, true)
+    }
+
+    /// Step the preview playhead by 1 frame while clamping loop playback to the active
+    /// `PreviewWorkArea` (`in_frame..=out_frame`) when enabled (`T-233`).
+    #[allow(dead_code)]
+    pub fn step_preview_frame_with_work_area(&mut self) -> u32 {
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        if let Some(wa) = self.active_timeline_work_area()
+            && wa.enabled
+        {
+            let next = wa
+                .next_frame(self.frame, self.workspace.timeline.loop_playback)
+                .min(last);
+            self.seek_frame(next);
+            return next;
+        }
+        let next = if self.frame >= last {
+            if self.workspace.timeline.loop_playback {
+                0
+            } else {
+                last
+            }
+        } else {
+            self.frame + 1
+        };
+        self.seek_frame(next);
+        next
+    }
+
+    /// Return all `TimelineMarker`s on the active timeline (`T-233`).
+    pub fn active_timeline_markers(&self) -> Vec<TimelineMarker> {
+        self.symbol().timeline.markers()
+    }
+
+    /// Add or update a `TimelineMarker` on the active timeline in 1 Undo step (`T-233`).
+    pub fn upsert_timeline_marker(&mut self, mut marker: TimelineMarker) -> bool {
+        if marker.id.trim().is_empty() || marker.name.trim().is_empty() {
+            return false;
+        }
+        let last = self.symbol().timeline.frame_count.saturating_sub(1);
+        marker.frame = marker.frame.min(last);
+        marker.duration_frames = marker.duration_frames.max(1);
+        let mut markers = self.symbol().timeline.markers();
+        if let Some(slot) = markers.iter_mut().find(|m| m.id == marker.id) {
+            if *slot == marker {
+                return false;
+            }
+            *slot = marker;
+        } else {
+            markers.push(marker);
+        }
+        markers.sort_by_key(|m| m.frame);
+        self.transact_named("Update Timeline Marker", |editor| {
+            editor.symbol_mut().timeline.set_markers(markers);
+        });
+        true
+    }
+
+    /// Remove a `TimelineMarker` by ID from the active timeline in 1 Undo step (`T-233`).
+    #[allow(dead_code)]
+    pub fn remove_timeline_marker(&mut self, marker_id: &str) -> bool {
+        let mut markers = self.active_timeline_markers();
+        let before_len = markers.len();
+        markers.retain(|m| m.id != marker_id);
+        if markers.len() == before_len {
+            return false;
+        }
+        self.transact_named("Remove Timeline Marker", |editor| {
+            editor.symbol_mut().timeline.set_markers(markers);
+        });
+        true
+    }
+
+    /// Navigate the playhead to the next (`forward = true`) or previous (`forward = false`)
+    /// `TimelineMarker` on the active timeline (`T-233`).
+    pub fn navigate_timeline_marker(&mut self, forward: bool) -> Option<u32> {
+        let mut markers = self.active_timeline_markers();
+        if markers.is_empty() {
+            return None;
+        }
+        markers.sort_by_key(|m| m.frame);
+        let cur = self.frame;
+        let target_frame = if forward {
+            markers
+                .iter()
+                .find(|m| m.frame > cur)
+                .or_else(|| markers.first())
+                .map(|m| m.frame)?
+        } else {
+            markers
+                .iter()
+                .rev()
+                .find(|m| m.frame < cur)
+                .or_else(|| markers.last())
+                .map(|m| m.frame)?
+        };
+        self.seek_frame(target_frame);
+        Some(target_frame)
     }
 }
 

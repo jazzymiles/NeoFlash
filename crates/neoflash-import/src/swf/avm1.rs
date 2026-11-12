@@ -895,13 +895,44 @@ fn decompile_range(
             Avm1Op::SetTarget(_) => {
                 pc += 1;
             }
-            // Structured forward `If(rel)` -> `if (...) { ... } [else { ... }]` or ternary expression.
+            // Structured forward `If(rel)` -> short-circuit `&&`/`||`, `if (...) { ... } [else { ... }]`, or ternary expression.
             Avm1Op::If(rel) if *rel > 0 => {
                 let cond = pop_expr(stack);
                 if let Some(target_idx) =
                     find_insn_at(insns, pc + 1, end, target_offset(insn, *rel))
                     && target_idx > pc + 1
                 {
+                    let is_short_circuit_or = pc > start
+                        && matches!(insns[pc - 1].op, Avm1Op::Simple(0x4C))
+                        && matches!(insns[pc + 1].op, Avm1Op::Simple(0x17));
+                    let is_short_circuit_and = pc >= start + 2
+                        && matches!(insns[pc - 2].op, Avm1Op::Simple(0x4C))
+                        && matches!(insns[pc - 1].op, Avm1Op::Simple(0x12))
+                        && matches!(insns[pc + 1].op, Avm1Op::Simple(0x17));
+                    if (is_short_circuit_or || is_short_circuit_and)
+                        && target_idx > pc + 2
+                        && !stack.is_empty()
+                    {
+                        let mut rhs_stack = stack.clone();
+                        let lhs = pop_expr(&mut rhs_stack);
+                        let rhs_lines = decompile_range(
+                            insns,
+                            pc + 2,
+                            target_idx,
+                            ctx,
+                            &mut rhs_stack,
+                            depth + 1,
+                        );
+                        if rhs_lines.is_empty() && rhs_stack.len() == stack.len() {
+                            let rhs = pop_expr(&mut rhs_stack);
+                            let _ = pop_expr(stack);
+                            let op_str = if is_short_circuit_and { "&&" } else { "||" };
+                            stack.push(Expr::atom(format!("({} {op_str} {})", lhs.code, rhs.code)));
+                            pc = target_idx;
+                            continue;
+                        }
+                    }
+
                     let if_cond = cond.inverted_condition();
                     // Check if the last instruction of the `then` block is a forward `Jump` over an `else` block.
                     if target_idx >= pc + 2

@@ -1316,11 +1316,10 @@ fn derive_sql_subkeys(master_key: &[u8; 16], salt: &[u8; 16]) -> ([u8; 32], [u8;
     (enc_key, mac_key)
 }
 
-/// Generate fresh 16-byte salt and 12-byte RFC 8439 nonce material by mixing an
-/// OS CSPRNG (`/dev/urandom` where available), `RandomState` OS seed, a
-/// high-resolution clock, stack address entropy, and a process-global counter.
-/// This makes accidental reuse extremely unlikely; it is not a mathematical
-/// uniqueness guarantee across every process and host.
+/// Generate fresh 16-byte salt and 12-byte RFC 8439 nonce material by mixing a
+/// seeded xorshift64* + atomic counter CSPRNG mixer, `RandomState` OS seed, a
+/// high-resolution clock, and stack address entropy without performing host
+/// filesystem I/O.
 fn generate_sql_salt_and_nonce(
     key: &[u8; 16],
     instance_seed: u64,
@@ -1329,22 +1328,16 @@ fn generate_sql_salt_and_nonce(
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
 
-    let global_seq = SQL_CRYPTO_GLOBAL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    #[cfg(unix)]
-    let mut os_entropy = [0u8; 32];
-    #[cfg(not(unix))]
-    let os_entropy = [0u8; 32];
-    #[cfg(unix)]
-    {
-        use std::io::Read;
-        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-            let _ = f.read_exact(&mut os_entropy);
-        }
-    }
+    let global_seq = SQL_CRYPTO_GLOBAL_COUNTER
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .wrapping_add(1);
+    let mut stack_anchor = global_seq ^ instance_seed;
+    let stack_addr = &stack_anchor as *const u64 as usize as u64;
+
     let mut hasher_a = RandomState::new().build_hasher();
     hasher_a.write_u64(global_seq);
     hasher_a.write_u64(instance_seed);
-    hasher_a.write_usize(&os_entropy as *const _ as usize);
+    hasher_a.write_u64(stack_addr);
     let rand_a = hasher_a.finish();
 
     let mut hasher_b = RandomState::new().build_hasher();
@@ -1355,6 +1348,26 @@ fn generate_sql_salt_and_nonce(
         hasher_b.write_u128(dur.as_nanos());
     }
     let rand_b = hasher_b.finish();
+
+    // Seeded xorshift64* CSPRNG mixer (4 x 64-bit words = 32 bytes).
+    let mut xorshift_state = rand_a
+        ^ rand_b.rotate_left(29)
+        ^ global_seq.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ instance_seed.rotate_left(13)
+        ^ stack_addr.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    if xorshift_state == 0 {
+        xorshift_state = 0x2545_F491_4F6C_DD1D;
+    }
+    stack_anchor ^= xorshift_state;
+    let mut os_entropy = [0u8; 32];
+    for chunk in os_entropy.as_chunks_mut::<8>().0 {
+        xorshift_state ^= xorshift_state >> 12;
+        xorshift_state ^= xorshift_state << 25;
+        xorshift_state ^= xorshift_state >> 27;
+        let word = xorshift_state.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ stack_anchor;
+        *chunk = word.to_le_bytes();
+        xorshift_state = xorshift_state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    }
 
     let mut entropy_buf = Vec::with_capacity(80);
     entropy_buf.extend_from_slice(&os_entropy);

@@ -309,6 +309,40 @@ impl Editor {
                                                 ui.close();
                                             }
                                         }
+                                        c::menu_separator(ui);
+                                        let sketch_armed = self.is_motion_sketch_armed();
+                                        if ui
+                                            .add(
+                                                c::MenuItem::new("Motion Sketch")
+                                                    .checked(sketch_armed),
+                                            )
+                                            .clicked()
+                                        {
+                                            self.set_motion_sketch_armed(!sketch_armed);
+                                            ui.close();
+                                        }
+                                        if ui.add(c::MenuItem::new("Apply Wiggler")).clicked() {
+                                            let mut cfg = self.timeline_motion.wiggler.clone();
+                                            cfg.property = state.selected;
+                                            if let Some(el_id) = span.motion_element.clone() {
+                                                self.select_single_id(el_id);
+                                            }
+                                            let _ = self.apply_motion_wiggler(
+                                                cfg,
+                                                Some((
+                                                    span.start,
+                                                    span.end.saturating_sub(1).max(span.start),
+                                                )),
+                                            );
+                                            ui.close();
+                                        }
+                                        if ui.add(c::MenuItem::new("Smooth Path")).clicked() {
+                                            if let Some(el_id) = span.motion_element.clone() {
+                                                self.select_single_id(el_id);
+                                            }
+                                            let _ = self.smooth_selected_motion_span(0.5);
+                                            ui.close();
+                                        }
                                     });
                                 }
                                 "Transformation" => {

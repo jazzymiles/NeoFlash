@@ -1081,6 +1081,31 @@ impl Editor {
                     {
                         self.set_motion_snap_to_guide(span, snap);
                     }
+                    let mut sketch = self.is_motion_sketch_armed();
+                    if ui
+                        .add(c::Checkbox::new(&mut sketch, "Motion Sketch on Stage"))
+                        .changed()
+                    {
+                        self.set_motion_sketch_armed(sketch);
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add(c::Button::new("Apply Wiggler")).clicked() {
+                            if let Some(el_id) = span.motion_element.clone() {
+                                self.select_single_id(el_id);
+                            }
+                            let cfg = self.timeline_motion.wiggler.clone();
+                            let _ = self.apply_motion_wiggler(
+                                cfg,
+                                Some((span.start, span.end.saturating_sub(1).max(span.start))),
+                            );
+                        }
+                        if ui.add(c::Button::new("Smooth Path")).clicked() {
+                            if let Some(el_id) = span.motion_element.clone() {
+                                self.select_single_id(el_id);
+                            }
+                            let _ = self.smooth_selected_motion_span(0.5);
+                        }
+                    });
                 });
         });
     }

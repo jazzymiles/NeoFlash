@@ -213,6 +213,9 @@ pub(crate) struct AbcException {
 
 #[derive(Clone, Debug)]
 pub(crate) struct AbcMethodBody {
+    #[allow(dead_code)]
+    pub(crate) max_stack: usize,
+    pub(crate) local_count: usize,
     pub(crate) code: Vec<u8>,
     pub(crate) exceptions: Vec<AbcException>,
     pub(crate) traits: Vec<AbcTrait>,
@@ -537,8 +540,8 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
     let mut bodies_by_method = HashMap::with_capacity(body_count.min(16_384));
     for _ in 0..body_count {
         let method = r.u30()?;
-        let _max_stack = r.u30()?;
-        let _local_count = r.u30()?;
+        let max_stack = r.u30()?;
+        let local_count = r.u30()?;
         let _init_scope = r.u30()?;
         let _max_scope = r.u30()?;
         let code_len = r.u30()?;
@@ -558,6 +561,8 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
         bodies_by_method.insert(
             method,
             AbcMethodBody {
+                max_stack,
+                local_count,
                 code,
                 exceptions,
                 traits,
@@ -1504,7 +1509,47 @@ fn decompile_abc_range(
             }
         }
 
-        // Forward conditional branch (`if*` `0x0C..=0x1A` except `0x10` `jump`)
+        // Short-circuit `&&` / `||` (`dup` + `iffalse`/`iftrue` + `pop` + `rhs`)
+        if pc > start
+            && insns[pc - 1].op == 0x2A
+            && matches!(insn.op, 0x11 | 0x12)
+            && insn.iarg > 0
+            && insns.get(pc + 1).is_some_and(|n| n.op == 0x29)
+        {
+            let target_byte = insn.next_offset as isize + insn.iarg as isize;
+            if let Some(target_idx) = find_abc_insn(insns, pc + 2, end, target_byte)
+                && stack.len() >= 2
+            {
+                let mut rhs_stack = stack.clone();
+                let _dup_lhs = pop_val(&mut rhs_stack);
+                let lhs = pop_val(&mut rhs_stack);
+                let mut rhs_scope = scope_stack.clone();
+                let rhs_lines = decompile_abc_range(
+                    insns,
+                    pc + 2,
+                    target_idx,
+                    exceptions,
+                    ctx,
+                    &mut rhs_stack,
+                    &mut rhs_scope,
+                    depth + 1,
+                );
+                if rhs_lines.is_empty() && rhs_stack.len() == stack.len() - 1 {
+                    let rhs = pop_val(&mut rhs_stack);
+                    let _ = pop_val(stack);
+                    let _ = pop_val(stack);
+                    let op_str = if insn.op == 0x12 { "&&" } else { "||" };
+                    stack.push(AbcVal::expr(format!(
+                        "({} {op_str} {})",
+                        lhs.code, rhs.code
+                    )));
+                    pc = target_idx;
+                    continue;
+                }
+            }
+        }
+
+        // Forward conditional branch (`if*` `0x0C..=0x0F` and `0x11..=0x1A` except `0x10` `jump`)
         if matches!(insn.op, 0x0C..=0x0F | 0x11..=0x1A) && insn.iarg > 0 {
             let skip_cond = eval_branch_condition(insn.op, stack);
             let target_byte = insn.next_offset as isize + insn.iarg as isize;
@@ -1624,10 +1669,16 @@ fn match_backward_loop_condition(
             if target == body_byte {
                 let mut cstack = Vec::new();
                 let mut cscope = Vec::new();
-                let mut clines = Vec::new();
-                for step_insn in &insns[cond_start_idx..br_idx] {
-                    step_abc_insn(step_insn, ctx, &mut cstack, &mut cscope, &mut clines);
-                }
+                let _ = decompile_abc_range(
+                    insns,
+                    cond_start_idx,
+                    br_idx,
+                    &[],
+                    ctx,
+                    &mut cstack,
+                    &mut cscope,
+                    ctx.depth + 1,
+                );
                 let cond = eval_branch_condition(br.op, &mut cstack);
                 return Some((br_idx, cond));
             }
@@ -1650,22 +1701,22 @@ fn eval_branch_condition(op: u8, stack: &mut Vec<AbcVal>) -> String {
             let a = pop_val(stack);
             format!("({} != {})", a.code, b.code)
         }
-        0x15 | 0x0E => {
+        0x15 | 0x0F => {
             let b = pop_val(stack);
             let a = pop_val(stack);
             format!("({} < {})", a.code, b.code)
         }
-        0x16 | 0x0F => {
+        0x16 | 0x0E => {
             let b = pop_val(stack);
             let a = pop_val(stack);
             format!("({} <= {})", a.code, b.code)
         }
-        0x17 | 0x0C => {
+        0x17 | 0x0D => {
             let b = pop_val(stack);
             let a = pop_val(stack);
             format!("({} > {})", a.code, b.code)
         }
-        0x18 | 0x0D => {
+        0x18 | 0x0C => {
             let b = pop_val(stack);
             let a = pop_val(stack);
             format!("({} >= {})", a.code, b.code)

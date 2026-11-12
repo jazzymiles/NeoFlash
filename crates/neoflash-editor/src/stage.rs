@@ -1,5 +1,7 @@
 #[path = "stage_alpha_masks.rs"]
 mod alpha_masks;
+#[path = "panels/appearance.rs"]
+pub(crate) mod appearance;
 #[path = "../../neoflash-core/src/deco_spray.rs"]
 pub(crate) mod deco_spray;
 #[path = "../../neoflash-core/src/ik.rs"]
@@ -2393,6 +2395,448 @@ impl Editor {
         )
     }
 }
+
+#[allow(dead_code, clippy::too_many_arguments)]
+impl Editor {
+    // =========================================================================
+    // Stage Camera, IK Bone Constraints & Stage A/B Comparison (`T-233`)
+    // =========================================================================
+
+    /// Return the sampled `CameraPose` on the active timeline at `self.frame` (`T-233`).
+    pub fn active_timeline_camera_pose(&self) -> Option<CameraPose> {
+        sample_timeline_camera(&self.symbol().timeline, self.frame)
+    }
+
+    /// Set or clear the `CameraPose` on the active keyframe in 1 Undo step (`T-233`).
+    pub fn set_stage_camera_pose(&mut self, pose: Option<CameraPose>) -> bool {
+        let clean = pose.map(|mut cam| {
+            cam.x = if cam.x.is_finite() {
+                cam.x.clamp(-1e6, 1e6)
+            } else {
+                0.0
+            };
+            cam.y = if cam.y.is_finite() {
+                cam.y.clamp(-1e6, 1e6)
+            } else {
+                0.0
+            };
+            cam.rotation = if cam.rotation.is_finite() {
+                cam.rotation.clamp(-1e6, 1e6)
+            } else {
+                0.0
+            };
+            cam.zoom = if cam.zoom.is_finite() {
+                cam.zoom.clamp(0.01, 100.0)
+            } else {
+                1.0
+            };
+            cam.focal_length = if cam.focal_length.is_finite() {
+                cam.focal_length.clamp(10.0, 1e6)
+            } else {
+                500.0
+            };
+            cam
+        });
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some(existing_cam) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .map(|k| k.camera)
+        else {
+            return false;
+        };
+        if existing_cam == clean {
+            return false;
+        }
+        self.transact_named("Set Stage Camera", |editor| {
+            let symbol = editor.symbol_mut();
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return;
+            };
+            let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+            if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) {
+                key.camera = clean;
+            }
+        });
+        true
+    }
+
+    /// Pan the Stage camera on the active keyframe by `(dx, dy)` in 1 Undo step (`T-233`).
+    pub fn pan_stage_camera(&mut self, dx: f64, dy: f64) -> bool {
+        if !dx.is_finite() || !dy.is_finite() || (dx.abs() <= 1e-6 && dy.abs() <= 1e-6) {
+            return false;
+        }
+        let mut cam = self.active_timeline_camera_pose().unwrap_or_default();
+        cam.x = (cam.x + dx).clamp(-1e6, 1e6);
+        cam.y = (cam.y + dy).clamp(-1e6, 1e6);
+        self.set_stage_camera_pose(Some(cam))
+    }
+
+    /// Zoom the Stage camera on the active keyframe by `factor` in 1 Undo step (`T-233`).
+    pub fn zoom_stage_camera(&mut self, factor: f64) -> bool {
+        if !factor.is_finite() || factor <= 0.0 || (factor - 1.0).abs() <= 1e-6 {
+            return false;
+        }
+        let mut cam = self.active_timeline_camera_pose().unwrap_or_default();
+        cam.zoom = (cam.zoom * factor).clamp(0.01, 100.0);
+        self.set_stage_camera_pose(Some(cam))
+    }
+
+    /// Rotate the Stage camera on the active keyframe by `delta_deg` in 1 Undo step (`T-233`).
+    pub fn rotate_stage_camera(&mut self, delta_deg: f64) -> bool {
+        if !delta_deg.is_finite() || delta_deg.abs() <= 1e-6 {
+            return false;
+        }
+        let mut cam = self.active_timeline_camera_pose().unwrap_or_default();
+        cam.rotation = (cam.rotation + delta_deg).clamp(-1e6, 1e6);
+        self.set_stage_camera_pose(Some(cam))
+    }
+
+    /// Set the Stage camera `focal_length` (`10.0..=1e6`) on the active keyframe in 1 Undo step (`T-233`).
+    pub fn set_stage_camera_focal_length(&mut self, focal_length: f64) -> bool {
+        if !focal_length.is_finite() {
+            return false;
+        }
+        let mut cam = self.active_timeline_camera_pose().unwrap_or_default();
+        cam.focal_length = focal_length.clamp(10.0, 1e6);
+        self.set_stage_camera_pose(Some(cam))
+    }
+
+    /// Reset (clear) the Stage camera on the active keyframe in 1 Undo step (`T-233`).
+    pub fn reset_stage_camera(&mut self) -> bool {
+        self.set_stage_camera_pose(None)
+    }
+
+    /// Return the session's `IkJointSpec` for `bone_id`, if configured (`T-233`).
+    pub fn stage_bone_joint_spec(&self, bone_id: &str) -> Option<IkJointSpec> {
+        let sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        sessions.get(&self.clipboard.session).and_then(|s| {
+            s.joint_specs
+                .iter()
+                .find(|sp| sp.bone_id == bone_id)
+                .cloned()
+        })
+    }
+
+    /// Store or update the session's `IkJointSpec` for its `bone_id` (`T-233`).
+    pub fn set_stage_bone_joint_spec(&mut self, spec: IkJointSpec) {
+        let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        let state = sessions.entry(self.clipboard.session.clone()).or_default();
+        if let Some(slot) = state
+            .joint_specs
+            .iter_mut()
+            .find(|s| s.bone_id == spec.bone_id)
+        {
+            *slot = spec;
+        } else {
+            state.joint_specs.push(spec);
+        }
+    }
+
+    /// Update an IK bone's joint angle constraints (`constrain_angle`, `min_angle_deg`,
+    /// `max_angle_deg`), `stiffness` (`0.0..=1.0`), and `pinned` state on the active keyframe in 1
+    /// Undo step (`T-233`).
+    pub fn stage_set_ik_bone_constraints(
+        &mut self,
+        armature_id: &str,
+        bone_id: &str,
+        constrain_angle: bool,
+        min_angle_deg: f64,
+        max_angle_deg: f64,
+        stiffness: f64,
+        pinned: bool,
+    ) -> bool {
+        if !min_angle_deg.is_finite() || !max_angle_deg.is_finite() || !stiffness.is_finite() {
+            return false;
+        }
+        let clean_min = min_angle_deg.min(max_angle_deg).clamp(-360.0, 360.0);
+        let clean_max = max_angle_deg.max(min_angle_deg).clamp(-360.0, 360.0);
+        let clean_stiffness = if pinned {
+            1.0
+        } else {
+            stiffness.clamp(0.0, 1.0)
+        };
+        let (min_opt, max_opt) = if constrain_angle {
+            (Some(clean_min), Some(clean_max))
+        } else {
+            (None, None)
+        };
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let has_bone = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+            .and_then(|k| k.ik_armatures.iter().find(|a| a.id == armature_id))
+            .is_some_and(|a| a.bones.iter().any(|b| b.id == bone_id));
+        if !has_bone {
+            return false;
+        }
+        let arm_owned = armature_id.to_owned();
+        let bone_owned = bone_id.to_owned();
+        self.transact_named("Set IK Bone Constraints", |editor| {
+            let symbol = editor.symbol_mut();
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return;
+            };
+            let key_frame = layer.key_at(frame).map(|k| k.frame).unwrap_or(frame);
+            let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+                return;
+            };
+            let Some(arm) = key.ik_armatures.iter_mut().find(|a| a.id == arm_owned) else {
+                return;
+            };
+            if let Some(bone) = arm.bones.iter_mut().find(|b| b.id == bone_owned) {
+                bone.min_angle = min_opt;
+                bone.max_angle = max_opt;
+                bone.stiffness = clean_stiffness;
+            }
+        });
+        let mut spec = self
+            .stage_bone_joint_spec(bone_id)
+            .unwrap_or_else(|| IkJointSpec {
+                bone_id: bone_id.to_owned(),
+                ..IkJointSpec::default()
+            });
+        spec.constrain_rotation = constrain_angle;
+        spec.min_angle_deg = clean_min;
+        spec.max_angle_deg = clean_max;
+        spec.pinned = pinned;
+        self.set_stage_bone_joint_spec(spec);
+        true
+    }
+
+    /// Update an IK bone's X/Y translation constraints on the session's `IkJointSpec` (`T-233`).
+    pub fn stage_set_ik_bone_translation_constraints(
+        &mut self,
+        bone_id: &str,
+        enable_x: bool,
+        constrain_x: bool,
+        min_x: f64,
+        max_x: f64,
+        enable_y: bool,
+        constrain_y: bool,
+        min_y: f64,
+        max_y: f64,
+    ) {
+        let mut spec = self
+            .stage_bone_joint_spec(bone_id)
+            .unwrap_or_else(|| IkJointSpec {
+                bone_id: bone_id.to_owned(),
+                ..IkJointSpec::default()
+            });
+        spec.enable_x_translation = enable_x;
+        spec.constrain_x_translation = constrain_x;
+        spec.min_x_offset = min_x.min(max_x);
+        spec.max_x_offset = max_x.max(min_x);
+        spec.enable_y_translation = enable_y;
+        spec.constrain_y_translation = constrain_y;
+        spec.min_y_offset = min_y.min(max_y);
+        spec.max_y_offset = max_y.max(min_y);
+        self.set_stage_bone_joint_spec(spec);
+    }
+
+    /// Capture a `StageSnapshotAB` in slot A from the current frame (`T-233`).
+    pub fn capture_stage_snapshot_a(
+        &mut self,
+        label: impl Into<String>,
+    ) -> Option<StageSnapshotAB> {
+        let label_str = label.into();
+        let snap = self.capture_stage_snapshot_ab(&label_str);
+        let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        let state = sessions.entry(self.clipboard.session.clone()).or_default();
+        state.snapshot_a = Some(snap.clone());
+        Some(snap)
+    }
+
+    /// Capture a `StageSnapshotAB` in slot B from the current frame (`T-233`).
+    pub fn capture_stage_snapshot_b(
+        &mut self,
+        label: impl Into<String>,
+    ) -> Option<StageSnapshotAB> {
+        let label_str = label.into();
+        let snap = self.capture_stage_snapshot_ab(&label_str);
+        let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        let state = sessions.entry(self.clipboard.session.clone()).or_default();
+        state.snapshot_b = Some(snap.clone());
+        Some(snap)
+    }
+
+    /// Capture `StageSnapshotAB` reference snapshots from `frame_a` and `frame_b` on the active
+    /// timeline (`T-233`).
+    pub fn set_stage_ab_reference_frames(&mut self, frame_a: u32, frame_b: u32) -> bool {
+        let fps = f64::from(self.project.fps);
+        let tl = &self.symbol().timeline;
+        let last = tl.frame_count.saturating_sub(1);
+        let fa = frame_a.min(last);
+        let fb = frame_b.min(last);
+        let snap_a = capture_snapshot_at_frame(tl, fa, fps, format!("A (F{})", fa + 1));
+        let snap_b = capture_snapshot_at_frame(tl, fb, fps, format!("B (F{})", fb + 1));
+        let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        let state = sessions.entry(self.clipboard.session.clone()).or_default();
+        state.snapshot_a = Some(snap_a);
+        state.snapshot_b = Some(snap_b);
+        true
+    }
+
+    /// Set the active `StageAbComparisonMode` (`Off`, `ShowA`, `ShowB`, `SplitVertical`) (`T-233`).
+    pub fn set_stage_ab_mode(&mut self, mode: StageAbComparisonMode) {
+        let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        let state = sessions.entry(self.clipboard.session.clone()).or_default();
+        state.mode = mode;
+    }
+
+    /// Return the active `StageAbComparisonMode` (`T-233`).
+    pub fn stage_ab_mode(&self) -> StageAbComparisonMode {
+        let sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        sessions
+            .get(&self.clipboard.session)
+            .map(|s| s.mode)
+            .unwrap_or_default()
+    }
+
+    /// Set the vertical split ratio (`0.05..=0.95`) for `StageAbComparisonMode::SplitVertical` (`T-233`).
+    pub fn set_stage_ab_split_ratio(&mut self, ratio: f32) {
+        if !ratio.is_finite() {
+            return;
+        }
+        let mut sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        let state = sessions.entry(self.clipboard.session.clone()).or_default();
+        state.split_ratio = ratio.clamp(0.05, 0.95);
+    }
+
+    /// Return the vertical split ratio for `Stage A/B` comparison (`T-233`).
+    pub fn stage_ab_split_ratio(&self) -> f32 {
+        let sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        sessions
+            .get(&self.clipboard.session)
+            .map(|s| s.split_ratio)
+            .unwrap_or(0.5)
+    }
+
+    /// Return the captured `(snapshot_a, snapshot_b)` pair for the current session (`T-233`).
+    pub fn stage_ab_snapshots(&self) -> (Option<StageSnapshotAB>, Option<StageSnapshotAB>) {
+        let sessions = STAGE_AB_SESSIONS.lock().unwrap();
+        sessions
+            .get(&self.clipboard.session)
+            .map(|s| (s.snapshot_a.clone(), s.snapshot_b.clone()))
+            .unwrap_or((None, None))
+    }
+
+    /// Return `(only_in_a, only_in_b, modified_count)` between captured `Stage A` and `Stage B`
+    /// snapshots (`T-233`).
+    pub fn stage_ab_diff_counts(&self) -> Option<(usize, usize, usize)> {
+        let (a, b) = self.stage_ab_snapshots();
+        let a = a?;
+        let b = b?;
+        let (only_a, only_b, modified) = diff_stage_snapshots(&a, &b);
+        Some((only_a.len(), only_b.len(), modified.len()))
+    }
+
+    /// Paint the `Stage A/B` split/toggle reference frame comparison overlay on the Stage (`T-233`).
+    pub fn paint_stage_ab_comparison_overlay(&self, painter: &egui::Painter, stage_rect: Rect) {
+        let mode = self.stage_ab_mode();
+        if mode == StageAbComparisonMode::Off {
+            return;
+        }
+        let nf = neoflash_ui::palette(painter.ctx());
+        if mode == StageAbComparisonMode::SplitVertical {
+            let ratio = self.stage_ab_split_ratio();
+            let split_x = stage_rect.left() + stage_rect.width() * ratio;
+            painter.vline(
+                split_x,
+                stage_rect.y_range(),
+                Stroke::new(1.5_f32, nf.guide),
+            );
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn capture_snapshot_at_frame(
+    tl: &Timeline,
+    frame: u32,
+    fps: f64,
+    label: String,
+) -> StageSnapshotAB {
+    let mut elements = Vec::new();
+    for layer in &tl.layers {
+        if layer.visible {
+            elements.extend(sample_layer_in_at_fps(tl, layer, frame, fps));
+        }
+    }
+    StageSnapshotAB {
+        label,
+        frame,
+        elements,
+    }
+}
+
+#[allow(dead_code)]
+fn diff_stage_snapshots(a: &StageSnapshotAB, b: &StageSnapshotAB) -> (Vec<Id>, Vec<Id>, Vec<Id>) {
+    let mut only_a = Vec::new();
+    let mut only_b = Vec::new();
+    let mut modified = Vec::new();
+    for el_a in &a.elements {
+        if let Some(el_b) = b.elements.iter().find(|e| e.id == el_a.id) {
+            if el_a != el_b {
+                modified.push(el_a.id.clone());
+            }
+        } else {
+            only_a.push(el_a.id.clone());
+        }
+    }
+    for el_b in &b.elements {
+        if !a.elements.iter().any(|e| e.id == el_b.id) {
+            only_b.push(el_b.id.clone());
+        }
+    }
+    (only_a, only_b, modified)
+}
+
+/// Stage A/B reference comparison mode (`T-233`).
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StageAbComparisonMode {
+    #[default]
+    Off,
+    ShowA,
+    ShowB,
+    SplitVertical,
+}
+
+#[allow(dead_code)]
+#[derive(Clone)]
+struct StageAbSessionState {
+    mode: StageAbComparisonMode,
+    split_ratio: f32,
+    snapshot_a: Option<StageSnapshotAB>,
+    snapshot_b: Option<StageSnapshotAB>,
+    joint_specs: Vec<IkJointSpec>,
+}
+
+impl Default for StageAbSessionState {
+    fn default() -> Self {
+        Self {
+            mode: StageAbComparisonMode::Off,
+            split_ratio: 0.5,
+            snapshot_a: None,
+            snapshot_b: None,
+            joint_specs: Vec::new(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+static STAGE_AB_SESSIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, StageAbSessionState>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::BTreeMap::new()));
 
 /// Linear onion-skin ghost opacity from `falloff_percent`% at `distance == 1` to `15`% at
 /// `range_len` (when `range_len <= 1`, the single ghost uses `falloff_percent`%).

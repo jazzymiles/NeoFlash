@@ -36,6 +36,8 @@ pub(crate) struct StageTextEditState {
     pub(crate) caret_utf16: usize,
     pub(crate) selection_anchor_utf16: Option<usize>,
     pub(crate) typing_format: Option<TextFormat>,
+    pub(crate) ime_preedit: Option<String>,
+    pub(crate) ime_cursor_utf16: Option<(usize, usize)>,
     pub(crate) pointer_dragging: bool,
     pub(crate) drag_press_pos: Option<Pos2>,
     pub(crate) coalesced_typing_active: bool,
@@ -484,6 +486,8 @@ impl Editor {
         self.stage_text_edit.caret_utf16 = clamped_caret;
         self.stage_text_edit.selection_anchor_utf16 = clamped_anchor;
         self.stage_text_edit.typing_format = None;
+        self.stage_text_edit.ime_preedit = None;
+        self.stage_text_edit.ime_cursor_utf16 = None;
         self.stage_text_edit.pointer_dragging = false;
         self.stage_text_edit.drag_press_pos = None;
         self.stage_text_edit.coalesced_typing_active = false;
@@ -494,6 +498,8 @@ impl Editor {
         self.stage_text_edit.active_target = None;
         self.stage_text_edit.selection_anchor_utf16 = None;
         self.stage_text_edit.typing_format = None;
+        self.stage_text_edit.ime_preedit = None;
+        self.stage_text_edit.ime_cursor_utf16 = None;
         self.stage_text_edit.pointer_dragging = false;
         self.stage_text_edit.drag_press_pos = None;
         self.stage_text_edit.coalesced_typing_active = false;
@@ -708,17 +714,32 @@ impl Editor {
     }
 
     /// Update a non-wrapping `TextBox` (such as point text upgraded to a `TextBox` when given mixed
-    /// formatting) so its bounding box expands to fit all laid-out runs without clipping.
+    /// formatting, or when `Auto-size` is active) so its bounding box and horizontal anchor fit all
+    /// laid-out runs without clipping.
     pub(crate) fn refresh_non_wrapping_text_box_bounds(&mut self, kind: &mut ElementKind) {
+        let mut dummy_x = 0.0;
+        self.refresh_text_box_bounds_with_anchor(kind, &mut dummy_x);
+    }
+
+    pub(crate) fn refresh_text_box_bounds_with_anchor(
+        &mut self,
+        kind: &mut ElementKind,
+        transform_x: &mut f64,
+    ) {
         let ElementKind::TextBox {
             word_wrap, format, ..
         } = kind
         else {
             return;
         };
-        let auto_size_active = format
+        let auto_size_mode = format
             .field_options()
-            .is_some_and(|o| !matches!(o.auto_size.as_str(), "" | "none"));
+            .map(|o| o.auto_size.to_ascii_lowercase())
+            .unwrap_or_default();
+        let auto_size_active = !matches!(auto_size_mode.as_str(), "" | "none");
+        if auto_size_active {
+            *word_wrap = false;
+        }
         if *word_wrap && !auto_size_active {
             return;
         }
@@ -760,9 +781,19 @@ impl Editor {
             let min_w = (nat_w + max_font_size * 0.4 + 8.0).clamp(16.0, 1_000_000.0);
             let min_h = (nat_h + 6.0).clamp(max_font_size * 1.2 + 4.0, 1_000_000.0);
             if let ElementKind::TextBox { width, height, .. } = kind {
+                let old_width = *width;
                 if auto_size_active {
                     *width = min_w;
                     *height = min_h;
+                    match auto_size_mode.as_str() {
+                        "center" => {
+                            *transform_x += (old_width - min_w) * 0.5;
+                        }
+                        "right" => {
+                            *transform_x += old_width - min_w;
+                        }
+                        _ => {}
+                    }
                 } else {
                     *width = (*width).max(min_w);
                     *height = (*height).max(min_h);
@@ -1015,6 +1046,7 @@ impl Editor {
 
     /// Reconcile mutations produced by the `Properties — Text` UI controls (`after_kind`) against
     /// `original_kind` using selection-aware UTF-16 range formatting and `typing_format`.
+    #[allow(dead_code)]
     pub(crate) fn reconcile_inspector_text_edit(
         &mut self,
         element_id: &str,
@@ -1022,6 +1054,28 @@ impl Editor {
         shown_format: &TextFormat,
         after_kind: &mut ElementKind,
         alpha: &mut f64,
+    ) {
+        let mut transform = neoflash_core::Transform {
+            alpha: *alpha,
+            ..neoflash_core::Transform::default()
+        };
+        self.reconcile_inspector_text_edit_with_transform(
+            element_id,
+            original_kind,
+            shown_format,
+            after_kind,
+            &mut transform,
+        );
+        *alpha = transform.alpha;
+    }
+
+    pub(crate) fn reconcile_inspector_text_edit_with_transform(
+        &mut self,
+        element_id: &str,
+        original_kind: &ElementKind,
+        shown_format: &TextFormat,
+        after_kind: &mut ElementKind,
+        transform: &mut neoflash_core::Transform,
     ) {
         let Some(mut next_state) = TextFieldState::from_kind(original_kind) else {
             return;
@@ -1188,9 +1242,9 @@ impl Editor {
         }
         next_state.write_to_kind(after_kind);
         if was_point_text {
-            preserve_point_text_alpha_on_upgrade(original_kind, after_kind, alpha);
+            preserve_point_text_alpha_on_upgrade(original_kind, after_kind, &mut transform.alpha);
         }
-        self.refresh_non_wrapping_text_box_bounds(after_kind);
+        self.refresh_text_box_bounds_with_anchor(after_kind, &mut transform.x);
     }
 
     /// Consume keyboard and IME events when inline Stage text editing is active and no panel widget
@@ -1221,6 +1275,10 @@ impl Editor {
 
         enum Action {
             Insert(String),
+            ImeEnabled,
+            ImePreedit(String),
+            ImeCommit(String),
+            ImeDisabled,
             Backspace(bool),
             Delete(bool),
             MoveLeft { shift: bool, word: bool, line: bool },
@@ -1248,8 +1306,17 @@ impl Editor {
                     {
                         actions.push(Action::Insert(text.clone()));
                     }
-                    egui::Event::Ime(egui::ImeEvent::Commit(text)) if !text.is_empty() => {
-                        actions.push(Action::Insert(text.clone()));
+                    egui::Event::Ime(egui::ImeEvent::Enabled) => {
+                        actions.push(Action::ImeEnabled);
+                    }
+                    egui::Event::Ime(egui::ImeEvent::Preedit(text)) => {
+                        actions.push(Action::ImePreedit(text.clone()));
+                    }
+                    egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
+                        actions.push(Action::ImeCommit(text.clone()));
+                    }
+                    egui::Event::Ime(egui::ImeEvent::Disabled) => {
+                        actions.push(Action::ImeDisabled);
                     }
                     egui::Event::Copy if self.stage_text_edit.has_range_selection() => {
                         actions.push(Action::Copy);
@@ -1404,9 +1471,17 @@ impl Editor {
                     _ => retained.push(event),
                 }
             }
-            // If a text insertion event was consumed this frame, also strip any plain unmodified
+            // If a text insertion or IME event was consumed this frame, also strip any plain unmodified
             // single-letter Key event so tool shortcuts (V, T, R, B, etc.) don't fire while typing.
-            if actions.iter().any(|a| matches!(a, Action::Insert(_))) {
+            if actions.iter().any(|a| {
+                matches!(
+                    a,
+                    Action::Insert(_)
+                        | Action::ImeEnabled
+                        | Action::ImePreedit(_)
+                        | Action::ImeCommit(_)
+                )
+            }) {
                 retained.retain(|event| {
                     !matches!(
                         event,
@@ -1421,16 +1496,52 @@ impl Editor {
             i.events = retained;
         });
 
+        let mut update_ime_output = false;
         for action in actions {
             handled = true;
             match action {
                 Action::Insert(text) => {
+                    self.stage_text_edit.ime_preedit = None;
+                    self.stage_text_edit.ime_cursor_utf16 = None;
                     self.stage_text_insert_or_replace(&text);
+                    update_ime_output = true;
+                }
+                Action::ImeEnabled => {
+                    self.stage_text_edit.ime_preedit = Some(String::new());
+                    self.stage_text_edit.ime_cursor_utf16 = Some((0, 0));
+                    update_ime_output = true;
+                }
+                Action::ImePreedit(text) => {
+                    if text.is_empty() {
+                        self.stage_text_edit.ime_preedit = None;
+                        self.stage_text_edit.ime_cursor_utf16 = None;
+                    } else {
+                        let u16_len = text.encode_utf16().count();
+                        self.stage_text_edit.ime_preedit = Some(text);
+                        self.stage_text_edit.ime_cursor_utf16 = Some((u16_len, u16_len));
+                    }
+                    update_ime_output = true;
+                }
+                Action::ImeCommit(text) => {
+                    self.stage_text_edit.ime_preedit = None;
+                    self.stage_text_edit.ime_cursor_utf16 = None;
+                    if !text.is_empty() {
+                        self.stage_text_insert_or_replace(&text);
+                    }
+                    update_ime_output = true;
+                }
+                Action::ImeDisabled => {
+                    self.stage_text_edit.ime_preedit = None;
+                    self.stage_text_edit.ime_cursor_utf16 = None;
                 }
                 Action::Backspace(word) => {
+                    self.stage_text_edit.ime_preedit = None;
+                    self.stage_text_edit.ime_cursor_utf16 = None;
                     self.stage_text_backspace(word);
                 }
                 Action::Delete(word) => {
+                    self.stage_text_edit.ime_preedit = None;
+                    self.stage_text_edit.ime_cursor_utf16 = None;
                     self.stage_text_delete_forward(word);
                 }
                 Action::SelectAll => {
@@ -1486,7 +1597,12 @@ impl Editor {
                     self.stage_text_insert_or_replace("");
                 }
                 Action::Exit => {
-                    self.exit_stage_text_edit();
+                    if self.stage_text_edit.ime_preedit.is_some() {
+                        self.stage_text_edit.ime_preedit = None;
+                        self.stage_text_edit.ime_cursor_utf16 = None;
+                    } else {
+                        self.exit_stage_text_edit();
+                    }
                 }
                 Action::MoveLeft { shift, word, line } => {
                     self.finish_stage_text_typing();
@@ -1570,6 +1686,27 @@ impl Editor {
                     self.move_caret_with_shift(next, shift);
                 }
             }
+        }
+        if update_ime_output
+            && let Some(sampled) = self.selected_sampled()
+            && let Some(g) = geom
+        {
+            let (caret_top, caret_bottom) = g.caret_segment_local(self.stage_text_edit.caret_utf16);
+            let tx = sampled.transform.x as f32 + caret_top.x;
+            let ty = sampled.transform.y as f32 + caret_top.y;
+            let by = sampled.transform.y as f32 + caret_bottom.y.max(caret_top.y + 12.0);
+            let cursor_rect = Rect::from_min_max(Pos2::new(tx, ty), Pos2::new(tx + 2.0, by));
+            let box_rect = Rect::from_min_size(
+                Pos2::new(sampled.transform.x as f32, sampled.transform.y as f32),
+                Vec2::new(g.box_width as f32, g.box_height as f32),
+            )
+            .union(cursor_rect);
+            ctx.output_mut(|o| {
+                o.ime = Some(egui::output::IMEOutput {
+                    rect: box_rect,
+                    cursor_rect,
+                });
+            });
         }
         handled
     }
@@ -1845,10 +1982,70 @@ impl Editor {
         let (caret_top, caret_bottom) = geom.caret_segment_local(self.stage_text_edit.caret_utf16);
         let screen_top = to_screen(caret_top);
         let screen_bottom = to_screen(caret_bottom);
-        painter.line_segment(
-            [screen_top, screen_bottom],
-            Stroke::new(1.5_f32, palette.text_primary),
+
+        // 3. Active macOS IME preedit preview + composition underline and IME candidate window rect.
+        let mut cursor_rect = Rect::from_two_pos(
+            screen_top,
+            Pos2::new(
+                screen_bottom.x + 2.0,
+                screen_bottom.y.max(screen_top.y + 12.0),
+            ),
         );
+        if let Some(preedit) = self.stage_text_edit.ime_preedit.clone()
+            && !preedit.is_empty()
+        {
+            let fmt = TextFieldState::from_kind(&sampled.kind)
+                .map(|s| self.resolved_inspector_text_format(&sampled.id, &s))
+                .unwrap_or_default();
+            let named = crate::fonts::styled_family(&fmt.font, fmt.bold, fmt.italic);
+            let family = if painter.ctx().fonts(|f| f.families().contains(&named)) {
+                named
+            } else {
+                FontFamily::Proportional
+            };
+            let font_px = ((fmt.size as f32) * self.zoom).max(8.0);
+            let galley =
+                painter.layout_no_wrap(preedit, FontId::new(font_px, family), palette.text_primary);
+            let preedit_w = galley.size().x.max(4.0);
+            let preedit_rect = Rect::from_min_max(
+                screen_top,
+                Pos2::new(
+                    screen_top.x + preedit_w,
+                    screen_bottom.y.max(screen_top.y + font_px),
+                ),
+            );
+            painter.rect_filled(
+                preedit_rect,
+                2.0,
+                neoflash_ui::Palette::tint(palette.accent_default, 0.18),
+            );
+            painter.galley(screen_top, galley, palette.text_primary);
+            let underline_y = preedit_rect.max.y - 1.0;
+            painter.line_segment(
+                [
+                    Pos2::new(preedit_rect.min.x, underline_y),
+                    Pos2::new(preedit_rect.max.x, underline_y),
+                ],
+                Stroke::new(2.0_f32, palette.accent_default),
+            );
+            cursor_rect = Rect::from_min_max(
+                Pos2::new(preedit_rect.max.x, preedit_rect.min.y),
+                Pos2::new(preedit_rect.max.x + 2.0, preedit_rect.max.y),
+            );
+        } else {
+            painter.line_segment(
+                [screen_top, screen_bottom],
+                Stroke::new(1.5_f32, palette.text_primary),
+            );
+        }
+
+        let screen_box_rect = Rect::from_two_pos(frame_pts[0], frame_pts[2]).union(cursor_rect);
+        painter.ctx().output_mut(|o| {
+            o.ime = Some(egui::output::IMEOutput {
+                rect: screen_box_rect,
+                cursor_rect,
+            });
+        });
     }
 }
 
@@ -2597,5 +2794,255 @@ mod tests {
         assert_eq!(fourth_char_state.format.color, 0x1e63d6);
         assert!(fourth_char_state.format.bold);
         assert!(fourth_char_state.format.italic);
+    }
+
+    #[test]
+    fn stage_text_ime_composition_preedit_commit_and_cancel_preserve_runs_and_undo() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.add_element(
+            ElementKind::TextBox {
+                text: "Hello world".into(),
+                width: 240.0,
+                height: 60.0,
+                format: TextFormat {
+                    font: "Inter".into(),
+                    size: 18.0,
+                    color: 0x112233,
+                    ..TextFormat::default()
+                },
+                word_wrap: true,
+                multiline: true,
+            },
+            40.0,
+            50.0,
+        );
+        // Format "world" (6..11) in bold crimson so there are 2 distinct format_runs.
+        assert!(editor.select_stage_text_utf16_range(6, 11));
+        assert!(
+            editor
+                .apply_stage_text_format_patch(&TextFormatPatch {
+                    bold: Some(true),
+                    color: Some(0xd32f2f),
+                    ..TextFormatPatch::default()
+                })
+                .unwrap()
+        );
+        let before_ime_project = editor.project.clone();
+        let undo_before_ime = editor.history.undo_len();
+
+        // Place caret at UTF-16 offset 6 (before "world") and set a distinct typing_format.
+        assert!(editor.place_stage_text_caret_utf16(6));
+        assert!(
+            !editor
+                .apply_stage_text_format_patch(&TextFormatPatch {
+                    font: Some("Georgia".into()),
+                    italic: Some(true),
+                    color: Some(0x1976d2),
+                    ..TextFormatPatch::default()
+                })
+                .unwrap()
+        );
+
+        // 1. IME Enabled + Preedit("に") + Preedit("にほん") must NOT mutate project text/runs or push Undo steps,
+        //    and must report IMEOutput in Stage screen coordinates.
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.0,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Enabled),
+                egui::Event::Ime(egui::ImeEvent::Preedit("に".into())),
+            ],
+        );
+        assert_eq!(editor.stage_text_edit.ime_preedit.as_deref(), Some("に"));
+        assert_eq!(editor.stage_text_edit.ime_cursor_utf16, Some((1, 1)));
+        assert_eq!(editor.project, before_ime_project);
+        assert_eq!(editor.history.undo_len(), undo_before_ime);
+
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 900.0))),
+                time: Some(1.05),
+                events: vec![egui::Event::Ime(egui::ImeEvent::Preedit("にほん".into()))],
+                ..Default::default()
+            },
+            |ctx| {
+                editor.shortcuts(ctx);
+                editor.stage(ctx);
+            },
+        );
+        assert_eq!(
+            editor.stage_text_edit.ime_preedit.as_deref(),
+            Some("にほん")
+        );
+        assert_eq!(editor.stage_text_edit.ime_cursor_utf16, Some((3, 3)));
+        assert!(
+            out.platform_output.ime.is_some(),
+            "active IME preedit must report IMEOutput candidate coordinates"
+        );
+        assert_eq!(editor.project, before_ime_project);
+        assert_eq!(editor.history.undo_len(), undo_before_ime);
+
+        // 2. Escape cancels active `ime_preedit` cleanly without exiting Stage text editing.
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.1,
+            vec![egui::Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        assert!(editor.stage_text_edit.ime_preedit.is_none());
+        assert!(editor.stage_text_edit.ime_cursor_utf16.is_none());
+        assert!(editor.stage_text_edit.is_active(&editor));
+
+        // 3. Preedit + Commit("日本 ") inserts using `typing_format` in a single Undo step and clears preedit.
+        stage_frame(
+            &mut editor,
+            &ctx,
+            1.2,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Preedit("にほん".into())),
+                egui::Event::Ime(egui::ImeEvent::Commit("日本 ".into())),
+            ],
+        );
+        assert!(editor.stage_text_edit.ime_preedit.is_none());
+        assert!(editor.stage_text_edit.ime_cursor_utf16.is_none());
+        assert_eq!(editor.history.undo_len(), undo_before_ime + 1);
+
+        let sampled = editor.selected_sampled().unwrap();
+        let state = TextFieldState::from_kind(&sampled.kind).unwrap();
+        assert_eq!(state.text, "Hello 日本 world");
+        assert_eq!(state.format_runs.len(), 3);
+        assert_eq!(
+            (state.format_runs[0].start, state.format_runs[0].end),
+            (0, 6)
+        );
+        assert_eq!(
+            (state.format_runs[1].start, state.format_runs[1].end),
+            (6, 9)
+        );
+        assert_eq!(state.format_runs[1].format.font, "Georgia");
+        assert!(state.format_runs[1].format.italic);
+        assert_eq!(state.format_runs[1].format.color, 0x1976d2);
+        assert_eq!(
+            (state.format_runs[2].start, state.format_runs[2].end),
+            (9, 14)
+        );
+        assert!(state.format_runs[2].format.bold);
+        assert_eq!(state.format_runs[2].format.color, 0xd32f2f);
+
+        editor.undo();
+        assert_eq!(editor.project, before_ime_project);
+        editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn stage_text_auto_size_and_advanced_typography_recompute_bounds_and_persist() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.add_element(
+            ElementKind::TextBox {
+                text: "Auto Sized Heading".into(),
+                width: 300.0,
+                height: 90.0,
+                format: TextFormat {
+                    font: "Inter".into(),
+                    size: 20.0,
+                    ..TextFormat::default()
+                },
+                word_wrap: true,
+                multiline: false,
+            },
+            100.0,
+            80.0,
+        );
+        let initial_el = editor.selected_element().unwrap().clone();
+        let undo_before = editor.history.undo_len();
+
+        // Simulate Inspector changing Auto-size to Center + advanced typography controls.
+        let mut edited_el = initial_el.clone();
+        let orig_state = TextFieldState::from_kind(&initial_el.kind).unwrap();
+        let shown = editor.resolved_inspector_text_format(&initial_el.id, &orig_state);
+        if let ElementKind::TextBox {
+            format, word_wrap, ..
+        } = &mut edited_el.kind
+        {
+            let mut opts = format.field_options().unwrap_or_default();
+            opts.auto_size = crate::text_boxes::TextAutoSize::Center.as_str().into();
+            opts.ligatures = "exotic".into();
+            opts.digit_case = "old_style".into();
+            opts.digit_width = "tabular".into();
+            opts.typographic_case = "caps_to_small_caps".into();
+            opts.locale = "tr_TR".into();
+            opts.glyph_rotation = "270".into();
+            *word_wrap = false;
+            format.set_field_options(Some(opts));
+        }
+        editor.reconcile_inspector_text_edit_with_transform(
+            &initial_el.id,
+            &initial_el.kind,
+            &shown,
+            &mut edited_el.kind,
+            &mut edited_el.transform,
+        );
+        editor.transact_named("Inspector text auto-size", |s| {
+            if let Some(el) = s.selected_element_mut() {
+                *el = edited_el.clone();
+            }
+        });
+        assert_eq!(editor.history.undo_len(), undo_before + 1);
+
+        let updated = editor.selected_element().unwrap();
+        let ElementKind::TextBox {
+            width,
+            height,
+            word_wrap,
+            ..
+        } = &updated.kind
+        else {
+            panic!("expected TextBox");
+        };
+        assert!(!*word_wrap, "auto-size must disable fixed wrapping");
+        assert!(
+            (*width - 300.0).abs() > 1.0,
+            "width must recompute immediately"
+        );
+        assert!(
+            (*height - 90.0).abs() > 1.0,
+            "height must recompute immediately"
+        );
+        let expected_x = 100.0 + (300.0 - *width) * 0.5;
+        assert!(
+            (updated.transform.x - expected_x).abs() < 1e-4,
+            "Center auto-size must shift transform.x to preserve horizontal center"
+        );
+
+        let json = editor.project.to_json().unwrap();
+        let reopened = Project::from_json(&json).unwrap();
+        reopened.validate().unwrap();
+        let reopened_state = TextFieldState::from_kind(
+            &reopened.symbols[0].timeline.layers[0].keyframes[0].elements[0].kind,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::text_boxes::TextAutoSize::from_mode_str(&reopened_state.as2_viewport.auto_size),
+            crate::text_boxes::TextAutoSize::Center
+        );
+        assert_eq!(reopened_state.figure_style(), ("old_style", "tabular"));
+        assert_eq!(
+            reopened_state.case_transform(),
+            ("caps_to_small_caps", "tr_TR")
+        );
+        assert_eq!(reopened_state.vertical_rotation(), "270");
+        assert_eq!(reopened_state.ligatures, "exotic");
+
+        editor.undo();
+        assert_eq!(editor.selected_element().unwrap().transform.x, 100.0);
     }
 }

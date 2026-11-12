@@ -984,30 +984,23 @@ impl CodeSnippetDef {
             ScriptLanguage::JavaScript => self.js,
             ScriptLanguage::TypeScript => self.ts,
         };
-        template.replace("{target}", target)
+        let rendered = template.replace("{target}", target);
+        if language == ScriptLanguage::ActionScript1 {
+            strip_as2_type_annotations(&rendered)
+        } else {
+            rendered
+        }
     }
 
     /// Combine `existing` frame script source with this snippet, adding any missing AS3 imports
-    /// to the leading import block.
+    /// to the leading import block (or inside `package { ... }` when present).
     pub fn merge_into(&self, existing: &str, language: ScriptLanguage, target: &str) -> String {
         let body = self.render_body(language, target);
         let mut out = existing.to_owned();
         if language == ScriptLanguage::ActionScript3 {
             for qualified in self.as3_imports {
                 if let Some(line) = crate::script_api::missing_import(&out, qualified) {
-                    let at = out
-                        .match_indices("import ")
-                        .filter(|(i, _)| *i == 0 || out.as_bytes()[i - 1] == b'\n')
-                        .last()
-                        .map_or(0, |(i, _)| {
-                            out[i..].find('\n').map_or(out.len(), |n| i + n + 1)
-                        });
-                    let formatted = if at == out.len() && !out.ends_with('\n') && !out.is_empty() {
-                        format!("\n{line}\n")
-                    } else {
-                        format!("{line}\n")
-                    };
-                    out.insert_str(at, &formatted);
+                    crate::code_tools::insert_as3_import_line(&mut out, &line);
                 }
             }
         }
@@ -1027,6 +1020,169 @@ impl CodeSnippetDef {
             format!("{out}\n\n{body}")
         }
     }
+}
+
+pub(crate) fn strip_as2_type_annotations(src: &str) -> String {
+    fn is_ident_start(b: u8) -> bool {
+        b.is_ascii_alphabetic() || b == b'_' || b == b'$'
+    }
+    fn is_ident_continue(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+    }
+    fn is_type_continue(b: u8) -> bool {
+        is_ident_continue(b) || b == b'.'
+    }
+    fn try_skip_colon_type(bytes: &[u8], idx: usize) -> Option<usize> {
+        let len = bytes.len();
+        let mut j = idx;
+        while j < len && matches!(bytes[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if j >= len || bytes[j] != b':' {
+            return None;
+        }
+        j += 1;
+        while j < len && matches!(bytes[j], b' ' | b'\t') {
+            j += 1;
+        }
+        if j >= len || !is_ident_start(bytes[j]) {
+            return None;
+        }
+        while j < len && is_type_continue(bytes[j]) {
+            j += 1;
+        }
+        Some(j)
+    }
+
+    let bytes = src.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len);
+    let mut i = 0;
+
+    while i < len {
+        let b = bytes[i];
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
+            let start = i;
+            i += 2;
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
+            out.push_str(&src[start..i]);
+            continue;
+        }
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            let start = i;
+            i += 2;
+            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(len);
+            out.push_str(&src[start..i]);
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            let start = i;
+            i += 1;
+            while i < len {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(len);
+                    continue;
+                }
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push_str(&src[start..i]);
+            continue;
+        }
+
+        let prev_is_ident = i > 0 && is_ident_continue(bytes[i - 1]);
+        if !prev_is_ident
+            && src[i..].starts_with("var")
+            && (i + 3 >= len || !is_ident_continue(bytes[i + 3]))
+        {
+            out.push_str("var");
+            i += 3;
+            let ws_start = i;
+            while i < len && matches!(bytes[i], b' ' | b'\t') {
+                i += 1;
+            }
+            out.push_str(&src[ws_start..i]);
+            if i < len && is_ident_start(bytes[i]) {
+                let id_start = i;
+                while i < len && is_ident_continue(bytes[i]) {
+                    i += 1;
+                }
+                out.push_str(&src[id_start..i]);
+                if let Some(after_ty) = try_skip_colon_type(bytes, i) {
+                    i = after_ty;
+                }
+            }
+            continue;
+        }
+
+        if !prev_is_ident
+            && src[i..].starts_with("function")
+            && (i + 8 >= len || !is_ident_continue(bytes[i + 8]))
+        {
+            out.push_str("function");
+            i += 8;
+            let ws_start = i;
+            while i < len && matches!(bytes[i], b' ' | b'\t') {
+                i += 1;
+            }
+            out.push_str(&src[ws_start..i]);
+            if i < len && is_ident_start(bytes[i]) {
+                let id_start = i;
+                while i < len && is_ident_continue(bytes[i]) {
+                    i += 1;
+                }
+                out.push_str(&src[id_start..i]);
+                let ws2_start = i;
+                while i < len && matches!(bytes[i], b' ' | b'\t') {
+                    i += 1;
+                }
+                out.push_str(&src[ws2_start..i]);
+            }
+            if i < len && bytes[i] == b'(' {
+                out.push('(');
+                i += 1;
+                while i < len && bytes[i] != b')' {
+                    if is_ident_start(bytes[i]) {
+                        let param_start = i;
+                        while i < len && is_ident_continue(bytes[i]) {
+                            i += 1;
+                        }
+                        out.push_str(&src[param_start..i]);
+                        if let Some(after_ty) = try_skip_colon_type(bytes, i) {
+                            i = after_ty;
+                        }
+                    } else {
+                        let ch = src[i..].chars().next().unwrap();
+                        out.push(ch);
+                        i += ch.len_utf8();
+                    }
+                }
+                if i < len && bytes[i] == b')' {
+                    out.push(')');
+                    i += 1;
+                    if let Some(after_ret) = try_skip_colon_type(bytes, i) {
+                        i = after_ret;
+                    }
+                }
+            }
+            continue;
+        }
+
+        let ch = src[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+
+    out
 }
 
 #[derive(Clone, Debug)]
@@ -1089,24 +1245,7 @@ impl Editor {
         {
             return fs.script.language;
         }
-        if let Some(unit) = self.project.sources.first() {
-            return unit.language;
-        }
-        for sym in &self.project.symbols {
-            if let Some(fs) = sym.timeline.scripts.first() {
-                return fs.script.language;
-            }
-            for layer in &sym.timeline.layers {
-                for key in &layer.keyframes {
-                    for el in &key.elements {
-                        if let Some(os) = el.scripts.first() {
-                            return os.script.language;
-                        }
-                    }
-                }
-            }
-        }
-        ScriptLanguage::ActionScript3
+        self.default_script_language_for_project()
     }
 
     /// Returns `(target_identifier, Some((element_id, auto_assigned_name)))` when a selected
@@ -1332,6 +1471,42 @@ impl Editor {
 
         if let Some(idx) = insert_clicked {
             self.insert_code_snippet(idx);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_snippets_as1_have_no_type_annotations_and_compile_cleanly() {
+        for (idx, snippet) in CODE_SNIPPETS.iter().enumerate() {
+            let body = snippet.render_body(ScriptLanguage::ActionScript1, "orbit_mc");
+            let compiled = neoflash_script::compile(&Script {
+                language: ScriptLanguage::ActionScript1,
+                source: body.clone(),
+            });
+            assert!(
+                compiled.is_ok(),
+                "AS1 snippet #{idx} ({}) failed to compile: {:?}\nBody:\n{body}",
+                snippet.title,
+                compiled.err()
+            );
+        }
+    }
+
+    #[test]
+    fn code_snippets_merge_into_places_as3_imports_inside_package() {
+        let existing = "package app {\n    public class Screen {\n    }\n}\n";
+        let snippet = &CODE_SNIPPETS[0];
+        let merged = snippet.merge_into(existing, ScriptLanguage::ActionScript3, "orbit_mc");
+        if !snippet.as3_imports.is_empty() {
+            assert!(
+                merged.starts_with("package app {\n    import "),
+                "expected imports inside package block, got:\n{merged}"
+            );
+            assert!(!merged.starts_with("import "));
         }
     }
 }

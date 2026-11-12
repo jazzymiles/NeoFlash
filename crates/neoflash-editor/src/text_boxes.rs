@@ -10,6 +10,50 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAutoSize {
+    #[default]
+    None,
+    Left,
+    Center,
+    Right,
+}
+
+impl TextAutoSize {
+    pub const ALL: [Self; 4] = [Self::None, Self::Left, Self::Center, Self::Right];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+        }
+    }
+
+    pub fn from_mode_str(mode: &str) -> Self {
+        match mode.trim().to_ascii_lowercase().as_str() {
+            "left" | "true" => Self::Left,
+            "center" => Self::Center,
+            "right" => Self::Right,
+            _ => Self::None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "Auto-size: None",
+            Self::Left => "Auto-size: Left",
+            Self::Center => "Auto-size: Center",
+            Self::Right => "Auto-size: Right",
+        }
+    }
+
+    pub fn is_active(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
 struct CachedLayout {
     kind: ElementKind,
     family: FontFamily,
@@ -465,6 +509,8 @@ impl crate::app::Editor {
         let rot_options = [
             ("auto", "Rot: Auto"),
             ("0", "Rot: 0°"),
+            ("90", "Rot: 90°"),
+            ("180", "Rot: 180°"),
             ("270", "Rot: 270°"),
         ];
         let cur_rot_label = rot_options
@@ -727,6 +773,7 @@ impl crate::app::Editor {
                         ("lowercase_to_small_caps", "Case: Lower to Small"),
                     ];
                     let lig_opts = [
+                        ("none", "Ligatures: None"),
                         ("minimum", "Ligatures: Minimum"),
                         ("common", "Ligatures: Common"),
                         ("uncommon", "Ligatures: Uncommon"),
@@ -920,8 +967,11 @@ impl crate::app::Editor {
                         ("de_DE", "Locale: German (de_DE)"),
                         ("fr_FR", "Locale: French (fr_FR)"),
                         ("es_ES", "Locale: Spanish (es_ES)"),
+                        ("tr_TR", "Locale: Turkish (tr_TR)"),
+                        ("el_GR", "Locale: Greek (el_GR)"),
                         ("ja_JP", "Locale: Japanese (ja_JP)"),
                         ("zh_CN", "Locale: Chinese (zh_CN)"),
+                        ("ko_KR", "Locale: Korean (ko_KR)"),
                         ("ar_SA", "Locale: Arabic (ar_SA)"),
                     ];
                     let cur_loc = locale_opts
@@ -1670,17 +1720,8 @@ impl crate::app::Editor {
                     let before_opts = field_options.clone();
                     changes.note(text_row(ui, "URL", &mut format.url));
                     let mut target_str = format.target_str().to_owned();
-                    let auto_size_opts = [
-                        ("none", "Auto size: None"),
-                        ("left", "Auto size: Left"),
-                        ("center", "Auto size: Center"),
-                        ("right", "Auto size: Right"),
-                    ];
-                    let cur_as = auto_size_opts
-                        .iter()
-                        .find(|(k, _)| *k == field_options.auto_size)
-                        .map(|(_, l)| *l)
-                        .unwrap_or("Auto size: None");
+                    let cur_auto_mode = TextAutoSize::from_mode_str(&field_options.auto_size);
+                    let cur_as = cur_auto_mode.label();
                     let (target_resp, mut auto_size_resp) = two_column_row(
                         ui,
                         |ui, width| {
@@ -1696,15 +1737,18 @@ impl crate::app::Editor {
                             nf::Select::new("text_box_auto_size", cur_as)
                                 .width(width)
                                 .show(ui, |ui| {
-                                    for (code, label) in auto_size_opts {
+                                    for mode in TextAutoSize::ALL {
                                         if ui
                                             .add(
-                                                nf::MenuItem::new(label)
-                                                    .checked(field_options.auto_size == code),
+                                                nf::MenuItem::new(mode.label())
+                                                    .checked(cur_auto_mode == mode),
                                             )
                                             .clicked()
                                         {
-                                            field_options.auto_size = code.to_owned();
+                                            field_options.auto_size = mode.as_str().to_owned();
+                                            if mode.is_active() {
+                                                *word_wrap = false;
+                                            }
                                             ui.close();
                                         }
                                     }
@@ -2016,9 +2060,17 @@ impl crate::app::Editor {
         Ok(cmd_count)
     }
 
+    #[allow(dead_code)]
+    pub fn set_selected_text_auto_size_mode(
+        &mut self,
+        mode: TextAutoSize,
+    ) -> Result<(f64, f64), String> {
+        self.set_selected_text_auto_size(mode.as_str())
+    }
+
     /// Sets the selected authored text field's `auto_size` mode (`"none"`, `"left"`, `"center"`, `"right"`)
     /// and resizes/anchors its bounding box to fit its natural text layout in a single Undo step.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub fn set_selected_text_auto_size(&mut self, mode: &str) -> Result<(f64, f64), String> {
         self.finish_edits();
         let normalized = mode.trim().to_ascii_lowercase();
@@ -2067,6 +2119,7 @@ impl crate::app::Editor {
                 });
                 state.as2_viewport.auto_size = normalized.clone();
                 if normalized != "none" {
+                    state.word_wrap = false;
                     let layout =
                         layout_text(&state, measure_segments).map_err(|e| e.to_string())?;
                     let natural_w = layout.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max);

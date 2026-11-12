@@ -10,6 +10,7 @@ use neoflash_core::*;
 use neoflash_ui::components::canvas::{self as cv, MotionKeyState};
 
 /// Session state: the motion clipboard and the key point drag on the stage.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct MotionState {
     pub clipboard: Option<MotionClip>,
@@ -21,6 +22,14 @@ pub(crate) struct MotionState {
     pub curve_selected: Option<usize>,
     pub paste_special_open: bool,
     pub paste_options: PasteMotionOptions,
+    /// Interactive `Motion Sketch` recording state (`T-233`).
+    pub sketch_armed: bool,
+    pub sketch_recording: bool,
+    pub sketch_smoothing: f64,
+    pub sketch_orient_rotation: bool,
+    pub sketch_samples: Vec<MotionSketchSample>,
+    /// Interactive `Wiggler` configuration state (`T-233`).
+    pub wiggler: WigglerConfig,
 }
 
 /// Session choices from the approved Paste motion special dialog (R-006).
@@ -1496,5 +1505,805 @@ impl Editor {
             };
             cv::paint_motion_key(painter, painter.ctx(), screen(*at), state);
         }
+    }
+
+    // =========================================================================
+    // Motion Sketch & Wiggler (`T-233`)
+    // =========================================================================
+
+    /// Arm or disarm interactive Stage `Motion Sketch` recording (`T-233`).
+    pub fn set_motion_sketch_armed(&mut self, armed: bool) {
+        self.timeline_motion.sketch_armed = armed;
+        if !armed {
+            self.timeline_motion.sketch_recording = false;
+            self.timeline_motion.sketch_samples.clear();
+        }
+    }
+
+    /// Return whether Stage `Motion Sketch` recording is currently armed (`T-233`).
+    pub fn is_motion_sketch_armed(&self) -> bool {
+        self.timeline_motion.sketch_armed
+    }
+}
+
+#[allow(dead_code)]
+impl Editor {
+    /// Begin recording an interactive Stage `Motion Sketch` stroke at `(time_sec, stage_pos)` (`T-233`).
+    pub fn begin_stage_motion_sketch(&mut self, time_sec: f64, stage_pos: [f64; 2]) -> bool {
+        if !self.timeline_motion.sketch_armed
+            || !stage_pos[0].is_finite()
+            || !stage_pos[1].is_finite()
+        {
+            return false;
+        }
+        if self.selected_element().is_none() && self.selection.targets.is_empty() {
+            return false;
+        }
+        self.timeline_motion.sketch_recording = true;
+        self.timeline_motion.sketch_samples.clear();
+        self.timeline_motion
+            .sketch_samples
+            .push(MotionSketchSample {
+                time_sec: if time_sec.is_finite() {
+                    time_sec.max(0.0)
+                } else {
+                    0.0
+                },
+                position: stage_pos,
+            });
+        true
+    }
+
+    /// Append a pointer sample `(time_sec, stage_pos)` to an active Stage `Motion Sketch` stroke (`T-233`).
+    pub fn push_stage_motion_sketch_sample(&mut self, time_sec: f64, stage_pos: [f64; 2]) -> bool {
+        if !self.timeline_motion.sketch_recording
+            || !stage_pos[0].is_finite()
+            || !stage_pos[1].is_finite()
+        {
+            return false;
+        }
+        let fallback_t = self
+            .timeline_motion
+            .sketch_samples
+            .last()
+            .map(|s| s.time_sec + 1.0 / (self.project.fps.max(1) as f64))
+            .unwrap_or(0.0);
+        let t = if time_sec.is_finite() && time_sec > fallback_t - 1e-6 {
+            time_sec
+        } else {
+            fallback_t
+        };
+        self.timeline_motion
+            .sketch_samples
+            .push(MotionSketchSample {
+                time_sec: t,
+                position: stage_pos,
+            });
+        true
+    }
+
+    /// Finish an interactive Stage `Motion Sketch` stroke and commit its samples into a
+    /// `TweenKind::Motion` span with ◆ keyframes in 1 Undo step (`T-233`).
+    pub fn finish_stage_motion_sketch(&mut self) -> usize {
+        if !self.timeline_motion.sketch_recording {
+            return 0;
+        }
+        self.timeline_motion.sketch_recording = false;
+        let samples = std::mem::take(&mut self.timeline_motion.sketch_samples);
+        let smoothing = self.timeline_motion.sketch_smoothing;
+        let orient = self.timeline_motion.sketch_orient_rotation;
+        self.record_motion_sketch_to_motion_span(&samples, smoothing, orient)
+    }
+
+    /// Record pointer drag samples `(time_sec, [x, y])` into a `TweenKind::Motion` span with ◆
+    /// property keyframes (`X`, `Y`, and optional `Rotation`) on the selected layer/element in 1
+    /// Undo step (`T-233`).
+    pub fn record_motion_sketch_to_motion_span(
+        &mut self,
+        samples: &[MotionSketchSample],
+        smoothing_tolerance: f64,
+        orient_rotation: bool,
+    ) -> usize {
+        if samples.len() < 2 {
+            return 0;
+        }
+        let Some(target_id) = self
+            .selected_element()
+            .map(|e| e.id.clone())
+            .or_else(|| self.selection.targets.first().map(|t| t.element.clone()))
+        else {
+            return 0;
+        };
+        let fps = (self.project.fps.max(1)) as f64;
+        let start_frame = self.frame;
+        let tol = if smoothing_tolerance.is_finite() {
+            smoothing_tolerance.clamp(0.0, 200.0)
+        } else {
+            0.0
+        };
+        let mut captured = neoflash_core::motion_tools::capture_motion_sketch_to_keyframes(
+            samples,
+            fps,
+            start_frame,
+            tol,
+        );
+        if captured.len() < 2 {
+            // If timestamps were identical (e.g., rapid drag), assign sequential frame offsets.
+            captured = samples
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.position[0].is_finite() && s.position[1].is_finite())
+                .map(|(idx, s)| (start_frame + idx as u32, s.position))
+                .collect();
+        }
+        if captured.len() < 2 {
+            return 0;
+        }
+
+        // Precompute tangent rotations if `orient_rotation` is requested.
+        let mut rotations = vec![0.0_f64; captured.len()];
+        if orient_rotation {
+            for i in 0..captured.len() {
+                let (p0, p1) = if i + 1 < captured.len() {
+                    (captured[i].1, captured[i + 1].1)
+                } else {
+                    (captured[i - 1].1, captured[i].1)
+                };
+                let dx = p1[0] - p0[0];
+                let dy = p1[1] - p0[1];
+                if dx.hypot(dy) > 1e-6 {
+                    rotations[i] = dy.atan2(dx).to_degrees();
+                } else if i > 0 {
+                    rotations[i] = rotations[i - 1];
+                }
+            }
+        }
+
+        let layer_idx = self.layer;
+        let mut written_keys = 0usize;
+        self.transact_named("Motion Sketch", |editor| {
+            let symbol = editor.symbol_mut();
+            let max_frame = captured.last().map(|(f, _)| *f).unwrap_or(start_frame);
+            if symbol.timeline.frame_count <= max_frame {
+                symbol.timeline.frame_count = max_frame + 1;
+            }
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return;
+            };
+            if let Some(end) = &mut layer.properties.end_frame
+                && *end <= max_frame
+            {
+                *end = max_frame + 1;
+            }
+            let base_key_frame = layer
+                .key_at(start_frame)
+                .map(|k| k.frame)
+                .unwrap_or(start_frame);
+            let Some(base_elements) = layer
+                .keyframes
+                .iter()
+                .find(|k| k.frame == base_key_frame)
+                .map(|k| k.elements.clone())
+            else {
+                return;
+            };
+            if !base_elements.iter().any(|e| e.id == target_id) {
+                return;
+            }
+
+            let (first_frame, first_pos) = captured[0];
+            // Ensure start keyframe at `first_frame` is a Motion Tween start keyframe.
+            let start_idx =
+                if let Some(idx) = layer.keyframes.iter().position(|k| k.frame == first_frame) {
+                    idx
+                } else {
+                    layer.keyframes.push(Keyframe {
+                        frame: first_frame,
+                        elements: base_elements.clone(),
+                        ..Keyframe::default()
+                    });
+                    layer.keyframes.sort_by_key(|k| k.frame);
+                    layer
+                        .keyframes
+                        .iter()
+                        .position(|k| k.frame == first_frame)
+                        .unwrap()
+                };
+            {
+                let start_key = &mut layer.keyframes[start_idx];
+                start_key.tween = Some(start_key.tween.unwrap_or(Easing::Linear));
+                start_key.tween_kind = TweenKind::Motion;
+                start_key.keyed_properties = None;
+                start_key.motion_keys = None;
+                start_key.roving = false;
+                if let Some(el) = start_key.elements.iter_mut().find(|e| e.id == target_id) {
+                    el.transform.x = first_pos[0];
+                    el.transform.y = first_pos[1];
+                    if orient_rotation {
+                        el.transform.rotation = rotations[0];
+                    }
+                }
+            }
+            written_keys += 1;
+
+            // Insert/update ◆ property keyframes for the rest of the sketched path.
+            let props = if orient_rotation {
+                vec![TweenProperty::X, TweenProperty::Y, TweenProperty::Rotation]
+            } else {
+                vec![TweenProperty::X, TweenProperty::Y]
+            };
+
+            for (i, &(f, pos)) in captured.iter().enumerate().skip(1) {
+                if f <= first_frame {
+                    continue;
+                }
+                let k_idx = if let Some(idx) = layer.keyframes.iter().position(|k| k.frame == f) {
+                    idx
+                } else {
+                    layer.keyframes.push(Keyframe {
+                        frame: f,
+                        elements: base_elements.clone(),
+                        ..Keyframe::default()
+                    });
+                    layer.keyframes.sort_by_key(|k| k.frame);
+                    layer.keyframes.iter().position(|k| k.frame == f).unwrap()
+                };
+                let key = &mut layer.keyframes[k_idx];
+                key.tween = None;
+                key.tween_kind = TweenKind::Classic;
+                if let Some(el) = key.elements.iter_mut().find(|e| e.id == target_id) {
+                    el.transform.x = pos[0];
+                    el.transform.y = pos[1];
+                    if orient_rotation {
+                        el.transform.rotation = rotations[i];
+                    }
+                }
+                let entry = key.ensure_motion_property_key(&target_id);
+                for &prop in &props {
+                    if !entry.properties.contains(&prop) {
+                        entry.properties.push(prop);
+                    }
+                }
+                key.sync_motion_key_union();
+                written_keys += 1;
+            }
+            layer.normalize_motion_keys();
+        });
+        written_keys
+    }
+
+    /// Apply `Wiggler` noise/frequency/amplitude perturbation (`WigglerConfig`) to the active
+    /// motion span (or `[start_frame..=end_frame]`) in 1 Undo step (`T-233`).
+    pub fn apply_motion_wiggler(
+        &mut self,
+        config: WigglerConfig,
+        range_override: Option<(u32, u32)>,
+    ) -> usize {
+        if !config.frequency_hz.is_finite()
+            || config.frequency_hz <= 0.0
+            || !config.magnitude.is_finite()
+        {
+            return 0;
+        }
+        let Some(target_id) = self
+            .selected_element()
+            .map(|e| e.id.clone())
+            .or_else(|| self.selection.targets.first().map(|t| t.element.clone()))
+        else {
+            return 0;
+        };
+        let layer_idx = self.layer;
+        let current_frame = self.frame;
+        let fps = (self.project.fps.max(1)) as f64;
+        let mut modified = 0usize;
+
+        self.transact_named("Apply Wiggler", |editor| {
+            let symbol = editor.symbol_mut();
+            let timeline_end = symbol.timeline.frame_count.saturating_sub(1);
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return;
+            };
+
+            let (start_f, end_f) = if let Some((s, e)) = range_override {
+                (s.min(e), e.max(s).min(timeline_end))
+            } else if let Some((start_key, _, span_end)) = motion_span(layer, current_frame) {
+                (
+                    start_key.frame,
+                    span_end
+                        .unwrap_or(timeline_end + 1)
+                        .saturating_sub(1)
+                        .max(start_key.frame),
+                )
+            } else {
+                let start = layer.key_at(current_frame).map(|k| k.frame).unwrap_or(0);
+                (start, timeline_end.max(start))
+            };
+
+            let Some(start_idx) = layer.keyframes.iter().position(|k| k.frame == start_f) else {
+                return;
+            };
+            if !layer.keyframes[start_idx]
+                .elements
+                .iter()
+                .any(|e| e.id == target_id)
+            {
+                return;
+            }
+            // Ensure `start_f` is a Motion Tween start keyframe.
+            layer.keyframes[start_idx].tween =
+                Some(layer.keyframes[start_idx].tween.unwrap_or(Easing::Linear));
+            layer.keyframes[start_idx].tween_kind = TweenKind::Motion;
+            layer.keyframes[start_idx].keyed_properties = None;
+            layer.keyframes[start_idx].motion_keys = None;
+            layer.keyframes[start_idx].roving = false;
+
+            // Materialize intermediate ◆ keyframes across `start_f..=end_f` if none exist yet.
+            let step = ((fps / config.frequency_hz.clamp(0.5, fps)).round() as u32).max(1);
+            let mut f = start_f.saturating_add(step);
+            while f <= end_f {
+                if !layer.keyframes.iter().any(|k| k.frame == f) {
+                    let sampled = sample_layer(layer, f);
+                    if !sampled.is_empty() {
+                        layer.keyframes.push(Keyframe {
+                            frame: f,
+                            elements: sampled,
+                            ..Keyframe::default()
+                        });
+                        layer.keyframes.sort_by_key(|k| k.frame);
+                    }
+                }
+                f = f.saturating_add(step);
+            }
+
+            let props_to_key = match config.property {
+                TweenProperty::X | TweenProperty::Y => {
+                    if matches!(
+                        config.dimension,
+                        WigglerDimension::AllIndependently | WigglerDimension::AllSame
+                    ) {
+                        vec![TweenProperty::X, TweenProperty::Y]
+                    } else {
+                        vec![config.property]
+                    }
+                }
+                TweenProperty::ScaleX | TweenProperty::ScaleY => {
+                    if matches!(
+                        config.dimension,
+                        WigglerDimension::AllIndependently | WigglerDimension::AllSame
+                    ) {
+                        vec![TweenProperty::ScaleX, TweenProperty::ScaleY]
+                    } else {
+                        vec![config.property]
+                    }
+                }
+                other => vec![other],
+            };
+
+            modified = neoflash_core::motion_tools::apply_wiggler_to_keyframes(
+                layer, &target_id, start_f, end_f, fps, &config,
+            );
+
+            for key in &mut layer.keyframes {
+                if key.frame > start_f && key.frame <= end_f {
+                    key.tween = None;
+                    key.tween_kind = TweenKind::Classic;
+                    let entry = key.ensure_motion_property_key(&target_id);
+                    for &prop in &props_to_key {
+                        if !entry.properties.contains(&prop) {
+                            entry.properties.push(prop);
+                        }
+                    }
+                    key.sync_motion_key_union();
+                }
+            }
+            layer.normalize_motion_keys();
+        });
+        modified
+    }
+
+    /// Smooth the `X`/`Y` ◆ keyframes in the active motion span on the selected layer in 1 Undo step (`T-233`).
+    pub fn smooth_selected_motion_span(&mut self, strength: f64) -> usize {
+        if !strength.is_finite() || strength <= 0.0 {
+            return 0;
+        }
+        let Some(target_id) = self
+            .selected_element()
+            .map(|e| e.id.clone())
+            .or_else(|| self.selection.targets.first().map(|t| t.element.clone()))
+        else {
+            return 0;
+        };
+        let layer_idx = self.layer;
+        let current_frame = self.frame;
+        let mut smoothed_count = 0usize;
+
+        self.transact_named("Smooth Motion Path", |editor| {
+            let symbol = editor.symbol_mut();
+            let timeline_end = symbol.timeline.frame_count.saturating_sub(1);
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return;
+            };
+            let (start_f, end_f) =
+                if let Some((start_key, _, span_end)) = motion_span(layer, current_frame) {
+                    (
+                        start_key.frame,
+                        span_end
+                            .unwrap_or(timeline_end + 1)
+                            .saturating_sub(1)
+                            .max(start_key.frame),
+                    )
+                } else {
+                    (0, timeline_end)
+                };
+            let points: Vec<(u32, [f64; 2])> = layer
+                .keyframes
+                .iter()
+                .filter(|k| k.frame >= start_f && k.frame <= end_f)
+                .filter_map(|k| {
+                    k.elements
+                        .iter()
+                        .find(|e| e.id == target_id)
+                        .map(|el| (k.frame, [el.transform.x, el.transform.y]))
+                })
+                .collect();
+            if points.len() < 3 {
+                return;
+            }
+            let smoothed = neoflash_core::motion_tools::smooth_motion_keyframes(&points, strength);
+            for (frame, pos) in smoothed {
+                if let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == frame)
+                    && let Some(el) = key.elements.iter_mut().find(|e| e.id == target_id)
+                {
+                    el.transform.x = pos[0];
+                    el.transform.y = pos[1];
+                    smoothed_count += 1;
+                }
+            }
+        });
+        smoothed_count
+    }
+}
+
+#[cfg(test)]
+mod motion_t233_tests {
+    use super::*;
+    use crate::stage::StageAbComparisonMode;
+
+    fn editor_with_actor() -> Editor {
+        let mut project = Project::blank();
+        project.fps = 24;
+        project.symbols[0].timeline.frame_count = 24;
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "actor-1".into(),
+                name: "Actor".into(),
+                transform: Transform {
+                    x: 20.0,
+                    y: 40.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 50.0,
+                    height: 30.0,
+                    fill: [220, 80, 60, 255],
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                ..Element::default()
+            });
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, project);
+        editor.select_single_id("actor-1".into());
+        editor
+    }
+
+    #[test]
+    fn motion_sketch_and_wiggler_record_diamond_keys_with_one_step_undo_and_round_trip() {
+        let mut editor = editor_with_actor();
+        let before = editor.project.clone();
+
+        // Arm Stage Motion Sketch and record an interactive pointer path
+        editor.set_motion_sketch_armed(true);
+        editor.timeline_motion.sketch_orient_rotation = true;
+        assert!(editor.begin_stage_motion_sketch(0.0, [20.0, 40.0]));
+        assert!(editor.push_stage_motion_sketch_sample(0.1, [80.0, 70.0]));
+        assert!(editor.push_stage_motion_sketch_sample(0.25, [160.0, 120.0]));
+        assert!(editor.push_stage_motion_sketch_sample(0.4, [240.0, 150.0]));
+        let written = editor.finish_stage_motion_sketch();
+        assert!(written >= 3);
+
+        let layer = &editor.project.symbols[0].timeline.layers[0];
+        assert_eq!(layer.keyframes[0].tween_kind, TweenKind::Motion);
+        assert!(layer.keyframes[0].tween.is_some());
+        assert!(layer.keyframes[1].keyed_properties.is_some());
+        let key1_props = layer.keyframes[1].motion_key_properties_for("actor-1");
+        assert!(key1_props.contains(&TweenProperty::X));
+        assert!(key1_props.contains(&TweenProperty::Y));
+        assert!(key1_props.contains(&TweenProperty::Rotation));
+        editor
+            .project
+            .validate()
+            .expect("valid after motion sketch");
+
+        // 1-step Undo restores exact pre-sketch project
+        editor.undo();
+        assert_eq!(editor.project, before);
+        editor.redo();
+
+        // Apply Wiggler across the sketched motion span in 1 Undo step
+        let before_wiggle = editor.project.clone();
+        let wiggled = editor.apply_motion_wiggler(
+            WigglerConfig {
+                property: TweenProperty::X,
+                noise_kind: WigglerNoiseKind::Smooth,
+                dimension: WigglerDimension::AllIndependently,
+                frequency_hz: 6.0,
+                magnitude: 14.0,
+                seed: 99,
+            },
+            None,
+        );
+        assert!(wiggled >= 2);
+        editor.project.validate().expect("valid after wiggler");
+
+        // Smooth the motion span in 1 Undo step
+        assert!(editor.smooth_selected_motion_span(0.5) >= 3);
+        editor.project.validate().expect("valid after smooth");
+
+        // Undo smooth + Undo wiggler
+        editor.undo();
+        editor.undo();
+        assert_eq!(editor.project, before_wiggle);
+
+        // Save/reopen round-trip
+        let json = editor.project.to_json().expect("serialize");
+        let reopened = Project::from_json(&json).expect("deserialize");
+        reopened.validate().expect("reopened valid");
+    }
+
+    #[test]
+    fn camera_pose_z_depth_and_parenting_cycle_prevention_with_one_step_undo() {
+        let mut editor = editor_with_actor();
+
+        // Add a second element for element parenting tests
+        editor.project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "actor-2".into(),
+                name: "ChildActor".into(),
+                transform: Transform {
+                    x: 100.0,
+                    y: 80.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 30.0,
+                    height: 30.0,
+                    fill: [60, 180, 120, 255],
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                ..Element::default()
+            });
+
+        // Add two folder layers for layer parenting cycle tests
+        editor.project.symbols[0].timeline.layers.push(Layer {
+            id: "folder-a".into(),
+            name: "Folder A".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Folder,
+                ..LayerProperties::default()
+            },
+            keyframes: vec![Keyframe::default()],
+        });
+        editor.project.symbols[0].timeline.layers.push(Layer {
+            id: "folder-b".into(),
+            name: "Folder B".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Folder,
+                ..LayerProperties::default()
+            },
+            keyframes: vec![Keyframe::default()],
+        });
+
+        // Stage camera pan/zoom/rotate/focal_length with 1-step Undo
+        assert!(editor.pan_stage_camera(45.0, -20.0));
+        assert!(editor.zoom_stage_camera(1.5));
+        assert!(editor.rotate_stage_camera(15.0));
+        assert!(editor.set_stage_camera_focal_length(650.0));
+        let cam = editor.active_timeline_camera_pose().expect("camera pose");
+        assert!((cam.x - 45.0).abs() < 1e-6);
+        assert!((cam.y - (-20.0)).abs() < 1e-6);
+        assert!((cam.zoom - 1.5).abs() < 1e-6);
+        assert!((cam.rotation - 15.0).abs() < 1e-6);
+        assert!((cam.focal_length - 650.0).abs() < 1e-6);
+        editor.undo();
+        assert!((editor.active_timeline_camera_pose().unwrap().focal_length - 1000.0).abs() < 1e-6);
+
+        // Layer z_depth & attach_to_camera with 1-step Undo
+        assert!(editor.set_layer_z_depth_at(0, 180.0));
+        assert!(editor.set_layer_attach_to_camera_at(0, true));
+        assert!(
+            (editor.project.symbols[0].timeline.layers[0]
+                .properties
+                .z_depth
+                - 180.0)
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            editor.project.symbols[0].timeline.layers[0]
+                .properties
+                .attach_to_camera
+        );
+        editor.undo();
+        assert!(
+            !editor.project.symbols[0].timeline.layers[0]
+                .properties
+                .attach_to_camera
+        );
+
+        // Layer folder parenting with cycle prevention
+        assert!(editor.set_layer_parent_with_cycle_check("folder-b", Some("folder-a")));
+        // Attempting to parent folder-a to folder-b must be rejected (cycle!)
+        assert!(!editor.set_layer_parent_with_cycle_check("folder-a", Some("folder-b")));
+        // Self-parenting and parenting to a non-folder layer must be rejected
+        assert!(!editor.set_layer_parent_with_cycle_check("folder-a", Some("folder-a")));
+        let normal_layer_id = editor.project.symbols[0].timeline.layers[0].id.clone();
+        assert!(!editor.set_layer_parent_with_cycle_check("folder-a", Some(&normal_layer_id)));
+
+        // Element parenting with cycle prevention & world transform preservation
+        assert!(editor.set_element_parent_with_cycle_check("actor-2", Some("actor-1"), true));
+        assert!(!editor.set_element_parent_with_cycle_check("actor-1", Some("actor-2"), true));
+
+        editor.project.validate().expect("valid project");
+        let json = editor.project.to_json().expect("serialize");
+        let reopened = Project::from_json(&json).expect("deserialize");
+        reopened.validate().expect("reopened valid");
+    }
+
+    #[test]
+    fn ik_bone_constraints_work_area_markers_and_stage_ab_comparison() {
+        let mut editor = editor_with_actor();
+        // Add a second element and an IK armature on frame 0
+        editor.project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "actor-2".into(),
+                name: "Forearm".into(),
+                transform: Transform {
+                    x: 80.0,
+                    y: 40.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 40.0,
+                    height: 20.0,
+                    fill: [90, 140, 220, 255],
+                    stroke: [0, 0, 0, 255],
+                    stroke_width: 1.0,
+                },
+                ..Element::default()
+            });
+        editor.project.symbols[0].timeline.layers[0].keyframes[0]
+            .ik_armatures
+            .push(IkArmature {
+                id: "arm-1".into(),
+                name: "Arm".into(),
+                bones: vec![
+                    IkBone {
+                        id: "bone-1".into(),
+                        element_id: "actor-1".into(),
+                        parent_bone_id: None,
+                        length: 60.0,
+                        min_angle: None,
+                        max_angle: None,
+                        stiffness: 0.2,
+                    },
+                    IkBone {
+                        id: "bone-2".into(),
+                        element_id: "actor-2".into(),
+                        parent_bone_id: Some("bone-1".into()),
+                        length: 40.0,
+                        min_angle: None,
+                        max_angle: None,
+                        stiffness: 0.1,
+                    },
+                ],
+                effector_bone_id: "bone-2".into(),
+                target_pos: [120.0, 40.0],
+                pole_pos: None,
+            });
+
+        // Update IK bone constraints & pinning in 1 Undo step
+        assert!(
+            editor.stage_set_ik_bone_constraints("arm-1", "bone-1", true, -45.0, 60.0, 0.5, true,)
+        );
+        editor.stage_set_ik_bone_translation_constraints(
+            "bone-1", true, true, -15.0, 25.0, false, false, 0.0, 0.0,
+        );
+        let bone =
+            &editor.project.symbols[0].timeline.layers[0].keyframes[0].ik_armatures[0].bones[0];
+        assert_eq!(bone.min_angle, Some(-45.0));
+        assert_eq!(bone.max_angle, Some(60.0));
+        assert!((bone.stiffness - 1.0).abs() < 1e-6); // pinned = true sets stiffness to 1.0
+        let spec = editor.stage_bone_joint_spec("bone-1").expect("joint spec");
+        assert!(spec.constrain_rotation);
+        assert!(spec.pinned);
+        assert!(spec.enable_x_translation);
+        assert!(spec.constrain_x_translation);
+
+        // Undo IK bone constraint change -> restores min_angle = None, max_angle = None
+        editor.undo();
+        let bone_after_undo =
+            &editor.project.symbols[0].timeline.layers[0].keyframes[0].ik_armatures[0].bones[0];
+        assert_eq!(bone_after_undo.min_angle, None);
+        editor.redo();
+
+        // Work Area clamping during loop preview & 1-step Undo
+        assert!(editor.set_timeline_work_area_range(4, 8, true));
+        editor.seek_frame(8);
+        assert_eq!(editor.step_preview_frame_with_work_area(), 4);
+        assert_eq!(editor.step_preview_frame_with_work_area(), 5);
+
+        // Timeline Markers & navigation
+        assert!(editor.upsert_timeline_marker(TimelineMarker {
+            id: "m-intro".into(),
+            frame: 3,
+            duration_frames: 2,
+            name: "Intro".into(),
+            comment: "Start action".into(),
+            color_tag: Some("#ffb400".into()),
+            cue_point_parameters: Default::default(),
+        }));
+        assert!(editor.upsert_timeline_marker(TimelineMarker {
+            id: "m-outro".into(),
+            frame: 14,
+            duration_frames: 1,
+            name: "Outro".into(),
+            comment: "End action".into(),
+            color_tag: Some("#00c88c".into()),
+            cue_point_parameters: Default::default(),
+        }));
+        editor.seek_frame(0);
+        assert_eq!(editor.navigate_timeline_marker(true), Some(3));
+        assert_eq!(editor.navigate_timeline_marker(true), Some(14));
+        assert_eq!(editor.navigate_timeline_marker(false), Some(3));
+
+        // Stage A/B reference comparison
+        // Add a second keyframe at frame 10 with modified actor position
+        let mut k10 = editor.project.symbols[0].timeline.layers[0].keyframes[0].clone();
+        k10.frame = 10;
+        k10.markers.clear();
+        k10.elements[0].transform.x = 220.0;
+        editor.project.symbols[0].timeline.layers[0]
+            .keyframes
+            .push(k10);
+        assert!(editor.set_stage_ab_reference_frames(0, 10));
+        editor.set_stage_ab_mode(StageAbComparisonMode::SplitVertical);
+        editor.set_stage_ab_split_ratio(0.35);
+        assert_eq!(editor.stage_ab_mode(), StageAbComparisonMode::SplitVertical);
+        assert!((editor.stage_ab_split_ratio() - 0.35).abs() < 1e-5);
+        assert_eq!(editor.stage_ab_diff_counts(), Some((0, 0, 2)));
+
+        editor.project.validate().expect("valid project");
+        let json = editor.project.to_json().expect("serialize");
+        let reopened = Project::from_json(&json).expect("deserialize");
+        reopened.validate().expect("reopened valid");
+        assert_eq!(
+            reopened.symbols[0].timeline.work_area(),
+            Some(PreviewWorkArea {
+                enabled: true,
+                in_frame: 4,
+                out_frame: 8,
+                skip_nth_frame: 0,
+            })
+        );
+        assert_eq!(reopened.symbols[0].timeline.markers().len(), 2);
     }
 }

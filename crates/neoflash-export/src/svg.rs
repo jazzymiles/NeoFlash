@@ -693,22 +693,41 @@ fn render_draw_svg(
             color,
         } => {
             let col = apply_color_transform(*color, ct);
+            let mut emitted_outline = false;
             if options.text_as_outlines {
-                let cmds = neoflash_core::TextFieldState::static_text_to_outline_commands(
+                let loc = format!("svg/frame[{}]/element[{}]", options.frame, item.element_id);
+                let font_bytes =
+                    crate::fonts::resolve_project_font_bytes(project, font_family, false, false);
+                match crate::fonts::extract_text_outline_commands_with_diagnostics(
+                    &loc,
                     text,
                     font_family,
                     *font_size,
-                    None,
-                );
-                let d = svg_path_d(&cmds, prec);
-                if !d.is_empty() {
-                    let _ = writeln!(
-                        body,
-                        "{indent}<path d=\"{d}\" fill=\"{}\"{xf}/>",
-                        svg_color_hex(col)
-                    );
+                    font_bytes.as_deref(),
+                ) {
+                    Ok(cmds) => {
+                        let d = svg_path_d(&cmds, prec);
+                        if !d.is_empty() {
+                            let _ = writeln!(
+                                body,
+                                "{indent}<path d=\"{d}\" fill=\"{}\"{xf}/>",
+                                svg_color_hex(col)
+                            );
+                            emitted_outline = true;
+                        }
+                    }
+                    Err(diags) => {
+                        for diag in diags {
+                            let _ = writeln!(
+                                body,
+                                "{indent}<!-- neoflash-diagnostic: {} -->",
+                                xml_escape(&diag)
+                            );
+                        }
+                    }
                 }
-            } else {
+            }
+            if !emitted_outline {
                 let _ = writeln!(
                     body,
                     "{indent}<text x=\"0\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" fill=\"{}\"{xf}>{}</text>",
@@ -753,44 +772,91 @@ fn render_draw_svg(
                 attrs
             };
             let state = neoflash_core::TextFieldState::from_kind(&draw.item.kind);
-            if let Some(state) = state
-                && state.format_runs.len() > 1
+            let mut emitted_outline = false;
+            if options.text_as_outlines
+                && let Some(ref field) = state
             {
-                let base_attrs = fmt_attrs(format);
-                let mut inner = String::new();
-                let mut cursor_u16 = 0u32;
-                let mut char_iter = state.text.chars().peekable();
-                for run in &state.format_runs {
-                    while cursor_u16 < run.start {
-                        let Some(ch) = char_iter.next() else {
-                            break;
-                        };
-                        cursor_u16 += ch.len_utf16() as u32;
+                let loc = format!("svg/frame[{}]/element[{}]", options.frame, item.element_id);
+                let font_bytes = crate::fonts::resolve_project_font_bytes(
+                    project,
+                    &field.format.font,
+                    field.format.bold,
+                    field.format.italic,
+                );
+                match crate::fonts::extract_text_field_outline_commands_with_diagnostics(
+                    &loc,
+                    field,
+                    font_bytes.as_deref(),
+                ) {
+                    Ok(cmds) => {
+                        let d = svg_path_d(&cmds, prec);
+                        if !d.is_empty() {
+                            let raw_color = [
+                                ((format.color >> 16) & 0xff) as u8,
+                                ((format.color >> 8) & 0xff) as u8,
+                                (format.color & 0xff) as u8,
+                                255,
+                            ];
+                            let col = apply_color_transform(raw_color, ct);
+                            let _ = writeln!(
+                                body,
+                                "{indent}<path d=\"{d}\" fill=\"{}\"{xf}/>",
+                                svg_color_hex(col)
+                            );
+                            emitted_outline = true;
+                        }
                     }
-                    let mut slice = String::new();
-                    while cursor_u16 < run.end {
-                        let Some(ch) = char_iter.next() else {
-                            break;
-                        };
-                        slice.push(ch);
-                        cursor_u16 += ch.len_utf16() as u32;
+                    Err(diags) => {
+                        for diag in diags {
+                            let _ = writeln!(
+                                body,
+                                "{indent}<!-- neoflash-diagnostic: {} -->",
+                                xml_escape(&diag)
+                            );
+                        }
                     }
-                    let run_attrs = fmt_attrs(&run.format);
-                    let _ = write!(inner, "<tspan {run_attrs}>{}</tspan>", xml_escape(&slice));
                 }
-                let _ = writeln!(
-                    body,
-                    "{indent}<text x=\"0\" y=\"{}\" {base_attrs}{xf}>{inner}</text>",
-                    fmt_num(format.size, prec),
-                );
-            } else {
-                let attrs = fmt_attrs(format);
-                let _ = writeln!(
-                    body,
-                    "{indent}<text x=\"0\" y=\"{}\" {attrs}{xf}>{}</text>",
-                    fmt_num(format.size, prec),
-                    xml_escape(text)
-                );
+            }
+            if !emitted_outline {
+                if let Some(state) = state
+                    && state.format_runs.len() > 1
+                {
+                    let base_attrs = fmt_attrs(format);
+                    let mut inner = String::new();
+                    let mut cursor_u16 = 0u32;
+                    let mut char_iter = state.text.chars().peekable();
+                    for run in &state.format_runs {
+                        while cursor_u16 < run.start {
+                            let Some(ch) = char_iter.next() else {
+                                break;
+                            };
+                            cursor_u16 += ch.len_utf16() as u32;
+                        }
+                        let mut slice = String::new();
+                        while cursor_u16 < run.end {
+                            let Some(ch) = char_iter.next() else {
+                                break;
+                            };
+                            slice.push(ch);
+                            cursor_u16 += ch.len_utf16() as u32;
+                        }
+                        let run_attrs = fmt_attrs(&run.format);
+                        let _ = write!(inner, "<tspan {run_attrs}>{}</tspan>", xml_escape(&slice));
+                    }
+                    let _ = writeln!(
+                        body,
+                        "{indent}<text x=\"0\" y=\"{}\" {base_attrs}{xf}>{inner}</text>",
+                        fmt_num(format.size, prec),
+                    );
+                } else {
+                    let attrs = fmt_attrs(format);
+                    let _ = writeln!(
+                        body,
+                        "{indent}<text x=\"0\" y=\"{}\" {attrs}{xf}>{}</text>",
+                        fmt_num(format.size, prec),
+                        xml_escape(text)
+                    );
+                }
             }
         }
         ElementKind::Video { width, height } => {
@@ -971,6 +1037,7 @@ mod tests {
         project.symbols[0].timeline.layers[0].keyframes[0]
             .elements
             .push(elem);
+        project.format_version = 3;
         project.upgrade_format_for_features();
 
         let opts = SvgOptions::default();
@@ -1024,6 +1091,9 @@ mod tests {
             class_name: None,
             linkage_id: None,
         });
+        project.format_version = 3;
+        project.upgrade_format_for_features();
+
         let opts = SvgOptions {
             symbol_id: Some(sym_id),
             text_as_outlines: true,
@@ -1034,5 +1104,50 @@ mod tests {
         assert_eq!(elems, 1);
         assert!(svg.contains("<path d=\"M "));
         assert!(!svg.contains("<text "));
+    }
+
+    #[test]
+    fn svg_text_as_outlines_retains_visible_text_fallback_with_diagnostic_when_glyph_missing() {
+        let mut project = Project::blank();
+        let font_bytes = include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
+        project.resources.push(
+            neoflash_core::ResourceUnit::from_bytes(
+                "font-inter",
+                "fonts/Inter.ttf",
+                "font/ttf",
+                font_bytes,
+            )
+            .expect("font resource"),
+        );
+        project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![Element {
+            id: "txt-missing".into(),
+            name: "FallbackLabel".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Text {
+                text: "Hi \u{1F680}".into(),
+                font_family: "Inter".into(),
+                font_size: 20.0,
+                color: [10, 20, 30, 255],
+            },
+            ..Element::default()
+        }];
+
+        project.format_version = 3;
+        project.upgrade_format_for_features();
+
+        let opts = SvgOptions {
+            text_as_outlines: true,
+            transparent_background: true,
+            ..SvgOptions::default()
+        };
+        let (svg, _, _) = render_frame_svg(&project, &opts).expect("svg with fallback");
+        assert!(
+            svg.contains("neoflash-diagnostic:") && svg.contains("U+1F680"),
+            "expected located missing-glyph diagnostic comment in {svg}"
+        );
+        assert!(
+            svg.contains("<text ") && svg.contains("Hi \u{1F680}</text>"),
+            "expected visible <text> fallback to be retained in {svg}"
+        );
     }
 }

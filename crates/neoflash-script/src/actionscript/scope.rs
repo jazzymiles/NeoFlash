@@ -205,6 +205,11 @@ impl<'a> Analysis<'a> {
                     self.declarations(scope, stmt, direct)?;
                 }
             }
+            Stmt::LegacyEvent(_, f) => {
+                for stmt in &f.body {
+                    self.declarations(scope, stmt, true)?;
+                }
+            }
             Stmt::For(init, _, _, body) | Stmt::ForIn(init, _, _, body) => {
                 self.declarations(scope, init, false)?;
                 self.declarations(scope, body, false)?;
@@ -804,7 +809,7 @@ impl<'a> Analysis<'a> {
             }
             return Ok(());
         }
-        if let Stmt::Function(f) | Stmt::LegacyEvent(_, f) = stmt.unlocated() {
+        if let Stmt::Function(f) = stmt.unlocated() {
             return self.function(scope, f);
         }
         if let Stmt::If(_, _, _) = stmt.unlocated() {
@@ -905,6 +910,7 @@ pub(super) fn expressions(stmt: &Stmt) -> Vec<&Expr> {
 pub(super) fn statements(stmt: &Stmt) -> Vec<&Stmt> {
     match stmt.unlocated() {
         Stmt::Block(b) | Stmt::InitClip(_, b, _) => b.iter().collect(),
+        Stmt::LegacyEvent(_, f) => f.body.iter().collect(),
         Stmt::If(_, _, _) => {
             let mut out = Vec::new();
             let mut cur = Some(stmt.unlocated());

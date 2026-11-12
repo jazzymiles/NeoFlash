@@ -2764,11 +2764,6 @@ fn parse_class(
             )?;
             let method_open_namespaces = p.context.open_namespaces.clone();
             p.context.open_namespaces = saved_open;
-            for uri in &method_open_namespaces {
-                if !c.open_namespaces.contains(uri) {
-                    c.open_namespaces.push(uri.clone());
-                }
-            }
             let kind = match accessor.as_deref() {
                 Some("get") => MethodKind::Get,
                 Some("set") => MethodKind::Set,
@@ -4297,8 +4292,8 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                     }
                     init_clips.push((
                         (
-                            order_num.is_some(),
                             order_num.unwrap_or(0),
+                            order_num.is_some(),
                             symbol_idx,
                             script_idx,
                             stmt_idx,
@@ -4684,6 +4679,42 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         let name = f.name.as_ref().unwrap();
         let mut context = c.context.clone();
         context.open_namespaces = method.open_namespaces.clone();
+        for f_decl in &c.fields {
+            if let Some(ns) = &f_decl.namespace
+                && context.open_namespaces.contains(ns)
+            {
+                context
+                    .members
+                    .entry(f_decl.name.clone())
+                    .or_insert_with(|| f_decl.ty.clone());
+                if f_decl.is_static {
+                    context
+                        .static_members
+                        .entry(f_decl.name.clone())
+                        .or_insert_with(|| c.header.name.clone());
+                }
+            }
+        }
+        for m_decl in &c.methods {
+            if let Some(ns) = &m_decl.namespace
+                && context.open_namespaces.contains(ns)
+                && let Some(m_name) = &m_decl.function.name
+            {
+                context.members.entry(m_name.clone()).or_insert_with(|| {
+                    if m_decl.kind == MethodKind::Method {
+                        Some("Function".into())
+                    } else {
+                        None
+                    }
+                });
+                if m_decl.is_static {
+                    context
+                        .static_members
+                        .entry(m_name.clone())
+                        .or_insert_with(|| c.header.name.clone());
+                }
+            }
+        }
         context.method_id = Some(f.id);
         context.static_method = method.is_static;
         let mut f = f.clone();
@@ -4697,8 +4728,10 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
                     "A constructor cannot be static, override or have a return annotation.",
                 ));
             }
-            let explicit = matches!(f.body.first().map(Stmt::unlocated),Some(Stmt::Expr(Expr::Call(callee,_,_))) if matches!(callee.as_ref(),Expr::Name(n) if n=="super"));
-            if !explicit {
+            let super_stmt_idx = f.body.iter().position(stmt_contains_super_call);
+            let init_fields_idx = if let Some(idx) = super_stmt_idx {
+                idx + 1
+            } else {
                 f.body.insert(
                     0,
                     Stmt::Expr(Expr::Call(
@@ -4707,10 +4740,11 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
                         f.offset,
                     )),
                 );
-            }
+                1
+            };
             // Field initializers are executed after the selected base constructor.
             f.body.insert(
-                1,
+                init_fields_idx,
                 Stmt::Expr(Expr::Call(
                     Box::new(Expr::Member(
                         Box::new(Expr::Name("__nfProgram".into())),
@@ -4796,4 +4830,48 @@ fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         c.context.open_namespaces,
         reflection_metadata(c)
     ))
+}
+
+fn expr_contains_super_call(expr: &Expr) -> bool {
+    if matches!(expr, Expr::Function(_)) {
+        return false;
+    }
+    if let Expr::Call(callee, _, _) = expr
+        && matches!(callee.as_ref(), Expr::Name(n) if n == "super")
+    {
+        return true;
+    }
+    scope::children(expr)
+        .into_iter()
+        .any(expr_contains_super_call)
+}
+
+fn stmt_contains_super_call(stmt: &Stmt) -> bool {
+    match stmt.unlocated() {
+        Stmt::Function(_) | Stmt::LegacyEvent(_, _) => false,
+        Stmt::Try(body, catches, finally) => {
+            body.iter().any(stmt_contains_super_call)
+                || catches
+                    .iter()
+                    .any(|c| c.body.iter().any(stmt_contains_super_call))
+                || finally
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(stmt_contains_super_call))
+        }
+        Stmt::Switch(e, cases) => {
+            expr_contains_super_call(e)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(expr_contains_super_call)
+                        || c.body.iter().any(stmt_contains_super_call)
+                })
+        }
+        other => {
+            scope::expressions(other)
+                .into_iter()
+                .any(expr_contains_super_call)
+                || scope::statements(other)
+                    .into_iter()
+                    .any(stmt_contains_super_call)
+        }
+    }
 }

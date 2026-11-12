@@ -1,10 +1,11 @@
 //! Portable font policies, @font-face embedding, deterministic subsetting, and glyph outline conversion.
 
-use ab_glyph::{Font, FontRef};
+use ab_glyph::{Font, FontRef, OutlineCurve, PxScale, ScaleFont};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use neoflash_core::{
-    ElementKind, FillRule, Project, ResourceUnit, TextFieldState, TextFieldType, TextFormat,
+    ElementKind, FillRule, PathCommand, Project, ResourceUnit, TextFieldState, TextFieldType,
+    TextFormat,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -45,6 +46,8 @@ pub struct FontBundle {
     pub metrics: BTreeMap<String, serde_json::Value>,
     pub subset_stats: Vec<FontSubsetStats>,
     pub outlined_elements: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outline_diagnostics: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -338,7 +341,265 @@ pub fn has_embedded_font_face(project: &Project, family: &str, bold: bool, itali
     })
 }
 
-pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
+/// Resolves the raw font bytes from `project.resources` matching `(family, bold, italic)`.
+pub fn resolve_project_font_bytes(
+    project: &Project,
+    family: &str,
+    bold: bool,
+    italic: bool,
+) -> Option<Vec<u8>> {
+    let metadata = embedding_metadata(project);
+    let target_key = face_key(family, requested_style(bold, italic));
+    let mut fallback: Option<Vec<u8>> = None;
+    for res in &project.resources {
+        if !is_font_resource(res) {
+            continue;
+        }
+        let Ok(bytes) = res.decoded_bytes() else {
+            continue;
+        };
+        let entry = metadata.get(&res.id);
+        let res_family = entry
+            .map(|e| e.family.trim())
+            .filter(|f| !f.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| font_family_for_resource(res));
+        let res_style = entry.map_or("Regular", |e| e.style.as_str());
+        if face_key(&res_family, res_style) == target_key {
+            return Some(bytes);
+        }
+        if fallback.is_none()
+            && (res_family.eq_ignore_ascii_case(family) || res.id.eq_ignore_ascii_case(family))
+        {
+            fallback = Some(bytes);
+        }
+    }
+    fallback
+}
+
+/// Converts a single glyph's `ab_glyph::Outline` curves (`OutlineCurve::{Line, Quad, Cubic}`)
+/// from font design units (Y-up) into stage `PathCommand`s (Y-down) at `(origin_x, baseline_y)`.
+pub fn outline_glyph(
+    font: &FontRef<'_>,
+    ch: char,
+    origin_x: f64,
+    top_y: f64,
+    font_size: f64,
+) -> Option<Vec<PathCommand>> {
+    if ch.is_whitespace() {
+        return Some(Vec::new());
+    }
+    let gid = font.glyph_id(ch);
+    if gid.0 == 0 {
+        return None;
+    }
+    // Verify `outline_glyph` succeeds at the target pixel scale as well as raw `outline`.
+    let px_scale = PxScale::from((font_size.max(1.0)) as f32);
+    let _ = font.outline_glyph(gid.with_scale(px_scale))?;
+    let outline = font.outline(gid)?;
+    if outline.curves.is_empty() {
+        return None;
+    }
+    let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
+    let scale = font_size.max(1.0) / upm;
+    let ascent = f64::from(font.as_scaled(PxScale::from(upm as f32)).ascent()).max(upm * 0.8);
+    let baseline = top_y + ascent * scale;
+
+    let mut commands = Vec::with_capacity(outline.curves.len() + 4);
+    let mut current_pos: Option<(f64, f64)> = None;
+    let mut contour_start: Option<(f64, f64)> = None;
+    let map_pt = |pt: ab_glyph::Point| -> (f64, f64) {
+        (
+            origin_x + f64::from(pt.x) * scale,
+            baseline - f64::from(pt.y) * scale,
+        )
+    };
+    let same_pt = |a: (f64, f64), b: (f64, f64)| -> bool {
+        (a.0 - b.0).abs() <= 1e-4 && (a.1 - b.1).abs() <= 1e-4
+    };
+
+    for curve in &outline.curves {
+        match *curve {
+            OutlineCurve::Line(p0, p1) => {
+                let s = map_pt(p0);
+                let e = map_pt(p1);
+                if current_pos.is_none_or(|cur| !same_pt(cur, s)) {
+                    if contour_start.is_some() {
+                        commands.push(PathCommand::Close);
+                    }
+                    commands.push(PathCommand::MoveTo { x: s.0, y: s.1 });
+                    contour_start = Some(s);
+                }
+                commands.push(PathCommand::LineTo { x: e.0, y: e.1 });
+                current_pos = Some(e);
+            }
+            OutlineCurve::Quad(p0, c, p1) => {
+                let s = map_pt(p0);
+                let ctrl = map_pt(c);
+                let e = map_pt(p1);
+                if current_pos.is_none_or(|cur| !same_pt(cur, s)) {
+                    if contour_start.is_some() {
+                        commands.push(PathCommand::Close);
+                    }
+                    commands.push(PathCommand::MoveTo { x: s.0, y: s.1 });
+                    contour_start = Some(s);
+                }
+                commands.push(PathCommand::QuadraticTo {
+                    cx: ctrl.0,
+                    cy: ctrl.1,
+                    x: e.0,
+                    y: e.1,
+                });
+                current_pos = Some(e);
+            }
+            OutlineCurve::Cubic(p0, c1, c2, p1) => {
+                let s = map_pt(p0);
+                let ctrl1 = map_pt(c1);
+                let ctrl2 = map_pt(c2);
+                let e = map_pt(p1);
+                if current_pos.is_none_or(|cur| !same_pt(cur, s)) {
+                    if contour_start.is_some() {
+                        commands.push(PathCommand::Close);
+                    }
+                    commands.push(PathCommand::MoveTo { x: s.0, y: s.1 });
+                    contour_start = Some(s);
+                }
+                commands.push(PathCommand::CubicTo {
+                    cx1: ctrl1.0,
+                    cy1: ctrl1.1,
+                    cx2: ctrl2.0,
+                    cy2: ctrl2.1,
+                    x: e.0,
+                    y: e.1,
+                });
+                current_pos = Some(e);
+            }
+        }
+    }
+    if contour_start.is_some() {
+        commands.push(PathCommand::Close);
+    }
+    Some(commands)
+}
+
+/// Extracts vector outline `PathCommand`s for static `text`, supporting TrueType (`glyf`),
+/// composite TrueType glyphs, and OpenType/CFF (`OTTO` / `CFF ` / `CFF2`) faces via `ab_glyph`.
+/// When `font_bytes` contains unsupported bitmap/color tables (`CBDT`, `sbix`, `COLR`) or lacks
+/// glyph coverage for any non-whitespace character in `text`, returns `Err(diagnostics)` with
+/// actionable located diagnostics so the caller retains visible text fallback rather than dropping glyphs.
+pub fn extract_text_outline_commands_with_diagnostics(
+    location: &str,
+    text: &str,
+    font_family: &str,
+    font_size: f64,
+    font_bytes: Option<&[u8]>,
+) -> Result<Vec<PathCommand>, Vec<String>> {
+    let Some(bytes) = font_bytes else {
+        return Ok(TextFieldState::static_text_to_outline_commands(
+            text,
+            font_family,
+            font_size,
+            None,
+        ));
+    };
+
+    let table_diags =
+        TextFormat::validate_text_outlines_for_font(location, font_family, text, bytes);
+    if !table_diags.is_empty() {
+        return Err(table_diags);
+    }
+
+    if let Ok(font) = FontRef::try_from_slice(bytes) {
+        let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
+        let scaled = font.as_scaled(PxScale::from(upm as f32));
+        let scale = font_size.max(1.0) / upm;
+        let line_h = font_size.max(1.0) * 1.2;
+
+        let mut missing_chars = Vec::new();
+        let mut commands = Vec::new();
+        for (line_idx, line) in text.split('\n').enumerate() {
+            let top_y = (line_idx as f64) * line_h;
+            let mut cursor_x = 0.0;
+            for ch in line.chars() {
+                if ch == '\r' {
+                    continue;
+                }
+                let gid = font.glyph_id(ch);
+                let adv = f64::from(scaled.h_advance(gid)) * scale;
+                if ch.is_whitespace() {
+                    cursor_x += adv.max(font_size * 0.25);
+                    continue;
+                }
+                match outline_glyph(&font, ch, cursor_x, top_y, font_size) {
+                    Some(glyph_cmds) => {
+                        commands.extend(glyph_cmds);
+                    }
+                    None => {
+                        let cp = ch as u32;
+                        let item = format!("U+{cp:04X} ('{ch}')");
+                        if !missing_chars.contains(&item) {
+                            missing_chars.push(item);
+                        }
+                    }
+                }
+                cursor_x += adv;
+            }
+        }
+        if !missing_chars.is_empty() {
+            return Err(vec![format!(
+                "{location}: font '{font_family}' is missing outline glyph coverage for {}; retaining visible text fallback",
+                missing_chars.join(", ")
+            )]);
+        }
+        return Ok(commands);
+    }
+
+    // Fallback for minimal SFNT streams without full `name`/`OS/2` tables (e.g., synthetic TrueType + composite glyf).
+    TextFormat::extract_sfnt_outline_commands(font_family, text, font_size, bytes).map_err(
+        |missing_chars| {
+            vec![format!(
+                "{location}: font '{font_family}' is missing outline glyph coverage for {}; retaining visible text fallback",
+                missing_chars.join(", ")
+            )]
+        },
+    )
+}
+
+/// Extracts vector outline `PathCommand`s for a `TextFieldState`, validating embedded font tables
+/// and glyph coverage and returning actionable located diagnostics on failure.
+pub fn extract_text_field_outline_commands_with_diagnostics(
+    location: &str,
+    field: &TextFieldState,
+    font_bytes: Option<&[u8]>,
+) -> Result<Vec<PathCommand>, Vec<String>> {
+    let Some(bytes) = font_bytes else {
+        return Ok(field.to_outline_commands(None));
+    };
+    let table_diags = TextFormat::validate_text_outlines_for_font(
+        location,
+        &field.format.font,
+        &field.text,
+        bytes,
+    );
+    if !table_diags.is_empty() {
+        return Err(table_diags);
+    }
+    extract_text_outline_commands_with_diagnostics(
+        location,
+        &field.text,
+        &field.format.font,
+        field.format.size,
+        Some(bytes),
+    )
+}
+
+/// Converts static text elements in `project` to `ElementKind::Path` outlines while emitting
+/// actionable located diagnostics (`symbol/layer/frame/element`) and retaining visible text
+/// fallback whenever a font uses unsupported bitmap/color tables (`CBDT`, `sbix`, `COLR`) or
+/// is missing glyph coverage.
+pub fn convert_project_text_to_outlines_with_diagnostics(
+    project: &mut Project,
+) -> (usize, Vec<String>) {
     let metadata = embedding_metadata(project);
     let mut font_bytes_by_face: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut font_bytes_by_family: BTreeMap<String, Vec<u8>> = BTreeMap::new();
@@ -361,10 +622,17 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
         }
     }
     let mut converted = 0usize;
+    let mut diagnostics = Vec::new();
     for symbol in &mut project.symbols {
-        for layer in &mut symbol.timeline.layers {
+        let sym_name = symbol.id.clone();
+        for (layer_idx, layer) in symbol.timeline.layers.iter_mut().enumerate() {
             for keyframe in &mut layer.keyframes {
+                let frame_no = keyframe.frame;
                 for element in &mut keyframe.elements {
+                    let location = format!(
+                        "{sym_name}/layer[{layer_idx}]/frame[{frame_no}]/element[{}]",
+                        element.id
+                    );
                     let replacement = match &element.kind {
                         ElementKind::Text {
                             text,
@@ -378,19 +646,25 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
                                     font_bytes_by_family.get(&font_family.to_ascii_lowercase())
                                 })
                                 .map(Vec::as_slice);
-                            let commands = TextFieldState::static_text_to_outline_commands(
+                            match extract_text_outline_commands_with_diagnostics(
+                                &location,
                                 text,
                                 font_family,
                                 *font_size,
                                 bytes,
-                            );
-                            Some(ElementKind::Path {
-                                commands,
-                                fill_rule: FillRule::NonZero,
-                                fill: *color,
-                                stroke: [0, 0, 0, 0],
-                                stroke_width: 0.0,
-                            })
+                            ) {
+                                Ok(commands) => Some(ElementKind::Path {
+                                    commands,
+                                    fill_rule: FillRule::NonZero,
+                                    fill: *color,
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                }),
+                                Err(diags) => {
+                                    diagnostics.extend(diags);
+                                    None
+                                }
+                            }
                         }
                         ElementKind::TextBox { .. } if element.name.trim().is_empty() => {
                             if let Some(field) = TextFieldState::from_kind(&element.kind) {
@@ -404,21 +678,30 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
                                             .get(&field.format.font.to_ascii_lowercase())
                                     })
                                     .map(Vec::as_slice);
-                                let commands = field.to_outline_commands(bytes);
-                                let rgb = field.format.color;
-                                let fill = [
-                                    ((rgb >> 16) & 0xFF) as u8,
-                                    ((rgb >> 8) & 0xFF) as u8,
-                                    (rgb & 0xFF) as u8,
-                                    field.alpha,
-                                ];
-                                Some(ElementKind::Path {
-                                    commands,
-                                    fill_rule: FillRule::NonZero,
-                                    fill,
-                                    stroke: [0, 0, 0, 0],
-                                    stroke_width: 0.0,
-                                })
+                                match extract_text_field_outline_commands_with_diagnostics(
+                                    &location, &field, bytes,
+                                ) {
+                                    Ok(commands) => {
+                                        let rgb = field.format.color;
+                                        let fill = [
+                                            ((rgb >> 16) & 0xFF) as u8,
+                                            ((rgb >> 8) & 0xFF) as u8,
+                                            (rgb & 0xFF) as u8,
+                                            field.alpha,
+                                        ];
+                                        Some(ElementKind::Path {
+                                            commands,
+                                            fill_rule: FillRule::NonZero,
+                                            fill,
+                                            stroke: [0, 0, 0, 0],
+                                            stroke_width: 0.0,
+                                        })
+                                    }
+                                    Err(diags) => {
+                                        diagnostics.extend(diags);
+                                        None
+                                    }
+                                }
                             } else {
                                 None
                             }
@@ -433,7 +716,11 @@ pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
             }
         }
     }
-    converted
+    (converted, diagnostics)
+}
+
+pub fn convert_project_text_to_outlines(project: &mut Project) -> usize {
+    convert_project_text_to_outlines_with_diagnostics(project).0
 }
 
 fn sfnt_checksum(bytes: &[u8]) -> u32 {
@@ -734,6 +1021,7 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
         metrics: BTreeMap::new(),
         subset_stats: Vec::new(),
         outlined_elements: 0,
+        outline_diagnostics: Vec::new(),
     };
 
     for family in used_by_family.keys() {
@@ -745,7 +1033,9 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
     }
 
     if policy == FontExportPolicy::Outlines {
-        bundle.outlined_elements = convert_project_text_to_outlines(project);
+        let (outlined, diags) = convert_project_text_to_outlines_with_diagnostics(project);
+        bundle.outlined_elements = outlined;
+        bundle.outline_diagnostics = diags;
         return bundle;
     }
 
@@ -1079,4 +1369,58 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn outlines_policy_extracts_ab_glyph_curves_and_retains_fallback_on_bitmap_or_missing_glyphs() {
+        let mut project = Project::blank();
+        add_font(&mut project, "inter-regular", "Inter.ttf");
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .clear();
+        project.symbols[0].timeline.layers[0].keyframes[0]
+            .elements
+            .push(Element {
+                id: "valid-heading".to_owned(),
+                name: String::new(),
+                kind: ElementKind::Text {
+                    text: "Hi".to_owned(),
+                    font_family: "Inter".to_owned(),
+                    font_size: 24.0,
+                    color: [20, 30, 40, 255],
+                },
+                ..Element::default()
+            });
+        // U+1F680 ROCKET is not covered by Inter-Regular.ttf
+        add_text_box(
+            &mut project,
+            "missing-glyph-box",
+            "",
+            "Hi \u{1F680}",
+            TextFormat {
+                font: "Inter".to_owned(),
+                size: 20.0,
+                ..TextFormat::default()
+            },
+        );
+
+        let bundle = apply_font_policy(&mut project, FontExportPolicy::Outlines);
+        assert_eq!(bundle.outlined_elements, 1);
+        assert_eq!(bundle.outline_diagnostics.len(), 1);
+        assert!(bundle.outline_diagnostics[0].contains("missing-glyph-box"));
+        assert!(bundle.outline_diagnostics[0].contains("U+1F680"));
+
+        let elements = &project.symbols[0].timeline.layers[0].keyframes[0].elements;
+        assert!(
+            matches!(elements[0].kind, ElementKind::Path { ref commands, .. } if !commands.is_empty()),
+            "supported text must convert to real ab_glyph Path commands"
+        );
+        assert!(
+            matches!(elements[1].kind, ElementKind::TextBox { ref text, .. } if text == "Hi \u{1F680}"),
+            "element with missing glyph coverage must retain visible text fallback"
+        );
+    }
 }
+
+#[path = "html.rs"]
+pub mod html;
+pub use html::*;

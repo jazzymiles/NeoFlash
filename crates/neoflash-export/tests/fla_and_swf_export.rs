@@ -1466,3 +1466,682 @@ fn t199_fla_preflight_reports_frame_rate_clamp_before_export() {
             .any(|item| item.code == "frame_rate_clamped")
     );
 }
+
+fn collect_swf_tags(fws_bytes: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    assert_eq!(&fws_bytes[0..3], b"FWS", "expected uncompressed FWS header");
+    let nbits = (fws_bytes[8] >> 3) as usize;
+    let rect_bytes = (5 + 4 * nbits).div_ceil(8);
+    let mut pos = 8 + rect_bytes + 4;
+    let mut out = Vec::new();
+    while pos + 2 <= fws_bytes.len() {
+        let code_and_len = u16::from_le_bytes([fws_bytes[pos], fws_bytes[pos + 1]]);
+        pos += 2;
+        let tag_code = code_and_len >> 6;
+        let mut len = usize::from(code_and_len & 0x3f);
+        if len == 0x3f {
+            len = u32::from_le_bytes(fws_bytes[pos..pos + 4].try_into().unwrap()) as usize;
+            pos += 4;
+        }
+        let payload = fws_bytes[pos..pos + len].to_vec();
+        pos += len;
+        out.push((tag_code, payload));
+        if tag_code == 0 {
+            break;
+        }
+    }
+    out
+}
+
+fn collect_avm1_opcodes(actions: &[u8]) -> Vec<(u8, Vec<u8>)> {
+    let mut pos = 0usize;
+    let mut ops = Vec::new();
+    while pos < actions.len() {
+        let op = actions[pos];
+        pos += 1;
+        if op == 0 {
+            break;
+        }
+        if op >= 0x80 {
+            let len = usize::from(u16::from_le_bytes([actions[pos], actions[pos + 1]]));
+            pos += 2;
+            let payload = actions[pos..pos + len].to_vec();
+            pos += len;
+            ops.push((op, payload));
+        } else {
+            ops.push((op, Vec::new()));
+        }
+    }
+    ops
+}
+
+fn read_abc_u30(data: &[u8], pos: &mut usize) -> u32 {
+    let mut result = 0u32;
+    let mut shift = 0u32;
+    for _ in 0..5 {
+        let b = data[*pos];
+        *pos += 1;
+        result |= u32::from(b & 0x7f) << shift;
+        if b & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+    }
+    result
+}
+
+#[test]
+fn t241_avm1_raw_bytecode_opcodes_short_circuit_and_nested_movieclips() {
+    let mut proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    strip_project_scripts(&mut proj);
+    let root_id = proj.root.clone();
+    proj.symbol_mut(&root_id).unwrap().timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: r#"
+                var rhsCalls = 0;
+                function bumpRhs(val) {
+                    rhsCalls = rhsCalls + 1;
+                    return val;
+                }
+                var modVal = 17 % 5;
+                var bitAnd = 12 & 10;
+                var bitOr = 12 | 10;
+                var bitXor = 12 ^ 10;
+                var shlVal = 3 << 4;
+                var shrVal = -16 >> 2;
+                var ushrVal = 32 >>> 3;
+                var orShort = "kept" || bumpRhs("skipped");
+                var andShort = 0 && bumpRhs(99);
+                var andFull = "first" && bumpRhs(42);
+                heroBadge._x = 125;
+                heroBadge._x += 15;
+                heroBadge._y = 85;
+                heroBadge._alpha = 50;
+                heroBadge._rotation = 30;
+                trace("bits=" + modVal + "," + bitAnd + "," + bitOr + "," + bitXor + "," + shlVal + "," + shrVal + "," + ushrVal);
+                trace("sc=" + orShort + "," + andShort + "," + andFull + ",calls=" + rhsCalls);
+                trace("mc=" + heroBadge._x + "," + heroBadge._y + "," + heroBadge._rotation);
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+
+    let opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer8Avm1,
+        compression: SwfCompression::UncompressedFws,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
+    let (swf_bytes, report) = publish_swf_bytes(&proj, &opts).expect("publish AVM1 SWF");
+    assert!(report.can_proceed());
+
+    // Structurally independent raw-bytecode verification against official SWF AVM1 spec constants:
+    // ActionModulo = 0x3F (NOT 0x53 ActionNewMethod),
+    // ActionBitAnd = 0x60, ActionBitOr = 0x61, ActionBitXor = 0x62,
+    // ActionBitLShift = 0x63, ActionBitRShift = 0x64, ActionBitURShift = 0x65,
+    // ActionPushDuplicate = 0x4C, ActionIf = 0x9D, ActionPop = 0x17.
+    let tags = collect_swf_tags(&swf_bytes);
+    let do_action = tags
+        .iter()
+        .find(|(code, _)| *code == 12)
+        .expect("DoAction tag (12) present");
+    let opcodes: Vec<u8> = collect_avm1_opcodes(&do_action.1)
+        .into_iter()
+        .map(|(op, _)| op)
+        .collect();
+    assert!(
+        opcodes.contains(&0x3F),
+        "DoAction must emit ActionModulo (0x3F)"
+    );
+    assert!(
+        !opcodes.contains(&0x53),
+        "DoAction must not emit ActionNewMethod (0x53) for modulo"
+    );
+    for expected_op in [0x60_u8, 0x61, 0x62, 0x63, 0x64, 0x65, 0x4C, 0x9D, 0x17] {
+        assert!(
+            opcodes.contains(&expected_op),
+            "DoAction missing expected AVM1 spec opcode 0x{expected_op:02X} in {opcodes:02X?}"
+        );
+    }
+
+    let play = play_swf_bytes(&swf_bytes, 2).expect("play AVM1 SWF");
+    assert_eq!(
+        play.trace_output,
+        vec![
+            "bits=2,8,14,6,48,-4,4".to_owned(),
+            "sc=kept,0,42,calls=1".to_owned(),
+            "mc=140,85,30".to_owned(),
+        ]
+    );
+    let hero = play.frames_executed[0]
+        .display_list
+        .iter()
+        .find(|e| e.name == "heroBadge")
+        .expect("heroBadge in display list");
+    assert_eq!(hero.x, 140.0);
+    assert_eq!(hero.y, 85.0);
+    assert!((hero.rotation - 30.0).abs() < 1e-3);
+
+    let reimported = import_swf_bytes(&swf_bytes).expect("reimport AVM1 SWF");
+    let root_sym = reimported.symbol(&reimported.root).unwrap();
+    let decompiled = &root_sym.timeline.scripts[0].script.source;
+    assert!(
+        decompiled.contains('%') && decompiled.contains("||") && decompiled.contains("&&"),
+        "decompiled AVM1 script should preserve %, ||, &&: {decompiled}"
+    );
+}
+
+#[test]
+fn t241_avm2_raw_bytecode_short_circuit_register_params_method_metrics_and_scenes() {
+    let mut proj = build_rich_authoring_project(ScriptLanguage::ActionScript3);
+    strip_project_scripts(&mut proj);
+
+    // Reject package/class declarations inside frame scripts during preflight so preflight and emission never disagree.
+    proj.symbols[0].timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "package { public class BadInFrame {} }".to_owned(),
+        },
+    }];
+    let avm2_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        compression: SwfCompression::UncompressedFws,
+        outline_text: true,
+        ..SwfPublishOptions::default()
+    };
+    let bad_preflight = preflight_swf_publish(&proj, &avm2_opts);
+    assert!(
+        !bad_preflight.can_proceed(),
+        "package/class inside a frame script must be rejected by preflight"
+    );
+    assert!(
+        publish_swf_bytes(&proj, &avm2_opts).is_err(),
+        "package/class inside a frame script must fail publish_swf_bytes"
+    );
+
+    // Now configure multi-scene AS3 frame scripts, register-based FunctionDecl, short-circuit &&/||,
+    // and nested MovieClip property reads/writes.
+    proj.symbols[0].timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: r#"
+                var sideEffects:int = 0;
+                function recordHit(v:int):int {
+                    sideEffects = sideEffects + 1;
+                    return v;
+                }
+                function combinePair(leftVal:int, rightVal:int):int {
+                    var sum:int = leftVal + rightVal;
+                    return sum * 2;
+                }
+                var a:String = "alpha" || "beta";
+                var b:int = 0 && recordHit(77);
+                var c:int = 1 && recordHit(19);
+                var computed:int = combinePair(c, 6);
+                heroBadge.x = 200;
+                heroBadge.x += 35;
+                heroBadge.y = 140;
+                heroBadge.alpha = 0.5;
+                heroBadge.rotation = 45;
+                trace("s1=" + a + "," + b + "," + c + ",fx=" + sideEffects + ",pair=" + computed);
+                trace("hero=" + heroBadge.x + "," + heroBadge.y + "," + heroBadge.alpha + "," + heroBadge.rotation);
+                gotoAndStop(1, "Scene 2");
+            "#
+            .to_owned(),
+        },
+    }];
+    proj.symbols[1].timeline.scripts = vec![FrameScript {
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: r#"
+                trace("s2-entered");
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+
+    let (swf_bytes, report) = publish_swf_bytes(&proj, &avm2_opts).expect("publish AVM2 SWF");
+    assert!(report.can_proceed());
+
+    // Structurally independent raw-bytecode inspection of DoABC2 (tag 82):
+    let tags = collect_swf_tags(&swf_bytes);
+    let (_, do_abc_payload) = tags
+        .iter()
+        .find(|(code, _)| *code == 82)
+        .expect("DoABC2 tag (82) present");
+    // Skip flags (4 bytes) + null-terminated ABC name
+    let name_end = do_abc_payload[4..]
+        .iter()
+        .position(|&b| b == 0)
+        .expect("ABC name nul")
+        + 5;
+    let abc = &do_abc_payload[name_end..];
+    assert_eq!(&abc[0..4], &[16, 0, 46, 0], "ABC version 46.16");
+    let mut pos = 4usize;
+    let int_count = read_abc_u30(abc, &mut pos);
+    for _ in 1..int_count {
+        let _ = read_abc_u30(abc, &mut pos);
+    }
+    let uint_count = read_abc_u30(abc, &mut pos);
+    for _ in 1..uint_count {
+        let _ = read_abc_u30(abc, &mut pos);
+    }
+    let double_count = read_abc_u30(abc, &mut pos);
+    if double_count > 1 {
+        pos += (double_count as usize - 1) * 8;
+    }
+    let string_count = read_abc_u30(abc, &mut pos);
+    let mut abc_strings = vec![String::new()];
+    for _ in 1..string_count {
+        let slen = read_abc_u30(abc, &mut pos) as usize;
+        abc_strings.push(String::from_utf8_lossy(&abc[pos..pos + slen]).into_owned());
+        pos += slen;
+    }
+    // Verify no __nf_mc_ mangled property names exist in the ABC constant pool
+    assert!(
+        !abc_strings.iter().any(|s| s.starts_with("__nf_mc_")),
+        "ABC string pool must not contain mangled __nf_mc_ names: {abc_strings:?}"
+    );
+    assert!(abc_strings.iter().any(|s| s == "heroBadge"));
+    assert!(abc_strings.iter().any(|s| s == "x"));
+
+    // Advance to MethodBodyInfo table to verify max_stack, local_count, register params, and short-circuit opcodes
+    let ns_count = read_abc_u30(abc, &mut pos);
+    for _ in 1..ns_count {
+        pos += 1;
+        let _ = read_abc_u30(abc, &mut pos);
+    }
+    let ns_set_count = read_abc_u30(abc, &mut pos);
+    for _ in 1..ns_set_count {
+        let cnt = read_abc_u30(abc, &mut pos);
+        for _ in 0..cnt {
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+    }
+    let multiname_count = read_abc_u30(abc, &mut pos);
+    for _ in 1..multiname_count {
+        let kind = abc[pos];
+        pos += 1;
+        match kind {
+            0x07 | 0x0D => {
+                let _ = read_abc_u30(abc, &mut pos);
+                let _ = read_abc_u30(abc, &mut pos);
+            }
+            0x0F | 0x10 => {
+                let _ = read_abc_u30(abc, &mut pos);
+            }
+            0x11 | 0x12 => {}
+            0x09 | 0x0E => {
+                let _ = read_abc_u30(abc, &mut pos);
+                let _ = read_abc_u30(abc, &mut pos);
+            }
+            0x1B | 0x1C => {
+                let _ = read_abc_u30(abc, &mut pos);
+            }
+            _ => panic!("unexpected multiname kind 0x{kind:02X}"),
+        }
+    }
+    let method_count = read_abc_u30(abc, &mut pos);
+    let mut method_param_counts = Vec::with_capacity(method_count as usize);
+    for _ in 0..method_count {
+        let pcount = read_abc_u30(abc, &mut pos);
+        let _ret = read_abc_u30(abc, &mut pos);
+        for _ in 0..pcount {
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+        let _name = read_abc_u30(abc, &mut pos);
+        let flags = abc[pos];
+        pos += 1;
+        if flags & 0x08 != 0 {
+            let opt_cnt = read_abc_u30(abc, &mut pos);
+            for _ in 0..opt_cnt {
+                let _ = read_abc_u30(abc, &mut pos);
+                pos += 1;
+            }
+        }
+        if flags & 0x80 != 0 {
+            for _ in 0..pcount {
+                let _ = read_abc_u30(abc, &mut pos);
+            }
+        }
+        method_param_counts.push(pcount);
+    }
+    let metadata_count = read_abc_u30(abc, &mut pos);
+    for _ in 0..metadata_count {
+        let _ = read_abc_u30(abc, &mut pos);
+        let icnt = read_abc_u30(abc, &mut pos);
+        for _ in 0..icnt {
+            let _ = read_abc_u30(abc, &mut pos);
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+    }
+    let class_count = read_abc_u30(abc, &mut pos);
+    for _ in 0..class_count {
+        let _ = read_abc_u30(abc, &mut pos);
+        let _ = read_abc_u30(abc, &mut pos);
+        let flags = abc[pos];
+        pos += 1;
+        if flags & 0x08 != 0 {
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+        let intf_cnt = read_abc_u30(abc, &mut pos);
+        for _ in 0..intf_cnt {
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+        let _iinit = read_abc_u30(abc, &mut pos);
+        let tcnt = read_abc_u30(abc, &mut pos);
+        for _ in 0..tcnt {
+            let _ = read_abc_u30(abc, &mut pos);
+            let kind = abc[pos];
+            pos += 1;
+            let _ = read_abc_u30(abc, &mut pos);
+            let _ = read_abc_u30(abc, &mut pos);
+            if matches!(kind & 0x0f, 0 | 6) {
+                let vindex = read_abc_u30(abc, &mut pos);
+                if vindex != 0 {
+                    pos += 1;
+                }
+            }
+        }
+    }
+    for _ in 0..class_count {
+        let _cinit = read_abc_u30(abc, &mut pos);
+        let tcnt = read_abc_u30(abc, &mut pos);
+        for _ in 0..tcnt {
+            let _ = read_abc_u30(abc, &mut pos);
+            let _ = abc[pos];
+            pos += 1;
+            let _ = read_abc_u30(abc, &mut pos);
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+    }
+    let script_count = read_abc_u30(abc, &mut pos);
+    for _ in 0..script_count {
+        let _init = read_abc_u30(abc, &mut pos);
+        let tcnt = read_abc_u30(abc, &mut pos);
+        for _ in 0..tcnt {
+            let _ = read_abc_u30(abc, &mut pos);
+            let _ = abc[pos];
+            pos += 1;
+            let _ = read_abc_u30(abc, &mut pos);
+            let _ = read_abc_u30(abc, &mut pos);
+        }
+    }
+    let body_count = read_abc_u30(abc, &mut pos);
+    let mut saw_two_param_fn = false;
+    let mut saw_frame_body = false;
+    for _ in 0..body_count {
+        let method_idx = read_abc_u30(abc, &mut pos) as usize;
+        let max_stack = read_abc_u30(abc, &mut pos);
+        let local_count = read_abc_u30(abc, &mut pos);
+        let _init_scope = read_abc_u30(abc, &mut pos);
+        let _max_scope = read_abc_u30(abc, &mut pos);
+        let code_len = read_abc_u30(abc, &mut pos) as usize;
+        let code = &abc[pos..pos + code_len];
+        pos += code_len;
+        let exc_cnt = read_abc_u30(abc, &mut pos);
+        assert_eq!(exc_cnt, 0);
+        let trait_cnt = read_abc_u30(abc, &mut pos);
+        assert_eq!(trait_cnt, 0);
+
+        assert!(
+            (1..16).contains(&max_stack),
+            "MethodBodyInfo max_stack must be computed accurately instead of hardcoded 16, got {max_stack}"
+        );
+        if method_param_counts[method_idx] == 2 && code_len > 10 {
+            // combinePair(leftVal, rightVal): must read local registers 1 and 2 (0xD1, 0xD2)
+            saw_two_param_fn = true;
+            assert_eq!(
+                local_count, 3,
+                "2-param function must declare local_count == 3 (this + 2 param registers), got {local_count}"
+            );
+            assert!(
+                code.contains(&0xD1) && code.contains(&0xD2),
+                "2-param function must read parameters from local registers 1 and 2 (getlocal_1 0xD1, getlocal_2 0xD2), got {code:02X?}"
+            );
+        }
+        if code.contains(&0x2A) && code.contains(&0x29) {
+            saw_frame_body = true;
+            // Short-circuit && and || use dup (0x2A) + iffalse/iftrue (0x12/0x11) + pop (0x29) without convert_b (0x76)
+            assert!(
+                !code.contains(&0x76),
+                "short-circuit && and || must not emit convert_b (0x76)"
+            );
+            assert!(
+                code.contains(&0x66) && code.contains(&0x61),
+                "frame script must use getproperty (0x66) and setproperty (0x61) on MovieClip receiver"
+            );
+        }
+    }
+    assert!(saw_two_param_fn, "expected combinePair(a, b) method body");
+    assert!(saw_frame_body, "expected Scene 1 frame 0 method body");
+
+    let play = play_swf_bytes(&swf_bytes, 4).expect("play multi-scene AVM2 SWF");
+    assert_eq!(
+        play.trace_output,
+        vec![
+            "s1=alpha,0,19,fx=1,pair=50".to_owned(),
+            "hero=235,140,0.5,45".to_owned(),
+            "s2-entered".to_owned(),
+        ]
+    );
+
+    // Reimport and verify both Scene 1 and Scene 2 retain their frame scripts
+    let reimported = import_swf_bytes(&swf_bytes).expect("reimport multi-scene AVM2 SWF");
+    assert_eq!(reimported.scenes.len(), 2);
+    let scene1_sym = reimported.symbol(&reimported.scenes[0]).unwrap();
+    let scene2_sym = reimported.symbol(&reimported.scenes[1]).unwrap();
+    assert!(
+        scene1_sym
+            .timeline
+            .scripts
+            .iter()
+            .any(|fs| fs.script.source.contains("combinePair")),
+        "Scene 1 frame script must be restored on import, got {:?}",
+        scene1_sym.timeline.scripts
+    );
+    assert!(
+        scene2_sym
+            .timeline
+            .scripts
+            .iter()
+            .any(|fs| fs.script.source.contains("s2-entered")),
+        "Scene 2 frame script must be restored on import, got {:?}",
+        scene2_sym.timeline.scripts
+    );
+}
+
+#[test]
+fn t242_fla_xfl_no_double_wrap_folder_layer_frame_scripts_and_sources_round_trip() {
+    // 1. Pre-wrapped on(...) / onClipEvent(...) (including leading whitespace and // or /* */ comments)
+    //    plus timeline.scripts when layers[0] is LayerRole::Folder
+    let mut as2_proj = build_rich_authoring_project(ScriptLanguage::ActionScript2);
+    let root_id = as2_proj.root.clone();
+    {
+        let root_sym = as2_proj.symbol_mut(&root_id).unwrap();
+        // Prepend a Folder layer at index 0 so layers[0] is LayerRole::Folder
+        root_sym.timeline.layers.insert(
+            0,
+            Layer {
+                id: "folder_top".to_owned(),
+                name: "TopFolder".to_owned(),
+                visible: true,
+                locked: false,
+                keyframes: Vec::new(),
+                properties: LayerProperties {
+                    role: neoflash_core::LayerRole::Folder,
+                    ..LayerProperties::default()
+                },
+            },
+        );
+        root_sym.timeline.layers[1].properties.parent = Some("folder_top".to_owned());
+
+        // Give the button instance and MovieClip instance pre-wrapped handlers with leading comments
+        let elements = &mut root_sym.timeline.layers[1].keyframes[0].elements;
+        elements[0].scripts = vec![ObjectScript {
+            event: ObjectEvent::EnterFrame,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "// leading line comment\nonClipEvent (enterFrame) {\n  this._x += 1;\n}"
+                    .to_owned(),
+            },
+        }];
+        elements[1].scripts = vec![ObjectScript {
+            event: ObjectEvent::Click,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "/* block comment */ on (press) {\n  gotoAndStop(3);\n}".to_owned(),
+            },
+        }];
+    }
+
+    for profile in [
+        FlaTargetProfile::AnimateCC,
+        FlaTargetProfile::FlashCS6,
+        FlaTargetProfile::LegacyFlashCS4,
+        FlaTargetProfile::LegacyFlash8,
+    ] {
+        let preflight = preflight_fla_export(&as2_proj, profile);
+        assert!(preflight.can_export());
+        if profile.is_legacy_binary() {
+            assert!(
+                preflight.items.iter().any(|i| {
+                    i.code == "legacy_fla_external_source_approximated"
+                        && i.disposition == FlaFeatureDisposition::Approximated
+                }),
+                "binary FLA preflight must report Approximated for project.sources on {:?}",
+                profile
+            );
+        }
+
+        let (bytes, report) =
+            export_fla_bytes_with_profile(&as2_proj, profile, &FlaExportOptions::default())
+                .expect("export AS2 FLA");
+        assert!(report.can_export());
+
+        let reimported = import_fla_bytes(&bytes).expect("reimport AS2 FLA");
+        let root_re = reimported.symbol(&reimported.root).unwrap();
+        // Frame script on Scene 1 must be preserved even though layers[0] is a Folder!
+        assert!(
+            root_re
+                .timeline
+                .scripts
+                .iter()
+                .any(|fs| fs.script.source.contains("frame1-ready")),
+            "frame script must survive when layers[0] is Folder in {:?}, got {:?}",
+            profile,
+            root_re.timeline.scripts
+        );
+        // Pre-wrapped on(...) / onClipEvent(...) must NOT be double-wrapped
+        let all_obj_scripts: Vec<&str> = root_re
+            .timeline
+            .layers
+            .iter()
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .flat_map(|e| &e.scripts)
+            .map(|os| os.script.source.as_str())
+            .collect();
+        assert!(
+            all_obj_scripts
+                .iter()
+                .any(|s| s.contains("onClipEvent (enterFrame)")),
+            "onClipEvent handler must survive in {:?}: {:?}",
+            profile,
+            all_obj_scripts
+        );
+        assert!(
+            all_obj_scripts.iter().any(|s| s.contains("on (press)")),
+            "on(press) handler must survive in {:?}: {:?}",
+            profile,
+            all_obj_scripts
+        );
+        for src in &all_obj_scripts {
+            assert!(
+                !src.contains("on (release) {\n/*")
+                    && !src.contains("on (release) {\n//")
+                    && !src.contains("onClipEvent (enterFrame) {\n//")
+                    && !src.contains("onClipEvent (load) {\n/*"),
+                "object script must never be double-wrapped in {:?}: {src}",
+                profile
+            );
+        }
+        // Bundled project.sources must round-trip
+        assert_eq!(
+            reimported.sources.len(),
+            1,
+            "project.sources must round-trip in {:?}",
+            profile
+        );
+        assert_eq!(reimported.sources[0].path, "scripts/MainHelper.as");
+        assert!(reimported.sources[0].source.contains("helperReady"));
+    }
+
+    // 2. AS3 document_class + project.sources round-trip across UncompressedXfl, AnimateCC, and LegacyFlashCS4
+    let mut as3_proj = build_rich_authoring_project(ScriptLanguage::ActionScript3);
+    as3_proj.document_class = Some("com.example.AppMain".to_owned());
+    as3_proj.sources = vec![SourceUnit {
+        id: "src_main".to_owned(),
+        path: "com/example/AppMain.as".to_owned(),
+        language: ScriptLanguage::ActionScript3,
+        source: "package com.example {\n  import flash.display.MovieClip;\n  public class AppMain extends MovieClip {}\n}\n".to_owned(),
+    }];
+
+    let xfl_dir = std::env::temp_dir().join(format!("neoflash-t242-xfl-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&xfl_dir);
+    export_fla_with_profile(
+        &as3_proj,
+        FlaTargetProfile::UncompressedXfl,
+        &FlaExportOptions::default(),
+        &xfl_dir,
+    )
+    .expect("export UncompressedXfl");
+    let dom_xml = std::fs::read_to_string(xfl_dir.join("DOMDocument.xml")).unwrap();
+    assert!(
+        dom_xml.contains("documentClass=\"com.example.AppMain\""),
+        "DOMDocument.xml must include documentClass attribute: {dom_xml}"
+    );
+    assert!(xfl_dir.join("com/example/AppMain.as").is_file());
+    let reimported_xfl = neoflash_import::import_project(&xfl_dir).expect("reimport XFL");
+    assert_eq!(
+        reimported_xfl.document_class.as_deref(),
+        Some("com.example.AppMain")
+    );
+    assert_eq!(reimported_xfl.sources.len(), 1);
+    assert_eq!(reimported_xfl.sources[0].path, "com/example/AppMain.as");
+    let _ = std::fs::remove_dir_all(&xfl_dir);
+
+    for profile in [
+        FlaTargetProfile::AnimateCC,
+        FlaTargetProfile::LegacyFlashCS4,
+    ] {
+        let (bytes, _) =
+            export_fla_bytes_with_profile(&as3_proj, profile, &FlaExportOptions::default())
+                .expect("export AS3 FLA");
+        let reimported = import_fla_bytes(&bytes).expect("reimport AS3 FLA");
+        assert_eq!(
+            reimported.document_class.as_deref(),
+            Some("com.example.AppMain"),
+            "document_class must round-trip in {:?}",
+            profile
+        );
+        assert_eq!(
+            reimported.sources.len(),
+            1,
+            "sources must round-trip in {:?}",
+            profile
+        );
+        assert_eq!(reimported.sources[0].path, "com/example/AppMain.as");
+        assert!(
+            reimported.sources[0]
+                .source
+                .contains("public class AppMain")
+        );
+    }
+}

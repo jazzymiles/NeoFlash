@@ -81,11 +81,11 @@ pub fn flatten_scenes(project: &Project) -> Project {
 }
 
 /// [`flatten_scenes`] plus the scene ranges inside the flattened root
-/// timeline. The result is idempotent: a flattened project has no `scenes`.
-pub fn flatten_scenes_with_ranges(project: &Project) -> (Project, Vec<SceneRange>) {
+/// timeline, borrowing `project` without cloning when at most one scene is present.
+pub fn flatten_scenes_cow(project: &Project) -> (std::borrow::Cow<'_, Project>, Vec<SceneRange>) {
     let ranges = scene_ranges(project);
     if project.scenes.len() <= 1 {
-        return (project.clone(), ranges);
+        return (std::borrow::Cow::Borrowed(project), ranges);
     }
     let mut used = identities(project);
     let mut taken = HashSet::new();
@@ -228,7 +228,14 @@ pub fn flatten_scenes_with_ranges(project: &Project) -> (Project, Vec<SceneRange
         };
     }
     flat.scenes.clear();
-    (flat, ranges)
+    (std::borrow::Cow::Owned(flat), ranges)
+}
+
+/// [`flatten_scenes`] plus the scene ranges inside the flattened root
+/// timeline. The result is idempotent: a flattened project has no `scenes`.
+pub fn flatten_scenes_with_ranges(project: &Project) -> (Project, Vec<SceneRange>) {
+    let (flat, ranges) = flatten_scenes_cow(project);
+    (flat.into_owned(), ranges)
 }
 
 fn identities(project: &Project) -> HashSet<Id> {
@@ -832,5 +839,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn flatten_scenes_cow_borrows_single_scene_and_clones_multi_scene() {
+        let mut p = Project::blank();
+        assert!(p.scenes.is_empty());
+        let (cow_empty, ranges_empty) = flatten_scenes_cow(&p);
+        assert!(matches!(cow_empty, std::borrow::Cow::Borrowed(_)));
+        assert!(ranges_empty.is_empty());
+
+        p.scenes = vec![p.root.clone()];
+        let (cow_one, ranges_one) = flatten_scenes_cow(&p);
+        assert!(matches!(cow_one, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(ranges_one.len(), 1);
+
+        let multi = two_scenes();
+        let (cow_multi, ranges_multi) = flatten_scenes_cow(&multi);
+        assert!(matches!(cow_multi, std::borrow::Cow::Owned(_)));
+        assert_eq!(ranges_multi.len(), 2);
     }
 }

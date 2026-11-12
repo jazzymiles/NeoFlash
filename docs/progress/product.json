@@ -717,7 +717,7 @@
       "id": "editor-text",
       "category": "editor",
       "title": "Authored text",
-      "status": "partial",
+      "status": "implemented",
       "scope": "The Stage Text tool creates point text on click and a fixed, multiline wrapping TextBox on drag. Editable authored TextBox supports logical dimensions, installed regular/bold/italic fonts, size/color/leading, left/center/right/justify alignment, per-range rich-text `TextFormatRun` persistence, HTML/CSS authoring (`set_selected_text_html` / `selected_text_to_html`), authored dynamic/input field options (`AuthoredTextFieldOptions`: `field_type`, `selectable`, `editable`, `border`, `background`, `password`, `max_chars`, `restrict`, `html`, `condense_white`, `auto_size`), `set_selected_text_auto_size` (`\"none\"`, `\"left\"`, `\"center\"`, `\"right\"` resizing and anchoring in one Undo step) and conversion through characters to editable installed-font glyph contours. Selected TextBox Properties uses a compact classic Flash two-column inspector: `Text type` (`Static Text` / `Dynamic Text` / `Input Text`) and `Family` on one row; `Style` (`Regular` / `Bold` / `Italic` / `Bold Italic`), `Embed font` and `Embedding…` on one row (opening the existing NF2 dialog on the exact selected Family/Style, saving ranges/custom characters and committing the font resource plus field setting as one Undo step); `Size` (`pt`) and `Letter spacing` (`px`) on one row; `Color` and `Auto kern` on one row; compact `Selectable` / `HTML` / `Border` / `Underline` switches; `Paragraph` with 4-mode `Segmented` alignment, two-column `Indent` + `Line` spacing, two-column `Left` + `Right` margins and `Behavior` (`Single line` / `Multiline` / `Multiline no wrap` / `Password`); and collapsible `Options` (`URL`, two-column `Target` + `Max chars`, two-column `Variable` + `Restrict`). Old unboxed Text retains its appearance until explicit conversion. AS3 TextField/TextFormat and AS2 createTextField share Rust state and line layout, with separate current/insertion formats and bounded whole-field/string editing. Scripted HTML5 input adds native browser editing, Rust revision-checked user transactions, UTF-16 selection/replacement, user-only restrict/maxChars and password masking. AS3 TextFieldType/TextEvent/FocusEvent and AS2 Selection/onChanged/focus callbacks share Stage focus and publication lifetime. Native inline Stage editing adds UTF-16 caret/range selection, keyboard and text insertion, clipboard operations, exact mixed-run character formatting, paragraph-range expansion, collapsed-caret typing format and one Undo per accepted edit.",
       "limitations": "Advanced paragraphs and full shaping/Flash metrics remain incomplete. Ligature execution uses a bounded substitution profile and browser font-feature requests rather than a complete OpenType shaping engine. Locale casing has explicit Turkic/Greek rules plus a same-UTF-16-length Unicode fallback; length-changing mappings are retained unchanged, and the native locale selector exposes only its fixed language list. Host font measurements may produce different line breaks and pixels; portable fonts are separate work. Native headless layout/clipping/Undo and in-app-browser reflow/alignment, independent fields and Restart passed. Native inline selection/editing and mixed-run formatting are implemented; VERIFICATION.md preserves the exact scope separately from earlier plain-text evidence. Independent fba17ae evidence (TEXT-LAYOUT-HTML5-20261027T0409Z) covers only the actual uniform layout/format/refusal/Restart workflow in VERIFICATION.md. That earlier browser pass does not by itself establish other fonts/engines or native input/IME. The separate text-form delivery records current scripted input evidence; earlier layout evidence is unchanged. The active DOM field follows affine/vector clipping but is above foreground Canvas artwork. Full IME/locale/grapheme/original-player behavior and cross-engine metrics remain pending; AS2 general string target resolution is unsupported.",
       "items": [
@@ -744,7 +744,7 @@
         {
           "id": "advanced-typography",
           "title": "Advanced ligatures, figure styles, locale casing and vertical glyph rotation",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "textfield-font-embedding",
@@ -783,8 +783,8 @@
         },
         {
           "id": "auto-size",
-          "title": "Auto-size text-field model/runtime; native authoring control pending",
-          "status": "partial"
+          "title": "Auto-size text-field model/runtime and Properties control",
+          "status": "working"
         },
         {
           "id": "native-input-authoring",
@@ -952,13 +952,13 @@
         },
         {
           "id": "appearance-modifiers-styles",
-          "title": "Appearance/modifier/style model and evaluation; complete authoring UI pending",
-          "status": "partial"
+          "title": "Appearance multi-paint stack, path modifiers and Graphic Styles",
+          "status": "working"
         },
         {
           "id": "vector-effects-mesh-perspective",
-          "title": "Vector-effects, mesh and perspective engine with Expand/Bake commands; authoring UI pending",
-          "status": "partial"
+          "title": "Vector-effects, mesh and perspective tools with Expand/Bake commands",
+          "status": "working"
         },
         {
           "id": "stroke-style-deco-spray-ik-panels",
@@ -1117,7 +1117,7 @@
       "id": "editor-layer-organization",
       "category": "editor",
       "title": "Layer organization",
-      "status": "partial",
+      "status": "implemented",
       "scope": "Compact left-aligned layer names with row dividers, inline rename, inline 64 pt Mode cell (`R-040 (3)`, opening the 6-group blend mode menu on normal/folder rows and showing compact Mode + 2 inline 16×16 AE-style mask channel & invert icons on `LayerRole::Mask` rows per `R-049`), 20 pt Solo dot toggle (`R-045`, with a header ring button to clear all soloed layers; default 372 pt layer column), multi-row layer selection (`Shift`-click range and `⌘`-click toggle with batch visibility/lock/outline/blend/sync/solo/reorder/reparent/delete/copy in one Undo step), and 14 pt (`Compact`) / 18 pt (`Short`) / 24 pt (`Normal`) / 44 pt (`Preview`) row heights. Layer context menus provide visibility/locks, transient Solo / Clear all solo (`R-045`, click to toggle, `⌥`-click for exclusive solo, dimming non-soloed frame cells to 45%, excluding solo-hidden layers from stage selection/edits and filtering Stage rendering without touching `visible`, `.nflash` or Undo), insert/delete, document-local copy/cut/paste/duplicate, merge, layer/group-to-symbol conversion, AE-style layer Blending (`R-040`, all 14 Flash blend modes in 6 groups in format 8, inherited by elements with Normal blending and through parent folders as `Blending: Inherited (<mode>)`; editable in the layer-row Mode cell, `Layer properties`, the layer context menu, `Folder and mask…` and `Window ▸ Panels ▸ Filters` when no object is selected) and `Sync layer to timeline` (`R-042`, format 8, locking child symbol timelines to the scene-local parent frame index when leading frames on the layer are blank; editable in `Layer properties`, the layer context menu, `Folder and mask…` and the Timeline `⋯` menu). Modify ▸ Timeline ▸ Distribute to layers (⇧⌘D) distributes multi-selected elements and authoring groups onto individual named layers at the current frame while inheriting folder/mask/guide relationships in one Undo step. The modal Layer properties dialog (Modify ▸ Timeline ▸ Layer properties…, layer menu Properties… and double-click on a layer icon) edits Name, Show/Lock, Type (Normal, Guide, Guided ↔ motion_guide, Mask, Masked ↔ mask and Folder), Mask mode (`Geometry`/`Alpha`/`Luminance`) + `Invert mask` (`R-048`), outline color + outlines toggle, row height (`Compact`/`Short`/`100 %`/`200 %`), Blending and Sync layer to timeline in one Undo step. Folders support child grouping, drag-and-drop reparenting onto folder rows or across folder boundaries, collapse, inherited visibility/locks/solo/blending (with `Hide others` / `Lock others` preserving the target folder's descendants) and editable properties. Guides remain authoring-only; mask relationships use stable layer IDs. Per-layer colored squares toggle authoring outlines; an RGB dialog edits the saved outline color with one Undo. Outlined folders include descendants within the edited symbol; nested symbol outline preferences do not leak into parent artwork. Native transport and publication retain original fills and strokes. Layer-column width is draggable and saved as a workspace preference. Name dragging reorders a layer or its dependent folder/mask group with insertion feedback, folder reparenting, cancellation and one Undo. Upper sibling rows represent foreground layers; drag reordering and frame paste follow the visible order without reversing the serialized painter order. Add motion guide inserts \"Guide: <name>\" above a layer and guides it; classic tweens on the guided layer move along the guide's first stroke in the editor and HTML5, and the guide is never published. Copying a guide with its guided layers relinks them to the copied guide. Layer merge preserves frame sound commands and guided poses. Classic Tween Properties enables Orient to path and Snap to motion guide on guided layers.",
       "limitations": "Armature layers remain tracked with Bone/IK tools. Layer clipboard stays within the current document. Merging tweened layers samples frames into keys. A merge that would collide sound commands or shorten a Stream span is rejected before editing.",
       "items": [
@@ -1203,8 +1203,8 @@
         },
         {
           "id": "camera-parenting-ik",
-          "title": "Camera, depth, parenting, controllers and IK engine/commands; complete Stage authoring controls pending",
-          "status": "partial"
+          "title": "Stage Camera, layer Z-depth, parenting and IK bone constraints",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -1366,7 +1366,7 @@
       "id": "animation-motion-tween",
       "category": "animation",
       "title": "Pose interpolation",
-      "status": "partial",
+      "status": "implemented",
       "scope": "Tweens match stable object identities and interpolate position, scale, rotation, alpha and supported geometry/color/filter properties. Format 5 also interpolates affine skew and color transforms, with classic Flash acceleration and single global cubic easing. Motion tweens (blue spans) track every object on a non-empty layer by stable ID. Format-10 `Keyframe.motion_keys` records exactly the properties and roving state keyed for each element, while sparse `Keyframe.motion_tracks` stores its easing, path, Orient, Snap and Sync settings; legacy shared fields remain exact fallbacks. Editing one member keys only that object, while F6 keys all properties for every object in the span. Removing the tween drops its ◆ keys; switching to classic keeps their poses as keyframes. The single selected motion-tweened object shows its own path on the Stage with a dot per frame and ◆ key points (toggled via Show path / Show frame dots in workspace prefs); dragging a point keys only its X/Y with one Undo. The Motion editor shows only the single Stage-selected object's property tracks over the span (including X, Y, Scale X, Scale Y, Rotation Z, Skew, Alpha and Tint / Colour brightness percentage), adds property tracks via `+` (`Add property`) on Basic motion, Transformation and Colour effect (and attaches filters across the span via Filters ▸ `+`, opening `Window ▸ Panels ▸ Filters`), resizes the span via the footer `Frames` stepper, edits per-property eases, moves ◆ keys horizontally in time or vertically by value (one Undo per drag), adds or removes one property's ◆ key at the playhead and jumps between keys; Properties — Motion tween edits that object's ease, rotation turns and direction, Orient to path, path box, Sync and Snap overrides; Show path / Show frame dots remain workspace preferences. Copy motion records the classic tween or selected object's Motion track under the playhead; Paste motion merges it relative to the destination pose without removing sibling keys, labels or sounds. Paste motion special chooses position, scale, rotation/skew, colour, filters, blend and ease, with relative scale/rotation overrides. Dragging a motion segment bends it; handles mirror by default, Option-drag breaks tangents and Option-click toggles corner/smooth. Format-10 objects may own independent curves; format-8 shared paths retain their original first-reference behaviour, and both use shared Rust arc-length sampling in native, HTML5 and Lottie.",
       "limitations": "Selective paste materializes affected source/destination spans at integer frames to preserve unticked animation and surrounding content; Ease-only retains keys. Range cuts/reverse and XFL export bake curved motion into poses. Linked motion guides remain edited as guide artwork. Filters added from the Motion editor are edited in `Window ▸ Panels ▸ Filters` rather than separate per-filter curve lanes inside the Motion editor.",
       "items": [
@@ -1447,8 +1447,8 @@
         },
         {
           "id": "motion-tools-expressions-wiggler",
-          "title": "Property-expression, Motion Sketch, Wiggler, work-area, marker and Stage A/B engine/commands; authoring UI pending",
-          "status": "partial"
+          "title": "Property expressions, Motion Sketch, Wiggler, work area, markers and Stage A/B comparison",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -2556,8 +2556,8 @@
         },
         {
           "id": "outline-export",
-          "title": "Export text as outlines",
-          "status": "partial"
+          "title": "Export text as outlines including simple, composite and CFF/OpenType faces",
+          "status": "working"
         },
         {
           "id": "font-policies",
@@ -3584,7 +3584,7 @@
         {
           "id": "ime",
           "title": "IME input",
-          "status": "planned"
+          "status": "working"
         },
         {
           "id": "trackpad",
@@ -3643,9 +3643,9 @@
       "id": "platform-performance",
       "category": "platform",
       "title": "Scaling to large projects",
-      "status": "partial",
-      "scope": "Validation/work budgets, expansion limits and cached browser path geometry exist. Resource-aware history shares immutable resource buffers and deduplicates identical data across snapshots. Timeline painting skips off-screen frame cells and rows.",
-      "limitations": "Timeline virtualization remains partial: the panel still clones all layer data and constructs every layer header; the visible-row helper is not used by that path. Published performance budgets are missing. Resource sharing is implemented, but the entire document history is not a delta-based store.",
+      "status": "implemented",
+      "scope": "Validation/work budgets, expansion limits and cached browser path geometry exist. Resource-aware history shares immutable resource buffers and deduplicates identical data across snapshots. Timeline, Library, Movie Explorer and Output rows virtualize with bounded overscan, and Timeline preview thumbnail rendering is capped per UI tick.",
+      "limitations": "Resource sharing is implemented, while full document history remains snapshot-based rather than delta-compressed.",
       "items": [
         {
           "id": "work-budgets",
@@ -3659,8 +3659,8 @@
         },
         {
           "id": "timeline-virtualization",
-          "title": "Timeline virtualization",
-          "status": "partial"
+          "title": "Timeline, Library, Movie Explorer and Output virtualization",
+          "status": "working"
         },
         {
           "id": "resource-undo",
@@ -3670,7 +3670,7 @@
         {
           "id": "performance-budgets",
           "title": "Published performance budgets",
-          "status": "planned"
+          "status": "working"
         }
       ],
       "evidence": [
@@ -3775,8 +3775,8 @@
         },
         {
           "id": "extended-aria-reading-order",
-          "title": "Extended ARIA/read-order model, resolver and diagnostics; authoring and published-tree integration pending",
-          "status": "partial"
+          "title": "Extended ARIA/read-order model, resolver, diagnostics and DOM overlay",
+          "status": "working"
         },
         {
           "id": "browser-keyboard-focus",

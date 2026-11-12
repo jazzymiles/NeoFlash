@@ -104,22 +104,33 @@ const __nfProgram = (() => {
         return definition?.dialect==='as3'?definition:null;
     }
     function slotMap(receiver) {let map=slots.get(receiver);if(!map)slots.set(receiver,map=new Map());return map;}
+    function callerClass(caller) {
+        return typeof caller === 'object' && caller !== null ? caller.class : caller;
+    }
+    function callerNamespaces(caller) {
+        return typeof caller === 'object' && caller !== null && Array.isArray(caller.ns) ? caller.ns : null;
+    }
     function eligible(member,caller) {
         if(member.access==='public')return true;
+        const cls=callerClass(caller);
+        const ns=callerNamespaces(caller);
         if(member.access==='namespace'){
             if(!caller)return false;
-            return chain(caller).some(definition=>definition.openNamespaces?.includes(member.namespace));
+            if(ns)return ns.includes(member.namespace);
+            if(!cls)return false;
+            return chain(cls).some(definition=>definition.openNamespaces?.includes(member.namespace));
         }
-        const context=definitions.get(caller);if(!context)return false;
-        if(member.access==='private')return member.owner===caller;
+        const context=definitions.get(cls);if(!context)return false;
+        if(member.access==='private')return member.owner===cls;
         if(member.access==='internal')return definitions.get(member.owner).package===context.package;
-        return chain(caller).some(definition=>definition.name===member.owner);
+        return chain(cls).some(definition=>definition.name===member.owner);
     }
     function resolveSlot(receiver,name,caller) {
         const map=slots.get(receiver);if(!map)return null;
+        const cls=callerClass(caller);
         // A lexical declaration resolves its own namespace before any unrelated
         // same-spelled trait. Virtual overrides share that namespace slot.
-        if(caller)for(const definition of chain(caller).reverse()){
+        if(cls)for(const definition of chain(cls).reverse()){
             for(const member of [...definition.fields,...definition.methods,...definition.accessors]){
                 if(member.name===name&&eligible(member,caller)&&map.has(member.slot))return map.get(member.slot);
             }
@@ -127,10 +138,6 @@ const __nfProgram = (() => {
         const matches=[...map.values()].filter(slot=>slot.member.name===name&&eligible(slot.member,caller));
         if(matches.length>1)throw new ReferenceError(`Ambiguous project property ${name}; qualify the declaration or use a public accessor.`);
         if(matches.length===1)return matches[0];
-        if(!caller){
-            const nsMatches=[...map.values()].filter(slot=>slot.member.name===name&&slot.member.access==='namespace');
-            if(nsMatches.length===1)return nsMatches[0];
-        }
         return null;
     }
     function publicSlot(receiver,name){return [...(slots.get(receiver)?.values()||[])].find(slot=>slot.member.name===name&&slot.member.access==='public')||null;}
@@ -143,7 +150,8 @@ const __nfProgram = (() => {
             const nsSlot=namespaceSlot(receiver,name,uri);
             if(nsSlot)return nsSlot;
         }
-        return resolveSlot(receiver,name,caller||identities.get(receiver))||publicSlot(receiver,name);
+        const effectiveCaller=callerClass(caller)?caller:(caller?{class:identities.get(receiver),ns:callerNamespaces(caller)}:identities.get(receiver));
+        return resolveSlot(receiver,name,effectiveCaller)||publicSlot(receiver,name);
     }
     function isProxy(receiver){
         return receiver!=null&&(typeof receiver==='object'||typeof receiver==='function')&&!classFacades.has(receiver)&&is(receiver,'flash.utils.Proxy');
@@ -151,7 +159,8 @@ const __nfProgram = (() => {
     const proxyBypassProps=new Set(['isAttribute','hasOwnProperty','propertyIsEnumerable','setPropertyIsEnumerable','isPrototypeOf','toString','valueOf','toLocaleString','constructor']);
     function hasTrait(receiver,name,caller){
         if(!classDefinition(receiver))return false;
-        if(resolveSlot(receiver,name,caller||identities.get(receiver)))return true;
+        const effectiveCaller=callerClass(caller)?caller:(caller?{class:identities.get(receiver),ns:callerNamespaces(caller)}:identities.get(receiver));
+        if(resolveSlot(receiver,name,effectiveCaller))return true;
         return proxyBypassProps.has(name);
     }
     function invokeProxy(receiver,trap,args){
@@ -172,7 +181,7 @@ const __nfProgram = (() => {
     function ref(receiver,name,caller) {
         if(!classDefinition(receiver))return null;
         const slot=resolveSlot(receiver,name,caller);
-        if(slot)return {get:slot.get,set(value){slot.set(value);return value;},delete:()=>false,has:()=>true};
+        if(slot)return {get:slot.get,set(value){slot.set(value);return slot.kind==='field'?slot.get():value;},delete:()=>false,has:()=>true};
         if(isProxy(receiver)&&!proxyBypassProps.has(name)){
             return {
                 get:()=>invokeProxy(receiver,'getProperty',[name]),
@@ -339,7 +348,7 @@ const __nfProgram = (() => {
         while (definitions.has(base)) {
             const definition = definitions.get(base);
             for(const field of definition.fields.filter(field=>!field.static&&eligible(field,name))){
-                if(!Object.hasOwn(view,field.name)){const slot=slots.get(receiver)?.get(field.slot);if(slot)Object.defineProperty(view,field.name,{get:slot.get,set:slot.set});}
+                if(!Object.hasOwn(view,field.name)){const slot=slots.get(receiver)?.get(field.slot);if(slot)Object.defineProperty(view,field.name,{get:slot.get,set(value){slot.set(value);return slot.kind==='field'?slot.get():value;}});}
             }
             for (const method of definition.methods.filter(method => !method.static&&eligible(method,name))) {
                 if (!Object.hasOwn(view, method.name)) Object.defineProperty(view,method.name,{value:__nfBindFunction(method.fn,receiver)});
@@ -353,14 +362,54 @@ const __nfProgram = (() => {
         }
         for (const [key,pair] of accessors) if(!Object.hasOwn(view,key))Object.defineProperty(view,key,accessorDescriptor(key,pair,receiver));
         if (base) {
-            const prototype = type(base).prototype;
-            if (prototype) for (const key of Object.getOwnPropertyNames(prototype)) {
-                const method = Object.getOwnPropertyDescriptor(prototype,key)?.value;
-                if (key !== 'constructor' && !Object.hasOwn(view, key) && typeof method === 'function') view[key] = __nfBindFunction(method,receiver);
+            for (let prototype = type(base)?.prototype; prototype; prototype = Object.getPrototypeOf(prototype)) {
+                for (const key of Object.getOwnPropertyNames(prototype)) {
+                    if (key === 'constructor' || Object.hasOwn(view, key)) continue;
+                    const desc = Object.getOwnPropertyDescriptor(prototype, key);
+                    if (typeof desc?.value === 'function') {
+                        view[key] = __nfBindFunction(desc.value, receiver);
+                    } else if (desc?.get || desc?.set) {
+                        Object.defineProperty(view, key, {
+                            configurable: true,
+                            get: desc.get ? () => Reflect.apply(desc.get, receiver, []) : undefined,
+                            set: desc.set ? v => Reflect.apply(desc.set, receiver, [v]) : undefined,
+                        });
+                    }
+                }
             }
         }
-        cache.set(name, view);
-        return view;
+        const resolvedView = base ? new Proxy(view, {
+            get(target, prop, recv) {
+                if (typeof prop === 'symbol' || prop === 'constructor' || Object.hasOwn(target, prop)) {
+                    return Reflect.get(target, prop, recv);
+                }
+                const hasProjectSlot = [...(slots.get(receiver)?.values() || [])].some(s => s.member.name === prop);
+                if (!hasProjectSlot && receiver != null && prop in Object(receiver)) {
+                    const val = receiver[prop];
+                    return typeof val === 'function' ? __nfBindFunction(val, receiver) : val;
+                }
+                return Reflect.get(target, prop, recv);
+            },
+            has(target, prop) {
+                if (Object.hasOwn(target, prop)) return true;
+                const hasProjectSlot = [...(slots.get(receiver)?.values() || [])].some(s => s.member.name === prop);
+                if (!hasProjectSlot && receiver != null && prop in Object(receiver)) return true;
+                return Reflect.has(target, prop);
+            },
+            set(target, prop, value, recv) {
+                if (Object.hasOwn(target, prop)) {
+                    return Reflect.set(target, prop, value, recv);
+                }
+                const hasProjectSlot = [...(slots.get(receiver)?.values() || [])].some(s => s.member.name === prop);
+                if (!hasProjectSlot && receiver != null && prop in Object(receiver)) {
+                    receiver[prop] = value;
+                    return true;
+                }
+                return Reflect.set(target, prop, value, recv);
+            },
+        }) : view;
+        cache.set(name, resolvedView);
+        return resolvedView;
     }
     function attach(name, receiver, args = []) {
         if (!definitions.has(name)) throw new Error(`Linked class ${name} is not a project class.`);

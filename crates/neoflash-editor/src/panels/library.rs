@@ -14,6 +14,50 @@ use neoflash_ui::tokens::{TextStyle, space};
 use neoflash_ui::typography::rich;
 use std::collections::{HashMap, HashSet};
 
+/// Minimum number of rows in the Library tree before row virtualization activates.
+pub const LIBRARY_VIRTUALIZATION_THRESHOLD: usize = 64;
+
+/// Vertical overscan (in rows) above and below the visible Library viewport.
+pub const LIBRARY_OVERSCAN_ROWS: usize = 8;
+
+/// Telemetry recorded during the most recent `library_browser` pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LibraryVirtualStats {
+    pub total_rows: usize,
+    pub first_row: usize,
+    pub last_row: usize,
+    pub drawn_rows: usize,
+}
+
+const LIBRARY_VIRTUAL_STATS_ID: &str = "neoflash_library_virtual_stats";
+
+/// Compute the visible Library row index range (`start..end`) inside `clip_top..=clip_bottom`.
+pub fn visible_library_row_range(
+    clip_top: f32,
+    clip_bottom: f32,
+    list_top: f32,
+    row_h: f32,
+    total_rows: usize,
+    overscan_rows: usize,
+) -> std::ops::Range<usize> {
+    if total_rows <= LIBRARY_VIRTUALIZATION_THRESHOLD
+        || row_h <= 0.0
+        || !clip_top.is_finite()
+        || !clip_bottom.is_finite()
+        || clip_bottom <= clip_top
+    {
+        return 0..total_rows;
+    }
+    let raw_first = ((clip_top - list_top) / row_h).floor().max(0.0) as usize;
+    let raw_last = ((clip_bottom - list_top) / row_h).ceil().max(1.0) as usize;
+    let start = raw_first.saturating_sub(overscan_rows).min(total_rows);
+    let end = raw_last
+        .saturating_add(overscan_rows)
+        .min(total_rows)
+        .max(start);
+    start..end
+}
+
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub(crate) enum LibrarySource {
     #[default]
@@ -1748,7 +1792,37 @@ impl Editor {
                         action = Some(Action::NewFolder(String::new()));
                     }
                 });
-                for row in rows {
+                let total_rows = rows.len();
+                let row_h = neoflash_ui::metrics::control();
+                let list_top = ui.cursor().min.y;
+                let clip = ui.clip_rect();
+                let row_range = visible_library_row_range(
+                    clip.top(),
+                    clip.bottom(),
+                    list_top,
+                    row_h,
+                    total_rows,
+                    LIBRARY_OVERSCAN_ROWS,
+                );
+                let top_spacer = row_range.start as f32 * row_h;
+                if top_spacer > 0.0 {
+                    ui.allocate_exact_size(
+                        Vec2::new(ui.available_width(), top_spacer),
+                        Sense::hover(),
+                    );
+                }
+                let bottom_spacer = total_rows.saturating_sub(row_range.end) as f32 * row_h;
+                let drawn_rows = row_range.len();
+                let stats = LibraryVirtualStats {
+                    total_rows,
+                    first_row: row_range.start,
+                    last_row: row_range.end.saturating_sub(1),
+                    drawn_rows,
+                };
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(egui::Id::new(LIBRARY_VIRTUAL_STATS_ID), stats);
+                });
+                for row in rows.into_iter().skip(row_range.start).take(drawn_rows) {
                     match row {
                         LibraryRow::Folder { path, depth } => {
                             let expanded =
@@ -1978,6 +2052,12 @@ impl Editor {
                             });
                         }
                     }
+                }
+                if bottom_spacer > 0.0 {
+                    ui.allocate_exact_size(
+                        Vec2::new(ui.available_width(), bottom_spacer),
+                        Sense::hover(),
+                    );
                 }
                 if source_active && let Some(target_folder) = drop_folder_target {
                     match self.library_panel.drag.take() {
@@ -2942,6 +3022,12 @@ impl Editor {
         }
         self.library_panel.editing = Some(edit);
     }
+
+    /// Return the virtualization telemetry recorded by the most recent `library_browser` pass.
+    #[allow(dead_code)]
+    pub fn last_library_virtual_stats(&self, ctx: &egui::Context) -> Option<LibraryVirtualStats> {
+        ctx.data(|d| d.get_temp::<LibraryVirtualStats>(egui::Id::new(LIBRARY_VIRTUAL_STATS_ID)))
+    }
 }
 
 pub(crate) fn folder_picker(
@@ -3029,7 +3115,7 @@ fn build_rows(
         .iter()
         .filter(|path| parent_folder(path) == parent)
         .collect();
-    child_folders.sort_by_key(|path| path.to_lowercase());
+    child_folders.sort_by_cached_key(|path| path.to_lowercase());
     if state.descending {
         child_folders.reverse();
     }
@@ -3061,7 +3147,7 @@ fn build_rows(
             symbol.folder == parent && (query.is_empty() || symbol_matches(symbol, query))
         })
         .collect();
-    items.sort_by_key(|symbol| {
+    items.sort_by_cached_key(|symbol| {
         (
             match state.sort {
                 LibrarySort::Name => symbol.name.to_lowercase(),

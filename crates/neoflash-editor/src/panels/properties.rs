@@ -875,12 +875,12 @@ impl Editor {
                         && changes.control.is_some()
                         && let Some(shown_format) = &shown_text_format
                     {
-                        self.reconcile_inspector_text_edit(
+                        self.reconcile_inspector_text_edit_with_transform(
                             &original.id,
                             &original.kind,
                             shown_format,
                             &mut element.kind,
-                            &mut element.transform.alpha,
+                            &mut element.transform,
                         );
                     }
                 });

@@ -130,10 +130,10 @@ pub use ik_puppet_3d::{
 pub use jsfl::{
     BatchRenameOptions, BatchRenameReport, BatchRenameScope, CHANGE_COLOR_JSFL_SCRIPT,
     ChangeColorOptions, ChangeColorReport, DocHandle, ElementHandle, FlFileCapabilities,
-    FrameHandle, ItemHandle, JsflAuthoringState, JsflDiagnostic, JsflLimits, JsflResult,
-    JsflSandbox, JsflValue, LayerHandle, ProjectColorEntry, TimelineHandle,
-    batch_rename_library_and_instances, change_project_color, collect_project_colors,
-    collect_project_colors_scoped, run_change_color_jsfl,
+    FrameHandle, ItemHandle, JsflAuthoringState, JsflDiagnostic, JsflFileSystem, JsflLimits,
+    JsflResult, JsflSandbox, JsflValue, LayerHandle, MemoryJsflFileSystem, ProjectColorEntry,
+    StdJsflFileSystem, TimelineHandle, batch_rename_library_and_instances, change_project_color,
+    collect_project_colors, collect_project_colors_scoped, run_change_color_jsfl,
 };
 pub use library_folders::valid_library_folder;
 pub use merge_drawing::{
@@ -181,20 +181,15 @@ pub use runtime_graphics::{
     GradientStop, GraphicsOp, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS,
 };
 pub use scenes::{
-    GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_with_ranges,
-    resolve_goto, scene_ranges, scene_step,
+    GotoFrame, GotoRequest, SceneMetadata, SceneRange, flatten_scenes, flatten_scenes_cow,
+    flatten_scenes_with_ranges, resolve_goto, scene_ranges, scene_step,
 };
 pub use shape_tween::{
     DEFAULT_HINT_VERTEX_SNAP_RADIUS, MAX_SHAPE_TWEEN_SEGMENTS, ShapeHintContour, ShapeHintGeometry,
     active_shape_hint_labels, default_shape_hint_uv, is_default_unplaced_uv, shape_tween_elements,
     shape_tween_elements_with_hints, weld_merge_strokes_for_tween,
 };
-pub use text::{
-    AuthoredTextFieldOptions, MAX_TEXT_BYTES, TextAlign, TextBoxSize, TextCharBox, TextError,
-    TextFieldState, TextFieldType, TextFormat, TextFormatPatch, TextFormatRangePatch,
-    TextFormatRun, TextInputEdit, TextLayout, TextLine, TextPatch, TextQuery, TextReplacement,
-    TextRestrictPatch, TextSelection, layout_char_boxes, layout_text, query_text,
-};
+pub use text::*;
 pub use timeline_edit::{
     FrameClipboard, FrameLayerClip, FrameRange, TimelineEdit, copy_frames, edit_frames,
     frame_delta_ms, split_stream_sound_at, split_video_span_at, sync_layer_symbol,

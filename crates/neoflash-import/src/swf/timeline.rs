@@ -2804,9 +2804,7 @@ fn apply_linkage_and_abc(
         }
         if *cid == 0 {
             if let Some(fscripts) = pure_timeline_classes.get(raw_class) {
-                if let Some(root_sym) = project.symbol_mut(&project.root.clone()) {
-                    attach_as3_frame_scripts(&mut root_sym.timeline, fscripts);
-                }
+                attach_root_as3_frame_scripts(project, fscripts);
                 omitted_pure_classes.insert(raw_class.clone());
             } else if project.document_class.is_none() {
                 project.document_class = Some(raw_class.clone());
@@ -2849,17 +2847,13 @@ fn apply_linkage_and_abc(
         }
     }
 
-    // Also handle Flash SWFs that omit `SymbolClass(0, ...MainTimeline)` when `MainTimeline` is the sole pure timeline class.
-    if project.document_class.is_none() {
-        for (qname, fscripts) in &pure_timeline_classes {
-            if (qname.ends_with(".MainTimeline") || qname == "MainTimeline")
-                && !omitted_pure_classes.contains(qname)
-            {
-                if let Some(root_sym) = project.symbol_mut(&project.root.clone()) {
-                    attach_as3_frame_scripts(&mut root_sym.timeline, fscripts);
-                }
-                omitted_pure_classes.insert(qname.clone());
-            }
+    // Also handle Flash SWFs that omit `SymbolClass(0, ...MainTimeline)` when `MainTimeline` is a pure timeline class.
+    for (qname, fscripts) in &pure_timeline_classes {
+        if (qname.ends_with(".MainTimeline") || qname == "MainTimeline")
+            && !omitted_pure_classes.contains(qname)
+        {
+            attach_root_as3_frame_scripts(project, fscripts);
+            omitted_pure_classes.insert(qname.clone());
         }
     }
 
@@ -2890,6 +2884,34 @@ fn apply_linkage_and_abc(
             language: ScriptLanguage::ActionScript3,
             source: cls.source,
         });
+    }
+}
+
+fn attach_root_as3_frame_scripts(project: &mut Project, fscripts: &[(u32, String)]) {
+    if project.scenes.len() > 1 {
+        let mut ranges: Vec<(Id, u32, u32)> = Vec::with_capacity(project.scenes.len());
+        let mut offset = 0u32;
+        for scene_id in project.scenes.clone() {
+            if let Some(sym) = project.symbol(&scene_id) {
+                let len = sym.timeline.frame_count.max(1);
+                ranges.push((scene_id, offset, offset.saturating_add(len)));
+                offset = offset.saturating_add(len);
+            }
+        }
+        for (scene_id, start, end) in ranges {
+            let local_scripts: Vec<(u32, String)> = fscripts
+                .iter()
+                .filter(|(f, _)| *f >= start && *f < end)
+                .map(|(f, code)| (*f - start, code.clone()))
+                .collect();
+            if !local_scripts.is_empty()
+                && let Some(sym) = project.symbol_mut(&scene_id)
+            {
+                attach_as3_frame_scripts(&mut sym.timeline, &local_scripts);
+            }
+        }
+    } else if let Some(root_sym) = project.symbol_mut(&project.root.clone()) {
+        attach_as3_frame_scripts(&mut root_sym.timeline, fscripts);
     }
 }
 

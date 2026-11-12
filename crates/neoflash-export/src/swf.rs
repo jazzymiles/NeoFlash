@@ -3958,16 +3958,12 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
         SwfExpr::Binary { op, lhs, rhs } => {
             if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
                 avm1_compile_expr(out, lhs)?;
-                out.push(0x12); // ActionNot
-                out.push(0x12); // ActionNot: normalize lhs to Boolean
                 out.push(0x4c); // ActionPushDuplicate
                 if *op == SwfBinaryOp::And {
                     out.push(0x12); // ActionNot: branch when lhs is false
                 }
                 let mut rhs_bytes = Vec::new();
                 avm1_compile_expr(&mut rhs_bytes, rhs)?;
-                rhs_bytes.push(0x12); // ActionNot
-                rhs_bytes.push(0x12); // ActionNot: normalize rhs to Boolean
                 let skip_rhs = rhs_bytes
                     .len()
                     .checked_add(1)
@@ -3987,7 +3983,7 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
                 SwfBinaryOp::Sub => out.push(0x0b), // ActionSubtract
                 SwfBinaryOp::Mul => out.push(0x0c), // ActionMultiply
                 SwfBinaryOp::Div => out.push(0x0d), // ActionDivide
-                SwfBinaryOp::Mod => out.push(0x53), // ActionModulo
+                SwfBinaryOp::Mod => out.push(0x3f), // ActionModulo
                 SwfBinaryOp::Eq => out.push(0x49),  // ActionEquals2
                 SwfBinaryOp::Ne => {
                     out.push(0x49); // ActionEquals2
@@ -4010,11 +4006,11 @@ fn avm1_compile_expr(out: &mut Vec<u8>, expr: &SwfExpr) -> Result<(), String> {
                 }
                 SwfBinaryOp::And | SwfBinaryOp::Or => unreachable!("handled above"),
                 SwfBinaryOp::BitAnd => out.push(0x60), // ActionBitAnd
-                SwfBinaryOp::Shl => out.push(0x61),    // ActionBitLShift
-                SwfBinaryOp::BitOr => out.push(0x62),  // ActionBitOr
-                SwfBinaryOp::Shr => out.push(0x63),    // ActionBitRShift
-                SwfBinaryOp::UShr => out.push(0x64),   // ActionBitURShift
-                SwfBinaryOp::BitXor => out.push(0x65), // ActionBitXor
+                SwfBinaryOp::BitOr => out.push(0x61),  // ActionBitOr
+                SwfBinaryOp::BitXor => out.push(0x62), // ActionBitXor
+                SwfBinaryOp::Shl => out.push(0x63),    // ActionBitLShift
+                SwfBinaryOp::Shr => out.push(0x64),    // ActionBitRShift
+                SwfBinaryOp::UShr => out.push(0x65),   // ActionBitURShift
             }
         }
         SwfExpr::Call { callee, args } => {
@@ -4317,7 +4313,7 @@ fn avm1_compile_stmt(out: &mut Vec<u8>, stmt: &SwfStmt, in_function: bool) -> Re
                         SwfAssignOp::SubAssign => 0x0b,
                         SwfAssignOp::MulAssign => 0x0c,
                         SwfAssignOp::DivAssign => 0x0d,
-                        SwfAssignOp::ModAssign => 0x53,
+                        SwfAssignOp::ModAssign => 0x3f,
                         SwfAssignOp::Assign => unreachable!(),
                     });
                     Ok(())
@@ -4713,6 +4709,13 @@ fn parse_as3_source_to_spec_strict(
         });
     }
 
+    if !external_source {
+        return Err(
+            "ActionScript 3 frame script cannot declare a package or class; move package/class definitions to an external .as source file"
+                .to_owned(),
+        );
+    }
+
     let mut pkg = String::new();
     let mut has_package_brace = false;
     if starts_with_package {
@@ -4901,8 +4904,9 @@ fn try_compile_avm2_source(source: &str, external_source: bool) -> Result<AbcCla
     let mut pool = AbcPoolBuilder::default();
     let mut code = SwfBitWriter::new();
     let mut method_count = 1u32;
-    let mut method_params = vec![0u32];
+    let mut method_params = vec![Vec::new()];
     let mut method_bodies = Vec::new();
+    let empty_locals = HashMap::new();
     compile_avm2_stmt_list(
         &mut pool,
         &spec.ctor_statements,
@@ -4910,9 +4914,14 @@ fn try_compile_avm2_source(source: &str, external_source: bool) -> Result<AbcCla
         &mut method_count,
         &mut method_params,
         &mut method_bodies,
+        &empty_locals,
     )?;
-    for (_, _, m_stmts) in &spec.extra_methods {
+    for (_, m_params, m_stmts) in &spec.extra_methods {
         let mut m_code = SwfBitWriter::new();
+        let mut fn_locals = HashMap::new();
+        for (idx, param_name) in m_params.iter().enumerate() {
+            fn_locals.insert(param_name.clone(), (idx + 1) as u32);
+        }
         compile_avm2_stmt_list(
             &mut pool,
             m_stmts,
@@ -4920,16 +4929,168 @@ fn try_compile_avm2_source(source: &str, external_source: bool) -> Result<AbcCla
             &mut method_count,
             &mut method_params,
             &mut method_bodies,
+            &fn_locals,
         )?;
     }
     Ok(spec)
 }
 
-fn is_avm2_mc_display_prop(name: &str) -> bool {
-    matches!(
-        name,
-        "x" | "y" | "scaleX" | "scaleY" | "alpha" | "visible" | "rotation"
-    )
+fn emit_avm2_getlocal(code: &mut SwfBitWriter, reg: u32) {
+    match reg {
+        0 => code.u8(0xD0), // getlocal_0
+        1 => code.u8(0xD1), // getlocal_1
+        2 => code.u8(0xD2), // getlocal_2
+        3 => code.u8(0xD3), // getlocal_3
+        r => {
+            code.u8(0x62); // getlocal
+            code.u32_v(r);
+        }
+    }
+}
+
+fn emit_avm2_setlocal(code: &mut SwfBitWriter, reg: u32) {
+    match reg {
+        0 => code.u8(0xD4), // setlocal_0
+        1 => code.u8(0xD5), // setlocal_1
+        2 => code.u8(0xD6), // setlocal_2
+        3 => code.u8(0xD7), // setlocal_3
+        r => {
+            code.u8(0x63); // setlocal
+            code.u32_v(r);
+        }
+    }
+}
+
+fn read_abc_u30(code: &[u8], pos: &mut usize) -> u32 {
+    let mut result = 0u32;
+    let mut shift = 0u32;
+    for _ in 0..5 {
+        let Some(&b) = code.get(*pos) else { break };
+        *pos += 1;
+        result |= u32::from(b & 0x7F) << shift;
+        if (b & 0x80) == 0 {
+            break;
+        }
+        shift += 7;
+    }
+    result
+}
+
+fn compute_avm2_method_metrics(code: &[u8], param_count: u32) -> (u32, u32) {
+    let mut cur_stack = 0i32;
+    let mut max_stack = 1i32;
+    let mut max_local = param_count;
+    let mut pos = 0usize;
+    while pos < code.len() {
+        let op = code[pos];
+        pos += 1;
+        match op {
+            0x10 => {
+                // jump s24
+                pos = pos.saturating_add(3);
+            }
+            0x11 | 0x12 => {
+                // iftrue / iffalse s24
+                pos = pos.saturating_add(3);
+                cur_stack = (cur_stack - 1).max(0);
+            }
+            0x1D | 0x47 => {
+                // popscope / returnvoid
+            }
+            0x20 | 0x21 | 0x26 | 0x27 | 0x2A => {
+                // pushnull / pushundefined / pushtrue / pushfalse / dup
+                cur_stack += 1;
+                max_stack = max_stack.max(cur_stack);
+            }
+            0x24 | 0x65 => {
+                // pushbyte u8 / getscopeobject u8
+                pos = pos.saturating_add(1);
+                cur_stack += 1;
+                max_stack = max_stack.max(cur_stack);
+            }
+            0x25 | 0x2C | 0x2D | 0x2E | 0x2F | 0x40 | 0x5D | 0x60 => {
+                // pushshort / pushstring / pushint / pushuint / pushdouble / newfunction / findpropstrict / getlex
+                let _ = read_abc_u30(code, &mut pos);
+                cur_stack += 1;
+                max_stack = max_stack.max(cur_stack);
+            }
+            0x29 | 0x30 | 0x48 => {
+                // pop / pushscope / returnvalue
+                cur_stack = (cur_stack - 1).max(0);
+            }
+            0x41 | 0x49 => {
+                // call / constructsuper (u30 argc)
+                let argc = read_abc_u30(code, &mut pos) as i32;
+                if op == 0x41 {
+                    cur_stack = (cur_stack - argc - 1).max(1);
+                } else {
+                    cur_stack = (cur_stack - argc - 1).max(0);
+                }
+            }
+            0x46 | 0x4A => {
+                // callproperty / constructprop (u30 mn, u30 argc)
+                let _ = read_abc_u30(code, &mut pos);
+                let argc = read_abc_u30(code, &mut pos) as i32;
+                cur_stack = (cur_stack - argc).max(1);
+            }
+            0x4F => {
+                // callpropvoid (u30 mn, u30 argc)
+                let _ = read_abc_u30(code, &mut pos);
+                let argc = read_abc_u30(code, &mut pos) as i32;
+                cur_stack = (cur_stack - argc - 1).max(0);
+            }
+            0x56 => {
+                // newarray (u30 argc)
+                let argc = read_abc_u30(code, &mut pos) as i32;
+                cur_stack = (cur_stack - argc + 1).max(1);
+                max_stack = max_stack.max(cur_stack);
+            }
+            0x58 | 0x66 => {
+                // newclass / getproperty (u30)
+                let _ = read_abc_u30(code, &mut pos);
+                max_stack = max_stack.max(cur_stack.max(1));
+            }
+            0x61 | 0x68 => {
+                // setproperty / initproperty (u30)
+                let _ = read_abc_u30(code, &mut pos);
+                cur_stack = (cur_stack - 2).max(0);
+            }
+            0x62 => {
+                // getlocal u30
+                let reg = read_abc_u30(code, &mut pos);
+                max_local = max_local.max(reg);
+                cur_stack += 1;
+                max_stack = max_stack.max(cur_stack);
+            }
+            0x63 => {
+                // setlocal u30
+                let reg = read_abc_u30(code, &mut pos);
+                max_local = max_local.max(reg);
+                cur_stack = (cur_stack - 1).max(0);
+            }
+            0x73..=0x76 | 0x90 | 0x91 | 0x93 | 0x96 => {
+                // unary in-place
+                max_stack = max_stack.max(cur_stack.max(1));
+            }
+            0xA0..=0xB0 | 0xC5..=0xC7 => {
+                // binary: pops 2, pushes 1
+                cur_stack = (cur_stack - 1).max(1);
+            }
+            0xD0..=0xD3 => {
+                let reg = u32::from(op - 0xD0);
+                max_local = max_local.max(reg);
+                cur_stack += 1;
+                max_stack = max_stack.max(cur_stack);
+            }
+            0xD4..=0xD7 => {
+                let reg = u32::from(op - 0xD4);
+                max_local = max_local.max(reg);
+                cur_stack = (cur_stack - 1).max(0);
+            }
+            _ => {}
+        }
+    }
+    (max_stack.max(1) as u32, max_local.saturating_add(1).max(1))
 }
 
 type AbcMethodBodyRecord = (u32, u32, u32, u32, u32, Vec<u8>);
@@ -4940,8 +5101,9 @@ fn compile_avm2_expr(
     expr: &SwfExpr,
     code: &mut SwfBitWriter,
     method_count: &mut u32,
-    method_params: &mut Vec<u32>,
+    method_params: &mut Vec<Vec<u32>>,
     method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    local_regs: &HashMap<String, u32>,
 ) -> Result<(), String> {
     match expr {
         SwfExpr::Null => code.u8(0x20),        // pushnull
@@ -4962,6 +5124,8 @@ fn compile_avm2_expr(
         SwfExpr::Ident(name) => {
             if name == "this" || name == "_root" {
                 code.u8(0xD0); // getlocal_0
+            } else if let Some(&reg) = local_regs.get(name) {
+                emit_avm2_getlocal(code, reg);
             } else {
                 let mn = pool.add_qname("", name);
                 code.u8(0x60); // getlex
@@ -4970,33 +5134,57 @@ fn compile_avm2_expr(
         }
         SwfExpr::ArrayLit(elems) => {
             for el in elems {
-                compile_avm2_expr(pool, el, code, method_count, method_params, method_bodies)?;
+                compile_avm2_expr(
+                    pool,
+                    el,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
             }
             code.u8(0x56); // newarray
             code.u32_v(elems.len() as u32);
         }
         SwfExpr::Member(obj, prop) => {
-            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
-            let mn = if let SwfExpr::Ident(id) = obj.as_ref()
-                && id != "this"
-                && id != "_root"
-                && is_avm2_mc_display_prop(prop)
-            {
-                pool.add_qname("", &format!("__nf_mc_{id}_{prop}"))
-            } else {
-                pool.add_qname("", prop)
-            };
+            compile_avm2_expr(
+                pool,
+                obj,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
+            let mn = pool.add_qname("", prop);
             code.u8(0x66); // getproperty
             code.u32_v(mn);
         }
         SwfExpr::Index(obj, idx) => {
             if let SwfExpr::Int(iv) = idx.as_ref() {
-                compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+                compile_avm2_expr(
+                    pool,
+                    obj,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
                 let mn = pool.add_qname("", &iv.to_string());
                 code.u8(0x66); // getproperty
                 code.u32_v(mn);
             } else if let SwfExpr::Str(s) = idx.as_ref() {
-                compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+                compile_avm2_expr(
+                    pool,
+                    obj,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
                 let mn = pool.add_qname("", s);
                 code.u8(0x66); // getproperty
                 code.u32_v(mn);
@@ -5008,7 +5196,15 @@ fn compile_avm2_expr(
             }
         }
         SwfExpr::Unary { op, expr } => {
-            compile_avm2_expr(pool, expr, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                expr,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
             match op {
                 SwfUnaryOp::Not => code.u8(0x96), // not
                 SwfUnaryOp::Neg => code.u8(0x90), // negate
@@ -5017,10 +5213,18 @@ fn compile_avm2_expr(
         }
         SwfExpr::Binary { op, lhs, rhs } => {
             if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
-                compile_avm2_expr(pool, lhs, code, method_count, method_params, method_bodies)?;
-                code.u8(0x76); // convert_b
-                code.u8(0x2A); // dup: branch consumes one value and leaves the result
+                compile_avm2_expr(
+                    pool,
+                    lhs,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
+                code.u8(0x2A); // dup: branch consumes one value and leaves the short-circuit value
                 let mut rhs_code = SwfBitWriter::new();
+                rhs_code.u8(0x29); // pop the non-short-circuit LHS
                 compile_avm2_expr(
                     pool,
                     rhs,
@@ -5028,9 +5232,9 @@ fn compile_avm2_expr(
                     method_count,
                     method_params,
                     method_bodies,
+                    local_regs,
                 )?;
-                rhs_code.u8(0x76); // convert_b
-                let skip_rhs = i32::try_from(rhs_code.buf.len().saturating_add(1))
+                let skip_rhs = i32::try_from(rhs_code.buf.len())
                     .map_err(|_| "AVM2 logical RHS is too large".to_owned())?;
                 code.u8(if *op == SwfBinaryOp::And {
                     0x12 // iffalse
@@ -5038,12 +5242,27 @@ fn compile_avm2_expr(
                     0x11 // iftrue
                 });
                 emit_avm2_s24(code, skip_rhs)?;
-                code.u8(0x29); // pop the non-short-circuit LHS
                 code.bytes(&rhs_code.buf);
                 return Ok(());
             }
-            compile_avm2_expr(pool, lhs, code, method_count, method_params, method_bodies)?;
-            compile_avm2_expr(pool, rhs, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                lhs,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
+            compile_avm2_expr(
+                pool,
+                rhs,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
             match op {
                 SwfBinaryOp::Add => code.u8(0xA0),    // add
                 SwfBinaryOp::Sub => code.u8(0xA1),    // subtract
@@ -5083,6 +5302,7 @@ fn compile_avm2_expr(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
         }
         SwfExpr::New { callee, args } => {
@@ -5095,7 +5315,15 @@ fn compile_avm2_expr(
             code.u8(0x5D); // findpropstrict
             code.u32_v(mn);
             for a in args {
-                compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+                compile_avm2_expr(
+                    pool,
+                    a,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
             }
             code.u8(0x4A); // constructprop
             code.u32_v(mn);
@@ -5113,8 +5341,9 @@ fn compile_avm2_call(
     discard_result: bool,
     code: &mut SwfBitWriter,
     method_count: &mut u32,
-    method_params: &mut Vec<u32>,
+    method_params: &mut Vec<Vec<u32>>,
     method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    local_regs: &HashMap<String, u32>,
 ) -> Result<(), String> {
     let direct_fn = match callee {
         SwfExpr::Ident(name) => Some(name.as_str()),
@@ -5148,13 +5377,21 @@ fn compile_avm2_call(
             code.u8(0x5D); // findpropstrict
             code.u32_v(fn_mn);
             let effective_args =
-                if matches!(short_fn, "gotoAndStop" | "gotoAndPlay") && !args.is_empty() {
-                    &args[..1]
+                if matches!(short_fn, "gotoAndStop" | "gotoAndPlay") && args.len() > 2 {
+                    &args[..2]
                 } else {
                     args
                 };
             for a in effective_args {
-                compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+                compile_avm2_expr(
+                    pool,
+                    a,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
             }
             code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
             code.u32_v(fn_mn);
@@ -5168,7 +5405,15 @@ fn compile_avm2_call(
         code.u32_v(fn_mn);
         code.u8(0xD0); // getlocal_0 (receiver)
         for a in args {
-            compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                a,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
         }
         code.u8(0x41); // call
         code.u32_v(args.len() as u32);
@@ -5179,9 +5424,25 @@ fn compile_avm2_call(
     }
 
     if let SwfExpr::Member(recv, method_name) = callee {
-        compile_avm2_expr(pool, recv, code, method_count, method_params, method_bodies)?;
+        compile_avm2_expr(
+            pool,
+            recv,
+            code,
+            method_count,
+            method_params,
+            method_bodies,
+            local_regs,
+        )?;
         for a in args {
-            compile_avm2_expr(pool, a, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                a,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
         }
         let mn = pool.add_qname("", method_name);
         code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
@@ -5199,26 +5460,31 @@ fn compile_avm2_load_lvalue(
     target: &SwfLValue,
     code: &mut SwfBitWriter,
     method_count: &mut u32,
-    method_params: &mut Vec<u32>,
+    method_params: &mut Vec<Vec<u32>>,
     method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    local_regs: &HashMap<String, u32>,
 ) -> Result<(), String> {
     match target {
         SwfLValue::Ident(name) => {
-            let mn = pool.add_qname("", name);
-            code.u8(0x60); // getlex
-            code.u32_v(mn);
+            if let Some(&reg) = local_regs.get(name) {
+                emit_avm2_getlocal(code, reg);
+            } else {
+                let mn = pool.add_qname("", name);
+                code.u8(0x60); // getlex
+                code.u32_v(mn);
+            }
         }
         SwfLValue::Member(obj, prop) => {
-            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
-            let mn = if let SwfExpr::Ident(id) = obj.as_ref()
-                && id != "this"
-                && id != "_root"
-                && is_avm2_mc_display_prop(prop)
-            {
-                pool.add_qname("", &format!("__nf_mc_{id}_{prop}"))
-            } else {
-                pool.add_qname("", prop)
-            };
+            compile_avm2_expr(
+                pool,
+                obj,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
+            let mn = pool.add_qname("", prop);
             code.u8(0x66); // getproperty
             code.u32_v(mn);
         }
@@ -5231,6 +5497,7 @@ fn compile_avm2_load_lvalue(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
         }
     }
@@ -5243,8 +5510,9 @@ fn compile_avm2_store_lvalue_with_rhs<F>(
     target: &SwfLValue,
     code: &mut SwfBitWriter,
     method_count: &mut u32,
-    method_params: &mut Vec<u32>,
+    method_params: &mut Vec<Vec<u32>>,
     method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    local_regs: &HashMap<String, u32>,
     emit_rhs: F,
 ) -> Result<(), String>
 where
@@ -5252,43 +5520,37 @@ where
         &mut AbcPoolBuilder,
         &mut SwfBitWriter,
         &mut u32,
-        &mut Vec<u32>,
+        &mut Vec<Vec<u32>>,
         &mut Vec<AbcMethodBodyRecord>,
     ) -> Result<(), String>,
 {
     match target {
         SwfLValue::Ident(name) => {
-            let prop_mn = pool.add_qname("", name);
-            code.u8(0xD0); // getlocal_0
-            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
-            code.u8(0x61); // setproperty
-            code.u32_v(prop_mn);
-        }
-        SwfLValue::Member(obj, prop) => {
-            let prop_mn = pool.add_qname("", prop);
-            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
-            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
-            if let SwfExpr::Ident(id) = obj.as_ref()
-                && id != "this"
-                && id != "_root"
-                && is_avm2_mc_display_prop(prop)
-            {
-                let mirror_mn = pool.add_qname("", &format!("__nf_mc_{id}_{prop}"));
-                code.u8(0x63); // setlocal 63
-                code.u32_v(63);
-                code.u8(0x62); // getlocal 63
-                code.u32_v(63);
-                code.u8(0x61); // setproperty on obj
-                code.u32_v(prop_mn);
-                code.u8(0xD0); // getlocal_0
-                code.u8(0x62); // getlocal 63
-                code.u32_v(63);
-                code.u8(0x61); // setproperty on _root for get_avm2_property lookup
-                code.u32_v(mirror_mn);
+            if let Some(&reg) = local_regs.get(name) {
+                emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+                emit_avm2_setlocal(code, reg);
             } else {
+                let prop_mn = pool.add_qname("", name);
+                code.u8(0xD0); // getlocal_0
+                emit_rhs(pool, code, method_count, method_params, method_bodies)?;
                 code.u8(0x61); // setproperty
                 code.u32_v(prop_mn);
             }
+        }
+        SwfLValue::Member(obj, prop) => {
+            let prop_mn = pool.add_qname("", prop);
+            compile_avm2_expr(
+                pool,
+                obj,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
+            emit_rhs(pool, code, method_count, method_params, method_bodies)?;
+            code.u8(0x61); // setproperty
+            code.u32_v(prop_mn);
         }
         SwfLValue::Index(obj, idx) => {
             let prop_name = match idx.as_ref() {
@@ -5302,7 +5564,15 @@ where
                 }
             };
             let prop_mn = pool.add_qname("", &prop_name);
-            compile_avm2_expr(pool, obj, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                obj,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
             emit_rhs(pool, code, method_count, method_params, method_bodies)?;
             code.u8(0x61); // setproperty
             code.u32_v(prop_mn);
@@ -5316,11 +5586,20 @@ fn compile_avm2_stmt_list(
     stmts: &[SwfStmt],
     code: &mut SwfBitWriter,
     method_count: &mut u32,
-    method_params: &mut Vec<u32>,
+    method_params: &mut Vec<Vec<u32>>,
     method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    local_regs: &HashMap<String, u32>,
 ) -> Result<(), String> {
     for stmt in stmts {
-        compile_avm2_stmt(pool, stmt, code, method_count, method_params, method_bodies)?;
+        compile_avm2_stmt(
+            pool,
+            stmt,
+            code,
+            method_count,
+            method_params,
+            method_bodies,
+            local_regs,
+        )?;
     }
     Ok(())
 }
@@ -5330,20 +5609,46 @@ fn compile_avm2_stmt(
     stmt: &SwfStmt,
     code: &mut SwfBitWriter,
     method_count: &mut u32,
-    method_params: &mut Vec<u32>,
+    method_params: &mut Vec<Vec<u32>>,
     method_bodies: &mut Vec<AbcMethodBodyRecord>,
+    local_regs: &HashMap<String, u32>,
 ) -> Result<(), String> {
     match stmt {
         SwfStmt::VarDecl { name, init } => {
-            let prop_mn = pool.add_qname("", name);
-            code.u8(0xD0); // getlocal_0
-            if let Some(rhs) = init {
-                compile_avm2_expr(pool, rhs, code, method_count, method_params, method_bodies)?;
+            if let Some(&reg) = local_regs.get(name) {
+                if let Some(rhs) = init {
+                    compile_avm2_expr(
+                        pool,
+                        rhs,
+                        code,
+                        method_count,
+                        method_params,
+                        method_bodies,
+                        local_regs,
+                    )?;
+                } else {
+                    code.u8(0x21); // pushundefined
+                }
+                emit_avm2_setlocal(code, reg);
             } else {
-                code.u8(0x21); // pushundefined
+                let prop_mn = pool.add_qname("", name);
+                code.u8(0xD0); // getlocal_0
+                if let Some(rhs) = init {
+                    compile_avm2_expr(
+                        pool,
+                        rhs,
+                        code,
+                        method_count,
+                        method_params,
+                        method_bodies,
+                        local_regs,
+                    )?;
+                } else {
+                    code.u8(0x21); // pushundefined
+                }
+                code.u8(0x61); // setproperty
+                code.u32_v(prop_mn);
             }
-            code.u8(0x61); // setproperty
-            code.u32_v(prop_mn);
         }
         SwfStmt::Assign { target, op, value } => {
             compile_avm2_store_lvalue_with_rhs(
@@ -5353,12 +5658,13 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
                 |p, c, mc, mp, mb| {
                     if *op == SwfAssignOp::Assign {
-                        compile_avm2_expr(p, value, c, mc, mp, mb)
+                        compile_avm2_expr(p, value, c, mc, mp, mb, local_regs)
                     } else {
-                        compile_avm2_load_lvalue(p, target, c, mc, mp, mb)?;
-                        compile_avm2_expr(p, value, c, mc, mp, mb)?;
+                        compile_avm2_load_lvalue(p, target, c, mc, mp, mb, local_regs)?;
+                        compile_avm2_expr(p, value, c, mc, mp, mb, local_regs)?;
                         c.u8(match op {
                             SwfAssignOp::AddAssign => 0xA0, // add
                             SwfAssignOp::SubAssign => 0xA1, // subtract
@@ -5380,8 +5686,9 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
                 |p, c, mc, mp, mb| {
-                    compile_avm2_load_lvalue(p, target, c, mc, mp, mb)?;
+                    compile_avm2_load_lvalue(p, target, c, mc, mp, mb, local_regs)?;
                     c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
                     Ok(())
                 },
@@ -5397,10 +5704,19 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
         }
         SwfStmt::Expr(expr) => {
-            compile_avm2_expr(pool, expr, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                expr,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
             code.u8(0x29); // pop
         }
         SwfStmt::Block(inner) => {
@@ -5411,6 +5727,7 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
         }
         SwfStmt::If {
@@ -5418,7 +5735,15 @@ fn compile_avm2_stmt(
             then_branch,
             else_branch,
         } => {
-            compile_avm2_expr(pool, cond, code, method_count, method_params, method_bodies)?;
+            compile_avm2_expr(
+                pool,
+                cond,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
             let mut then_writer = SwfBitWriter::new();
             compile_avm2_stmt_list(
                 pool,
@@ -5427,6 +5752,7 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
             if let Some(else_stmts) = else_branch
                 && !else_stmts.is_empty()
@@ -5439,6 +5765,7 @@ fn compile_avm2_stmt(
                     method_count,
                     method_params,
                     method_bodies,
+                    local_regs,
                 )?;
                 let else_len = i32::try_from(else_writer.buf.len())
                     .map_err(|_| "AVM2 else branch is too large".to_owned())?;
@@ -5469,6 +5796,7 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
             let mut cond_writer = SwfBitWriter::new();
             compile_avm2_expr(
@@ -5478,6 +5806,7 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
             let body_len = i32::try_from(body_writer.buf.len())
                 .map_err(|_| "AVM2 while loop body is too large".to_owned())?;
@@ -5504,6 +5833,7 @@ fn compile_avm2_stmt(
                     method_count,
                     method_params,
                     method_bodies,
+                    local_regs,
                 )?;
             }
             let loop_cond = cond.clone().unwrap_or(SwfExpr::Bool(true));
@@ -5522,31 +5852,21 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                local_regs,
             )?;
         }
         SwfStmt::FunctionDecl { name, params, body } => {
             let m_idx = *method_count;
             *method_count += 1;
-            method_params.push(params.len() as u32);
+            let param_name_indices: Vec<u32> = params.iter().map(|p| pool.add_string(p)).collect();
+            method_params.push(param_name_indices);
+            let mut fn_locals = HashMap::new();
+            for (idx, param_name) in params.iter().enumerate() {
+                fn_locals.insert(param_name.clone(), (idx + 1) as u32);
+            }
             let mut fn_code = SwfBitWriter::new();
             fn_code.u8(0xD0); // getlocal_0
             fn_code.u8(0x30); // pushscope
-            for (idx, param_name) in params.iter().enumerate() {
-                let param_mn = pool.add_qname("", param_name);
-                fn_code.u8(0xD0); // getlocal_0
-                let reg = (idx + 1) as u32;
-                match reg {
-                    1 => fn_code.u8(0xD1), // getlocal_1
-                    2 => fn_code.u8(0xD2), // getlocal_2
-                    3 => fn_code.u8(0xD3), // getlocal_3
-                    r => {
-                        fn_code.u8(0x62); // getlocal
-                        fn_code.u32_v(r);
-                    }
-                }
-                fn_code.u8(0x61); // setproperty
-                fn_code.u32_v(param_mn);
-            }
             compile_avm2_stmt_list(
                 pool,
                 body,
@@ -5554,10 +5874,12 @@ fn compile_avm2_stmt(
                 method_count,
                 method_params,
                 method_bodies,
+                &fn_locals,
             )?;
             fn_code.u8(0x47); // returnvoid
-            let local_count = (params.len() + 2).max(64) as u32;
-            method_bodies.push((m_idx, 16, local_count, 1, 2, fn_code.buf));
+            let (max_stack, local_count) =
+                compute_avm2_method_metrics(&fn_code.buf, params.len() as u32);
+            method_bodies.push((m_idx, max_stack, local_count, 1, 2, fn_code.buf));
 
             let fn_mn = pool.add_qname("", name);
             code.u8(0xD0); // getlocal_0
@@ -5568,14 +5890,30 @@ fn compile_avm2_stmt(
         }
         SwfStmt::Return(expr_opt) => {
             if let Some(expr) = expr_opt {
-                compile_avm2_expr(pool, expr, code, method_count, method_params, method_bodies)?;
+                compile_avm2_expr(
+                    pool,
+                    expr,
+                    code,
+                    method_count,
+                    method_params,
+                    method_bodies,
+                    local_regs,
+                )?;
                 code.u8(0x48); // returnvalue
             } else {
                 code.u8(0x47); // returnvoid
             }
         }
         SwfStmt::EventHandler { body, .. } => {
-            compile_avm2_stmt_list(pool, body, code, method_count, method_params, method_bodies)?;
+            compile_avm2_stmt_list(
+                pool,
+                body,
+                code,
+                method_count,
+                method_params,
+                method_bodies,
+                local_regs,
+            )?;
         }
     }
     Ok(())
@@ -5595,9 +5933,10 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
     }
 
     let mut method_count = 0u32;
-    let mut method_params: Vec<u32> = Vec::new();
+    let mut method_params: Vec<Vec<u32>> = Vec::new();
     let mut method_bodies: Vec<(u32, u32, u32, u32, u32, Vec<u8>)> = Vec::new();
     let mut compiled_classes = Vec::with_capacity(classes.len());
+    let empty_locals = HashMap::new();
 
     for cls in classes {
         let class_mn = pool.add_qname(&cls.pkg, &cls.class_name);
@@ -5606,7 +5945,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
         // 1. cinit
         let cinit_method = method_count;
         method_count += 1;
-        method_params.push(0);
+        method_params.push(Vec::new());
         let mut cinit_code = SwfBitWriter::new();
         cinit_code.u8(0xD0); // getlocal_0
         cinit_code.u8(0x30); // pushscope
@@ -5622,7 +5961,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             let fn_mn = pool.add_qname("", &fn_name);
             let m_idx = method_count;
             method_count += 1;
-            method_params.push(0);
+            method_params.push(Vec::new());
 
             let mut m_code = SwfBitWriter::new();
             m_code.u8(0xD0); // getlocal_0
@@ -5636,10 +5975,12 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
                 &mut method_count,
                 &mut method_params,
                 &mut method_bodies,
+                &empty_locals,
             )
             .expect("AVM2 frame scripts are validated by SWF preflight");
             m_code.u8(0x47); // returnvoid
-            method_bodies.push((m_idx, 16, 64, 1, 2, m_code.buf));
+            let (max_stack, local_count) = compute_avm2_method_metrics(&m_code.buf, 0);
+            method_bodies.push((m_idx, max_stack, local_count, 1, 2, m_code.buf));
 
             trait_methods.push((fn_mn, m_idx));
             frame_bindings.push((*frame_idx, fn_mn));
@@ -5649,27 +5990,18 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             let fn_mn = pool.add_qname("", m_name);
             let m_idx = method_count;
             method_count += 1;
-            method_params.push(m_params.len() as u32);
+            let param_name_indices: Vec<u32> =
+                m_params.iter().map(|p| pool.add_string(p)).collect();
+            method_params.push(param_name_indices);
+
+            let mut fn_locals = HashMap::new();
+            for (idx, param_name) in m_params.iter().enumerate() {
+                fn_locals.insert(param_name.clone(), (idx + 1) as u32);
+            }
 
             let mut m_code = SwfBitWriter::new();
             m_code.u8(0xD0); // getlocal_0
             m_code.u8(0x30); // pushscope
-            for (idx, param_name) in m_params.iter().enumerate() {
-                let param_mn = pool.add_qname("", param_name);
-                m_code.u8(0xD0); // getlocal_0
-                let reg = (idx + 1) as u32;
-                match reg {
-                    1 => m_code.u8(0xD1),
-                    2 => m_code.u8(0xD2),
-                    3 => m_code.u8(0xD3),
-                    r => {
-                        m_code.u8(0x62);
-                        m_code.u32_v(r);
-                    }
-                }
-                m_code.u8(0x61); // setproperty
-                m_code.u32_v(param_mn);
-            }
             compile_avm2_stmt_list(
                 &mut pool,
                 m_stmts,
@@ -5677,18 +6009,20 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
                 &mut method_count,
                 &mut method_params,
                 &mut method_bodies,
+                &fn_locals,
             )
             .expect("AVM2 class methods are validated by SWF preflight");
             m_code.u8(0x47); // returnvoid
-            let local_count = (m_params.len() + 2).max(64) as u32;
-            method_bodies.push((m_idx, 16, local_count, 1, 2, m_code.buf));
+            let (max_stack, local_count) =
+                compute_avm2_method_metrics(&m_code.buf, m_params.len() as u32);
+            method_bodies.push((m_idx, max_stack, local_count, 1, 2, m_code.buf));
             trait_methods.push((fn_mn, m_idx));
         }
 
         // 3. iinit (constructor)
         let iinit_method = method_count;
         method_count += 1;
-        method_params.push(0);
+        method_params.push(Vec::new());
         let mut iinit_code = SwfBitWriter::new();
         iinit_code.u8(0xD0); // getlocal_0
         iinit_code.u8(0x30); // pushscope
@@ -5718,11 +6052,12 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
             &mut method_count,
             &mut method_params,
             &mut method_bodies,
+            &empty_locals,
         )
         .expect("AVM2 constructor statements are validated by SWF preflight");
         iinit_code.u8(0x47); // returnvoid
-        let max_stack = (2 + frame_bindings.len() * 2).max(16) as u32;
-        method_bodies.push((iinit_method, max_stack, 64, 1, 2, iinit_code.buf));
+        let (max_stack, local_count) = compute_avm2_method_metrics(&iinit_code.buf, 0);
+        method_bodies.push((iinit_method, max_stack, local_count, 1, 2, iinit_code.buf));
 
         compiled_classes.push(CompiledClass {
             class_mn,
@@ -5736,7 +6071,7 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
     // Script init method
     let sinit_method = method_count;
     method_count += 1;
-    method_params.push(0);
+    method_params.push(Vec::new());
     let mut sinit_code = SwfBitWriter::new();
     sinit_code.u8(0xD0); // getlocal_0
     sinit_code.u8(0x30); // pushscope
@@ -5812,14 +6147,24 @@ fn build_abc_bytes(classes: &[AbcClassSpec]) -> Vec<u8> {
     // Methods
     w.u32_v(method_count);
     for m_idx in 0..method_count {
-        let p_count = method_params.get(m_idx as usize).copied().unwrap_or(0);
+        let p_names = method_params
+            .get(m_idx as usize)
+            .map_or(&[][..], Vec::as_slice);
+        let p_count = p_names.len() as u32;
         w.u32_v(p_count);
         w.u32_v(0); // return_type = *
         for _ in 0..p_count {
             w.u32_v(0); // param_type = *
         }
         w.u32_v(0); // name = ""
-        w.u8(0); // flags = 0
+        if p_names.is_empty() {
+            w.u8(0); // flags = 0
+        } else {
+            w.u8(0x80); // HAS_PARAM_NAMES
+            for &pn_idx in p_names {
+                w.u32_v(pn_idx);
+            }
+        }
     }
 
     // Metadata
@@ -6951,13 +7296,21 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 self.avm1_exports.push((char_id, linkage.clone()));
             }
         } else if !self.options.scriptless_mode {
-            let as3_scripts: Vec<(u32, String)> = sym
-                .timeline
-                .scripts
-                .iter()
-                .filter(|fs| fs.script.language == ScriptLanguage::ActionScript3)
-                .map(|fs| (fs.frame, fs.script.source.clone()))
-                .collect();
+            let mut scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
+            for fs in &sym.timeline.scripts {
+                if fs.script.language == ScriptLanguage::ActionScript3 {
+                    scripts_by_frame
+                        .entry(fs.frame)
+                        .and_modify(|existing| {
+                            if !existing.ends_with('\n') {
+                                existing.push('\n');
+                            }
+                            existing.push_str(&fs.script.source);
+                        })
+                        .or_insert_with(|| fs.script.source.clone());
+                }
+            }
+            let as3_scripts: Vec<(u32, String)> = scripts_by_frame.into_iter().collect();
             if !as3_scripts.is_empty() {
                 let tl_class_name = format!("Timeline_{char_id}");
                 self.avm2_classes.push(AbcClassSpec {
@@ -6969,7 +7322,9 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     frame_scripts: as3_scripts,
                     extra_methods: Vec::new(),
                 });
-                self.avm2_symbol_classes.push((char_id, tl_class_name));
+                if sym.class_name.as_ref().is_none_or(String::is_empty) {
+                    self.avm2_symbol_classes.push((char_id, tl_class_name));
+                }
             }
             if let Some(cls_name) = &sym.class_name
                 && !cls_name.is_empty()
@@ -7076,12 +7431,25 @@ pub fn publish_swf_bytes(
 
     // Prepare AVM2 DoABC2 (tag 82) + SymbolClass (tag 76) before the first ShowFrame so frame 0 scripts execute!
     if options.profile.is_avm2() && !options.scriptless_mode {
-        let root_as3_scripts: Vec<(u32, String)> = root_timeline
-            .scripts
-            .iter()
-            .filter(|fs| fs.script.language == ScriptLanguage::ActionScript3)
-            .map(|fs| (fs.frame, fs.script.source.clone()))
-            .collect();
+        let mut root_scripts_by_frame: BTreeMap<u32, String> = BTreeMap::new();
+        for fs in &root_timeline.scripts {
+            if fs.script.language == ScriptLanguage::ActionScript3 {
+                root_scripts_by_frame
+                    .entry(fs.frame)
+                    .and_modify(|existing| {
+                        if !existing.ends_with('\n') {
+                            existing.push('\n');
+                        }
+                        existing.push_str(&fs.script.source);
+                    })
+                    .or_insert_with(|| fs.script.source.clone());
+            }
+        }
+        let root_as3_scripts: Vec<(u32, String)> = root_scripts_by_frame.into_iter().collect();
+        let has_doc_class = project
+            .document_class
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty());
         if !root_as3_scripts.is_empty() {
             compiler.avm2_classes.push(AbcClassSpec {
                 pkg: String::new(),
@@ -7092,9 +7460,11 @@ pub fn publish_swf_bytes(
                 frame_scripts: root_as3_scripts,
                 extra_methods: Vec::new(),
             });
-            compiler
-                .avm2_symbol_classes
-                .push((0, "MainTimeline".to_owned()));
+            if !has_doc_class {
+                compiler
+                    .avm2_symbol_classes
+                    .push((0, "MainTimeline".to_owned()));
+            }
         }
 
         let mut defined_qnames: BTreeSet<String> = compiler
@@ -7993,19 +8363,28 @@ mod dictionary_capacity_tests {
                 &mut method_count,
                 &mut method_params,
                 &mut method_bodies,
+                &HashMap::new(),
             )
             .unwrap();
             code.buf
         }
 
         let and_code = compile(SwfBinaryOp::And, false);
-        assert_eq!(&and_code[..4], &[0x27, 0x76, 0x2A, 0x12]);
+        assert_eq!(&and_code[..3], &[0x27, 0x2A, 0x12]);
         assert!(and_code.contains(&0x29), "non-short-circuit path drops lhs");
+        assert!(
+            !and_code.contains(&0x76),
+            "logical && preserves operand value without convert_b"
+        );
         assert!(!and_code.contains(&0xA8), "logical && is not eager bitand");
 
         let or_code = compile(SwfBinaryOp::Or, true);
-        assert_eq!(&or_code[..4], &[0x26, 0x76, 0x2A, 0x11]);
+        assert_eq!(&or_code[..3], &[0x26, 0x2A, 0x11]);
         assert!(or_code.contains(&0x29), "non-short-circuit path drops lhs");
+        assert!(
+            !or_code.contains(&0x76),
+            "logical || preserves operand value without convert_b"
+        );
         assert!(!or_code.contains(&0xA9), "logical || is not eager bitor");
     }
 }

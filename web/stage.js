@@ -75,17 +75,24 @@
   const accessibilityPropRecords = new WeakMap();
   class AccessibilityProperties {
     constructor() {
-      const rec = { description: '', forceSimple: false, name: '', noAutoLabeling: false, shortcut: '', silent: false };
+      const rec = { description: '', forceSimple: false, live: 'off', name: '', noAutoLabeling: false, role: '', shortcut: '', silent: false };
       accessibilityPropRecords.set(this, rec);
     }
     get description() { return accessibilityPropRecords.get(this).description; }
     set description(value) { accessibilityPropRecords.get(this).description = value == null ? '' : String(value); }
     get forceSimple() { return accessibilityPropRecords.get(this).forceSimple; }
     set forceSimple(value) { accessibilityPropRecords.get(this).forceSimple = Boolean(value); }
+    get live() { return accessibilityPropRecords.get(this).live; }
+    set live(value) {
+      const next = value == null ? 'off' : String(value).trim().toLowerCase();
+      accessibilityPropRecords.get(this).live = (next === 'polite' || next === 'assertive') ? next : 'off';
+    }
     get name() { return accessibilityPropRecords.get(this).name; }
     set name(value) { accessibilityPropRecords.get(this).name = value == null ? '' : String(value); }
     get noAutoLabeling() { return accessibilityPropRecords.get(this).noAutoLabeling; }
     set noAutoLabeling(value) { accessibilityPropRecords.get(this).noAutoLabeling = Boolean(value); }
+    get role() { return accessibilityPropRecords.get(this).role; }
+    set role(value) { accessibilityPropRecords.get(this).role = value == null ? '' : String(value).trim(); }
     get shortcut() { return accessibilityPropRecords.get(this).shortcut; }
     set shortcut(value) { accessibilityPropRecords.get(this).shortcut = value == null ? '' : String(value); }
     get silent() { return accessibilityPropRecords.get(this).silent; }
@@ -94,10 +101,254 @@
   AccessibilityProperties.__nfIs = value => accessibilityPropRecords.has(value);
   AccessibilityProperties.__nfInitialize = receiver => {
     if (!accessibilityPropRecords.has(receiver)) {
-      accessibilityPropRecords.set(receiver, { description: '', forceSimple: false, name: '', noAutoLabeling: false, shortcut: '', silent: false });
+      accessibilityPropRecords.set(receiver, { description: '', forceSimple: false, live: 'off', name: '', noAutoLabeling: false, role: '', shortcut: '', silent: false });
     }
   };
   Object.defineProperty(AccessibilityProperties, Symbol.hasInstance, { value: AccessibilityProperties.__nfIs });
+
+  function extractAccessibilityEntry(raw, index = 0) {
+    const target = raw && typeof raw === 'object' && raw.target ? raw.target : raw;
+    const acc = (raw && raw.accessibilityProperties) || (target && target.accessibilityProperties) || null;
+    const id = String((raw && raw.id) ?? (target && (target.id ?? target.name)) ?? `node-${index + 1}`);
+    const roleRaw = (raw && raw.role) ?? (acc && acc.role) ?? (target && target.accessibilityRole) ?? '';
+    const role = String(roleRaw || '').trim() || 'group';
+    const ariaLabelRaw = (raw && raw.ariaLabel) || (acc && acc.name) || (target && target.accessibilityName) || (raw && raw.name) || (target && target.name) || '';
+    const ariaLabel = String(ariaLabelRaw || '').trim() || id;
+    const ariaDescRaw = (raw && (raw.ariaDescription ?? raw.description)) ?? (acc && acc.description) ?? (target && target.accessibilityDescription) ?? '';
+    const ariaDescription = String(ariaDescRaw || '').trim();
+    const liveRaw = String((raw && (raw.ariaLive ?? raw.live)) ?? (acc && acc.live) ?? (target && target.accessibilityLive) ?? 'off').trim().toLowerCase();
+    const ariaLive = (liveRaw === 'polite' || liveRaw === 'assertive') ? liveRaw : 'off';
+    const shortcut = String((raw && raw.shortcut) ?? (acc && acc.shortcut) ?? (target && target.accessibilityShortcut) ?? '').trim();
+    const silent = Boolean((raw && (raw.silent ?? raw.ariaHidden)) ?? (acc && acc.silent) ?? false);
+    const disabled = Boolean((raw && (raw.disabled ?? raw.ariaDisabled)) ?? (target && target.enabled === false) ?? false);
+    const tabEnabled = raw && raw.tabEnabled !== undefined ? Boolean(raw.tabEnabled) : (target && target.tabEnabled !== undefined ? Boolean(target.tabEnabled) : true);
+    const rawTab = Number((raw && raw.tabIndex) ?? (target && target.tabIndex));
+    const explicitTab = Number.isInteger(rawTab) && rawTab > 0 ? rawTab : null;
+    const rawOrder = Number((raw && (raw.readingOrder ?? raw.tabOrder)) ?? explicitTab);
+    const explicitOrder = Number.isInteger(rawOrder) && rawOrder > 0 ? rawOrder : null;
+    const x = Number.isFinite(Number(raw && raw.x)) ? Number(raw.x) : (Number.isFinite(Number(target && target.x)) ? Number(target.x) : 0);
+    const y = Number.isFinite(Number(raw && raw.y)) ? Number(raw.y) : (Number.isFinite(Number(target && target.y)) ? Number(target.y) : 0);
+    const width = Number.isFinite(Number(raw && raw.width)) ? Math.max(0, Number(raw.width)) : (Number.isFinite(Number(target && target.width)) ? Math.max(0, Number(target.width)) : 0);
+    const height = Number.isFinite(Number(raw && raw.height)) ? Math.max(0, Number(raw.height)) : (Number.isFinite(Number(target && target.height)) ? Math.max(0, Number(target.height)) : 0);
+    return {
+      index,
+      id,
+      target,
+      role,
+      ariaLabel,
+      ariaDescription,
+      ariaLive,
+      shortcut,
+      ariaHidden: silent,
+      ariaDisabled: disabled,
+      tabEnabled,
+      explicitTab,
+      explicitOrder,
+      x,
+      y,
+      width,
+      height,
+    };
+  }
+
+  function validateAccessibilityReadOrder(entries = []) {
+    const list = Array.isArray(entries) ? entries.map((item, idx) => extractAccessibilityEntry(item, idx)) : [];
+    const byTab = new Map();
+    for (const item of list) {
+      if (item.ariaHidden || item.explicitTab == null) continue;
+      if (!byTab.has(item.explicitTab)) byTab.set(item.explicitTab, []);
+      byTab.get(item.explicitTab).push(item.ariaLabel || item.id);
+    }
+    const diagnostics = [];
+    const sortedTabs = Array.from(byTab.keys()).sort((a, b) => a - b);
+    for (const tab of sortedTabs) {
+      const names = byTab.get(tab);
+      if (names.length > 1) {
+        diagnostics.push(`Accessibility read-order conflict: tabIndex ${tab} is shared by ${names.join(', ')}.`);
+      }
+    }
+    let expected = 1;
+    for (const tab of sortedTabs) {
+      if (tab > expected) {
+        if (tab - expected === 1) {
+          diagnostics.push(`Accessibility read-order gap: missing tabIndex ${expected} before ${tab}.`);
+        } else {
+          diagnostics.push(`Accessibility read-order gap: missing tabIndex ${expected}..${tab - 1} before ${tab}.`);
+        }
+      }
+      expected = tab + 1;
+    }
+    return diagnostics;
+  }
+
+  function resolveAccessibilityOverlayNodes(entries = [], options = {}) {
+    const parsed = Array.isArray(entries) ? entries.map((item, idx) => extractAccessibilityEntry(item, idx)) : [];
+    const active = parsed.filter(item => !item.ariaHidden);
+    const hidden = parsed.filter(item => item.ariaHidden);
+    active.sort((a, b) => {
+      const aTab = a.explicitTab != null ? a.explicitTab : Number.MAX_SAFE_INTEGER;
+      const bTab = b.explicitTab != null ? b.explicitTab : Number.MAX_SAFE_INTEGER;
+      if (aTab !== bTab) return aTab - bTab;
+      const aOrd = a.explicitOrder != null ? a.explicitOrder : Number.MAX_SAFE_INTEGER;
+      const bOrd = b.explicitOrder != null ? b.explicitOrder : Number.MAX_SAFE_INTEGER;
+      if (aOrd !== bOrd) return aOrd - bOrd;
+      if (Math.abs(a.y - b.y) > 1e-3) return a.y - b.y;
+      if (Math.abs(a.x - b.x) > 1e-3) return a.x - b.x;
+      return a.index - b.index;
+    });
+    const focusedTarget = options && options.focusedTarget ? options.focusedTarget : null;
+    const focusReason = options && options.focusReason ? String(options.focusReason) : null;
+    const resolved = [];
+    active.forEach((item, idx) => {
+      const readingOrder = idx + 1;
+      const tabIndex = (item.ariaDisabled || !item.tabEnabled)
+        ? -1
+        : (item.explicitTab != null ? item.explicitTab : readingOrder);
+      const isFocused = Boolean(focusedTarget && (item.target === focusedTarget || item.id === focusedTarget.id || item.id === focusedTarget.name));
+      resolved.push({
+        id: item.id,
+        target: item.target,
+        role: item.role,
+        tabIndex,
+        readingOrder,
+        ariaLabel: item.ariaLabel,
+        ariaDescription: item.ariaDescription,
+        ariaLive: item.ariaLive,
+        ariaHidden: false,
+        ariaDisabled: item.ariaDisabled,
+        shortcut: item.shortcut,
+        x: item.x,
+        y: item.y,
+        width: item.width,
+        height: item.height,
+        focused: isFocused,
+        focusReason: isFocused ? focusReason : null,
+        keyboardFocusRing: Boolean(isFocused && focusReason === 'key'),
+      });
+    });
+    hidden.forEach(item => {
+      resolved.push({
+        id: item.id,
+        target: item.target,
+        role: item.role,
+        tabIndex: -1,
+        readingOrder: 0,
+        ariaLabel: item.ariaLabel,
+        ariaDescription: item.ariaDescription,
+        ariaLive: item.ariaLive,
+        ariaHidden: true,
+        ariaDisabled: item.ariaDisabled,
+        shortcut: item.shortcut,
+        x: item.x,
+        y: item.y,
+        width: item.width,
+        height: item.height,
+        focused: false,
+        focusReason: null,
+        keyboardFocusRing: false,
+      });
+    });
+    return resolved;
+  }
+
+  function createFallbackOverlayDomElement(tagName = 'div') {
+    const attrs = new Map();
+    const dataset = {};
+    const style = {};
+    return {
+      tagName: String(tagName).toUpperCase(),
+      tabIndex: -1,
+      dataset,
+      style,
+      setAttribute(name, value) {
+        const str = String(value);
+        attrs.set(String(name), str);
+        if (name === 'tabindex') this.tabIndex = Number(str);
+        if (String(name).startsWith('data-')) {
+          const camel = String(name).slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+          dataset[camel] = str;
+        }
+      },
+      getAttribute(name) {
+        return attrs.has(String(name)) ? attrs.get(String(name)) : null;
+      },
+      removeAttribute(name) {
+        attrs.delete(String(name));
+        if (String(name).startsWith('data-')) {
+          const camel = String(name).slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+          delete dataset[camel];
+        }
+      },
+    };
+  }
+
+  function syncAccessibilityOverlay(overlayRoot, entries = [], options = {}) {
+    const nodes = resolveAccessibilityOverlayNodes(entries, options);
+    const diagnostics = validateAccessibilityReadOrder(entries);
+    if (!overlayRoot || typeof overlayRoot !== 'object') {
+      return { nodes, diagnostics, elements: [] };
+    }
+    if (typeof overlayRoot.setAttribute === 'function') {
+      overlayRoot.setAttribute('role', 'region');
+      overlayRoot.setAttribute('aria-label', (options && options.stageLabel) ? String(options.stageLabel) : 'Stage accessibility overlay');
+    }
+    const doc = overlayRoot.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const createNode = () => (doc && typeof doc.createElement === 'function') ? doc.createElement('div') : createFallbackOverlayDomElement('div');
+    const elements = nodes.map(node => {
+      const el = createNode();
+      el.tabIndex = node.tabIndex;
+      if (typeof el.setAttribute === 'function') {
+        el.setAttribute('data-neoflash-id', node.id);
+        el.setAttribute('data-reading-order', String(node.readingOrder));
+        el.setAttribute('role', node.role);
+        el.setAttribute('tabindex', String(node.tabIndex));
+        el.setAttribute('aria-label', node.ariaLabel);
+        el.setAttribute('aria-hidden', node.ariaHidden ? 'true' : 'false');
+        if (node.ariaDescription) {
+          el.setAttribute('aria-description', node.ariaDescription);
+        } else {
+          el.removeAttribute?.('aria-description');
+        }
+        if (node.ariaLive && node.ariaLive !== 'off') {
+          el.setAttribute('aria-live', node.ariaLive);
+        } else {
+          el.removeAttribute?.('aria-live');
+        }
+        if (node.ariaDisabled) {
+          el.setAttribute('aria-disabled', 'true');
+        } else {
+          el.removeAttribute?.('aria-disabled');
+        }
+        if (node.shortcut) {
+          el.setAttribute('aria-keyshortcuts', node.shortcut);
+        } else {
+          el.removeAttribute?.('aria-keyshortcuts');
+        }
+        if (node.focused && node.focusReason) {
+          el.setAttribute('data-focus-reason', node.focusReason);
+          el.setAttribute('data-keyboard-focus-ring', node.keyboardFocusRing ? 'true' : 'false');
+        } else {
+          el.removeAttribute?.('data-focus-reason');
+          el.removeAttribute?.('data-keyboard-focus-ring');
+        }
+      }
+      if (el.style && typeof el.style === 'object') {
+        el.style.left = `${node.x}px`;
+        el.style.top = `${node.y}px`;
+        el.style.width = `${node.width}px`;
+        el.style.height = `${node.height}px`;
+      }
+      return el;
+    });
+    if (typeof overlayRoot.replaceChildren === 'function') {
+      overlayRoot.replaceChildren(...elements);
+    } else if (Array.isArray(overlayRoot.children)) {
+      overlayRoot.children.splice(0, overlayRoot.children.length, ...elements);
+    } else {
+      overlayRoot.children = elements;
+    }
+    return { nodes, diagnostics, elements };
+  }
   const builtInItemsRecords = new WeakMap();
   class ContextMenuBuiltInItems {
     constructor() {
@@ -1156,6 +1407,24 @@
       focusReason: () => (focus && alive(focus) ? focusReason : null),
       fullScreenSourceRect: () => (fullScreenSourceRect ? { ...fullScreenSourceRect } : null),
       colorAssigned: () => colorAssigned, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
+      resolveAccessibilityOverlayNodes: (entries = [], extraOptions = {}) => resolveAccessibilityOverlayNodes(
+        entries,
+        {
+          focusedTarget: focus && alive(focus) ? focus : null,
+          focusReason: focus && alive(focus) ? focusReason : null,
+          ...extraOptions,
+        },
+      ),
+      validateAccessibilityReadOrder: (entries = []) => validateAccessibilityReadOrder(entries),
+      syncAccessibilityOverlay: (overlayRoot, entries = [], extraOptions = {}) => syncAccessibilityOverlay(
+        overlayRoot,
+        entries,
+        {
+          focusedTarget: focus && alive(focus) ? focus : null,
+          focusReason: focus && alive(focus) ? focusReason : null,
+          ...extraOptions,
+        },
+      ),
       tick(targets = [], onConstructed = null) {
         if (typeof targets === 'function') {
           let cached = null;
@@ -1182,7 +1451,8 @@
   const api = Object.freeze({ create, computeStageLayout, Stage, StageScaleMode, StageAlign, StageDisplayState, StageQuality,
     Keyboard: DefaultKeyboard, KeyLocation, KeyboardType, Mouse: DefaultMouse, MouseCursor, MouseCursorData,
     AccessibilityProperties, ContextMenuBuiltInItems, ContextMenuClipboardItems, ContextMenu, ContextMenuItem,
-    createKeyboard, createMouse, setStageAdapters });
+    createKeyboard, createMouse, setStageAdapters,
+    resolveAccessibilityOverlayNodes, validateAccessibilityReadOrder, syncAccessibilityOverlay });
   global.NeoFlashStage = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

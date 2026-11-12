@@ -11,8 +11,14 @@ use neoflash_ui::components::timeline::Geometry;
 use neoflash_ui::metrics::{PREVIEW_THUMBNAIL_HEIGHT, PREVIEW_THUMBNAIL_WIDTH};
 use std::collections::HashMap;
 
-/// New thumbnails evaluated per repaint; the rest follow on the next repaints.
-const EVALUATIONS_PER_PAINT: usize = 12;
+/// Maximum new thumbnails rasterized/evaluated per repaint (`T-227`); remaining visible spans
+/// coalesce into a single follow-up repaint so fast scrolling never stalls the UI thread.
+pub const MAX_THUMBNAIL_RENDERS_PER_FRAME: usize = 8;
+const EVALUATIONS_PER_PAINT: usize = MAX_THUMBNAIL_RENDERS_PER_FRAME;
+/// Off-screen retention margin around `[first_frame..=last_frame]` before stale thumbnails are evicted.
+pub const THUMBNAIL_RETENTION_MARGIN_FRAMES: u32 = 64;
+/// Upper bound on cached `(layer, frame)` thumbnails for the active symbol/revision.
+pub const MAX_CACHED_THUMBNAILS: usize = 192;
 
 struct Thumbnail {
     scene: AuthoredScene,
@@ -27,12 +33,32 @@ pub(crate) struct ThumbnailCache {
     frames: HashMap<u32, AuthoredScene>,
     thumbnails: HashMap<(Id, u32), Thumbnail>,
     budget: usize,
+    rendered_this_pass: usize,
+    evicted_stale_count: usize,
+    coalesced_skip_count: usize,
+    active_frame_window: Option<(u32, u32)>,
 }
 
 impl ThumbnailCache {
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.thumbnails.len()
+    }
+    #[cfg(test)]
+    pub(crate) fn cached_frame_count(&self) -> usize {
+        self.frames.len()
+    }
+    #[cfg(test)]
+    pub(crate) fn rendered_in_last_pass(&self) -> usize {
+        self.rendered_this_pass
+    }
+    #[cfg(test)]
+    pub(crate) fn evicted_stale_count(&self) -> usize {
+        self.evicted_stale_count
+    }
+    #[cfg(test)]
+    pub(crate) fn coalesced_skip_count(&self) -> usize {
+        self.coalesced_skip_count
     }
     #[cfg(test)]
     pub(crate) fn bounds(&self, layer: &str, frame: u32) -> Option<Rect> {
@@ -70,13 +96,50 @@ impl Editor {
             cache.frames.clear();
             cache.thumbnails.clear();
             cache.scope = Some(scope);
+            cache.evicted_stale_count = 0;
+            cache.coalesced_skip_count = 0;
         }
         cache.budget = EVALUATIONS_PER_PAINT;
+        cache.rendered_this_pass = 0;
+        cache.active_frame_window = None;
     }
 
-    fn evaluate_thumbnail(
+    /// Start a virtualized timeline paint pass (`T-227`): resets the per-frame rasterization budget
+    /// (`MAX_THUMBNAIL_RENDERS_PER_FRAME`) and evicts stale off-screen frame/thumbnail entries outside
+    /// `[first_frame - margin ..= last_frame + margin]`.
+    pub(crate) fn begin_thumbnail_pass_for_window(
         &mut self,
-        layer: &Layer,
+        first_frame: u32,
+        last_frame: u32,
+        visible_layer_ids: &[Id],
+    ) {
+        self.begin_thumbnail_pass();
+        let keep_first = first_frame.saturating_sub(THUMBNAIL_RETENTION_MARGIN_FRAMES);
+        let keep_last = last_frame.saturating_add(THUMBNAIL_RETENTION_MARGIN_FRAMES);
+        let cache = &mut self.timeline_thumbnails;
+        cache.active_frame_window = Some((first_frame, last_frame));
+
+        let before_frames = cache.frames.len();
+        cache
+            .frames
+            .retain(|&frame, _| frame >= keep_first && frame <= keep_last);
+        let before_thumbs = cache.thumbnails.len();
+        cache
+            .thumbnails
+            .retain(|(_, frame), _| *frame >= keep_first && *frame <= keep_last);
+        if cache.thumbnails.len() > MAX_CACHED_THUMBNAILS && !visible_layer_ids.is_empty() {
+            cache.thumbnails.retain(|(layer_id, frame), _| {
+                (*frame >= first_frame && *frame <= last_frame)
+                    || visible_layer_ids.iter().any(|vis| vis == layer_id)
+            });
+        }
+        cache.evicted_stale_count +=
+            (before_frames - cache.frames.len()) + (before_thumbs - cache.thumbnails.len());
+    }
+
+    fn evaluate_thumbnail_for_elements(
+        &mut self,
+        key_element_ids: &[Id],
         frame: u32,
         painter: &egui::Painter,
     ) -> Thumbnail {
@@ -91,15 +154,11 @@ impl Editor {
         let mut scene = full.clone();
         if !context {
             // The layer alone: draws whose top-level object sits on this layer.
-            let ids: Vec<&Id> = layer
-                .key_at(frame)
-                .map(|key| key.elements.iter().map(|e| &e.id).collect())
-                .unwrap_or_default();
             scene.draws.retain(|draw| {
                 draw.item
                     .instance_path
                     .first()
-                    .is_some_and(|id| ids.contains(&id))
+                    .is_some_and(|id| key_element_ids.contains(id))
             });
         }
         let bounds = if context && self.editing_scene() {
@@ -117,6 +176,7 @@ impl Editor {
 
     /// Paint the thumbnail of `layer`'s keyframe at `frame` into `rect` (cached; evaluated within
     /// the per-repaint budget).
+    #[allow(dead_code)]
     pub(crate) fn paint_span_thumbnail(
         &mut self,
         painter: &egui::Painter,
@@ -124,14 +184,39 @@ impl Editor {
         frame: u32,
         rect: Rect,
     ) {
-        let id = (layer.id.clone(), frame);
+        let key_element_ids: Vec<Id> = layer
+            .key_at(frame)
+            .map(|key| key.elements.iter().map(|e| e.id.clone()).collect())
+            .unwrap_or_default();
+        self.paint_span_thumbnail_by_id(painter, &layer.id, &key_element_ids, frame, rect);
+    }
+
+    /// Paint the thumbnail of `(layer_id, frame)` into `rect` without requiring a cloned `Layer`.
+    /// Off-screen thumbnail boxes and requests exceeding `MAX_THUMBNAIL_RENDERS_PER_FRAME` are
+    /// coalesced/skipped so scrolling large timelines stays bounded.
+    pub(crate) fn paint_span_thumbnail_by_id(
+        &mut self,
+        painter: &egui::Painter,
+        layer_id: &str,
+        key_element_ids: &[Id],
+        frame: u32,
+        rect: Rect,
+    ) {
+        let clipped_rect = painter.clip_rect().intersect(rect);
+        if !clipped_rect.is_positive() {
+            self.timeline_thumbnails.coalesced_skip_count += 1;
+            return;
+        }
+        let id = (layer_id.to_owned(), frame);
         let thumbnail = match self.timeline_thumbnails.thumbnails.remove(&id) {
             Some(thumbnail) => thumbnail,
             None if self.timeline_thumbnails.budget > 0 => {
                 self.timeline_thumbnails.budget -= 1;
-                self.evaluate_thumbnail(layer, frame, painter)
+                self.timeline_thumbnails.rendered_this_pass += 1;
+                self.evaluate_thumbnail_for_elements(key_element_ids, frame, painter)
             }
             None => {
+                self.timeline_thumbnails.coalesced_skip_count += 1;
                 painter.ctx().request_repaint();
                 return;
             }
@@ -140,7 +225,7 @@ impl Editor {
         if bounds.is_finite() && bounds.is_positive() {
             let zoom = (rect.width() / bounds.width()).min(rect.height() / bounds.height());
             let origin = rect.center() - bounds.center().to_vec2() * zoom;
-            let clipped = painter.with_clip_rect(painter.clip_rect().intersect(rect));
+            let clipped = painter.with_clip_rect(clipped_rect);
             if self.workspace.timeline.preview == FramePreview::InContext && self.editing_scene() {
                 let [r, g, b, a] = self.project.background;
                 clipped.rect_filled(

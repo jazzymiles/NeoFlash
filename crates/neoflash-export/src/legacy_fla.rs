@@ -697,13 +697,40 @@ fn build_contents_stream(
 
     // 5. Extensions
     // 5a. publish(version) (version >= 0x2d)
-    w.u16(0); // document_properties count = 0
+    let doc_class = project
+        .document_class
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let stored_sources_count = project.sources.len().min(1024);
+    w.u16(stored_sources_count as u16); // document_properties count
+    for (idx, src) in project
+        .sources
+        .iter()
+        .take(stored_sources_count)
+        .enumerate()
+    {
+        let rel_path = crate::fla_preflight::sanitize_source_rel_path(&src.path, idx);
+        let lang_tag = match src.language {
+            ScriptLanguage::ActionScript1 => "as1",
+            ScriptLanguage::ActionScript2 => "as2",
+            ScriptLanguage::ActionScript3 => "as3",
+            ScriptLanguage::JavaScript => "js",
+            ScriptLanguage::TypeScript => "ts",
+        };
+        w.cstring(&format!("NeoFlash::Source::{lang_tag}::{rel_path}"));
+        w.cstring(&src.source);
+    }
     w.u32(1); // 1 publish profile
-    w.u16(2); // 2 properties in profile 0
+    w.u16(if doc_class.is_some() { 3 } else { 2 }); // properties in profile 0
     w.cstring("Vector::ActionScriptVersion");
     w.cstring(detect_project_as_version(project, profile));
     w.cstring("Vector::Invisible Layer");
     w.cstring("1");
+    if let Some(dc) = doc_class {
+        w.cstring("Vector::DocumentClass");
+        w.cstring(dc);
+    }
     w.u32(0); // first_word
     w.cstring(""); // first_string
     w.cstring(""); // second_string
@@ -1797,10 +1824,7 @@ fn write_display_element(
                 let mut blocks = Vec::with_capacity(element.scripts.len());
                 for os in &element.scripts {
                     let trimmed = os.script.source.trim();
-                    if trimmed.starts_with("on (")
-                        || trimmed.starts_with("on(")
-                        || trimmed.starts_with("onClipEvent")
-                    {
+                    if crate::fla_preflight::script_starts_with_event_wrapper(trimmed) {
                         blocks.push(trimmed.to_owned());
                     } else {
                         let header = match os.event {
@@ -1975,6 +1999,11 @@ fn serialize_layer(
     write_cpic_obj_base_header(w);
 
     let total_frames = timeline.frame_count.max(1);
+    let script_layer_idx = timeline
+        .layers
+        .iter()
+        .position(|l| l.properties.role != LayerRole::Folder);
+    let is_script_layer = Some(layer_idx) == script_layer_idx;
     if layer.properties.role != LayerRole::Folder {
         let mut effective_keyframes: Vec<Keyframe> = if layer.keyframes.is_empty() {
             vec![Keyframe {
@@ -1985,7 +2014,7 @@ fn serialize_layer(
         } else {
             layer.keyframes.clone()
         };
-        if layer_idx == 0 && !timeline.scripts.is_empty() {
+        if is_script_layer && !timeline.scripts.is_empty() {
             for fs in &timeline.scripts {
                 if fs.frame < total_frames
                     && !effective_keyframes.iter().any(|k| k.frame == fs.frame)
@@ -2009,11 +2038,18 @@ fn serialize_layer(
                 .get(k_idx + 1)
                 .map_or(total_frames, |next| next.frame);
             let duration = next_frame.saturating_sub(kf.frame).clamp(1, 65535) as u16;
-            let frame_script = timeline
-                .scripts
-                .iter()
-                .find(|fs| fs.frame == kf.frame && layer_idx == 0)
-                .map(|fs| fs.script.source.as_str());
+            let joined_scripts: Option<String> = if is_script_layer {
+                let matching: Vec<&str> = timeline
+                    .scripts
+                    .iter()
+                    .filter(|fs| fs.frame == kf.frame)
+                    .map(|fs| fs.script.source.as_str())
+                    .collect();
+                (!matching.is_empty()).then(|| matching.join("\n"))
+            } else {
+                None
+            };
+            let frame_script = joined_scripts.as_deref();
 
             w.begin_object("CPicFrame");
             write_cpic_obj_base_header(w);
@@ -2190,22 +2226,46 @@ fn build_timeline_stream(
     symbol_kinds: &BTreeMap<String, SymbolKind>,
     media: &MediaExportCatalog,
 ) -> Vec<u8> {
+    let mut synthesized_timeline: Option<Timeline> = None;
+    if !timeline.scripts.is_empty()
+        && !timeline
+            .layers
+            .iter()
+            .any(|l| l.properties.role != LayerRole::Folder)
+    {
+        let mut copy = timeline.clone();
+        copy.layers.push(Layer {
+            id: "__nf_synth_actions_layer__".to_owned(),
+            name: "Actions".to_owned(),
+            visible: true,
+            locked: false,
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: Vec::new(),
+                ..Default::default()
+            }],
+            properties: LayerProperties::default(),
+        });
+        synthesized_timeline = Some(copy);
+    }
+    let effective_timeline = synthesized_timeline.as_ref().unwrap_or(timeline);
+
     let mut w = MfcWriter::new();
     w.u8(1); // stream_kind = 1 (CPicPage root)
     w.begin_object("CPicPage");
     write_cpic_obj_base_header(&mut w);
 
-    let layer_id_to_idx: BTreeMap<String, usize> = timeline
+    let layer_id_to_idx: BTreeMap<String, usize> = effective_timeline
         .layers
         .iter()
         .enumerate()
         .map(|(i, l)| (l.id.clone(), i))
         .collect();
     let mut serialized_layers = BTreeMap::new();
-    for layer_idx in 0..timeline.layers.len() {
+    for layer_idx in 0..effective_timeline.layers.len() {
         serialize_layer(
             &mut w,
-            timeline,
+            effective_timeline,
             layer_idx,
             &layer_id_to_idx,
             &mut serialized_layers,
@@ -2219,7 +2279,7 @@ fn build_timeline_stream(
 
     // CPicPage payload (revision = 3)
     w.u8(3);
-    w.u16((timeline.layers.len() + 1) as u16); // next_layer_id
+    w.u16((effective_timeline.layers.len() + 1) as u16); // next_layer_id
     w.u32(0); // guide_count = 0
 
     w.buf

@@ -2288,15 +2288,43 @@ function onEnterFrame() {
 
         // Inserting via Editor method updates the frame script and supports Undo
         editor.script_target = ScriptTarget::Frame;
+        assert_eq!(
+            editor.default_script_language_for_project(),
+            ScriptLanguage::ActionScript3
+        );
         assert!(
             editor
                 .insert_script_assist_snippet(ScriptAssistTemplate::GotoAndPlayFrame { frame: 5 })
         );
         assert_eq!(
+            editor.symbol().timeline.scripts[0].script.language,
+            ScriptLanguage::ActionScript3
+        );
+        assert_eq!(
             editor.symbol().timeline.scripts[0].script.source,
-            "this.gotoAndPlay(5);\n"
+            "gotoAndPlay(5);\n"
         );
         assert!(editor.history.can_undo());
+
+        // Project with AS2 scripts or explicit preference honors that language when inserting new scripts
+        let mut as2_proj = Project::blank();
+        as2_proj.symbols[0].timeline.scripts.push(FrameScript {
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "stop();".into(),
+            },
+        });
+        let mut as2_editor = Editor::from_project(&ctx, as2_proj);
+        assert_eq!(
+            as2_editor.default_script_language_for_project(),
+            ScriptLanguage::ActionScript2
+        );
+        as2_editor.set_preferred_script_language(Some(ScriptLanguage::ActionScript1));
+        assert_eq!(
+            as2_editor.default_script_language_for_project(),
+            ScriptLanguage::ActionScript1
+        );
     }
 }
 
@@ -2541,7 +2569,10 @@ pub fn format_script_assist_snippet(
         ScriptAssistTemplate::EnterFrameLoop { body } => {
             let body_line = body.trim();
             match language {
-                ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+                ScriptLanguage::ActionScript1 => {
+                    format!("this.onEnterFrame = function() {{\n    {body_line}\n}};\n")
+                }
+                ScriptLanguage::ActionScript2 => {
                     format!("this.onEnterFrame = function():Void {{\n    {body_line}\n}};\n")
                 }
                 ScriptLanguage::ActionScript3 => format!(
@@ -2642,7 +2673,8 @@ pub fn format_script_assist_snippet(
             ScriptLanguage::TypeScript => "const keysDown: any = {};\nwindow.addEventListener(\"keydown\", (e: KeyboardEvent): void => { keysDown[e.keyCode] = true; });\nwindow.addEventListener(\"keyup\", (e: KeyboardEvent): void => { keysDown[e.keyCode] = false; });\n".to_owned(),
         },
         ScriptAssistTemplate::SharedObjectSaveLoad => match language {
-            ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2 | ScriptLanguage::ActionScript1 => "var saveStore:SharedObject = SharedObject.getLocal(\"neoflash_save\");\nsaveStore.data.highScore = 1000;\nsaveStore.flush();\n".to_owned(),
+            ScriptLanguage::ActionScript1 => "var saveStore = SharedObject.getLocal(\"neoflash_save\");\nsaveStore.data.highScore = 1000;\nsaveStore.flush();\n".to_owned(),
+            ScriptLanguage::ActionScript3 | ScriptLanguage::ActionScript2 => "var saveStore:SharedObject = SharedObject.getLocal(\"neoflash_save\");\nsaveStore.data.highScore = 1000;\nsaveStore.flush();\n".to_owned(),
             ScriptLanguage::JavaScript | ScriptLanguage::TypeScript => "window.localStorage.setItem(\"neoflash_highScore\", \"1000\");\n".to_owned(),
         },
     }
@@ -2744,6 +2776,7 @@ struct DebuggerAuthoringState {
     debugger_watches: Vec<WatchExpression>,
     paused_scopes: Vec<DebuggerScope>,
     folded_lines_by_tab: std::collections::BTreeMap<String, std::collections::BTreeSet<usize>>,
+    preferred_script_language: Option<ScriptLanguage>,
 }
 
 static DEBUGGER_AUTHORING_STATES: std::sync::LazyLock<
@@ -3685,13 +3718,14 @@ impl Editor {
             }
             ScriptTarget::Frame => {
                 let frame = self.frame;
+                let default_lang = self.default_script_language_for_project();
                 let language = self
                     .symbol()
                     .timeline
                     .scripts
                     .iter()
                     .find(|s| s.frame == frame)
-                    .map_or(ScriptLanguage::JavaScript, |s| s.script.language);
+                    .map_or(default_lang, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
                     if frame >= editor.symbol().timeline.frame_count {
@@ -3717,10 +3751,11 @@ impl Editor {
                     return false;
                 }
                 let event = self.script_event;
+                let default_lang = self.default_script_language_for_project();
                 let language = self
                     .selected_element()
                     .and_then(|e| e.scripts.iter().find(|s| s.event == event))
-                    .map_or(ScriptLanguage::JavaScript, |s| s.script.language);
+                    .map_or(default_lang, |s| s.script.language);
                 let snippet = format_script_assist_snippet(&template, language);
                 self.transact_named("Script assist", |editor| {
                     editor.ensure_selected_key();
@@ -3741,5 +3776,117 @@ impl Editor {
                 true
             }
         }
+    }
+
+    pub fn preferred_script_language(&self) -> Option<ScriptLanguage> {
+        DEBUGGER_AUTHORING_STATES.lock().ok().and_then(|map| {
+            map.get(&self.clipboard.session)
+                .and_then(|st| st.preferred_script_language)
+        })
+    }
+
+    pub fn set_preferred_script_language(&mut self, language: Option<ScriptLanguage>) {
+        if let Ok(mut map) = DEBUGGER_AUTHORING_STATES.lock() {
+            map.entry(self.clipboard.session.clone())
+                .or_default()
+                .preferred_script_language = language;
+        }
+    }
+
+    /// Choose a deliberate script language for new frame or instance scripts in the current project:
+    /// (a) the user's explicitly chosen language in the `Actions` panel if set,
+    /// (b) existing `frame_scripts` / `Instance.script` / symbol scripts in the project,
+    /// (c) `project.sources` extensions/languages (`.as` / `document_class`),
+    /// and otherwise `ScriptLanguage::ActionScript3`.
+    pub fn default_script_language_for_project(&self) -> ScriptLanguage {
+        if let Some(preferred) = self.preferred_script_language() {
+            return preferred;
+        }
+        if self.script_target == ScriptTarget::Object
+            && let Some(el) = self.selected_element()
+        {
+            if let Some(os) = el.scripts.iter().find(|s| s.event == self.script_event) {
+                return os.script.language;
+            }
+            if let Some(os) = el.scripts.first() {
+                return os.script.language;
+            }
+        }
+        if let Some(fs) = self
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .find(|s| s.frame == self.frame)
+        {
+            return fs.script.language;
+        }
+        if let Some(fs) = self.symbol().timeline.scripts.first() {
+            return fs.script.language;
+        }
+        for layer in &self.symbol().timeline.layers {
+            for key in &layer.keyframes {
+                for el in &key.elements {
+                    if let Some(os) = el.scripts.first() {
+                        return os.script.language;
+                    }
+                }
+            }
+        }
+        for sym in &self.project.symbols {
+            if let Some(fs) = sym.timeline.scripts.first() {
+                return fs.script.language;
+            }
+            for layer in &sym.timeline.layers {
+                for key in &layer.keyframes {
+                    for el in &key.elements {
+                        if let Some(os) = el.scripts.first() {
+                            return os.script.language;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(selected_id) = self.selected_source.as_ref()
+            && let Some(unit) = self.project.sources.iter().find(|s| &s.id == selected_id)
+        {
+            return unit.language;
+        }
+        if let Some(unit) = self.project.sources.first() {
+            return unit.language;
+        }
+        if self
+            .project
+            .document_class
+            .as_deref()
+            .is_some_and(|c| !c.trim().is_empty())
+            || self.project.symbols.iter().any(|s| {
+                s.class_name
+                    .as_deref()
+                    .is_some_and(|c| !c.trim().is_empty())
+            })
+        {
+            return ScriptLanguage::ActionScript3;
+        }
+        if self.project.symbols.iter().any(|s| {
+            s.linkage_id
+                .as_deref()
+                .is_some_and(|c| !c.trim().is_empty())
+        }) {
+            return ScriptLanguage::ActionScript2;
+        }
+        for res in &self.project.resources {
+            let lower = res.path.to_ascii_lowercase();
+            if lower.ends_with(".ts") {
+                return ScriptLanguage::TypeScript;
+            }
+            if lower.ends_with(".js") {
+                return ScriptLanguage::JavaScript;
+            }
+            if lower.ends_with(".as") {
+                return ScriptLanguage::ActionScript2;
+            }
+        }
+        ScriptLanguage::ActionScript3
     }
 }

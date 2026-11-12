@@ -4988,37 +4988,8 @@ fn parse_sfnt_metrics(family: &str, bytes: &[u8]) -> Option<PortableFontMetrics>
         let loca = &bytes[loca_off..loca_off + loca_len];
         let glyf = &bytes[glyf_off..glyf_off + glyf_len];
         for (&cp, &gid) in &cmap_map {
-            let g = gid as usize;
-            let (g_start, g_end) = if index_to_loc_format == 0 {
-                if (g + 2) * 2 > loca.len() {
-                    continue;
-                }
-                (
-                    (u16::from_be_bytes([loca[g * 2], loca[g * 2 + 1]]) as usize) * 2,
-                    (u16::from_be_bytes([loca[(g + 1) * 2], loca[(g + 1) * 2 + 1]]) as usize) * 2,
-                )
-            } else {
-                if (g + 2) * 4 > loca.len() {
-                    continue;
-                }
-                (
-                    u32::from_be_bytes([
-                        loca[g * 4],
-                        loca[g * 4 + 1],
-                        loca[g * 4 + 2],
-                        loca[g * 4 + 3],
-                    ]) as usize,
-                    u32::from_be_bytes([
-                        loca[(g + 1) * 4],
-                        loca[(g + 1) * 4 + 1],
-                        loca[(g + 1) * 4 + 2],
-                        loca[(g + 1) * 4 + 3],
-                    ]) as usize,
-                )
-            };
-            if g_end > g_start
-                && g_end <= glyf.len()
-                && let Some(cmds) = parse_simple_glyf_outline(&glyf[g_start..g_end])
+            if let Some(cmds) =
+                parse_glyf_outline_with_composites(glyf, loca, index_to_loc_format, gid, 0)
             {
                 base.glyphs.insert(cp, cmds);
             }
@@ -6649,3 +6620,5 @@ mod query_tests {
         field.validate().unwrap();
     }
 }
+
+include!("fonts.rs");

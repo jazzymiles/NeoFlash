@@ -1417,6 +1417,9 @@ impl<'a> Frontend<'a> {
         if !self.eat(":") {
             return Ok(None);
         }
+        if self.context.legacy_case {
+            return Err(self.error("Type annotations require ActionScript 2.0 or 3.0."));
+        }
         let start = self.token().offset;
         let name = self.type_name()?;
         if !self.supported_type(&name, returns) {
@@ -3477,6 +3480,18 @@ impl Emitter<'_> {
         {
             return "__nfBoolean2".into();
         }
+        if !self.as3
+            && name == "Number"
+            && self.analysis.resolve(self.scope, name).is_none()
+            && self.analysis.context.core_type(name)
+        {
+            return if self.legacy_case() {
+                "__nfNumber1"
+            } else {
+                "__nfNumber2"
+            }
+            .into();
+        }
         if self.analysis.resolve(self.scope, name).is_none()
             && self.analysis.context.utility_function(name, self.as3)
         {
@@ -3559,6 +3574,23 @@ impl Emitter<'_> {
     /// Lexical access travels with emitted code, never with an ambient runtime
     /// current-class stack. Computed/indexed access deliberately omits it.
     fn caller_argument(&self) -> String {
+        if self.as3 && !self.analysis.context.open_namespaces.is_empty() {
+            let cls = self
+                .analysis
+                .context
+                .class_name
+                .as_ref()
+                .map_or_else(|| "null".to_owned(), |name| format!("{name:?}"));
+            let ns = self
+                .analysis
+                .context
+                .open_namespaces
+                .iter()
+                .map(|u| format!("{u:?}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            return format!(", {{class:{cls},ns:[{ns}]}}");
+        }
         self.analysis
             .context
             .class_name
@@ -3996,6 +4028,11 @@ impl Emitter<'_> {
             format!("__nfLegacyStringOperator(\"unequal\", {left}, {right})")
         } else if self.as3 && matches!(op, "+" | "==" | "!=" | "===" | "!==") {
             format!("__nfXMLBinary({op:?}, {left}, {right})")
+        } else if !self.as3 && matches!(op, "+" | "-" | "*" | "/" | "%") {
+            format!(
+                "__nfLegacyBinary({op:?}, {left}, {right}, {})",
+                self.legacy_case()
+            )
         } else {
             format!("({left} {op} {right})")
         }
@@ -4487,8 +4524,13 @@ impl Emitter<'_> {
                         assignment
                     };
                 }
-                let assignment = if self.as3 && op == "+=" {
-                    format!("({target} = {})", self.binary("+", target.clone(), value))
+                let assignment = if (self.as3 && op == "+=")
+                    || (!self.as3 && matches!(op.as_str(), "+=" | "-=" | "*=" | "/=" | "%="))
+                {
+                    format!(
+                        "({target} = {})",
+                        self.binary(&op[..op.len() - 1], target.clone(), value)
+                    )
                 } else {
                     format!("({target} {op} {value})")
                 };
@@ -4509,14 +4551,21 @@ impl Emitter<'_> {
                     let sign = if op == "++" { "+" } else { "-" };
                     let next = self.coerce(name, format!("(__nfOld {sign} 1)"));
                     return format!(
-                        "((__nfRef)=>{{const __nfOld=__nfNumber(__nfRef.get()),__nfNext={next};__nfRef.set(__nfNext);return {};}})({reference})",
+                        "((__nfRef)=>{{const __nfOld=__nfNumber(__nfRef.get()),__nfNext=__nfRef.set({next});return {};}})({reference})",
                         if *prefix { "__nfNext" } else { "__nfOld" }
                     );
                 }
                 if let Some(reference) = self.reference(value) {
                     let sign = if op == "++" { "+" } else { "-" };
+                    let num_fn = if self.as3 {
+                        "__nfNumber"
+                    } else if self.legacy_case() {
+                        "__nfNumber1"
+                    } else {
+                        "__nfNumber2"
+                    };
                     return format!(
-                        "((__nfRef)=>{{const __nfOld=__nfNumber(__nfRef.get()),__nfNext=__nfOld {sign} 1;__nfRef.set(__nfNext);return {};}})({reference})",
+                        "((__nfRef)=>{{const __nfOld={num_fn}(__nfRef.get()),__nfNext=__nfRef.set(__nfOld {sign} 1);return {};}})({reference})",
                         if *prefix { "__nfNext" } else { "__nfOld" }
                     );
                 }
@@ -4534,6 +4583,20 @@ impl Emitter<'_> {
                     let converted = self.coerce(name, format!("(__nfOld {sign} 1)"));
                     return format!(
                         "((__nfOld) => ({target} = {converted}, __nfOld))({number}({target}))"
+                    );
+                }
+                if !self.as3 {
+                    let sign = if op == "++" { "+" } else { "-" };
+                    let num_fn = if self.legacy_case() {
+                        "__nfNumber1"
+                    } else {
+                        "__nfNumber2"
+                    };
+                    if *prefix {
+                        return format!("({target} = {num_fn}({target}) {sign} 1)");
+                    }
+                    return format!(
+                        "((__nfOld) => ({target} = __nfOld {sign} 1, __nfOld))({num_fn}({target}))"
                     );
                 }
                 if *prefix {
@@ -5128,9 +5191,16 @@ impl Emitter<'_> {
                 format!("__nfXML.setDefaultNamespace({});", self.expression(expr))
             }
             Stmt::LegacyEvent(triggers, func) => {
+                let clean = Emitter {
+                    as3: false,
+                    analysis: self.analysis,
+                    scope: 0,
+                    with_targets: Vec::new(),
+                    tell_target: None,
+                };
                 let code = format!(
-                    "(function() {{\nconst __nfFrame = this, _parent = this._parent;\nreturn ({}).apply(this, arguments);\n}})",
-                    self.function(func)
+                    "(function() {{\nconst __nfFrame = this, _parent = this._parent;\n{}\n}})",
+                    clean.body(&func.body)
                 );
                 let mut out = format!("{{\nconst __nfEventFn = {code};\n");
                 for trigger in triggers {
@@ -5446,6 +5516,14 @@ impl Emitter<'_> {
 }
 
 pub(crate) fn compile(script: &Script) -> Result<String, Diagnostic> {
+    if script.language == ScriptLanguage::ActionScript1 {
+        let mut s = script.clone();
+        s.language = ScriptLanguage::ActionScript2;
+        return compile_legacy(&s).map_err(|mut d| {
+            d.language = ScriptLanguage::ActionScript1;
+            d
+        });
+    }
     compile_context(script, CompileContext::default())
 }
 pub(crate) fn compile_mapped(script: &Script, prefix: &str) -> Result<String, Diagnostic> {
@@ -5572,6 +5650,56 @@ function __nfFamilyPropertyValue(receiver, key, as3, caller, legacyCase) {
 }
 function __nfMemberMethod(receiver, key, as3, caller, legacyCase) {
     return __nfContainerMethod(receiver,key,as3,caller,legacyCase);
+}
+const __nfNumber1 = (() => {
+    const fn = function Number(value) {
+        if (new.target) return __nfBoxCreate('Number', arguments.length ? [value] : []);
+        if (!arguments.length || value === undefined || value === null) return 0;
+        return __nfNumber(value);
+    };
+    Object.defineProperties(fn, Object.getOwnPropertyDescriptors(__nfNumber));
+    return fn;
+})();
+const __nfNumber2 = (() => {
+    const fn = function Number(value) {
+        if (new.target) return __nfBoxCreate('Number', arguments.length ? [value] : []);
+        if (!arguments.length) return 0;
+        if (value === undefined || value === null) return NaN;
+        return __nfNumber(value);
+    };
+    Object.defineProperties(fn, Object.getOwnPropertyDescriptors(__nfNumber));
+    return fn;
+})();
+function __nfLegacyNumOperand(val, legacyCase) {
+    if (val === undefined || val === null) return legacyCase ? 0 : NaN;
+    if (typeof val === 'object') return val;
+    return __nfNumber(val);
+}
+function __nfLegacyBinary(op, left, right, legacyCase) {
+    const isAs1 = Boolean(legacyCase) || (legacyCase === undefined && typeof __nfLegacyCase !== 'undefined' && Boolean(__nfLegacyCase));
+    if (op === '+') {
+        if (typeof left === 'string' || typeof right === 'string') {
+            if (isAs1) {
+                const l = left === undefined ? '' : __nfString(left);
+                const r = right === undefined ? '' : __nfString(right);
+                return l + r;
+            }
+            return left + right;
+        }
+        if ((left !== null && typeof left === 'object') || (right !== null && typeof right === 'object')) {
+            return left + right;
+        }
+        return __nfLegacyNumOperand(left, isAs1) + __nfLegacyNumOperand(right, isAs1);
+    }
+    const a = __nfLegacyNumOperand(left, isAs1);
+    const b = __nfLegacyNumOperand(right, isAs1);
+    switch (op) {
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/': return a / b;
+        case '%': return a % b;
+    }
+    throw new __nfTypeError('Unsupported legacy binary operator.');
 }
 "#,
     ]
@@ -5888,5 +6016,88 @@ mod tests {
         );
         assert!(compile_as("function f():int { return; }").is_err());
         assert!(compile_as("function f():int { if (true) return 1; else return 2; }").is_ok());
+    }
+
+    #[test]
+    fn t240_compiler_and_runtime_semantics() {
+        // 1. AS1 rejects :Type annotations
+        assert!(
+            compile(&Script {
+                language: ScriptLanguage::ActionScript1,
+                source: "var score:Number = 10;".into(),
+            })
+            .is_err()
+        );
+
+        // 2. AS1/AS2 var and function inside on(...) / onClipEvent(...) bind to MovieClip scope
+        let clip_src = [
+            "onClipEvent(load) { var counter = 10; function bump(d) { counter += d; return counter; } }",
+            "onClipEvent(enterFrame) { counter = bump(5); }",
+            "on(press) { trace(counter); }",
+        ]
+        .join("\n");
+        let compiled_clip = compile(&Script {
+            language: ScriptLanguage::ActionScript2,
+            source: clip_src,
+        })
+        .expect("onClipEvent/on shared instance scope must compile");
+        assert!(
+            compiled_clip.contains("__nfFrame.counter") || compiled_clip.contains("this.counter"),
+            "clip handler var must bind to timeline scope:\n{compiled_clip}"
+        );
+        assert!(
+            !compiled_clip.contains("let counter"),
+            "clip handler var must not be trapped in ephemeral JS local:\n{compiled_clip}"
+        );
+
+        // 3. AS1 undefined coercions and AS2 null coercions
+        let as1_coercions = compile(&Script {
+            language: ScriptLanguage::ActionScript1,
+            source: "var u; var a = u + 5; var b = 'x' + u; var c = Number(u);".into(),
+        })
+        .expect("AS1 coercions compile");
+        assert!(as1_coercions.contains("__nfLegacyBinary(\"+\""));
+        assert!(as1_coercions.contains("__nfNumber1"));
+
+        let as2_coercions = compile(&Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "var a = null + 1; var b = Number(null);".into(),
+        })
+        .expect("AS2 coercions compile");
+        assert!(as2_coercions.contains("__nfLegacyBinary(\"+\""));
+        assert!(as2_coercions.contains("__nfNumber2"));
+
+        // 4. AS3 constructor statements before super(...), custom namespace isolation,
+        //    typed member assignment return value, and native-base super.method()
+        let mut proj = neoflash_core::Project::blank();
+        proj.sources = vec![
+            neoflash_core::SourceUnit {
+                id: "ns".into(),
+                path: "secretNs.as".into(),
+                language: ScriptLanguage::ActionScript3,
+                source: "package { public namespace secretNs = \"urn:test:secret\"; }".into(),
+            },
+            neoflash_core::SourceUnit {
+                id: "base".into(),
+                path: "BaseBox.as".into(),
+                language: ScriptLanguage::ActionScript3,
+                source: "package { import flash.display.MovieClip; public class BaseBox extends MovieClip { public var superCalls:int = 0; public function BaseBox(step:int = 1) { superCalls += step; } public function stopBase():void { super.stop(); } } }".into(),
+            },
+            neoflash_core::SourceUnit {
+                id: "child".into(),
+                path: "ChildBox.as".into(),
+                language: ScriptLanguage::ActionScript3,
+                source: "package { public dynamic class ChildBox extends BaseBox { public var count:int = 0; secretNs var hidden:String = \"top-secret\"; public function ChildBox() { var step:int = 2; super(step); } public function readOpen():String { use namespace secretNs; return this.hidden; } } }".into(),
+            },
+        ];
+        let program = crate::compile_project(&proj).expect("AS3 project compiles");
+        // Verify superConstruct is only emitted once in ChildBox constructor despite statement before super(step)
+        let child_ctor_idx = program.code.find("define(\"ChildBox\"").unwrap();
+        let child_section = &program.code[child_ctor_idx..];
+        assert_eq!(
+            child_section.matches("superConstruct(\"ChildBox\"").count(),
+            1,
+            "ChildBox constructor must not inject duplicate superConstruct:\n{child_section}"
+        );
     }
 }

@@ -2567,3 +2567,121 @@ fn t230_swf_stage_overlay_evaluates_without_cloning_project_and_matches_overlay(
         heavy_resource_ptr
     );
 }
+
+#[test]
+fn t241_avm1_and_avm2_decompiler_and_player_opcode_conformance() {
+    let temp = TempDir::new();
+
+    // 1. Hand-assembled AVM2 DoABC2 with negative pushshort (0x25) and comparison branches
+    //    (iflt 0x15, ifle 0x16, ifgt 0x17, ifge 0x18) to verify signed pushshort decoding
+    //    in player.rs and non-inverted <, <=, >, >= decompilation in avm2.rs.
+    let mut abc = Vec::new();
+    abc.extend_from_slice(&16_u16.to_le_bytes());
+    abc.extend_from_slice(&46_u16.to_le_bytes());
+    abc.push(1); // ints: 1 (empty)
+    abc.push(1); // uints: 1 (empty)
+    abc.push(1); // doubles: 1 (empty)
+    // strings: 1="", 2="MainTimeline", 3="flash.display", 4="MovieClip", 5="trace", 6="neg-ok"
+    let strings = [
+        "",
+        "MainTimeline",
+        "flash.display",
+        "MovieClip",
+        "trace",
+        "neg-ok",
+    ];
+    abc.push((strings.len() + 1) as u8);
+    for s in &strings {
+        abc.push(s.len() as u8);
+        abc.extend_from_slice(s.as_bytes());
+    }
+    // namespaces: 1=(pub ""), 2=(pub "flash.display")
+    abc.push(3);
+    abc.extend_from_slice(&[0x16, 1, 0x16, 3]);
+    abc.push(1); // ns_sets
+    // multinames: 1=QName(1,"MainTimeline"), 2=QName(2,"MovieClip"), 3=QName(1,"trace")
+    abc.push(4);
+    abc.extend_from_slice(&[0x07, 1, 2, 0x07, 2, 4, 0x07, 1, 5]);
+    // methods: 0=iinit, 1=cinit, 2=script_init
+    abc.push(3);
+    for _ in 0..3 {
+        abc.extend_from_slice(&[0, 0, 0, 0]);
+    }
+    abc.push(0); // metadata
+    abc.push(1); // 1 class (MainTimeline extends flash.display.MovieClip)
+    abc.extend_from_slice(&[1, 2, 0x01, 0, 0, 0]); // iinit=0, 0 traits
+    abc.extend_from_slice(&[1, 0]); // cinit=1, 0 traits
+    abc.push(1); // 1 script
+    abc.extend_from_slice(&[2, 1, 1, 0x04, 1, 0]); // init=2, 1 class trait
+    // bodies:
+    abc.push(3);
+    // body 0 (iinit): getlocal_0, pushscope, findpropstrict(trace), pushshort(-42), pushbyte(0),
+    //                 ifge (+6 -> skip), pushstring("bad"), jump(+4), pushstring("neg-ok"), callpropvoid(trace, 1), returnvoid
+    // Wait: let's test pushshort(-42) directly passed to trace(pushshort(-42)) AND iflt / ifge!
+    // In u30/s30, -42 as i32 is 0xFFFFFFD6 -> 5-byte u30: [0xD6, 0xFF, 0xFF, 0xFF, 0x0F]
+    let iinit_code: Vec<u8> = vec![
+        0xD0, // getlocal_0
+        0x30, // pushscope
+        0x5D, 3, // findpropstrict trace
+        0x25, 0xD6, 0xFF, 0xFF, 0xFF, 0x0F, // pushshort -42
+        0x4F, 3, 1, // callpropvoid trace (1 arg)
+        0x25, 0xD6, 0xFF, 0xFF, 0xFF, 0x0F, // pushshort -42
+        0x24, 0, // pushbyte 0
+        0x15, 1, 0, 0,    // iflt +1 (skips 1-byte returnvoid to findpropstrict trace("neg-ok"))
+        0x47, // returnvoid (not taken because -42 < 0)
+        0x5D, 3, // findpropstrict trace
+        0x2C, 6, // pushstring "neg-ok"
+        0x4F, 3, 1,    // callpropvoid trace (1 arg)
+        0x47, // returnvoid
+    ];
+    abc.extend_from_slice(&[0, 4, 2, 1, 3, iinit_code.len() as u8]);
+    abc.extend_from_slice(&iinit_code);
+    abc.extend_from_slice(&[0, 0]);
+    // body 1 (cinit)
+    abc.extend_from_slice(&[1, 1, 1, 1, 2, 1, 0x47, 0, 0]);
+    // body 2 (script_init)
+    abc.extend_from_slice(&[2, 1, 1, 1, 2, 1, 0x47, 0, 0]);
+
+    let mut do_abc = vec![1, 0, 0, 0];
+    do_abc.extend_from_slice(b"frame\0");
+    do_abc.extend_from_slice(&abc);
+
+    let mut tags = Vec::new();
+    swf_tag(&mut tags, 69, &[0x08, 0x00, 0x00, 0x00]); // FileAttributes (AS3=1)
+    swf_tag(&mut tags, 82, &do_abc);
+    // SymbolClass: 1 entry (0 -> "MainTimeline")
+    let mut sym_cls = vec![1, 0, 0, 0];
+    sym_cls.extend_from_slice(b"MainTimeline\0");
+    swf_tag(&mut tags, 76, &sym_cls);
+    swf_tag(&mut tags, 1, &[]);
+
+    let swf_bytes = build_uncompressed_swf(10, 1, &tags);
+    let swf_path = temp.0.join("t241-avm2-pushshort-iflt.swf");
+    fs::write(&swf_path, &swf_bytes).unwrap();
+
+    let mut player = SwfBytecodePlayer::from_bytes(&swf_bytes).unwrap();
+    let _ = player.seek_to_frame(0);
+    assert_eq!(
+        player.trace_output(),
+        &["-42".to_owned(), "neg-ok".to_owned()],
+        "pushshort(-42) must decode as signed -42 and satisfy -42 < 0 in iflt"
+    );
+
+    let imported = import_project(&swf_path).unwrap();
+    let all_src: String = imported
+        .sources
+        .iter()
+        .map(|s| s.source.as_str())
+        .chain(imported.symbols.iter().flat_map(|sym| {
+            sym.timeline
+                .scripts
+                .iter()
+                .map(|fs| fs.script.source.as_str())
+        }))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        all_src.contains("-42") && (all_src.contains("< 0") || all_src.contains(">= 0")),
+        "decompiled AVM2 source must preserve signed -42 and comparison direction: {all_src}"
+    );
+}

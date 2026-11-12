@@ -1706,13 +1706,15 @@ impl Editor {
                 )
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut draft.properties.parent, None, "No folder");
-                    for folder in self
-                        .symbol()
-                        .timeline
-                        .layers
-                        .iter()
-                        .filter(|l| l.properties.role == LayerRole::Folder && l.id != layer.id)
-                    {
+                    for folder in self.symbol().timeline.layers.iter().filter(|l| {
+                        l.properties.role == LayerRole::Folder
+                            && l.id != layer.id
+                            && !folder_is_descendant_of(
+                                &self.symbol().timeline.layers,
+                                &l.id,
+                                &layer.id,
+                            )
+                    }) {
                         ui.selectable_value(
                             &mut draft.properties.parent,
                             Some(folder.id.clone()),
@@ -1720,6 +1722,21 @@ impl Editor {
                         );
                     }
                 });
+            if !folder {
+                ui.checkbox(
+                    &mut draft.properties.attach_to_camera,
+                    "Attach layer to camera",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Z-depth");
+                    ui.add(
+                        egui::DragValue::new(&mut draft.properties.z_depth)
+                            .range(-10_000.0..=10_000.0)
+                            .speed(5.0)
+                            .suffix(" px"),
+                    );
+                });
+            }
             if layer.properties.role == LayerRole::Mask {
                 egui::ComboBox::from_id_salt("layer-mask-mode")
                     .selected_text(format!("Mask mode: {}", draft.properties.mask_mode.label()))
@@ -1840,6 +1857,165 @@ impl Editor {
                 linkage_id: None,
             });
         });
+    }
+}
+
+#[allow(dead_code)]
+impl Editor {
+    /// Set `LayerProperties.z_depth` (`-10_000.0..=10_000.0`) on layer at `index` in 1 Undo step (`T-233`).
+    pub fn set_layer_z_depth_at(&mut self, index: usize, z_depth: f64) -> bool {
+        if !z_depth.is_finite() {
+            return false;
+        }
+        let clamped = z_depth.clamp(-10_000.0, 10_000.0);
+        let Some(layer) = self.symbol().timeline.layers.get(index) else {
+            return false;
+        };
+        if (layer.properties.z_depth - clamped).abs() <= 1e-6 {
+            return false;
+        }
+        self.layer_change(move |project, symbol_id| {
+            if let Some(symbol) = project.symbol_mut(symbol_id)
+                && let Some(layer) = symbol.timeline.layers.get_mut(index)
+            {
+                layer.properties.z_depth = clamped;
+            }
+        });
+        true
+    }
+
+    /// Set `LayerProperties.z_depth` (`-10_000.0..=10_000.0`) by layer ID in 1 Undo step (`T-233`).
+    pub fn set_layer_z_depth_by_id(&mut self, layer_id: &str, z_depth: f64) -> bool {
+        let Some(index) = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == layer_id)
+        else {
+            return false;
+        };
+        self.set_layer_z_depth_at(index, z_depth)
+    }
+
+    /// Set `LayerProperties.attach_to_camera` on layer at `index` in 1 Undo step (`T-233`).
+    pub fn set_layer_attach_to_camera_at(&mut self, index: usize, attach: bool) -> bool {
+        let Some(layer) = self.symbol().timeline.layers.get(index) else {
+            return false;
+        };
+        if layer.properties.attach_to_camera == attach {
+            return false;
+        }
+        self.layer_change(move |project, symbol_id| {
+            if let Some(symbol) = project.symbol_mut(symbol_id)
+                && let Some(layer) = symbol.timeline.layers.get_mut(index)
+            {
+                layer.properties.attach_to_camera = attach;
+            }
+        });
+        true
+    }
+
+    /// Set `LayerProperties.attach_to_camera` by layer ID in 1 Undo step (`T-233`).
+    pub fn set_layer_attach_to_camera_by_id(&mut self, layer_id: &str, attach: bool) -> bool {
+        let Some(index) = self
+            .symbol()
+            .timeline
+            .layers
+            .iter()
+            .position(|l| l.id == layer_id)
+        else {
+            return false;
+        };
+        self.set_layer_attach_to_camera_at(index, attach)
+    }
+
+    /// Assign or clear `LayerProperties.parent` (folder hierarchy) for `layer_id` with cycle
+    /// prevention and 1-step Undo (`T-233`).
+    pub fn set_layer_parent_with_cycle_check(
+        &mut self,
+        layer_id: &str,
+        parent_id: Option<&str>,
+    ) -> bool {
+        let layers = &self.symbol().timeline.layers;
+        let Some(layer_idx) = layers.iter().position(|l| l.id == layer_id) else {
+            return false;
+        };
+        if let Some(pid) = parent_id {
+            if pid == layer_id {
+                return false;
+            }
+            let Some(parent_layer) = layers.iter().find(|l| l.id == pid) else {
+                return false;
+            };
+            if parent_layer.properties.role != LayerRole::Folder {
+                return false;
+            }
+            if folder_is_descendant_of(layers, pid, layer_id) {
+                return false;
+            }
+        }
+        if layers[layer_idx].properties.parent.as_deref() == parent_id {
+            return false;
+        }
+        let new_parent = parent_id.map(ToOwned::to_owned);
+        self.layer_change(move |project, symbol_id| {
+            if let Some(symbol) = project.symbol_mut(symbol_id)
+                && let Some(layer) = symbol.timeline.layers.get_mut(layer_idx)
+            {
+                layer.properties.parent = new_parent;
+            }
+        });
+        true
+    }
+
+    /// Assign or clear an element's parent (`Keyframe.element_parents`) on the active keyframe with
+    /// cycle prevention and optional world-transform preservation in 1 Undo step (`T-233`).
+    pub fn set_element_parent_with_cycle_check(
+        &mut self,
+        child_id: &str,
+        parent_id: Option<&str>,
+        preserve_world: bool,
+    ) -> bool {
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some(key) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|l| l.key_at(frame))
+        else {
+            return false;
+        };
+        let mut test_key = key.clone();
+        let check = if preserve_world {
+            test_key.reparent_preserving_world_transform(child_id, parent_id)
+        } else {
+            test_key.set_element_parent(child_id.to_owned(), parent_id.map(ToOwned::to_owned))
+        };
+        if check.is_err() {
+            return false;
+        }
+        let key_frame = key.frame;
+        let child_owned = child_id.to_owned();
+        let parent_owned = parent_id.map(ToOwned::to_owned);
+        self.transact_named("Set Element Parent", |editor| {
+            let symbol = editor.symbol_mut();
+            let Some(layer) = symbol.timeline.layers.get_mut(layer_idx) else {
+                return;
+            };
+            let Some(key) = layer.keyframes.iter_mut().find(|k| k.frame == key_frame) else {
+                return;
+            };
+            if preserve_world {
+                let _ =
+                    key.reparent_preserving_world_transform(&child_owned, parent_owned.as_deref());
+            } else {
+                let _ = key.set_element_parent(child_owned, parent_owned);
+            }
+        });
+        true
     }
 }
 

@@ -3,8 +3,8 @@ use crate::app::{Editor, ScriptTarget};
 use crate::timeline_paint::{frame_at_x, timeline_cell_at};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use neoflash_core::{
-    FrameClipboard, FrameRange, Keyframe, Layer, LayerProperties, LayerRole, TimelineEdit,
-    copy_frames, edit_frames,
+    ElementKind, FrameClipboard, FrameRange, Keyframe, Layer, LayerProperties, LayerRole, Symbol,
+    Timeline, TimelineEdit, TweenKind, copy_frames, edit_frames,
 };
 
 #[derive(Default)]
@@ -135,13 +135,205 @@ impl Editor {
         }
     }
 
+    fn apply_timeline_edit_to_symbol(
+        &self,
+        symbol_id: &str,
+        candidate_symbol: &mut Symbol,
+        edit: TimelineEdit,
+    ) -> Result<(), String> {
+        let mut referenced_resources = std::collections::HashSet::<String>::new();
+        let mut collect_key_resources = |key: &Keyframe| {
+            for bf in &key.bitmap_fills {
+                referenced_resources.insert(bf.resource_id.clone());
+            }
+            if let Some(sound) = &key.sound {
+                referenced_resources.insert(sound.resource.clone());
+            }
+            if let Some(video) = &key.video
+                && !video.resource.is_empty()
+            {
+                referenced_resources.insert(video.resource.clone());
+            }
+            for el in &key.elements {
+                if let ElementKind::Bitmap { resource_id, .. } = &el.kind {
+                    referenced_resources.insert(resource_id.clone());
+                }
+            }
+        };
+        for layer in &candidate_symbol.timeline.layers {
+            for key in &layer.keyframes {
+                collect_key_resources(key);
+            }
+        }
+        let mut clip_element_ids = std::collections::HashSet::<String>::new();
+        if let TimelineEdit::Paste { clip, .. } = &edit {
+            for layer in &clip.layers {
+                for key in &layer.keyframes {
+                    collect_key_resources(key);
+                    for el in &key.elements {
+                        clip_element_ids.insert(el.id.clone());
+                    }
+                }
+            }
+        }
+        let has_mask_layer = candidate_symbol
+            .timeline
+            .layers
+            .iter()
+            .any(|l| l.properties.role == LayerRole::Mask);
+        let mut carrier = neoflash_core::Project::blank();
+        carrier.format_version = self.project.format_version.max(12);
+        carrier.width = self.project.width;
+        carrier.height = self.project.height;
+        carrier.fps = self.project.fps;
+        carrier.root = symbol_id.to_owned();
+        if !referenced_resources.is_empty() {
+            for s in &self.project.symbols {
+                if s.id == symbol_id {
+                    continue;
+                }
+                for layer in &s.timeline.layers {
+                    for key in &layer.keyframes {
+                        if let Some(video) = &key.video
+                            && referenced_resources.contains(video.resource.as_str())
+                        {
+                            referenced_resources.insert(video.resource.clone());
+                        }
+                    }
+                }
+            }
+            carrier.resources = self
+                .project
+                .resources
+                .iter()
+                .filter(|r| referenced_resources.contains(r.id.as_str()))
+                .cloned()
+                .collect();
+        }
+        let mut symbols = Vec::with_capacity(self.project.symbols.len());
+        let empty_timeline = || Timeline {
+            frame_count: 1,
+            layers: Vec::new(),
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        };
+        symbols.push(Symbol {
+            id: candidate_symbol.id.clone(),
+            name: candidate_symbol.name.clone(),
+            kind: candidate_symbol.kind,
+            folder: String::new(),
+            linkage_id: None,
+            class_name: None,
+            timeline: std::mem::replace(&mut candidate_symbol.timeline, empty_timeline()),
+        });
+        for s in &self.project.symbols {
+            if s.id == symbol_id {
+                continue;
+            }
+            let mut stub_layers = Vec::new();
+            if has_mask_layer {
+                stub_layers = s.timeline.layers.clone();
+                for l in &mut stub_layers {
+                    for k in &mut l.keyframes {
+                        for el in &mut k.elements {
+                            if let ElementKind::Bitmap { resource_id, .. } = &el.kind
+                                && !carrier.resources.iter().any(|r| &r.id == resource_id)
+                                && let Some(res) =
+                                    self.project.resources.iter().find(|r| &r.id == resource_id)
+                            {
+                                carrier.resources.push(res.clone());
+                            }
+                        }
+                    }
+                }
+            } else if !clip_element_ids.is_empty() {
+                let mut colliding_elements = Vec::new();
+                for l in &s.timeline.layers {
+                    for k in &l.keyframes {
+                        for el in &k.elements {
+                            if clip_element_ids.contains(el.id.as_str())
+                                || matches!(&el.kind, ElementKind::Instance { .. })
+                            {
+                                colliding_elements.push(neoflash_core::Element {
+                                    id: el.id.clone(),
+                                    kind: match &el.kind {
+                                        ElementKind::Instance {
+                                            symbol_id,
+                                            playback,
+                                        } => ElementKind::Instance {
+                                            symbol_id: symbol_id.clone(),
+                                            playback: *playback,
+                                        },
+                                        _ => ElementKind::Rectangle {
+                                            width: 1.0,
+                                            height: 1.0,
+                                            fill: [0, 0, 0, 255],
+                                            stroke: [0, 0, 0, 0],
+                                            stroke_width: 0.0,
+                                        },
+                                    },
+                                    ..neoflash_core::Element::default()
+                                });
+                            }
+                        }
+                    }
+                }
+                if !colliding_elements.is_empty() {
+                    stub_layers.push(Layer {
+                        id: format!("stub-{}", s.id),
+                        name: "Stub".into(),
+                        visible: true,
+                        locked: false,
+                        keyframes: vec![Keyframe {
+                            frame: 0,
+                            elements: colliding_elements,
+                            ..Keyframe::default()
+                        }],
+                        properties: LayerProperties::default(),
+                    });
+                }
+            }
+            symbols.push(Symbol {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                kind: s.kind,
+                folder: String::new(),
+                linkage_id: None,
+                class_name: None,
+                timeline: Timeline {
+                    frame_count: s.timeline.frame_count.max(1),
+                    layers: stub_layers,
+                    scripts: Vec::new(),
+                    guides: Vec::new(),
+                },
+            });
+        }
+        carrier.symbols = symbols;
+        edit_frames(&mut carrier, symbol_id, edit)?;
+        if let Some(edited) = carrier.symbol_mut(symbol_id) {
+            candidate_symbol.timeline = std::mem::replace(&mut edited.timeline, empty_timeline());
+        }
+        for layer in &mut candidate_symbol.timeline.layers {
+            layer.normalize_motion_keys();
+        }
+        validate_symbol_timeline_invariants(candidate_symbol)
+    }
+
     pub(crate) fn apply_frame_edit(&mut self, edit: TimelineEdit) -> bool {
         self.finish_edits();
         let old_count = self.symbol().timeline.frame_count;
-        let mut candidate = self.project.clone();
-        match edit_frames(&mut candidate, self.symbol_id(), edit) {
+        let symbol_id = self.symbol_id().to_owned();
+        let mut candidate_symbol = self.symbol().clone();
+        match self.apply_timeline_edit_to_symbol(&symbol_id, &mut candidate_symbol, edit) {
             Ok(()) => {
-                self.transact(|editor| editor.project = candidate);
+                self.transact(|editor| {
+                    if let Some(sym) = editor.project.symbol_mut(&symbol_id) {
+                        *sym = candidate_symbol;
+                    }
+                    editor.project.format_version = editor.project.format_version.max(5);
+                    editor.project.upgrade_format_for_features();
+                    editor.project.prune_authoring_groups();
+                });
                 if self.symbol().timeline.frame_count < old_count {
                     let last = self.symbol().timeline.frame_count.saturating_sub(1);
                     self.frame = self.frame.min(last);
@@ -260,12 +452,12 @@ impl Editor {
             .saturating_add(clip.frame_count.saturating_sub(1));
         if missing > 0 {
             let symbol_id = self.symbol_id().to_owned();
-            let mut candidate = self.project.clone();
+            let Some(orig_symbol) = self.project.symbol(&symbol_id) else {
+                return;
+            };
+            let mut candidate_symbol = orig_symbol.clone();
             {
-                let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
-                    return;
-                };
-                let timeline = &mut symbol.timeline;
+                let timeline = &mut candidate_symbol.timeline;
                 let parent = range
                     .layers
                     .first()
@@ -298,9 +490,9 @@ impl Editor {
                     layers.push(id);
                 }
             }
-            if let Err(err) = edit_frames(
-                &mut candidate,
+            if let Err(err) = self.apply_timeline_edit_to_symbol(
                 &symbol_id,
+                &mut candidate_symbol,
                 TimelineEdit::Paste {
                     clip,
                     layers: layers.clone(),
@@ -311,15 +503,16 @@ impl Editor {
                 self.message(format!("Timeline edit failed: {err}"));
                 return;
             }
-            if let Err(err) = candidate.validate() {
-                self.message(format!("Timeline edit failed: {err}"));
-                return;
-            }
             self.finish_edits();
             self.playing = false;
             let selected_layers = layers.clone();
             self.transact(|editor| {
-                editor.project = candidate;
+                if let Some(sym) = editor.project.symbol_mut(&symbol_id) {
+                    *sym = candidate_symbol;
+                }
+                editor.project.format_version = editor.project.format_version.max(5);
+                editor.project.upgrade_format_for_features();
+                editor.project.prune_authoring_groups();
                 editor.layer = editor
                     .layer
                     .min(editor.symbol().timeline.layers.len().saturating_sub(1));
@@ -503,24 +696,24 @@ impl Editor {
         }
         self.finish_edits();
         let symbol_id = self.symbol_id().to_owned();
-        let mut candidate = self.project.clone();
-        let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
+        let Some(orig_symbol) = self.project.symbol(&symbol_id) else {
             return false;
         };
-        let has_a = symbol.timeline.layers.iter().any(|l| {
+        let mut candidate_symbol = orig_symbol.clone();
+        let has_a = candidate_symbol.timeline.layers.iter().any(|l| {
             l.id == a
                 && l.properties.role != LayerRole::Folder
-                && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
+                && !neoflash_core::layer_effectively_locked(&candidate_symbol.timeline, l)
         });
-        let has_b = symbol.timeline.layers.iter().any(|l| {
+        let has_b = candidate_symbol.timeline.layers.iter().any(|l| {
             l.id == b
                 && l.properties.role != LayerRole::Folder
-                && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
+                && !neoflash_core::layer_effectively_locked(&candidate_symbol.timeline, l)
         });
         if !has_a || !has_b {
             return false;
         }
-        for layer in &mut symbol.timeline.layers {
+        for layer in &mut candidate_symbol.timeline.layers {
             if layer.id != a
                 && layer.id != b
                 && matches!(layer.properties.linked_layer.as_deref(), Some(target) if target == a || target == b)
@@ -528,23 +721,28 @@ impl Editor {
                 layer.properties.linked_layer = None;
             }
         }
-        for layer in &mut symbol.timeline.layers {
+        for layer in &mut candidate_symbol.timeline.layers {
             if layer.id == a {
                 layer.properties.linked_layer = Some(b.to_owned());
             } else if layer.id == b {
                 layer.properties.linked_layer = Some(a.to_owned());
             }
         }
-        candidate.upgrade_format_for_features();
-        if let Err(err) = candidate.validate() {
+        for layer in &mut candidate_symbol.timeline.layers {
+            layer.normalize_motion_keys();
+        }
+        if let Err(err) = validate_symbol_timeline_invariants(&candidate_symbol) {
             self.message(format!("Cannot link layers: {err}"));
             return false;
         }
-        if candidate == self.project {
+        if &candidate_symbol == orig_symbol {
             return false;
         }
         self.transact_named("Link video & audio", |editor| {
-            editor.project = candidate;
+            if let Some(sym) = editor.project.symbol_mut(&symbol_id) {
+                *sym = candidate_symbol;
+            }
+            editor.project.upgrade_format_for_features();
         });
         true
     }
@@ -606,19 +804,19 @@ impl Editor {
         }
         self.finish_edits();
         let symbol_id = self.symbol_id().to_owned();
-        let mut candidate = self.project.clone();
-        let Some(symbol) = candidate.symbol_mut(&symbol_id) else {
+        let Some(orig_symbol) = self.project.symbol(&symbol_id) else {
             return false;
         };
-        let locked_ids: std::collections::HashSet<String> = symbol
+        let mut candidate_symbol = orig_symbol.clone();
+        let locked_ids: std::collections::HashSet<String> = candidate_symbol
             .timeline
             .layers
             .iter()
-            .filter(|l| neoflash_core::layer_effectively_locked(&symbol.timeline, l))
+            .filter(|l| neoflash_core::layer_effectively_locked(&candidate_symbol.timeline, l))
             .map(|l| l.id.clone())
             .collect();
         let mut changed = false;
-        for layer in &mut symbol.timeline.layers {
+        for layer in &mut candidate_symbol.timeline.layers {
             if locked_ids.contains(&layer.id) {
                 continue;
             }
@@ -633,13 +831,18 @@ impl Editor {
         if !changed {
             return false;
         }
-        candidate.upgrade_format_for_features();
-        if let Err(err) = candidate.validate() {
+        for layer in &mut candidate_symbol.timeline.layers {
+            layer.normalize_motion_keys();
+        }
+        if let Err(err) = validate_symbol_timeline_invariants(&candidate_symbol) {
             self.message(format!("Cannot unlink layers: {err}"));
             return false;
         }
         self.transact_named("Unlink video & audio", |editor| {
-            editor.project = candidate;
+            if let Some(sym) = editor.project.symbol_mut(&symbol_id) {
+                *sym = candidate_symbol;
+            }
+            editor.project.upgrade_format_for_features();
         });
         true
     }
@@ -1339,4 +1542,126 @@ fn end_handle(rect: Rect, row: usize, cell: f32, end: u32, row_height: f32) -> R
         ),
         Vec2::new(8., 7.),
     )
+}
+
+fn validate_symbol_timeline_invariants(symbol: &Symbol) -> Result<(), String> {
+    let timeline = &symbol.timeline;
+    if timeline.frame_count == 0 || timeline.frame_count > 1_000_000 {
+        return Err("frame count must be in 1..=1000000".into());
+    }
+    for script in &timeline.scripts {
+        if script.frame >= timeline.frame_count {
+            return Err("script frame is outside the timeline".into());
+        }
+    }
+    let layers = &timeline.layers;
+    let mut layer_ids = std::collections::HashSet::with_capacity(layers.len());
+    for layer in layers {
+        if layer.id.is_empty() || !layer_ids.insert(layer.id.as_str()) {
+            return Err(format!("invalid or duplicate layer id '{}'", layer.id));
+        }
+        let effective_end = layer.properties.end_frame.unwrap_or(timeline.frame_count);
+        if let Some(end) = layer.properties.end_frame
+            && end > timeline.frame_count
+        {
+            return Err("layer exposure ends outside the timeline".into());
+        }
+        if layer.properties.role == LayerRole::Folder {
+            if layer.keyframes.iter().any(|k| !k.elements.is_empty()) {
+                return Err(format!(
+                    "Folder '{}' must not contain artwork; move artwork into a child layer",
+                    layer.name
+                ));
+            }
+        } else if effective_end > 0 && layer.keyframes.is_empty() {
+            return Err(format!(
+                "Layer '{}' requires at least one keyframe when exposed",
+                layer.name
+            ));
+        }
+        if let Some(linked_id) = &layer.properties.linked_layer {
+            if layer.properties.role == LayerRole::Folder {
+                return Err("folder layers cannot be linked as montage tracks".into());
+            }
+            if linked_id == &layer.id {
+                return Err("a layer cannot be linked to itself".into());
+            }
+            match layers.iter().find(|other| &other.id == linked_id) {
+                Some(other) if other.properties.role != LayerRole::Folder => {}
+                Some(_) => return Err("linked_layer cannot reference a folder layer".into()),
+                None => {
+                    return Err(format!(
+                        "linked_layer '{linked_id}' does not exist in timeline"
+                    ));
+                }
+            }
+        }
+        if let Some(id) = &layer.properties.mask
+            && (id == &layer.id
+                || layer.properties.role != LayerRole::Normal
+                || !layers
+                    .iter()
+                    .any(|l| &l.id == id && l.properties.role == LayerRole::Mask))
+        {
+            return Err(format!(
+                "Layer '{}' must reference another mask layer from a normal layer",
+                layer.name
+            ));
+        }
+        if let Some(id) = &layer.properties.motion_guide
+            && (id == &layer.id
+                || layer.properties.role != LayerRole::Normal
+                || !layers
+                    .iter()
+                    .any(|l| &l.id == id && l.properties.role == LayerRole::Guide))
+        {
+            return Err(format!(
+                "Layer '{}' must reference another guide layer as its motion guide from a normal layer",
+                layer.name
+            ));
+        }
+        if let Some(id) = &layer.properties.parent {
+            let mut seen = std::collections::HashSet::from([layer.id.as_str()]);
+            let mut next = Some(id.as_str());
+            while let Some(cur) = next {
+                if !seen.insert(cur) {
+                    return Err(format!("Layer '{}' has cyclic folder ancestry", layer.name));
+                }
+                let Some(parent) = layers
+                    .iter()
+                    .find(|l| l.id == cur && l.properties.role == LayerRole::Folder)
+                else {
+                    return Err(format!(
+                        "Layer '{}' references a missing folder",
+                        layer.name
+                    ));
+                };
+                next = parent.properties.parent.as_deref();
+            }
+        }
+        let mut seen_frames = std::collections::HashSet::with_capacity(layer.keyframes.len());
+        let mut keys: Vec<_> = layer.keyframes.iter().collect();
+        keys.sort_by_key(|k| k.frame);
+        let mut in_motion = false;
+        for key in keys {
+            if key.frame >= timeline.frame_count || key.frame >= effective_end {
+                return Err("keyframe is outside the timeline or layer exposure".into());
+            }
+            if !seen_frames.insert(key.frame) {
+                return Err("duplicate frame in a layer".into());
+            }
+            if key.keyed_properties.is_some() {
+                if !in_motion {
+                    return Err(format!(
+                        "Layer '{}' has a property keyframe at frame {} outside a motion tween",
+                        layer.name,
+                        key.frame + 1
+                    ));
+                }
+            } else {
+                in_motion = key.tween.is_some() && key.tween_kind == TweenKind::Motion;
+            }
+        }
+    }
+    Ok(())
 }
